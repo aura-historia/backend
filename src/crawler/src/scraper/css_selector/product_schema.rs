@@ -247,13 +247,7 @@ impl ProductCssSelectorSchema {
             .unwrap_or_default(),
         };
 
-        let title = self
-            .title
-            .apply(html)
-            .map_err(ApplySchemaError::Title)?
-            .into_iter()
-            .next()
-            .unwrap_or_default();
+        let title = required_value(self.title.apply(html)).map_err(ApplySchemaError::Title)?;
 
         let description = match &self.description {
             None => vec![],
@@ -297,13 +291,7 @@ impl ProductCssSelectorSchema {
             .next(),
         };
 
-        let state = self
-            .state
-            .apply(html)
-            .map_err(ApplySchemaError::State)?
-            .into_iter()
-            .next()
-            .unwrap_or_default();
+        let state = required_value(self.state.apply(html)).map_err(ApplySchemaError::State)?;
 
         let images = self
             .apply_image_url_candidate_groups(html)
@@ -341,6 +329,14 @@ impl ProductCssSelectorSchema {
             skipped_image_elements: images.skipped_elements,
         })
     }
+}
+
+/// The value of a required single-valued rule (`title`, `state`): its first value. A miss
+/// fails the page.
+fn required_value(
+    extraction: Result<Vec<String>, ExtractionError>,
+) -> Result<String, ExtractionError> {
+    extraction.map(|values| values.into_iter().next().unwrap_or_default())
 }
 
 /// Keeps the first occurrence of each value, in order. A text that separate elements

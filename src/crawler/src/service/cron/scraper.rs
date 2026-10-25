@@ -938,6 +938,33 @@ fn log_domain_open_result(
     }
 }
 
+/// How a scrape error that is not an HTTP failure is recorded on its URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonHttpFailureRecord {
+    /// A schema-work outcome: the URL is retried after the schema cooldown.
+    SchemaRetryCooldown,
+    /// Any other failure: recorded without delaying the next scrape.
+    ScraperFailure,
+}
+
+impl NonHttpFailureRecord {
+    fn of(error: &ScraperError) -> Self {
+        let schema_work_outcome = matches!(
+            error,
+            ScraperError::SchemaRegenerationExhausted { .. }
+                | ScraperError::FreshSchemaImplausible { .. }
+                | ScraperError::SchemaClassificationRejected { .. }
+                | ScraperError::LlmBudgetExceeded { .. }
+                | ScraperError::PendingSchemaReview { .. }
+        ) || is_schema_generation_validation_failure(error);
+        if schema_work_outcome {
+            Self::SchemaRetryCooldown
+        } else {
+            Self::ScraperFailure
+        }
+    }
+}
+
 async fn persist_non_http_failure(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
@@ -945,53 +972,66 @@ async fn persist_non_http_failure(
     error_message: &str,
 ) {
     let error_kind = scraper_error_kind(error);
-    let has_retry_cooldown = matches!(
-        error,
-        ScraperError::SchemaRegenerationExhausted { .. }
-            | ScraperError::FreshSchemaImplausible { .. }
-            | ScraperError::SchemaClassificationRejected { .. }
-            | ScraperError::LlmBudgetExceeded { .. }
-            | ScraperError::PendingSchemaReview { .. }
-    ) || is_schema_generation_validation_failure(error);
-    if has_retry_cooldown {
-        let next_retry_at = time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
-        persist_url_failure(
-            ctx,
-            FetchFailureRequest {
-                listing_source_id: candidate.listing_source_id,
-                url: candidate.url.clone(),
-                error_kind: error_kind.to_owned(),
-                error_message: error_message.to_owned(),
-                status_code: None,
-                next_retry_at,
-                expected_last_captured_raw_input_sha256: candidate
-                    .last_captured_raw_input_sha256
-                    .clone(),
-            },
-        )
-        .await;
-    } else {
-        match ctx
-            .scraper_candidates
-            .mark_scraper_failure(
-                &candidate.listing_source_id,
-                &candidate.url,
-                error_kind,
-                error_message,
-                candidate.last_captured_raw_input_sha256.as_deref(),
-            )
-            .await
-        {
-            Ok(CrawlerUrlWriteOutcome::Applied) => {}
-            Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
-                listing_source_id = %candidate.listing_source_id,
-                url = %candidate.url,
-                crawler_url_write_outcome = "stale_noop",
-                "Skipped stale crawler failure metadata"
-            ),
-            Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
+    match NonHttpFailureRecord::of(error) {
+        NonHttpFailureRecord::SchemaRetryCooldown => {
+            persist_schema_retry_cooldown(candidate, ctx, error_kind, error_message).await;
         }
+        NonHttpFailureRecord::ScraperFailure => {
+            persist_scraper_failure(candidate, ctx, error_kind, error_message).await;
+        }
+    }
+}
+
+async fn persist_schema_retry_cooldown(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error_kind: &str,
+    error_message: &str,
+) {
+    let next_retry_at = time::OffsetDateTime::now_utc()
+        + time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
+    persist_url_failure(
+        ctx,
+        FetchFailureRequest {
+            listing_source_id: candidate.listing_source_id,
+            url: candidate.url.clone(),
+            error_kind: error_kind.to_owned(),
+            error_message: error_message.to_owned(),
+            status_code: None,
+            next_retry_at,
+            expected_last_captured_raw_input_sha256: candidate
+                .last_captured_raw_input_sha256
+                .clone(),
+        },
+    )
+    .await;
+}
+
+async fn persist_scraper_failure(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error_kind: &str,
+    error_message: &str,
+) {
+    match ctx
+        .scraper_candidates
+        .mark_scraper_failure(
+            &candidate.listing_source_id,
+            &candidate.url,
+            error_kind,
+            error_message,
+            candidate.last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler failure metadata"
+        ),
+        Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
     }
 }
 
