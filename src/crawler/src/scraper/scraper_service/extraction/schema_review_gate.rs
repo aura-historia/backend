@@ -254,6 +254,7 @@ mod tests {
                     error: Some("failed to extract `title`".to_string()),
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "title".to_string(),
                         selector: "h1.product".to_string(),
@@ -361,7 +362,8 @@ mod tests {
                         "field": "title",
                         "check": "REPEATED_ACROSS_PAGES",
                         "values": ["Sold items - Navarro"]
-                    }]
+                    }],
+                    "identity_agreement_findings": []
                 },
                 {
                     "schema_index": 0,
@@ -373,7 +375,8 @@ mod tests {
                         "field": "title",
                         "check": "REPEATED_ACROSS_PAGES",
                         "values": ["Sold items - Navarro"]
-                    }]
+                    }],
+                    "identity_agreement_findings": []
                 }
             ])
         );
@@ -472,6 +475,7 @@ mod tests {
                     error: None,
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "description".to_string(),
                         selector: "div.titre + p".to_string(),
@@ -513,6 +517,7 @@ mod tests {
                     error: None,
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "images".to_string(),
                         selector: "#gallery img".to_string(),
