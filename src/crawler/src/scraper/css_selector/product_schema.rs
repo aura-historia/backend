@@ -190,12 +190,14 @@ impl ProductCssSelectorSchema {
     ///
     /// Rules for optional fields are skipped (returning `None`) when the field itself
     /// is `None`. A present optional rule (`source_listing_id`, `description`, `price`,
-    /// the price estimates and raw attributes) that matches nothing yields an empty
-    /// value (`None` for the prices) and a per-field log diagnostic (warn for description and
-    /// price, debug or trace otherwise) instead of a page error: one page without
-    /// a description must not invalidate the schema. Only `title` and `state` fail
-    /// closed on a miss; `images` fails closed unless the image container exists and
-    /// holds no image (see [`Self::apply_image_url_candidate_groups`]). `images` skips
+    /// the price estimates and raw attributes) that matches nothing, or only empty
+    /// elements, yields an empty value (`None` for the prices) and a per-field log
+    /// diagnostic (warn for description and price, debug or trace otherwise) instead of a
+    /// page error: one page without a description must not invalidate the schema. Only
+    /// `title` and `state` fail closed on a miss; on empty elements they yield an empty
+    /// value that the blank plausibility check rejects. `images` fails closed unless the
+    /// image container exists and holds no image (see
+    /// [`Self::apply_image_url_candidate_groups`]). `images` skips
     /// gallery elements without a value (no image URL candidate, or no attribute of an
     /// attribute rule) and fails only when it skips every element it matched. Any other
     /// rule failure (invalid selector, missing attribute) still returns the
@@ -331,12 +333,19 @@ impl ProductCssSelectorSchema {
     }
 }
 
-/// The value of a required single-valued rule (`title`, `state`): its first value. A miss
-/// fails the page.
+/// The value of a required single-valued rule (`title`, `state`): its first value. A rule
+/// that matches no element fails the page. One whose matched elements are all empty yields
+/// an empty value instead, which the rejecting blank plausibility check rejects with the
+/// rest of the extraction intact, so a page that leaves the value empty is told apart from
+/// a page the schema does not fit.
 fn required_value(
     extraction: Result<Vec<String>, ExtractionError>,
 ) -> Result<String, ExtractionError> {
-    extraction.map(|values| values.into_iter().next().unwrap_or_default())
+    match extraction {
+        Ok(values) => Ok(values.into_iter().next().unwrap_or_default()),
+        Err(ExtractionError::EmptyValue { .. }) => Ok(String::new()),
+        Err(error) => Err(error),
+    }
 }
 
 /// Keeps the first occurrence of each value, in order. A text that separate elements
@@ -363,10 +372,12 @@ enum OptionalMissLog {
     Trace,
 }
 
-/// Turns a miss of an optional field's rule into an empty result.
+/// Turns a miss of an optional field's rule, no matched element or only empty ones, into
+/// an empty result.
 ///
 /// The miss is still recorded as a per-field diagnostic so the scrape log explains
-/// why the field is empty; the page itself keeps extracting.
+/// why the field is empty, and which of the two misses it was; the page itself keeps
+/// extracting.
 fn tolerate_optional_miss(
     field: &str,
     extraction: Result<Vec<String>, ExtractionError>,
@@ -374,24 +385,26 @@ fn tolerate_optional_miss(
 ) -> Result<Vec<String>, ExtractionError> {
     match extraction {
         Ok(values) => Ok(values),
-        Err(ExtractionError::NoElementMatched { selector }) => {
+        Err(
+            miss @ (ExtractionError::NoElementMatched { .. } | ExtractionError::EmptyValue { .. }),
+        ) => {
             // The message must be a literal in each arm: a `const` in message position
             // becomes a field named after the constant and leaves `message` empty.
             match miss_log {
                 OptionalMissLog::Warn => tracing::warn!(
                     field,
-                    selector = %selector,
-                    "Optional schema rule matched nothing; leaving the field empty"
+                    miss = %miss,
+                    "Optional schema rule yielded no value; leaving the field empty"
                 ),
                 OptionalMissLog::Debug => tracing::debug!(
                     field,
-                    selector = %selector,
-                    "Optional schema rule matched nothing; leaving the field empty"
+                    miss = %miss,
+                    "Optional schema rule yielded no value; leaving the field empty"
                 ),
                 OptionalMissLog::Trace => tracing::trace!(
                     field,
-                    selector = %selector,
-                    "Optional schema rule matched nothing; leaving the field empty"
+                    miss = %miss,
+                    "Optional schema rule yielded no value; leaving the field empty"
                 ),
             }
             Ok(Vec::new())
@@ -1212,6 +1225,93 @@ mod tests {
             matches!(err, ApplySchemaError::Images(_)),
             "unexpected variant: {err}"
         );
+    }
+
+    /// A required rule whose matched elements are all empty yields an empty value, so the
+    /// blank plausibility check, not an apply error, rejects the page.
+    mod empty_required_element {
+        use super::*;
+
+        fn untitled_page(state_html: &str) -> Html {
+            Html::parse_document(&format!(
+                r#"<html><body>
+                    <span id="product-id">1208922</span>
+                    <div class="item-title"><h1 class="item-title" itemprop="name"></h1></div>
+                    {state_html}
+                    <img src="/galleries/chandelier-820256-nl-middle.jpg">
+                </body></html>"#
+            ))
+        }
+
+        fn schema() -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                title: text_rule("h1.item-title"),
+                ..required_only_schema()
+            }
+        }
+
+        #[test]
+        fn should_extract_a_blank_title_with_the_other_fields_when_the_title_element_is_empty() {
+            let html = untitled_page(r#"<span id="state">Request for more info</span>"#);
+
+            let result = schema()
+                .apply(&html)
+                .unwrap_or_else(|err| panic!("an empty title element must not fail apply: {err}"));
+
+            assert_eq!(result.title, "");
+            assert_eq!(result.state, "Request for more info");
+            assert_eq!(result.source_listing_id, "1208922");
+            assert_eq!(
+                result.images,
+                ["/galleries/chandelier-820256-nl-middle.jpg"]
+            );
+        }
+
+        #[test]
+        fn should_extract_a_blank_state_when_the_state_element_is_empty() {
+            let html = Html::parse_document(
+                r#"<html><body>
+                    <span id="product-id">X</span><h1>T</h1><span id="state"> </span>
+                    <img src="x.jpg">
+                </body></html>"#,
+            );
+
+            let result = required_only_schema()
+                .apply(&html)
+                .unwrap_or_else(|err| panic!("an empty state element must not fail apply: {err}"));
+
+            assert_eq!(result.state, "");
+        }
+
+        #[test]
+        fn should_still_fail_on_another_required_rule_when_the_title_element_is_empty() {
+            let html = untitled_page("");
+
+            let err = schema().apply(&html).unwrap_err();
+
+            assert!(
+                matches!(
+                    err,
+                    ApplySchemaError::State(ExtractionError::NoElementMatched { .. })
+                ),
+                "unexpected variant: {err}"
+            );
+        }
+
+        #[test]
+        fn should_leave_the_price_empty_when_its_element_is_empty() {
+            let html = untitled_page(r#"<span id="state">ok</span><span class="price"> </span>"#);
+            let schema = ProductCssSelectorSchema {
+                price: Some(text_rule("span.price")),
+                ..schema()
+            };
+
+            let result = schema
+                .apply(&html)
+                .unwrap_or_else(|err| panic!("an empty optional element must not fail: {err}"));
+
+            assert_eq!(result.price, None);
+        }
     }
 
     // -------------------------------------------------------------------------

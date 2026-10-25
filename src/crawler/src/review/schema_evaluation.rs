@@ -851,6 +851,46 @@ mod tests {
         );
     }
 
+    /// A title element the page leaves empty shows as a blank title next to the rest of
+    /// the extraction; a title selector that matches nothing shows as an apply error.
+    #[test]
+    fn should_tell_an_empty_title_element_from_an_unmatched_title_selector() {
+        let pages = vec![
+            page(PAGE_ROLE_PRIMARY, "h2"),
+            SchemaReviewPageInput {
+                url: "https://example.com/untitled".to_string(),
+                role: PAGE_ROLE_SEED.to_string(),
+                raw_html: "<html><body><span id=\"product-id\">SKU</span><h1 itemprop=\"name\"></h1><span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>".to_string(),
+            },
+        ];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+
+        let [unmatched, empty] = matrix.candidates[0].pages.as_slice() else {
+            panic!("expected one evaluation per page");
+        };
+        assert_eq!(
+            unmatched.error.as_deref(),
+            Some(
+                "failed to extract `title`: no element matched selector `h1` (or any additional selectors)"
+            )
+        );
+        assert!(unmatched.extracted.is_none());
+        assert!(!empty.apply_ok);
+        assert_eq!(
+            empty.error.as_deref(),
+            Some("implausible extraction: `title` is blank")
+        );
+        assert_eq!(
+            empty.plausibility_findings.as_slice(),
+            [finding(PlausibilityField::Title, PlausibilityCheck::Blank)]
+        );
+        assert_eq!(
+            empty.extracted.as_ref().map(|raw| raw.state.as_str()),
+            Some("Available")
+        );
+    }
+
     #[test]
     fn should_accept_candidate_when_inline_style_sits_next_to_visible_text() {
         let schemas = vec![ProductCssSelectorSchema {

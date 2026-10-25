@@ -881,6 +881,93 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
     assert!(candidates.iter().any(|c| c.url == other_url));
 }
 
+#[derive(sqlx::FromRow)]
+struct ScrapeOutcomeRow {
+    url_class: String,
+    last_error_kind: Option<String>,
+    last_error_message: Option<String>,
+    failure_count: i32,
+    last_status_code: Option<i32>,
+    retry_scheduled: bool,
+    scraped_now: bool,
+    last_scraped_hash: Option<String>,
+}
+
+/// A page evaluated without a capture keeps its product class and its outcome, waits for
+/// the normal scrape interval instead of a retry, and keeps the page hash of its last
+/// capture so the next scrape evaluates it again.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_mark_scraped_without_capture_should_record_outcome_until_the_scrape_interval() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-untitled.example.com")
+            .await;
+    let url =
+        url::Url::parse("https://scraper-untitled.example.com/furniture/item-1208922").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    sqlx::query(
+        "UPDATE listing_source_urls \
+         SET failure_count = 2, last_status_code = 503, last_error_kind = 'HTTP_503', \
+             last_scraped_hash = 'hash-of-last-capture' \
+         WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let message = "Required value missing from 'https://scraper-untitled.example.com/furniture/item-1208922': `title` is blank";
+
+    let stale = service
+        .mark_scraped_without_capture(
+            &listing_source_id,
+            &url,
+            "MissingRequiredValue",
+            message,
+            Some(&raw_input_hash()),
+        )
+        .await
+        .unwrap();
+    let applied = service
+        .mark_scraped_without_capture(
+            &listing_source_id,
+            &url,
+            "MissingRequiredValue",
+            message,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(stale, CrawlerUrlWriteOutcome::NoopStale);
+    assert_eq!(applied, CrawlerUrlWriteOutcome::Applied);
+    let row = sqlx::query_as::<_, ScrapeOutcomeRow>(
+        "SELECT url_class, last_error_kind, last_error_message, failure_count, last_status_code, \
+                next_retry_at IS NOT NULL AS retry_scheduled, \
+                last_scraped > NOW() - INTERVAL '1 minute' AS scraped_now, last_scraped_hash \
+         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.url_class, UrlClass::ProductListing.to_string());
+    assert_eq!(row.last_error_kind.as_deref(), Some("MissingRequiredValue"));
+    assert_eq!(row.last_error_message.as_deref(), Some(message));
+    assert_eq!(row.failure_count, 0);
+    assert_eq!(row.last_status_code, None);
+    assert!(!row.retry_scheduled);
+    assert!(row.scraped_now);
+    assert_eq!(
+        row.last_scraped_hash.as_deref(),
+        Some("hash-of-last-capture")
+    );
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    assert!(!candidates.iter().any(|c| c.url == url));
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
     let pool = get_postgres_client().await;

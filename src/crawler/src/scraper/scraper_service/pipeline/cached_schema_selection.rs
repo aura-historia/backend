@@ -51,6 +51,12 @@ pub(crate) enum ExistingSchemaSelection {
     GenerateNewSchema {
         reason: FreshSchemaGenerationReason,
     },
+    /// No cached candidate is plausible, and one fails only because the page leaves a
+    /// required value empty where it found the element: the page lacks the value, not a
+    /// fitting schema, so no schema work starts for it.
+    MissingRequiredValue {
+        findings: PlausibilityFindings,
+    },
 }
 
 /// Cached candidates that applied to the page and passed the rejecting
@@ -58,6 +64,9 @@ pub(crate) enum ExistingSchemaSelection {
 pub(crate) struct CheckedCachedCandidates<'a> {
     /// How many cached schemas applied, before plausibility rejected any.
     pub(crate) applied_schema_count: usize,
+    /// The rejecting findings of the first applied candidate, in schema order, that blank
+    /// required values alone rejected (see [`PlausibilityFindings::missing_required_values`]).
+    pub(crate) missing_required_values: Option<PlausibilityFindings>,
     pub(crate) candidates: Vec<CheckedSchemaCandidate<'a>>,
 }
 
@@ -107,6 +116,7 @@ impl ScraperServiceImpl {
             apply_cached_schemas(schemas, &parsed)
         };
         let applied_schema_count = candidates.len();
+        let mut missing_required_values = None;
         let mut checked_candidates = Vec::new();
         for candidate in candidates {
             let findings = PlausibilityFindings::of(&candidate.raw);
@@ -116,6 +126,9 @@ impl ScraperServiceImpl {
                     candidate_plausibility_findings = %findings,
                     "Cached candidate rejected by plausibility checks"
                 );
+                if missing_required_values.is_none() {
+                    missing_required_values = findings.missing_required_values();
+                }
                 continue;
             }
             // Image validation is candidate-local and does not call the LLM. It
@@ -146,6 +159,7 @@ impl ScraperServiceImpl {
 
         CheckedCachedCandidates {
             applied_schema_count,
+            missing_required_values,
             candidates: checked_candidates,
         }
     }
@@ -157,7 +171,8 @@ impl ScraperServiceImpl {
     /// every extraction failed a rejecting check — returns
     /// [`ExistingSchemaSelection::GenerateNewSchema`] so the caller falls back to
     /// fresh schema generation. No cached schema is ever selected as generation
-    /// input.
+    /// input. A page that one cached candidate fails only for blank required values
+    /// returns [`ExistingSchemaSelection::MissingRequiredValue`] instead.
     #[tracing::instrument(
         skip(self, schemas, html),
         fields(
@@ -175,10 +190,18 @@ impl ScraperServiceImpl {
     ) -> ExistingSchemaSelection {
         let CheckedCachedCandidates {
             applied_schema_count,
+            missing_required_values,
             candidates,
         } = self.check_cached_candidates(schemas, html, url).await;
 
         let Some(selected) = candidates.into_iter().next() else {
+            if let Some(findings) = missing_required_values {
+                debug!(
+                    missing_required_values = %findings,
+                    "No plausible cached schema candidate; the page leaves a required value empty"
+                );
+                return ExistingSchemaSelection::MissingRequiredValue { findings };
+            }
             let reason = if applied_schema_count == 0 {
                 FreshSchemaGenerationReason::NoCachedSchemaApplied
             } else {

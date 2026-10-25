@@ -142,6 +142,14 @@ pub enum ExtractionError {
     #[error("no element matched selector `{selector}` (or any additional selectors)")]
     NoElementMatched { selector: String },
 
+    /// The rule found elements, but none holds a value: the page leaves the field empty
+    /// where the selector expects it, while [`Self::NoElementMatched`] means the selector
+    /// does not fit the page. `selector` is the first selector that matched an element.
+    #[error(
+        "every element matched by selector `{selector}` is empty, and no other selector of the rule yields a value"
+    )]
+    EmptyValue { selector: String },
+
     #[error("element matched by `{selector}` does not have attribute `{attribute}`")]
     MissingAttribute { selector: String, attribute: String },
 }
@@ -186,8 +194,9 @@ impl ExtractionRule {
     /// Text extraction separates lines at `<br>` and block boundaries, and table cells
     /// with a space, wherever markup whitespace does not already separate them.
     ///
-    /// Returns `Err(NoElementMatched)` only when *no* selector produced any
-    /// usable value.
+    /// When no selector yields a value, a text rule with cardinality `first` that matched
+    /// only empty elements returns `Err(EmptyValue)`; a rule that matched no element
+    /// returns `Err(NoElementMatched)`.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
         self.extract(html, TextBoundaries::Separate, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
@@ -236,17 +245,29 @@ impl ExtractionRule {
         html: &Html,
         boundaries: TextBoundaries,
     ) -> Result<RuleExtraction, ExtractionError> {
+        let mut first_selector_with_empty_elements = None;
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
-            if let Some(value) = self.first_value(html.select(&parsed), css_selector, boundaries)? {
-                return Ok(RuleExtraction {
-                    values: vec![value],
-                    skipped_elements: 0,
-                });
+            match self.first_value(html.select(&parsed), css_selector, boundaries)? {
+                SelectorValue::Value(value) => {
+                    return Ok(RuleExtraction {
+                        values: vec![value],
+                        skipped_elements: 0,
+                    });
+                }
+                SelectorValue::OnlyEmptyElements => {
+                    first_selector_with_empty_elements.get_or_insert(css_selector);
+                }
+                SelectorValue::NoElement => {}
             }
         }
 
-        Err(self.no_element_matched())
+        Err(match first_selector_with_empty_elements {
+            Some(selector) => ExtractionError::EmptyValue {
+                selector: selector.to_string(),
+            },
+            None => self.no_element_matched(),
+        })
     }
 
     /// Cardinality `all`: every element of every selector, in selector order, each
@@ -319,17 +340,26 @@ impl ExtractionRule {
         mut elements: scraper::html::Select<'_, '_>,
         css_selector: &CssSelector,
         boundaries: TextBoundaries,
-    ) -> Result<Option<String>, ExtractionError> {
+    ) -> Result<SelectorValue, ExtractionError> {
         match &self.extract {
-            ExtractionKind::Text => {
-                extract_first_non_empty_text(elements, css_selector, boundaries)
+            ExtractionKind::Text => first_non_empty_text(elements, css_selector, boundaries),
+            kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => {
+                match elements.next() {
+                    Some(element) => extract_from_element(&element, kind, css_selector, boundaries)
+                        .map(SelectorValue::Value),
+                    None => Ok(SelectorValue::NoElement),
+                }
             }
-            kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => elements
-                .next()
-                .map(|element| extract_from_element(&element, kind, css_selector, boundaries))
-                .transpose(),
         }
     }
+}
+
+/// What one selector of a rule with cardinality `first` found on the page.
+enum SelectorValue {
+    Value(String),
+    /// A text rule matched elements, but none has visible text.
+    OnlyEmptyElements,
+    NoElement,
 }
 
 /// The elements a rule with cardinality `all` has extracted so far, by node id. The id
@@ -358,20 +388,22 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
     })
 }
 
-fn extract_first_non_empty_text(
+fn first_non_empty_text(
     elements: scraper::html::Select<'_, '_>,
     selector_str: &str,
     boundaries: TextBoundaries,
-) -> Result<Option<String>, ExtractionError> {
+) -> Result<SelectorValue, ExtractionError> {
+    let mut found = SelectorValue::NoElement;
     for element in elements {
         let value =
             extract_from_element(&element, &ExtractionKind::Text, selector_str, boundaries)?;
         if !value.is_empty() {
-            return Ok(Some(value));
+            return Ok(SelectorValue::Value(value));
         }
+        found = SelectorValue::OnlyEmptyElements;
     }
 
-    Ok(None)
+    Ok(found)
 }
 
 fn extract_from_element(
@@ -743,11 +775,53 @@ mod tests {
     }
 
     #[test]
-    fn should_return_no_element_matched_when_only_empty_text_is_found_for_first_cardinality() {
+    fn should_return_empty_value_when_only_empty_text_is_found_for_first_cardinality() {
         let doc = html("<div><br/></div>");
         let r = rule("br", text_kind(), ExtractionCardinality::First);
         let err = r.apply(&doc).unwrap_err();
-        assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
+        assert!(matches!(err, ExtractionError::EmptyValue { .. }));
+    }
+
+    #[test]
+    fn should_return_empty_value_when_the_title_element_is_empty() {
+        let doc =
+            html(r#"<div class="item-title"><h1 class="item-title" itemprop="name"></h1></div>"#);
+        let r = rule("h1.item-title", text_kind(), ExtractionCardinality::First);
+
+        let err = r.apply(&doc).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "every element matched by selector `h1.item-title` is empty, and no other selector of the rule yields a value"
+        );
+    }
+
+    #[test]
+    fn should_report_the_first_selector_that_matched_empty_elements() {
+        let doc = html(r#"<span class="name"> </span>"#);
+        let r = rule_with_additional(
+            "h1.missing",
+            vec![".name", "h2.missing"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+
+        let err = r.apply(&doc).unwrap_err();
+
+        assert!(
+            matches!(&err, ExtractionError::EmptyValue { selector } if selector == ".name"),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn should_return_empty_value_for_identity_when_only_empty_text_is_found() {
+        let doc = html(r#"<span id="product-id">   </span>"#);
+        let r = rule("#product-id", text_kind(), ExtractionCardinality::First);
+
+        let err = r.apply_as_identity(&doc).unwrap_err();
+
+        assert!(matches!(err, ExtractionError::EmptyValue { .. }), "{err:?}");
     }
 
     #[test]
@@ -1221,7 +1295,7 @@ mod tests {
     }
 
     #[test]
-    fn should_return_no_element_matched_when_all_text_matches_are_empty() {
+    fn should_return_empty_value_when_all_text_matches_are_empty() {
         let doc = html(r#"<div class="price"></div><div class="fallback">   </div>"#);
         let r = rule_with_additional(
             ".price",
@@ -1230,7 +1304,10 @@ mod tests {
             ExtractionCardinality::First,
         );
         let err = r.apply(&doc).unwrap_err();
-        assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
+        assert!(
+            matches!(&err, ExtractionError::EmptyValue { selector } if selector == ".price"),
+            "{err:?}"
+        );
     }
 
     // ─── Error: InvalidSelector ────────────────────────────────────────
