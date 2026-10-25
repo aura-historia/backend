@@ -405,6 +405,12 @@ impl ScraperCandidateServiceImpl {
     /// review of the URL's ListingSource is still pending; every other failure clears the wait.
     /// Candidate selection reads a wait only while `last_error_kind` is still
     /// `PendingSchemaReview`, so writes that leave the columns cannot extend a streak either.
+    ///
+    /// The pending check share-locks the review row before the URL row is written. Approval
+    /// locks the review row first and releases the waiting pages last, so a wait written while
+    /// an approval commits waits for it and then finds the review closed, instead of passing a
+    /// check that read the review before the approval committed and overwriting the page the
+    /// approval just released.
     async fn update_url_failure(
         &self,
         failure: UrlFailureUpdate<'_>,
@@ -436,6 +442,7 @@ impl ScraperCandidateServiceImpl {
                      AND cr.listing_source_id = $1
                      AND cr.artifact_type = 'PRODUCT_SCHEMA'
                      AND cr.status = 'PENDING_REVIEW'
+                   FOR SHARE
                ))",
         )
         .bind(listing_source_id_uuid)

@@ -801,6 +801,71 @@ async fn should_not_hold_back_a_released_page_when_a_scrape_that_overlapped_appr
     assert_eq!(fixture.persisted_wait(&pool).await, (None, 0, None));
 }
 
+/// A scrape that records its wait while the approval commits must not hold back the page the
+/// approval releases: the wait write waits for the approval and then finds the review closed.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_hold_back_a_released_page_when_its_wait_is_written_while_the_approval_commits()
+{
+    let pool = get_postgres_client().await;
+    let fixture = std::sync::Arc::new(WaitingPageFixture::new(&pool).await);
+    assert_eq!(
+        fixture.wait(3, -time::Duration::minutes(1)).await,
+        CrawlerUrlWriteOutcome::Applied
+    );
+    // Holding the page's row stops the approval at releasing the page, after it has closed the
+    // review but before it commits.
+    let mut page_lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM listing_source_urls WHERE url = $1 FOR UPDATE")
+        .bind(fixture.url.as_str())
+        .execute(&mut *page_lock)
+        .await
+        .unwrap();
+    let approval = tokio::spawn({
+        let fixture = fixture.clone();
+        async move {
+            fixture
+                .review_repository
+                .approve_review(fixture.review_id, None)
+                .await
+        }
+    });
+    wait_for_review_wait_lock_waiters(&pool, 1).await;
+    // The page's retry found the review pending and records its next, longer wait now.
+    let wait = tokio::spawn({
+        let fixture = fixture.clone();
+        async move { fixture.wait(4, time::Duration::hours(4)).await }
+    });
+    wait_for_review_wait_lock_waiters(&pool, 2).await;
+
+    page_lock.commit().await.unwrap();
+
+    approval.await.unwrap().unwrap();
+    assert_eq!(wait.await.unwrap(), CrawlerUrlWriteOutcome::NoopStale);
+    assert_eq!(fixture.persisted_wait(&pool).await, (None, 0, None));
+    assert_eq!(fixture.candidate_urls().await, vec![fixture.url.clone()]);
+}
+
+/// Waits until `count` statements that write a page's review wait or release it are blocked
+/// on a lock.
+async fn wait_for_review_wait_lock_waiters(pool: &PgPool, count: i64) {
+    for _ in 0..500 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_stat_activity \
+             WHERE datname = current_database() \
+               AND wait_event_type = 'Lock' \
+               AND query LIKE '%schema_review_wait_streak%'",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if waiting >= count {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("{count} review wait statements never waited on a lock");
+}
+
 /// Approving a manual review whose candidate declares removed-page templates appends the
 /// templates and releases the pages backed off on the review in one transaction. While the
 /// stored templates do not decode, the append fails and the approval changes nothing: the
