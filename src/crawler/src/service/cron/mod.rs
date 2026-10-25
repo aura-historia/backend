@@ -81,6 +81,7 @@ pub(super) mod test_support {
                 next_scrape_at: None,
             },
             is_domain_probe: false,
+            schema_review_wait: None,
         }
     }
 }

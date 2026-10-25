@@ -6,6 +6,10 @@ use crawler::review::model::{UrlPatternDecision, UrlPatternReviewCandidate};
 use crawler::review::repository::{
     CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
 };
+use crawler::scraper::candidate_service::{
+    FetchFailureRequest, SchemaReviewWait, SchemaReviewWaitRequest, ScraperCandidateService,
+    ScraperCandidateServiceImpl,
+};
 use crawler::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
@@ -13,6 +17,10 @@ use crawler::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use crawler::spider::classification::url_metadata::{CrawlerUrlWriteOutcome, UrlClass};
+use crawler::spider::classification::url_metadata_repository::{
+    UrlMetadataRepository, UrlMetadataRepositoryImpl,
+};
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -592,6 +600,77 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
             .product_schemas,
         vec![schema("h1.first"), schema("h1.edited")]
     );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_release_pages_backed_off_on_a_schema_review_for_immediate_retry_when_approved() {
+    let pool = get_postgres_client().await;
+    let review_repository = CrawlerReviewRepository::new(pool.clone());
+    let candidates = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "example.com").await;
+    let url = url::Url::parse("https://example.com/products/waiting").unwrap();
+    UrlMetadataRepositoryImpl::new(pool.clone())
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
+        .await
+        .unwrap();
+    let review_id = review_repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema("h1")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    let backed_off = candidates
+        .mark_waiting_on_schema_review(SchemaReviewWaitRequest {
+            url_failure: FetchFailureRequest {
+                listing_source_id,
+                url: url.clone(),
+                error_kind: "PendingSchemaReview".to_owned(),
+                error_message: "blocked pending product schema review".to_owned(),
+                status_code: None,
+                next_retry_at: OffsetDateTime::now_utc() + time::Duration::hours(4),
+                expected_last_captured_raw_input_sha256: None,
+            },
+            wait: SchemaReviewWait {
+                review_id,
+                streak: 4,
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(backed_off, CrawlerUrlWriteOutcome::Applied);
+    assert!(
+        candidates
+            .get_candidates(10, 10, &[])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    review_repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap();
+
+    let released = candidates.get_candidates(10, 10, &[]).await.unwrap();
+    let [candidate] = released.as_slice() else {
+        panic!(
+            "approval must release the backed-off page, got {} candidates",
+            released.len()
+        );
+    };
+    assert_eq!(candidate.url, url);
+    assert_eq!(candidate.schema_review_wait, None);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

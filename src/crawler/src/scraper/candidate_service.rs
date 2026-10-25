@@ -12,12 +12,12 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use url::Url;
 
-use crate::CrawlerDomainId;
 use crate::network::policy::DomainFailureKind;
 use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE;
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
+use crate::{CrawlerDomainId, CrawlerReviewId};
 
 // ---------------------------------------------------------------------------
 // ScraperCandidate
@@ -40,6 +40,37 @@ pub struct ScraperCandidate {
     pub last_captured_raw_input_sha256: Option<Vec<u8>>,
     pub domain_health: DomainHealthSnapshot,
     pub is_domain_probe: bool,
+    /// The pending product-schema review the URL's last scrape waited on, if it did.
+    pub schema_review_wait: Option<SchemaReviewWait>,
+}
+
+/// The pending product-schema review a URL waits on and how many consecutive scrapes have
+/// waited on it. The streak drives the URL's growing retry delay while the review stays
+/// pending.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SchemaReviewWait {
+    pub review_id: CrawlerReviewId,
+    pub streak: u32,
+}
+
+impl SchemaReviewWait {
+    /// The wait a scrape records when it waits on `review_id`: the streak continues only
+    /// when the URL's previous scrape waited on the same review.
+    pub fn after(previous: Option<SchemaReviewWait>, review_id: CrawlerReviewId) -> Self {
+        let streak = match previous {
+            Some(previous) if previous.review_id == review_id => previous.streak.saturating_add(1),
+            _ => 1,
+        };
+        Self { review_id, streak }
+    }
+}
+
+/// URL failure state for a page that waits on a pending product-schema review, together
+/// with the wait it records.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaReviewWaitRequest {
+    pub url_failure: FetchFailureRequest,
+    pub wait: SchemaReviewWait,
 }
 
 /// Metadata applied after durable raw capture for an HTTP redirect.
@@ -272,6 +303,13 @@ pub trait ScraperCandidateService: Send + Sync {
         Ok(CrawlerUrlWriteOutcome::NoopStale)
     }
 
+    /// Records URL failure state for a page that waits on a pending product-schema review,
+    /// including the review it waits on and the consecutive-wait streak.
+    async fn mark_waiting_on_schema_review(
+        &self,
+        request: SchemaReviewWaitRequest,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+
     /// Record a non-HTTP scraper failure (schema error, implausible fresh extraction, etc.).
     ///
     /// Unlike [`mark_fetch_failure`] this does **not** increment `failure_count` or
@@ -359,12 +397,18 @@ impl ScraperCandidateServiceImpl {
         }
     }
 
-    /// Writes URL failure state, fenced on the raw-input hash the candidate observed.
+    /// Writes URL failure state, fenced on the raw-input hash the candidate observed. Only a
+    /// page waiting on a schema review records a review wait; every other failure clears it.
+    /// Candidate selection reads a wait only while `last_error_kind` is still
+    /// `PendingSchemaReview`, so writes that leave the columns cannot extend a streak either.
     async fn update_url_failure(
         &self,
         failure: UrlFailureUpdate<'_>,
+        schema_review_wait: Option<SchemaReviewWait>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*failure.listing_source_id).into();
+        let streak = schema_review_wait.map_or(Ok(0), |wait| i32::try_from(wait.streak));
+        let streak = streak.map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
 
         let result = sqlx::query(
             "UPDATE listing_source_urls
@@ -373,6 +417,8 @@ impl ScraperCandidateServiceImpl {
                  last_error_message = $4,
                  last_status_code = $5,
                  next_retry_at = $6,
+                 schema_review_waited_on = $8,
+                 schema_review_wait_streak = $9,
                  updated = NOW()
              WHERE listing_source_id = $1
                AND url = $2
@@ -387,6 +433,8 @@ impl ScraperCandidateServiceImpl {
         .bind(failure.status_code)
         .bind(failure.next_retry_at)
         .bind(failure.expected_last_captured_raw_input_sha256)
+        .bind(schema_review_wait.map(|wait| *wait.review_id.as_uuid()))
+        .bind(streak)
         .execute(&self.pool)
         .await?;
 
@@ -409,6 +457,23 @@ struct UrlFailureUpdate<'a> {
     expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
 }
 
+/// Decodes a persisted review wait, failing closed when the review id and streak disagree.
+fn schema_review_wait_from_row(
+    review_id: Option<uuid::Uuid>,
+    streak: i32,
+) -> Result<Option<SchemaReviewWait>, sqlx::Error> {
+    let invalid = |message: &'static str| sqlx::Error::Decode(message.into());
+    match (review_id, u32::try_from(streak)) {
+        (None, Ok(0)) => Ok(None),
+        (Some(review_id), Ok(streak)) if streak > 0 => Ok(Some(SchemaReviewWait {
+            review_id: CrawlerReviewId::try_from(review_id)
+                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+            streak,
+        })),
+        _ => Err(invalid("persisted crawler schema review wait is invalid")),
+    }
+}
+
 #[derive(sqlx::FromRow)]
 struct ScraperCandidateRow {
     listing_source_id: uuid::Uuid,
@@ -428,6 +493,8 @@ struct ScraperCandidateRow {
     next_scrape_at: Option<OffsetDateTime>,
     is_domain_probe: bool,
     last_source_listing_id: Option<String>,
+    schema_review_waited_on: Option<uuid::Uuid>,
+    schema_review_wait_streak: i32,
 }
 
 const SCRAPER_CANDIDATE_QUERY: &str = r#"
@@ -446,6 +513,11 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             (sd.scrape_failure_streak > 0
                 AND (sd.next_scrape_at IS NULL OR sd.next_scrape_at <= NOW())) AS is_domain_probe
             , su.last_source_listing_id
+            , su.last_error_kind = 'PendingSchemaReview' AS waits_on_schema_review
+            , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
+                   THEN su.schema_review_waited_on END AS schema_review_waited_on
+            , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
+                   THEN su.schema_review_wait_streak ELSE 0 END AS schema_review_wait_streak
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
         JOIN listing_source_domains sd
@@ -489,7 +561,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             eu.*,
             row_number() OVER (
                 PARTITION BY eu.domain_id
-                ORDER BY eu.last_scraped NULLS FIRST, eu.url
+                ORDER BY eu.waits_on_schema_review IS TRUE, eu.last_scraped NULLS FIRST, eu.url
             ) AS domain_url_rank
         FROM eligible_urls eu
         JOIN selected_domains sd ON sd.domain_id = eu.domain_id
@@ -502,7 +574,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
         last_scraped_schema_fingerprint,
         last_captured_raw_input_sha256,
         scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_domain_probe,
-        last_source_listing_id
+        last_source_listing_id, schema_review_waited_on, schema_review_wait_streak
     FROM ranked_urls
     WHERE (is_domain_probe AND domain_url_rank = 1)
        OR (NOT is_domain_probe AND domain_url_rank <= $2)
@@ -545,6 +617,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                     })
                 })
                 .transpose()?;
+            let schema_review_wait = schema_review_wait_from_row(
+                row.schema_review_waited_on,
+                row.schema_review_wait_streak,
+            )?;
             candidates.push(ScraperCandidate {
                 listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
@@ -566,6 +642,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 },
                 is_domain_probe: row.is_domain_probe,
                 last_source_listing_id: row.last_source_listing_id,
+                schema_review_wait,
             });
         }
 
@@ -655,6 +732,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_error_message = NULL,
                  last_status_code = NULL,
                  next_retry_at = NULL,
+                 schema_review_waited_on = NULL,
+                 schema_review_wait_streak = 0,
                  updated = NOW()
              WHERE listing_source_id = $1
                AND url = $2
@@ -953,15 +1032,40 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         next_retry_at: OffsetDateTime,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
-        self.update_url_failure(UrlFailureUpdate {
-            listing_source_id,
-            url,
-            error_kind,
-            error_message,
-            status_code,
-            next_retry_at,
-            expected_last_captured_raw_input_sha256,
-        })
+        self.update_url_failure(
+            UrlFailureUpdate {
+                listing_source_id,
+                url,
+                error_kind,
+                error_message,
+                status_code,
+                next_retry_at,
+                expected_last_captured_raw_input_sha256,
+            },
+            None,
+        )
+        .await
+    }
+
+    async fn mark_waiting_on_schema_review(
+        &self,
+        request: SchemaReviewWaitRequest,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+        let SchemaReviewWaitRequest { url_failure, wait } = request;
+        self.update_url_failure(
+            UrlFailureUpdate {
+                listing_source_id: &url_failure.listing_source_id,
+                url: &url_failure.url,
+                error_kind: &url_failure.error_kind,
+                error_message: &url_failure.error_message,
+                status_code: url_failure.status_code,
+                next_retry_at: url_failure.next_retry_at,
+                expected_last_captured_raw_input_sha256: url_failure
+                    .expected_last_captured_raw_input_sha256
+                    .as_deref(),
+            },
+            Some(wait),
+        )
         .await
     }
 
