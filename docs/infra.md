@@ -483,7 +483,9 @@ calculation is at least 5 h 45 min old by the database clock, so the full scan o
 listings runs about every six hours under its own statement timeout, which must stay below
 that Lambda's timeout. Reads never aggregate listings: a failed refresh keeps serving the
 previous calculation, fails the invocation and is retried on the next run while still due.
-A new stage answers `503` until its first hourly run. Refresh duration grows with the live
+A new stage answers `503` until its first calculation. Before public activation,
+invoke the existing backend cleanup once and verify that overview reads succeed.
+Refresh duration grows with the live
 catalogue; watch its logged duration against the statement timeout before the catalogue
 outgrows it, because a refresh that keeps timing out repeats its scan every hour.
 
