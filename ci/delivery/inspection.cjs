@@ -23,7 +23,7 @@ function run(program, args, options = {}) {
     ...options,
   });
 }
-function cumulativeSource(repo, baseline, candidate, maxBytes = 1200000) {
+function cumulativeSource(repo, baseline, candidate, maxInventoryBytes = 8 * 1024 * 1024) {
   for (const sha of [baseline, candidate])
     if (!/^[a-f0-9]{40}$/.test(sha || ""))
       throw new Error("Known full baseline/candidate SHA required");
@@ -105,10 +105,10 @@ function cumulativeSource(repo, baseline, candidate, maxBytes = 1200000) {
   if (
     Buffer.byteLength(
       diff + commits + JSON.stringify(migrations) + JSON.stringify(context),
-    ) > maxBytes
+    ) > maxInventoryBytes
   )
     throw new Error(
-      "Complete cumulative review context exceeds bounded budget; human review required",
+      "Complete cumulative source inventory exceeds bounded budget; human review required",
     );
   return { baseline, candidate, commits, diff, migrations, context };
 }

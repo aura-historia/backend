@@ -9,6 +9,7 @@ const {
 } = require("./review.cjs");
 const fixture = require("./fixtures.cjs");
 const { digest } = require("./contracts.cjs");
+const { reviewContext, serializeContext } = require("./review-context.cjs");
 const routine = {
   verdict: "ROUTINE",
   reasons: [
@@ -66,6 +67,17 @@ function binding() {
     delete value[key];
   return value;
 }
+test("full source inventory does not consume or relax the focused model input budget", () => {
+  const evidence = inventory();
+  evidence.source.context = [{ path: "src/example.rs", before: "x".repeat(1600000), after: "changed" }];
+  evidence.source.diff = "diff --git a/src/example.rs b/src/example.rs\n+changed\n";
+  const context = reviewContext(evidence);
+  assert.equal(context.inventoryDigest, digest(evidence));
+  assert.equal(context.source.changedSourceAndContractDiff, evidence.source.diff);
+  assert.ok(Buffer.byteLength(serializeContext(context, {})) < 10000);
+  context.source.changedSourceAndContractDiff = "x".repeat(1500001);
+  assert.throws(() => serializeContext(context, {}), /context exceeds reviewer budget/);
+});
 test("malformed/truncated/uncertain model output is held and hard policy is monotonic", async () => {
   assert.throws(() => parseReview('{"verdict":'), SyntaxError);
   assert.throws(
