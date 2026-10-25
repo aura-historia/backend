@@ -674,7 +674,7 @@ function renderRemovedPagePanel(detail, matrix) {
             ? 'Declare a page removed: a selector bound to the removal notice, with text it contains or a regex. A regex that matches any text is rejected. The list starts from the stored templates; approval replaces them with it, so removing a template here retires it.'
             : detail.review.status === 'APPROVED'
                 ? 'Stored when the review was approved; edit or retire templates on a pending review.'
-                : 'This review is closed without approval; its templates were not stored.'}</span>
+                : 'This review is closed without approval; it did not change the stored templates.'}</span>
       </div>
       ${templates.map((template, index) => renderRemovedPageTemplate(template, index, disabled)).join('')
         || '<div class="muted">No removed-page template.</div>'}

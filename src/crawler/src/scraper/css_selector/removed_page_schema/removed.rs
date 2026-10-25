@@ -425,6 +425,15 @@ mod tests {
     }
 
     #[test]
+    fn should_store_the_reviewers_edit_of_a_template_retired_after_the_review_read_it() {
+        let base = [notice("sold")];
+
+        let rebased = rebase_reviewed_removed_page_schemas(&base, vec![notice("sold out")], &[]);
+
+        assert_eq!(rebased, vec![notice("sold out")]);
+    }
+
+    #[test]
     fn should_keep_each_template_once_when_the_reviewer_declares_one_stored_since() {
         let stored = [notice("page not found")];
 
