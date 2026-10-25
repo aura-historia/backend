@@ -43,7 +43,7 @@ function nativeEffects(changes) {
 
 function infrastructureContext(inventory) {
   const byStack = new Map(inventory.plans.map((plan) => [plan.stackName, plan]));
-  return Object.entries(inventory.aws.stacks).map(([name, stack]) => {
+  return Object.entries(inventory.aws.stacks).sort(([left], [right]) => left.localeCompare(right)).map(([name, stack]) => {
     const plan = byStack.get(name), comparison = inventory.templateComparisons[name];
     if (!comparison) throw new Error("Every stack requires a template comparison");
     return {
