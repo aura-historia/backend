@@ -136,13 +136,35 @@ Every request runs the [complete exact-source test suite](ci.md#exact-source-rel
 including promotions and documentation-only changes. Candidate tests receive no
 cloud or model credentials. The build approval authorizes compilation/publication
 cost. Only its isolated requester role can submit a shared CodePipeline build.
-One CodeBuild job uses a shared Cargo target, builds each catalog image, compiles
-mail, and synthesizes configured target assemblies. Rust, cargo-lambda, Zig, Node,
-lockfiles and the builder base image are pinned by the approved configuration.
+One CodeBuild job compiles the entire Lambda deployment catalog in one Cargo
+invocation, builds each catalog image, compiles mail, and synthesizes configured
+target assemblies. Lambda builds retain full LTO and one codegen unit. The matcher
+uses its existing GNU target separately from the Lambda MUSL target. Selecting the
+deployment catalog avoids including development tools and their dependency features.
+Rust, cargo-lambda, Zig, Node, sccache, lockfiles and the prebuilt tool image digest
+are pinned by the approved configuration.
 Candidate Cargo/build scripts and Dockerfiles execute without forwarded AWS
 credentials; compilation uses a network-isolated container. Source mounts remain
 read-only. The builder role can publish artifacts, with no database secrets,
 application mutation, maintenance or role-passing powers.
+
+The release builder alone restores and saves dependency snapshots in a separate
+private S3 cache bucket, with 14-day expiration. Snapshots contain downloaded Cargo
+sources and a bounded 10 GB local sccache; they contain no workspace target tree,
+application binaries, credentials or deployment evidence. Workspace compilation
+bypasses sccache and final binary links always run. The compiler container accesses
+only the local cache; CodeBuild handles its S3 transfer outside that container.
+Keys separate builder/control configuration, lockfile and Lambda catalog. A new
+source SHA saves a new snapshot and restores a compatible earlier snapshot by
+prefix. Dependency compilation additionally uses sccache's compiler/input/flag
+identity. Cache misses and expired snapshots require ordinary compilation.
+
+To update tools, change the [builder Dockerfile](../ci/delivery/builder/Dockerfile),
+run `bash ci/delivery/publish-builder.sh` as a platform operator, and pin its printed
+ECR digest in `ci/delivery/build-config.json`. Publication reuses an existing
+immutable Dockerfile tag. Review the configuration and update the trusted control
+revision through the platform procedure; ordinary releases only pull the pinned
+image. Tagged builder images are retained for builds using earlier configurations.
 
 A fresh cumulative target report is prepared after bundle creation/reuse. Review
 its exact account/region, source, bundle, baseline, SQL, stack changes, worker
@@ -339,8 +361,11 @@ cache behavior and final native billed compute minutes; adjust compute if needed
 cgroup memory peaks when available, pipeline/build IDs and artifact sizes under `builds/<build-id>/metrics.json`; inspect CloudWatch/CodeBuild for compute
 minutes, effective timeout/compute type and cache behavior; project settings alone do not prove the actual build's limits. Benchmark cold/warm builds through the protected build
 approval before changing group count or compute size. There is no reserved build
-fleet, build VPC or automatic source-triggered paid work. Pipeline scratch artifacts have bounded retention; local shared target data lasts
-for its build worker only; completed bundles and recovery evidence are
+fleet, build VPC or automatic source-triggered paid work. Metrics include compiler
+cache hits/misses, compilation CPU/resource usage and elapsed build phases. S3
+cache transfer time and final billing require native CodeBuild evidence; a local
+cache proof is not a production performance benchmark. Pipeline scratch artifacts
+and dependency caches have bounded retention; completed bundles and recovery evidence are
 retained. Configure the delivery budget and confirm notification subscriptions.
 
 ### Optional dev and idle costs

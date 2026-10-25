@@ -58,6 +58,17 @@ export class DeliveryStack extends cdk.Stack {
       lifecycleRules: [{ expiration: cdk.Duration.days(14), noncurrentVersionExpiration: cdk.Duration.days(14),
         abortIncompleteMultipartUploadAfter: cdk.Duration.days(1) }],
     });
+    const buildCache = new s3.Bucket(this, "BuildCache", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL, enforceSSL: true,
+      encryption: s3.BucketEncryption.S3_MANAGED, removalPolicy: cdk.RemovalPolicy.RETAIN,
+      lifecycleRules: [{ expiration: cdk.Duration.days(14),
+        abortIncompleteMultipartUploadAfter: cdk.Duration.days(1) }],
+    });
+    const builderRepository = new ecr.Repository(this, "ReleaseBuilderRepository", {
+      repositoryName: "aura-historia-release-builder", imageTagMutability: ecr.TagMutability.IMMUTABLE,
+      imageScanOnPush: true, removalPolicy: cdk.RemovalPolicy.RETAIN,
+      lifecycleRules: [{ tagStatus: ecr.TagStatus.UNTAGGED, maxImageAge: cdk.Duration.days(14) }],
+    });
     const immutable = ["objects/sha256/*", "mail/*", "bundles/*", "requests/*", "reports/*", "tests/*", "control/*", "claims/*", "builds/*", "maintenance/*", "evidence/*"];
     this.releases.addToResourcePolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY,
       principals: [new iam.AnyPrincipal()], actions: ["s3:PutObject"], resources: immutable.map((prefix) => this.releases.arnForObjects(prefix)),
@@ -128,8 +139,14 @@ export class DeliveryStack extends cdk.Stack {
       queuedTimeout: cdk.Duration.minutes(60), concurrentBuildLimit: 1,
       environment: { buildImage: codebuild.LinuxBuildImage.STANDARD_7_0, computeType: name === "release-build" ? codebuild.ComputeType.X_LARGE : codebuild.ComputeType.SMALL,
         privileged: name === "release-build" },
+      ...(name === "release-build" ? { cache: codebuild.Cache.bucket(buildCache) } : {}),
       logging: { cloudWatch: { logGroup: new logs.LogGroup(this, `${name}Logs`, { retention: logs.RetentionDays.ONE_MONTH }) } },
       buildSpec: codebuild.BuildSpec.fromObject({ version: "0.2",
+        ...(name === "release-build" ? { cache: {
+          key: 'rust-v1-$(node ci/delivery/cache-key.cjs "$CODEBUILD_SRC_DIR_Candidate")-${DELIVERY_SOURCE_SHA}',
+          "fallback-keys": ['rust-v1-$(node ci/delivery/cache-key.cjs "$CODEBUILD_SRC_DIR_Candidate")-'],
+          paths: [".delivery-cache/**/*"],
+        } } : {}),
         env: { "exported-variables": ["MigrateActionMode", "MigrateChangeSetName", "ComputeActionMode", "ComputeChangeSetName",
           "ApiActionMode", "ApiChangeSetName", "ObservabilityActionMode", "ObservabilityChangeSetName"] },
         phases: { build: { commands: [command,
@@ -155,6 +172,7 @@ export class DeliveryStack extends cdk.Stack {
     this.grantImageReads(reader);
     new cdk.CfnOutput(this, "BundleReaderRoleArn", { value: reader.roleArn });
     const builder = project("release-build", 'DELIVERY_CANDIDATE_DIR="$CODEBUILD_SRC_DIR_Candidate" node ci/delivery/build.cjs');
+    builderRepository.grantPull(builder);
     readRelease(builder);
     builder.addToRolePolicy(new iam.PolicyStatement({ actions: ["s3:PutObject"], resources: ["objects/sha256/*", "mail/*", "bundles/*", "builds/*"]
       .map((prefix) => this.releases.arnForObjects(prefix)) }));
