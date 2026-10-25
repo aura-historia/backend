@@ -229,6 +229,8 @@ Before enabling normal requests:
    the bounded output budget. Thinking blocks
    are discarded; malformed, truncated, refused or tool-bearing responses hold
    deployment. Token usage and effort are retained with the review evidence.
+   Production permits up to 2 MB of complete review evidence; larger inputs hold
+   delivery for human review. Never truncate evidence to fit this budget.
 6. Establish a verified environment baseline and current schema observation under
    the protected maintenance procedure. A baseline assertion must reflect the
    deployed versions and artifacts, not merely the requested source. Confirm SNS

@@ -17,6 +17,7 @@
     "modelId": "${DELIVERY_REVIEW_MODEL_ID}",
     "effort": "high",
     "apiKeyParameterName": "/anthropic/prod/api-key",
+    "maxInputBytes": 2000000,
     "maxTokens": 16000
   },
   "runtimeExecutionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/aura-historia/delivery/aura-delivery-prod-cloudformation",
