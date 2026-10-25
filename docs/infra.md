@@ -410,7 +410,9 @@ Never run duplicate consumers or purge/rename queues to simplify handoff.
 [Maintenance](../.github/workflows/maintenance.yml) is a protected, narrow manual
 entry for status, explicit baseline adoption/exclusion, reviewed DMS pause/resume and reconciliation.
 It does not execute arbitrary SQL, shell commands or stack updates. It uses the same
-non-expiring environment record as routine delivery. A maintenance pause needs fresh
+non-expiring environment record as routine delivery. Entry and reconciliation may
+observe a started CDC task without an optional recovery checkpoint; pause and resume
+still require verified recovery checkpoints. A maintenance pause needs fresh
 WAL/storage headroom and monitoring evidence; persist exact task/slot/checkpoint
 identity and intent before mutation. Resume only the owned normal stop using
 `resume-processing`; never invent a new start LSN or automatically clear an overdue

@@ -1,21 +1,24 @@
 "use strict";
 const { digest } = require("./contracts.cjs");
 const { aws, enterMaintenance, reconcile } = require("./admission.cjs");
+const RECOVERY_CHECKPOINT = /^checkpoint:V1#\S+$/;
 function readTask(ctx, arn, api = aws) {
   const tasks = api(ctx, "dms", "describe-replication-tasks", [
     "--filters",
     `Name=replication-task-arn,Values=${arn}`,
   ]).ReplicationTasks;
-  const task = tasks?.length === 1 && tasks[0];
+  const task = tasks?.length === 1 && tasks[0],
+    checkpoint = task?.RecoveryCheckpoint ?? null;
   if (
     !task ||
     task.ReplicationTaskArn !== arn ||
     task.MigrationType !== "cdc" ||
-    !/^checkpoint:V1#\S+$/.test(task.RecoveryCheckpoint || "") ||
+    (checkpoint !== null &&
+      (typeof checkpoint !== "string" || !RECOVERY_CHECKPOINT.test(checkpoint))) ||
     !Number.isFinite(Date.parse(task.ReplicationTaskStats?.StartDate))
   )
     throw new Error(
-      "Missing/replaced/unstarted CDC task or checkpoint; use specialized recovery",
+      "Missing/replaced/unstarted CDC task or malformed checkpoint; use specialized recovery",
     );
   const endpoints = [task.SourceEndpointArn, task.TargetEndpointArn].map(
     (endpointArn) => {
@@ -53,7 +56,7 @@ function readTask(ctx, arn, api = aws) {
     source: task.SourceEndpointArn,
     target: task.TargetEndpointArn,
     instance: task.ReplicationInstanceArn,
-    checkpoint: task.RecoveryCheckpoint,
+    checkpoint,
     status: task.Status,
     stopReason: task.StopReason || null,
     tablesErrored: task.ReplicationTaskStats.TablesErrored,
@@ -129,6 +132,8 @@ async function pause(
     throw new Error("Durable maintenance intent writer required");
   const api = options.api || aws,
     prior = readTask(ctx, arn, api);
+  if (!RECOVERY_CHECKPOINT.test(prior.checkpoint || ""))
+    throw new Error("Recovery checkpoint required before pausing CDC");
   if (
     !["running", "stopped"].includes(prior.status) ||
     prior.tablesErrored !== 0 ||
@@ -171,6 +176,7 @@ async function resume(ctx, store, operation, recorded, persist, options = {}) {
   if (
     digest(recorded.operation) !== digest(operation) ||
     !recorded.prior ||
+    !RECOVERY_CHECKPOINT.test(recorded.prior.checkpoint || "") ||
     !recorded.pauseIntentAt ||
     !recorded.wal
   )
@@ -187,7 +193,8 @@ async function resume(ctx, store, operation, recorded, persist, options = {}) {
   const api = options.api || aws,
     task = readTask(ctx, recorded.prior.arn, api);
   sameTask(task, recorded.prior);
-  if (!recorded.stopped || task.checkpoint !== recorded.stopped.checkpoint)
+  if (!RECOVERY_CHECKPOINT.test(recorded.stopped?.checkpoint || "") ||
+    task.checkpoint !== recorded.stopped.checkpoint)
     throw new Error(
       "Stopped checkpoint changed or pause completion unknown; inspect before resume",
     );
