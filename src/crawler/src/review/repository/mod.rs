@@ -1076,7 +1076,7 @@ impl CrawlerReviewRepository {
         .await?
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
         let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
-        let candidate = ProductSchemaReviewCandidate::parse(&candidate_payload)?;
+        let candidate = ProductSchemaReviewCandidate::read(&candidate_payload)?;
         let captured_identities = self
             .captured_identities(review.try_get("listing_source_id")?, &pages)
             .await?;
@@ -1205,7 +1205,7 @@ impl CrawlerReviewRepository {
             return Ok(());
         }
 
-        let reviewed = ProductSchemaReviewCandidate::parse(&review.candidate_payload)?;
+        let reviewed = ProductSchemaReviewCandidate::read(&review.candidate_payload)?;
         if reviewed.schemas.len() != 1 {
             return Ok(());
         }

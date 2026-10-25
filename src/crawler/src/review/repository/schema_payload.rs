@@ -23,10 +23,21 @@ impl ProductSchemaReviewCandidate {
     pub(super) fn parse(
         candidate_payload: &serde_json::Value,
     ) -> Result<Self, ReviewRepositoryError> {
+        let candidate = Self::read(candidate_payload)?;
+        validate_removed_page_schemas(&candidate.removed_page_schemas)?;
+        Ok(candidate)
+    }
+
+    /// Decodes a candidate to show or evaluate it, validating its schemas but not its
+    /// removed-page templates: the review opens with the ListingSource's stored templates, and
+    /// one that today's validation rejects must stay visible for the reviewer to fix or retire.
+    /// Saving or approving the candidate still refuses it.
+    pub(super) fn read(
+        candidate_payload: &serde_json::Value,
+    ) -> Result<Self, ReviewRepositoryError> {
         let candidate = serde_json::from_value::<Self>(candidate_payload.clone())
             .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
         validate_product_schemas(&candidate.schemas)?;
-        validate_removed_page_schemas(&candidate.removed_page_schemas)?;
         Ok(candidate)
     }
 

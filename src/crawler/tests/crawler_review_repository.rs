@@ -2261,6 +2261,89 @@ async fn should_refuse_to_open_a_schema_review_while_the_stored_templates_do_not
     assert_eq!(review_count(&pool, listing_source_id).await, 0);
 }
 
+/// A stored template that today's validation rejects, such as a regex stored before regexes
+/// that match any text were refused, opens in the candidate like any stored one. The review and
+/// its matrix still load, so the reviewer sees the template, and approval refuses it until the
+/// reviewer edits or retires it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_a_stored_template_that_validation_now_rejects_editable_until_approval() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let rejected = json!({ "selector": "p.notice", "regex": ".*" });
+    sqlx::query(
+        "INSERT INTO listing_source_removed_page_schemas \
+         (listing_source_id, removed_page_schema, created, updated) \
+         VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(json!([rejected]))
+    .execute(&pool)
+    .await
+    .unwrap();
+    // A generated append review: reading it merges the live schemas into its candidate.
+    let review_id = repository
+        .create_schema_review(
+            &listing_source_id,
+            "append_schema_generation",
+            &[schema("h1")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+
+    let opened = repository.get_review(review_id).await.unwrap();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            opened
+                .pages
+                .iter()
+                .cloned()
+                .zip(review_pages().into_iter().map(|page| page.raw_html))
+                .collect(),
+        )
+        .await
+        .unwrap();
+    let refused = repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        opened.review.candidate_payload["removed_page_schemas"],
+        json!([rejected])
+    );
+    assert!(evaluated.matrix.removed_page_matches.is_empty());
+    assert!(
+        matches!(
+            refused,
+            ReviewRepositoryError::InvalidRemovedPageTemplate { index: 0, .. }
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        repository
+            .get_review(review_id)
+            .await
+            .unwrap()
+            .review
+            .status,
+        STATUS_PENDING_REVIEW
+    );
+    repository
+        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1")] }))
+        .await
+        .unwrap();
+    repository.approve_review(review_id, None).await.unwrap();
+    assert_eq!(
+        stored_removed_page_schemas(&pool, listing_source_id).await,
+        Some(Vec::new())
+    );
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_a_pending_candidate_whose_removed_page_regex_matches_any_text() {
     let pool = get_postgres_client().await;
