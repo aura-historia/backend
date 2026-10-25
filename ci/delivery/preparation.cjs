@@ -550,6 +550,7 @@ async function prepare(env = process.env, options = {}) {
       prerequisites = searchPrerequisites(ctx, bundle, source, search);
     findings.push(...prerequisites.findings);
     const inventory = {
+      candidateBundleDigest: digest(bundle),
       source,
       database,
       schema: snapshots,
@@ -565,8 +566,13 @@ async function prepare(env = process.env, options = {}) {
       baselineState: baseline,
       config: operational,
       plans,
+      templateComparisons: Object.fromEntries(Object.entries(templates).map(([name, desired]) => [name, {
+        beforeDigest: digest(live.stacks[name].template),
+        afterDigest: digest(desired.template),
+      }])),
       search,
       patches: prerequisites.patches,
+      manualPrerequisites: prerequisites.manual,
       tests,
       hardFindings: findings,
       capturedRelations: capturedRelations(task),

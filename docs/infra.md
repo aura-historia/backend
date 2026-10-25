@@ -28,6 +28,14 @@ uncertain review require maintenance. Manual OpenSearch administration remains
 operator work under the [OpenSearch contract](opensearch-stage.md); retained
 worker/message compatibility follows the [worker runbook](durable-worker-runbook.md).
 
+The model receives pending migration SQL, schema differences, changed infrastructure
+properties, source/contract patches and merged PR descriptions from immutable squash
+commit bodies. Unchanged templates and schemas use verified digests; applied SQL and
+unchanged implementation files are omitted. The full inventory remains immutable
+evidence. Admission recomputes the focused context and verifies both its digest and
+its binding to that inventory. Release notes cannot override native facts or hard
+policy. Oversized relevant context still holds delivery; evidence is never truncated.
+
 Healthy idle CDC requires fresh successful polling, explicit zero returned records
 and zero reader age. Missing metric samples remain unknown; an absent producer
 metric alone does not establish idleness.
