@@ -321,6 +321,8 @@ assembly completion; deployment performs no Rust, image, mail or synth rebuild.
 CloudFormation templates use JSON Unicode escapes so native template readback
 preserves their exact values. Baseline and change-set comparisons explicitly read
 the `Original` template; processed dynamic references are not the submitted template.
+Native pipeline input copies the verified immutable template bytes without JSON
+serialization, including for a verified unchanged stack's `CREATE_UPDATE` action.
 
 One on-demand shared build group uses a Linux XLarge worker (36 vCPUs, 72 GiB).
 This sizing is provisional, not an optimal performance/capacity claim. Before enabling paid release builds,

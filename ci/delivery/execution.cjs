@@ -263,9 +263,19 @@ async function admit(env = process.env, options = {}) {
     fs.mkdirSync("prepared", { recursive: true });
     const variables = {};
     for (const plan of approved.inventory.plans) {
+      const template = store.readObject(
+        plan.artifact.bucket,
+        plan.artifact.key,
+        plan.artifact.versionId,
+      );
+      if (
+        template.versionId !== plan.artifact.versionId ||
+        bytesDigest(template.body) !== plan.artifact.sha256
+      )
+        throw new Error("Prepared template differs from approved immutable artifact");
       fs.writeFileSync(
         `prepared/${plan.boundary}.template.json`,
-        JSON.stringify(plan.template),
+        template.body,
       );
       fs.writeFileSync(
         `prepared/${plan.boundary}.config.json`,
