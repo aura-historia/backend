@@ -682,7 +682,8 @@ function renderCoverageSummary(matrix) {
     </div>`;
 }
 
-// Check codes of `plausibility_findings` and `cross_page_findings` in the schema matrix.
+// Check codes of `plausibility_findings`, `cross_page_findings` and
+// `identity_agreement_findings` in the schema matrix.
 const plausibilityCheckDescriptions = {
     BLANK: 'is blank',
     TOO_LONG: 'is longer than a label',
@@ -691,13 +692,19 @@ const plausibilityCheckDescriptions = {
     DUPLICATE_VALUES: 'repeats a value',
     INVALID_IDENTIFIER: 'is not a valid source listing id',
     WORD_LIST: 'is a list of words, not an identifier',
-    REPEATED_ACROSS_PAGES: 'repeats a value of another product page'
+    REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
+    DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
+    DIFFERS_FROM_CAPTURED_IDENTITY: 'differs from the identity the listing was captured under'
 };
 
-// The per-page and cross-page plausibility checks a matrix page failed. Any of them
-// keeps a generated schema out of auto-approval.
+// The per-page, cross-page and identity agreement checks a matrix page failed. Any of
+// them keeps a generated schema out of auto-approval.
 function pageFindings(page) {
-    return [...(page?.plausibility_findings || []), ...(page?.cross_page_findings || [])];
+    return [
+        ...(page?.plausibility_findings || []),
+        ...(page?.cross_page_findings || []),
+        ...(page?.identity_agreement_findings || [])
+    ];
 }
 
 function fieldFindings(page, field) {
@@ -720,6 +727,18 @@ function renderSharedValues(findings) {
     const values = findings.flatMap(finding => finding.values || []);
     if (!values.length) return '';
     return `<div class="muted">Also extracted from another product page: ${values.map(value => expandableValue(value)).join(', ')}</div>`;
+}
+
+// Identity agreement findings name the identities that contradict the extracted one: the
+// other schemas' on the same page, or the one the listing was captured under.
+function renderContradictingIdentities(findings) {
+    const values = findings
+        .filter(finding => finding.check === 'DIFFERS_FROM_OTHER_SCHEMAS' || finding.check === 'DIFFERS_FROM_CAPTURED_IDENTITY')
+        .flatMap(finding => (finding.values || []).map(value =>
+            `${finding.check === 'DIFFERS_FROM_CAPTURED_IDENTITY' ? 'captured' : 'other schema'}: ${expandableValue(value)}`
+        ));
+    if (!values.length) return '';
+    return `<div class="muted">Contradicting identities: ${values.join(', ')}</div>`;
 }
 
 function renderPlausibilitySummary(matrix) {
@@ -757,16 +776,18 @@ function renderOptionalMissSummary(pagesWithMisses) {
     if (!pagesWithMisses.length) return '';
     const pageWord = pagesWithMisses.length === 1 ? 'page' : 'pages';
     const perPage = pagesWithMisses.map(page => {
-        const fields = optionalFieldMisses(page).map(field => escapeHtml(displayName(field.field))).join(', ');
+        const fields = optionalFieldMisses(page).map(field =>
+            `${escapeHtml(displayName(field.field))}${matchedOnlyEmptyElements(field) ? ' (empty element)' : ''}`
+        ).join(', ');
         return `${escapeHtml(displayName(page.role))} (${fields})`;
     }).join('; ');
-    return `<div class="muted">Optional rules matched nothing (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
+    return `<div class="muted">Optional rules yielded no value (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
 }
 
 // Mirrors `optional_field_misses` in the persisted schema matrix summary: a soft
 // rule (not required, no selector error, not `images`, whose empty-container case is
 // decided by the page-level apply result) whose primary and additional selectors all
-// matched nothing on a page that still applied.
+// matched nothing with visible text on a page that still applied.
 function optionalFieldMisses(page) {
     if (!page?.apply_ok) return [];
     return (page.fields || []).filter(field =>
@@ -873,11 +894,20 @@ function currentMatrixPage(matrix) {
     return candidate ? selectedMatrixPage(candidate) : null;
 }
 
+// A missed rule whose selectors found elements, all without visible text: the page leaves
+// the field empty where the rule expects it, rather than the rule not fitting the page.
+function matchedOnlyEmptyElements(field) {
+    return field.empty_element_count > 0;
+}
+
 function renderOptionalFieldMisses(misses) {
-    if (!misses.length) return '';
-    return `<div class="muted">Rule matched nothing, field left empty: ${
-        misses.map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code>`).join(', ')
-    }</div>`;
+    const fieldList = fields => fields
+        .map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code>`)
+        .join(', ');
+    const unmatched = misses.filter(field => !matchedOnlyEmptyElements(field));
+    const empty = misses.filter(matchedOnlyEmptyElements);
+    return (unmatched.length ? `<div class="muted">Rule matched nothing, field left empty: ${fieldList(unmatched)}</div>` : '')
+        + (empty.length ? `<div class="muted">Rule matched only empty elements, field left empty: ${fieldList(empty)}</div>` : '');
 }
 
 function selectedMatrixPage(candidate) {
@@ -903,7 +933,7 @@ function rawDataCell(raw, page) {
             return `
       <div class="${findings.length ? 'implausible-field' : ''}">
         <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : ''}</dd>
+        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : renderContradictingIdentities(findings)}</dd>
       </div>`;
         }).join('')
     }</dl>`;

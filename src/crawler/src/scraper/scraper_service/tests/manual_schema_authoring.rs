@@ -330,6 +330,106 @@ async fn should_attach_failing_page_without_generation_when_authoring_is_auto() 
     assert_failing_page_waits_on_pending_schema_review(CrawlerAuthoringMode::Auto).await;
 }
 
+fn fetcher_returning_once(html: String) -> MockHtmlFetcher {
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let html = html.clone();
+        Box::pin(async move { Ok(fetch_result(html)) })
+    });
+    fetcher
+}
+
+fn missing_required_value(result: Result<Option<ScrapedProduct>, ScraperError>) -> String {
+    match result {
+        Err(ScraperError::MissingRequiredValue { findings, .. }) => findings.to_string(),
+        Err(error) => panic!("expected a missing required value, got {error}"),
+        Ok(_) => panic!("expected a missing required value, got a scraped product"),
+    }
+}
+
+/// A product page that names no item opens no review an operator could only reject, which
+/// would classify the product as a non-product page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_no_manual_review_when_the_cached_schema_finds_an_empty_title_element() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let service = scraper_with_review_gate(
+        fetcher_returning_once(untitled_html()),
+        schema_service_without_generation(Some(cached_schemas(id, vec![item_title_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let result = service.scrape(primary_only_request(&id, &url)).await.result;
+
+    assert_eq!(missing_required_value(result), "`title` is blank");
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
+        None
+    );
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_not_wait_on_pending_review_when_the_cached_schema_finds_an_empty_title_element() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let review_id = open_pending_schema_review(&repository, &id).await;
+    let service = scraper_with_review_gate(
+        fetcher_returning_once(untitled_html()),
+        schema_service_without_generation(Some(cached_schemas(id, vec![item_title_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let result = service.scrape(primary_only_request(&id, &url)).await.result;
+
+    assert_eq!(missing_required_value(result), "`title` is blank");
+    let pages = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read review pages: {error}"));
+    assert!(pages.iter().all(|page| page.role != PAGE_ROLE_WAITING_PAGE));
+}
+
+/// An empty title is no reason to skip schema work when the cached schema also captures
+/// something other than the product's values from the page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_manual_review_when_an_empty_title_element_comes_with_another_implausible_value()
+ {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let page = untitled_html().replace(
+        r#"<span id="state">Request for more info</span>"#,
+        r#"<span id="state">Sold .badge { color: red; }</span>"#,
+    );
+    let service = scraper_with_review_gate(
+        fetcher_returning_once(page),
+        schema_service_without_generation(Some(cached_schemas(id, vec![item_title_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let result = service.scrape(primary_only_request(&id, &url)).await.result;
+
+    let review = repository
+        .get_review(pending_review_id(result))
+        .await
+        .unwrap_or_else(|error| panic!("read manual review: {error}"));
+    assert_eq!(review.review.reason, MANUAL_SCHEMA_REASON);
+}
+
 /// The schema cache serves `stale` on the first read and `approved` on every later one, as when a
 /// review is approved while the page is scraped. Generation fails the test.
 fn schema_service_approving_during_scrape(

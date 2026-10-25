@@ -141,6 +141,7 @@ fn with_schema_matrix_summary(
                     "field": field.field,
                     "selector": field.selector,
                     "selector_match_count": field.selector_match_count,
+                    "empty_element_count": field.empty_element_count,
                     "present_but_missing_rule": selector_missing,
                     "error": field.error,
                 });
@@ -253,6 +254,7 @@ mod tests {
                     error: Some("failed to extract `title`".to_string()),
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "title".to_string(),
                         selector: "h1.product".to_string(),
@@ -261,6 +263,7 @@ mod tests {
                         error: None,
                         required: true,
                         skipped_element_count: None,
+                        empty_element_count: 0,
                     }],
                 }],
             }],
@@ -359,7 +362,8 @@ mod tests {
                         "field": "title",
                         "check": "REPEATED_ACROSS_PAGES",
                         "values": ["Sold items - Navarro"]
-                    }]
+                    }],
+                    "identity_agreement_findings": []
                 },
                 {
                     "schema_index": 0,
@@ -371,7 +375,8 @@ mod tests {
                         "field": "title",
                         "check": "REPEATED_ACROSS_PAGES",
                         "values": ["Sold items - Navarro"]
-                    }]
+                    }],
+                    "identity_agreement_findings": []
                 }
             ])
         );
@@ -470,6 +475,7 @@ mod tests {
                     error: None,
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "description".to_string(),
                         selector: "div.titre + p".to_string(),
@@ -478,6 +484,7 @@ mod tests {
                         error: None,
                         required: false,
                         skipped_element_count: None,
+                        empty_element_count: 0,
                     }],
                 }],
             }],
@@ -510,6 +517,7 @@ mod tests {
                     error: None,
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "images".to_string(),
                         selector: "#gallery img".to_string(),
@@ -518,6 +526,7 @@ mod tests {
                         error: None,
                         required: false,
                         skipped_element_count: Some(0),
+                        empty_element_count: 0,
                     }],
                 }],
             }],

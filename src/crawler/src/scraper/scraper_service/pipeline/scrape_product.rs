@@ -557,7 +557,9 @@ impl ScraperServiceImpl {
     }
 
     /// Selects the best-ranked plausible cached schema for the page in `page`, or authors a fresh
-    /// one when none applies. Returns the schema list the selection used with the selection.
+    /// one when none applies. Returns the schema list the selection used with the selection. A
+    /// page that leaves a required value empty where a cached schema found its element fails
+    /// with [`ScraperError::MissingRequiredValue`] without waiting on or authoring a schema.
     ///
     /// Scraping continues while a product-schema review is pending, so its approval can replace the
     /// live schemas after `schemas` was read. A page that failed the stale list is therefore
@@ -580,6 +582,12 @@ impl ScraperServiceImpl {
                 .await
             {
                 ExistingSchemaSelection::Selected(selection) => return Ok((schemas, *selection)),
+                ExistingSchemaSelection::MissingRequiredValue { findings } => {
+                    return Err(ScraperError::MissingRequiredValue {
+                        url: page.url.clone(),
+                        findings,
+                    });
+                }
                 ExistingSchemaSelection::GenerateNewSchema { reason } => reason,
             };
             let ctx = page.with_existing_schemas(&schemas.product_schemas);

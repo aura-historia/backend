@@ -16,6 +16,7 @@ use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
@@ -1044,7 +1045,7 @@ impl CrawlerReviewRepository {
         pages: Vec<(CrawlerReviewPage, String)>,
     ) -> Result<EvaluatedSchemaMatrix, ReviewRepositoryError> {
         let review = sqlx::query(
-            "SELECT candidate_payload, candidate_version,
+            "SELECT listing_source_id, candidate_payload, candidate_version,
                     encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
              FROM crawler_reviews
              WHERE review_id = $1",
@@ -1055,17 +1056,75 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
         let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
         let schemas = parse_schemas_payload(&candidate_payload)?;
+        let captured_identities = self
+            .captured_identities(review.try_get("listing_source_id")?, &pages)
+            .await?;
         let mut page_ids: Vec<uuid::Uuid> = pages
             .iter()
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
         page_ids.sort_unstable();
         Ok(EvaluatedSchemaMatrix {
-            matrix: evaluate_schema_matrix_for_live_review_pages(review_id, &schemas, &pages),
+            matrix: evaluate_schema_matrix_for_live_review_pages(
+                review_id,
+                &schemas,
+                &pages,
+                &captured_identities,
+            ),
             candidate_version: review.try_get("candidate_version")?,
             candidate_hash: review.try_get("candidate_hash")?,
             page_ids,
         })
+    }
+
+    /// The source listing id each review page's listing was captured under, by page URL,
+    /// for the pages whose listing has been captured. A page is matched with the crawler URL
+    /// that names it, however the two spell it: a reviewer page is stored as fetched, often
+    /// with the trailing slash the crawler URL's normalization drops. The exact spelling
+    /// wins over another one.
+    async fn captured_identities(
+        &self,
+        listing_source_id: uuid::Uuid,
+        pages: &[(CrawlerReviewPage, String)],
+    ) -> Result<HashMap<String, String>, ReviewRepositoryError> {
+        let pages: Vec<(&str, Option<ReviewPageIdentity>)> = pages
+            .iter()
+            .map(|(page, _)| (page.url.as_str(), ReviewPageIdentity::of_stored(&page.url)))
+            .collect();
+        let spellings: Vec<String> = pages
+            .iter()
+            .flat_map(|(url, _)| {
+                let spellings = Url::parse(url)
+                    .map(|url| ReviewPageIdentity::spellings(&url))
+                    .unwrap_or_default();
+                std::iter::once((*url).to_owned()).chain(spellings)
+            })
+            .collect();
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT url, last_source_listing_id
+             FROM listing_source_urls
+             WHERE listing_source_id = $1
+               AND url = ANY($2)
+               AND last_source_listing_id IS NOT NULL
+             ORDER BY url",
+        )
+        .bind(listing_source_id)
+        .bind(&spellings)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(pages
+            .into_iter()
+            .filter_map(|(page_url, identity)| {
+                rows.iter()
+                    .find(|(url, _)| url == page_url)
+                    .or_else(|| {
+                        rows.iter().find(|(url, _)| {
+                            identity.is_some() && ReviewPageIdentity::of_stored(url) == identity
+                        })
+                    })
+                    .map(|(_, captured)| (page_url.to_owned(), captured.clone()))
+            })
+            .collect())
     }
 
     pub async fn store_schema_matrix_if_current(
