@@ -1,8 +1,6 @@
 use super::*;
 use aura_historia_mcp::{McpDependencies, TransportConfig, mcp_router};
-use aura_historia_runtime::{
-    ProductListingConfig, ProductListingDependencies, ProductListingIngestionDependencies, Runtime,
-};
+use aura_historia_runtime::{ProductListingConfig, ProductListingDependencies, Runtime};
 
 /// Starts the production registry and gate, with actual service handlers and the local DB.
 pub struct McpServer {
@@ -31,18 +29,6 @@ impl McpServer {
                     &ProductListingConfig::from_getter(|_| None).unwrap(),
                 )
                 .unwrap(),
-                ingestion: ProductListingIngestionDependencies::from_sqs(
-                    aws_sdk_sqs::Client::from_conf(
-                        aws_sdk_sqs::config::Builder::new()
-                            .behavior_version_latest()
-                            .region(aws_sdk_sqs::config::Region::new("eu-central-1"))
-                            .credentials_provider(aws_sdk_sqs::config::Credentials::new(
-                                "fixture", "fixture", None, None, "fixture",
-                            ))
-                            .build(),
-                    ),
-                    "http://127.0.0.1:9/fixture.fifo".into(),
-                ),
             },
         )
         .unwrap();
@@ -105,24 +91,13 @@ impl McpServer {
     }
 
     pub async fn tools(&self) -> Vec<Value> {
-        let mut tools = Vec::new();
-        let mut cursor = None;
-        for page in 0..2 {
-            let params = cursor
-                .as_ref()
-                .map_or_else(|| json!({}), |cursor| json!({"cursor":cursor}));
-            let response = self.request("tools/list", params, None).await;
-            assert_eq!(StatusCode::OK, response.status());
-            let body: Value = response.json().await.unwrap();
-            let items = body["result"]["tools"].as_array().unwrap();
-            assert_eq!(if page == 0 { 50 } else { 24 }, items.len());
-            tools.extend(items.iter().cloned());
-            cursor = body["result"]["nextCursor"].as_str().map(str::to_owned);
-            if cursor.is_none() {
-                return tools;
-            }
-        }
-        panic!("production tools/list did not terminate after 74 tools");
+        let response = self.request("tools/list", json!({}), None).await;
+        assert_eq!(StatusCode::OK, response.status());
+        let body: Value = response.json().await.unwrap();
+        assert!(body["result"].get("nextCursor").is_none());
+        let tools = body["result"]["tools"].as_array().unwrap().clone();
+        assert_eq!(38, tools.len());
+        tools
     }
 
     pub async fn lambda_call(&self, name: &str, arguments: Value, token: Option<&str>) -> Value {

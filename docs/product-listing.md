@@ -160,7 +160,7 @@ Later accepted ingestion can overwrite eligible management corrections, and upse
 ## Synchronous integration batches
 
 Source-keyed collection POST/PATCH/PUT/DELETE accept at most 100 items, including an
-empty array after authentication. Both REST and MCP deserialize and convert the complete
+empty array after authentication. REST deserializes and converts the complete
 batch before the first mutation: a malformed later item causes zero writes. Asynchronous
 admission deliberately validates individual items independently, as described below.
 
@@ -173,10 +173,7 @@ After an ambiguous timeout, inspect current state before deciding what to submit
 REST retains its failure-list contract: an authenticated empty or fully successful batch
 returns `200 []`; partial success returns `200` with failed source keys and existing error
 codes. If every item fails, the first item's complete HTTP error determines the response.
-MCP reports original zero-based indices, submitted source IDs, successful listing identities
-and individual safe failures; its explicit status distinguishes completion, partial success
-and all-failed execution. The [MCP contract](mcp.md#synchronous-partner-listing-batches) owns
-that envelope. Exact REST item fields and statuses remain in [OpenAPI](swagger.yaml).
+Exact REST item fields and statuses remain in [OpenAPI](swagger.yaml).
 
 ## Asynchronous ingestion submission
 

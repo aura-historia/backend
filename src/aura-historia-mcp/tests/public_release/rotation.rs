@@ -34,10 +34,6 @@ fn should_refresh_credentials_for_each_public_invocation_and_reject_refresh_fail
             ("POSTGRES_DATABASE", "fixture"),
             ("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem"),
             ("STAGE", "ephemeral"),
-            (
-                "PRODUCT_LISTING_INGESTION_QUEUE_URL",
-                "http://127.0.0.1:9/fixture.fifo",
-            ),
             ("AWS_REGION", "eu-central-1"),
             ("AWS_ACCESS_KEY_ID", "fixture"),
             ("AWS_SECRET_ACCESS_KEY", "fixture"),
@@ -108,7 +104,6 @@ async fn rotation_probe() -> Result<(), TestError> {
     for manifest in [
         include_str!("../../public-operations.json"),
         include_str!("../../authenticated-operations.json"),
-        include_str!("../../partner-operations.json"),
     ] {
         let manifest: Value = serde_json::from_str(manifest)?;
         for operation in manifest["operations"].as_array().unwrap() {
@@ -116,26 +111,9 @@ async fn rotation_probe() -> Result<(), TestError> {
             assert!(expected.insert(operation["name"].as_str().unwrap().to_owned()));
         }
     }
-    let (_, continuation, _) = post(
-        old.clone(),
-        "tools/list",
-        json!({"cursor":old_list["result"]["nextCursor"]}),
-    )
-    .await;
-    let mut listed = old_list["result"]["tools"].as_array().unwrap().clone();
-    assert_eq!(50, listed.len());
-    assert_eq!(
-        24,
-        continuation["result"]["tools"].as_array().unwrap().len()
-    );
-    assert!(continuation["result"].get("nextCursor").is_none());
-    listed.extend(
-        continuation["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .cloned(),
-    );
+    assert!(old_list["result"].get("nextCursor").is_none());
+    let listed = old_list["result"]["tools"].as_array().unwrap();
+    assert_eq!(38, listed.len());
     let actual = listed
         .iter()
         .map(|tool| tool["name"].as_str().unwrap().to_owned())
@@ -143,15 +121,6 @@ async fn rotation_probe() -> Result<(), TestError> {
     assert_eq!(listed.len(), actual.len());
     assert_eq!(expected, actual);
     assert_eq!(old_list, lambda_catalogue(old.clone(), json!({})).await?);
-
-    assert_eq!(
-        continuation,
-        lambda_catalogue(
-            old.clone(),
-            json!({"cursor":old_list["result"]["nextCursor"]})
-        )
-        .await?
-    );
 
     *credentials.version.lock().unwrap() = Some("version-2");
     let (left, right) = tokio::join!(app.current(), app.current());

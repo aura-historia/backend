@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-25 — Consumer-only MCP catalogue (#2481)
+
+- **Breaking change:** MCP removes all 36 partner tools: listing management, synchronous and asynchronous listing batches, Shopify ingestion configuration, party locations, source-location defaults, shipping profiles/defaults and listing delivery. `tools/list` returns the 38 consumer operations (12 public, 26 private-user) on one page without `nextCursor`; a call naming a removed tool fails as an unknown tool (`-32602`). Partner workflows continue unchanged through REST. The endpoint, transport, OAuth contract, scopes and the retained tools' names, schemas and behavior are unchanged. See the [MCP contract](mcp.md#partner-workflows-use-rest).
+
 ## 2026-10-25 — Wildcard REST browser CORS
 
 - REST Gateway CORS now returns `Access-Control-Allow-Origin: *` for browser origins in both stages, including ephemeral `*.bitter-frog-5102.workers.dev` previews. Allowed methods, headers, exposed headers, and all API authorization requirements are unchanged. Cross-origin callers may supply bearer tokens in `Authorization`, but `credentials: "include"` is incompatible with wildcard CORS. MCP's separate explicit origin restrictions and Cognito registered redirect URIs are unchanged.
@@ -14,19 +18,19 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-23 — Complete partner MCP catalogue (#2255)
 
-- Compose the 36 selected partner tools with the existing 38 public and private-user tools in one 74-operation catalogue. Clients must follow `tools/list` continuation across both pages. Partner tools retain current delegated scopes and service-owned source/party authority, complete shared contracts, version checks and explicit partial/admission outcomes. WooCommerce secret configuration remains excluded. See the [partner manifest](../src/aura-historia-mcp/partner-operations.json) and [workflow and retry contract](mcp.md#partner-workflow).
+- Compose the 36 selected partner tools with the existing 38 public and private-user tools in one 74-operation catalogue. Clients must follow `tools/list` continuation across both pages. Partner tools retain current delegated scopes and service-owned source/party authority, complete shared contracts, version checks and explicit partial/admission outcomes. WooCommerce secret configuration remains excluded. See the [partner manifest](https://github.com/aura-historia/backend/blob/753a3b9395da1ce4cada94fb63078f907a8ac93d/src/aura-historia-mcp/partner-operations.json) and [workflow and retry contract](https://github.com/aura-historia/backend/blob/753a3b9395da1ce4cada94fb63078f907a8ac93d/docs/mcp.md#partner-workflow).
 
 ## 2026-10-23 — Listing delivery MCP family (#2254)
 
-- Define source-keyed delivery inspection, versioned change and single-command asynchronous submission through the existing application services. Shared contracts preserve every delivery field, public reference, import, version and outcome. Admission retains the full source-local identity and shared retry/uncertainty report without claiming committed mutation. See the [delivery tool contract](mcp.md#listing-delivery-management).
+- Define source-keyed delivery inspection, versioned change and single-command asynchronous submission through the existing application services. Shared contracts preserve every delivery field, public reference, import, version and outcome. Admission retains the full source-local identity and shared retry/uncertainty report without claiming committed mutation. See the [delivery tool contract](https://github.com/aura-historia/backend/blob/753a3b9395da1ce4cada94fb63078f907a8ac93d/docs/mcp.md#listing-delivery-management).
 
 ## 2026-10-23 — Partner ingestion MCP family (#2253)
 
-- Define four asynchronous listing admission tools and non-secret Shopify configuration through the existing application use cases. Admission reports preserve original positions, effective retry keys and published/rejected/not-attempted/unknown outcomes; queue admission is distinct from committed state. Raw MCP arguments retain strict DTO duplicate-field validation. REST response bodies and key headers remain stable. WooCommerce configuration remains excluded. See the [ingestion contract](mcp.md#asynchronous-partner-ingestion-and-shopify-configuration).
+- Define four asynchronous listing admission tools and non-secret Shopify configuration through the existing application use cases. Admission reports preserve original positions, effective retry keys and published/rejected/not-attempted/unknown outcomes; queue admission is distinct from committed state. Raw MCP arguments retain strict DTO duplicate-field validation. REST response bodies and key headers remain stable. WooCommerce configuration remains excluded. See the [ingestion contract](https://github.com/aura-historia/backend/blob/753a3b9395da1ce4cada94fb63078f907a8ac93d/docs/mcp.md#asynchronous-partner-ingestion-and-shopify-configuration).
 
 ## 2026-10-23 — Shared synchronous partner listing batches (#2252)
 
-- Add the four synchronous partner batch MCP family operations with complete shared REST item contracts. Results explicitly distinguish completed, partial and failed execution and retain original indices, source IDs, successful identities and safe per-item failures. All input conversion precedes writes; items execute sequentially in independent transactions. See the [batch contract](mcp.md#synchronous-partner-listing-batches).
+- Add the four synchronous partner batch MCP family operations with complete shared REST item contracts. Results explicitly distinguish completed, partial and failed execution and retain original indices, source IDs, successful identities and safe per-item failures. All input conversion precedes writes; items execute sequentially in independent transactions. See the [batch contract](https://github.com/aura-historia/backend/blob/753a3b9395da1ce4cada94fb63078f907a8ac93d/docs/mcp.md#synchronous-partner-listing-batches).
 
 ## 2026-10-23 — Granted listing-source pages (#2249)
 

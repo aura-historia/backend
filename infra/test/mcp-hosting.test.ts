@@ -133,7 +133,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(JSON.stringify(front)).not.toContain("aura-historia-api");
   });
 
-  test("allocates a bounded Lambda with listing providers and scoped ingestion publication IAM", () => {
+  test("allocates a bounded Lambda with listing providers and no ingestion publication", () => {
     const [[functionId, fn]] = Object.entries(compute.findResources("AWS::Lambda::Function"))
       .filter(([, resource]) => resource.Properties.FunctionName === `aura-historia-mcp-${stage}`);
     const environment = fn.Properties.Environment.Variables;
@@ -159,7 +159,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     });
     expect(Object.keys(environment).sort()).toEqual([
       "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
-      "PRODUCT_LISTING_INGESTION_QUEUE_URL", "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
+      "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
       "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT",
     ].sort());
@@ -180,7 +180,8 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       .filter((policy) => policy.Properties.Roles.some((role: { Ref: string }) => role.Ref === roleId))
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => !JSON.stringify(statement.Action).includes("logs:"));
-    expect(environment.PRODUCT_LISTING_INGESTION_QUEUE_URL).toEqual(rest.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL);
+    expect(environment.PRODUCT_LISTING_INGESTION_QUEUE_URL).toBeUndefined();
+    expect(rest.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toBeDefined();
     const restRole = rest.Properties.Role["Fn::GetAtt"][0];
     const restSend = Object.values(compute.findResources("AWS::IAM::Policy"))
       .filter((policy) => policy.Properties.Roles.some((role: { Ref: string }) => role.Ref === restRole))
@@ -188,11 +189,10 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       .find((statement) => statement.Action === "sqs:SendMessage");
     expect(restSend).toBeDefined();
     expect(JSON.stringify(restSend.Resource)).not.toBe('"*"');
-    expect(statements).toEqual(expect.arrayContaining([
+    expect(statements).toEqual([
       { Action: "secretsmanager:GetSecretValue", Effect: "Allow", Resource: environment.POSTGRES_SECRET_ARN },
-      { Action: "sqs:SendMessage", Effect: "Allow", Resource: restSend.Resource },
-    ]));
-    expect(statements).toHaveLength(2);
+    ]);
+    expect(JSON.stringify(statements)).not.toContain("sqs:");
     const [alias] = Object.values(compute.findResources("AWS::Lambda::Alias"))
       .filter((resource) => resource.Properties.FunctionName.Ref === functionId);
     expect(alias.Properties.Name).toBe("live");

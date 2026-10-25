@@ -34,7 +34,7 @@ fn main() -> Result<(), MainError> {
             } else {
                 let address = transport.bind_addr;
                 let runtime = Runtime::from_env().await?;
-                let dependencies = McpDependencies::from_env(&listing_config).await?;
+                let dependencies = McpDependencies::from_env(&listing_config)?;
                 let app = mcp_router(transport, &runtime, dependencies)?;
                 let listener = tokio::net::TcpListener::bind(address).await?;
                 axum::serve(listener, app)

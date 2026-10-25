@@ -7,10 +7,8 @@ use product_listing_service::use_cases::{
     ProductListingIngestionNotAttemptedReason, ProductListingIngestionOutcome,
     ProductListingIngestionRejectionReason, ProductListingIngestionSubmissionResult,
 };
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::value::RawValue;
-use std::marker::PhantomData;
 
 pub fn parse_idempotency_key(
     value: &str,
@@ -28,44 +26,6 @@ pub fn parse_idempotency_key(
             error,
         )
     })
-}
-
-pub fn optional_idempotency_key_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
-    serde_json::json!({"anyOf":[{"type":"string","minLength":1,"maxLength":128,"pattern":"^[!-+\\--~]+$"},{"type":"null"}]}).try_into().expect("static schema")
-}
-
-/// Decode each item only after the complete JSON envelope is valid. T supplies the shared schema.
-pub struct RawAdmissionItems<T> {
-    raw: Vec<Box<RawValue>>,
-    item: PhantomData<T>,
-}
-impl<T> RawAdmissionItems<T> {
-    pub fn into_raw(self) -> Vec<Box<RawValue>> {
-        self.raw
-    }
-}
-impl<'de, T> Deserialize<'de> for RawAdmissionItems<T> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = Vec::<Box<RawValue>>::deserialize(deserializer)?;
-        super::validate_batch_size(raw.len()).map_err(serde::de::Error::custom)?;
-        Ok(Self {
-            raw,
-            item: PhantomData,
-        })
-    }
-}
-impl<T: JsonSchema> JsonSchema for RawAdmissionItems<T> {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        format!("AdmissionItems_{}", T::schema_name()).into()
-    }
-    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        let mut schema = <Vec<T>>::json_schema(generator);
-        schema.insert(
-            "maxItems".into(),
-            serde_json::json!(super::MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE),
-        );
-        schema
-    }
 }
 
 pub fn safe_source_id(value: &str) -> Option<String> {
@@ -143,10 +103,9 @@ pub enum FailureKind {
     Internal,
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchFailure {
-    #[schemars(range(max = u64::MAX))]
     pub index: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_listing_id: Option<String>,
@@ -168,67 +127,29 @@ impl BatchFailure {
     }
 }
 
-#[derive(Serialize, JsonSchema)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchReport {
     pub submission_id: String,
-    #[schemars(range(max = u64::MAX))]
     pub accepted_count: usize,
     pub failures: Vec<BatchFailure>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum AdmissionOutcomeData {
-    Published,
-    Rejected,
-    NotAttempted,
-    Unknown,
-}
-
-#[derive(Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct AdmissionItemData {
-    #[schemars(range(max = u64::MAX))]
-    pub index: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_listing_id: Option<String>,
-    pub outcome: AdmissionOutcomeData,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<&'static str>,
-    pub retryable: bool,
-}
-
-/// MCP includes the effective retry key and a disposition for every original position.
-/// REST retains its established body by emitting only `report` and its key header.
-#[derive(Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct AdmissionReportData {
-    #[serde(flatten)]
-    pub report: BatchReport,
-    pub idempotency_key: String,
-    #[schemars(range(max = u64::MAX))]
-    pub original_input_count: usize,
-    pub items: Vec<AdmissionItemData>,
-}
-
-/// Normalize complete item identities while bounding legacy failure echoes from original spellings.
+/// Report every failed original position, bounding failure echoes from original spellings.
 pub fn report(
     result: ProductListingIngestionSubmissionResult,
     mut local_failures: Vec<BatchFailure>,
     source_ids: &[Option<String>],
-) -> AdmissionReportData {
+) -> BatchReport {
     let mut accepted = 0;
     let failure_source_ids = source_ids
         .iter()
         .map(|id| id.as_deref().and_then(safe_source_id))
         .collect::<Vec<_>>();
     let mut seen = vec![false; result.original_input_count];
-    let mut outcomes = vec![AdmissionOutcomeData::Unknown; result.original_input_count];
     for failure in &local_failures {
         if let Some(seen) = seen.get_mut(failure.index) {
             *seen = true;
-            outcomes[failure.index] = AdmissionOutcomeData::Rejected;
         }
     }
     for item in &result.items {
@@ -239,14 +160,6 @@ pub fn report(
             continue;
         }
         *slot = true;
-        outcomes[item.index] = match item.outcome {
-            ProductListingIngestionOutcome::Accepted => AdmissionOutcomeData::Published,
-            ProductListingIngestionOutcome::Unconfirmed => AdmissionOutcomeData::Unknown,
-            ProductListingIngestionOutcome::NotAttempted { .. } => {
-                AdmissionOutcomeData::NotAttempted
-            }
-            ProductListingIngestionOutcome::Rejected { .. } => AdmissionOutcomeData::Rejected,
-        };
         if let Some(failure) =
             outcome_failure(item, failure_source_ids.get(item.index).cloned().flatten())
         {
@@ -268,33 +181,10 @@ pub fn report(
         }
     }
     local_failures.sort_by_key(|failure| failure.index);
-    let items = outcomes
-        .into_iter()
-        .enumerate()
-        .map(|(index, outcome)| {
-            let failure = local_failures.iter().find(|failure| failure.index == index);
-            AdmissionItemData {
-                index,
-                source_listing_id: source_ids
-                    .get(index)
-                    .and_then(Option::as_deref)
-                    .and_then(|id| SourceListingId::try_from(id).ok())
-                    .map(|id| id.to_string()),
-                outcome,
-                error: failure.map(|failure| failure.error),
-                retryable: failure.is_some_and(|failure| failure.retryable),
-            }
-        })
-        .collect();
-    AdmissionReportData {
-        report: BatchReport {
-            submission_id: result.submission_id.to_string(),
-            accepted_count: accepted,
-            failures: local_failures,
-        },
-        idempotency_key: result.idempotency_key.as_str().to_owned(),
-        original_input_count: result.original_input_count,
-        items,
+    BatchReport {
+        submission_id: result.submission_id.to_string(),
+        accepted_count: accepted,
+        failures: local_failures,
     }
 }
 
@@ -359,9 +249,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn should_share_the_exact_explicit_key_grammar_with_its_schema() {
-        let schema = optional_idempotency_key_schema(&mut schemars::SchemaGenerator::default());
-        let validator = jsonschema::validator_for(schema.as_value()).unwrap();
+    fn should_accept_only_visible_ascii_keys_without_comma() {
         for byte in 0..=127 {
             let value = String::from_utf8(vec![byte]).unwrap();
             let expected = (0x21..=0x7e).contains(&byte) && byte != b',';
@@ -369,11 +257,6 @@ mod tests {
                 expected,
                 parse_idempotency_key(&value).is_ok(),
                 "byte {byte}"
-            );
-            assert_eq!(
-                expected,
-                validator.is_valid(&json!(value)),
-                "schema byte {byte}"
             );
         }
         for (value, expected) in [
@@ -383,7 +266,6 @@ mod tests {
             ("é".into(), false),
         ] {
             assert_eq!(expected, parse_idempotency_key(&value).is_ok());
-            assert_eq!(expected, validator.is_valid(&json!(value)));
         }
     }
     #[test]
@@ -421,7 +303,7 @@ mod tests {
         }
     }
     #[test]
-    fn should_report_missing_outcomes_as_unknown_and_omit_private_classification() {
+    fn should_report_missing_outcomes_as_unconfirmed_and_omit_private_classification() {
         use product_listing_service::use_cases::{
             ProductListingIngestionCommandId, ProductListingIngestionSubmissionId,
         };
@@ -449,19 +331,12 @@ mod tests {
         );
         let value = serde_json::to_value(report).unwrap();
         assert_eq!(1, value["acceptedCount"]);
-        assert_eq!(3, value["originalInputCount"]);
-        assert_eq!("effective", value["idempotencyKey"]);
-        assert_eq!("UNKNOWN", value["items"][2]["outcome"]);
-        assert_eq!(true, value["items"][2]["retryable"]);
-        assert!(value["failures"][0].get("kind").is_none());
-        let schema = schemars::generate::SchemaSettings::default()
-            .for_serialize()
-            .into_generator()
-            .into_root_schema_for::<AdmissionReportData>();
-        assert!(
-            jsonschema::validator_for(schema.as_value())
-                .unwrap()
-                .is_valid(&value)
+        assert_eq!(
+            json!([
+                {"index":1,"error":"BAD_BODY_VALUE","retryable":false},
+                {"index":2,"sourceListingId":"last","error":"ENQUEUE_UNCONFIRMED","retryable":true},
+            ]),
+            value["failures"]
         );
     }
 }

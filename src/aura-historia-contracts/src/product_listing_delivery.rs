@@ -69,14 +69,6 @@ pub fn decode_command_text(
     let data: CommandData = serde_json::from_str(body).map_err(box_error)?;
     decode_data(data, key)
 }
-impl CommandData {
-    pub fn into_command(
-        self,
-        key: ProductListingKey,
-    ) -> Result<ChangeProductListingDeliveryCommand, BoxError> {
-        decode_data(self, key)
-    }
-}
 fn decode_data(
     data: CommandData,
     key: ProductListingKey,
@@ -241,10 +233,6 @@ impl From<product_listing_service::use_cases::ChangeProductListingDeliveryResult
     }
 }
 
-/// A source-local opaque string, validated by SourceListingId rather than an internal listing ID.
-pub fn source_listing_id_schema(_: &mut SchemaGenerator) -> Schema {
-    schemars::json_schema!({"type":"string","minLength":1,"pattern":r"^[^\u0000]+$","description":"Opaque source-local listing identifier, normalized by trimming outer whitespace; 1-512 UTF-8 bytes with no NUL. This is not productListingId or its internal UUID. Identifier-looking strings retain their source-local meaning."})
-}
 fn references() -> (Schema, Schema) {
     (
         crate::wire::schema::object_id(PartyId::PREFIX),

@@ -21,6 +21,8 @@ MAX_BYTES = 2 * 1024 * 1024
 MAX_REQUESTS = 40
 MAX_SECONDS = 90
 MIN_REQUEST_INTERVAL = 0.3
+# Partner workflows use REST; one representative removed MCP mutation must stay uncallable.
+REMOVED_OPERATION = "postPartnerProductListings"
 
 
 class SmokeFailure(Exception):
@@ -170,6 +172,27 @@ class Smoke:
                      version=version, notification=True)
             require(self.catalogue(f"catalogue {version}", version) == self.tools, "legacy catalogue differs")
 
+    def verify_removed_operation(self):
+        label = "removed partner operation"
+        message = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": REMOVED_OPERATION, "arguments": {},
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": CURRENT,
+                "io.modelcontextprotocol/clientInfo": {"name": "generic-stage-smoke", "version": "1"},
+                "io.modelcontextprotocol/clientCapabilities": {},
+            }}}
+        _, payload = self.request(label, "/v1", 200, method="POST", headers={
+            "Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": CURRENT, "Mcp-Method": "tools/call", "Mcp-Name": REMOVED_OPERATION,
+        }, body=json.dumps(message).encode())
+        try:
+            message = json.loads(payload)
+        except (ValueError, UnicodeError):
+            raise SmokeFailure(f"{label}: expected bounded JSON") from None
+        require(isinstance(message, dict) and "result" not in message
+                and isinstance(message.get("error"), dict) and message["error"].get("code") == -32602,
+                f"{label}: removed operation is callable")
+
     def verify_http_boundary(self):
         challenge, _ = self.rpc("protected missing bearer", "tools/call",
                                 {"name": "getUserAccount", "arguments": {}}, 401)
@@ -216,6 +239,7 @@ class Smoke:
     def run(self, token=None):
         self.verify_discovery()
         self.verify_protocols()
+        self.verify_removed_operation()
         self.verify_http_boundary()
         if token:
             _, account = self.rpc("delegated account read", "tools/call",
@@ -261,7 +285,7 @@ def evidence_headers(headers):
 def manifest_operations():
     directory = pathlib.Path(__file__).resolve().parents[1] / "src/aura-historia-mcp"
     operations = {}
-    for filename in ("public-operations.json", "authenticated-operations.json", "partner-operations.json"):
+    for filename in ("public-operations.json", "authenticated-operations.json"):
         manifest = json.loads((directory / filename).read_text())
         for operation in manifest["operations"]:
             require(operation["name"] == operation["operationId"], "manifest operation ID mismatch")
