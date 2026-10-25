@@ -28,6 +28,10 @@ uncertain review require maintenance. Manual OpenSearch administration remains
 operator work under the [OpenSearch contract](opensearch-stage.md); retained
 worker/message compatibility follows the [worker runbook](durable-worker-runbook.md).
 
+Healthy idle CDC requires fresh successful polling, explicit zero returned records
+and zero reader age. Missing metric samples remain unknown; an absent producer
+metric alone does not establish idleness.
+
 The environment record holds only its last verified application bundle, separately
 observed SQL state, active execution and an explicit operational hold. Successful
 SQL followed by failed application deployment updates schema evidence and preserves

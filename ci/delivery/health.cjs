@@ -103,7 +103,11 @@ async function verifyHealth(context, { api, fetch: fetchRequest = fetch, now = (
       dimensions: { StreamName: inventory.streamName } }, since, observedAt);
     const reads = await metric(api, { namespace: 'AWS/Kinesis', name: 'GetRecords.Success', statistic: 'Sum',
       dimensions: { StreamName: inventory.streamName } }, since, observedAt);
-    const idle = incoming === 0 && readerAge === 0 && reads !== null && reads > 0;
+    const returnedRecords = await metric(api, { namespace: 'AWS/Kinesis', name: 'GetRecords.Records', statistic: 'Sum',
+      dimensions: { StreamName: inventory.streamName } }, since, observedAt);
+    // Idle streams can omit ingress samples; successful empty reads provide explicit evidence.
+    const idle = (incoming === null || incoming === 0) && returnedRecords === 0 &&
+      readerAge === 0 && reads !== null && reads > 0;
     add('router-flow', age !== null ? age <= 60000 ? 'PASS' : 'FAIL' : idle ? 'PASS' : 'UNVERIFIED',
       age !== null ? `Maximum iterator age: ${age} ms.` : idle ? 'Observed healthy reader of an empty stream.' : 'Fresh flow/idle-reader evidence missing.');
     for (const name of ['DestinationDeliveryFailures', 'OnFailureDestinationDeliveredEventCount']) {
