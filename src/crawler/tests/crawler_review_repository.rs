@@ -1198,3 +1198,93 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
     assert_eq!(pattern.as_deref(), Some("/item/"));
     assert_eq!(state, "MATCHED");
 }
+
+async fn pending_schema_review(
+    repository: &CrawlerReviewRepository,
+    listing_source_id: &ListingSourceId,
+) -> CrawlerReviewId {
+    repository
+        .create_schema_review(
+            listing_source_id,
+            "manual_schema_required",
+            &[schema("h1")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_repair_request_without_a_note_or_once_the_review_is_closed() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+
+    for note in [None, Some(" \n ")] {
+        assert!(matches!(
+            repository.request_repair(review_id, note).await,
+            Err(ReviewRepositoryError::MissingRepairNote)
+        ));
+    }
+    let review = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(review.repair_request, None);
+
+    repository.reject_review(review_id, None).await.unwrap();
+    assert!(matches!(
+        repository.request_repair(review_id, Some("fix the title")).await,
+        Err(ReviewRepositoryError::NotPending(id)) if id == review_id
+    ));
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_repair_requested_review_pending_editable_and_approvable() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+
+    repository
+        .request_repair(review_id, Some("title misses sold pages"))
+        .await
+        .unwrap();
+    repository
+        .request_repair(review_id, Some("title and state miss sold pages"))
+        .await
+        .unwrap();
+    let repaired = schema("h1.product-title");
+    repository
+        .update_candidate_payload(review_id, json!({ "schemas": [repaired.clone()] }))
+        .await
+        .unwrap();
+    let waiting = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(waiting.status, STATUS_PENDING_REVIEW);
+    assert_eq!(
+        waiting
+            .repair_request
+            .as_ref()
+            .map(|request| request.note.as_str()),
+        Some("title and state miss sold pages")
+    );
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&listing_source_id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap(),
+        Some(review_id)
+    );
+    repository.approve_review(review_id, None).await.unwrap();
+
+    let approved = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(approved.status, STATUS_APPROVED);
+    assert_eq!(approved.repair_request, waiting.repair_request);
+    let live = ListingSourceProductSchemaRepositoryImpl::new(&pool)
+        .find_product_schema(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(live.product_schemas, vec![repaired]);
+}

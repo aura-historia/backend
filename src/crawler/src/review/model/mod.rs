@@ -16,7 +16,7 @@ pub mod url_pattern_candidate;
 pub use artifact::*;
 pub use listing_source_overview::ListingSourceOverview;
 pub use page_role::*;
-pub use review::CrawlerReview;
+pub use review::{CrawlerReview, RepairRequest};
 pub use review_detail::ReviewDetail;
 pub use review_page::CrawlerReviewPage;
 pub use review_url::CrawlerReviewUrl;

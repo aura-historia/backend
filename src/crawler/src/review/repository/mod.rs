@@ -43,6 +43,8 @@ pub enum ReviewRepositoryError {
     NotFound(CrawlerReviewId),
     #[error("review {0} is not pending review")]
     NotPending(CrawlerReviewId),
+    #[error("a needs-repair verdict needs a note saying what to repair")]
+    MissingRepairNote,
     #[error("review {0} has unsupported artifact type {1}")]
     UnsupportedArtifact(CrawlerReviewId, String),
     #[error("invalid schema field `{0}`")]
@@ -212,7 +214,8 @@ impl CrawlerReviewRepository {
     pub async fn list_reviews(&self, limit: i64) -> Result<Vec<CrawlerReview>, sqlx::Error> {
         let rows = sqlx::query(
             "SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, r.artifact_type, r.status, r.reason,
-                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.created, r.updated, r.reviewed
+                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.repair_requested, r.repair_note,
+                    r.created, r.updated, r.reviewed
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              ORDER BY
@@ -292,7 +295,8 @@ impl CrawlerReviewRepository {
     ) -> Result<ReviewDetail, ReviewRepositoryError> {
         let row = sqlx::query(
             "SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, r.artifact_type, r.status, r.reason,
-                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.created, r.updated, r.reviewed
+                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.repair_requested, r.repair_note,
+                    r.created, r.updated, r.reviewed
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              WHERE r.review_id = $1",
@@ -1005,13 +1009,33 @@ impl CrawlerReviewRepository {
             .await
     }
 
+    /// Records the needs-repair verdict on a pending review. The review stays pending, so its
+    /// candidate stays editable, its pages and the pages waiting on it stay attached, and no
+    /// second review opens for the same artifact; the reviewer later approves or rejects it. A
+    /// repeated verdict replaces the note.
     pub async fn request_repair(
         &self,
         review_id: CrawlerReviewId,
-        notes: Option<&str>,
+        note: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
-        self.set_review_status(review_id, STATUS_NEEDS_REPAIR, notes)
-            .await
+        let note = note
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .ok_or(ReviewRepositoryError::MissingRepairNote)?;
+        let result = sqlx::query(
+            "UPDATE crawler_reviews \
+             SET repair_requested = NOW(), repair_note = $2, updated = NOW() \
+             WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
+        )
+        .bind(review_id.as_uuid())
+        .bind(note)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(ReviewRepositoryError::NotPending(review_id));
+        }
+        info!(review_id = %review_id, "Reviewer asked for a review to be repaired");
+        Ok(())
     }
 
     pub async fn evaluate_schema_matrix_for_live_pages(
@@ -1422,10 +1446,26 @@ fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Erro
         candidate_payload: row.try_get("candidate_payload")?,
         validation_summary: row.try_get("validation_summary")?,
         reviewer_notes: row.try_get("reviewer_notes")?,
+        repair_request: row_to_repair_request(&row)?,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
         reviewed: row.try_get("reviewed")?,
     })
+}
+
+fn row_to_repair_request(
+    row: &sqlx::postgres::PgRow,
+) -> Result<Option<RepairRequest>, sqlx::Error> {
+    match (
+        row.try_get::<Option<OffsetDateTime>, _>("repair_requested")?,
+        row.try_get::<Option<String>, _>("repair_note")?,
+    ) {
+        (None, None) => Ok(None),
+        (Some(requested), Some(note)) => Ok(Some(RepairRequest { note, requested })),
+        _ => Err(sqlx::Error::Decode(
+            "a review's repair request must record both its time and its note".into(),
+        )),
+    }
 }
 
 fn row_to_page(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewPage, sqlx::Error> {

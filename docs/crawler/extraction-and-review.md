@@ -60,7 +60,13 @@ Generated selectors are grounded in page structure. Optional fields remain absen
 
 ## Review rail
 
-The review rail records generated URL-pattern and product-schema artifacts as auditable state. Artifacts may be pending, approved, rejected, marked for repair, or superseded. When review gating is enabled, pending artifacts do not become active crawler configuration.
+The review rail records generated URL-pattern and product-schema artifacts as auditable state. Artifacts may be pending, approved, rejected or superseded. When review gating is enabled, pending artifacts do not become active crawler configuration.
+
+A reviewer gives a pending review one of three verdicts:
+
+- **Approve** (`POST /api/reviews/{id}/approve`) makes the candidate the active configuration, supersedes other pending reviews of the same artifact and releases the work waiting on it for an immediate retry.
+- **Reject** (`POST /api/reviews/{id}/reject`) closes the review without changing configuration; rejecting a manual schema review also classifies its seed and triggering pages as non-product pages ([manual authoring](operations.md#manual-authoring)).
+- **Needs repair** (`POST /api/reviews/{id}/needs-repair` with a non-blank `notes`) records why the candidate needs repair and when, and leaves the review pending. The review keeps its candidate, pages and waiting pages, stays editable, holds back exactly the work any pending review holds back, and remains the one pending review of its artifact, so no second review opens. The review API returns the latest note and time as `repair_request`, and the console marks a pending review with one as waiting for repair. The reviewer repairs the candidate and then approves or rejects the review; a repeated needs-repair verdict replaces the note. Reviews stored with the legacy terminal `NEEDS_REPAIR` status stay closed.
 
 A review records its ListingSource, and URL-pattern reviews also record their domain. Candidate changes increment the review version and invalidate any cached schema matrix, so a stale live inspection cannot overwrite current review state. Review identities and matrix references use the TypeID policy in [object IDs](../object-ids.md).
 
