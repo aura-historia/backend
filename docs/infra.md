@@ -387,6 +387,16 @@ second stop/start. `reconcile` additionally requires `migrationInvocationSettled
 and a restricted `migrationEvidenceUri`; native settlement, actual schema and restored
 intended DMS/capture state plus health are checked before clearing the hold.
 
+Before the first routine request, associate `migrate` with the delivery stack's
+migration CloudFormation service role, and `compute`, `api` and `observability` with
+its runtime CloudFormation service role. A stack still using the bootstrap role
+needs a separately reviewed platform handoff: use the exact versioned bundle
+`TemplateURL` and unchanged live parameters, require zero resource changes, then
+verify the resulting role, original template, parameter values and every physical
+resource identity. Avoid `UsePreviousTemplate` for this handoff: native readback can
+materialize dynamic SSM references. An available change set with no resource changes
+remains ambiguous to routine delivery; complete this handoff before retrying it.
+
 For the first baseline only, `adopt` takes `bundleDigest`, `reason` and explicit intended
 `expectedDmsStatus` (`running`, `stopped` or `ready`). Deploy the
 reviewed bootstrap/platform templates and exact bundle through the separately
