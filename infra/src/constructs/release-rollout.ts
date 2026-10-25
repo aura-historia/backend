@@ -54,7 +54,7 @@ export class ReleaseRollout extends Construct {
         });
         hook.addToRolePolicy(new iam.PolicyStatement({ actions: ["lambda:InvokeFunction", "lambda:GetAlias"],
           resources: [fn.functionArn, `${fn.functionArn}:*`] }));
-        hook.addToRolePolicy(new iam.PolicyStatement({ actions: ["codedeploy:ListDeploymentTargets", "codedeploy:GetDeploymentTarget"],
+        hook.addToRolePolicy(new iam.PolicyStatement({ actions: ["codedeploy:GetDeployment", "codedeploy:GetApplicationRevision"],
           resources: ["*"] }));
         return hook;
       });

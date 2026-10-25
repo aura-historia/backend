@@ -56,7 +56,7 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
           new iam.PolicyStatement({ actions: ["cognito-idp:ListUsers", "cognito-idp:AdminGetUser", "cognito-idp:AdminDeleteUser",
             "cognito-idp:AdminUserGlobalSignOut", "cognito-idp:AdminLinkProviderForUser"], resources: [arn("cognito-idp", "userpool", "*")] }),
           new iam.PolicyStatement({ actions: ["lambda:InvokeFunction", "lambda:GetAlias", "lambda:UpdateAlias", "lambda:GetFunctionConfiguration"], resources: hookTargets }),
-          new iam.PolicyStatement({ actions: ["codedeploy:ListDeploymentTargets", "codedeploy:GetDeploymentTarget", "codedeploy:PutLifecycleEventHookExecutionStatus"], resources: ["*"] }),
+          new iam.PolicyStatement({ actions: ["codedeploy:GetDeployment", "codedeploy:GetApplicationRevision", "codedeploy:PutLifecycleEventHookExecutionStatus"], resources: ["*"] }),
           new iam.PolicyStatement({ actions: ["wafv2:CreateWebACL", "wafv2:UpdateWebACL", "wafv2:DeleteWebACL", "wafv2:GetWebACL", "wafv2:ListWebACLs", "wafv2:TagResource"], resources: ["*"] }),
           new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [functionArn(`backend-cleanup-lambda-${stage}:*`), functionArn(`fxrate-lambda-${stage}`), functionArn(`CodeDeployHook_*_${stage}`)] }),
           new iam.PolicyStatement({ actions: ["cloudwatch:DescribeAlarms", "ecr:GetAuthorizationToken"], resources: ["*"] }),
