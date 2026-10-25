@@ -1288,3 +1288,31 @@ async fn should_keep_repair_requested_review_pending_editable_and_approvable() {
         .unwrap();
     assert_eq!(live.product_schemas, vec![repaired]);
 }
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_to_store_a_repair_request_without_both_its_time_and_note() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+
+    for half_recorded in [
+        "UPDATE crawler_reviews SET repair_requested = NOW() WHERE review_id = $1",
+        "UPDATE crawler_reviews SET repair_note = 'fix the title' WHERE review_id = $1",
+        "UPDATE crawler_reviews SET repair_requested = NOW(), repair_note = ' ' WHERE review_id = $1",
+    ] {
+        let error = sqlx::query(half_recorded)
+            .bind(review_id.as_uuid())
+            .execute(&pool)
+            .await
+            .expect_err(half_recorded);
+        assert_eq!(
+            error
+                .as_database_error()
+                .and_then(|error| error.constraint()),
+            Some("crawler_reviews_repair_request_shape_check"),
+            "{half_recorded}"
+        );
+    }
+}

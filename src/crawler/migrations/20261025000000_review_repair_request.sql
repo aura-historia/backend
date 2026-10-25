@@ -6,5 +6,5 @@ ALTER TABLE crawler_reviews
     ADD COLUMN repair_note      TEXT,
     ADD CONSTRAINT crawler_reviews_repair_request_shape_check CHECK (
         (repair_requested IS NULL AND repair_note IS NULL)
-        OR (repair_requested IS NOT NULL AND btrim(repair_note) <> '')
+        OR (repair_requested IS NOT NULL AND repair_note IS NOT NULL AND btrim(repair_note) <> '')
     );
