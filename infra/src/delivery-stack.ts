@@ -143,8 +143,8 @@ export class DeliveryStack extends cdk.Stack {
       logging: { cloudWatch: { logGroup: new logs.LogGroup(this, `${name}Logs`, { retention: logs.RetentionDays.ONE_MONTH }) } },
       buildSpec: codebuild.BuildSpec.fromObject({ version: "0.2",
         ...(name === "release-build" ? { cache: {
-          key: 'rust-v1-$(node ci/delivery/cache-key.cjs "$CODEBUILD_SRC_DIR_Candidate")-${DELIVERY_SOURCE_SHA}',
-          "fallback-keys": ['rust-v1-$(node ci/delivery/cache-key.cjs "$CODEBUILD_SRC_DIR_Candidate")-'],
+          key: 'rust-v1-$(node ci/delivery/cache-key.cjs)-${DELIVERY_SOURCE_SHA}',
+          "fallback-keys": ['rust-v1-$(node ci/delivery/cache-key.cjs)-'],
           paths: [".delivery-cache/**/*"],
         } } : {}),
         env: { "exported-variables": ["MigrateActionMode", "MigrateChangeSetName", "ComputeActionMode", "ComputeChangeSetName",

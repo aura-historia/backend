@@ -15,6 +15,8 @@ function cacheIdentity(candidate, config) {
 }
 if (require.main === module) {
   const { loadBuildConfig } = require('./build.cjs');
-  console.log(cacheIdentity(process.argv[2], loadBuildConfig(process.env.DELIVERY_BUILD_CONFIG)));
+  // CodeBuild tokenizes cache-key commands without shell quote removal.
+  console.log(cacheIdentity(process.env.CODEBUILD_SRC_DIR_Candidate,
+    loadBuildConfig(process.env.DELIVERY_BUILD_CONFIG)));
 }
 module.exports = { cacheIdentity };
