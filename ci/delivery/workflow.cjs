@@ -13,6 +13,7 @@ const {
 const { assertFullTests } = require('./gate.cjs');
 const { loadBuildConfig, validateObjects } = require('./build.cjs');
 const storage = require('./storage.cjs');
+const admission = require('./admission.cjs');
 const json = (file) => JSON.parse(fs.readFileSync(file));
 function gh(endpoint) {
   return JSON.parse(
@@ -318,7 +319,7 @@ function build() {
   });
 }
 function pipelineExecution(name, executionId) {
-  return storage.aws('codepipeline', 'get-pipeline-execution', [
+  return admission.aws({ region: process.env.AWS_REGION }, 'codepipeline', 'get-pipeline-execution', [
     '--pipeline-name',
     name,
     '--pipeline-execution-id',
@@ -337,7 +338,7 @@ async function waitPipeline(name, executionId, timeoutSeconds = 7200) {
       if (
         Date.now() >= visibilityDeadline ||
         !/\(PipelineExecutionNotFoundException\) when calling the GetPipelineExecution operation:/.test(
-          String(cause.stderr || ''),
+          String(cause.cause?.stderr || cause.stderr || ''),
         )
       )
         throw cause;
