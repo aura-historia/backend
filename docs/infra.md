@@ -138,7 +138,8 @@ cloud or model credentials. The build approval authorizes compilation/publicatio
 cost. Only its isolated requester role can submit a shared CodePipeline build.
 One CodeBuild job compiles the entire Lambda deployment catalog in one Cargo
 invocation, builds each catalog image, compiles mail, and synthesizes configured
-target assemblies. Lambda builds retain full LTO and one codegen unit. The matcher
+target assemblies. Lambda builds retain Cargo Lambda’s ThinLTO and one codegen unit;
+its command-line profile settings override the LTO environment variable. The matcher
 uses its existing GNU target separately from the Lambda MUSL target. Selecting the
 deployment catalog avoids including development tools and their dependency features.
 Rust, cargo-lambda, Zig, Node, sccache, lockfiles and the prebuilt tool image digest
