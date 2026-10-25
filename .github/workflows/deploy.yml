@@ -188,7 +188,7 @@ jobs:
           retention-days: 90
   deploy:
     name: Approve ${{ inputs.target }} / report ${{ needs.prepare.outputs.report_digest }} / prerequisites ${{ needs.prepare.outputs.prerequisite_digest }}
-    if: needs.prepare.outputs.verdict == 'ROUTINE'
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.prepare.result == 'success' && needs.prepare.outputs.verdict == 'ROUTINE' }}
     needs: [resolve, prepare]
     environment:
       name: aws-${{ inputs.target }}

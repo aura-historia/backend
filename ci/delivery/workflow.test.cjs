@@ -71,6 +71,14 @@ test('the only release workflow is manual and target approval follows complete t
   assert.match(workflow, /uses: \.\/\.github\/workflows\/release-tests.yml/);
   assert.match(workflow, /needs: \[resolve, tests\]/);
   assert.match(workflow, /needs: \[resolve, prepare\]/);
+  const deploy = workflow.slice(workflow.indexOf("\n  deploy:\n"));
+  const condition = deploy.match(/^\s+if: (.+)$/m)?.[1];
+  assert.ok(condition);
+  for (const required of [
+    "!cancelled()", "needs.resolve.result == 'success'",
+    "needs.prepare.result == 'success'", "needs.prepare.outputs.verdict == 'ROUTINE'",
+  ])
+    assert.ok(condition.includes(required));
   assert.doesNotMatch(
     workflow,
     /CI_DEPLOY_ROLE_ARN|cargo lambda|docker push|s3api put-object/,
