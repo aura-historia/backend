@@ -149,7 +149,7 @@ impl<'a> FetchedPage<'a> {
 }
 
 /// What the stored removed-page schemas say about a fetched page.
-enum RemovedPageVerdict {
+pub(crate) enum RemovedPageVerdict {
     /// No stored schema matches the page.
     NotRemoved,
     /// A stored schema matches and no cached product schema still extracts this
@@ -169,9 +169,9 @@ enum RemovedPageVerdict {
 /// same source listing id. A related-item card on a soft-404 page therefore does not
 /// count as evidence. Plausibility is deliberately not required: a candidate that
 /// fails a plausibility check must reach fresh schema generation, not withdrawal.
-fn removed_page_verdict(
+pub(crate) fn removed_page_verdict(
     removed_page_schemas: Vec<RemovedPageSchema>,
-    cached: Option<&ListingSourceProductSchema>,
+    cached_schemas: &[ProductCssSelectorSchema],
     html: &str,
     source_record_key: &str,
     last_source_listing_id: Option<&str>,
@@ -188,8 +188,8 @@ fn removed_page_verdict(
         return RemovedPageVerdict::NotRemoved;
     }
 
-    let product_still_extracts = cached.is_some_and(|cached| {
-        apply_cached_schemas(&cached.product_schemas, &parsed)
+    let product_still_extracts =
+        apply_cached_schemas(cached_schemas, &parsed)
             .iter()
             .any(|candidate| {
                 let title = candidate.raw.title.trim();
@@ -200,8 +200,7 @@ fn removed_page_verdict(
                     candidate_source_listing_id(&candidate.raw.source_listing_id, source_record_key)
                         .is_some_and(|extracted| extracted == known)
                 })
-            })
-    });
+            });
     if product_still_extracts {
         RemovedPageVerdict::ProductStillExtracts { matches }
     } else {
@@ -422,7 +421,9 @@ impl ScraperServiceImpl {
         // normally; the warning names the row an operator has to fix.
         match removed_page_verdict(
             removed_page_schemas,
-            cached_product_schemas.as_ref(),
+            cached_product_schemas
+                .as_ref()
+                .map_or(&[], |cached| cached.product_schemas.as_slice()),
             &html,
             source_record_key,
             last_source_listing_id,

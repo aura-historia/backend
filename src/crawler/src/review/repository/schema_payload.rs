@@ -4,32 +4,40 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::rule::ExtractionRule;
 
 use super::ReviewRepositoryError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+/// The candidate a product-schema review holds, as its `candidate_payload` stores it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProductSchemaReviewCandidate {
-    schemas: Vec<ProductCssSelectorSchema>,
+pub(super) struct ProductSchemaReviewCandidate {
+    pub(super) schemas: Vec<ProductCssSelectorSchema>,
 }
 
-pub(super) fn parse_schemas_payload(
-    candidate_payload: &serde_json::Value,
-) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
-    let candidate =
-        serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
+impl ProductSchemaReviewCandidate {
+    /// Decodes and validates a candidate payload.
+    pub(super) fn parse(
+        candidate_payload: &serde_json::Value,
+    ) -> Result<Self, ReviewRepositoryError> {
+        let candidate = serde_json::from_value::<Self>(candidate_payload.clone())
             .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
-    validate_product_schemas(&candidate.schemas)?;
-    Ok(candidate.schemas)
-}
+        validate_product_schemas(&candidate.schemas)?;
+        Ok(candidate)
+    }
 
-/// Decodes a stored candidate without validating it, to compare it with the live schemas: a
-/// candidate that today's validation rejects is still a fact about what was approved.
-pub(super) fn decode_stored_schemas_payload(
-    candidate_payload: &serde_json::Value,
-) -> Option<Vec<ProductCssSelectorSchema>> {
-    serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
-        .ok()
-        .map(|candidate| candidate.schemas)
+    /// Decodes a stored candidate without validating it, to compare it with the live schemas: a
+    /// candidate that today's validation rejects is still a fact about what was approved.
+    pub(super) fn decode_stored(candidate_payload: &serde_json::Value) -> Option<Self> {
+        serde_json::from_value::<Self>(candidate_payload.clone()).ok()
+    }
+
+    /// This candidate holding `schemas` instead of its own.
+    pub(super) fn with_schemas(self, schemas: Vec<ProductCssSelectorSchema>) -> Self {
+        Self { schemas }
+    }
+
+    pub(super) fn to_payload(&self) -> Result<serde_json::Value, ReviewRepositoryError> {
+        Ok(serde_json::to_value(self)?)
+    }
 }
 
 pub(super) fn validate_product_schemas(
@@ -62,13 +70,16 @@ pub(super) fn approval_product_schemas(
     Ok(schemas)
 }
 
+/// The candidate in `candidate_payload` with `field` of the schema at `schema_index` set to
+/// `rule`, validated.
 pub(super) fn update_schema_field_payload(
     candidate_payload: &serde_json::Value,
     schema_index: usize,
     field: &str,
     rule: Option<ExtractionRule>,
-) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
-    let mut schemas = parse_schemas_payload(candidate_payload)?;
+) -> Result<ProductSchemaReviewCandidate, ReviewRepositoryError> {
+    let candidate = ProductSchemaReviewCandidate::parse(candidate_payload)?;
+    let mut schemas = candidate.schemas.clone();
     let Some(schema) = schemas.get_mut(schema_index) else {
         return Err(ReviewRepositoryError::InvalidSchemaField(format!(
             "schema index {schema_index}"
@@ -77,7 +88,7 @@ pub(super) fn update_schema_field_payload(
 
     update_schema_rule(schema, field, rule)?;
     validate_product_schemas(&schemas)?;
-    Ok(schemas)
+    Ok(candidate.with_schemas(schemas))
 }
 
 fn update_schema_rule(
@@ -176,7 +187,7 @@ mod tests {
             serde_json::json!({ "schemas": [], "unexpected": true }),
         ] {
             assert!(matches!(
-                parse_schemas_payload(&payload),
+                ProductSchemaReviewCandidate::parse(&payload),
                 Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
             ));
         }
@@ -186,9 +197,9 @@ mod tests {
     fn parses_non_empty_product_schema_candidate() {
         let payload = serde_json::json!({ "schemas": [schema("h1.product")] });
 
-        let parsed = parse_schemas_payload(&payload);
+        let parsed = ProductSchemaReviewCandidate::parse(&payload);
 
-        assert!(matches!(parsed, Ok(schemas) if schemas.len() == 1));
+        assert!(matches!(parsed, Ok(candidate) if candidate.schemas.len() == 1));
     }
 
     #[test]
@@ -203,7 +214,7 @@ mod tests {
 
         for payload in [invalid_primary, invalid_additional] {
             assert!(matches!(
-                parse_schemas_payload(&payload),
+                ProductSchemaReviewCandidate::parse(&payload),
                 Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
             ));
         }
@@ -240,7 +251,7 @@ mod tests {
         let mut schema = schema("h1.template-a");
         schema.price = Some(text_rule(".price"));
 
-        let schemas = update_schema_field_payload(
+        let candidate = update_schema_field_payload(
             &serde_json::json!({ "schemas": [schema] }),
             0,
             "price",
@@ -248,7 +259,7 @@ mod tests {
         )
         .expect("optional price rule can be deleted");
 
-        assert!(schemas[0].price.is_none());
+        assert!(candidate.schemas[0].price.is_none());
     }
 
     #[test]

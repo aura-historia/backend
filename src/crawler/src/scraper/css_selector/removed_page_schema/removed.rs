@@ -50,6 +50,19 @@ impl RemovedPageMatch {
     }
 }
 
+/// Appends each of `added` that `stored` does not hold yet, keeping the stored order, so a
+/// ListingSource stores each removed-page template once whichever path proposes it.
+pub fn extend_with_new_removed_page_schemas(
+    stored: &mut Vec<RemovedPageSchema>,
+    added: impl IntoIterator<Item = RemovedPageSchema>,
+) {
+    for schema in added {
+        if !stored.contains(&schema) {
+            stored.push(schema);
+        }
+    }
+}
+
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RemovedPageSchema {
@@ -126,7 +139,7 @@ impl RemovedPageSchema {
         }
     }
 
-    pub fn validate_for_llm_response(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         match (self.text.as_deref(), self.regex.as_deref()) {
             (Some(text), None) if !text.trim().is_empty() => Ok(()),
             (None, Some(pattern)) => removed_page_regex(pattern).map(|_| ()),
@@ -267,7 +280,7 @@ mod tests {
     #[test]
     fn should_reject_blank_regex_with_the_regex_specific_message() {
         let err = regex_schema("   ")
-            .validate_for_llm_response()
+            .validate()
             .expect_err("blank regex is rejected");
 
         assert_eq!(err, "Removed page regex must not be empty");
@@ -295,7 +308,7 @@ mod tests {
                 regex: Some(pattern.to_string()),
             };
 
-            assert!(broad.validate_for_llm_response().is_err(), "{pattern}");
+            assert!(broad.validate().is_err(), "{pattern}");
             assert!(broad.clone().match_page(&parsed).is_none(), "{pattern}");
         }
     }
