@@ -200,7 +200,7 @@ AS $$
 BEGIN
     IF NEW.candidate_payload IS DISTINCT FROM OLD.candidate_payload THEN
         NEW.candidate_version = OLD.candidate_version + 1;
-        NEW.validation_summary = NEW.validation_summary - 'schema_matrix';
+        NEW.validation_summary = NEW.validation_summary - 'schema_matrix' - 'schema_matrix_summary';
     END IF;
     RETURN NEW;
 END;

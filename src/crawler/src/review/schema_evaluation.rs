@@ -28,6 +28,12 @@ struct MatrixPage<'a> {
     captured_identity: Option<&'a str>,
 }
 
+fn parse_page(raw_html: &str) -> Html {
+    #[cfg(test)]
+    tests::PAGE_PARSES.with(|parses| parses.set(parses.get() + 1));
+    Html::parse_document(raw_html)
+}
+
 /// Evaluates the schemas and removed-page templates on the live review pages.
 /// `captured_identities` maps a page URL to the source listing id its listing was captured
 /// under.
@@ -137,26 +143,33 @@ fn matched_templates(
         .collect()
 }
 
+/// Evaluates every candidate on every page. Each page is parsed once, and every candidate
+/// evaluates it, and the identities they derive from it are compared, before the next page
+/// is parsed, so a single parsed page is held at a time.
 fn evaluate_candidates(
     schemas: &[ProductCssSelectorSchema],
     pages: &[MatrixPage<'_>],
 ) -> Vec<SchemaCandidateEvaluation> {
-    let mut candidates: Vec<SchemaCandidateEvaluation> = schemas
-        .iter()
-        .enumerate()
-        .map(|(schema_index, schema)| {
-            let mut page_evaluations: Vec<SchemaPageEvaluation> = pages
-                .iter()
-                .map(|page| evaluate_schema_page(schema, page))
-                .collect();
-            add_cross_page_findings(&mut page_evaluations);
-            SchemaCandidateEvaluation {
-                schema_index,
-                pages: page_evaluations,
-            }
+    let mut candidates: Vec<SchemaCandidateEvaluation> = (0..schemas.len())
+        .map(|schema_index| SchemaCandidateEvaluation {
+            schema_index,
+            pages: Vec::with_capacity(pages.len()),
         })
         .collect();
-    add_identity_agreement_findings(&mut candidates, pages);
+    for page in pages {
+        let html = parse_page(page.raw_html);
+        let mut page_evaluations: Vec<SchemaPageEvaluation> = schemas
+            .iter()
+            .map(|schema| evaluate_schema_page(schema, page, &html))
+            .collect();
+        add_identity_agreement_findings(&mut page_evaluations, page.captured_identity);
+        for (candidate, evaluation) in candidates.iter_mut().zip(page_evaluations) {
+            candidate.pages.push(evaluation);
+        }
+    }
+    for candidate in &mut candidates {
+        add_cross_page_findings(&mut candidate.pages);
+    }
     candidates
 }
 
@@ -184,33 +197,28 @@ fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
     }
 }
 
-/// Compares, page by page, the identities the candidates that apply to the page derive
-/// from it, with each other and with the page's captured identity. A withdrawn extraction
-/// is left out: runtime selection never captures it.
+/// Compares the identities the candidates that apply to one page derive from it, with
+/// each other and with the page's captured identity. `page_evaluations` holds every
+/// candidate's evaluation of that page, in candidate order. A withdrawn extraction is left
+/// out: runtime selection never captures it.
 fn add_identity_agreement_findings(
-    candidates: &mut [SchemaCandidateEvaluation],
-    pages: &[MatrixPage<'_>],
+    page_evaluations: &mut [SchemaPageEvaluation],
+    captured_identity: Option<&str>,
 ) {
-    for (page_index, page) in pages.iter().enumerate() {
-        let findings = {
-            let extractions: Vec<_> = candidates
-                .iter()
-                .map(|candidate| {
-                    candidate.pages.get(page_index).and_then(|evaluation| {
-                        evaluation
-                            .apply_ok
-                            .then_some(evaluation.extracted.as_ref())
-                            .flatten()
-                    })
-                })
-                .collect();
-            IdentityAgreementFindings::of(&extractions, page.captured_identity)
-        };
-        for (candidate, findings) in candidates.iter_mut().zip(findings) {
-            if let Some(evaluation) = candidate.pages.get_mut(page_index) {
-                evaluation.identity_agreement_findings = findings;
-            }
-        }
+    let findings = {
+        let extractions: Vec<_> = page_evaluations
+            .iter()
+            .map(|evaluation| {
+                evaluation
+                    .apply_ok
+                    .then_some(evaluation.extracted.as_ref())
+                    .flatten()
+            })
+            .collect();
+        IdentityAgreementFindings::of(&extractions, captured_identity)
+    };
+    for (evaluation, findings) in page_evaluations.iter_mut().zip(findings) {
+        evaluation.identity_agreement_findings = findings;
     }
 }
 
@@ -363,13 +371,13 @@ pub(crate) fn unused_schema_indices(matrix: &SchemaMatrix) -> Vec<usize> {
 fn evaluate_schema_page(
     schema: &ProductCssSelectorSchema,
     page: &MatrixPage<'_>,
+    html: &Html,
 ) -> SchemaPageEvaluation {
-    let html = Html::parse_document(page.raw_html);
-    let extraction = schema.extract(&html);
+    let extraction = schema.extract(html);
     let fields = evaluate_schema_fields(
         schema,
-        &html,
-        skipped_image_elements(schema, &html, &extraction),
+        html,
+        skipped_image_elements(schema, html, &extraction),
     );
 
     // A page counts as applied only when runtime selection would accept the
@@ -400,7 +408,7 @@ fn evaluate_schema_page(
         // Filled once every page is evaluated. Runtime selection never sees them, so
         // they leave `apply_ok` alone.
         cross_page_findings: CrossPageFindings::default(),
-        // Filled once every candidate is evaluated, for the same reason.
+        // Filled once every candidate has evaluated the page, for the same reason.
         identity_agreement_findings: IdentityAgreementFindings::default(),
         fields,
     }
@@ -533,7 +541,11 @@ mod tests {
     use super::*;
     use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED};
     use crate::scraper::css_selector::rule::{CssSelector, ExtractionCardinality, ExtractionKind};
-    use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField, PlausibilityFinding};
+    use crate::scraper::plausibility::{
+        IdentityAgreementCheck, IdentityAgreementFinding, PlausibilityCheck, PlausibilityField,
+        PlausibilityFinding,
+    };
+    use std::cell::Cell;
 
     fn text_rule(selector: &str) -> ExtractionRule {
         ExtractionRule {
@@ -611,6 +623,126 @@ mod tests {
             raw_html: format!(
                 "<html><body><span id=\"product-id\">SKU</span><{title_tag}>Title</{title_tag}>{price_html}<span id=\"state\">Available</span><img src=\"a.jpg\"></body></html>"
             ),
+        }
+    }
+
+    thread_local! {
+        /// How many pages this test thread parsed for matrix evaluation.
+        pub(super) static PAGE_PARSES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Runs `evaluate` and returns its result with the number of pages it parsed.
+    fn with_page_parses<T>(evaluate: impl FnOnce() -> T) -> (T, usize) {
+        PAGE_PARSES.with(|parses| parses.set(0));
+        let result = evaluate();
+        (result, PAGE_PARSES.with(Cell::get))
+    }
+
+    fn live_review_page(page: &SchemaReviewPageInput) -> (CrawlerReviewPage, String) {
+        let review_page = CrawlerReviewPage {
+            review_page_id: crate::CrawlerReviewPageId::new(),
+            review_id: CrawlerReviewId::new(),
+            url: page.url.clone(),
+            role: page.role.clone(),
+            html_hash: String::new(),
+            fetched: time::OffsetDateTime::now_utc(),
+        };
+        (review_page, page.raw_html.clone())
+    }
+
+    #[test]
+    fn should_parse_each_page_once_for_every_candidate() {
+        // The third candidate reads the identity from another element of the primary page,
+        // so the candidates that apply there disagree on it.
+        let schemas = vec![
+            schema("h1"),
+            schema("h2"),
+            ProductCssSelectorSchema {
+                source_listing_id: Some(text_rule("#sku")),
+                ..schema_with_price("h1")
+            },
+        ];
+        let mut primary = page(PAGE_ROLE_PRIMARY, "h1");
+        primary.raw_html = primary
+            .raw_html
+            .replace("<body>", "<body><span id=\"sku\">SKU-2</span>");
+        let pages = vec![primary, page(PAGE_ROLE_SEED, "h2")];
+        let live_pages: Vec<_> = pages.iter().map(live_review_page).collect();
+        // The seed page's listing was captured under another identity.
+        let captured = HashMap::from([(pages[1].url.clone(), "SKU-OLD".to_owned())]);
+
+        let (input_matrix, input_parses) =
+            with_page_parses(|| evaluate_schema_matrix_for_inputs(&schemas, &pages));
+        let (live_matrix, live_parses) = with_page_parses(|| {
+            evaluate_schema_matrix_for_live_review_pages(
+                CrawlerReviewId::new(),
+                &schemas,
+                &[],
+                &live_pages,
+                &captured,
+            )
+        });
+
+        assert_eq!(input_parses, pages.len());
+        assert_eq!(live_parses, pages.len());
+        let differs = |check, value: &str| {
+            vec![IdentityAgreementFinding {
+                field: PlausibilityField::SourceListingId,
+                check,
+                values: vec![value.to_owned()],
+            }]
+        };
+        let differs_from_captured = differs(
+            IdentityAgreementCheck::DiffersFromCapturedIdentity,
+            "SKU-OLD",
+        );
+        for (matrix, seed_page_findings) in [
+            (input_matrix, Vec::new()),
+            (live_matrix, differs_from_captured),
+        ] {
+            // Every candidate applies its own selectors to the shared parse of each page,
+            // and the identities they derive from it are compared, in schema and page order.
+            let evaluated: Vec<_> = matrix
+                .candidates
+                .iter()
+                .map(|candidate| {
+                    let pages: Vec<_> = candidate
+                        .pages
+                        .iter()
+                        .map(|page| {
+                            let findings = page.identity_agreement_findings.as_slice().to_vec();
+                            (page.apply_ok, findings)
+                        })
+                        .collect();
+                    (candidate.schema_index, pages)
+                })
+                .collect();
+            assert_eq!(
+                evaluated,
+                vec![
+                    (
+                        0,
+                        vec![
+                            (
+                                true,
+                                differs(IdentityAgreementCheck::DiffersFromOtherSchemas, "SKU-2")
+                            ),
+                            (false, Vec::new()),
+                        ]
+                    ),
+                    (1, vec![(false, Vec::new()), (true, seed_page_findings)]),
+                    (
+                        2,
+                        vec![
+                            (
+                                true,
+                                differs(IdentityAgreementCheck::DiffersFromOtherSchemas, "SKU")
+                            ),
+                            (false, Vec::new()),
+                        ]
+                    ),
+                ]
+            );
         }
     }
 

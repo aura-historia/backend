@@ -1157,11 +1157,13 @@ impl CrawlerReviewRepository {
         evaluated: &EvaluatedSchemaMatrix,
     ) -> Result<(), ReviewRepositoryError> {
         let matrix = serde_json::to_value(&evaluated.matrix)?;
+        // `schema_matrix_summary` judges the matrix schema generation stored, so it leaves with
+        // that matrix instead of standing next to a refreshed one.
         let result = sqlx::query(
             "UPDATE crawler_reviews
              SET validation_summary = jsonb_set(
                      CASE jsonb_typeof(validation_summary)
-                         WHEN 'object' THEN validation_summary
+                         WHEN 'object' THEN validation_summary - 'schema_matrix_summary'
                          ELSE jsonb_build_object('summary', validation_summary)
                      END,
                      '{schema_matrix}',
@@ -1384,14 +1386,16 @@ async fn insert_review_page(
     Ok(())
 }
 
-/// Drops the cached schema matrix after the review's page set changed.
+/// Drops the cached schema matrix, and the summary schema generation recorded of it, after the
+/// review's page set changed.
 async fn drop_cached_schema_matrix(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE crawler_reviews \
-         SET validation_summary = validation_summary - 'schema_matrix', updated = NOW() \
+         SET validation_summary = validation_summary - 'schema_matrix' - 'schema_matrix_summary', \
+             updated = NOW() \
          WHERE review_id = $1 AND jsonb_typeof(validation_summary) = 'object'",
     )
     .bind(review_id.as_uuid())
