@@ -91,7 +91,7 @@ including public TypeIDs versus persisted UUIDs, required nulls, complete terms 
 
 Protected party-location management DTOs and pure command/view mappings live in
 `party_locations::management`; source-default references and applicability evidence live in
-`listing_sources::location_default`. REST and MCP preserve their full fields, revision codecs,
+`listing_sources::location_default`. REST preserves their full fields, revision codecs,
 patch null rules and bounded location pages. Management `GeographyData`/`PositionData` remain
 separate from public `GeographicSearchData`. The [location contract tests](tests/location_management.rs)
 check actual JSON against schemas, including nullable clears and retained evidence.

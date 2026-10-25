@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-25 — Consumer-only MCP catalogue (#2481)
+
+- **Breaking change:** MCP removes all 36 partner tools: listing management, synchronous and asynchronous listing batches, Shopify ingestion configuration, party locations, source-location defaults, shipping profiles/defaults and listing delivery. `tools/list` returns the 38 consumer operations (12 public, 26 private-user) on one page without `nextCursor`; a call naming a removed tool fails as an unknown tool (`-32602`). Partner workflows continue unchanged through REST. The endpoint, transport, OAuth contract, scopes and the retained tools' names, schemas and behavior are unchanged. See the [MCP contract](mcp.md#partner-workflows-use-rest).
+
 ## 2026-10-23 — Bounded listing shipping reads (#2444)
 
 - **Breaking change:** search, similar listings, watchlist, saved-search matches and auction catalogues return a bounded `item.shipping` summary with optional `eligibility`, `requiredInputs`, `explanations` and an independent `collection` summary. `userState.shipping` adds at most one `pricePreview` (service, explicit basis and price, in the requested currency when convertible), required `attribution` and a `display` valuation only when the preview was converted. Collections no longer return terms, converted per-zone rates, options or zone/service indices, including the detail-shaped watchlist, match and catalogue items (`PersonalizedProductListingCollectionDetailsData`).

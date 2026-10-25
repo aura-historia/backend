@@ -1,9 +1,8 @@
 use crate::public::{PublicServices, operations};
 use crate::{AuraTokenGate, ConfigError, RegistryError, TransportConfig, router};
 use aura_historia_runtime::{
-    ProductListingConfig, ProductListingDependencies, ProductListingIngestionConfigError,
-    ProductListingIngestionDependencies, ProductListingProviderError, RotatingRuntime, Runtime,
-    RuntimeError,
+    ProductListingConfig, ProductListingDependencies, ProductListingProviderError, RotatingRuntime,
+    Runtime, RuntimeError,
 };
 use axum::Router;
 use platform_lambda_bootstrap::VersionedCompositionCache;
@@ -12,14 +11,12 @@ use std::sync::Arc;
 /// Provider handles selected by the production catalogue; applications may inject local adapters.
 pub struct McpDependencies {
     pub listings: ProductListingDependencies,
-    pub ingestion: ProductListingIngestionDependencies,
 }
 
 impl McpDependencies {
-    pub async fn from_env(listings: &ProductListingConfig) -> Result<Self, McpStartupError> {
+    pub fn from_env(listings: &ProductListingConfig) -> Result<Self, McpStartupError> {
         Ok(Self {
             listings: ProductListingDependencies::from_env(listings)?,
-            ingestion: ProductListingIngestionDependencies::from_env().await?,
         })
     }
 }
@@ -56,29 +53,6 @@ fn production_registry(
     registered.extend(crate::tools::notifications::operations(
         runtime.notifications().clone(),
     )?);
-    let ingestion = runtime.partner_product_listing_ingestion(dependencies.ingestion);
-    registered.extend(crate::tools::partner_listing_management::operations(
-        runtime.partner_listing_management().clone(),
-    )?);
-    registered.extend(crate::tools::partner_product_listing_batches::operations(
-        runtime.partner_product_listing_batches().clone(),
-    )?);
-    registered.extend(crate::tools::partner_product_listing_ingestion::operations(
-        ingestion.clone(),
-    )?);
-    registered.extend(crate::tools::party_locations::operations(
-        runtime.party_locations().clone(),
-    )?);
-    registered.extend(crate::tools::source_location_defaults::operations(
-        runtime.source_location_defaults().clone(),
-    )?);
-    registered.extend(crate::tools::shipping::operations(
-        runtime.shipping_management().clone(),
-    )?);
-    registered.extend(crate::tools::product_listing_delivery::operations(
-        runtime.product_listing_delivery().clone(),
-        ingestion.submit.clone(),
-    )?);
     crate::Registry::new(registered)
 }
 
@@ -110,7 +84,7 @@ impl RotatingMcpRouter {
         let app = self
             .routers
             .get_or_try_build(runtime.version_id(), || async {
-                let dependencies = McpDependencies::from_env(&self.listings).await?;
+                let dependencies = McpDependencies::from_env(&self.listings)?;
                 mcp_router(self.transport.clone(), runtime.value(), dependencies)
             })
             .await?;
@@ -124,8 +98,6 @@ pub enum McpStartupError {
     Runtime(#[from] RuntimeError),
     #[error("MCP listing providers unavailable")]
     Providers(#[from] ProductListingProviderError),
-    #[error("MCP ingestion publisher unavailable")]
-    Ingestion(#[from] ProductListingIngestionConfigError),
     #[error("invalid MCP operation registry")]
     Registry(#[from] RegistryError),
     #[error("invalid MCP transport configuration")]
@@ -149,10 +121,6 @@ mod tests {
             .env_clear()
             .env("OPENSEARCH_ENDPOINT_URL", "http://127.0.0.1:9")
             .env("STAGE", "ephemeral")
-            .env(
-                "PRODUCT_LISTING_INGESTION_QUEUE_URL",
-                "http://127.0.0.1:9/fixture.fifo",
-            )
             .env("AWS_REGION", "eu-central-1")
             .env("AWS_ACCESS_KEY_ID", "fixture")
             .env("AWS_SECRET_ACCESS_KEY", "fixture")
@@ -182,13 +150,11 @@ mod tests {
         let runtime = Runtime::from_pool(pool);
         let config = ProductListingConfig::from_getter(|_| None).unwrap();
         let registry =
-            production_registry(&runtime, McpDependencies::from_env(&config).await.unwrap())
-                .unwrap();
+            production_registry(&runtime, McpDependencies::from_env(&config).unwrap()).unwrap();
         let mut expected = std::collections::BTreeMap::new();
         for manifest in [
             include_str!("../public-operations.json"),
             include_str!("../authenticated-operations.json"),
-            include_str!("../partner-operations.json"),
         ] {
             let manifest: serde_json::Value = serde_json::from_str(manifest).unwrap();
             for entry in manifest["operations"].as_array().unwrap() {
@@ -202,18 +168,10 @@ mod tests {
                 assert!(expected.insert(name, entry).is_none());
             }
         }
-        let (mut tools, next) = registry.page(None).unwrap();
-        assert_eq!(50, tools.len());
-        let (rest, end) = registry.page(next.as_deref()).unwrap();
-        assert_eq!(24, rest.len());
-        assert!(end.is_none());
-        tools.extend(rest);
-        assert_eq!(74, expected.len());
-        assert!(
-            registry
-                .get("putWoocommerceListingSourceIngestionConfiguration")
-                .is_none()
-        );
+        let (tools, next) = registry.page(None).unwrap();
+        assert_eq!(38, tools.len());
+        assert!(next.is_none());
+        assert_eq!(38, expected.len());
         assert_eq!(
             expected.keys().cloned().collect::<Vec<_>>(),
             tools

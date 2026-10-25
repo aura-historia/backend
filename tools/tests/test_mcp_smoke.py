@@ -96,9 +96,9 @@ class SmokeTests(unittest.TestCase):
         names = smoke.manifest_operations()
         self.assertIn("getPublicOverview", names)
         self.assertIn("getUserAccount", names)
-        self.assertIn("submitProductListingDelivery", names)
-        self.assertEqual(74, len(names))
-        self.assertNotIn("putWoocommerceListingSourceIngestionConfiguration", names)
+        self.assertEqual(38, len(names))
+        self.assertNotIn(smoke.REMOVED_OPERATION, names)
+        self.assertNotIn("submitProductListingDelivery", names)
         self.assertNotIn("protectedFixture", names)
 
     def test_rejects_incomplete_or_unsuccessful_json_rpc_even_with_http_200(self):
@@ -160,21 +160,30 @@ class SmokeTests(unittest.TestCase):
         with self.assertRaisesRegex(smoke.SmokeFailure, "policy differs"):
             smoke.verify_catalogue({"tools": tools})
 
-    def test_follows_bounded_catalogue_pages_and_rejects_repeated_or_excess_continuation(self):
+    def test_reads_single_catalogue_page_and_rejects_any_continuation(self):
         runner = smoke.Smoke(self.origin)
-        names = sorted(smoke.manifest_operations())
-        pages = [{"tools": [{"name": name} for name in names[:50]], "nextCursor": names[49]},
-                 {"tools": [{"name": name} for name in names[50:]]}]
-        with patch.object(runner, "rpc", side_effect=[({}, page) for page in pages]) as rpc, \
+        page = {"tools": [{"name": name} for name in sorted(smoke.manifest_operations())]}
+        with patch.object(runner, "rpc", return_value=({}, page)) as rpc, \
                 patch.object(smoke, "verify_catalogue", return_value="complete") as verify:
             self.assertEqual("complete", runner.catalogue("local catalogue"))
-            self.assertEqual({"cursor": names[49]}, rpc.call_args_list[1].args[2])
-            self.assertEqual(74, len(verify.call_args.args[0]["tools"]))
-        for cursor in (names[49], "more"):
-            pages[1]["nextCursor"] = cursor
-            with self.subTest(cursor=cursor), patch.object(runner, "rpc", side_effect=[({}, page) for page in pages]):
-                with self.assertRaises(smoke.SmokeFailure):
-                    runner.catalogue("local catalogue")
+            self.assertEqual(1, rpc.call_count)
+            self.assertEqual(38, len(verify.call_args.args[0]["tools"]))
+        with patch.object(runner, "rpc", return_value=({}, {**page, "nextCursor": "more"})):
+            with self.assertRaisesRegex(smoke.SmokeFailure, "page bound"):
+                runner.catalogue("local catalogue")
+
+    def test_requires_removed_partner_operation_to_fail_as_unknown_tool(self):
+        runner = smoke.Smoke(self.origin)
+        unknown = {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "Unknown tool"}}
+        with patch.object(runner, "request", return_value=({}, json.dumps(unknown).encode())) as request:
+            runner.verify_removed_operation()
+            self.assertEqual(smoke.REMOVED_OPERATION, request.call_args.kwargs["headers"]["Mcp-Name"])
+        for body in ({"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
+                     {"jsonrpc": "2.0", "id": 1, "error": {"code": -32603}}):
+            with self.subTest(body=body), \
+                    patch.object(runner, "request", return_value=({}, json.dumps(body).encode())):
+                with self.assertRaisesRegex(smoke.SmokeFailure, "callable"):
+                    runner.verify_removed_operation()
 
     def test_checks_exact_auth_challenges_and_browser_preflight_admission(self):
         runner = smoke.Smoke(self.origin)

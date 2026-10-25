@@ -54,8 +54,8 @@ and evidence, return current state, and recheck current authority. Conflicting r
 receipts survive source deletion. Lists are bounded summary reads; details omit evidence.
 Management responses and errors are `no-store`.
 
-Public shipping management requests/results and pure use-case mappings are shared by REST and
-[MCP](mcp.md#shipping-management). The [contract tests](../src/aura-historia-contracts/tests/shipping_management.rs)
+Public shipping management requests/results and pure use-case mappings are owned by the shared
+REST contracts. The [contract tests](../src/aura-historia-contracts/tests/shipping_management.rs)
 check complete terms schemas, required-nullable attribution and adapter-owned public versus
 persisted references; `shipping-json` remains the authoritative terms codec.
 
