@@ -1,15 +1,20 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const { runHook } = require('./codedeploy-hook.cjs');
 const { verifyHealth, fingerprint } = require('./health.cjs');
 
 test('candidate private dependency samples and actual front door are required even without organic traffic', async () => {
   let invokes = 0, fronts = 0;
+  const content = JSON.stringify({ version: '0.0', Resources: [{ api: { Type: 'AWS::Lambda::Function',
+    Properties: { Name: 'api-prod', Alias: 'live', CurrentVersion: '1', TargetVersion: '2' } } }] });
+  const sha256 = createHash('sha256').update(content).digest('hex');
   const api = async (_service, operation, input) => {
-    if (operation === 'ListDeploymentTargets') return { targetIds: ['target'] };
-    if (operation === 'GetDeploymentTarget') return { deploymentTarget: { lambdaTarget: {
-      lambdaFunctionInfo: { functionName: 'api-prod', functionAlias: 'live', targetVersion: '2' } } } };
+    if (operation === 'GetDeployment') return { deploymentInfo: { deploymentId: 'd-1', applicationName: 'api',
+      revision: { revisionType: 'String', string: { sha256 } } } };
+    if (operation === 'GetApplicationRevision') return { applicationName: 'api',
+      revision: { revisionType: 'String', string: { content, sha256 } } };
     if (operation === 'GetAlias') return { FunctionVersion: '2' };
     invokes++;
     const event = JSON.parse(input.Payload.toString());

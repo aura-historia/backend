@@ -170,6 +170,11 @@ is separately reviewed. Routine delivery preserves DMS task identity, configurat
 and intentional consumer activation. It cannot stop/start/modify capture or replace
 protected durable resources.
 
+Rollout hooks select the qualified candidate from the deployment's registered AppSpec,
+verifying its SHA-256 and the exact function/live alias. CodeDeploy target summaries
+may omit version fields; neither the current alias nor the latest published version
+is evidence of the deployment's intended candidate.
+
 GitHub monitoring is bounded. Cancelling a GitHub runner does not cancel AWS work,
 resume DMS or release an environment hold. Inspect native execution links and the
 versioned environment record after failure; do not infer success from a workflow
