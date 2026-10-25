@@ -18,13 +18,6 @@ const LOCALHOST_CALLBACK_URL = "http://localhost:3000";
 const STAGE_FRONTEND_URL = "https://stage.aura-historia.com/";
 const PROD_FRONTEND_URL = "https://aura-historia.com/";
 
-const PROD_API_CORS_ALLOW_ORIGINS = [
-  "https://aura-historia.com",
-  "https://admin.shopify.com",
-  "https://partners.shopify.com",
-  "https://shopify.com",
-] as const;
-
 export interface CognitoEmailConfig {
   readonly configurationSet: string;
   readonly from: string;
@@ -196,7 +189,7 @@ export function stageConfig(stage: StageName): StageConfig {
     apiGatewayCertificateArn: ssmValue(`/certificates/${stage}/api-regional-certificate-arn`),
     apiCloudFrontCertificateArn: ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
     apiCloudFrontAliases,
-    apiCorsAllowOrigins: isProd ? [...PROD_API_CORS_ALLOW_ORIGINS] : ["*"],
+    apiCorsAllowOrigins: ["*"],
     mcp: {
       domainName: isProd ? "mcp.aura-historia.com" : "mcp.stage.aura-historia.com",
       gatewayCertificateArn: ssmValue(`/certificates/${stage}/mcp-regional-certificate-arn`),
