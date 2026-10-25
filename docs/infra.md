@@ -450,6 +450,10 @@ the owning migration before starting capture; the replication role needs schema
 usage/create rights, not general database DDL rights. Heartbeat runs only while
 DMS runs. Keep capture pauses within the measured WAL budget; build artifacts before
 stopping capture and avoid leaving a healthy slot unattended through a long rollout.
+The shared schema inspector excludes only the regular
+`dms_heartbeat.awsdms_heartbeat` table owned by `aura_replication`, which DMS creates
+and maintains. The live inspector and migration reconstruction use that same rule;
+unexpected names, kinds, ownership or other schema changes remain visible to admission.
 
 Dev CDC alarms belong to data; prod CDC alarms use the production observability topic.
 Alarm on slot WAL lag before the retention limit as well as task failure and free
@@ -479,7 +483,9 @@ calculation is at least 5 h 45 min old by the database clock, so the full scan o
 listings runs about every six hours under its own statement timeout, which must stay below
 that Lambda's timeout. Reads never aggregate listings: a failed refresh keeps serving the
 previous calculation, fails the invocation and is retried on the next run while still due.
-A new stage answers `503` until its first hourly run. Refresh duration grows with the live
+A new stage answers `503` until its first calculation. Before public activation,
+invoke the existing backend cleanup once and verify that overview reads succeed.
+Refresh duration grows with the live
 catalogue; watch its logged duration against the statement timeout before the catalogue
 outgrows it, because a refresh that keeps timing out repeats its scan every hour.
 

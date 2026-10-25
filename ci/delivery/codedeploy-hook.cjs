@@ -23,7 +23,7 @@ function probes(kind) {
         params: { _meta: { 'io.modelcontextprotocol/protocolVersion': PROTOCOL,
         'io.modelcontextprotocol/clientInfo': { name: 'aura-release-probe', version: '1' },
         'io.modelcontextprotocol/clientCapabilities': {} }, name, arguments: name === 'simpleSearchProductListings'
-          ? { language: 'en', currency: 'EUR', pageSize: 1 } : {} } },
+          ? { language: 'en', currency: 'EUR', size: 1 } : {} } },
     }))];
 }
 
