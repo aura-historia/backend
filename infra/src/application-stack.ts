@@ -535,6 +535,7 @@ function stackBaseProps(props: ApplicationStageProps): cdk.StackProps {
 function stackProps(props: ApplicationStackProps): cdk.StackProps {
   return {
     ...stackBaseProps(props),
+    terminationProtection: props.stage === "prod" ? true : props.terminationProtection,
     synthesizer: new cdk.CliCredentialsStackSynthesizer({
       fileAssetsBucketName: CLOUDFORMATION_STAGING_BUCKET_NAME,
       bucketPrefix: `${props.stage}/`,

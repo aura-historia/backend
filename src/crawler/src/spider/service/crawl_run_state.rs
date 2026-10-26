@@ -1,5 +1,6 @@
 use regex::Regex;
 
+use crate::CrawlerReviewId;
 use crate::spider::discovery::website_spider::CrawledPage;
 use crate::spider::service::product_pattern::ProductListingPattern;
 
@@ -11,6 +12,9 @@ pub struct CrawlRunState {
     pub pattern_loaded_from_store: bool,
     pub page_buffer: Vec<CrawledPage>,
     pub inference_sample: Vec<String>,
+    /// Set once classification stops at a pending URL-pattern review; the
+    /// crawl then keeps `pattern` as it is and asks no further.
+    pub pending_url_pattern_review: Option<CrawlerReviewId>,
 }
 
 impl CrawlRunState {
@@ -29,6 +33,7 @@ impl CrawlRunState {
             pattern_loaded_from_store,
             page_buffer: Vec::new(),
             inference_sample: Vec::new(),
+            pending_url_pattern_review: None,
         }
     }
 }

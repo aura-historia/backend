@@ -182,6 +182,7 @@ async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
                 }
             })
         });
+    fetcher.expect_domain_fetch_stats().returning(|_| None);
 
     let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc

@@ -421,6 +421,7 @@ async fn should_not_mark_product_removed_on_transient_fetch_failure() {
             })
         })
     });
+    fetcher.expect_domain_fetch_stats().returning(|_| None);
     let mut removed_repo = MockRemovedPageSchemaRepository::new();
     removed_repo.expect_find_removed_page_schema().never();
 

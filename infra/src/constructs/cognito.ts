@@ -60,6 +60,7 @@ export class Identity extends Construct {
         emailBody: verificationEmailBody(),
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      deletionProtection: props.config.isProd ? true : undefined,
       removalPolicy: props.config.removalPolicy,
     });
 

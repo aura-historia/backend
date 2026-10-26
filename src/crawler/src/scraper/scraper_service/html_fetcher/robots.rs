@@ -130,8 +130,10 @@ impl ReqwestHtmlFetcher {
         &self,
         robots_url: &Url,
     ) -> Result<RobotsFetchStep, FetchAttemptError> {
+        // robots.txt is small: it keeps the base timeout however slowly the
+        // shop's pages answer.
         let response = self
-            .http_client_for(robots_url)
+            .http_client_for(robots_url, self.attempt_timeout)
             .await?
             .get(robots_url.clone())
             .send()

@@ -1,6 +1,7 @@
 use crate::CrawlerDomainId;
 use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure_kind};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::html_fetcher::DomainFetchStats;
 use listing_source_core::ListingSourceId;
 use money::Currency;
 use product_listing_normalization::ProductListingNormalizationInput;
@@ -50,6 +51,8 @@ pub struct FetchFailureContext {
     pub retry_after: Option<std::time::Duration>,
     pub source: FetchFailureSource,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+    /// The fetcher's view of the domain when the failure may open its circuit.
+    pub fetch_stats: Option<DomainFetchStats>,
 }
 
 /// All inputs required to execute one scraper request. Keeping the request as
@@ -195,6 +198,7 @@ pub(crate) fn record_transport_failure(
     kind: NetworkErrorKind,
     status_code: Option<u16>,
     retry_after: Option<std::time::Duration>,
+    fetch_stats: Option<DomainFetchStats>,
 ) {
     record_transport_fetch_error(kind, status_code, retry_after);
     let _ = SCRAPE_OBSERVATION.try_with(|state| {
@@ -209,6 +213,7 @@ pub(crate) fn record_transport_failure(
             source,
             expected_last_captured_raw_input_sha256: expected_last_captured_raw_input_sha256
                 .map(ToOwned::to_owned),
+            fetch_stats,
         });
     });
 }

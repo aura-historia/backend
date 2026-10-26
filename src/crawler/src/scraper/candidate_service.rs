@@ -107,7 +107,10 @@ pub struct SchemaSeedCandidate {
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The scraper health columns of a crawler domain, which fence every domain
+/// write. A streak without `next_scrape_at` is recorded evidence: the domain
+/// is scraped normally and the evidence counts towards opening the circuit.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DomainHealthSnapshot {
     pub scrape_failure_streak: i32,
     pub last_scrape_error_kind: Option<String>,
@@ -150,7 +153,9 @@ pub struct DomainCircuitOpenRequest {
     pub expected_domain_health: DomainHealthSnapshot,
     pub domain_error_kind: DomainFailureKind,
     pub domain_status_code: Option<i32>,
-    pub next_scrape_at: OffsetDateTime,
+    /// End of the domain cooldown. `None` records the kind and streak as
+    /// evidence while the domain stays open for scraping.
+    pub next_scrape_at: Option<OffsetDateTime>,
 }
 
 /// Calculates the next domain failure streak from one candidate snapshot.
@@ -530,7 +535,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             sd.last_scrape_error_kind,
             sd.next_scrape_at,
             (sd.scrape_failure_streak > 0
-                AND (sd.next_scrape_at IS NULL OR sd.next_scrape_at <= NOW())) AS is_domain_probe
+                AND sd.next_scrape_at IS NOT NULL
+                AND sd.next_scrape_at <= NOW()) AS is_domain_probe
             , su.last_source_listing_id
             , su.last_error_kind = 'PendingSchemaReview' AS waits_on_schema_review
             , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
@@ -1395,6 +1401,14 @@ mod candidate_query_tests {
         assert!(
             SCRAPER_CANDIDATE_QUERY.contains("WHERE (is_domain_probe AND domain_url_rank = 1)")
         );
+    }
+
+    /// Recorded evidence (a streak without a cooldown) keeps the whole batch.
+    #[test]
+    fn should_probe_only_a_domain_whose_cooldown_expired() {
+        assert!(SCRAPER_CANDIDATE_QUERY.contains(
+            "(sd.scrape_failure_streak > 0\n                AND sd.next_scrape_at IS NOT NULL\n                AND sd.next_scrape_at <= NOW()) AS is_domain_probe"
+        ));
     }
 
     #[test]

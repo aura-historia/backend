@@ -15,7 +15,7 @@ pub mod status;
 pub mod url_pattern_candidate;
 
 pub use artifact::*;
-pub use listing_source_overview::ListingSourceOverview;
+pub use listing_source_overview::{DomainCrawlOverview, ListingSourceOverview};
 pub use page_role::*;
 pub use removed_page_template_match::{
     MatchedRemovedPageTemplate, RemovedPageTemplateMatch, RemovedPageTemplateOutcome,

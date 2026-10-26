@@ -4,7 +4,10 @@ use crawler::scraper::candidate_service::{
     SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCompletion, ScraperCandidateService,
     ScraperCandidateServiceImpl,
 };
-use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
+use crawler::spider::candidate_service::{
+    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
+    SpiderCandidateService, SpiderCandidateServiceImpl,
+};
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
@@ -89,7 +92,7 @@ fn domain_open_request(
         expected_domain_health,
         domain_error_kind,
         domain_status_code,
-        next_scrape_at,
+        next_scrape_at: Some(next_scrape_at),
     }
 }
 
@@ -523,6 +526,90 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
     let (failure_count, error_kind, ..) = crawl_state(&pool, domain_id).await;
     assert_eq!(failure_count, 2);
     assert_eq!(error_kind.as_deref(), Some("RateLimited"));
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state_and_defer() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "spider-review-wait.example.com",
+    )
+    .await;
+    let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
+    service
+        .mark_crawl_failure(&domain_id, "RateLimited", 2, past)
+        .await
+        .unwrap();
+
+    let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::days(7);
+    service
+        .mark_crawl_awaiting_url_pattern_review(&domain_id, next_crawl_at)
+        .await
+        .unwrap();
+
+    let (failure_count, error_kind, stored_next, outcome, truncations, last_crawled) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!(failure_count, 2, "a review wait is not a failure");
+    assert_eq!(error_kind.as_deref(), Some("RateLimited"));
+    assert_eq!(
+        outcome.as_deref(),
+        Some(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
+    );
+    assert_eq!(truncations, 0);
+    assert!(last_crawled.is_none());
+    assert!((stored_next.unwrap() - next_crawl_at).whole_seconds().abs() <= 1);
+    assert!(
+        !service
+            .get_candidates(10, &[])
+            .await
+            .unwrap()
+            .iter()
+            .any(|c| c.domain_id == domain_id),
+        "a domain waiting for a review is not crawled until the review is decided"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_mark_crawl_needs_operator_should_take_domain_out_of_the_schedule() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "spider-needs-operator.example.com",
+    )
+    .await;
+
+    service
+        .mark_crawl_needs_operator(&domain_id, "NoUrlPattern", 5)
+        .await
+        .unwrap();
+
+    let (failure_count, error_kind, next_crawl_at, outcome, ..) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!(failure_count, 5);
+    assert_eq!(error_kind.as_deref(), Some("NoUrlPattern"));
+    assert_eq!(
+        next_crawl_at, None,
+        "no cooldown is pending; the state is terminal"
+    );
+    assert_eq!(outcome.as_deref(), Some(NEEDS_OPERATOR_CRAWL_OUTCOME));
+    assert!(
+        !service
+            .get_candidates(10, &[])
+            .await
+            .unwrap()
+            .iter()
+            .any(|c| c.domain_id == domain_id),
+        "a domain waiting for an operator is never selected"
+    );
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -2995,6 +3082,68 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
         candidates_after_failure.is_empty(),
         "the reopened domain must not immediately select the failed probe"
     );
+}
+
+/// A slow-host failure recorded as evidence (a streak without a cooldown)
+/// leaves the domain open: the next pass selects its full batch, not a probe.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "recorded-evidence.example.com",
+    )
+    .await;
+    let first_url = "https://recorded-evidence.example.com/p/1";
+    let second_url = "https://recorded-evidence.example.com/p/2";
+    insert_product_url(&pool, listing_source_id, domain_id, first_url).await;
+    insert_product_url(&pool, listing_source_id, domain_id, second_url).await;
+
+    let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(5);
+    let outcome = service
+        .mark_fetch_failure_and_open_domain_circuit(DomainCircuitOpenRequest {
+            url_failure: fetch_failure_request(
+                listing_source_id,
+                url::Url::parse(first_url).unwrap(),
+                "Timeout",
+                "timed out",
+                None,
+                next_retry_at,
+                None,
+            ),
+            domain_id,
+            expected_domain_health: DomainHealthSnapshot::default(),
+            domain_error_kind: DomainFailureKind::Timeout,
+            domain_status_code: None,
+            next_scrape_at: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.persisted_failure_streak, Some(1));
+
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    assert_eq!(candidates.len(), 1, "the failed URL waits for its retry");
+    let candidate = &candidates[0];
+    assert_eq!(candidate.url.as_str(), second_url);
+    assert!(!candidate.is_domain_probe);
+    assert_eq!(
+        candidate.domain_health,
+        DomainHealthSnapshot {
+            scrape_failure_streak: 1,
+            last_scrape_error_kind: Some("TIMEOUT".to_owned()),
+            next_scrape_at: None,
+        }
+    );
+
+    let closed = service
+        .close_domain_circuit(&domain_id, &candidate.domain_health)
+        .await
+        .unwrap();
+    assert_eq!(closed, CrawlerUrlWriteOutcome::Applied);
 }
 
 // ---------------------------------------------------------------------------

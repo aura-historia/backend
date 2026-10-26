@@ -1,16 +1,18 @@
 use super::job::CrawlerCronJob;
-use crate::CrawlerDomainId;
 use crate::network::CRAWLER_USER_AGENT;
 use crate::network::policy::{
     MAX_EXPONENTIAL_COOLDOWN, NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown,
 };
-use crate::spider::candidate_service::{SPIDER_RECRAWL_INTERVAL, SpiderCandidate};
+use crate::spider::candidate_service::{
+    SPIDER_RECRAWL_INTERVAL, SpiderCandidate, SpiderCandidateService,
+};
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::discovery::website_spider::{
     CrawlCooldownProfile, CrawlFailureKind, SpiderDiscoveryError,
 };
 use crate::spider::local_lock::{DomainLock, DomainLockScope};
-use crate::spider::service::{SpiderService, SpiderServiceError};
+use crate::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
+use crate::{CrawlerDomainId, CrawlerReviewId};
 #[cfg(test)]
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
@@ -79,11 +81,24 @@ fn crawl_failure_kind(error: &SpiderServiceError) -> Option<CrawlFailureKind> {
 
 fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownProfile> {
     match error {
-        SpiderServiceError::InsufficientInferenceSample { .. } => {
-            Some(CrawlCooldownProfile::Recoverable)
-        }
+        SpiderServiceError::InsufficientInferenceSample { .. }
+        | SpiderServiceError::NoProductUrls { .. }
+        | SpiderServiceError::NoUrlPattern { .. } => Some(CrawlCooldownProfile::Recoverable),
         _ => crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile),
     }
+}
+
+/// Consecutive same-kind failures after which a domain stops retrying and
+/// waits for an operator. Only failures that need a site or configuration
+/// change (the recoverable profile) escalate: with two short retries and
+/// then the long cooldown, the fifth failure comes about a week after the
+/// first. Transient failures keep retrying because the site may recover,
+/// durable blocks already cool for a month.
+const NEEDS_OPERATOR_FAILURE_COUNT: i32 = 5;
+
+fn needs_operator(error: &SpiderServiceError, failure_count: i32) -> bool {
+    crawl_cooldown_profile(error) == Some(CrawlCooldownProfile::Recoverable)
+        && failure_count >= NEEDS_OPERATOR_FAILURE_COUNT
 }
 
 /// Cooldown for the catch-all `spider_run_error` case (internal or config
@@ -113,15 +128,27 @@ fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
             "PendingUrlPatternReview"
         }
         SpiderServiceError::InsufficientInferenceSample { .. } => "InsufficientInferenceSample",
+        SpiderServiceError::NoProductUrls { .. } => "NoProductUrls",
+        SpiderServiceError::NoUrlPattern { .. } => "NoUrlPattern",
         _ => crawl_failure_kind(error).map_or("spider_run_error", CrawlFailureKind::as_str),
     }
 }
+
+/// A domain waiting for a URL-pattern review is released by the review's
+/// decision; this bound only keeps an undecided review from parking it
+/// forever.
+const URL_PATTERN_REVIEW_WAIT: Duration = SPIDER_RECRAWL_INTERVAL;
 
 #[derive(Clone, Copy)]
 enum SpiderSlotStatus {
     Succeeded,
     Truncated,
+    /// The crawl stopped classifying at a pending URL-pattern review.
+    AwaitingReview,
     Failed,
+    /// Repeated deterministic failures; the domain is not retried until an
+    /// operator acts.
+    StoppedForOperator,
     /// Another spider worker holds the domain lock.
     Deferred,
 }
@@ -131,10 +158,315 @@ struct SpiderSlotOutcome {
     status: SpiderSlotStatus,
 }
 
+fn next_crawl_after(cooldown: Duration) -> time::OffsetDateTime {
+    time::OffsetDateTime::now_utc() + time::Duration::seconds(cooldown.as_secs() as i64)
+}
+
+/// A full crawl clears failure, truncation and cooldown state.
+async fn record_completed_run(
+    spider_candidates: &dyn SpiderCandidateService,
+    candidate: &SpiderCandidate,
+    result: &SpiderRunResult,
+) -> SpiderSlotStatus {
+    if let Err(err) = spider_candidates
+        .mark_crawl_completed(&candidate.domain_id, result.completion)
+        .await
+    {
+        warn!(
+            error = ?err,
+            domain = %candidate.listing_source_domain,
+            "Failed to persist crawl completion metadata"
+        );
+    }
+    SpiderSlotStatus::Succeeded
+}
+
+/// Neither a success nor a failure: failure and truncation metadata stay
+/// untouched, and the reviewer's decision releases the domain.
+async fn record_review_wait_run(
+    spider_candidates: &dyn SpiderCandidateService,
+    candidate: &SpiderCandidate,
+    result: &SpiderRunResult,
+    review_id: CrawlerReviewId,
+) -> SpiderSlotStatus {
+    let next_crawl_at = next_crawl_after(URL_PATTERN_REVIEW_WAIT);
+    if let Err(err) = spider_candidates
+        .mark_crawl_awaiting_url_pattern_review(&candidate.domain_id, next_crawl_at)
+        .await
+    {
+        warn!(
+            error = ?err,
+            domain = %candidate.listing_source_domain,
+            "Failed to persist crawl review-wait metadata"
+        );
+    }
+    info!(
+        domain = %candidate.listing_source_domain,
+        review_id = %review_id,
+        completion = %result.completion,
+        total_crawled = result.total_links,
+        crawl_failure_count = candidate.crawl_failure_count,
+        next_crawl_at = %next_crawl_at,
+        "Spider run waits for a URL pattern review"
+    );
+    SpiderSlotStatus::AwaitingReview
+}
+
+/// Failure metadata stays untouched: a truncated crawl neither proves
+/// recovery nor counts as a failure.
+async fn record_truncated_run(
+    spider_candidates: &dyn SpiderCandidateService,
+    candidate: &SpiderCandidate,
+    result: &SpiderRunResult,
+) -> SpiderSlotStatus {
+    let truncation_count = next_truncation_count(candidate);
+    let cooldown = truncated_crawl_cooldown(truncation_count);
+    let next_crawl_at = next_crawl_after(cooldown);
+
+    if let Err(err) = spider_candidates
+        .mark_crawl_truncated(&candidate.domain_id, truncation_count, next_crawl_at)
+        .await
+    {
+        warn!(
+            error = ?err,
+            domain = %candidate.listing_source_domain,
+            "Failed to persist crawl truncation metadata"
+        );
+    }
+    warn!(
+        domain = %candidate.listing_source_domain,
+        completion = %result.completion,
+        total_crawled = result.total_links,
+        product_urls_count = result.product_urls_count,
+        truncation_count,
+        crawl_failure_count = candidate.crawl_failure_count,
+        next_crawl_at = %next_crawl_at,
+        cooldown_seconds = cooldown.as_secs(),
+        "Spider run truncated by hard timeout"
+    );
+    SpiderSlotStatus::Truncated
+}
+
+async fn record_failed_run(
+    spider_candidates: &dyn SpiderCandidateService,
+    candidate: &SpiderCandidate,
+    error: &SpiderServiceError,
+) -> SpiderSlotStatus {
+    let error_kind = error_kind_for_spider_error(error);
+    let failure_count = next_failure_count(candidate, error_kind);
+    if needs_operator(error, failure_count) {
+        return record_run_stopped_for_operator(
+            spider_candidates,
+            candidate,
+            error,
+            error_kind,
+            failure_count,
+        )
+        .await;
+    }
+    let cooldown = cooldown_for_spider_failure(error, failure_count);
+    let next_crawl_at = next_crawl_after(cooldown);
+
+    if let Err(err) = spider_candidates
+        .mark_crawl_failure(
+            &candidate.domain_id,
+            error_kind,
+            failure_count,
+            next_crawl_at,
+        )
+        .await
+    {
+        warn!(
+            error = ?err,
+            domain = %candidate.listing_source_domain,
+            "Failed to persist crawl failure metadata"
+        );
+    }
+    log_spider_failure(
+        candidate,
+        error,
+        error_kind,
+        failure_count,
+        next_crawl_at,
+        cooldown,
+    );
+    SpiderSlotStatus::Failed
+}
+
+/// The failure is recorded like any other, but without a cooldown: the
+/// domain leaves the schedule until an operator changes its configuration.
+async fn record_run_stopped_for_operator(
+    spider_candidates: &dyn SpiderCandidateService,
+    candidate: &SpiderCandidate,
+    error: &SpiderServiceError,
+    error_kind: &str,
+    failure_count: i32,
+) -> SpiderSlotStatus {
+    if let Err(err) = spider_candidates
+        .mark_crawl_needs_operator(&candidate.domain_id, error_kind, failure_count)
+        .await
+    {
+        warn!(
+            error = ?err,
+            domain = %candidate.listing_source_domain,
+            "Failed to persist crawl needs-operator metadata"
+        );
+    }
+    warn!(
+        domain = %candidate.listing_source_domain,
+        error = %error,
+        error_kind,
+        failure_count,
+        "Spider run failed repeatedly with the same kind; domain waits for an operator"
+    );
+    SpiderSlotStatus::StoppedForOperator
+}
+
+/// One warning per failed run, with the evidence the error variant carries.
+fn log_spider_failure(
+    candidate: &SpiderCandidate,
+    error: &SpiderServiceError,
+    error_kind: &str,
+    failure_count: i32,
+    next_crawl_at: time::OffsetDateTime,
+    cooldown: Duration,
+) {
+    match error {
+        SpiderServiceError::InsufficientInferenceSample {
+            stage,
+            sample_size,
+            min_sample_size,
+            ..
+        } => warn!(
+            domain = %candidate.listing_source_domain,
+            error = %error,
+            error_kind,
+            failure_count,
+            stage,
+            sample_size = *sample_size,
+            min_sample_size = *min_sample_size,
+            next_crawl_at = %next_crawl_at,
+            cooldown_seconds = cooldown.as_secs(),
+            "Spider run failed"
+        ),
+        SpiderServiceError::CrawlFailed {
+            total_links,
+            diagnostics,
+            ..
+        } => warn!(
+            domain = %candidate.listing_source_domain,
+            error = %error,
+            error_kind,
+            failure_count,
+            total_crawled = *total_links,
+            min_required_links = 2,
+            user_agent = CRAWLER_USER_AGENT,
+            root_preflight_status = ?diagnostics.root_preflight_status,
+            http_status = ?diagnostics.http_status,
+            final_url = ?diagnostics.final_url,
+            redirect_url = ?diagnostics.redirect_url,
+            diagnostic_reason = ?diagnostics.diagnostic_reason,
+            initial_html_length = ?diagnostics.initial_html_length,
+            initial_should_retry = diagnostics.initial_should_retry,
+            initial_anti_bot = ?diagnostics.initial_anti_bot,
+            pages_received = diagnostics.pages_received,
+            accepted = diagnostics.accepted,
+            rejected_host = diagnostics.rejected_host,
+            rejected_blacklist = diagnostics.rejected_blacklist,
+            rejected_duplicate = diagnostics.rejected_duplicate,
+            robots_policy = ?diagnostics.robots_policy,
+            robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
+            robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
+            lagged = diagnostics.lagged,
+            next_crawl_at = %next_crawl_at,
+            cooldown_seconds = cooldown.as_secs(),
+            "Spider run failed"
+        ),
+        SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
+            reason, source, ..
+        }) => {
+            warn!(
+                domain = %candidate.listing_source_domain,
+                error = %error,
+                error_kind,
+                failure_count,
+                reason,
+                source = ?source,
+                next_crawl_at = %next_crawl_at,
+                cooldown_seconds = cooldown.as_secs(),
+                "Spider run failed"
+            )
+        }
+        SpiderServiceError::NoProductUrls {
+            total_links,
+            product_pattern,
+            completion,
+            ..
+        } => warn!(
+            domain = %candidate.listing_source_domain,
+            error = %error,
+            error_kind,
+            failure_count,
+            total_crawled = *total_links,
+            product_urls_count = 0,
+            product_pattern,
+            completion = %completion,
+            truncated = !completion.is_full(),
+            next_crawl_at = %next_crawl_at,
+            cooldown_seconds = cooldown.as_secs(),
+            "Spider run failed"
+        ),
+        SpiderServiceError::NoUrlPattern {
+            total_links,
+            completion,
+            ..
+        } => warn!(
+            domain = %candidate.listing_source_domain,
+            error = %error,
+            error_kind,
+            failure_count,
+            total_crawled = *total_links,
+            product_urls_count = 0,
+            completion = %completion,
+            truncated = !completion.is_full(),
+            next_crawl_at = %next_crawl_at,
+            cooldown_seconds = cooldown.as_secs(),
+            "Spider run failed"
+        ),
+        _ => warn!(
+            domain = %candidate.listing_source_domain,
+            error = %error,
+            error_kind,
+            failure_count,
+            next_crawl_at = %next_crawl_at,
+            cooldown_seconds = cooldown.as_secs(),
+            "Spider run failed"
+        ),
+    }
+}
+
+/// Persists the outcome of one spider run and reports how the slot ended.
+async fn record_run_outcome(
+    spider_candidates: &dyn SpiderCandidateService,
+    candidate: &SpiderCandidate,
+    run: &Result<SpiderRunResult, SpiderServiceError>,
+) -> SpiderSlotStatus {
+    match run {
+        Ok(result) if let Some(review_id) = result.pending_url_pattern_review => {
+            record_review_wait_run(spider_candidates, candidate, result, review_id).await
+        }
+        Ok(result) if result.completion.is_full() => {
+            record_completed_run(spider_candidates, candidate, result).await
+        }
+        Ok(result) => record_truncated_run(spider_candidates, candidate, result).await,
+        Err(error) => record_failed_run(spider_candidates, candidate, error).await,
+    }
+}
+
 fn spawn_spider_candidate(
     join_set: &mut JoinSet<SpiderSlotOutcome>,
     candidate: SpiderCandidate,
-    spider_candidates: Arc<dyn crate::spider::candidate_service::SpiderCandidateService>,
+    spider_candidates: Arc<dyn SpiderCandidateService>,
     spider_service: Arc<dyn SpiderService>,
     lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
     threshold: usize,
@@ -170,172 +502,20 @@ fn spawn_spider_candidate(
                 };
             };
 
-            match spider_service
+            let run = spider_service
                 .run(
                     &candidate.listing_source_id,
                     &candidate.domain_id,
                     &crawl_root_url,
                     threshold,
                 )
-                .await
-            {
-                Ok(result) if result.completion.is_full() => {
-                    if let Err(err) = spider_candidates
-                        .mark_crawl_completed(&candidate.domain_id, result.completion)
-                        .await
-                    {
-                        warn!(
-                            error = ?err,
-                            domain = %candidate.listing_source_domain,
-                            "Failed to persist crawl completion metadata"
-                        );
-                    }
-                    SpiderSlotOutcome {
-                        domain_id,
-                        status: SpiderSlotStatus::Succeeded,
-                    }
-                }
-                Ok(result) => {
-                    // Failure metadata stays untouched: a truncated crawl
-                    // neither proves recovery nor counts as a failure.
-                    let truncation_count = next_truncation_count(&candidate);
-                    let cooldown = truncated_crawl_cooldown(truncation_count);
-                    let next_crawl_at = time::OffsetDateTime::now_utc()
-                        + time::Duration::seconds(cooldown.as_secs() as i64);
-
-                    if let Err(err) = spider_candidates
-                        .mark_crawl_truncated(&candidate.domain_id, truncation_count, next_crawl_at)
-                        .await
-                    {
-                        warn!(
-                            error = ?err,
-                            domain = %candidate.listing_source_domain,
-                            "Failed to persist crawl truncation metadata"
-                        );
-                    }
-                    warn!(
-                        domain = %candidate.listing_source_domain,
-                        completion = %result.completion,
-                        total_crawled = result.total_links,
-                        product_urls_count = result.product_urls_count,
-                        truncation_count,
-                        crawl_failure_count = candidate.crawl_failure_count,
-                        next_crawl_at = %next_crawl_at,
-                        cooldown_seconds = cooldown.as_secs(),
-                        "Spider run truncated by hard timeout"
-                    );
-                    SpiderSlotOutcome {
-                        domain_id,
-                        status: SpiderSlotStatus::Truncated,
-                    }
-                }
-                Err(e) => {
-                    let error_kind = error_kind_for_spider_error(&e);
-                    let failure_count = next_failure_count(&candidate, error_kind);
-                    let cooldown = cooldown_for_spider_failure(&e, failure_count);
-                    let next_crawl_at = time::OffsetDateTime::now_utc()
-                        + time::Duration::seconds(cooldown.as_secs() as i64);
-
-                    if let Err(err) = spider_candidates
-                        .mark_crawl_failure(
-                            &candidate.domain_id,
-                            error_kind,
-                            failure_count,
-                            next_crawl_at,
-                        )
-                        .await
-                    {
-                        warn!(
-                            error = ?err,
-                            domain = %candidate.listing_source_domain,
-                            "Failed to persist crawl failure metadata"
-                        );
-                    }
-                    match &e {
-                        crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
-                            stage,
-                            sample_size,
-                            min_sample_size,
-                            ..
-                        } => warn!(
-                            domain = %candidate.listing_source_domain,
-                            error = %e,
-                            error_kind,
-                            failure_count,
-                            stage,
-                            sample_size = *sample_size,
-                            min_sample_size = *min_sample_size,
-                            next_crawl_at = %next_crawl_at,
-                            cooldown_seconds = cooldown.as_secs(),
-                            "Spider run failed"
-                        ),
-                        crate::spider::service::SpiderServiceError::CrawlFailed {
-                            total_links,
-                            diagnostics,
-                            ..
-                        } => warn!(
-                            domain = %candidate.listing_source_domain,
-                            error = %e,
-                            error_kind,
-                            failure_count,
-                            total_crawled = *total_links,
-                            min_required_links = 2,
-                            user_agent = CRAWLER_USER_AGENT,
-                            root_preflight_status = ?diagnostics.root_preflight_status,
-                            http_status = ?diagnostics.http_status,
-                            final_url = ?diagnostics.final_url,
-                            redirect_url = ?diagnostics.redirect_url,
-                            diagnostic_reason = ?diagnostics.diagnostic_reason,
-                            initial_html_length = ?diagnostics.initial_html_length,
-                            initial_should_retry = diagnostics.initial_should_retry,
-                            initial_anti_bot = ?diagnostics.initial_anti_bot,
-                            pages_received = diagnostics.pages_received,
-                            accepted = diagnostics.accepted,
-                            rejected_host = diagnostics.rejected_host,
-                            rejected_blacklist = diagnostics.rejected_blacklist,
-                            rejected_duplicate = diagnostics.rejected_duplicate,
-                            robots_policy = ?diagnostics.robots_policy,
-                            robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
-                            robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
-                            lagged = diagnostics.lagged,
-                            next_crawl_at = %next_crawl_at,
-                            cooldown_seconds = cooldown.as_secs(),
-                            "Spider run failed"
-                        ),
-                        crate::spider::service::SpiderServiceError::Discovery(
-                            SpiderDiscoveryError::Preflight { reason, source, .. },
-                        ) => warn!(
-                            domain = %candidate.listing_source_domain,
-                            error = %e,
-                            error_kind,
-                            failure_count,
-                            reason,
-                            source = ?source,
-                            next_crawl_at = %next_crawl_at,
-                            cooldown_seconds = cooldown.as_secs(),
-                            "Spider run failed"
-                        ),
-                        _ => warn!(
-                            domain = %candidate.listing_source_domain,
-                            error = %e,
-                            error_kind,
-                            failure_count,
-                            next_crawl_at = %next_crawl_at,
-                            cooldown_seconds = cooldown.as_secs(),
-                            "Spider run failed"
-                        ),
-                    }
-                    SpiderSlotOutcome {
-                        domain_id,
-                        status: SpiderSlotStatus::Failed,
-                    }
-                }
-            }
+                .await;
+            let status = record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
+            SpiderSlotOutcome { domain_id, status }
         }
         .instrument(span),
     );
 }
-
 impl CrawlerCronJob {
     #[tracing::instrument(name = "crawler_run_spider_once", skip(self))]
     pub(super) async fn run_spider_once(&self) {
@@ -357,7 +537,9 @@ impl CrawlerCronJob {
         let mut total = 0usize;
         let mut succeeded = 0usize;
         let mut truncated = 0usize;
+        let mut awaiting_review = 0usize;
         let mut failed = 0usize;
+        let mut stopped_for_operator = 0usize;
         let mut started = false;
         let mut fetch_failed = false;
         let mut no_more_candidates = false;
@@ -437,7 +619,9 @@ impl CrawlerCronJob {
                     match outcome.status {
                         SpiderSlotStatus::Succeeded => succeeded += 1,
                         SpiderSlotStatus::Truncated => truncated += 1,
+                        SpiderSlotStatus::AwaitingReview => awaiting_review += 1,
                         SpiderSlotStatus::Failed => failed += 1,
+                        SpiderSlotStatus::StoppedForOperator => stopped_for_operator += 1,
                         SpiderSlotStatus::Deferred => deferred += 1,
                     }
                 }
@@ -452,7 +636,14 @@ impl CrawlerCronJob {
         let duration_ms = pass_start.elapsed().as_millis() as u64;
         info!(
             total,
-            succeeded, truncated, failed, deferred, duration_ms, "Spider scheduler pass complete"
+            succeeded,
+            truncated,
+            awaiting_review,
+            failed,
+            stopped_for_operator,
+            deferred,
+            duration_ms,
+            "Spider scheduler pass complete"
         );
 
         self.spider_perf.record(total as u64, duration_ms);
@@ -474,7 +665,7 @@ mod tests {
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
     use crate::spider::discovery::website_spider::{CrawlCompletion, CrawlDiagnostics};
     use crate::spider::local_lock::LocalLockManager;
-    use crate::spider::service::{MockSpiderService, SpiderRunResult};
+    use crate::spider::service::MockSpiderService;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::Notify;
 
@@ -549,6 +740,23 @@ mod tests {
         }
     }
 
+    fn no_product_urls() -> SpiderServiceError {
+        SpiderServiceError::NoProductUrls {
+            crawl_root_url: "https://example.com/".to_string(),
+            total_links: 40,
+            product_pattern: "/product/".to_string(),
+            completion: CrawlCompletion::Completed,
+        }
+    }
+
+    fn no_url_pattern() -> SpiderServiceError {
+        SpiderServiceError::NoUrlPattern {
+            crawl_root_url: "https://example.com/".to_string(),
+            total_links: 40,
+            completion: CrawlCompletion::Completed,
+        }
+    }
+
     const ALL_KINDS: [CrawlFailureKind; 14] = [
         CrawlFailureKind::EmptyCrawl,
         CrawlFailureKind::TinyCrawl,
@@ -571,7 +779,7 @@ mod tests {
         for error in ALL_KINDS
             .into_iter()
             .flat_map(|kind| [crawl_failed(kind), preflight_failed(kind)])
-            .chain([insufficient_sample()])
+            .chain([insufficient_sample(), no_product_urls(), no_url_pattern()])
         {
             assert_eq!(cooldown_for_spider_failure(&error, 1), CRAWL_RETRY_COOLDOWN);
             assert_eq!(cooldown_for_spider_failure(&error, 2), CRAWL_RETRY_COOLDOWN);
@@ -601,6 +809,8 @@ mod tests {
     fn cooldown_should_use_recoverable_long_cooldown_for_site_or_sample_failures() {
         for error in [
             insufficient_sample(),
+            no_product_urls(),
+            no_url_pattern(),
             crawl_failed(CrawlFailureKind::RobotsBlocked),
             crawl_failed(CrawlFailureKind::TlsError),
             crawl_failed(CrawlFailureKind::RedirectProblem),
@@ -680,6 +890,34 @@ mod tests {
     }
 
     #[test]
+    fn needs_operator_should_stop_deterministic_failures_at_the_escalation_count() {
+        for error in [
+            insufficient_sample(),
+            no_product_urls(),
+            no_url_pattern(),
+            crawl_failed(CrawlFailureKind::RobotsBlocked),
+            crawl_failed(CrawlFailureKind::RedirectProblem),
+            preflight_failed(CrawlFailureKind::RedirectProblem),
+            preflight_failed(CrawlFailureKind::TlsError),
+        ] {
+            assert!(!needs_operator(&error, NEEDS_OPERATOR_FAILURE_COUNT - 1));
+            assert!(needs_operator(&error, NEEDS_OPERATOR_FAILURE_COUNT));
+        }
+    }
+
+    #[test]
+    fn needs_operator_should_keep_retrying_transient_blocked_and_unclassified_failures() {
+        for error in ALL_KINDS
+            .into_iter()
+            .filter(|kind| kind.cooldown_profile() != CrawlCooldownProfile::Recoverable)
+            .map(crawl_failed)
+            .chain(unclassified_errors())
+        {
+            assert!(!needs_operator(&error, i32::MAX));
+        }
+    }
+
+    #[test]
     fn error_kind_should_use_stable_persisted_identifiers() {
         for (kind, expected) in ALL_KINDS.into_iter().map(|kind| (kind, kind.as_str())) {
             assert_eq!(error_kind_for_spider_error(&crawl_failed(kind)), expected);
@@ -691,6 +929,14 @@ mod tests {
         assert_eq!(
             error_kind_for_spider_error(&insufficient_sample()),
             "InsufficientInferenceSample"
+        );
+        assert_eq!(
+            error_kind_for_spider_error(&no_product_urls()),
+            "NoProductUrls"
+        );
+        assert_eq!(
+            error_kind_for_spider_error(&no_url_pattern()),
+            "NoUrlPattern"
         );
         assert_eq!(
             [
@@ -772,6 +1018,7 @@ mod tests {
                         product_urls_count: 5,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
+                        pending_url_pattern_review: None,
                     })
                 })
             });
@@ -865,6 +1112,7 @@ mod tests {
                         product_urls_count: 5,
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
+                        pending_url_pattern_review: None,
                     })
                 })
             });
@@ -1313,6 +1561,7 @@ mod tests {
             product_urls_count: 1_200,
             product_pattern: Some("/product/".to_string()),
             completion,
+            pending_url_pattern_review: None,
         }
     }
 
@@ -1540,6 +1789,7 @@ mod tests {
                     product_urls_count: 5,
                     product_pattern: None,
                     completion: CrawlCompletion::Completed,
+                    pending_url_pattern_review: None,
                 })
             })
         });
@@ -1604,5 +1854,145 @@ mod tests {
         );
 
         job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_record_review_wait_without_failure_or_completion_state() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    if !first_call {
+                        return Ok(vec![]);
+                    }
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_failure_count = 2;
+                    candidate.last_crawl_error_kind = Some("RateLimited".to_string());
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_awaiting_url_pattern_review()
+            .times(1)
+            .withf(move |domain_id, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && next_crawl_at_is_about(*next_crawl_at, URL_PATTERN_REVIEW_WAIT)
+            })
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+        spider_candidates.expect_mark_crawl_failure().times(0);
+        spider_candidates.expect_mark_crawl_completed().times(0);
+        spider_candidates.expect_mark_crawl_truncated().times(0);
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(|_, _, _, _| {
+                Box::pin(async {
+                    Ok(SpiderRunResult {
+                        pending_url_pattern_review: Some(CrawlerReviewId::new()),
+                        product_urls_count: 0,
+                        product_pattern: None,
+                        ..run_result(CrawlCompletion::HardTimeoutTruncated)
+                    })
+                })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
+    fn failing_candidate_service(
+        domain_id: CrawlerDomainId,
+        failure_count: i32,
+        last_error_kind: &'static str,
+    ) -> MockSpiderCandidateService {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    if !first_call {
+                        return Ok(vec![]);
+                    }
+                    let mut candidate = spider_candidate(domain_id);
+                    candidate.crawl_failure_count = failure_count;
+                    candidate.last_crawl_error_kind = Some(last_error_kind.to_string());
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates.expect_mark_crawl_completed().times(0);
+        spider_candidates.expect_mark_crawl_truncated().times(0);
+        spider_candidates
+    }
+
+    fn spider_service_failing_with(error: fn() -> SpiderServiceError) -> MockSpiderService {
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(move |_, _, _, _| Box::pin(async move { Err(error()) }));
+        spider_service
+    }
+
+    #[tokio::test]
+    async fn should_record_crawl_without_product_urls_as_failure_instead_of_completion() {
+        let expected_domain_id = CrawlerDomainId::new();
+        let mut spider_candidates =
+            failing_candidate_service(expected_domain_id, 3, "InsufficientInferenceSample");
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .times(1)
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "NoProductUrls"
+                    && *failure_count == 1
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+        spider_candidates
+            .expect_mark_crawl_needs_operator()
+            .times(0);
+
+        spider_job(
+            spider_candidates,
+            spider_service_failing_with(no_product_urls),
+            1,
+        )
+        .run_spider_once()
+        .await;
+    }
+
+    #[tokio::test]
+    async fn should_stop_domain_for_operator_when_no_pattern_failures_keep_repeating() {
+        let expected_domain_id = CrawlerDomainId::new();
+        let mut spider_candidates = failing_candidate_service(
+            expected_domain_id,
+            NEEDS_OPERATOR_FAILURE_COUNT - 1,
+            "NoUrlPattern",
+        );
+        spider_candidates
+            .expect_mark_crawl_needs_operator()
+            .times(1)
+            .withf(move |domain_id, error_kind, failure_count| {
+                *domain_id == expected_domain_id
+                    && error_kind == "NoUrlPattern"
+                    && *failure_count == NEEDS_OPERATOR_FAILURE_COUNT
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        spider_candidates.expect_mark_crawl_failure().times(0);
+
+        spider_job(
+            spider_candidates,
+            spider_service_failing_with(no_url_pattern),
+            1,
+        )
+        .run_spider_once()
+        .await;
     }
 }

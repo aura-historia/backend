@@ -132,9 +132,13 @@ async function api(path, options = {}, allowPrompt = true) {
 }
 
 async function loadReviews() {
-    const reviews = await api('/api/reviews');
+    // The crawl state only adds to the queue, so its failure must not hide the reviews.
+    const [reviews, listingSources] = await Promise.all([
+        api('/api/reviews'),
+        api('/api/listing_sources').catch(() => null)
+    ]);
     const list = document.getElementById('reviewList');
-    list.innerHTML = renderReviewGroups(reviews);
+    list.innerHTML = renderDomainsNeedingOperator(listingSources) + renderReviewGroups(reviews);
     updateSelectedReviewFreshness(reviews);
     return reviews;
 }
@@ -182,6 +186,42 @@ function renderReviewGroups(reviews) {
           </div>
         </div>`;
     }).join('');
+}
+
+// A domain whose deterministic crawl failures kept repeating opens no review, so the queue
+// lists it here until an operator fixes its configuration or disables crawling.
+function renderDomainsNeedingOperator(listingSources) {
+    if (listingSources === null) {
+        return `<div class="empty-list">Domain crawl state is unavailable.</div>`;
+    }
+    const query = reviewSearchTerm.trim().toLowerCase();
+    const domains = listingSources
+        .filter(source => source.crawl_enabled)
+        .flatMap(source => (source.domains || [])
+            .filter(domain => domain.last_crawl_outcome === 'NEEDS_OPERATOR')
+            .map(domain => ({...domain, listingSourceName: source.listing_source_name || source.listing_source_id})))
+        .filter(domain => !query || [domain.domain, domain.listingSourceName, domain.last_crawl_error_kind]
+            .some(value => String(value || '').toLowerCase().includes(query)));
+    if (!domains.length) return '';
+    return `<div class="listing-source-group">
+      <div class="listing-source-group-head">
+        <div>
+          <div class="queue-title">Domains waiting for an operator</div>
+          <div class="queue-meta">Not crawled again until re-registered or disabled</div>
+        </div>
+        <div class="listing-source-group-actions">${statusBadge(`${domains.length} failed`)}</div>
+      </div>
+      <div class="listing-source-review-list">
+        ${domains.map(domain => `<div class="item">
+          <div class="queue-row">
+            <span class="queue-artifact">${escapeHtml(domain.domain)}</span>
+            ${statusBadge('Needs operator')}
+          </div>
+          <div class="queue-meta">${escapeHtml(domain.listingSourceName)}</div>
+          <div class="queue-meta">${escapeHtml(domain.last_crawl_error_kind || 'Unknown failure')} / ${escapeHtml(domain.crawl_failure_count)} consecutive failures</div>
+        </div>`).join('')}
+      </div>
+    </div>`;
 }
 
 function reviewMatchesSearch(review, query) {

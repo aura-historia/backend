@@ -16,6 +16,9 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
+use crate::spider::candidate_service::{
+    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
+};
 use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
@@ -244,6 +247,8 @@ impl CrawlerReviewRepository {
         rows.into_iter().map(row_to_review).collect()
     }
 
+    /// Enabled ListingSources with a domain waiting for an operator come first: nothing else
+    /// in the console points at them, so the limit must not cut them off.
     pub async fn list_listing_sources(
         &self,
         limit: i64,
@@ -261,7 +266,8 @@ impl CrawlerReviewRepository {
                 COALESCE(u.blocked_urls, 0) AS blocked_urls
              FROM listing_sources s
              LEFT JOIN (
-                SELECT listing_source_id, COUNT(*) AS domain_count, MAX(last_crawled) AS last_successful_crawl
+                SELECT listing_source_id, COUNT(*) AS domain_count, MAX(last_crawled) AS last_successful_crawl,
+                       COUNT(*) FILTER (WHERE last_crawl_outcome = $2) AS needs_operator_domains
                 FROM listing_source_domains GROUP BY listing_source_id
              ) d ON d.listing_source_id = s.listing_source_id
              LEFT JOIN (
@@ -277,10 +283,12 @@ impl CrawlerReviewRepository {
                 FROM listing_source_urls
                 GROUP BY listing_source_id
              ) u ON u.listing_source_id = s.listing_source_id
-             ORDER BY s.crawl_enabled DESC, pending_reviews DESC, s.updated DESC
+             ORDER BY s.crawl_enabled DESC, COALESCE(d.needs_operator_domains, 0) > 0 DESC,
+                      pending_reviews DESC, s.updated DESC
              LIMIT $1",
         )
             .bind(limit)
+            .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
             .fetch_all(&self.pool)
             .await?;
 
@@ -298,9 +306,56 @@ impl CrawlerReviewRepository {
                 pending_reviews: row.try_get("pending_reviews")?,
                 product_urls: row.try_get("product_urls")?,
                 blocked_urls: row.try_get("blocked_urls")?,
+                domains: Vec::new(),
             });
         }
+        let mut domains = self
+            .list_domain_crawl_states(
+                &listing_sources
+                    .iter()
+                    .map(|overview| uuid::Uuid::from(overview.listing_source_id))
+                    .collect::<Vec<_>>(),
+            )
+            .await?;
+        for overview in &mut listing_sources {
+            overview.domains = domains
+                .remove(&uuid::Uuid::from(overview.listing_source_id))
+                .unwrap_or_default();
+        }
         Ok(listing_sources)
+    }
+
+    /// The spider's last recorded state per domain, grouped by ListingSource.
+    async fn list_domain_crawl_states(
+        &self,
+        listing_source_ids: &[uuid::Uuid],
+    ) -> Result<HashMap<uuid::Uuid, Vec<DomainCrawlOverview>>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT listing_source_id, domain_id, listing_source_domain, last_crawled,
+                    last_crawl_outcome, last_crawl_error_kind, crawl_failure_count, next_crawl_at
+             FROM listing_source_domains
+             WHERE listing_source_id = ANY($1)
+             ORDER BY listing_source_domain",
+        )
+        .bind(listing_source_ids)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut by_listing_source: HashMap<uuid::Uuid, Vec<DomainCrawlOverview>> = HashMap::new();
+        for row in rows {
+            by_listing_source
+                .entry(row.try_get("listing_source_id")?)
+                .or_default()
+                .push(DomainCrawlOverview {
+                    domain_id: crawler_domain_id_from_uuid(row.try_get("domain_id")?)?,
+                    domain: row.try_get("listing_source_domain")?,
+                    last_crawled: row.try_get("last_crawled")?,
+                    last_crawl_outcome: row.try_get("last_crawl_outcome")?,
+                    last_crawl_error_kind: row.try_get("last_crawl_error_kind")?,
+                    crawl_failure_count: row.try_get("crawl_failure_count")?,
+                    next_crawl_at: row.try_get("next_crawl_at")?,
+                });
+        }
+        Ok(by_listing_source)
     }
 
     pub async fn get_review(
@@ -955,6 +1010,23 @@ impl CrawlerReviewRepository {
                 if result.rows_affected() == 0 {
                     return Err(ReviewRepositoryError::NotFound(review_id));
                 }
+                let live_pattern = pattern
+                    .map(Regex::new)
+                    .transpose()
+                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+                let reclassified = reclassify_domain_urls(
+                    &mut transaction,
+                    &listing_source_id,
+                    domain_id,
+                    live_pattern.as_ref(),
+                )
+                .await?;
+                info!(
+                    review_id = %review_id,
+                    domain_id = %domain_id,
+                    reclassified_urls = reclassified,
+                    "Approved URL pattern classified the domain's stored URLs"
+                );
             }
             ARTIFACT_PRODUCT_SCHEMA => {
                 make_reviewed_product_schemas_live(
@@ -1014,16 +1086,14 @@ impl CrawlerReviewRepository {
                 .await?;
             }
             ARTIFACT_URL_PATTERN => {
-                sqlx::query(
-                    "UPDATE listing_source_domains \
-                     SET next_crawl_at = NULL, last_crawl_error_kind = NULL \
-                     WHERE listing_source_id = $1 AND domain_id = $2 \
-                       AND last_crawl_error_kind = 'PendingUrlPatternReview'",
-                )
-                .bind(uuid::Uuid::from(listing_source_id))
-                .bind(domain_id.map(CrawlerDomainId::into_uuid))
-                .execute(&mut *transaction)
-                .await?;
+                if let Some(domain_id) = domain_id {
+                    release_domain_waiting_for_url_pattern(
+                        &mut transaction,
+                        &listing_source_id,
+                        domain_id,
+                    )
+                    .await?;
+                }
             }
             _ => {}
         }
@@ -1031,13 +1101,42 @@ impl CrawlerReviewRepository {
         Ok(())
     }
 
+    /// Closes the review without changing configuration. A domain whose crawl waits on a
+    /// URL-pattern review is released either way: the review is decided, so the next crawl may
+    /// open a new one.
     pub async fn reject_review(
         &self,
         review_id: CrawlerReviewId,
         notes: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
-        self.set_review_status(review_id, STATUS_REJECTED, notes)
-            .await
+        let mut transaction = self.pool.begin().await?;
+        let rejected = sqlx::query(
+            "UPDATE crawler_reviews \
+             SET status = 'REJECTED', reviewer_notes = COALESCE($2, reviewer_notes), \
+                 reviewed = NOW(), updated = NOW() \
+             WHERE review_id = $1 AND status = 'PENDING_REVIEW' \
+             RETURNING listing_source_id, domain_id, artifact_type",
+        )
+        .bind(review_id.as_uuid())
+        .bind(notes)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(ReviewRepositoryError::NotPending(review_id))?;
+        let domain_id = rejected
+            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
+            .map(crawler_domain_id_from_uuid)
+            .transpose()?;
+        if rejected.try_get::<String, _>("artifact_type")? == ARTIFACT_URL_PATTERN
+            && let Some(domain_id) = domain_id
+        {
+            let listing_source_id = listing_source_id_from_uuid(
+                rejected.try_get::<uuid::Uuid, _>("listing_source_id")?,
+            )?;
+            release_domain_waiting_for_url_pattern(&mut transaction, &listing_source_id, domain_id)
+                .await?;
+        }
+        transaction.commit().await?;
+        Ok(())
     }
 
     /// Records the needs-repair verdict on a pending review. The review stays pending, so its
@@ -1226,30 +1325,6 @@ impl CrawlerReviewRepository {
         let merged =
             approval_product_schemas(&review.reason, Some(&existing), reviewed.schemas.clone())?;
         review.candidate_payload = reviewed.with_schemas(merged).to_payload()?;
-        Ok(())
-    }
-
-    async fn set_review_status(
-        &self,
-        review_id: CrawlerReviewId,
-        status: &str,
-        notes: Option<&str>,
-    ) -> Result<(), ReviewRepositoryError> {
-        let result = sqlx::query(
-            "UPDATE crawler_reviews
-             SET status = $2, reviewer_notes = COALESCE($3, reviewer_notes),
-                 reviewed = NOW(), updated = NOW()
-             WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
-        )
-        .bind(review_id.as_uuid())
-        .bind(status)
-        .bind(notes)
-        .execute(&self.pool)
-        .await?;
-
-        if result.rows_affected() == 0 {
-            return Err(ReviewRepositoryError::NotPending(review_id));
-        }
         Ok(())
     }
 }
@@ -1744,6 +1819,74 @@ fn classify_with_pattern(raw_url: &str, pattern: Option<&Regex>) -> String {
         return "other".to_string();
     };
     CrawledUrl::new(url).classify(pattern).to_string()
+}
+
+/// Classifies the domain's stored URLs with the pattern decision that just went live, as the
+/// spider would on its next crawl, so URLs a crawl stored while the review was pending need no
+/// second crawl from the root. Sold URLs keep their class, as a re-crawl leaves them.
+async fn reclassify_domain_urls(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    domain_id: CrawlerDomainId,
+    pattern: Option<&Regex>,
+) -> Result<u64, ReviewRepositoryError> {
+    let stored = sqlx::query_as::<_, (String, String)>(
+        "SELECT url, url_class FROM listing_source_urls \
+         WHERE listing_source_id = $1 AND domain_id = $2 AND crawler_disposition = 'ACTIVE'",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(domain_id.as_uuid())
+    .fetch_all(&mut **transaction)
+    .await?;
+    let (urls, classes): (Vec<String>, Vec<String>) = stored
+        .into_iter()
+        .filter_map(|(url, current_class)| {
+            let class = classify_with_pattern(&url, pattern);
+            (class != current_class).then_some((url, class))
+        })
+        .unzip();
+    if urls.is_empty() {
+        return Ok(0);
+    }
+    let result = sqlx::query(
+        "UPDATE listing_source_urls AS u \
+         SET url_class = input.url_class, updated = NOW() \
+         FROM UNNEST($1::text[], $2::text[]) AS input(url, url_class) \
+         WHERE u.url = input.url AND u.listing_source_id = $3 AND u.domain_id = $4",
+    )
+    .bind(&urls)
+    .bind(&classes)
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(domain_id.as_uuid())
+    .execute(&mut **transaction)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Lets the scheduler crawl a domain again whose last crawl stopped at a URL-pattern review,
+/// now that the review is decided. Rows written before the review-wait outcome existed carry
+/// the wait as `last_crawl_error_kind` instead and are released the same way.
+async fn release_domain_waiting_for_url_pattern(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    domain_id: CrawlerDomainId,
+) -> Result<(), ReviewRepositoryError> {
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET next_crawl_at = NULL, \
+             last_crawl_error_kind = CASE \
+                 WHEN last_crawl_error_kind = 'PendingUrlPatternReview' THEN NULL \
+                 ELSE last_crawl_error_kind \
+             END \
+         WHERE listing_source_id = $1 AND domain_id = $2 \
+           AND (last_crawl_error_kind = 'PendingUrlPatternReview' OR last_crawl_outcome = $3)",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(domain_id.as_uuid())
+    .bind(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]
