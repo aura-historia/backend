@@ -8,7 +8,7 @@ The `server` binary needs:
 
 | Input | Purpose |
 |---|---|
-| Docker and the crawler compose file | Crawler-local Postgres, started and bootstrapped by `server`; see [single-server deployment](#single-server-deployment). |
+| `LOCAL_DB_URL` | Required connection URL of the crawler-local Postgres database. The operator creates the database; `server` only migrates it. Unset or blank fails startup; see [single-server deployment](#single-server-deployment). |
 | `BUSINESS_DATABASE_URL` | Authoritative ListingSource reads and ProductListing raw capture. |
 | `SPIDER_MAX_SIZE_BYTES` | Required spider page-body ceiling; use a value from 1 MiB through 8 MiB. |
 | `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` | Vertex AI configuration; not read with `CRAWLER_AUTHORING_MODE=manual`. |
@@ -20,7 +20,7 @@ The `server` binary needs:
 
 Optional `CRAWLER_CLOUDWATCH_LOG_GROUP` and `CRAWLER_CLOUDWATCH_LOG_STREAM` enable CloudWatch log export. That deployment needs permission to create the group and stream and put log events. Logs must expose operational outcomes and identifiers without raw source payloads.
 
-The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces `BUSINESS_DATABASE_URL`, AWS credentials and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, uses the `crawler_demo` database instead of `crawler_server`, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it.
+The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces `BUSINESS_DATABASE_URL`, AWS credentials and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, starts the [local database](#local-database) itself and uses its `crawler_demo` database instead of `LOCAL_DB_URL`, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it.
 
 `server` and `dev` apply crawler-local migrations at startup. Migrations under [`src/crawler/migrations`](../../src/crawler/migrations/) are the authoritative crawler database contract; do not repair the live schema by hand. This lifecycle is outside the AWS Deploy/Migrate/Initialize workflows: manual Migrate owns only business PostgreSQL migrations, and FX-only Initialize never migrates crawler state.
 
@@ -37,6 +37,8 @@ The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From 
 - `db-status` reports migration status.
 - `db-reset` rebuilds local crawler databases.
 - `db-down` stops the container.
+
+To run `server` against this container, start it with `db-up` and set `LOCAL_DB_URL=postgres://postgres:postgres@localhost:5432/crawler_server`; `server` never starts Docker itself.
 
 ## Review service
 
@@ -83,13 +85,14 @@ Production runs one `server` process on one Linux host under systemd. Start from
 
 Build with `cargo build --release --locked -p crawler --bin server` and copy `target/release/server` to the host, for example `/opt/crawler/bin/server`. Crawler-local migrations are embedded in the binary.
 
-`server` does not read `LOCAL_DB_URL`. At every start [`bootstrap_local_database`](../../src/crawler/src/local_db.rs) runs `docker compose -f <crate dir>/docker-compose.yml up -d`, where `<crate dir>` is the build checkout's `src/crawler` path compiled into the binary, connects as `postgres:postgres` to `localhost:5432`, creates the `crawler_server` database if it is missing and applies pending migrations. Startup fails unless the host has:
+`server` connects to the database in `LOCAL_DB_URL` and applies pending crawler-local migrations; it never starts Docker or creates the database. Provide PostgreSQL 16, as in local development, with its contrib modules, on the host or reachable from it. Create a dedicated role that owns the database, so migrations can create their tables and the trusted `pgcrypto` extension without superuser rights:
 
-- Docker Engine with the compose plugin;
-- [`docker-compose.yml`](../../src/crawler/docker-compose.yml) at that same absolute path, so build on the host from a checkout that stays there or at an identical path elsewhere;
-- a service user in the `docker` group, which is root-equivalent.
+```sql
+CREATE ROLE crawler LOGIN PASSWORD '<random password>';
+CREATE DATABASE crawler_server OWNER crawler;
+```
 
-The container publishes port 5432 on all interfaces with the fixed password, and Docker bypasses host firewalls such as `ufw`, so block the port in the provider firewall or security group. The `crawler_pgdata` volume holds all crawler state; back it up.
+Set `LOCAL_DB_URL=postgres://crawler:<password>@127.0.0.1:5432/crawler_server` in the environment file; percent-encode reserved characters in the password. A missing or blank value fails startup with `missing required environment variable: LOCAL_DB_URL`. Keep the Postgres port closed to the outside. The database holds all crawler state; back it up.
 
 `BUSINESS_DATABASE_URL` must reach the business PostgreSQL from the host, for example through a security-group rule for the host's address and `sslmode=require` in the URL. A failed connection at startup stops the process. Business migrations belong to the manual Migrate workflow, never to the crawler, so the business schema must already be current.
 
@@ -97,7 +100,6 @@ Prepare the host once:
 
 ```sh
 useradd --system --home-dir /var/lib/crawler --shell /usr/sbin/nologin crawler
-usermod -aG docker crawler
 install -d -m 0750 -o root -g crawler /etc/crawler
 install -m 0640 -o root -g crawler src/crawler/.env.example /etc/crawler/crawler.env  # then fill in
 install -m 0644 src/crawler/scripts/linux/crawler-server.service /etc/systemd/system/
@@ -126,13 +128,13 @@ Setting `CRAWLER_CLOUDWATCH_LOG_GROUP` adds CloudWatch Logs export, which needs 
 
 ### systemd unit
 
-The example unit runs `server` as the unprivileged `crawler` user with `EnvironmentFile=/etc/crawler/crawler.env`, `Restart=on-failure`, `KillSignal=SIGTERM` and `TimeoutStopSec=45s`, a margin above the 30-second graceful-shutdown period before systemd sends SIGKILL. Its working directory is the empty state directory because `server` also loads a `.env` from its working directory or a parent; variables already in the environment take precedence.
+The example unit runs `server` as the unprivileged `crawler` user with `EnvironmentFile=/etc/crawler/crawler.env`, `Restart=on-failure`, `KillSignal=SIGTERM` and `TimeoutStopSec=45s`, a margin above the 30-second graceful-shutdown period before systemd sends SIGKILL. Its working directory is the empty state directory because `server` also loads a `.env` from its working directory or a parent; variables already in the environment take precedence. It starts after `network-online.target` and after `postgresql.service` when Postgres runs on the same host. A database that is still unreachable at start fails startup, and `Restart=on-failure` retries.
 
 Run exactly one instance: no second host and no manual `server` next to the unit. The scheduler coordinates only through process-local locks ([scheduling and retries](scheduling-and-retries.md)), so a second process would crawl and capture the same work concurrently.
 
 ### Upgrade
 
-Run `systemctl stop crawler-server`, replace the binary, keep the compose file at its compiled path, and run `systemctl start crawler-server`. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so rolling back to an older binary after a migration requires restoring the database.
+Run `systemctl stop crawler-server`, replace the binary and run `systemctl start crawler-server`. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so rolling back to an older binary after a migration requires restoring the database.
 
 ### After start
 

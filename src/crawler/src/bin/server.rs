@@ -11,15 +11,17 @@
 //! `spider_concurrency + scraper_concurrency + 10`.
 //! Override it explicitly in [`CrawlerCronConfig`] if needed.
 //!
-//! # Required environment variables
+//! # Environment variables
 //!
 //! | Variable                        | Purpose                                                        |
 //! |---------------------------------|----------------------------------------------------------------|
-//! | `LOCAL_DB_URL`                  | Crawler-local Postgres URL (`crawler_server`)                  |
-//! | `BUSINESS_DATABASE_URL`         | Required authoritative Postgres URL for listing_sources and products     |
-//! | `VERTEX_AI_PROJECT_ID`          | Required Google Cloud project for Vertex AI                    |
-//! | `VERTEX_AI_LOCATION`            | Required Vertex AI location                                    |
-//! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file             |
+//! | `LOCAL_DB_URL`                  | Required crawler-local Postgres connection URL, e.g. `postgres://crawler:<password>@127.0.0.1:5432/crawler_server`. The operator creates the database; `server` only applies crawler-local migrations to it. |
+//! | `BUSINESS_DATABASE_URL`         | Required authoritative Postgres URL for listing_sources and products |
+//! | `SPIDER_MAX_SIZE_BYTES`         | Required Spider transport page-body ceiling; set to `8388608`  |
+//! | `CRAWLER_AUTHORING_MODE`        | `auto`, `review` or `manual`; unset or blank means `review`    |
+//! | `VERTEX_AI_PROJECT_ID`          | Google Cloud project for Vertex AI; required unless `CRAWLER_AUTHORING_MODE` is `manual` |
+//! | `VERTEX_AI_LOCATION`            | Vertex AI location; required unless `CRAWLER_AUTHORING_MODE` is `manual` |
+//! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file; unless the mode is `manual`, startup fails when Application Default Credentials cannot be loaded |
 //! | `VERTEX_AI_MODEL`               | Schema generation/repair model (default: `gemini-3.5-flash`) |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default model for low-risk crawler LLM tasks                   |
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
@@ -27,7 +29,9 @@
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
 //! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
-//! | `SPIDER_MAX_SIZE_BYTES`          | Required Spider transport page-body ceiling; set to `8388608`  |
+//!
+//! With `CRAWLER_AUTHORING_MODE=manual` no Vertex AI or LLM setting is read
+//! ([`CrawlerRuntimeConfig::from_env`]).
 //!
 //! # CloudWatch IAM permissions
 //!
@@ -43,7 +47,7 @@ use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use aws_sdk_cloudwatchlogs::error::SdkError;
 use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
-use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
+use crawler::local_db::local_db_url_from_env;
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
     HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, cloudwatch_logging_config,
@@ -303,10 +307,9 @@ async fn main() {
 
         // 2. Connect to database — pool is sized to spider_concurrency + scraper_concurrency + 10
         //    to keep headroom for concurrent repository queries.
-        bootstrap_local_database(SERVER_DB_NAME)
-            .await
-            .expect("Failed to bootstrap local Postgres database");
-        let db_url = server_db_url();
+        let db_url = local_db_url_from_env().unwrap_or_else(|error| {
+            panic!("invalid crawler-local database configuration: {error}")
+        });
         let pool = config
             .connect_pool(&db_url)
             .await
@@ -335,8 +338,9 @@ async fn main() {
             "Connected to authoritative business Postgres"
         );
 
-        let review_config =
-            ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
+        let review_config = ReviewServerConfig::from_env().unwrap_or_else(|error| {
+            panic!("invalid crawler review console configuration: {error}")
+        });
         let runtime_config = CrawlerRuntimeConfig::from_env()
             .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
 

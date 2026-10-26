@@ -7,16 +7,13 @@
 Description=Aura Historia crawler server
 Documentation=https://github.com/aura-historia/backend/blob/main/docs/crawler/operations.md#single-server-deployment
 Wants=network-online.target
-# `server` runs `docker compose up -d` for its local Postgres at every start.
-Requires=docker.service
-After=network-online.target docker.service
+# Orders startup after a Postgres on this host; a no-op when LOCAL_DB_URL points elsewhere.
+After=network-online.target postgresql.service
 
 [Service]
 Type=simple
 User=crawler
 Group=crawler
-# Needed for `docker compose`; membership in the docker group is root-equivalent.
-SupplementaryGroups=docker
 EnvironmentFile=/etc/crawler/crawler.env
 # Empty working directory: `server` also loads a `.env` from here or any parent.
 StateDirectory=crawler
