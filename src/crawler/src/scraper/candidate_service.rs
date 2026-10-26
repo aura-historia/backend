@@ -521,7 +521,12 @@ struct ScraperCandidateRow {
     schema_review_wait_streak: i32,
 }
 
-const SCRAPER_CANDIDATE_QUERY: &str = r#"
+/// The URLs due for scraping, shared by every query that selects or counts them so their
+/// definitions cannot drift. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the
+/// domain IDs to leave out.
+macro_rules! eligible_scraper_urls_cte {
+    () => {
+        r#"
     WITH eligible_urls AS (
         SELECT
             su.listing_source_id, sd.domain_id, sd.listing_source_domain,
@@ -548,7 +553,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
         JOIN listing_source_domains sd
           ON sd.listing_source_id = su.listing_source_id AND sd.domain_id = su.domain_id
         WHERE s.crawl_enabled = TRUE
-          AND s.llm_calls_count < $3
+          AND s.llm_calls_count < $1
           AND su.url_class = 'product'
           AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
           AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
@@ -572,14 +577,22 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
                     AND cr.status = 'PENDING_REVIEW'
               )
           )
-          AND NOT (sd.domain_id = ANY($4))
-    ),
+          AND NOT (sd.domain_id = ANY($2))
+    )"#
+    };
+}
+
+/// Binds `$3`, the number of domains, and `$4`, the URLs per domain, after the
+/// [`eligible_scraper_urls_cte`] parameters.
+const SCRAPER_CANDIDATE_QUERY: &str = concat!(
+    eligible_scraper_urls_cte!(),
+    r#",
     selected_domains AS (
         SELECT domain_id
         FROM eligible_urls
         GROUP BY domain_id
         ORDER BY random()
-        LIMIT $1
+        LIMIT $3
     ),
     ranked_urls AS (
         SELECT
@@ -602,9 +615,10 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
         last_source_listing_id, schema_review_waited_on, schema_review_wait_streak
     FROM ranked_urls
     WHERE (is_domain_probe AND domain_url_rank = 1)
-       OR (NOT is_domain_probe AND domain_url_rank <= $2)
+       OR (NOT is_domain_probe AND domain_url_rank <= $4)
     ORDER BY domain_id, domain_url_rank, url
-    "#;
+    "#
+);
 
 #[async_trait]
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
@@ -619,10 +633,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             .map(|domain_id| *domain_id.as_uuid())
             .collect();
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(SCRAPER_CANDIDATE_QUERY)
-            .bind(domain_limit)
-            .bind(urls_per_domain)
             .bind(self.max_llm_calls_per_listing_source)
             .bind(excluded_domain_uuids)
+            .bind(domain_limit)
+            .bind(urls_per_domain)
             .fetch_all(&self.pool)
             .await?;
 
@@ -1396,7 +1410,7 @@ mod candidate_query_tests {
 
     #[test]
     fn should_select_by_persisted_domain_and_return_one_probe() {
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("sd.domain_id = ANY($4)"));
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("sd.domain_id = ANY($2)"));
         assert!(SCRAPER_CANDIDATE_QUERY.contains("sd.scrape_failure_streak = 0"));
         assert!(
             SCRAPER_CANDIDATE_QUERY.contains("WHERE (is_domain_probe AND domain_url_rank = 1)")
