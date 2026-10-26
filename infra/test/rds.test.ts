@@ -105,6 +105,11 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
 
     expect(secrets).toHaveLength(5);
     expect(secrets.every((secret) => secret.Properties.GenerateSecretString !== undefined)).toBe(true);
+    const lifecycle = stage === "prod" ? "Retain" : "Delete";
+    for (const secret of secrets) {
+      expect(secret.DeletionPolicy).toBe(lifecycle);
+      expect(secret.UpdateReplacePolicy).toBe(lifecycle);
+    }
     expect(JSON.stringify(outputs)).not.toContain("Secret");
     expect(JSON.stringify(outputs)).not.toContain("aura_runtime");
     expect(JSON.stringify(outputs)).not.toContain("aura_migrator");

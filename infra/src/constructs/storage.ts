@@ -126,6 +126,16 @@ export class Storage extends Construct {
       databaseName: rdsConfig.databaseName,
       host: this.database.dbInstanceEndpointAddress,
     });
+    // A retained database stays reachable only through its generated role credentials.
+    for (const secret of [
+      this.adminCredentials,
+      this.runtimeCredentials,
+      this.migrationCredentials,
+      this.inspectionCredentials,
+      this.replicationCredentials,
+    ]) {
+      secret.applyRemovalPolicy(props.config.removalPolicy);
+    }
 
     this.postgres = {
       host: this.database.dbInstanceEndpointAddress,

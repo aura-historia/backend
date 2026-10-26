@@ -101,8 +101,12 @@ Certificate/DNS prerequisites and the generic stage smoke belong to the
 The declared single NAT, Single-AZ database/CDC resources and single stage search
 host are outage dependencies, not a high-availability promise. Review current
 engine availability, backups, retention/removal policies, quotas and cost before
-execution; dev resources may be destructive on deletion. Retained resources still
-require ownership and recovery planning.
+execution; dev resources may be destructive on deletion. Production stateful resources
+(database and its generated credentials, queues, CDC transport, user pool, archives and
+evidence logs) are retained on stack deletion and replacement, and the production database
+carries deletion protection. Stack termination protection is a stack attribute outside
+the template that the native pipeline does not set; enabling it on production stacks is
+platform-operator work. Retained resources still require ownership and recovery planning.
 
 ### Fresh database baseline
 
