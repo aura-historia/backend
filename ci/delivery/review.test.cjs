@@ -113,6 +113,16 @@ test("malformed/truncated/uncertain model output is held and hard policy is mono
   assert.equal(unavailable.report.verdict, "MAINTENANCE_REQUIRED");
   assert.ok(unavailable.report.uncertainties.length);
 });
+
+test("focused review includes native consumer bindings and collected operational evidence", () => {
+  const evidence = inventory();
+  evidence.aws.activation = [{ id: "managed-rule", bus: "provider-prod", state: "ENABLED", targets: [{ arn: "production-queue" }] }];
+  evidence.operationalEvidence = { templateArtifacts: { identicalContent: true }, native: { retiredEventRules: [{ name: "retired", observedState: "ABSENT" }] } };
+  const context = reviewContext(evidence);
+  assert.deepEqual(context.consumers.bindings, evidence.aws.activation);
+  assert.deepEqual(context.operationalEvidence, evidence.operationalEvidence);
+  assert.equal(context.inventoryDigest, digest(evidence));
+});
 test("manual OpenSearch checklist binds target/candidate and expected resulting mapping", () => {
   const before = { properties: { id: { type: "keyword" } } },
     after = {

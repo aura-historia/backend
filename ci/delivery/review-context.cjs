@@ -81,6 +81,7 @@ function consumerContext(aws) {
   return {
     activationDigest: digest(aws.activation),
     bindingCount: aws.activation.length,
+    bindings: aws.activation,
     states: aws.activation.reduce((counts, item) => {
       counts[item.state] = (counts[item.state] || 0) + 1;
       return counts;
@@ -123,6 +124,7 @@ function reviewContext(inventory) {
     manualPrerequisites: inventory.manualPrerequisites || [],
     fullSuite: inventory.tests,
     hardFindings: inventory.hardFindings,
+    operationalEvidence: inventory.operationalEvidence || null,
   };
 }
 

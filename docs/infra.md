@@ -196,6 +196,18 @@ observations to the displayed target/report/prerequisite digests. Missing or
 incorrect expected after-state evidence holds deployment. No pipeline has search
 administration credentials.
 
+Optional dispatch `manual_evidence.nativeChecks` requests additional read-only review
+evidence. `retiredEventRules` selects `{eventBusName,name}` pairs on an already observed
+target bus; the planner verifies absence and execution rechecks it. `databaseInstanceId`
+and `lambdaFunctions` select observed target resources for one-hour capacity metrics
+and allowlisted pool settings. `sourcePaths` selects supporting tracked Rust files at
+the candidate SHA. Requests supply selectors, never observed values or verdicts; missing
+metrics remain missing. These checks add no mutation or approval authority.
+
+The review also compares compiled mail-template identifiers and content hashes with
+the last verified bundle. A build-specific `MAIL_TEMPLATE_PREFIX` rotation can select
+identical template bytes; changed content remains explicit in the report.
+
 The target requester submits pinned request, bundle, report and control-source
 versions to its native pipeline. All mutations and verification share one ordered
 `Deploy` stage in QUEUED mode, plus the durable environment exclusion record.

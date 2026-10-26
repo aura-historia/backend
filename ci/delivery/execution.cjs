@@ -25,6 +25,7 @@ const {
 } = require("./verification.cjs");
 const storage = require("./storage.cjs");
 const { reviewContext } = require("./review-context.cjs");
+const { revalidateRules } = require("./review-observations.cjs");
 
 function evidenceObject(reference, store = storage) {
   const uri = new URL(reference.uri);
@@ -127,6 +128,7 @@ function loadApproved(env, options = {}) {
     throw new Error("Trusted target configuration changed since approval");
   if (!env.DELIVERY_EXECUTION_ID)
     throw new Error("Native execution ID required");
+  revalidateRules(ctx, inventory.operationalEvidence?.native, options.api || state.aws);
   return {
     ctx,
     config,

@@ -277,6 +277,12 @@ function pipelineFixture(directory) {
       { checksum: bundle.migrations[0].checksum, success: true, version: 1 },
     ];
   const beforeAt = new Date(Date.now() - 60000).toISOString();
+  const baselineBundle = structuredClone(bundle);
+  baselineBundle.sourceSha = baselineSha;
+  baselineBundle.tests.sourceSha = baselineSha;
+  baselineBundle.build.id = digest({ sourceSha: baselineSha, configDigest: baselineBundle.build.configDigest });
+  const baselineBundleDigest = digest(baselineBundle);
+  store.putImmutableJson("release-bucket", `bundles/${baselineBundleDigest}.json`, baselineBundle);
   let deployedAt = beforeAt,
     phase = "before";
   let environment = {
@@ -285,7 +291,7 @@ function pipelineFixture(directory) {
     revision: 0,
     state: "READY",
     lastVerified: {
-      bundleDigest: fixture.hash,
+      bundleDigest: baselineBundleDigest,
       sourceSha: baselineSha,
       verifiedAt: beforeAt,
     },
