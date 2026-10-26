@@ -1,7 +1,7 @@
 use super::job::CrawlerCronJob;
 use crate::CrawlerReviewId;
 use crate::network::policy::{
-    NetworkErrorKind, domain_cooldown, domain_failure_kind, durable_retry_cooldown_for,
+    DomainFailureKind, NetworkErrorKind, domain_cooldown, durable_retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{
     DomainCircuitOpenRequest, FetchFailureRequest, RedirectUrlMove, SchemaReviewWait,
@@ -9,6 +9,7 @@ use crate::scraper::candidate_service::{
     next_domain_failure_streak,
 };
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
+use crate::scraper::domain_circuit::{DomainBatchEvidence, DomainCircuitDecision};
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::scraper_service::domain::product::{
     current_fetch_failure, domain_health_for_scraper_error, with_scrape_observation,
@@ -123,7 +124,10 @@ struct ScrapeCandidateOutcome {
     /// eligible for a later pass without any durable state change.
     deferred: bool,
     domain_health: DomainFetchHealth,
-    server_failure_status: Option<u16>,
+    /// The HTTP status the candidate's fetch failed with, when it failed on one.
+    http_failure_status: Option<u16>,
+    /// The failure opened the domain circuit: the rest of the batch stops.
+    circuit_opened: bool,
     /// robots.txt of the URL's origin could not be reached, which disallows
     /// every URL there until it is fetched again.
     robots_unreachable: bool,
@@ -465,13 +469,13 @@ async fn scrape_candidate(
     candidate: ScraperCandidate,
     ctx: &ScrapeDomainContext,
 ) -> ScrapeCandidateOutcome {
-    scrape_candidate_with_options(candidate, ctx, false).await
+    scrape_candidate_in_batch(candidate, ctx, &DomainBatchEvidence::default()).await
 }
 
-async fn scrape_candidate_with_options(
+async fn scrape_candidate_in_batch(
     candidate: ScraperCandidate,
     ctx: &ScrapeDomainContext,
-    open_5xx_burst: bool,
+    evidence: &DomainBatchEvidence,
 ) -> ScrapeCandidateOutcome {
     if should_skip_candidate(&candidate, ctx).await {
         return skipped_outcome();
@@ -502,7 +506,7 @@ async fn scrape_candidate_with_options(
                 error,
                 fetch_failure,
                 domain_health.clone(),
-                open_5xx_burst,
+                evidence,
             )
             .await
         }
@@ -779,34 +783,33 @@ async fn handle_scrape_error(
     ctx: &ScrapeDomainContext,
     error: ScraperError,
     fetch_failure: Option<FetchFailureContext>,
-    mut domain_health: DomainFetchHealth,
-    open_5xx_burst: bool,
+    domain_health: DomainFetchHealth,
+    evidence: &DomainBatchEvidence,
 ) -> ScrapeCandidateOutcome {
     let error_message = error.to_string();
-    let server_failure_status =
-        if let Some(failure) = http_failure(candidate, &error, fetch_failure) {
-            persist_http_failure(
-                candidate,
-                ctx,
-                &error_message,
-                failure,
-                &mut domain_health,
-                open_5xx_burst,
-            )
-            .await
-        } else {
-            persist_non_http_failure(candidate, ctx, &error, &error_message).await;
-            None
-        };
+    let record = if let Some(failure) = http_failure(candidate, &error, fetch_failure) {
+        persist_http_failure(candidate, ctx, &error_message, failure, evidence).await
+    } else {
+        persist_non_http_failure(candidate, ctx, &error, &error_message).await;
+        HttpFailureRecord::default()
+    };
     record_batch_error_state(ctx, &error).await;
 
     ScrapeCandidateOutcome {
         errored: true,
         domain_health,
-        server_failure_status,
+        http_failure_status: record.status_code,
+        circuit_opened: record.circuit_opened,
         robots_unreachable: is_robots_unreachable(&error),
         ..Default::default()
     }
+}
+
+/// What persisting an HTTP failure did to the domain.
+#[derive(Default)]
+struct HttpFailureRecord {
+    status_code: Option<u16>,
+    circuit_opened: bool,
 }
 
 async fn persist_http_failure(
@@ -814,54 +817,63 @@ async fn persist_http_failure(
     ctx: &ScrapeDomainContext,
     error_message: &str,
     failure: HttpFailure,
-    domain_health: &mut DomainFetchHealth,
-    open_5xx_burst: bool,
-) -> Option<u16> {
+    evidence: &DomainBatchEvidence,
+) -> HttpFailureRecord {
     let cooldown = durable_retry_cooldown_for(failure.kind);
     let next_retry_at =
         time::OffsetDateTime::now_utc() + time::Duration::seconds(cooldown.as_secs() as i64);
-    let status_code = failure
-        .status_code
-        .or(match failure.kind {
-            NetworkErrorKind::HttpStatus(code) => Some(code),
-            _ => None,
-        })
-        .map(i32::from);
-    let server_failure_status = status_code
-        .filter(|status| matches!(*status, 500 | 502))
-        .and_then(|status| u16::try_from(status).ok());
-    let url_error_kind = crawler_url_error_kind(failure.kind, status_code);
-    let domain_kind = domain_failure_kind(failure.kind).or_else(|| {
-        (open_5xx_burst && server_failure_status.is_some())
-            .then_some(crate::network::policy::DomainFailureKind::Http5xxBurst)
+    let status_code = failure.status_code.or(match failure.kind {
+        NetworkErrorKind::HttpStatus(code) => Some(code),
+        _ => None,
     });
     let url_failure = FetchFailureRequest {
         listing_source_id: candidate.listing_source_id,
         url: failure.url.clone(),
-        error_kind: url_error_kind,
+        error_kind: crawler_url_error_kind(failure.kind, status_code),
         error_message: error_message.to_owned(),
-        status_code,
+        status_code: status_code.map(i32::from),
         next_retry_at,
         expected_last_captured_raw_input_sha256: failure.expected_last_captured_raw_input_sha256,
     };
 
-    let Some(domain_kind) = domain_kind else {
-        persist_url_failure(ctx, url_failure).await;
-        return server_failure_status;
+    let circuit_opened = match evidence.decide(&candidate.url, failure.kind, status_code) {
+        DomainCircuitDecision::UrlLocal => {
+            persist_url_failure(ctx, url_failure).await;
+            false
+        }
+        DomainCircuitDecision::Open(domain_kind) => {
+            open_domain_circuit(
+                candidate,
+                ctx,
+                url_failure,
+                domain_kind,
+                status_code,
+                failure.retry_after,
+            )
+            .await;
+            true
+        }
     };
+    HttpFailureRecord {
+        status_code,
+        circuit_opened,
+    }
+}
 
+/// Persists the URL failure and opens the domain circuit for `domain_kind`,
+/// fenced by the candidate's domain snapshot.
+async fn open_domain_circuit(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    url_failure: FetchFailureRequest,
+    domain_kind: DomainFailureKind,
+    status_code: Option<u16>,
+    retry_after: Option<Duration>,
+) {
     let failure_streak = next_domain_failure_streak(&candidate.domain_health, domain_kind);
-    let domain_cooldown = domain_cooldown(domain_kind, failure_streak, failure.retry_after);
+    let domain_cooldown = domain_cooldown(domain_kind, failure_streak, retry_after);
     let next_scrape_at =
         time::OffsetDateTime::now_utc() + time::Duration::seconds(domain_cooldown.as_secs() as i64);
-    if domain_kind == crate::network::policy::DomainFailureKind::Http5xxBurst {
-        *domain_health = DomainFetchHealth::CircuitFailure {
-            kind: domain_kind,
-            status_code: status_code.and_then(|value| u16::try_from(value).ok()),
-            retry_after: failure.retry_after,
-        };
-    }
-
     let result = ctx
         .scraper_candidates
         .mark_fetch_failure_and_open_domain_circuit(DomainCircuitOpenRequest {
@@ -869,7 +881,7 @@ async fn persist_http_failure(
             domain_id: candidate.domain_id,
             expected_domain_health: candidate.domain_health.clone(),
             domain_error_kind: domain_kind,
-            domain_status_code: status_code,
+            domain_status_code: status_code.map(i32::from),
             next_scrape_at,
         })
         .await;
@@ -880,12 +892,11 @@ async fn persist_http_failure(
         candidate,
         domain_kind,
         status_code,
-        failure.retry_after,
+        retry_after,
         next_scrape_at,
         spider_active_on_domain,
         result,
     );
-    server_failure_status
 }
 
 async fn persist_url_failure(ctx: &ScrapeDomainContext, request: FetchFailureRequest) {
@@ -919,8 +930,8 @@ async fn persist_url_failure(ctx: &ScrapeDomainContext, request: FetchFailureReq
 
 fn log_domain_open_result(
     candidate: &ScraperCandidate,
-    domain_kind: crate::network::policy::DomainFailureKind,
-    status_code: Option<i32>,
+    domain_kind: DomainFailureKind,
+    status_code: Option<u16>,
     retry_after: Option<Duration>,
     next_scrape_at: time::OffsetDateTime,
     spider_active_on_domain: bool,
@@ -1260,7 +1271,7 @@ fn is_robots_refusal(error: &ScraperError) -> bool {
         .is_some_and(NetworkErrorKind::is_robots_refusal)
 }
 
-fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<i32>) -> String {
+fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<u16>) -> String {
     status_code
         .map(|status_code| format!("HTTP_{status_code}"))
         .unwrap_or_else(|| format!("{kind:?}"))
@@ -1295,7 +1306,7 @@ async fn scrape_domain_candidates(
         return outcome;
     };
 
-    let mut server_failure_urls = HashSet::new();
+    let mut evidence = DomainBatchEvidence::default();
     let candidate_count = candidates.len();
     let batch_deadline = tokio::time::Instant::now() + ctx.batch_time_budget;
     for (candidate_index, candidate) in candidates.into_iter().enumerate() {
@@ -1312,11 +1323,8 @@ async fn scrape_domain_candidates(
             break;
         }
         let candidate_url = candidate.url.clone();
-        let open_5xx_burst =
-            !server_failure_urls.contains(&candidate_url) && server_failure_urls.len() >= 2;
         let expected_domain_health = candidate.domain_health.clone();
-        let candidate_outcome =
-            scrape_candidate_with_options(candidate, &ctx, open_5xx_burst).await;
+        let candidate_outcome = scrape_candidate_in_batch(candidate, &ctx, &evidence).await;
 
         if candidate_outcome.errored {
             outcome.failed += 1;
@@ -1346,12 +1354,18 @@ async fn scrape_domain_candidates(
             outcome.succeeded += 1;
         }
 
-        match candidate_outcome.server_failure_status {
-            Some(500 | 502) => {
-                server_failure_urls.insert(candidate_url);
-            }
-            Some(_) => {}
-            None => {}
+        if let Some(status_code) = candidate_outcome.http_failure_status {
+            evidence.observe_http_failure(&candidate_url, status_code);
+        }
+
+        if candidate_outcome.circuit_opened {
+            warn!(
+                event = "crawler.scraper.domain_circuit_batch_stopped",
+                domain_id = %ctx.domain_id,
+                "Stopping remaining scraper URLs after a domain circuit failure"
+            );
+            outcome.skipped += candidate_count.saturating_sub(candidate_index + 1);
+            break;
         }
 
         if matches!(
@@ -1396,16 +1410,6 @@ async fn scrape_domain_candidates(
                 "Deferring remaining scraper URLs while robots.txt is unreachable"
             );
             outcome.deferred_urls += remaining;
-            break;
-        }
-
-        if let DomainFetchHealth::CircuitFailure { .. } = &candidate_outcome.domain_health {
-            warn!(
-                event = "crawler.scraper.domain_circuit_batch_stopped",
-                domain_id = %ctx.domain_id,
-                "Stopping remaining scraper URLs after a domain circuit failure"
-            );
-            outcome.skipped += candidate_count.saturating_sub(candidate_index + 1);
             break;
         }
     }
