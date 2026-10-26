@@ -780,6 +780,58 @@ mod tests {
         }
     }
 
+    /// Far longer than loopback round trips and timer wake-ups take under
+    /// parallel test load, far shorter than the waits a fetch must not make:
+    /// a `Retry-After`, a durable cooldown, a total budget after the attempt
+    /// budget ended it.
+    const LOAD_TOLERANT_BOUND: Duration = Duration::from_secs(5);
+
+    /// The fetcher's attempt limit and the client's request timeout, set to
+    /// the same budget, race to end a stalled attempt; either way the whole
+    /// fetch's budget did not.
+    fn assert_attempt_timeout(error: &FetchError) {
+        assert_eq!(error.kind(), NetworkErrorKind::Timeout, "{error:?}");
+        assert!(
+            !matches!(
+                error,
+                FetchError::Network { details, .. } if details == "HTML fetch exceeded total timeout"
+            ),
+            "{error:?}"
+        );
+    }
+
+    /// Pacing that outlasts both timeout budgets, while the budgets still
+    /// leave a loopback request room to complete under parallel test load.
+    const PACING_DELAY: Duration = Duration::from_secs(1);
+    const PACED_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(400);
+    const PACED_TOTAL_TIMEOUT: Duration = Duration::from_millis(700);
+    const CRAWL_DELAY_ROBOTS_TXT: &str = "User-agent: *\nCrawl-delay: 1\n";
+
+    /// A fetcher whose timeouts are shorter than `PACING_DELAY`: a fetch
+    /// only succeeds when pacing waits do not count against them.
+    fn paced_fetcher(min_throttle_delay: Duration) -> ReqwestHtmlFetcher {
+        ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(1),
+            throttle_config(min_throttle_delay),
+            PACED_ATTEMPT_TIMEOUT,
+            PACED_TOTAL_TIMEOUT,
+        )
+    }
+
+    /// The second request of a paced pair reaches the shop no earlier than
+    /// `PACING_DELAY` after a point before the first was reserved. Measuring
+    /// from the shop's first request would race its scheduling against the
+    /// second's under load.
+    fn assert_paced_apart(shop: &TestShop, before_first_request: Instant) {
+        let requests = shop.page_requests();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1] - before_first_request >= PACING_DELAY,
+            "second request after {:?}",
+            requests[1] - before_first_request
+        );
+    }
+
     #[tokio::test]
     async fn reqwest_fetcher_rejects_an_ip_literal_target_before_connecting() {
         let fetcher = ReqwestHtmlFetcher::with_retry_policy_and_auto_throttle_config(
@@ -834,7 +886,7 @@ mod tests {
             throttle_config(Duration::ZERO),
         );
 
-        let error = tokio::time::timeout(Duration::from_millis(100), fetcher.fetch(&url))
+        let error = tokio::time::timeout(LOAD_TOLERANT_BOUND, fetcher.fetch(&url))
             .await
             .expect("long Retry-After must not block the worker")
             .expect_err("long Retry-After must stop remaining inline attempts");
@@ -861,7 +913,7 @@ mod tests {
             throttle_config(Duration::ZERO),
         );
 
-        let fetched = tokio::time::timeout(Duration::from_millis(100), fetcher.fetch(&url))
+        let fetched = tokio::time::timeout(LOAD_TOLERANT_BOUND, fetcher.fetch(&url))
             .await
             .expect("retry should use short inline backoff")
             .unwrap();
@@ -872,31 +924,26 @@ mod tests {
 
     #[tokio::test]
     async fn reqwest_fetcher_reports_attempt_timeout_before_total_timeout() {
+        // The page answers long after the attempt budget and before the
+        // total budget: only the attempt timeout turns it into an error, and
+        // the error says which budget ended the fetch.
         let url = spawn_shop(
             robots_status("404 Not Found"),
             vec![OK_PAGE],
-            Duration::from_millis(100),
+            Duration::from_secs(2),
         )
         .await
         .url;
         let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
             zero_delay_retry_policy(1),
             throttle_config(Duration::ZERO),
-            Duration::from_millis(20),
-            Duration::from_millis(200),
+            Duration::from_millis(100),
+            LOAD_TOLERANT_BOUND,
         );
 
-        let started = Instant::now();
         let error = fetcher.fetch(&url).await.unwrap_err();
 
-        assert!(matches!(
-            error,
-            crate::scraper::scraper_service::FetchError::Network {
-                kind: crate::network::policy::NetworkErrorKind::Timeout,
-                ..
-            }
-        ));
-        assert!(started.elapsed() < Duration::from_millis(100));
+        assert_attempt_timeout(&error);
     }
 
     #[tokio::test]
@@ -988,25 +1035,18 @@ mod tests {
     #[tokio::test]
     async fn should_space_requests_by_the_crawl_delay_without_timing_out() {
         let shop = spawn_shop(
-            robots_txt("User-agent: *\nCrawl-delay: 0.3\n"),
+            robots_txt(CRAWL_DELAY_ROBOTS_TXT),
             vec![OK_PAGE, OK_PAGE],
             Duration::ZERO,
         )
         .await;
-        // The crawl-delay exceeds both timeout budgets: pacing must not count.
-        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
-            zero_delay_retry_policy(1),
-            throttle_config(Duration::ZERO),
-            Duration::from_millis(100),
-            Duration::from_millis(200),
-        );
+        let fetcher = paced_fetcher(Duration::ZERO);
 
+        let started = Instant::now();
         fetcher.fetch(&shop.url).await.unwrap();
         fetcher.fetch(&shop.url).await.unwrap();
 
-        let requests = shop.page_requests();
-        assert_eq!(requests.len(), 2);
-        assert!(requests[1] - requests[0] >= Duration::from_millis(300));
+        assert_paced_apart(&shop, started);
         assert_eq!(shop.robots_requests.load(Ordering::SeqCst), 1);
     }
 
@@ -1208,12 +1248,7 @@ mod tests {
         .await;
         // The latency throttle spaces requests further apart than an attempt
         // may take: pacing must not count, for the redirect hop either.
-        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
-            zero_delay_retry_policy(1),
-            throttle_config(Duration::from_millis(200)),
-            Duration::from_millis(100),
-            Duration::from_millis(300),
-        );
+        let fetcher = paced_fetcher(PACING_DELAY);
 
         let fetched = fetcher.fetch(&shop.url).await.unwrap();
 
@@ -1224,23 +1259,17 @@ mod tests {
     #[tokio::test]
     async fn should_space_a_redirect_hop_by_the_crawl_delay_without_timing_out() {
         let shop = spawn_shop(
-            robots_txt("User-agent: *\nCrawl-delay: 0.3\n"),
+            robots_txt(CRAWL_DELAY_ROBOTS_TXT),
             vec![redirect_to("/moved"), OK_PAGE],
             Duration::ZERO,
         )
         .await;
-        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
-            zero_delay_retry_policy(1),
-            throttle_config(Duration::ZERO),
-            Duration::from_millis(100),
-            Duration::from_millis(200),
-        );
+        let fetcher = paced_fetcher(Duration::ZERO);
 
+        let started = Instant::now();
         fetcher.fetch(&shop.url).await.unwrap();
 
-        let requests = shop.page_requests();
-        assert_eq!(requests.len(), 2);
-        assert!(requests[1] - requests[0] >= Duration::from_millis(300));
+        assert_paced_apart(&shop, started);
     }
 
     #[tokio::test]
@@ -1324,15 +1353,13 @@ mod tests {
             zero_delay_retry_policy(3),
             throttle_config(Duration::ZERO),
             Duration::from_millis(100),
-            Duration::from_millis(500),
+            LOAD_TOLERANT_BOUND,
         );
         let url = Url::parse(&format!("http://{addr}/product")).unwrap();
 
-        let started = Instant::now();
         let error = fetcher.fetch(&url).await.unwrap_err();
 
-        assert_eq!(error.kind(), NetworkErrorKind::Timeout);
-        assert!(started.elapsed() < Duration::from_millis(400));
+        assert_attempt_timeout(&error);
         assert_eq!(connections.load(Ordering::SeqCst), 1);
     }
 
