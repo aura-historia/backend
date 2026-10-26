@@ -3,7 +3,8 @@
 //! Sets up logging with optional CloudWatch export, crawler-local Postgres, and authoritative
 //! business Postgres, then hands the production profile to [`crawler::runtime`]. The runtime
 //! continuously spiders ListingSource websites, scrapes product pages, and captures changed raw
-//! ProductListing observations for asynchronous normalization.
+//! ProductListing observations for asynchronous normalization. SIGTERM and SIGINT stop it
+//! gracefully; see `docs/crawler/operations.md#stopping-the-crawler`.
 //!
 //! # Connection pool sizing
 //!
@@ -370,7 +371,7 @@ async fn main() {
             config.effective_push_max_concurrency(),
         ));
 
-        // 6. Wire the shared crawler pipeline and run forever.
+        // 6. Wire the shared crawler pipeline and run until stopped.
         crawler::runtime::build(
             pool,
             CrawlerRuntimeProfile {

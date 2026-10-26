@@ -251,7 +251,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use super::{CrawlerMetric, MetricDimension, emf_record_of};
+    use super::{CrawlerMetric, MetricDimension, MetricRecord, emf_record_of};
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
     use tracing::Subscriber;
@@ -271,6 +271,11 @@ pub(crate) mod test_support {
     }
 
     impl CapturedMetrics {
+        /// Takes every record captured so far.
+        fn drain(&self) -> Vec<Value> {
+            std::mem::take(&mut *self.0.lock().expect("metric capture lock"))
+        }
+
         /// Values of `metric` in emission order, each with the record's dimensions.
         pub(crate) fn values(&self, metric: CrawlerMetric) -> Vec<(Vec<(String, String)>, u64)> {
             self.0
@@ -321,7 +326,26 @@ pub(crate) mod test_support {
     pub(crate) fn capture_metrics() -> (CapturedMetrics, tracing::subscriber::DefaultGuard) {
         let captured = CapturedMetrics::default();
         let subscriber = tracing_subscriber::registry().with(captured.clone());
-        (captured, tracing::subscriber::set_default(subscriber))
+        let guard = tracing::subscriber::set_default(subscriber);
+        prime_metric_callsite(|| captured.drain().len() == 1);
+        (captured, guard)
+    }
+
+    /// Makes the metric callsite reach this thread's default subscriber. `tracing` caches
+    /// the interest in a callsite once for the whole process, decided by the thread that
+    /// first uses it: a test thread without a subscriber, such as one driving a scheduler
+    /// pass without capturing, caches "never", and a thread-local subscriber set later
+    /// never sees a record. This emits a probe record, which `probe_observed` must consume
+    /// and report, and rebuilds the cache when another thread won that race.
+    pub(crate) fn prime_metric_callsite(mut probe_observed: impl FnMut() -> bool) {
+        for _ in 0..2 {
+            MetricRecord::global().emit();
+            if probe_observed() {
+                return;
+            }
+            tracing::callsite::rebuild_interest_cache();
+        }
+        panic!("the metric callsite stays disabled for this thread's subscriber");
     }
 }
 
@@ -406,7 +430,16 @@ mod tests {
                     .with_current_span(true)
                     .with_span_list(true),
             ));
-        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), log);
+        let probe_buffer = buffer.clone();
+        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), || {
+            test_support::prime_metric_callsite(|| {
+                let mut probe = probe_buffer.0.lock().expect("buffer lock");
+                let observed = !probe.is_empty();
+                probe.clear();
+                observed
+            });
+            log();
+        });
         let output = String::from_utf8(buffer.0.lock().expect("buffer lock").clone())
             .expect("log output is UTF-8");
         output

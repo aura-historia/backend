@@ -37,6 +37,13 @@
 //! the demo ListingSources, short cron intervals, the tokenless local review console, and a file
 //! sink: changed raw observations are written to `scraped_raw_observations.json` instead of
 //! calling the ProductListing raw-capture use case.
+//!
+//! # Stopping
+//!
+//! Ctrl+C (SIGINT) or SIGTERM stops the binary gracefully: no new spider or scraper work starts,
+//! running work gets 30 seconds to finish and the raw observations captured so far are written,
+//! then the process exits 0. A second Ctrl+C exits at once. The contract is in
+//! `docs/crawler/operations.md#stopping-the-crawler`.
 
 use listing_source_core::ListingSourceId;
 use std::env;

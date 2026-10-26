@@ -1,5 +1,6 @@
 use super::job::CrawlerCronJob;
 use super::metrics::emit_pass_duration;
+use super::stop::CronStop;
 use crate::CrawlerReviewId;
 use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::policy::{
@@ -63,6 +64,7 @@ struct ScrapeDomainContext {
     budget_exhausted_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
     domain_id: crate::CrawlerDomainId,
     batch_time_budget: Duration,
+    stop: CronStop,
 }
 
 /// Metadata applied only after durable raw capture succeeds.
@@ -1497,6 +1499,17 @@ async fn scrape_domain_candidates(
     let candidate_count = candidates.len();
     let batch_deadline = tokio::time::Instant::now() + ctx.batch_time_budget;
     for (candidate_index, mut candidate) in candidates.into_iter().enumerate() {
+        if ctx.stop.is_requested() {
+            let remaining = candidate_count - candidate_index;
+            info!(
+                event = "crawler.scraper.domain_batch_stopped",
+                domain_id = %ctx.domain_id,
+                deferred_urls = remaining,
+                "Deferring remaining scraper URLs because the crawler is stopping"
+            );
+            outcome.deferred_urls += remaining;
+            break;
+        }
         // The first URL always runs, so every pass makes progress.
         if candidate_index > 0 && tokio::time::Instant::now() >= batch_deadline {
             let remaining = candidate_count - candidate_index;
@@ -1738,7 +1751,7 @@ impl CrawlerCronJob {
         ));
 
         loop {
-            while join_set.len() < scraper_concurrency {
+            while join_set.len() < scraper_concurrency && !self.stop.is_requested() {
                 let pending_index = pending_domains
                     .iter()
                     .position(|(domain, _)| !active_domains.contains(domain));
@@ -1753,6 +1766,7 @@ impl CrawlerCronJob {
                     let budget_exhausted_listing_sources =
                         Arc::clone(&budget_exhausted_listing_sources);
                     let batch_time_budget = self.config.scraper_domain_batch_time_budget;
+                    let stop = self.stop.clone();
                     let span = tracing::info_span!("scrape_domain", domain_id = %domain);
                     active_domains.insert(domain);
                     total += candidates.len();
@@ -1767,6 +1781,7 @@ impl CrawlerCronJob {
                                 budget_exhausted_listing_sources,
                                 domain_id: domain,
                                 batch_time_budget,
+                                stop,
                             };
 
                             ScheduledScrapeDomainOutcome {
@@ -2449,6 +2464,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id: crate::CrawlerDomainId::new(),
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            stop: CronStop::default(),
         }
     }
 
@@ -2473,6 +2489,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            stop: CronStop::default(),
         };
 
         let deferred = scrape_domain_candidates(vec![candidate], first_context).await;
@@ -2498,6 +2515,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            stop: CronStop::default(),
         };
 
         let mut retry_candidate = scraper_candidate(
@@ -2549,6 +2567,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            stop: CronStop::default(),
         };
 
         let outcome = scrape_domain_candidates(vec![candidate], context).await;
@@ -2588,6 +2607,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            stop: CronStop::default(),
         };
 
         let outcome = scrape_domain_candidates(vec![candidate], context).await;
@@ -3524,6 +3544,7 @@ mod tests {
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+                stop: CronStop::default(),
             },
         )
         .await;
@@ -3585,6 +3606,7 @@ mod tests {
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+                stop: CronStop::default(),
             },
         )
         .await;
@@ -3659,6 +3681,7 @@ mod tests {
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+                stop: CronStop::default(),
             },
         )
         .await;
@@ -3710,6 +3733,7 @@ mod tests {
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+                stop: CronStop::default(),
             },
         )
         .await;
@@ -3746,6 +3770,7 @@ mod tests {
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
             domain_id,
             batch_time_budget,
+            stop: CronStop::default(),
         }
     }
 
@@ -3811,6 +3836,34 @@ mod tests {
             ),
         )
         .await;
+
+        assert_eq!(outcome.skipped, 1);
+        assert_eq!(outcome.deferred_urls, 2);
+    }
+
+    #[tokio::test]
+    async fn should_defer_urls_left_in_the_domain_batch_once_stopped() {
+        let (candidates, domain_id) = domain_batch("stopping.example.com", 3);
+        let stop = CronStop::default();
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_as_scraped()
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        let mut scraper_service = MockScraperService::new();
+        let stop_during_scrape = stop.clone();
+        scraper_service.expect_scrape().once().returning(move |_| {
+            stop_during_scrape.request();
+            Box::pin(async { scrape_outcome(Ok(None)) })
+        });
+        let mut context = domain_context(
+            scraper_candidates,
+            scraper_service,
+            domain_id,
+            CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+        );
+        context.stop = stop;
+
+        let outcome = scrape_domain_candidates(candidates, context).await;
 
         assert_eq!(outcome.skipped, 1);
         assert_eq!(outcome.deferred_urls, 2);
@@ -4824,6 +4877,7 @@ mod tests {
                 budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
                 domain_id: candidate.domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+                stop: CronStop::default(),
             }
         }
 
