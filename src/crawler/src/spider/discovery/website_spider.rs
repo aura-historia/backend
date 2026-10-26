@@ -185,6 +185,32 @@ fn crawl_completion(
     }
 }
 
+/// Why discovery stopped Spider's crawl before Spider ended it on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrawlStopReason {
+    /// The shop answered with a rate limit (`CrawlDiagnostics::rate_limit`).
+    RateLimited,
+    /// The consumer stopped taking pages: the spider run ended, typically by
+    /// failing, before discovery finished.
+    RunEnded,
+}
+
+impl CrawlStopReason {
+    /// Stable label for logs; not persisted.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            CrawlStopReason::RateLimited => "rate_limited",
+            CrawlStopReason::RunEnded => "run_ended",
+        }
+    }
+}
+
+impl std::fmt::Display for CrawlStopReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Structured explanation of a crawl outcome. Counters are bounded by the
 /// crawl budget; no URL collections are retained.
 #[derive(Debug, Clone, Default)]
@@ -226,6 +252,9 @@ pub struct CrawlDiagnostics {
     /// The rate-limit answer that stopped the crawl, with the shop's
     /// `Retry-After`; the pages delivered before it were kept.
     pub rate_limit: Option<RateLimitSignal>,
+    /// Why discovery stopped Spider's crawl, when it did; unset when Spider
+    /// ended the crawl itself.
+    pub stopped_early: Option<CrawlStopReason>,
 }
 
 impl CrawlDiagnostics {
@@ -255,6 +284,10 @@ impl DiagnosticSignal {
     }
 }
 
+/// A running crawl. Dropping `pages` before it closes stops Spider's crawl,
+/// which aborts its in-flight requests; `diagnostics` resolves only once
+/// Spider's crawl has ended, so awaiting it after the last request is how a
+/// consumer outlives the crawl it started.
 #[derive(Debug)]
 pub struct SpiderCrawl {
     pub pages: mpsc::Receiver<CrawledPage>,
@@ -711,6 +744,8 @@ impl RetryStrategy for PageRetryStrategy {
 /// Spider has finished.
 struct LibraryOutcome {
     completion: CrawlCompletion,
+    /// The filter task stopped the crawl before Spider ended it.
+    stopped: bool,
     status: CrawlStatus,
     meta: WebsiteMetaInfo,
     initial_html_length: usize,
@@ -730,7 +765,10 @@ struct CrawlBounds {
 /// closes with the unsubscribe, which ends the filter task's page loop.
 ///
 /// A stop drops the crawl future, which aborts Spider's in-flight page
-/// fetches; the pages they already broadcast still reach the filter task.
+/// fetches: Spider runs them in a `JoinSet` the crawl future owns, the same
+/// way its own hard timeout ends a crawl. `Website::stop` cannot do this; it
+/// needs the `&mut Website` the running crawl borrows and only takes effect
+/// between links. The pages already broadcast still reach the filter task.
 async fn run_library_crawl(
     mut website: Website,
     link_decoder: FoundLinkDecoder,
@@ -761,14 +799,19 @@ async fn run_library_crawl(
             bounds.max_pages_per_crawl,
         )
     };
-    let outcome = library_outcome(&website, completion);
+    let outcome = library_outcome(&website, completion, stopped);
     website.unsubscribe();
     outcome
 }
 
-fn library_outcome(website: &Website, completion: CrawlCompletion) -> LibraryOutcome {
+fn library_outcome(
+    website: &Website,
+    completion: CrawlCompletion,
+    stopped: bool,
+) -> LibraryOutcome {
     LibraryOutcome {
         completion,
+        stopped,
         status: *website.get_status(),
         meta: *website.get_website_meta_info(),
         initial_html_length: website.get_initial_html_length(),
@@ -997,7 +1040,7 @@ impl SpiderImpl {
             ..CrawlDiagnostics::default()
         };
         tokio::spawn(async move {
-            relay_library_pages(
+            let stop_requested = relay_library_pages(
                 spider_rx,
                 &tx,
                 filter,
@@ -1006,8 +1049,15 @@ impl SpiderImpl {
                 &stop_crawl,
             )
             .await;
+            // Spider's crawl has ended once its outcome arrives, so the
+            // diagnostics never reach the consumer while it still fetches.
             match outcome_rx.await {
-                Ok(outcome) => apply_library_outcome(&mut diagnostics, outcome),
+                Ok(outcome) => {
+                    if outcome.stopped {
+                        diagnostics.stopped_early = stop_requested;
+                    }
+                    apply_library_outcome(&mut diagnostics, outcome);
+                }
                 // The crawl task died without reporting; never call that full.
                 Err(_) => {
                     diagnostics.completion = CrawlCompletion::HardTimeoutTruncated;
@@ -1028,7 +1078,9 @@ impl SpiderImpl {
 
 /// Relays the pages Spider broadcasts through the local filter to the
 /// consumer until the broadcast closes and every accepted page is delivered,
-/// or the consumer is gone. A rate-limit answer asks the crawl task to stop.
+/// or the consumer is gone. A rate-limit answer, or the consumer going away
+/// while Spider still crawls, asks the crawl task to stop; the first reason
+/// asked for is returned.
 async fn relay_library_pages(
     mut spider_rx: broadcast::Receiver<Page>,
     tx: &mpsc::Sender<CrawledPage>,
@@ -1036,7 +1088,12 @@ async fn relay_library_pages(
     diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
     stop_crawl: &Notify,
-) {
+) -> Option<CrawlStopReason> {
+    let mut stop_requested = None;
+    let mut request_stop = |reason| {
+        stop_requested.get_or_insert(reason);
+        stop_crawl.notify_one();
+    };
     let mut first_page_seen = false;
     // Accepted URLs wait here instead of blocking the broadcast
     // subscription: Spider's 512-slot broadcast drops pages once the
@@ -1046,12 +1103,16 @@ async fn relay_library_pages(
     let mut broadcast_open = true;
 
     while broadcast_open || !pending.is_empty() {
-        // The consumer is gone; nothing left to deliver.
-        if tx.is_closed() {
-            break;
-        }
         let page = ::tokio::select! {
             biased;
+            // The consumer is gone; nothing left to deliver, and every
+            // further fetch would be wasted load on the shop.
+            () = tx.closed() => {
+                if broadcast_open {
+                    request_stop(CrawlStopReason::RunEnded);
+                }
+                break;
+            }
             received = spider_rx.recv(), if broadcast_open => match received {
                 Ok(page) => page,
                 Err(RecvError::Lagged(skipped)) => {
@@ -1068,7 +1129,8 @@ async fn relay_library_pages(
                     permit.send(pending.pop_front().expect("guarded by the select precondition"));
                     continue;
                 }
-                Err(_) => break,
+                // Closed: the next turn's first branch stops the crawl.
+                Err(_) => continue,
             },
         };
         diagnostics.pages_received += 1;
@@ -1095,7 +1157,7 @@ async fn relay_library_pages(
             && let Some(signal) = RateLimitSignal::from_page(status_code, page.headers.as_ref())
         {
             apply_rate_limit_signal(diagnostics, signal);
-            stop_crawl.notify_one();
+            request_stop(CrawlStopReason::RateLimited);
         }
 
         match filter.admit(page.get_url()) {
@@ -1106,6 +1168,7 @@ async fn relay_library_pages(
             Err(rejection) => diagnostics.count_rejection(rejection),
         }
     }
+    stop_requested
 }
 
 #[async_trait::async_trait]
@@ -1901,24 +1964,35 @@ mod tests {
         }
     }
 
-    /// The root links a page the shop rate limits and the head of a slow,
-    /// endless chain of pages, so a crawl that keeps going is visible.
-    fn rate_limited_site(limited: SiteResponse) -> SiteHandler {
-        Arc::new(move |target: &str, _: usize| match target {
-            "/" => SiteResponse::Html(
-                "200 OK",
-                r#"<a href="/limited">limited</a><a href="/chain/1">chain</a>"#.to_string(),
-            ),
-            "/limited" => limited.clone(),
-            _ if target.starts_with("/chain/") => {
-                let hop: usize = target.trim_start_matches("/chain/").parse().unwrap_or(0);
+    /// An endless chain of slow pages: only a stop ends the crawl before
+    /// its wall-clock budget.
+    fn endless_chain_site(target: &str, _: usize) -> SiteResponse {
+        match target.strip_prefix("/chain/") {
+            Some(hop) => {
+                let hop: usize = hop.parse().unwrap_or(0);
                 SiteResponse::SlowHtml(
                     Duration::from_millis(20),
                     "200 OK",
                     format!(r#"<a href="/chain/{}">next</a>"#, hop + 1),
                 )
             }
-            _ => SiteResponse::Html("404 Not Found", String::new()),
+            None if target == "/" => {
+                SiteResponse::Html("200 OK", r#"<a href="/chain/1">chain</a>"#.to_string())
+            }
+            None => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    /// The root links a page the shop rate limits and the head of a slow,
+    /// endless chain of pages, so a crawl that keeps going is visible.
+    fn rate_limited_site(limited: SiteResponse) -> SiteHandler {
+        Arc::new(move |target: &str, previous: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/limited">limited</a><a href="/chain/1">chain</a>"#.to_string(),
+            ),
+            "/limited" => limited.clone(),
+            _ => endless_chain_site(target, previous),
         })
     }
 
@@ -1968,6 +2042,11 @@ mod tests {
                 CrawlCompletion::HardTimeoutTruncated,
                 "{diagnostics:?}"
             );
+            assert_eq!(
+                diagnostics.stopped_early,
+                Some(CrawlStopReason::RateLimited),
+                "{diagnostics:?}"
+            );
             let counted = match expected.status {
                 429 => diagnostics.status_counts.rate_limited,
                 _ => diagnostics.status_counts.server_error,
@@ -1994,6 +2073,58 @@ mod tests {
             );
             site.finish().await;
         }
+    }
+
+    #[tokio::test]
+    async fn should_stop_the_crawl_before_reporting_when_the_run_ends_early() {
+        let site = TestSite::spawn(Arc::new(endless_chain_site)).await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 1_000,
+            max_crawl_duration: Duration::from_secs(60),
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+        let SpiderCrawl {
+            mut pages,
+            diagnostics,
+        } = spider
+            .crawl_with_body_limit("http://example.com/", Some("8388608"))
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            pages.recv().await.expect("the chain delivers pages");
+        }
+
+        // The run returns early, as on a failed classification: it drops the
+        // page channel and waits for the diagnostics before giving up its
+        // domain lock.
+        drop(pages);
+        let diagnostics = tokio::time::timeout(Duration::from_secs(5), diagnostics)
+            .await
+            .expect("the crawl stops promptly, not at its wall-clock budget")
+            .unwrap();
+        // Requests written before the stop may still be on their way to the
+        // site's request log.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let served = site.requests.lock().await.len();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let log = site.finish().await;
+
+        assert_eq!(
+            log.len(),
+            served,
+            "requests after the run returned: {log:?}"
+        );
+        assert_eq!(
+            diagnostics.stopped_early,
+            Some(CrawlStopReason::RunEnded),
+            "{diagnostics:?}"
+        );
+        assert_eq!(
+            diagnostics.completion,
+            CrawlCompletion::HardTimeoutTruncated,
+            "{diagnostics:?}"
+        );
     }
 
     #[tokio::test]
@@ -2746,6 +2877,7 @@ mod tests {
     fn library_outcome(status: CrawlStatus, meta: WebsiteMetaInfo) -> LibraryOutcome {
         LibraryOutcome {
             completion: CrawlCompletion::Completed,
+            stopped: false,
             status,
             meta,
             initial_html_length: 0,
@@ -2914,6 +3046,7 @@ mod tests {
             &mut diagnostics,
             LibraryOutcome {
                 completion: CrawlCompletion::HardTimeoutTruncated,
+                stopped: false,
                 status: CrawlStatus::Blocked,
                 meta: WebsiteMetaInfo::None,
                 initial_html_length: 1_234,

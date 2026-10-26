@@ -9,7 +9,8 @@ use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
 use crate::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawledPage, Spider, SpiderDiscoveryError,
+    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlStopReason, CrawledPage, Spider,
+    SpiderDiscoveryError,
 };
 use crate::spider::service::crawl_run_state::CrawlRunState;
 use crate::spider::service::product_pattern::ProductListingPattern;
@@ -511,8 +512,7 @@ impl SpiderServiceImpl {
             })
         })?;
         let crawl = self.spider.crawl(crawl_root_url).await?;
-        let diagnostics_rx = crawl.diagnostics;
-        let mut state = self
+        let consumed = self
             .consume_pages(
                 crawl.pages,
                 &configured_root,
@@ -521,16 +521,26 @@ impl SpiderServiceImpl {
                 crawl_root_url,
                 classify_threshold,
             )
-            .await?;
+            .await;
 
-        // A filter task that died without reporting cannot vouch for a full crawl.
-        let diagnostics = diagnostics_rx.await.unwrap_or_else(|_| CrawlDiagnostics {
-            completion: CrawlCompletion::HardTimeoutTruncated,
-            diagnostic_reason: Some("crawl_diagnostics_missing".to_string()),
-            ..CrawlDiagnostics::default()
-        });
+        // A run that ends early has dropped the page channel, which stops
+        // the library crawl; its diagnostics arrive only once that crawl has
+        // ended, so the run, and the domain lock its caller holds, outlive
+        // every request of the crawl. A filter task that died without
+        // reporting cannot vouch for a full crawl.
+        let diagnostics = crawl
+            .diagnostics
+            .await
+            .unwrap_or_else(|_| CrawlDiagnostics {
+                completion: CrawlCompletion::HardTimeoutTruncated,
+                diagnostic_reason: Some("crawl_diagnostics_missing".to_string()),
+                ..CrawlDiagnostics::default()
+            });
+        let mut state =
+            consumed.inspect_err(|error| log_crawl_stopped_early(&diagnostics, error))?;
         if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, &diagnostics)
         {
+            log_crawl_stopped_early(&diagnostics, &error);
             return Err(error);
         }
 
@@ -649,19 +659,50 @@ fn log_crawl_outcome(
         status_counts = ?diagnostics.status_counts,
         rate_limit = ?diagnostics.rate_limit,
         pending_url_pattern_review = ?state.pending_url_pattern_review.map(|id| id.to_string()),
+        stopped_early = ?diagnostics.stopped_early.map(CrawlStopReason::as_str),
         "{}",
-        crawl_outcome_message(completion, state.pending_url_pattern_review.is_some())
+        crawl_outcome_message(
+            completion,
+            diagnostics.stopped_early,
+            state.pending_url_pattern_review.is_some()
+        )
     );
 }
 
-fn crawl_outcome_message(completion: CrawlCompletion, awaiting_review: bool) -> &'static str {
+/// The completion log of a failed run whose library crawl discovery stopped
+/// before Spider ended it.
+fn log_crawl_stopped_early(diagnostics: &CrawlDiagnostics, error: &SpiderServiceError) {
+    let Some(stop_reason) = diagnostics.stopped_early else {
+        return;
+    };
+    info!(
+        stop_reason = %stop_reason,
+        error = %error,
+        completion = %diagnostics.completion,
+        pages_received = diagnostics.pages_received,
+        accepted = diagnostics.accepted,
+        "Spider run failed after the crawl was stopped early ({stop_reason})"
+    );
+}
+
+fn crawl_outcome_message(
+    completion: CrawlCompletion,
+    stopped_early: Option<CrawlStopReason>,
+    awaiting_review: bool,
+) -> &'static str {
     match (completion, awaiting_review) {
         (_, true) => "Crawl waiting for URL pattern review, keeping discovered URLs",
         (CrawlCompletion::Completed, false) => "Crawl completed",
         (CrawlCompletion::PageBudgetReached, false) => "Crawl completed at page budget",
-        (CrawlCompletion::HardTimeoutTruncated, false) => {
-            "Crawl truncated by hard timeout, keeping discovered URLs"
-        }
+        (CrawlCompletion::HardTimeoutTruncated, false) => match stopped_early {
+            Some(CrawlStopReason::RateLimited) => {
+                "Crawl truncated: stopped early on a rate-limit answer, keeping discovered URLs"
+            }
+            Some(CrawlStopReason::RunEnded) => {
+                "Crawl truncated: stopped early because the run ended, keeping discovered URLs"
+            }
+            None => "Crawl truncated by hard timeout, keeping discovered URLs",
+        },
     }
 }
 
@@ -739,6 +780,7 @@ mod service_tests {
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
     use regex::Regex;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::{mpsc, oneshot};
 
     fn setup_mock_url_repo(
@@ -1225,17 +1267,29 @@ mod service_tests {
 
     #[test]
     fn should_never_log_hard_timeout_run_as_completed() {
-        let message = crawl_outcome_message(CrawlCompletion::HardTimeoutTruncated, false);
+        for stopped_early in [
+            None,
+            Some(CrawlStopReason::RateLimited),
+            Some(CrawlStopReason::RunEnded),
+        ] {
+            let message =
+                crawl_outcome_message(CrawlCompletion::HardTimeoutTruncated, stopped_early, false);
 
-        assert!(message.contains("truncated"), "{message}");
-        assert!(!message.contains("completed"), "{message}");
+            assert!(message.contains("truncated"), "{message}");
+            assert!(!message.contains("completed"), "{message}");
+            assert_eq!(
+                message.contains("stopped early"),
+                stopped_early.is_some(),
+                "{message}"
+            );
+        }
         for completion in [
             CrawlCompletion::Completed,
             CrawlCompletion::PageBudgetReached,
             CrawlCompletion::HardTimeoutTruncated,
         ] {
             for awaiting_review in [false, true] {
-                let message = crawl_outcome_message(completion, awaiting_review);
+                let message = crawl_outcome_message(completion, None, awaiting_review);
                 assert!(!message.contains("successfully"), "{message}");
                 assert_eq!(
                     message.contains("waiting for URL pattern review"),
@@ -1244,6 +1298,80 @@ mod service_tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn should_return_only_after_the_library_crawl_stopped_when_the_run_fails_early() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mock_url_repo = MockUrlMetadataRepository::new();
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+        let library_stopped = Arc::new(AtomicBool::new(false));
+
+        let stopped = Arc::clone(&library_stopped);
+        mock_spider.expect_crawl().times(1).returning(move |_| {
+            let (tx, rx) = mpsc::channel(25);
+            let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+            let stopped = Arc::clone(&stopped);
+            // Stands in for discovery: an endless crawl that stops once the
+            // run drops the page channel and reports only after that.
+            tokio::spawn(async move {
+                for i in 1.. {
+                    let url = Url::parse(&format!("https://example.com/item/{i}")).unwrap();
+                    let page = CrawledPage {
+                        url: CrawledUrl::new(url),
+                    };
+                    if tx.send(page).await.is_err() {
+                        break;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                stopped.store(true, Ordering::SeqCst);
+                let _ = diagnostics_tx.send(CrawlDiagnostics {
+                    completion: CrawlCompletion::HardTimeoutTruncated,
+                    stopped_early: Some(CrawlStopReason::RunEnded),
+                    ..CrawlDiagnostics::default()
+                });
+            });
+            Box::pin(async move {
+                Ok(SpiderCrawl {
+                    pages: rx,
+                    diagnostics: diagnostics_rx,
+                })
+            })
+        });
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async { Err(UrlPatternServiceError::Repository(sqlx::Error::PoolClosed)) })
+            });
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .await;
+
+        assert!(
+            matches!(result, Err(SpiderServiceError::UrlPattern(_))),
+            "{result:?}"
+        );
+        assert!(
+            library_stopped.load(Ordering::SeqCst),
+            "the run returned while the library crawl was still running"
+        );
     }
 
     #[tokio::test]
