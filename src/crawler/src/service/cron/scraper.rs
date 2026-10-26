@@ -964,6 +964,9 @@ async fn open_domain_circuit(
             batch_attempted_urls = evidence.attempted_urls() + 1,
             batch_slow_host_urls = evidence.slow_host_urls()
                 + usize::from(!domain_kind.opens_on_first_failure()),
+            batch_repeated_status_urls = status_code
+                .map(|status| evidence.rejection_run_with(status, &candidate.url)),
+            cooldown_seconds = domain_cooldown.as_secs(),
             latency_smoothed_ms = failure
                 .fetch_stats
                 .map(|stats| stats.smoothed_latency.as_millis()),
@@ -1452,12 +1455,15 @@ async fn scrape_domain_candidates(
         }
 
         if candidate_outcome.circuit_opened {
+            let remaining = candidate_count.saturating_sub(candidate_index + 1);
             warn!(
                 event = "crawler.scraper.domain_circuit_batch_stopped",
                 domain_id = %ctx.domain_id,
+                attempted_urls = candidate_index + 1,
+                skipped_urls = remaining,
                 "Stopping remaining scraper URLs after a domain circuit failure"
             );
-            outcome.skipped += candidate_count.saturating_sub(candidate_index + 1);
+            outcome.skipped += remaining;
             break;
         }
 
@@ -3460,6 +3466,84 @@ mod tests {
 
         assert_eq!(outcome.failed, 3);
         assert_eq!(outcome.skipped, 0);
+    }
+
+    /// Distinct URLs answering the same crawler-rejection status in a row
+    /// open the domain circuit and skip the rest of the batch; a responsive
+    /// outcome between two such answers starts the count again.
+    #[tokio::test]
+    async fn should_open_a_status_burst_after_three_distinct_urls_answer_405_in_a_row() {
+        let urls = (1..=6)
+            .map(|index| url::Url::parse(&format!("https://rejects.example.com/product/{index}")))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let domain_id = scraper_candidate("ListingSource", urls[0].clone()).domain_id;
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .times(3)
+            .withf(|_, _, error_kind, _, status_code, _, _| {
+                error_kind == "HTTP_405" && *status_code == Some(405)
+            })
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        scraper_candidates
+            .expect_mark_fetch_failure_and_open_domain_circuit()
+            .once()
+            .withf(|request| {
+                request.url_failure.url.as_str().ends_with("/5")
+                    && request.url_failure.status_code == Some(405)
+                    && request.domain_error_kind == DomainFailureKind::HttpStatusBurst
+                    && request.domain_status_code == Some(405)
+                    && request.next_scrape_at.is_some()
+            })
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .times(5)
+            .returning(move |request| {
+                let url = request.url;
+                let responsive = url.path().ends_with("/2");
+                Box::pin(async move {
+                    if responsive {
+                        scrape_outcome(Ok(None))
+                    } else {
+                        scrape_outcome(Err(ScraperError::HttpError {
+                            url,
+                            kind: NetworkErrorKind::HttpStatus(405),
+                            details: "method not allowed".to_owned(),
+                        }))
+                    }
+                })
+            });
+
+        let (command_tx, _command_rx) = mpsc::channel(1);
+        let outcome = scrape_domain_candidates(
+            urls.into_iter()
+                .map(|url| scraper_candidate("ListingSource", url))
+                .collect(),
+            ScrapeDomainContext {
+                scraper: Arc::new(scraper_service),
+                scraper_candidates: Arc::new(scraper_candidates),
+                lock_manager: Arc::new(LocalLockManager::new()),
+                command_tx,
+                budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+                domain_id,
+                batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            },
+        )
+        .await;
+
+        assert_eq!(outcome.failed, 4);
+        assert_eq!(
+            outcome.skipped, 2,
+            "the responsive URL and the one after the burst"
+        );
+        assert_eq!(outcome.deferred_urls, 0);
     }
 
     #[tokio::test]

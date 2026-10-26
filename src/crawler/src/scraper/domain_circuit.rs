@@ -21,6 +21,18 @@ pub const SLOW_HOST_BATCH_MIN_URLS: usize = 3;
 /// Distinct URLs of one batch that answer 500 or 502 before the short
 /// `HTTP_5XX_BURST` circuit opens; a single 500 or 502 stays URL-scoped.
 pub const SERVER_FAILURE_BURST_URLS: usize = 3;
+/// Distinct URLs of one batch that answer the same crawler-rejection status
+/// in a row before the `HTTP_STATUS_BURST` circuit opens; a single such
+/// status stays URL-scoped.
+pub const REJECTION_STATUS_BURST_URLS: usize = 3;
+
+/// Terminal statuses that reject the crawler or its request as such rather
+/// than one page, so the same answer from several distinct URLs means the
+/// domain fails uniformly. HTTP 404 and 410 are product removals and never
+/// belong here.
+pub fn is_crawler_rejection_status(status: u16) -> bool {
+    matches!(status, 401 | 403 | 405 | 418 | 421 | 451 | 501)
+}
 
 /// What one fetch failure means for its domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +55,15 @@ pub struct DomainBatchEvidence {
     attempted_urls: HashSet<Url>,
     slow_host_urls: HashSet<Url>,
     server_failure_urls: HashSet<Url>,
+    /// The URLs that answered the same crawler-rejection status since the
+    /// last other outcome.
+    rejection_run: Option<RejectionRun>,
+}
+
+#[derive(Debug)]
+struct RejectionRun {
+    status: u16,
+    urls: HashSet<Url>,
 }
 
 impl DomainBatchEvidence {
@@ -74,6 +95,14 @@ impl DomainBatchEvidence {
                 {
                     DomainCircuitDecision::Open(DomainFailureKind::Http5xxBurst)
                 }
+                Some(status)
+                    if is_crawler_rejection_status(status)
+                        && (is_status_burst_probe(domain_health)
+                            || self.rejection_run_with(status, candidate_url)
+                                >= REJECTION_STATUS_BURST_URLS) =>
+                {
+                    DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+                }
                 _ => DomainCircuitDecision::UrlLocal,
             },
         }
@@ -87,8 +116,11 @@ impl DomainBatchEvidence {
         transport: &DomainFetchHealth,
         failure_status: Option<u16>,
     ) {
+        if matches!(transport, DomainFetchHealth::NotObserved) {
+            return;
+        }
+        self.extend_or_end_rejection_run(candidate_url, transport, failure_status);
         match transport {
-            DomainFetchHealth::NotObserved => return,
             DomainFetchHealth::Responsive => {
                 if let Some(500 | 502) = failure_status {
                     self.server_failure_urls.insert(candidate_url.clone());
@@ -97,7 +129,7 @@ impl DomainBatchEvidence {
             DomainFetchHealth::CircuitFailure { kind, .. } if !kind.opens_on_first_failure() => {
                 self.slow_host_urls.insert(candidate_url.clone());
             }
-            DomainFetchHealth::CircuitFailure { .. } => {}
+            _ => {}
         }
         self.attempted_urls.insert(candidate_url.clone());
     }
@@ -112,6 +144,51 @@ impl DomainBatchEvidence {
         self.slow_host_urls.len()
     }
 
+    /// Distinct URLs in the current run of `status` answers once
+    /// `candidate_url` answers it too; zero when `status` is not a
+    /// crawler-rejection status.
+    pub fn rejection_run_with(&self, status: u16, candidate_url: &Url) -> usize {
+        if !is_crawler_rejection_status(status) {
+            return 0;
+        }
+        match &self.rejection_run {
+            Some(run) if run.status == status => distinct_with(&run.urls, candidate_url),
+            _ => 1,
+        }
+    }
+
+    /// A crawler-rejection status extends the run of that status or starts a
+    /// new one; any other observed outcome ends the run.
+    fn extend_or_end_rejection_run(
+        &mut self,
+        candidate_url: &Url,
+        transport: &DomainFetchHealth,
+        failure_status: Option<u16>,
+    ) {
+        let rejection_status = match (transport, failure_status) {
+            (DomainFetchHealth::Responsive, Some(status))
+                if is_crawler_rejection_status(status) =>
+            {
+                status
+            }
+            _ => {
+                self.rejection_run = None;
+                return;
+            }
+        };
+        match &mut self.rejection_run {
+            Some(run) if run.status == rejection_status => {
+                run.urls.insert(candidate_url.clone());
+            }
+            run => {
+                *run = Some(RejectionRun {
+                    status: rejection_status,
+                    urls: HashSet::from([candidate_url.clone()]),
+                });
+            }
+        }
+    }
+
     /// Whether, once `candidate_url` fails too, at least
     /// [`SLOW_HOST_BATCH_MIN_URLS`] and half of the attempted URLs failed
     /// with a slow-host kind.
@@ -120,6 +197,15 @@ impl DomainBatchEvidence {
         let attempted = distinct_with(&self.attempted_urls, candidate_url);
         failed >= SLOW_HOST_BATCH_MIN_URLS && failed * 2 >= attempted
     }
+}
+
+/// Whether the domain is being probed after a `HTTP_STATUS_BURST` cooldown:
+/// a probe that is rejected the same way keeps the circuit open, with a
+/// grown cooldown, instead of closing it as a responsive fetch.
+fn is_status_burst_probe(domain_health: &DomainHealthSnapshot) -> bool {
+    domain_health.next_scrape_at.is_some()
+        && domain_health.last_scrape_error_kind.as_deref()
+            == Some(DomainFailureKind::HttpStatusBurst.as_str())
 }
 
 /// How many distinct URLs `urls` holds once `url` is counted.
@@ -319,16 +405,141 @@ mod tests {
     #[test]
     fn should_ignore_statuses_outside_the_server_failure_burst() {
         let mut evidence = DomainBatchEvidence::default();
-        evidence.observe(&url("1"), &DomainFetchHealth::Responsive, Some(405));
-        evidence.observe(&url("2"), &DomainFetchHealth::Responsive, Some(405));
+        evidence.observe(&url("1"), &DomainFetchHealth::Responsive, Some(400));
+        evidence.observe(&url("2"), &DomainFetchHealth::Responsive, Some(400));
 
         assert_eq!(
             evidence.decide(
                 &healthy(),
                 &url("3"),
-                NetworkErrorKind::HttpStatus(405),
-                Some(405)
+                NetworkErrorKind::HttpStatus(400),
+                Some(400)
             ),
+            DomainCircuitDecision::UrlLocal
+        );
+    }
+
+    fn rejected(evidence: &DomainBatchEvidence, path: &str, status: u16) -> DomainCircuitDecision {
+        rejected_with(evidence, &healthy(), path, status)
+    }
+
+    fn rejected_with(
+        evidence: &DomainBatchEvidence,
+        domain_health: &DomainHealthSnapshot,
+        path: &str,
+        status: u16,
+    ) -> DomainCircuitDecision {
+        evidence.decide(
+            domain_health,
+            &url(path),
+            NetworkErrorKind::HttpStatus(status),
+            Some(status),
+        )
+    }
+
+    #[test]
+    fn should_keep_a_single_rejection_status_url_local() {
+        let evidence = DomainBatchEvidence::default();
+
+        assert_eq!(
+            rejected(&evidence, "1", 405),
+            DomainCircuitDecision::UrlLocal
+        );
+    }
+
+    #[test]
+    fn should_open_a_status_burst_on_the_third_distinct_url_answering_the_same_rejection_status() {
+        let mut evidence = DomainBatchEvidence::default();
+        evidence.observe(&url("1"), &DomainFetchHealth::Responsive, Some(405));
+        evidence.observe(&url("1"), &DomainFetchHealth::Responsive, Some(405));
+        evidence.observe(&url("2"), &DomainFetchHealth::Responsive, Some(405));
+
+        assert_eq!(
+            rejected(&evidence, "1", 405),
+            DomainCircuitDecision::UrlLocal,
+            "a URL that already counts is not a third piece of evidence"
+        );
+        assert_eq!(evidence.rejection_run_with(405, &url("3")), 3);
+        assert_eq!(
+            rejected(&evidence, "3", 405),
+            DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+        );
+    }
+
+    #[test]
+    fn should_end_the_rejection_run_on_any_other_observed_outcome() {
+        let outcomes = [
+            (DomainFetchHealth::Responsive, None),
+            (DomainFetchHealth::Responsive, Some(500)),
+            (DomainFetchHealth::Responsive, Some(403)),
+            (timed_out(), None),
+        ];
+        for (transport, failure_status) in outcomes {
+            let mut evidence = DomainBatchEvidence::default();
+            evidence.observe(&url("1"), &DomainFetchHealth::Responsive, Some(405));
+            evidence.observe(&url("2"), &DomainFetchHealth::Responsive, Some(405));
+            evidence.observe(&url("3"), &transport, failure_status);
+
+            assert_eq!(
+                rejected(&evidence, "4", 405),
+                DomainCircuitDecision::UrlLocal,
+                "{transport:?} with {failure_status:?} ends the run"
+            );
+        }
+    }
+
+    #[test]
+    fn should_keep_the_rejection_run_across_unobserved_candidates() {
+        let mut evidence = DomainBatchEvidence::default();
+        evidence.observe(&url("1"), &DomainFetchHealth::Responsive, Some(405));
+        evidence.observe(&url("2"), &DomainFetchHealth::NotObserved, None);
+        evidence.observe(&url("3"), &DomainFetchHealth::Responsive, Some(405));
+
+        assert_eq!(
+            rejected(&evidence, "4", 405),
+            DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+        );
+    }
+
+    #[test]
+    fn should_never_count_product_removal_or_other_terminal_statuses() {
+        for status in [400, 404, 410, 422] {
+            let mut evidence = DomainBatchEvidence::default();
+            evidence.observe(&url("1"), &DomainFetchHealth::Responsive, Some(status));
+            evidence.observe(&url("2"), &DomainFetchHealth::Responsive, Some(status));
+
+            assert_eq!(
+                rejected(&evidence, "3", status),
+                DomainCircuitDecision::UrlLocal,
+                "HTTP {status} stays with its URL"
+            );
+        }
+    }
+
+    #[test]
+    fn should_keep_a_status_burst_open_when_its_probe_is_rejected_again() {
+        let evidence = DomainBatchEvidence::default();
+        let mut cooled_down = recorded(DomainFailureKind::HttpStatusBurst, 1);
+        cooled_down.next_scrape_at = Some(time::OffsetDateTime::now_utc());
+
+        assert_eq!(
+            rejected_with(&evidence, &cooled_down, "1", 405),
+            DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+        );
+        assert_eq!(
+            rejected_with(
+                &evidence,
+                &recorded(DomainFailureKind::HttpStatusBurst, 1),
+                "1",
+                405
+            ),
+            DomainCircuitDecision::UrlLocal,
+            "a burst without a cooldown is not a probe"
+        );
+        let mut other_circuit = recorded(DomainFailureKind::Http429, 1);
+        other_circuit.next_scrape_at = Some(time::OffsetDateTime::now_utc());
+        assert_eq!(
+            rejected_with(&evidence, &other_circuit, "1", 405),
             DomainCircuitDecision::UrlLocal
         );
     }

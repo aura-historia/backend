@@ -51,6 +51,10 @@ pub enum DomainFailureKind {
     Http503,
     Http504,
     Http5xxBurst,
+    /// Distinct URLs of one batch answered the same status that rejects the
+    /// crawler as such (`scraper::domain_circuit`); the status is persisted as
+    /// the circuit's diagnostic status code.
+    HttpStatusBurst,
 }
 
 impl DomainFailureKind {
@@ -65,6 +69,7 @@ impl DomainFailureKind {
             Self::Http503 => "HTTP_503",
             Self::Http504 => "HTTP_504",
             Self::Http5xxBurst => "HTTP_5XX_BURST",
+            Self::HttpStatusBurst => "HTTP_STATUS_BURST",
         }
     }
 
@@ -80,6 +85,7 @@ impl DomainFailureKind {
             Self::Http429 => Duration::from_secs(10 * 60),
             Self::Http503 => Duration::from_secs(15 * 60),
             Self::Http504 => Duration::from_secs(15 * 60),
+            Self::HttpStatusBurst => Duration::from_secs(30 * 60),
             Self::Http408
             | Self::Timeout
             | Self::Connect
@@ -716,6 +722,18 @@ mod tests {
                 Some(Duration::from_secs(48 * 60 * 60))
             ),
             Duration::from_secs(24 * 60 * 60)
+        );
+    }
+
+    #[test]
+    fn should_cool_a_status_burst_down_for_thirty_minutes_growing_per_burst() {
+        assert_eq!(
+            domain_cooldown(DomainFailureKind::HttpStatusBurst, 1, None),
+            Duration::from_secs(30 * 60)
+        );
+        assert_eq!(
+            domain_cooldown(DomainFailureKind::HttpStatusBurst, 2, None),
+            Duration::from_secs(60 * 60)
         );
     }
 
