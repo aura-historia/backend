@@ -11,6 +11,10 @@ pub const SPIDER_RECRAWL_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 
 /// Persisted `last_crawl_outcome` of a run that ended in a spider error.
 const FAILED_CRAWL_OUTCOME: &str = "FAILED";
 
+/// Persisted `last_crawl_outcome` of a run that stopped classifying at a
+/// pending URL-pattern review. The review's decision releases the domain.
+pub const AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME: &str = "AWAITING_URL_PATTERN_REVIEW";
+
 pub struct SpiderCandidate {
     pub listing_source_id: ListingSourceId,
     pub domain_id: CrawlerDomainId,
@@ -48,6 +52,14 @@ pub trait SpiderCandidateService: Send + Sync {
         &self,
         domain_id: &CrawlerDomainId,
         crawl_truncation_count: i32,
+        next_crawl_at: time::OffsetDateTime,
+    ) -> Result<(), sqlx::Error>;
+    /// Records a crawl that waits for a URL-pattern review without touching
+    /// failure or truncation state. `next_crawl_at` is the latest the domain
+    /// waits; the review's decision releases it sooner.
+    async fn mark_crawl_awaiting_url_pattern_review(
+        &self,
+        domain_id: &CrawlerDomainId,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error>;
 }
@@ -195,6 +207,26 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         .bind(crawl_truncation_count)
         .bind(next_crawl_at)
         .bind(CrawlCompletion::HardTimeoutTruncated.as_str())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn mark_crawl_awaiting_url_pattern_review(
+        &self,
+        domain_id: &CrawlerDomainId,
+        next_crawl_at: time::OffsetDateTime,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE listing_source_domains
+             SET next_crawl_at = $2,
+                 last_crawl_outcome = $3
+             WHERE domain_id = $1",
+        )
+        .bind(domain_id.as_uuid())
+        .bind(next_crawl_at)
+        .bind(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
         .execute(&self.pool)
         .await?;
 

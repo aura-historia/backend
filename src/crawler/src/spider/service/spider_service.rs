@@ -1,4 +1,4 @@
-use crate::CrawlerDomainId;
+use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
@@ -28,6 +28,10 @@ pub struct SpiderRunResult {
     pub product_urls_count: usize,
     pub product_pattern: Option<String>,
     pub completion: CrawlCompletion,
+    /// The pending URL-pattern review the crawl stopped classifying for. Its
+    /// URLs are stored without a product class until the review is decided,
+    /// so the run is neither a success nor a failure.
+    pub pending_url_pattern_review: Option<CrawlerReviewId>,
 }
 
 #[derive(Debug, Clone)]
@@ -198,7 +202,7 @@ impl SpiderServiceImpl {
             });
         }
 
-        state.pattern = self
+        let classification = self
             .pattern_service
             .classify_and_save(
                 listing_source_id,
@@ -207,12 +211,27 @@ impl SpiderServiceImpl {
                 state.pattern.as_regex(),
                 &state.inference_sample,
             )
-            .await
-            .map(|pattern| {
-                pattern
-                    .map(ProductListingPattern::from)
-                    .unwrap_or(ProductListingPattern::Unknown)
-            })?;
+            .await;
+
+        // A pending review is a wait, not a failure: the crawl keeps its
+        // URLs under the pattern it has and the reviewer's decision
+        // classifies them.
+        if let Err(UrlPatternServiceError::PendingReview { review_id, .. }) = classification {
+            info!(
+                stage,
+                review_id = %review_id,
+                sample_size = state.inference_sample.len(),
+                "Crawl waits for a URL pattern review"
+            );
+            state.pending_url_pattern_review = Some(review_id);
+            return Ok(());
+        }
+
+        state.pattern = classification.map(|pattern| {
+            pattern
+                .map(ProductListingPattern::from)
+                .unwrap_or(ProductListingPattern::Unknown)
+        })?;
 
         if state.pattern.is_unknown() {
             warn!(stage, "Found no product URL pattern");
@@ -485,7 +504,9 @@ impl SpiderServiceImpl {
             .map(|regex| regex.as_str().to_string());
 
         // `last_crawled` records the last full crawl; a truncated one keeps the
-        // domain due so the scheduler can retry it sooner.
+        // domain due so the scheduler can retry it sooner. A full crawl that
+        // waits for a pattern review has discovered everything too: approval
+        // classifies its stored URLs, so no second crawl from the root is due.
         let completion = diagnostics.completion;
         if completion.is_full() {
             self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
@@ -499,6 +520,7 @@ impl SpiderServiceImpl {
             product_urls_count: state.products_found,
             product_pattern,
             completion,
+            pending_url_pattern_review: state.pending_url_pattern_review,
         })
     }
 }
@@ -567,16 +589,18 @@ fn log_crawl_outcome(
         robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
         lagged = diagnostics.lagged,
         initial_anti_bot = ?diagnostics.initial_anti_bot,
+        pending_url_pattern_review = ?state.pending_url_pattern_review.map(|id| id.to_string()),
         "{}",
-        crawl_outcome_message(completion)
+        crawl_outcome_message(completion, state.pending_url_pattern_review.is_some())
     );
 }
 
-fn crawl_outcome_message(completion: CrawlCompletion) -> &'static str {
-    match completion {
-        CrawlCompletion::Completed => "Crawl completed",
-        CrawlCompletion::PageBudgetReached => "Crawl completed at page budget",
-        CrawlCompletion::HardTimeoutTruncated => {
+fn crawl_outcome_message(completion: CrawlCompletion, awaiting_review: bool) -> &'static str {
+    match (completion, awaiting_review) {
+        (_, true) => "Crawl waiting for URL pattern review, keeping discovered URLs",
+        (CrawlCompletion::Completed, false) => "Crawl completed",
+        (CrawlCompletion::PageBudgetReached, false) => "Crawl completed at page budget",
+        (CrawlCompletion::HardTimeoutTruncated, false) => {
             "Crawl truncated by hard timeout, keeping discovered URLs"
         }
     }
@@ -835,6 +859,169 @@ mod service_tests {
         assert_eq!(run_result.product_urls_count, 25);
     }
 
+    fn pending_review(
+        listing_source_id: ListingSourceId,
+        review_id: CrawlerReviewId,
+    ) -> UrlPatternServiceError {
+        UrlPatternServiceError::PendingReview {
+            listing_source_id,
+            review_id,
+        }
+    }
+
+    #[tokio::test]
+    async fn should_keep_urls_and_mark_crawled_when_pattern_review_is_pending_at_threshold() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let review_id = CrawlerReviewId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl(
+            &mut mock_spider,
+            crawl_root_url,
+            product_pages_until_timeout(),
+        );
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        // Asked once at the threshold; the pending review stops further asking.
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(move |_, _, _, _, _| {
+                Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
+            });
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .times(1)
+            .withf(|_, _, urls, classes| {
+                urls.len() == 25
+                    && classes
+                        .iter()
+                        .all(|class| *class != UrlClass::ProductListing)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(Vec::new()) }));
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run_result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .await
+            .unwrap();
+
+        assert_eq!(run_result.pending_url_pattern_review, Some(review_id));
+        assert_eq!(run_result.total_links, 25);
+        assert_eq!(run_result.product_urls_count, 0);
+        assert_eq!(run_result.product_pattern, None);
+        assert_eq!(run_result.completion, CrawlCompletion::Completed);
+    }
+
+    #[tokio::test]
+    async fn should_keep_urls_but_not_mark_crawled_when_truncated_crawl_waits_for_pattern_review() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let review_id = CrawlerReviewId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            crawl_root_url,
+            product_pages_until_timeout(),
+            CrawlDiagnostics {
+                completion: CrawlCompletion::HardTimeoutTruncated,
+                ..CrawlDiagnostics::default()
+            },
+        );
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(move |_, _, _, _, _| {
+                Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
+            });
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .times(1)
+            .withf(|_, _, urls, _| urls.len() == 25)
+            .returning(|_, _, _, _| Box::pin(async { Ok(Vec::new()) }));
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run_result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .await
+            .unwrap();
+
+        assert_eq!(run_result.pending_url_pattern_review, Some(review_id));
+        assert_eq!(run_result.completion, CrawlCompletion::HardTimeoutTruncated);
+    }
+
+    #[tokio::test]
+    async fn should_wait_for_review_when_refresh_of_persisted_pattern_opens_one() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let review_id = CrawlerReviewId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .withf(|_, _, _, crawl_pattern, _| {
+                crawl_pattern.map(Regex::as_str) == Some(r"/product/")
+            })
+            .returning(move |_, _, _, _, _| {
+                Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
+            });
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run_result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .await
+            .unwrap();
+
+        assert_eq!(run_result.pending_url_pattern_review, Some(review_id));
+        assert_eq!(run_result.product_urls_count, 0);
+        assert_eq!(run_result.product_pattern.as_deref(), Some(r"/product/"));
+    }
+
     #[tokio::test]
     async fn should_report_page_budget_and_mark_crawled_when_crawl_is_bounded() {
         let mut mock_spider = MockSpider::new();
@@ -882,7 +1069,7 @@ mod service_tests {
 
     #[test]
     fn should_never_log_hard_timeout_run_as_completed() {
-        let message = crawl_outcome_message(CrawlCompletion::HardTimeoutTruncated);
+        let message = crawl_outcome_message(CrawlCompletion::HardTimeoutTruncated, false);
 
         assert!(message.contains("truncated"), "{message}");
         assert!(!message.contains("completed"), "{message}");
@@ -891,7 +1078,15 @@ mod service_tests {
             CrawlCompletion::PageBudgetReached,
             CrawlCompletion::HardTimeoutTruncated,
         ] {
-            assert!(!crawl_outcome_message(completion).contains("successfully"));
+            for awaiting_review in [false, true] {
+                let message = crawl_outcome_message(completion, awaiting_review);
+                assert!(!message.contains("successfully"), "{message}");
+                assert_eq!(
+                    message.contains("waiting for URL pattern review"),
+                    awaiting_review,
+                    "{message}"
+                );
+            }
         }
     }
 
