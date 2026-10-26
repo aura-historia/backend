@@ -1,0 +1,36 @@
+# Example systemd unit for the crawler `server` binary on a single Linux host.
+# Install as /etc/systemd/system/crawler-server.service and adjust the paths.
+# Contract and host prerequisites: docs/crawler/operations.md#single-server-deployment
+# Run exactly one instance: the scheduler coordinates through process-local locks.
+
+[Unit]
+Description=Aura Historia crawler server
+Documentation=https://github.com/aura-historia/backend/blob/main/docs/crawler/operations.md#single-server-deployment
+Wants=network-online.target
+# `server` runs `docker compose up -d` for its local Postgres at every start.
+Requires=docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=crawler
+Group=crawler
+# Needed for `docker compose`; membership in the docker group is root-equivalent.
+SupplementaryGroups=docker
+EnvironmentFile=/etc/crawler/crawler.env
+# Empty working directory: `server` also loads a `.env` from here or any parent.
+StateDirectory=crawler
+WorkingDirectory=/var/lib/crawler
+ExecStart=/opt/crawler/bin/server
+Restart=on-failure
+RestartSec=10s
+# `server` shuts down gracefully on SIGTERM within a 30 s grace period;
+# systemd sends SIGKILL after the margin below.
+KillSignal=SIGTERM
+TimeoutStopSec=45s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
