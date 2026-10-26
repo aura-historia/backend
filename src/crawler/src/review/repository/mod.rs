@@ -16,7 +16,9 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
-use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
+use crate::spider::candidate_service::{
+    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
+};
 use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
@@ -245,6 +247,8 @@ impl CrawlerReviewRepository {
         rows.into_iter().map(row_to_review).collect()
     }
 
+    /// Enabled ListingSources with a domain waiting for an operator come first: nothing else
+    /// in the console points at them, so the limit must not cut them off.
     pub async fn list_listing_sources(
         &self,
         limit: i64,
@@ -262,7 +266,8 @@ impl CrawlerReviewRepository {
                 COALESCE(u.blocked_urls, 0) AS blocked_urls
              FROM listing_sources s
              LEFT JOIN (
-                SELECT listing_source_id, COUNT(*) AS domain_count, MAX(last_crawled) AS last_successful_crawl
+                SELECT listing_source_id, COUNT(*) AS domain_count, MAX(last_crawled) AS last_successful_crawl,
+                       COUNT(*) FILTER (WHERE last_crawl_outcome = $2) AS needs_operator_domains
                 FROM listing_source_domains GROUP BY listing_source_id
              ) d ON d.listing_source_id = s.listing_source_id
              LEFT JOIN (
@@ -278,10 +283,12 @@ impl CrawlerReviewRepository {
                 FROM listing_source_urls
                 GROUP BY listing_source_id
              ) u ON u.listing_source_id = s.listing_source_id
-             ORDER BY s.crawl_enabled DESC, pending_reviews DESC, s.updated DESC
+             ORDER BY s.crawl_enabled DESC, COALESCE(d.needs_operator_domains, 0) > 0 DESC,
+                      pending_reviews DESC, s.updated DESC
              LIMIT $1",
         )
             .bind(limit)
+            .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
             .fetch_all(&self.pool)
             .await?;
 

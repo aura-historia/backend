@@ -23,7 +23,10 @@ use crawler::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
-use crawler::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
+use crawler::spider::candidate_service::{
+    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
+    SpiderCandidateService, SpiderCandidateServiceImpl,
+};
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
@@ -1867,6 +1870,53 @@ async fn undecided_url_pattern_review(
         )
         .await
         .unwrap()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_listing_source_with_a_domain_waiting_for_an_operator_first() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let reviewed_source = ListingSourceId::new();
+    insert_listing_source(&pool, reviewed_source).await;
+    let reviewed_domain = insert_domain(&pool, reviewed_source, "reviewed.example.com").await;
+    undecided_url_pattern_review(
+        &repository,
+        reviewed_source,
+        reviewed_domain,
+        &["https://reviewed.example.com/item/1".to_owned()],
+    )
+    .await;
+    let stopped_source = ListingSourceId::new();
+    insert_listing_source(&pool, stopped_source).await;
+    let stopped_domain = insert_domain(&pool, stopped_source, "stopped.example.com").await;
+    SpiderCandidateServiceImpl::new(pool.clone())
+        .mark_crawl_needs_operator(&stopped_domain, "RobotsBlocked", 5)
+        .await
+        .unwrap();
+
+    let overview = repository.list_listing_sources(1).await.unwrap();
+
+    assert_eq!(
+        overview
+            .iter()
+            .map(|source| source.listing_source_id)
+            .collect::<Vec<_>>(),
+        vec![stopped_source],
+        "a domain waiting for an operator outranks a pending review within the limit"
+    );
+    let domains = &overview[0].domains;
+    assert_eq!(domains.len(), 1);
+    assert_eq!(domains[0].domain_id, stopped_domain);
+    assert_eq!(
+        domains[0].last_crawl_outcome.as_deref(),
+        Some(NEEDS_OPERATOR_CRAWL_OUTCOME)
+    );
+    assert_eq!(
+        domains[0].last_crawl_error_kind.as_deref(),
+        Some("RobotsBlocked")
+    );
+    assert_eq!(domains[0].crawl_failure_count, 5);
+    assert_eq!(domains[0].next_crawl_at, None);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

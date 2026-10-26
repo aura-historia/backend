@@ -86,6 +86,30 @@ pub enum SpiderServiceError {
         crawl_root_url: String,
         stage: &'static str,
     },
+
+    /// The crawl delivered pages, but the domain's product URL pattern
+    /// matched none of them: the pattern is stale or wrong for this site.
+    #[error(
+        "Spider crawl for crawl-root URL '{crawl_root_url}' found no product URL among {total_links} page(s) with pattern '{product_pattern}'"
+    )]
+    NoProductUrls {
+        crawl_root_url: String,
+        total_links: usize,
+        product_pattern: String,
+        completion: CrawlCompletion,
+    },
+
+    /// The crawl delivered pages, but the domain's URL classification is
+    /// complete without a product pattern, so no page can become a product
+    /// URL until an operator decides or resets the pattern.
+    #[error(
+        "Spider crawl for crawl-root URL '{crawl_root_url}' found {total_links} page(s) but the domain has no product URL pattern"
+    )]
+    NoUrlPattern {
+        crawl_root_url: String,
+        total_links: usize,
+        completion: CrawlCompletion,
+    },
 }
 
 impl Default for SpiderServiceConfig {
@@ -498,6 +522,14 @@ impl SpiderServiceImpl {
         self.flush_remaining_pages(&mut state, listing_source_id, domain_id)
             .await?;
 
+        // URLs stay stored either way; only the recorded outcome differs.
+        let completion = diagnostics.completion;
+        if state.pending_url_pattern_review.is_none()
+            && let Some(error) = no_product_urls_error(crawl_root_url, &state, completion)
+        {
+            return Err(error);
+        }
+
         let product_pattern = state
             .pattern
             .as_regex()
@@ -507,7 +539,6 @@ impl SpiderServiceImpl {
         // domain due so the scheduler can retry it sooner. A full crawl that
         // waits for a pattern review has discovered everything too: approval
         // classifies its stored URLs, so no second crawl from the root is due.
-        let completion = diagnostics.completion;
         if completion.is_full() {
             self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
                 .await;
@@ -576,8 +607,10 @@ fn log_crawl_outcome(
         completion = %completion,
         at_budget = completion == CrawlCompletion::PageBudgetReached,
         diagnostic_reason = ?diagnostics.diagnostic_reason,
+        truncated = !completion.is_full(),
         total_crawled = state.total_crawled,
         product_urls_count = state.products_found,
+        product_pattern = ?product_pattern,
         product_pattern_known = product_pattern.is_some(),
         classification_done = state.classification_done,
         pages_received = diagnostics.pages_received,
@@ -1020,6 +1053,103 @@ mod service_tests {
         assert_eq!(run_result.pending_url_pattern_review, Some(review_id));
         assert_eq!(run_result.product_urls_count, 0);
         assert_eq!(run_result.product_pattern.as_deref(), Some(r"/product/"));
+    }
+
+    #[tokio::test]
+    async fn should_fail_with_no_product_urls_when_pattern_matches_no_crawled_page() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        // The crawled URLs are kept, only the outcome is a failure.
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::NoProductUrls {
+                crawl_root_url: url,
+                total_links: 20,
+                product_pattern,
+                completion: CrawlCompletion::Completed,
+            }) if url == crawl_root_url && product_pattern == "/product/"
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_fail_with_no_url_pattern_when_classification_is_complete_without_one() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            crawl_root_url,
+            item_pages(),
+            CrawlDiagnostics {
+                completion: CrawlCompletion::HardTimeoutTruncated,
+                ..CrawlDiagnostics::default()
+            },
+        );
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        // A decided `NO_PATTERN` classification answers with no pattern.
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::NoUrlPattern {
+                total_links: 20,
+                completion: CrawlCompletion::HardTimeoutTruncated,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]
@@ -1558,6 +1688,32 @@ mod service_tests {
             }) if url == crawl_root_url
         ));
     }
+}
+
+/// A crawl that delivered pages but no product URL is a failure, not a
+/// completed crawl: the domain's pattern matched nothing, or its
+/// classification is complete without one.
+fn no_product_urls_error(
+    crawl_root_url: &str,
+    state: &CrawlRunState,
+    completion: CrawlCompletion,
+) -> Option<SpiderServiceError> {
+    if state.products_found > 0 {
+        return None;
+    }
+    Some(match state.pattern.as_regex() {
+        Some(pattern) => SpiderServiceError::NoProductUrls {
+            crawl_root_url: crawl_root_url.to_string(),
+            total_links: state.total_crawled,
+            product_pattern: pattern.as_str().to_string(),
+            completion,
+        },
+        None => SpiderServiceError::NoUrlPattern {
+            crawl_root_url: crawl_root_url.to_string(),
+            total_links: state.total_crawled,
+            completion,
+        },
+    })
 }
 
 /// A crawl with at most one usable page is a failure. A library or local

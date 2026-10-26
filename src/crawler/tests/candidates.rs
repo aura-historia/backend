@@ -5,7 +5,8 @@ use crawler::scraper::candidate_service::{
     ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{
-    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, SpiderCandidateService, SpiderCandidateServiceImpl,
+    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
+    SpiderCandidateService, SpiderCandidateServiceImpl,
 };
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -570,6 +571,44 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
             .iter()
             .any(|c| c.domain_id == domain_id),
         "a domain waiting for a review is not crawled until the review is decided"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_mark_crawl_needs_operator_should_take_domain_out_of_the_schedule() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "spider-needs-operator.example.com",
+    )
+    .await;
+
+    service
+        .mark_crawl_needs_operator(&domain_id, "NoUrlPattern", 5)
+        .await
+        .unwrap();
+
+    let (failure_count, error_kind, next_crawl_at, outcome, ..) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!(failure_count, 5);
+    assert_eq!(error_kind.as_deref(), Some("NoUrlPattern"));
+    assert_eq!(
+        next_crawl_at, None,
+        "no cooldown is pending; the state is terminal"
+    );
+    assert_eq!(outcome.as_deref(), Some(NEEDS_OPERATOR_CRAWL_OUTCOME));
+    assert!(
+        !service
+            .get_candidates(10, &[])
+            .await
+            .unwrap()
+            .iter()
+            .any(|c| c.domain_id == domain_id),
+        "a domain waiting for an operator is never selected"
     );
 }
 

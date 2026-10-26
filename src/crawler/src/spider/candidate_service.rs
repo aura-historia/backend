@@ -15,6 +15,11 @@ const FAILED_CRAWL_OUTCOME: &str = "FAILED";
 /// pending URL-pattern review. The review's decision releases the domain.
 pub const AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME: &str = "AWAITING_URL_PATTERN_REVIEW";
 
+/// Persisted `last_crawl_outcome` of a domain whose deterministic failures
+/// kept repeating. It is not selected again until an operator changes its
+/// configuration, which replaces the domain row.
+pub const NEEDS_OPERATOR_CRAWL_OUTCOME: &str = "NEEDS_OPERATOR";
+
 pub struct SpiderCandidate {
     pub listing_source_id: ListingSourceId,
     pub domain_id: CrawlerDomainId,
@@ -61,6 +66,14 @@ pub trait SpiderCandidateService: Send + Sync {
         &self,
         domain_id: &CrawlerDomainId,
         next_crawl_at: time::OffsetDateTime,
+    ) -> Result<(), sqlx::Error>;
+    /// Records a repeated deterministic failure and takes the domain out of
+    /// the schedule until an operator acts.
+    async fn mark_crawl_needs_operator(
+        &self,
+        domain_id: &CrawlerDomainId,
+        error_kind: &str,
+        crawl_failure_count: i32,
     ) -> Result<(), sqlx::Error>;
 }
 
@@ -109,6 +122,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
             WHERE s.crawl_enabled = TRUE
               AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - make_interval(secs => $3))
               AND (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
+              AND sd.last_crawl_outcome IS DISTINCT FROM $4
               AND NOT (sd.domain_id = ANY($2))
             ORDER BY sd.last_crawled NULLS FIRST
             LIMIT $1
@@ -117,6 +131,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         .bind(limit)
         .bind(excluded_domain_ids)
         .bind(SPIDER_RECRAWL_INTERVAL.as_secs_f64())
+        .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
         .fetch_all(&self.pool)
         .await?;
 
@@ -227,6 +242,30 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         .bind(domain_id.as_uuid())
         .bind(next_crawl_at)
         .bind(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn mark_crawl_needs_operator(
+        &self,
+        domain_id: &CrawlerDomainId,
+        error_kind: &str,
+        crawl_failure_count: i32,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE listing_source_domains
+             SET crawl_failure_count = $3,
+                 last_crawl_error_kind = $2,
+                 next_crawl_at = NULL,
+                 last_crawl_outcome = $4
+             WHERE domain_id = $1",
+        )
+        .bind(domain_id.as_uuid())
+        .bind(error_kind)
+        .bind(crawl_failure_count)
+        .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
         .execute(&self.pool)
         .await?;
 
