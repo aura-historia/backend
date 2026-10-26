@@ -3,7 +3,7 @@ use bloomfilter::Bloom;
 use regex::{Regex, RegexSet};
 use reqwest::header::{ACCEPT_ENCODING, HeaderMap, HeaderValue};
 use spider::CaseInsensitiveString;
-use spider::page::AntiBotTech;
+use spider::page::{AntiBotTech, Page};
 use spider::retry_strategy::{AttemptOutcome, RetryDirective, RetryStrategy};
 use spider::tokio;
 use spider::utils::auto_throttle::AutoThrottleConfig;
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use url::Url;
 
 use crate::network::CRAWLER_USER_AGENT;
@@ -961,7 +961,7 @@ impl SpiderImpl {
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
 
-        let mut spider_rx = website.subscribe(512);
+        let spider_rx = website.subscribe(512);
 
         let link_decoder = FoundLinkDecoder {
             host_whitelist: host_whitelist_regex,
@@ -979,96 +979,33 @@ impl SpiderImpl {
             let _ = outcome_tx.send(outcome);
         });
 
-        let config = self.config.clone();
         let crawl_root_url = root_url.to_string();
+        let filter = LocalFilter {
+            configured_root: root_url,
+            root_redirect_rejected: false,
+            refused_links,
+            seen: Bloom::new_for_fp_rate(self.config.bloom_capacity, self.config.bloom_fp_rate)
+                .expect("bloom filter init failed"),
+        };
+        let mut diagnostics = CrawlDiagnostics {
+            root_preflight_status: Some(root_preflight_status),
+            robots_policy: Some(robots.policy),
+            robots_crawl_delay_ms: robots
+                .crawl_delay
+                .map(|delay| u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)),
+            robots_rules_failing_closed: robots.deny_list.failing_closed.len(),
+            ..CrawlDiagnostics::default()
+        };
         tokio::spawn(async move {
-            let mut filter = LocalFilter {
-                configured_root: root_url,
-                root_redirect_rejected: false,
-                refused_links,
-                seen: Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
-                    .expect("bloom filter init failed"),
-            };
-            let mut diagnostics = CrawlDiagnostics {
-                root_preflight_status: Some(root_preflight_status),
-                robots_policy: Some(robots.policy),
-                robots_crawl_delay_ms: robots
-                    .crawl_delay
-                    .map(|delay| u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)),
-                robots_rules_failing_closed: robots.deny_list.failing_closed.len(),
-                ..CrawlDiagnostics::default()
-            };
-            let mut first_page_seen = false;
-            // Accepted URLs wait here instead of blocking the broadcast
-            // subscription: Spider's 512-slot broadcast drops pages once the
-            // subscriber falls behind, while this queue only holds small
-            // normalized URLs and is bounded by the crawl page budget.
-            let mut pending: VecDeque<CrawledPage> = VecDeque::new();
-            let mut broadcast_open = true;
-
-            while broadcast_open || !pending.is_empty() {
-                // The consumer is gone; nothing left to deliver.
-                if tx.is_closed() {
-                    break;
-                }
-                let page = ::tokio::select! {
-                    biased;
-                    received = spider_rx.recv(), if broadcast_open => match received {
-                        Ok(page) => page,
-                        Err(RecvError::Lagged(skipped)) => {
-                            diagnostics.lagged += skipped;
-                            continue;
-                        }
-                        Err(RecvError::Closed) => {
-                            broadcast_open = false;
-                            continue;
-                        }
-                    },
-                    permit = tx.reserve(), if !pending.is_empty() => match permit {
-                        Ok(permit) => {
-                            permit.send(pending.pop_front().expect("guarded by the select precondition"));
-                            continue;
-                        }
-                        Err(_) => break,
-                    },
-                };
-                diagnostics.pages_received += 1;
-                let status_code = page.status_code.as_u16();
-                diagnostics.status_counts.count(status_code);
-
-                if !first_page_seen {
-                    apply_library_page(
-                        &mut diagnostics,
-                        &crawl_root_url,
-                        page.get_url(),
-                        status_code,
-                        page.final_redirect_destination.as_deref(),
-                        page.anti_bot_tech,
-                    );
-                    filter.root_redirect_rejected = matches!(
-                        diagnostics.failure_kind,
-                        Some(CrawlFailureKind::RedirectProblem)
-                    );
-                    first_page_seen = true;
-                }
-
-                if diagnostics.rate_limit.is_none()
-                    && let Some(signal) =
-                        RateLimitSignal::from_page(status_code, page.headers.as_ref())
-                {
-                    apply_rate_limit_signal(&mut diagnostics, signal);
-                    stop_crawl.notify_one();
-                }
-
-                match filter.admit(page.get_url()) {
-                    Ok(url) => {
-                        diagnostics.accepted += 1;
-                        pending.push_back(CrawledPage { url });
-                    }
-                    Err(rejection) => diagnostics.count_rejection(rejection),
-                }
-            }
-
+            relay_library_pages(
+                spider_rx,
+                &tx,
+                filter,
+                &mut diagnostics,
+                &crawl_root_url,
+                &stop_crawl,
+            )
+            .await;
             match outcome_rx.await {
                 Ok(outcome) => apply_library_outcome(&mut diagnostics, outcome),
                 // The crawl task died without reporting; never call that full.
@@ -1086,6 +1023,88 @@ impl SpiderImpl {
             pages: rx,
             diagnostics: diagnostics_rx,
         })
+    }
+}
+
+/// Relays the pages Spider broadcasts through the local filter to the
+/// consumer until the broadcast closes and every accepted page is delivered,
+/// or the consumer is gone. A rate-limit answer asks the crawl task to stop.
+async fn relay_library_pages(
+    mut spider_rx: broadcast::Receiver<Page>,
+    tx: &mpsc::Sender<CrawledPage>,
+    mut filter: LocalFilter,
+    diagnostics: &mut CrawlDiagnostics,
+    crawl_root_url: &str,
+    stop_crawl: &Notify,
+) {
+    let mut first_page_seen = false;
+    // Accepted URLs wait here instead of blocking the broadcast
+    // subscription: Spider's 512-slot broadcast drops pages once the
+    // subscriber falls behind, while this queue only holds small
+    // normalized URLs and is bounded by the crawl page budget.
+    let mut pending: VecDeque<CrawledPage> = VecDeque::new();
+    let mut broadcast_open = true;
+
+    while broadcast_open || !pending.is_empty() {
+        // The consumer is gone; nothing left to deliver.
+        if tx.is_closed() {
+            break;
+        }
+        let page = ::tokio::select! {
+            biased;
+            received = spider_rx.recv(), if broadcast_open => match received {
+                Ok(page) => page,
+                Err(RecvError::Lagged(skipped)) => {
+                    diagnostics.lagged += skipped;
+                    continue;
+                }
+                Err(RecvError::Closed) => {
+                    broadcast_open = false;
+                    continue;
+                }
+            },
+            permit = tx.reserve(), if !pending.is_empty() => match permit {
+                Ok(permit) => {
+                    permit.send(pending.pop_front().expect("guarded by the select precondition"));
+                    continue;
+                }
+                Err(_) => break,
+            },
+        };
+        diagnostics.pages_received += 1;
+        let status_code = page.status_code.as_u16();
+        diagnostics.status_counts.count(status_code);
+
+        if !first_page_seen {
+            apply_library_page(
+                diagnostics,
+                crawl_root_url,
+                page.get_url(),
+                status_code,
+                page.final_redirect_destination.as_deref(),
+                page.anti_bot_tech,
+            );
+            filter.root_redirect_rejected = matches!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::RedirectProblem)
+            );
+            first_page_seen = true;
+        }
+
+        if diagnostics.rate_limit.is_none()
+            && let Some(signal) = RateLimitSignal::from_page(status_code, page.headers.as_ref())
+        {
+            apply_rate_limit_signal(diagnostics, signal);
+            stop_crawl.notify_one();
+        }
+
+        match filter.admit(page.get_url()) {
+            Ok(url) => {
+                diagnostics.accepted += 1;
+                pending.push_back(CrawledPage { url });
+            }
+            Err(rejection) => diagnostics.count_rejection(rejection),
+        }
     }
 }
 

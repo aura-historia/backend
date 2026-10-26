@@ -1,6 +1,7 @@
 use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
@@ -434,6 +435,57 @@ impl SpiderServiceImpl {
         }
     }
 
+    /// Loads the domain's pattern and consumes every page the crawl delivers,
+    /// classifying at the threshold and flushing full batches.
+    async fn consume_pages(
+        &self,
+        mut crawl_rx: mpsc::Receiver<CrawledPage>,
+        configured_root: &Url,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
+        classify_threshold: usize,
+    ) -> Result<CrawlRunState, SpiderServiceError> {
+        let initial_pattern = self
+            .pattern_service
+            .load_pattern_for_domain(listing_source_id, domain_id)
+            .await?;
+        let mut state = CrawlRunState::new(initial_pattern);
+
+        if state.pattern_loaded_from_store {
+            debug!("Loaded persisted product URL pattern");
+        }
+
+        while let Some(page) = crawl_rx.recv().await {
+            if !is_same_or_www_host(configured_root, page.url.as_url()) {
+                debug!(url = %page.url, configured_root = %configured_root, "Ignoring discovered URL outside configured crawler domain");
+                continue;
+            }
+            state.total_crawled += 1;
+
+            if state.inference_sample.len() < self.config.max_sample_urls {
+                state.inference_sample.push(page.url.to_string());
+            }
+
+            state.page_buffer.push(page.clone());
+
+            self.maybe_classify_at_threshold(
+                &mut state,
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+                classify_threshold,
+            )
+            .await?;
+
+            self.flush_batch_if_needed(&mut state, listing_source_id, domain_id)
+                .await?;
+            self.log_progress(&state);
+        }
+
+        Ok(state)
+    }
+
     #[tracing::instrument(
         name = "spider_run_crawl",
         skip(self),
@@ -460,44 +512,16 @@ impl SpiderServiceImpl {
         })?;
         let crawl = self.spider.crawl(crawl_root_url).await?;
         let diagnostics_rx = crawl.diagnostics;
-        let mut crawl_rx = crawl.pages;
-
-        let initial_pattern = self
-            .pattern_service
-            .load_pattern_for_domain(listing_source_id, domain_id)
-            .await?;
-        let mut state = CrawlRunState::new(initial_pattern);
-
-        if state.pattern_loaded_from_store {
-            debug!("Loaded persisted product URL pattern");
-        }
-
-        while let Some(page) = crawl_rx.recv().await {
-            if !is_same_or_www_host(&configured_root, page.url.as_url()) {
-                debug!(url = %page.url, configured_root = %configured_root, "Ignoring discovered URL outside configured crawler domain");
-                continue;
-            }
-            state.total_crawled += 1;
-
-            if state.inference_sample.len() < self.config.max_sample_urls {
-                state.inference_sample.push(page.url.to_string());
-            }
-
-            state.page_buffer.push(page.clone());
-
-            self.maybe_classify_at_threshold(
-                &mut state,
+        let mut state = self
+            .consume_pages(
+                crawl.pages,
+                &configured_root,
                 listing_source_id,
                 domain_id,
                 crawl_root_url,
                 classify_threshold,
             )
             .await?;
-
-            self.flush_batch_if_needed(&mut state, listing_source_id, domain_id)
-                .await?;
-            self.log_progress(&state);
-        }
 
         // A filter task that died without reporting cannot vouch for a full crawl.
         let diagnostics = diagnostics_rx.await.unwrap_or_else(|_| CrawlDiagnostics {
