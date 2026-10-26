@@ -46,6 +46,8 @@ The server also hosts the crawler review console. It binds to `127.0.0.1:7878` u
 
 `GET /health` is the only unauthenticated liveness endpoint and returns no crawler state. With a review token configured, `/api/health` is authenticated.
 
+`GET /api/listing_sources` is the operator's overview: each ListingSource with its pending reviews, URL counts and, per domain, the last crawl outcome, failure kind, failure count and next crawl time as [crawl completion](scheduling-and-retries.md#spider-crawl-completion) records them. It lists ListingSources with a domain waiting for an operator first, so a domain waiting for a review or for an operator is visible there without the logs.
+
 ### Authoring modes
 
 `CRAWLER_AUTHORING_MODE` decides, for URL patterns and product schemas alike, who authors them and whether they wait for human review:
@@ -66,8 +68,10 @@ With `CRAWLER_AUTHORING_MODE=manual`, where the LLM would run the crawler opens 
 
 | Review reason | Opened when | Candidate | Operator action |
 |---|---|---|---|
-| `manual_url_pattern_required` | A domain needs a product URL pattern | Decision `UNDECIDED` with the crawled URL sample | Enter a regex or `NO_PATTERN` as the candidate, then approve. An undecided candidate cannot be approved. The next crawl run classifies URLs with the approved pattern; a running crawl that has not classified yet uses it too, without opening another review. |
+| `manual_url_pattern_required` | A domain needs a product URL pattern | Decision `UNDECIDED` with the crawled URL sample | Enter a regex or `NO_PATTERN` as the candidate, then approve. An undecided candidate cannot be approved. The crawl that opened the review finishes discovery and stores its URLs; approval classifies them with the decision and releases the domain ([crawl completion](scheduling-and-retries.md#spider-crawl-completion)); a running crawl that has not classified yet uses the pattern too, without opening another review. |
 | `manual_schema_required` | A ListingSource has no product schema, or its cached schemas stop matching a page | The cached schemas plus a generic starter schema, with the seed or triggering page | Rewrite the starter schema, check it with the live matrix, then approve. Approval replaces the ListingSource's schemas with the reviewed list. For a sold or withdrawn item the shop serves at HTTP 200 with a removal notice and no product markup, [declare the page removed](extraction-and-review.md#removed-page-templates) on the same review instead of authoring a schema for it; rejecting the review would classify it as a non-product page and leave its listing visible. |
+
+A domain the spider records as `NEEDS_OPERATOR` ([repeated deterministic failures](scheduling-and-retries.md#scraper-domain-circuits)) opens no review: the console lists it above the review queue with its last failure kind and failure count, and the operator fixes the configuration (the right crawl root, or removing and re-registering the domain) or disables crawling for the ListingSource. A `NO_PATTERN` decision that turns out wrong is reset the same way.
 
 A page that is not a product page should be excluded by narrowing the URL pattern. Rejecting a `manual_schema_required` review classifies its seed and triggering pages as non-product pages, so the review is not reopened for them; its waiting and reviewer-added pages keep their class. To keep a candidate that is not ready yet, give the review the needs-repair [verdict](extraction-and-review.md#review-rail) instead of rejecting it. A product page that leaves its title or state empty where a cached schema finds the element opens no review; it records a [missing required value](extraction-and-review.md#missing-required-values) instead, so an untitled product is never rejected as a non-product page.
 
