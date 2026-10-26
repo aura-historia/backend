@@ -1,14 +1,17 @@
 use super::job::CrawlerCronJob;
+use super::metrics::emit_pass_duration;
+use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::CRAWLER_USER_AGENT;
 use crate::network::policy::{
     MAX_EXPONENTIAL_COOLDOWN, NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown,
 };
 use crate::spider::candidate_service::{
+    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, FAILED_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
     SPIDER_RECRAWL_INTERVAL, SpiderCandidate, SpiderCandidateService,
 };
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::discovery::website_spider::{
-    CrawlCooldownProfile, CrawlFailureKind, SpiderDiscoveryError,
+    CrawlCompletion, CrawlCooldownProfile, CrawlFailureKind, SpiderDiscoveryError,
 };
 use crate::spider::local_lock::{DomainLock, DomainLockScope};
 use crate::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
@@ -463,6 +466,63 @@ async fn record_run_outcome(
     }
 }
 
+/// The `last_crawl_outcome` a run left on its domain.
+fn persisted_crawl_outcome(
+    run: &Result<SpiderRunResult, SpiderServiceError>,
+    status: SpiderSlotStatus,
+) -> Option<&'static str> {
+    match (status, run) {
+        (SpiderSlotStatus::Succeeded, Ok(result)) => Some(result.completion.as_str()),
+        (SpiderSlotStatus::Truncated, _) => Some(CrawlCompletion::HardTimeoutTruncated.as_str()),
+        (SpiderSlotStatus::AwaitingReview, _) => Some(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME),
+        (SpiderSlotStatus::Failed, _) => Some(FAILED_CRAWL_OUTCOME),
+        (SpiderSlotStatus::StoppedForOperator, _) => Some(NEEDS_OPERATOR_CRAWL_OUTCOME),
+        (SpiderSlotStatus::Succeeded, Err(_)) | (SpiderSlotStatus::Deferred, _) => None,
+    }
+}
+
+/// The product URL count and completion of a run that classified its URLs with the
+/// domain's product pattern, including a pattern that matched nothing.
+fn classified_crawl(
+    run: &Result<SpiderRunResult, SpiderServiceError>,
+) -> Option<(usize, CrawlCompletion)> {
+    match run {
+        Ok(result) if result.pending_url_pattern_review.is_none() => {
+            Some((result.product_urls_count, result.completion))
+        }
+        Err(SpiderServiceError::NoProductUrls { completion, .. }) => Some((0, *completion)),
+        _ => None,
+    }
+}
+
+fn emit_crawl_metrics(
+    candidate: &SpiderCandidate,
+    run: &Result<SpiderRunResult, SpiderServiceError>,
+    status: SpiderSlotStatus,
+) {
+    let record = || {
+        MetricRecord::for_listing_source_domain(
+            &candidate.listing_source_id,
+            &candidate.listing_source_domain,
+        )
+    };
+    if let Some(outcome) = persisted_crawl_outcome(run, status) {
+        record()
+            .with_dimension(MetricDimension::CrawlOutcome, outcome)
+            .with_value(CrawlerMetric::CrawlOutcome, 1)
+            .emit();
+    }
+    if let Some((product_urls, completion)) = classified_crawl(run) {
+        record()
+            .with_value(CrawlerMetric::CrawlProductUrls, product_urls as u64)
+            .with_value(
+                CrawlerMetric::CrawlTruncated,
+                u64::from(!completion.is_full()),
+            )
+            .emit();
+    }
+}
+
 fn spawn_spider_candidate(
     join_set: &mut JoinSet<SpiderSlotOutcome>,
     candidate: SpiderCandidate,
@@ -511,6 +571,7 @@ fn spawn_spider_candidate(
                 )
                 .await;
             let status = record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
+            emit_crawl_metrics(&candidate, &run, status);
             SpiderSlotOutcome { domain_id, status }
         }
         .instrument(span),
@@ -571,6 +632,7 @@ impl CrawlerCronJob {
                     no_more_candidates = true;
                     if !started && join_set.is_empty() {
                         debug!("No spider candidates, skipping scheduler pass");
+                        emit_pass_duration(CrawlerMetric::SpiderPassDuration, pass_start);
                         return;
                     }
                     break;
@@ -633,7 +695,7 @@ impl CrawlerCronJob {
             }
         }
 
-        let duration_ms = pass_start.elapsed().as_millis() as u64;
+        let duration_ms = emit_pass_duration(CrawlerMetric::SpiderPassDuration, pass_start);
         info!(
             total,
             succeeded,
@@ -1994,5 +2056,121 @@ mod tests {
         )
         .run_spider_once()
         .await;
+    }
+
+    mod crawl_metrics {
+        use super::*;
+        use crate::metrics::test_support::capture_metrics;
+
+        #[tokio::test]
+        async fn should_emit_outcome_product_count_and_truncation_when_a_crawl_is_truncated() {
+            let (metrics, _guard) = capture_metrics();
+            let mut spider_candidates = MockSpiderCandidateService::new();
+            spider_candidates
+                .expect_get_candidates()
+                .returning(move |_, excluded| {
+                    let first_call = excluded.is_empty();
+                    Box::pin(async move {
+                        Ok(if first_call {
+                            vec![spider_candidate(CrawlerDomainId::new())]
+                        } else {
+                            vec![]
+                        })
+                    })
+                });
+            spider_candidates
+                .expect_mark_crawl_truncated()
+                .returning(|_, _, _| Box::pin(async { Ok(()) }));
+            let mut spider_service = MockSpiderService::new();
+            spider_service.expect_run().returning(|_, _, _, _| {
+                Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
+            });
+
+            spider_job(spider_candidates, spider_service, 1)
+                .run_spider_once()
+                .await;
+
+            assert_eq!(
+                metrics.values_with(
+                    CrawlerMetric::CrawlOutcome,
+                    MetricDimension::CrawlOutcome,
+                    "HARD_TIMEOUT_TRUNCATED"
+                ),
+                vec![1]
+            );
+            assert_eq!(
+                metrics.values_with(
+                    CrawlerMetric::CrawlProductUrls,
+                    MetricDimension::Domain,
+                    "example.com"
+                ),
+                vec![1_200]
+            );
+            assert_eq!(
+                metrics.values_with(
+                    CrawlerMetric::CrawlTruncated,
+                    MetricDimension::Domain,
+                    "example.com"
+                ),
+                vec![1]
+            );
+            assert_eq!(metrics.values(CrawlerMetric::SpiderPassDuration).len(), 1);
+        }
+
+        #[tokio::test]
+        async fn should_emit_the_pass_duration_when_no_domain_is_due() {
+            let (metrics, _guard) = capture_metrics();
+            let mut spider_candidates = MockSpiderCandidateService::new();
+            spider_candidates
+                .expect_get_candidates()
+                .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+
+            spider_job(spider_candidates, MockSpiderService::new(), 1)
+                .run_spider_once()
+                .await;
+
+            let durations = metrics.values(CrawlerMetric::SpiderPassDuration);
+            assert_eq!(durations.len(), 1);
+            assert!(durations[0].0.is_empty(), "pass duration is crawler-wide");
+        }
+
+        #[test]
+        fn should_record_a_pattern_that_matched_nothing_as_a_failed_crawl_with_zero_products() {
+            let run = Err(no_product_urls());
+
+            assert_eq!(
+                persisted_crawl_outcome(&run, SpiderSlotStatus::Failed),
+                Some("FAILED")
+            );
+            assert_eq!(
+                classified_crawl(&run),
+                Some((0, CrawlCompletion::Completed))
+            );
+        }
+
+        #[test]
+        fn should_record_no_product_count_when_the_crawl_waits_for_a_url_pattern_review() {
+            let run = Ok(SpiderRunResult {
+                pending_url_pattern_review: Some(CrawlerReviewId::new()),
+                ..run_result(CrawlCompletion::Completed)
+            });
+
+            assert_eq!(
+                persisted_crawl_outcome(&run, SpiderSlotStatus::AwaitingReview),
+                Some("AWAITING_URL_PATTERN_REVIEW")
+            );
+            assert_eq!(classified_crawl(&run), None);
+        }
+
+        #[test]
+        fn should_record_no_product_count_when_the_crawl_failed_before_classifying() {
+            let run = Err(insufficient_sample());
+
+            assert_eq!(
+                persisted_crawl_outcome(&run, SpiderSlotStatus::StoppedForOperator),
+                Some("NEEDS_OPERATOR")
+            );
+            assert_eq!(classified_crawl(&run), None);
+        }
     }
 }

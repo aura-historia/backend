@@ -196,6 +196,9 @@ pub trait ScraperCandidateService: Send + Sync {
         urls_per_domain: i64,
         excluded_domain_ids: &[CrawlerDomainId],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
+    /// Counts the URLs due for scraping, by the same eligibility rule as
+    /// [`ScraperCandidateService::get_candidates`].
+    async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
     /// Returns a random sample of product URLs for a ListingSource (excluding the current
     /// URL) to seed first-time schema generation with additional page layouts.
     ///
@@ -620,6 +623,11 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
     "#
 );
 
+const DUE_SCRAPER_URL_COUNT_QUERY: &str = concat!(
+    eligible_scraper_urls_cte!(),
+    "\n    SELECT COUNT(*) FROM eligible_urls"
+);
+
 #[async_trait]
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(
@@ -686,6 +694,15 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         }
 
         Ok(candidates)
+    }
+
+    async fn count_due_urls(&self) -> Result<u64, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(DUE_SCRAPER_URL_COUNT_QUERY)
+            .bind(self.max_llm_calls_per_listing_source)
+            .bind(Vec::<uuid::Uuid>::new())
+            .fetch_one(&self.pool)
+            .await?;
+        u64::try_from(count).map_err(|error| sqlx::Error::Decode(Box::new(error)))
     }
 
     async fn get_random_product_urls_for_schema_seed(

@@ -3,6 +3,7 @@ pub mod crawler_domain_id;
 pub mod llm_runtime;
 pub mod local_db;
 pub mod logging;
+pub mod metrics;
 pub mod network;
 pub mod review;
 pub mod runtime;

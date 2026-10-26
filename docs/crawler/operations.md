@@ -75,6 +75,34 @@ A domain the spider records as `NEEDS_OPERATOR` ([repeated deterministic failure
 
 A page that is not a product page should be excluded by narrowing the URL pattern. Rejecting a `manual_schema_required` review classifies its seed and triggering pages as non-product pages, so the review is not reopened for them; its waiting and reviewer-added pages keep their class. To keep a candidate that is not ready yet, give the review the needs-repair [verdict](extraction-and-review.md#review-rail) instead of rejecting it. A product page that leaves its title or state empty where a cached schema finds the element opens no review; it records a [missing required value](extraction-and-review.md#missing-required-values) instead, so an untitled product is never rejected as a non-product page.
 
+## Metrics and alarms
+
+The crawler publishes metrics as CloudWatch [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html) records in its JSON log: each record is one log line whose top-level `_aws` block names the metrics, so the [CloudWatch log export](#runtime-prerequisites) turns them into metrics without a metrics client or extra permission. Without log export the records stay on stdout. Metric records ignore `LOG_LEVEL`, so a quiet log level cannot read as a metric gap.
+
+All metrics use the namespace `AuraHistoria/Crawler`. Dimension values are ListingSource IDs, configured domains and bounded kinds, never URLs.
+
+| Metric | Unit | Dimensions | Recorded |
+|---|---|---|---|
+| `ScrapesSucceeded`, `ScrapesFailed` | Count | `listing_source_id`, `domain` | Per scraper domain batch: URLs whose scrape completed (changed or not) and URLs whose scrape failed. |
+| `DomainCircuitOpened` | Count | `listing_source_id`, `domain` | Per scraper domain batch: 1 when the batch opened the [domain circuit](scheduling-and-retries.md#scraper-domain-circuits), else 0. |
+| `UrlFailures` | Count | `listing_source_id`, `domain`, `failure_kind` | Per scraper domain batch and failure kind: the URL failures that recorded that `last_error_kind`, such as `HTTP_503` or `Timeout`. |
+| `ProductsCaptured` | Count | `listing_source_id`, `domain` | Per raw-capture batch: observations raw capture persisted durably; 0 when every capture of the domain failed. |
+| `CrawlOutcome` | Count | `listing_source_id`, `domain`, `crawl_outcome` | 1 per spider crawl, with the `last_crawl_outcome` it [recorded](scheduling-and-retries.md#spider-crawl-completion). |
+| `CrawlProductUrls`, `CrawlTruncated` | Count | `listing_source_id`, `domain` | Per spider crawl that classified its URLs with a product pattern, including a pattern that matched nothing: the product URLs found, and 1 when the crawl was cut short, else 0. |
+| `ScraperDueUrls` | Count | none | URLs due for scraping when a scraper pass starts. |
+| `ScraperPassDuration`, `SpiderPassDuration` | Milliseconds | none | Per scheduler pass, including a pass that finds no work. |
+
+Create these alarms from the metrics; each is an operator requirement, not a deployed resource:
+
+| Alarm | Metric and statistic | Period and threshold | Missing data |
+|---|---|---|---|
+| A ListingSource domain made no successful scrape in 24 hours | `ScrapesSucceeded` Sum per `listing_source_id`, `domain` | 1 day, `<= 0` | Breaching: a domain that is never scraped records nothing. |
+| A product pattern matched no URL | `CrawlProductUrls` Maximum per `listing_source_id`, `domain` | 1 hour, `<= 0` | Ignore: the alarm holds until the next crawl records a count. |
+| A scraper pass took more than 15 minutes, or none finished | `ScraperPassDuration` Maximum | 15 minutes, `> 900000` | Breaching: every pass records a duration, so silence means a stall. |
+| The LLM governor made a call wait more than 60 seconds | Not recorded yet | 1 minute, `> 60000` | Not breaching |
+
+The crawler does not record the LLM governor wait yet; with `CRAWLER_AUTHORING_MODE=manual` it makes no LLM call. The per-domain alarms need one alarm per configured domain, or one CloudWatch Metrics Insights alarm grouped by `listing_source_id` and `domain`.
+
 ## Validation
 
 Run targeted checks after crawler changes:
