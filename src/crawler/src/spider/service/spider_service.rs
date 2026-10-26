@@ -492,27 +492,7 @@ impl SpiderServiceImpl {
                 .await;
         }
 
-        // Coverage losses on a crawl that delivered pages are only visible here.
-        info!(
-            completion = %completion,
-            at_budget = completion == CrawlCompletion::PageBudgetReached,
-            diagnostic_reason = ?diagnostics.diagnostic_reason,
-            total_crawled = state.total_crawled,
-            product_urls_count = state.products_found,
-            product_pattern_known = product_pattern.is_some(),
-            classification_done = state.classification_done,
-            pages_received = diagnostics.pages_received,
-            rejected_host = diagnostics.rejected_host,
-            rejected_blacklist = diagnostics.rejected_blacklist,
-            rejected_duplicate = diagnostics.rejected_duplicate,
-            robots_policy = ?diagnostics.robots_policy,
-            robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
-            robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
-            lagged = diagnostics.lagged,
-            initial_anti_bot = ?diagnostics.initial_anti_bot,
-            "{}",
-            crawl_outcome_message(completion)
-        );
+        log_crawl_outcome(&state, &diagnostics, product_pattern.as_deref());
 
         Ok(SpiderRunResult {
             total_links: state.total_crawled,
@@ -561,6 +541,35 @@ fn count_products(pages: &[CrawledPage], pattern: &ProductListingPattern) -> usi
             .filter(|page| page.url.matches_pattern(regex))
             .count()
     })
+}
+
+/// Coverage losses on a crawl that delivered pages are only visible here.
+fn log_crawl_outcome(
+    state: &CrawlRunState,
+    diagnostics: &CrawlDiagnostics,
+    product_pattern: Option<&str>,
+) {
+    let completion = diagnostics.completion;
+    info!(
+        completion = %completion,
+        at_budget = completion == CrawlCompletion::PageBudgetReached,
+        diagnostic_reason = ?diagnostics.diagnostic_reason,
+        total_crawled = state.total_crawled,
+        product_urls_count = state.products_found,
+        product_pattern_known = product_pattern.is_some(),
+        classification_done = state.classification_done,
+        pages_received = diagnostics.pages_received,
+        rejected_host = diagnostics.rejected_host,
+        rejected_blacklist = diagnostics.rejected_blacklist,
+        rejected_duplicate = diagnostics.rejected_duplicate,
+        robots_policy = ?diagnostics.robots_policy,
+        robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
+        robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
+        lagged = diagnostics.lagged,
+        initial_anti_bot = ?diagnostics.initial_anti_bot,
+        "{}",
+        crawl_outcome_message(completion)
+    );
 }
 
 fn crawl_outcome_message(completion: CrawlCompletion) -> &'static str {
