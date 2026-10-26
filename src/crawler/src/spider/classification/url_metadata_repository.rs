@@ -5,6 +5,7 @@ use crate::network::policy::{
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
+use crate::spider::utils::url::legacy_spelling_renames;
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::{FromRow, PgPool, Row};
@@ -204,6 +205,49 @@ impl UrlMetadataRepositoryImpl {
         Ok(())
     }
 
+    /// Moves rows stored under the earlier spelling of a rediscovered URL to the fetched spelling,
+    /// so the page keeps its row, scrape state and raw-capture identity instead of gaining a
+    /// second row. Only rows of this ListingSource domain move, and never onto a URL that already
+    /// has a row.
+    async fn adopt_legacy_spellings(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing_source_id: ListingSourceId,
+        domain_id: CrawlerDomainId,
+        urls: &[url::Url],
+    ) -> Result<(), UrlMetadataRepositoryError> {
+        let renames = legacy_spelling_renames(urls);
+        if renames.is_empty() {
+            return Ok(());
+        }
+        let (legacy, fetched): (Vec<String>, Vec<String>) = renames
+            .iter()
+            .map(|rename| (rename.legacy.to_string(), rename.fetched.to_string()))
+            .unzip();
+        let renamed = sqlx::query(
+            "UPDATE listing_source_urls AS stored SET url = input.fetched \
+             FROM UNNEST($3::text[], $4::text[]) AS input(legacy, fetched) \
+             WHERE stored.url = input.legacy \
+               AND stored.listing_source_id = $1 \
+               AND stored.domain_id = $2 \
+               AND NOT EXISTS (SELECT 1 FROM listing_source_urls existing WHERE existing.url = input.fetched)",
+        )
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(domain_id.as_uuid())
+        .bind(&legacy)
+        .bind(&fetched)
+        .execute(&mut **transaction)
+        .await
+        .map_err(database_error)?
+        .rows_affected();
+        if renamed > 0 {
+            tracing::info!(
+                renamed,
+                "Crawler URLs moved from their earlier spelling to the fetched spelling"
+            );
+        }
+        Ok(())
+    }
+
     fn verify_url_hosts(urls: &[url::Url], domain: &str) -> Result<(), UrlMetadataRepositoryError> {
         for url in urls {
             if url.fragment().is_some() {
@@ -249,6 +293,13 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             *listing_source_id,
             *domain_id,
             &urls,
+        )
+        .await?;
+        Self::adopt_legacy_spellings(
+            &mut transaction,
+            *listing_source_id,
+            *domain_id,
+            std::slice::from_ref(url),
         )
         .await?;
 
@@ -320,6 +371,8 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             &url_strings,
         )
         .await?;
+        Self::adopt_legacy_spellings(&mut transaction, *listing_source_id, *domain_id, urls)
+            .await?;
 
         let records = sqlx::query_as::<_, SpiderUrlRecord>(
             "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, raw_source_record_key, url_class, created, updated) \

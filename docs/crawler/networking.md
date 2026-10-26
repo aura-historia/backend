@@ -42,6 +42,12 @@ The scraper checks robots.txt per origin before every HTML request, redirect hop
 
 The spider reads robots.txt once per crawl, after the root preflight. A root robots.txt disallows fails the crawl as `RobotsBlocked`; an unreachable robots.txt fails it as `ServerError`. The Spider library's own robots handling is off, and its only pre-fetch veto is a regex deny list. So the rules reach it as deny-list patterns, which are exact for `Disallow` rules and for literal-prefix `Allow` exceptions; rules that do not compile into a deny list fail the crawl as `RobotsBlocked`. Other `Allow` exceptions are not carved out, so the spider may skip more than robots.txt asks, never less. When such an exception was written for a `Disallow` (its pattern extends the `Disallow`, as Shopify's `Allow: /*/account/login` does), the crawl diagnostics count the rule and `crawler.spider.robots_rules_failing_closed` names it.
 
+## Stored URLs
+
+The crawler stores a page under the URL it fetched, so the scraper requests and robots.txt judges the same URL the spider saw. The only changes are removals: the fragment, credentials, trailing slashes after a non-root path, `utm_*` parameters and a query left empty. Path and query keep their percent-encoding, hex case and parameter order byte for byte; `%20`, `+` and `%2B` stay distinct, as robots.txt rules such as Shopify's `Disallow: /collections/*+*` distinguish them.
+
+Rows stored while the crawler re-encoded queries (`%20` as `+`, sorted parameters, decoded path escapes) cannot be rewritten from the stored form alone, because `+` may have been fetched as `+` or `%20`. When the spider rediscovers such a page, its row moves to the fetched spelling and keeps its scrape state and raw-capture identity. The row stays put when the shop also links the old spelling itself or the fetched spelling already has a row; when several fetched spellings share one old spelling, the first in URL order takes the row.
+
 ## Resource rails
 
 Spider fetches use a bounded per-request timeout plus whole-crawl bounds: at most 500,000 pages and 10 minutes. [Scheduling](scheduling-and-retries.md#spider-crawl-completion) defines how a crawl stopped by either bound is recorded. Its response limit must be supplied through `SPIDER_MAX_SIZE_BYTES`; accepted values range from 1 MiB through 8 MiB, and the limit applies to declared and streamed response bodies.

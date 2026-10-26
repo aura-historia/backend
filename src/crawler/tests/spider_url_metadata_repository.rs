@@ -533,3 +533,143 @@ async fn should_accept_bare_and_www_domain_equivalence_but_reject_other_subdomai
         Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchDomain { .. })
     ));
 }
+
+async fn insert_scraped_url(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    domain_id: CrawlerDomainId,
+    url: &str,
+) {
+    sqlx::query(
+        "INSERT INTO listing_source_urls \
+         (listing_source_id, domain_id, url, raw_source_record_key, url_class, last_scraped, last_scraped_hash, last_source_listing_id) \
+         VALUES ($1, $2, $3, $3, 'product', NOW(), 'content-hash', 'sku-1')",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(domain_id.as_uuid())
+    .bind(url)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+type StoredRow = (String, String, Option<String>, Option<String>);
+
+async fn stored_rows(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) -> Vec<StoredRow> {
+    sqlx::query_as(
+        "SELECT url, raw_source_record_key, last_scraped_hash, last_source_listing_id \
+         FROM listing_source_urls WHERE listing_source_id = $1 ORDER BY url COLLATE \"C\"",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+fn scraped_row(url: &str, raw_source_record_key: &str) -> StoredRow {
+    (
+        url.to_owned(),
+        raw_source_record_key.to_owned(),
+        Some("content-hash".to_owned()),
+        Some("sku-1".to_owned()),
+    )
+}
+
+/// The spelling the crawler stored before it kept the fetched encoding, and the fetched one.
+const LEGACY_SPELLING: &str = "https://spelling.example.com/collections/vendors?q=A%2C+B";
+const FETCHED_SPELLING: &str = "https://spelling.example.com/collections/vendors?q=A%2C%20B";
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_move_row_stored_under_earlier_spelling_when_spider_rediscovers_fetched_url() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "spelling.example.com").await;
+    insert_scraped_url(&pool, listing_source_id, domain_id, LEGACY_SPELLING).await;
+    let fetched = Url::parse(FETCHED_SPELLING).unwrap();
+
+    let records = repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            std::slice::from_ref(&fetched),
+            &[UrlClass::Category],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].url, fetched);
+    assert_eq!(records[0].url_class, UrlClass::Category);
+    assert!(records[0].last_scraped.is_some());
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![scraped_row(FETCHED_SPELLING, LEGACY_SPELLING)]
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_row_under_earlier_spelling_when_shop_links_that_spelling_too() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "spelling.example.com").await;
+    insert_scraped_url(&pool, listing_source_id, domain_id, LEGACY_SPELLING).await;
+
+    repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[
+                Url::parse(FETCHED_SPELLING).unwrap(),
+                Url::parse(LEGACY_SPELLING).unwrap(),
+            ],
+            &[UrlClass::Category, UrlClass::Category],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![
+            (
+                FETCHED_SPELLING.to_owned(),
+                FETCHED_SPELLING.to_owned(),
+                None,
+                None,
+            ),
+            scraped_row(LEGACY_SPELLING, LEGACY_SPELLING),
+        ]
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_leave_row_under_earlier_spelling_when_fetched_url_already_has_a_row() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "spelling.example.com").await;
+    insert_scraped_url(&pool, listing_source_id, domain_id, LEGACY_SPELLING).await;
+    insert_scraped_url(&pool, listing_source_id, domain_id, FETCHED_SPELLING).await;
+
+    repository
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &Url::parse(FETCHED_SPELLING).unwrap(),
+            &UrlClass::Category,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![
+            scraped_row(FETCHED_SPELLING, FETCHED_SPELLING),
+            scraped_row(LEGACY_SPELLING, LEGACY_SPELLING),
+        ]
+    );
+}

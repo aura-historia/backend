@@ -1556,13 +1556,13 @@ mod tests {
         let request_log = site.finish().await;
 
         let expected = [
-            "http://example.com/single.asp?c=&id=113&offset=20",
+            "http://example.com/single.asp?c=&offset=20&id=113",
             "http://example.com/shop?currency=EUR&page=8",
             "http://example.com/index.php?category=26245&page=3",
             "http://example.com/literal?x=1&y=2",
             "http://example.com/encoded?q=a%26b",
             // Decoded once, as a browser does; the shop answers the same URL.
-            "http://example.com/double?amp;page=2&cat=5",
+            "http://example.com/double?cat=5&amp;page=2",
         ];
         for url in expected {
             assert!(discovered.contains(url), "missing {url} in {discovered:?}");
