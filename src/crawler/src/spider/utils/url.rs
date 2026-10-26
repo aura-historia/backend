@@ -1,7 +1,6 @@
 use listing_source_core::{Domain, InvalidDomain as NoDomainError};
 use regex::Regex;
 use spider::compact_str::CompactString;
-use url_normalize::Options;
 
 const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
     "cart",
@@ -29,31 +28,22 @@ const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
     "/attachments",
 ];
 
+/// A crawled page URL in the spelling the crawler stores: the URL as fetched, with only the
+/// removals `docs/crawler/networking.md#stored-urls` documents.
+/// The path and query keep their percent-encoding and parameter order byte for byte, so the
+/// stored URL is the one robots.txt was checked against and the one the scraper requests.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CrawledUrl(url::Url);
 
 impl CrawledUrl {
-    pub fn new(url: url::Url) -> Self {
-        let raw = url.as_str();
-
-        let options = Options {
-            strip_hash: true,
-            remove_trailing_slash: true,
-            remove_single_slash: false,
-            strip_www: false,
-            ..Default::default()
-        };
-
-        let normalized = match url_normalize::normalize_url(raw.trim(), &options) {
-            Ok(n) => n,
-            Err(_) => raw.trim().trim_end_matches('/').to_string(),
-        };
-
-        if let Ok(parsed) = url::Url::parse(&normalized) {
-            Self(parsed)
-        } else {
-            Self(url)
-        }
+    pub fn new(mut url: url::Url) -> Self {
+        url.set_fragment(None);
+        // Both only fail for URLs without a host, which carry no credentials.
+        let _ = url.set_username("");
+        let _ = url.set_password(None);
+        drop_trailing_slashes(&mut url);
+        drop_tracking_parameters(&mut url);
+        Self(url)
     }
 
     pub fn as_url(&self) -> &url::Url {
@@ -168,6 +158,44 @@ impl TryFrom<&str> for CrawledUrl {
     }
 }
 
+/// `/products/1/` and `/products/1` name one page; the root path keeps its slash.
+fn drop_trailing_slashes(url: &mut url::Url) {
+    let path = url.path();
+    if path.len() <= 1 || !path.ends_with('/') {
+        return;
+    }
+    let trimmed = path.trim_end_matches('/');
+    let trimmed = if trimmed.is_empty() { "/" } else { trimmed }.to_owned();
+    url.set_path(&trimmed);
+}
+
+/// Drops `utm_*` campaign parameters and keeps every other parameter exactly as fetched. A
+/// query left empty is dropped with its `?`.
+fn drop_tracking_parameters(url: &mut url::Url) {
+    let Some(query) = url.query() else {
+        return;
+    };
+    let kept = query
+        .split('&')
+        .filter(|pair| !is_tracking_parameter(pair))
+        .collect::<Vec<_>>()
+        .join("&");
+    if kept.is_empty() {
+        url.set_query(None);
+    } else if kept != query {
+        url.set_query(Some(&kept));
+    }
+}
+
+fn is_tracking_parameter(pair: &str) -> bool {
+    url::form_urlencoded::parse(pair.as_bytes())
+        .next()
+        .is_some_and(|(key, _)| {
+            key.get(..4)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("utm_"))
+        })
+}
+
 pub fn extract_crawl_root_domain(crawl_root_url: &str) -> Result<Domain, NoDomainError> {
     let parsed = url::Url::parse(crawl_root_url).map_err(|_| NoDomainError::new(crawl_root_url))?;
     let host = parsed
@@ -215,6 +243,94 @@ mod tests {
         let input = "https://www.example.com/";
         let normalized = normalize_for_test(input);
         assert_eq!(normalized, "https://www.example.com/");
+    }
+
+    #[test]
+    fn should_keep_query_encoding_as_fetched_when_value_holds_space_plus_or_encoded_plus() {
+        for fetched in [
+            "https://hickmet.com/collections/vendors?q=A%2C%20B",
+            "https://hickmet.com/collections/vendors?q=A%2C+B",
+            "https://hickmet.com/collections/vendors?q=A%2C%2BB",
+            "https://hickmet.com/collections/vendors?q=A%2c%2bB",
+            "https://example.com/search?q=caf%C3%A9&page=2",
+        ] {
+            assert_eq!(normalize_for_test(fetched), fetched);
+        }
+    }
+
+    #[test]
+    fn should_keep_parameter_order_and_empty_values_when_query_is_stored() {
+        let fetched = "https://example.com/index.php?id_product=12&controller=product&rewrite=";
+
+        assert_eq!(normalize_for_test(fetched), fetched);
+    }
+
+    #[test]
+    fn should_keep_path_encoding_as_fetched_when_path_holds_escapes() {
+        for fetched in [
+            "https://example.com/products/caf%c3%a9",
+            "https://example.com/products/100%25-wool",
+            "https://example.com/products/%7Efoo",
+            "https://example.com/a//b",
+        ] {
+            assert_eq!(normalize_for_test(fetched), fetched);
+        }
+    }
+
+    #[test]
+    fn should_drop_only_tracking_parameters_when_query_holds_utm_parameters() {
+        assert_eq!(
+            normalize_for_test(
+                "https://example.com/products/1?utm_source=mail&q=A%20B&UTM_Campaign=x"
+            ),
+            "https://example.com/products/1?q=A%20B"
+        );
+        assert_eq!(
+            normalize_for_test("https://example.com/products/1?utm_source=mail"),
+            "https://example.com/products/1"
+        );
+        assert_eq!(
+            normalize_for_test("https://example.com/products/1?"),
+            "https://example.com/products/1"
+        );
+    }
+
+    #[test]
+    fn should_drop_credentials_when_url_carries_them() {
+        assert_eq!(
+            normalize_for_test("https://user:secret@example.com/products/1"),
+            "https://example.com/products/1"
+        );
+    }
+
+    #[test]
+    fn should_keep_normalization_stable_when_stored_url_is_normalized_again() {
+        for fetched in [
+            "https://example.com/products/1/?q=A%20B#gallery",
+            "https://example.com/products/1?utm_source=x&b=2&a=1",
+            "https://example.com/products//",
+        ] {
+            let stored = normalize_for_test(fetched);
+            assert_eq!(normalize_for_test(&stored), stored, "{fetched}");
+        }
+    }
+
+    #[test]
+    fn should_store_url_robots_txt_allowed_when_rule_distinguishes_space_from_plus() {
+        // Shopify's default rules refuse literal and encoded `+` in collection URLs, not `%20`.
+        let rules = crate::network::robots::RobotsRules::parse(
+            "User-agent: *\nDisallow: /collections/*+*\nDisallow: /collections/*%2B*\n",
+        );
+        let space =
+            CrawledUrl::try_from("https://hickmet.com/collections/vendors?q=A%2C%20B").unwrap();
+        let plus =
+            CrawledUrl::try_from("https://hickmet.com/collections/vendors?q=A%2C+B").unwrap();
+        let encoded_plus =
+            CrawledUrl::try_from("https://hickmet.com/collections/vendors?q=A%2C%2BB").unwrap();
+
+        assert!(rules.allows(space.as_url()));
+        assert!(!rules.allows(plus.as_url()));
+        assert!(!rules.allows(encoded_plus.as_url()));
     }
 
     #[test]
