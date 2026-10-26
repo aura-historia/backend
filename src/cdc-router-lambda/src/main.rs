@@ -7,6 +7,7 @@ use aws_sdk_sqs::{Client, config::Region};
 use cdc_router_lambda::{
     cdc::{CdcFanout, WorkerQueueRegistry},
     kinesis,
+    kinesis_invocation::KinesisInvocation,
     queue::{CdcRouterQueueConfig, SqsQueue},
 };
 use futures_util::future::try_join_all;
@@ -36,20 +37,20 @@ async fn main() -> Result<(), Error> {
         component = "cdc-router-lambda",
         cold_start_duration_ms = initialization_started_at.elapsed().as_millis(),
     );
-    run(service_fn(
-        move |event: LambdaEvent<aws_lambda_events::kinesis::KinesisEvent>| {
-            let fanout = Arc::clone(&fanout);
-            async move {
-                info!(
-                    event = "lambda.invocation.started",
-                    component = "cdc-router-lambda",
-                    request_id = %event.context.request_id,
-                    remaining_budget_ms = kinesis::invocation_budget(&event.context).as_millis(),
-                );
-                kinesis::handler(event, fanout.as_ref()).await
-            }
-        },
-    ))
+    run(service_fn(move |event: LambdaEvent<KinesisInvocation>| {
+        let fanout = Arc::clone(&fanout);
+        async move {
+            let (payload, context) = event.into_parts();
+            let event = LambdaEvent::new(payload.into_event(), context);
+            info!(
+                event = "lambda.invocation.started",
+                component = "cdc-router-lambda",
+                request_id = %event.context.request_id,
+                remaining_budget_ms = kinesis::invocation_budget(&event.context).as_millis(),
+            );
+            kinesis::handler(event, fanout.as_ref()).await
+        }
+    }))
     .await
 }
 

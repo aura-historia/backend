@@ -14,6 +14,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::cdc::{CdcFanout, PUBLICATION_TIMEOUT};
+use crate::kinesis_invocation::KinesisInvocation;
 
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(30);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(5);
@@ -35,8 +36,9 @@ pub fn decode_failure_archive(body: &[u8]) -> Result<KinesisEvent, FailureArchiv
         serde_json::from_slice(body).map_err(|_| FailureArchiveDecodeError::Invalid)?;
     // Lambda's S3 on-failure destination stores the original invocation in `payload` as an
     // escaped JSON string, not as a nested `requestPayload` object.
-    let event: KinesisEvent =
-        serde_json::from_str(&archive.payload).map_err(|_| FailureArchiveDecodeError::Invalid)?;
+    let event = serde_json::from_str::<KinesisInvocation>(&archive.payload)
+        .map_err(|_| FailureArchiveDecodeError::Invalid)?
+        .into_event();
     if event.records.is_empty()
         || event
             .records
@@ -522,6 +524,9 @@ mod tests {
     #[test]
     fn archive_decoder_preserves_original_invocation_and_fails_closed() {
         let invocation = event(vec![record("100", DATA)]);
+        let mut payload = serde_json::to_value(invocation.payload).unwrap();
+        payload["Records"][0]["kinesis"]["approximateArrivalTimestamp"] =
+            serde_json::json!(1793011239.981);
         let archive = serde_json::json!({
             "version": "1.0",
             "timestamp": "2026-09-22T12:00:00Z",
@@ -533,10 +538,17 @@ mod tests {
             },
             "responseContext": {"statusCode": 200},
             "KinesisBatchInfo": {"shardId": "shardId-000000000000", "startSequenceNumber": "100", "endSequenceNumber": "100"},
-            "payload": serde_json::to_string(&invocation.payload).unwrap()
+            "payload": payload.to_string()
         });
         let recovered = decode_failure_archive(&serde_json::to_vec(&archive).unwrap()).unwrap();
         assert_eq!("100", recovered.records[0].kinesis.sequence_number);
+        assert_eq!(
+            1793011239981,
+            recovered.records[0]
+                .kinesis
+                .approximate_arrival_timestamp
+                .timestamp_millis()
+        );
         assert_eq!(
             DATA.as_bytes(),
             recovered.records[0].kinesis.data.as_slice()

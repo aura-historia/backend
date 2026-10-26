@@ -80,6 +80,10 @@ Never substitute plaintext, a raw-IP URL or disabled verification. CA refresh is
 a reviewed asset release. Per-process connection limits do not cap aggregate
 Lambda/ECS database usage. Inspect capacity before activating consumers.
 
+Production REST and MCP enable `PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED`
+for concurrent listing-search enrichment. Each process retains its existing PostgreSQL
+pool limit; other stages keep sequential enrichment.
+
 MCP has its own Lambda reserved concurrency: **2 dev / 5 prod**, with one PostgreSQL
 connection per process, independently configured from REST. This bounds active MCP
 invocations and adds a configured steady-state pool budget of 2/5 connections when

@@ -148,6 +148,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       OAUTH_ISSUER_URL: config.oauthIssuerUrl,
       MCP_ALLOWED_HOSTS: config.mcp.domainName, MCP_ALLOWED_ORIGINS: config.mcp.allowedOrigins.join(","),
       STAGE: stage,
+      PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED: String(stage === "prod"),
       OPENSEARCH_ENDPOINT_URL: config.opensearchEndpointUrl,
       OPENSEARCH_USERNAME: `{{resolve:ssm:/opensearch/${stage}/reader/username}}`,
       OPENSEARCH_PASSWORD: `{{resolve:ssm:/opensearch/${stage}/reader/password}}`,
@@ -160,6 +161,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(Object.keys(environment).sort()).toEqual([
       "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
       "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
+      "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
       "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT",
     ].sort());

@@ -31,3 +31,7 @@ tracing = { workspace = true }
 url = { workspace = true }
 user-core = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+# Match JSON features unified by the shared Lambda release build.
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
