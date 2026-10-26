@@ -2578,7 +2578,15 @@ paths:
 
         only `id`
 
-        - `product.deleted` captures a DELETE and requires only `id`
+        - `product.created` and `product.updated` with `type: variation` are authorized ignored events whatever their
+
+        status and require only `id`. A variation belongs to its parent product's listing; WooCommerce re-saves the
+
+        parent after a variation changes and delivers the parent's own `product.updated`, which refreshes that listing.
+
+        - `product.deleted` captures a DELETE for the delivered `id` and requires only `id`. WooCommerce sends only
+
+        `id` for a deleted variation as well, so deleting a variation never withdraws its parent's listing.
 
 
         The listing source identified by `listingSourceId` must have a WooCommerce ingestion configuration
@@ -2633,7 +2641,7 @@ paths:
         - name: x-wc-webhook-delivery-id
           in: header
           required: false
-          description: "Optional WooCommerce delivery identifier. For an event that maps to raw capture, its downstream provider receipt retains only a canonical semantic source-payload SHA-256 evidence digest for 90 days and deduplicates retries when applied. Reuse with different evidence fails during consumer capture, not as an immediate HTTP conflict. Logical receipt expiry permits a new receipt but never removes or rewrites a captured raw revision or its provenance. Authorized ignored create/update status events persist no receipt and receive no receipt-based retry-deduplication, even when this header is supplied. When absent, no provider receipt or receipt-based retry-deduplication guarantee is made."
+          description: "Optional WooCommerce delivery identifier. For an event that maps to raw capture, its downstream provider receipt retains only a canonical semantic source-payload SHA-256 evidence digest for 90 days and deduplicates retries when applied. Reuse with different evidence fails during consumer capture, not as an immediate HTTP conflict. Logical receipt expiry permits a new receipt but never removes or rewrites a captured raw revision or its provenance. Authorized ignored create/update events persist no receipt and receive no receipt-based retry-deduplication, even when this header is supplied. When absent, no provider receipt or receipt-based retry-deduplication guarantee is made."
           schema:
             type: string
             minLength: 1
@@ -2643,11 +2651,11 @@ paths:
         required: true
         description: "Topic-specific WooCommerce product payload.
 
-          Every topic requires `id`. For `product.created` and `product.updated`, `status: publish` captures an UPSERT and requires nonblank `name` and `permalink`; `status: trash`, `draft`, `pending`, or `private` captures a DELETE and requires only `id`. Missing or unsupported create/update statuses are authorized ignored events and require only `id`. `product.deleted` captures a DELETE and requires only `id`; its other fields are optional and ignored when absent.
+          Every topic requires `id`. For `product.created` and `product.updated`, `status: publish` captures an UPSERT and requires nonblank `name` and `permalink`; `status: trash`, `draft`, `pending`, or `private` captures a DELETE and requires only `id`. Missing or unsupported create/update statuses are authorized ignored events and require only `id`. A create/update payload with `type: variation` is an authorized ignored event whatever its status. `product.deleted` captures a DELETE for the delivered `id` and requires only `id`; its other fields are optional and ignored when absent.
 
           WooCommerce `description` and `short_description` are accepted but ignored on all topics. They do not populate Aura's canonical product description and are omitted from persisted `source_payload`; provider-receipt evidence digests use this sanitized payload. The webhook signature is still verified over the exact original request body bytes.
 
-          When present on an event that maps to raw capture, WooCommerce `date_modified_gmt` is the source ordering timestamp. It accepts a no-offset GMT value interpreted as UTC, RFC3339 `Z`, or RFC3339 `+00:00`; malformed or nonzero-offset values return `400 BAD_BODY_VALUE` before submission. Valid timestamps are checked for conflicts only during consumer capture. `product.created` and `product.updated` events with missing or unsupported status are ignored only after capability and source authorization, then acknowledge `204` without parsing `date_modified_gmt` or constructing a provider receipt; a denied ignored event returns `403 FORBIDDEN`. An authorized ignored event persists no provider receipt even if a delivery ID is supplied. Omit it when source order is unavailable; an omitted timestamp provides no source-ordering guarantee.
+          When present on an event that maps to raw capture, WooCommerce `date_modified_gmt` is the source ordering timestamp. It accepts a no-offset GMT value interpreted as UTC, RFC3339 `Z`, or RFC3339 `+00:00`; malformed or nonzero-offset values return `400 BAD_BODY_VALUE` before submission. Valid timestamps are checked for conflicts only during consumer capture. `product.created` and `product.updated` events with missing or unsupported status, or with `type: variation`, are ignored only after capability and source authorization, then acknowledge `204` without parsing `date_modified_gmt` or constructing a provider receipt; a denied ignored event returns `403 FORBIDDEN`. An authorized ignored event persists no provider receipt even if a delivery ID is supplied. Omit it when source order is unavailable; an omitted timestamp provides no source-ordering guarantee.
 
           "
         content:
@@ -2698,7 +2706,7 @@ paths:
       responses:
         "204":
           description:
-            "Webhook bearer/capability, source configuration, and exact-body signature are validated. Current partner/source grant authorization for mapped commands happens at consumer execution; ignored no-ops check it before response. A `204` acknowledges either an authorized ignored create/update status (no queue send or receipt) or matching confirmed acceptance of one `CAPTURE_RAW` command by the shared ProductListing FIFO. It does not confirm raw capture, provider receipt persistence, source-order checks, canonical normalization, or search visibility. Those decisions occur when the consumer executes the command. Ignored events do not parse `date_modified_gmt` or construct a provider receipt. When a delivery ID or source timestamp is omitted, no corresponding receipt or source-ordering guarantee is made. The backend returns no response body on success.
+            "Webhook bearer/capability, source configuration, and exact-body signature are validated. Current partner/source grant authorization for mapped commands happens at consumer execution; ignored no-ops check it before response. A `204` acknowledges either an authorized ignored create/update event (no queue send or receipt) or matching confirmed acceptance of one `CAPTURE_RAW` command by the shared ProductListing FIFO. It does not confirm raw capture, provider receipt persistence, source-order checks, canonical normalization, or search visibility. Those decisions occur when the consumer executes the command. Ignored events do not parse `date_modified_gmt` or construct a provider receipt. When a delivery ID or source timestamp is omitted, no corresponding receipt or source-ordering guarantee is made. The backend returns no response body on success.
 
             "
           headers:
@@ -23818,7 +23826,9 @@ components:
 
         `status: trash`, `draft`, `pending`, or `private` captures a DELETE and requires only `id`; missing or
 
-        unsupported status is authorized ignored input and also requires only `id`.
+        unsupported status is authorized ignored input and also requires only `id`. `type: variation` is
+
+        authorized ignored input whatever its status and requires only `id`.
 
         "
       required:
@@ -23830,6 +23840,21 @@ components:
           minimum: 0
           description: WooCommerce product identifier. It is converted to the internal `sourceListingId`.
           example: 17
+        type:
+          type: string
+          nullable: true
+          description: "Optional WooCommerce product type.
+
+            `variation` marks a variation of its parent product. Aura lists the parent product only, so a variation
+
+            event is authorized ignored input whatever its status and requires only `id`; the parent's own
+
+            `product.updated`, which WooCommerce sends after a variation changes, refreshes the parent's listing.
+
+            Other or missing types follow `status`.
+
+            "
+          example: simple
         name:
           type: string
           description: "Nonblank product title required only when `status: publish` captures an UPSERT."
@@ -23913,7 +23938,9 @@ components:
 
         Only `id` is required. If `name` or `permalink` are provided they may still be used by the backend,
 
-        but the event remains valid with just the product ID.
+        but the event remains valid with just the product ID. WooCommerce sends only `id` for a deleted
+
+        variation as well; that DELETE targets the variation's ID and never withdraws its parent's listing.
 
         "
       required:

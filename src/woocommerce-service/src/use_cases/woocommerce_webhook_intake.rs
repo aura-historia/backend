@@ -370,6 +370,8 @@ struct WoocommerceRawObservation {
 #[derive(Debug, Deserialize)]
 struct WoocommerceProductPayload {
     id: u64,
+    #[serde(default, rename = "type")]
+    product_type: Option<String>,
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
@@ -384,6 +386,12 @@ struct WoocommerceProductPayload {
     date_modified_gmt: Option<String>,
     #[serde(default)]
     images: Vec<WoocommerceImagePayload>,
+}
+
+impl WoocommerceProductPayload {
+    fn is_variation(&self) -> bool {
+        self.product_type.as_deref() == Some("variation")
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -446,12 +454,18 @@ impl WoocommerceProductEventKind {
     }
 
     /// Returns the raw operation a delivery captures, or `None` for an ignored delivery.
+    ///
+    /// A variation is part of its parent product's listing, never a listing of its own. After a
+    /// variation is saved or deleted, WooCommerce re-saves the variable parent and delivers the
+    /// parent's own `product.updated`, which refreshes that listing. Native deletions carry only
+    /// `id`, so a deleted variation targets its own record key and never the parent's.
     fn capture_operation(
         self,
         product: &WoocommerceProductPayload,
     ) -> Option<RawProductListingOperation> {
         match self {
             Self::Delete => Some(RawProductListingOperation::Delete),
+            Self::Create | Self::Update if product.is_variation() => None,
             Self::Create | Self::Update => match product.status.as_deref() {
                 Some("publish") => Some(RawProductListingOperation::Upsert),
                 Some("trash" | "draft" | "pending" | "private") => {
@@ -867,6 +881,21 @@ mod tests {
             "stock_status": stock_status,
             "images": [{"src": "https://images.example/cabinet.jpg"}],
             "futureWooKey": {"nested": true}
+        })
+    }
+
+    /// Native REST shape of a variation: the parent's title and permalink with its own price.
+    fn variation_of_parent_120(status: Option<&str>) -> Value {
+        json!({
+            "id": 122,
+            "type": "variation",
+            "parent_id": 120,
+            "name": "Cabinet",
+            "permalink": "https://partner.example/products/cabinet",
+            "price": "35.00",
+            "status": status,
+            "stock_status": "instock",
+            "images": []
         })
     }
 
@@ -1666,6 +1695,55 @@ mod tests {
                 Ok(None)
             ));
         }
+    }
+
+    #[test]
+    fn should_ignore_variation_create_and_update_whatever_their_status() {
+        for kind in [
+            WoocommerceProductEventKind::Create,
+            WoocommerceProductEventKind::Update,
+        ] {
+            for status in [Some("publish"), Some("private"), Some("trash"), None] {
+                assert!(
+                    matches!(
+                        kind.raw_observation(&source(), variation_of_parent_120(status)),
+                        Ok(None)
+                    ),
+                    "expected {kind:?} with status {status:?} to be ignored"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn should_capture_non_variation_product_types_by_status() {
+        for product_type in ["simple", "variable"] {
+            let mut payload = published_product(Some("instock"));
+            payload["type"] = json!(product_type);
+            let observation = WoocommerceProductEventKind::Update
+                .raw_observation(&source(), payload)
+                .unwrap_or_else(|error| panic!("mapping failed: {error}"))
+                .unwrap_or_else(|| panic!("published {product_type} product must capture"));
+            assert_eq!("42", observation.source_record_key);
+            assert_eq!(
+                RawProductListingOperation::Upsert,
+                observation.input.operation()
+            );
+        }
+    }
+
+    #[test]
+    fn should_capture_variation_delete_for_the_variation_id_not_its_parent() {
+        let observation = WoocommerceProductEventKind::Delete
+            .raw_observation(&source(), variation_of_parent_120(Some("publish")))
+            .unwrap_or_else(|error| panic!("mapping failed: {error}"))
+            .unwrap_or_else(|| panic!("delete must capture"));
+
+        assert_eq!("122", observation.source_record_key);
+        assert_eq!(
+            RawProductListingOperation::Delete,
+            observation.input.operation()
+        );
     }
 
     #[test]
