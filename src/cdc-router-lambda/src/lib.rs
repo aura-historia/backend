@@ -1,6 +1,7 @@
 //! Non-VPC DMS/Kinesis router. The legacy Sequin worker is not a dependency.
 pub mod cdc;
 pub mod kinesis;
+pub mod kinesis_invocation;
 pub mod queue;
 mod queue_config;
 
