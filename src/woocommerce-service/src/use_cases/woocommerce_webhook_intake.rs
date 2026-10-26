@@ -416,17 +416,7 @@ impl WoocommerceProductEventKind {
             .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
         let product = serde_json::from_value::<WoocommerceProductPayload>(sanitized_payload)
             .map_err(WoocommerceWebhookIntakeError::MalformedPayload)?;
-        let operation = match self {
-            Self::Delete => Some(RawProductListingOperation::Delete),
-            Self::Create | Self::Update => match product.status.as_deref() {
-                Some("publish") => Some(RawProductListingOperation::Upsert),
-                Some("trash" | "draft" | "pending" | "private") => {
-                    Some(RawProductListingOperation::Delete)
-                }
-                Some(_) | None => None,
-            },
-        };
-        let Some(operation) = operation else {
+        let Some(operation) = self.capture_operation(&product) else {
             return Ok(None);
         };
         let source_occurred_at = parse_source_occurred_at(product.date_modified_gmt.as_deref())?;
@@ -453,6 +443,23 @@ impl WoocommerceProductEventKind {
             input,
             source_occurred_at,
         }))
+    }
+
+    /// Returns the raw operation a delivery captures, or `None` for an ignored delivery.
+    fn capture_operation(
+        self,
+        product: &WoocommerceProductPayload,
+    ) -> Option<RawProductListingOperation> {
+        match self {
+            Self::Delete => Some(RawProductListingOperation::Delete),
+            Self::Create | Self::Update => match product.status.as_deref() {
+                Some("publish") => Some(RawProductListingOperation::Upsert),
+                Some("trash" | "draft" | "pending" | "private") => {
+                    Some(RawProductListingOperation::Delete)
+                }
+                Some(_) | None => None,
+            },
+        }
     }
 }
 
