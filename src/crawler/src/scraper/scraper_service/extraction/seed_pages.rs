@@ -4,7 +4,7 @@ use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, Scraper
 use crate::scraper::scraper_service::domain::product::{
     FetchFailureSource, ScrapeMode, record_transport_failure,
 };
-use crate::scraper::scraper_service::html_fetcher::FetchError;
+use crate::scraper::scraper_service::html_fetcher::{DomainFetchStats, FetchError};
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
@@ -110,6 +110,9 @@ impl ScraperServiceImpl {
                                 .expected_last_captured_raw_input_sha256
                                 .as_deref(),
                             &err,
+                            sample_url
+                                .host_str()
+                                .and_then(|domain| self.domain_fetch_stats_for(domain, err.kind())),
                         );
                         return Err(error);
                     }
@@ -138,6 +141,7 @@ fn record_fetch_transport_error(
     url: &Url,
     expected_last_captured_raw_input_sha256: Option<&[u8]>,
     error: &FetchError,
+    fetch_stats: Option<DomainFetchStats>,
 ) {
     record_transport_failure(
         url,
@@ -146,6 +150,7 @@ fn record_fetch_transport_error(
         error.kind(),
         error.status(),
         error.retry_after(),
+        fetch_stats,
     );
 }
 

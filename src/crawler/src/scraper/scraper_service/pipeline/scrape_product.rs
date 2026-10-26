@@ -324,6 +324,7 @@ impl ScraperServiceImpl {
                     NetworkErrorKind::RobotsDisallowed,
                     None,
                     None,
+                    None,
                 );
                 record_transport_success();
                 return Err(ScraperError::HttpError {
@@ -350,6 +351,7 @@ impl ScraperServiceImpl {
                     NetworkErrorKind::HttpStatus(status),
                     Some(status),
                     None,
+                    None,
                 );
                 return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
@@ -364,6 +366,7 @@ impl ScraperServiceImpl {
                     kind,
                     None,
                     None,
+                    self.domain_fetch_stats_for(domain, kind),
                 );
                 return Err(ScraperError::HttpError {
                     url: url.clone(),
@@ -384,6 +387,7 @@ impl ScraperServiceImpl {
                     kind,
                     status,
                     retry_after,
+                    self.domain_fetch_stats_for(domain, kind),
                 );
                 return Err(ScraperError::HttpErrorWithMetadata(Box::new(
                     HttpErrorMetadata {

@@ -1,4 +1,5 @@
 use crate::authoring::CrawlerAuthoringMode;
+use crate::network::policy::{NetworkErrorKind, domain_failure_kind};
 use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
 use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::candidate_service::ScraperCandidateService;
@@ -8,7 +9,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     NullRemovedPageSchemaRepository, RemovedPageSchemaRepository,
 };
 use crate::scraper::scraper_service::extraction::schema_review_gate::review_error_to_schema_service_error;
-use crate::scraper::scraper_service::html_fetcher::HtmlFetcher;
+use crate::scraper::scraper_service::html_fetcher::{DomainFetchStats, HtmlFetcher};
 use crate::scraper::scraper_service::image_validation::{ImageValidator, ReqwestImageValidator};
 use std::sync::Arc;
 
@@ -134,5 +135,19 @@ impl ScraperServiceImpl {
             .join_pending_schema_review(listing_source_id, url, html)
             .await
             .map_err(review_error_to_schema_service_error)
+    }
+
+    /// The fetcher's view of `domain` for a failure of `kind`, attached only
+    /// to failures that may open the domain circuit so its event can report
+    /// how fast the shop was answering.
+    pub(crate) fn domain_fetch_stats_for(
+        &self,
+        domain: &str,
+        kind: NetworkErrorKind,
+    ) -> Option<DomainFetchStats> {
+        domain_failure_kind(kind)
+            .is_some()
+            .then(|| self.html_fetcher.domain_fetch_stats(domain))
+            .flatten()
     }
 }

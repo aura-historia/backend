@@ -11,6 +11,7 @@ fn service_for_primary_failure(error: FetchError) -> ScraperServiceImpl {
         let error = error.clone();
         Box::pin(async move { Err(error) })
     });
+    fetcher.expect_domain_fetch_stats().returning(|_| None);
 
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),

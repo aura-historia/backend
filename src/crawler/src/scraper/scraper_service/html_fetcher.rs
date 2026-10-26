@@ -1,8 +1,8 @@
 #[cfg(test)]
 use crate::network::policy::crawler_client_builder;
 use crate::network::policy::{
-    CrawlerClientError, NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy,
-    action_for, classify_reqwest_error, error_with_sources, inline_retry_backoff_for,
+    CrawlerClientError, NetworkAction, NetworkErrorKind, PublicTargetError, RequestTimeouts,
+    RetryPolicy, action_for, classify_reqwest_error, error_with_sources, inline_retry_backoff_for,
     is_same_or_www_host, network_error_kind_for_public_target_error, parse_retry_after,
     public_http_client, redirect_target,
 };
@@ -21,9 +21,17 @@ use url::Url;
 mod robots;
 mod trailing_slash;
 
-/// Maximum time for one fetch attempt, including redirects and body read.
+/// Maximum time for one fetch attempt, including redirects and body read,
+/// on a domain whose latency is unknown or low.
 const HTML_FETCH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
-/// Maximum time for one complete fetch, including retry backoff and all attempts.
+/// Upper bound of the attempt timeout once it has grown with the domain's
+/// smoothed latency.
+const HTML_FETCH_ATTEMPT_TIMEOUT_MAX: Duration = Duration::from_secs(45);
+/// Multiple of the domain's smoothed response latency an attempt may take
+/// before it is a timeout.
+const ADAPTIVE_ATTEMPT_TIMEOUT_LATENCY_FACTOR: u32 = 10;
+/// Maximum time for one complete fetch, including retry backoff and all
+/// attempts; grows by the same amount as the attempt timeout.
 const HTML_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(20);
 const HTML_MAX_REDIRECTS: usize = 5;
 const HTML_MAX_BYTES: usize = 2 * 1024 * 1024;
@@ -38,6 +46,13 @@ const HTML_MAX_BYTES: usize = 2 * 1024 * 1024;
 #[mockall::automock]
 pub trait HtmlFetcher: Send + Sync {
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError>;
+
+    /// What the fetcher knows about a domain's responsiveness, for the
+    /// diagnostics of a failure that may open the domain circuit. `None`
+    /// before the fetcher has a response from the domain.
+    fn domain_fetch_stats(&self, _domain: &str) -> Option<DomainFetchStats> {
+        None
+    }
 }
 
 /// Lets one fetcher, with its robots.txt cache and per-domain pacing, serve
@@ -47,6 +62,36 @@ impl<T: HtmlFetcher + ?Sized> HtmlFetcher for Arc<T> {
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
         (**self).fetch(url).await
     }
+
+    fn domain_fetch_stats(&self, domain: &str) -> Option<DomainFetchStats> {
+        (**self).domain_fetch_stats(domain)
+    }
+}
+
+/// A domain's smoothed response latency, the responses behind it and the
+/// attempt timeout that latency currently earns it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DomainFetchStats {
+    pub smoothed_latency: Duration,
+    pub latency_samples: u64,
+    pub attempt_timeout: Duration,
+}
+
+/// The network-time budgets of one fetch on a domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FetchBudget {
+    attempt: Duration,
+    total: Duration,
+}
+
+/// The attempt timeout a domain's smoothed latency earns: `base` until the
+/// latency's multiple exceeds it, then that multiple up to `max`.
+fn adaptive_attempt_timeout(base: Duration, max: Duration, latency: Option<Duration>) -> Duration {
+    latency.map_or(base, |latency| {
+        latency
+            .saturating_mul(ADAPTIVE_ATTEMPT_TIMEOUT_LATENCY_FACTOR)
+            .clamp(base, max.max(base))
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +169,7 @@ pub struct ReqwestHtmlFetcher {
     default_headers: reqwest::header::HeaderMap,
     retry_policy: RetryPolicy,
     attempt_timeout: Duration,
+    attempt_timeout_max: Duration,
     total_timeout: Duration,
     auto_throttle: ScraperAutoThrottle,
     robots: RobotsCache,
@@ -263,6 +309,7 @@ impl ReqwestHtmlFetcher {
             default_headers,
             retry_policy,
             attempt_timeout: HTML_FETCH_ATTEMPT_TIMEOUT,
+            attempt_timeout_max: HTML_FETCH_ATTEMPT_TIMEOUT_MAX,
             total_timeout: HTML_FETCH_TOTAL_TIMEOUT,
             auto_throttle: ScraperAutoThrottle::new(auto_throttle_config),
             robots: RobotsCache::default(),
@@ -306,6 +353,23 @@ impl ReqwestHtmlFetcher {
         delay
     }
 
+    /// The budgets `url`'s domain earns: the configured ones, with the attempt
+    /// grown to a multiple of the domain's smoothed latency within bounds and
+    /// the whole fetch grown by the same amount, so a shop that answers slowly
+    /// throughout is waited for rather than timed out.
+    fn fetch_budget(&self, url: &Url) -> FetchBudget {
+        let latency = url
+            .host_str()
+            .and_then(|domain| self.auto_throttle.latency(domain))
+            .map(|latency| latency.smoothed);
+        let attempt =
+            adaptive_attempt_timeout(self.attempt_timeout, self.attempt_timeout_max, latency);
+        FetchBudget {
+            attempt,
+            total: self.total_timeout + attempt.saturating_sub(self.attempt_timeout),
+        }
+    }
+
     /// One fetch attempt: the URL and each redirect hop are admitted by
     /// robots.txt, paced and requested in turn. Loading robots.txt and the
     /// requests count against the attempt and total budgets; every pacing
@@ -316,7 +380,8 @@ impl ReqwestHtmlFetcher {
         url: &Url,
         deadline: &mut tokio::time::Instant,
     ) -> Result<FetchedHtml, AttemptError> {
-        let mut attempt_deadline = tokio::time::Instant::now() + self.attempt_timeout;
+        let attempt_timeout = self.fetch_budget(url).attempt;
+        let mut attempt_deadline = tokio::time::Instant::now() + attempt_timeout;
         let mut current_url = url.clone();
         for redirect_count in 0..=HTML_MAX_REDIRECTS {
             let limit = AttemptLimit::new(attempt_deadline, *deadline);
@@ -329,7 +394,10 @@ impl ReqwestHtmlFetcher {
             *deadline += waited;
             attempt_deadline += waited;
             let limit = AttemptLimit::new(attempt_deadline, *deadline);
-            let next_url = match limit.request(self.request_once(&current_url)).await? {
+            let next_url = match limit
+                .request(self.request_once(&current_url, attempt_timeout))
+                .await?
+            {
                 Hop::Page(page) => return Ok(page),
                 Hop::Redirect(next_url) => next_url,
             };
@@ -368,10 +436,14 @@ impl ReqwestHtmlFetcher {
     }
 
     /// Sends one request and reads the page, or the redirect target to follow.
-    async fn request_once(&self, url: &Url) -> Result<Hop, AttemptError> {
+    async fn request_once(
+        &self,
+        url: &Url,
+        attempt_timeout: Duration,
+    ) -> Result<Hop, AttemptError> {
         let domain = url.host_str();
         let started = Instant::now();
-        let client = self.http_client_for(url).await?;
+        let client = self.http_client_for(url, attempt_timeout).await?;
         let response = client
             .get(url.clone())
             .headers(self.default_headers.clone())
@@ -394,15 +466,26 @@ impl ReqwestHtmlFetcher {
         Ok(Hop::Page(FetchedHtml::new(html, final_url, status)))
     }
 
-    async fn http_client_for(&self, url: &Url) -> Result<reqwest::Client, FetchAttemptError> {
+    /// A client whose request timeout is the domain's attempt timeout while
+    /// DNS and connect keep the base timeout: a slow host answers slowly, it
+    /// does not connect slowly.
+    async fn http_client_for(
+        &self,
+        url: &Url,
+        attempt_timeout: Duration,
+    ) -> Result<reqwest::Client, FetchAttemptError> {
+        let timeouts = RequestTimeouts {
+            connect: self.attempt_timeout,
+            request: attempt_timeout,
+        };
         #[cfg(test)]
         if self.allow_private_targets_for_test {
-            return crawler_client_builder(self.attempt_timeout)
+            return crawler_client_builder(timeouts)
                 .map_err(client_fetch_error)?
                 .build()
                 .map_err(reqwest_fetch_error);
         }
-        public_http_client(url, self.attempt_timeout)
+        public_http_client(url, timeouts)
             .await
             .map_err(client_fetch_error)
     }
@@ -430,6 +513,8 @@ impl ReqwestHtmlFetcher {
         let mut fetcher =
             Self::with_retry_policy_and_auto_throttle_config(retry_policy, auto_throttle_config);
         fetcher.attempt_timeout = attempt_timeout;
+        // Timing tests set exact budgets; latency growth is tested on its own.
+        fetcher.attempt_timeout_max = attempt_timeout;
         fetcher.total_timeout = total_timeout;
         fetcher.allow_private_targets_for_test = true;
         fetcher
@@ -628,7 +713,7 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
     /// that redirects to trailing-slash paths the slashed form is requested
     /// first, within the same budget.
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
-        let mut deadline = tokio::time::Instant::now() + self.total_timeout;
+        let mut deadline = tokio::time::Instant::now() + self.fetch_budget(url).total;
         if let Some(slashed) = self.trailing_slash.preferred_form(url) {
             match self.fetch_within(&slashed, &mut deadline).await {
                 Err(error) if needs_stored_form(&error) => {
@@ -642,6 +727,19 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
             }
         }
         self.fetch_within(url, &mut deadline).await
+    }
+
+    fn domain_fetch_stats(&self, domain: &str) -> Option<DomainFetchStats> {
+        let latency = self.auto_throttle.latency(domain)?;
+        Some(DomainFetchStats {
+            smoothed_latency: latency.smoothed,
+            latency_samples: latency.samples,
+            attempt_timeout: adaptive_attempt_timeout(
+                self.attempt_timeout,
+                self.attempt_timeout_max,
+                Some(latency.smoothed),
+            ),
+        })
     }
 }
 
@@ -920,6 +1018,68 @@ mod tests {
 
         assert_eq!(fetched.html, "<html>ok</html>");
         assert_eq!(fetched.final_url, url);
+    }
+
+    #[test]
+    fn adaptive_attempt_timeout_should_grow_with_latency_within_bounds() {
+        let base = Duration::from_secs(15);
+        let max = Duration::from_secs(45);
+
+        assert_eq!(super::adaptive_attempt_timeout(base, max, None), base);
+        assert_eq!(
+            super::adaptive_attempt_timeout(base, max, Some(Duration::from_millis(300))),
+            base,
+            "a fast shop keeps the base timeout"
+        );
+        assert_eq!(
+            super::adaptive_attempt_timeout(base, max, Some(Duration::from_millis(2_200))),
+            Duration::from_secs(22)
+        );
+        assert_eq!(
+            super::adaptive_attempt_timeout(base, max, Some(Duration::from_secs(9))),
+            max
+        );
+    }
+
+    /// A shop that answers slowly throughout earns a longer attempt timeout
+    /// from its smoothed latency instead of timing out at the base.
+    #[tokio::test]
+    async fn should_extend_the_attempt_timeout_for_a_slow_domain() {
+        let fast = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![OK_PAGE],
+            Duration::from_millis(30),
+        )
+        .await;
+        let slow = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![OK_PAGE],
+            Duration::from_millis(150),
+        )
+        .await;
+        let mut fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(100),
+            Duration::from_millis(200),
+        );
+        fetcher.attempt_timeout_max = Duration::from_secs(2);
+
+        // Both shops share the loopback domain, so the first response sets
+        // the latency the second fetch is budgeted by.
+        fetcher.fetch(&fast.url).await.unwrap();
+        let stats = fetcher
+            .domain_fetch_stats(fast.url.host_str().unwrap())
+            .expect("one response gives the domain a latency");
+        assert_eq!(stats.latency_samples, 1);
+        assert!(
+            stats.attempt_timeout >= Duration::from_millis(300),
+            "{stats:?}"
+        );
+        assert!(stats.attempt_timeout <= Duration::from_secs(2), "{stats:?}");
+
+        let fetched = fetcher.fetch(&slow.url).await.unwrap();
+        assert_eq!(fetched.html, "<html>ok</html>");
     }
 
     #[tokio::test]
