@@ -42,6 +42,12 @@ The scraper checks robots.txt per origin before every HTML request, redirect hop
 
 The spider reads robots.txt once per crawl, after the root preflight. A root robots.txt disallows fails the crawl as `RobotsBlocked`; an unreachable robots.txt fails it as `ServerError`. The Spider library's own robots handling is off, and its only pre-fetch veto is a regex deny list. So the rules reach it as deny-list patterns, which are exact for `Disallow` rules and for literal-prefix `Allow` exceptions; rules that do not compile into a deny list fail the crawl as `RobotsBlocked`. Other `Allow` exceptions are not carved out, so the spider may skip more than robots.txt asks, never less. When such an exception was written for a `Disallow` (its pattern extends the `Disallow`, as Shopify's `Allow: /*/account/login` does), the crawl diagnostics count the rule and `crawler.spider.robots_rules_failing_closed` names it.
 
+## Rate-limit answers
+
+A shop that answers a spider page with 429, or with 503, after Spider's own retries has asked for less traffic, so the spider stops the crawl instead of pacing it down. The pages delivered before that answer are kept, the crawl diagnostics record the answer with the shop's `Retry-After`, and the crawl ends as a truncated crawl ([scheduling](scheduling-and-retries.md#spider-crawl-completion)); with at most one usable page it fails as `RateLimited`. A 429 limits the client, not the page, so Spider does not retry it; a 503 keeps Spider's bounded retries. Spider's own reading of a refused root (a vendor block, a JavaScript challenge) keeps precedence over the rate-limit signal.
+
+The crawl diagnostics also count every delivered page by the status class of its final answer (2xx, 3xx, 4xx other than 429, 429, 5xx), so a crawl that was refused or throttled part-way no longer looks complete.
+
 ## Resource rails
 
 Spider fetches use a bounded per-request timeout plus whole-crawl bounds: at most 500,000 pages and 10 minutes. [Scheduling](scheduling-and-retries.md#spider-crawl-completion) defines how a crawl stopped by either bound is recorded. Its response limit must be supplied through `SPIDER_MAX_SIZE_BYTES`; accepted values range from 1 MiB through 8 MiB, and the limit applies to declared and streamed response bodies.

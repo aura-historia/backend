@@ -8616,6 +8616,7 @@ dependencies = [
  "dashmap",
  "h2 0.4.16",
  "hashbrown 0.17.1",
+ "httpdate",
  "lazy_static",
  "libc",
  "log",

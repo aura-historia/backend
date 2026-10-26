@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 use url::Url;
 
 use crate::network::CRAWLER_USER_AGENT;
@@ -23,6 +23,7 @@ use crate::network::policy::{
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
+use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::robots::admit_crawl;
 use crate::spider::utils::url::CrawledUrl;
 
@@ -137,8 +138,10 @@ pub enum CrawlCompletion {
     Completed,
     /// The configured page budget bounded discovery on purpose.
     PageBudgetReached,
-    /// The whole-crawl wall-clock budget cut discovery short; the pages
-    /// delivered before it are valid but the crawl is incomplete.
+    /// Discovery was cut short before its bounds: the whole-crawl wall-clock
+    /// budget ran out, or the spider stopped on a rate-limit answer
+    /// (`CrawlDiagnostics::rate_limit`). The pages delivered before it are
+    /// valid but the crawl is incomplete.
     HardTimeoutTruncated,
 }
 
@@ -218,6 +221,11 @@ pub struct CrawlDiagnostics {
     pub robots_rules_failing_closed: usize,
     /// Pages dropped because the local filter fell behind Spider's broadcast.
     pub lagged: u64,
+    /// Delivered pages by the status class of their final answer.
+    pub status_counts: StatusCounts,
+    /// The rate-limit answer that stopped the crawl, with the shop's
+    /// `Retry-After`; the pages delivered before it were kept.
+    pub rate_limit: Option<RateLimitSignal>,
 }
 
 impl CrawlDiagnostics {
@@ -677,19 +685,21 @@ async fn follow_crawl_root(
     ))
 }
 
-/// Bounded Spider retries that never re-fetch a body the transport ceiling
-/// already truncated: the retry would truncate again.
-struct TruncationAwareRetry {
+/// Bounded Spider retries that never re-fetch what a retry cannot improve: a
+/// body the transport ceiling already truncated would truncate again, and a
+/// 429 limits the client, not the page, so the crawl reacts to it instead
+/// (see `RateLimitSignal`).
+struct PageRetryStrategy {
     max_retries: u32,
 }
 
-impl RetryStrategy for TruncationAwareRetry {
+impl RetryStrategy for PageRetryStrategy {
     fn max_retries(&self) -> u32 {
         self.max_retries
     }
 
     fn on_retry(&self, outcome: &AttemptOutcome) -> RetryDirective {
-        if outcome.content_truncated {
+        if outcome.content_truncated || outcome.status_code.as_u16() == 429 {
             RetryDirective::stop()
         } else {
             RetryDirective::default()
@@ -715,25 +725,42 @@ struct CrawlBounds {
     max_pages_per_crawl: u32,
 }
 
-/// Runs Spider to its end and snapshots what the library learned about the
-/// site. Spider's broadcast closes with the unsubscribe, which ends the filter
-/// task's page loop.
+/// Runs Spider to its end, or until the filter task asks it to stop, and
+/// snapshots what the library learned about the site. Spider's broadcast
+/// closes with the unsubscribe, which ends the filter task's page loop.
+///
+/// A stop drops the crawl future, which aborts Spider's in-flight page
+/// fetches; the pages they already broadcast still reach the filter task.
 async fn run_library_crawl(
     mut website: Website,
     link_decoder: FoundLinkDecoder,
     bounds: CrawlBounds,
+    stop: Arc<Notify>,
 ) -> LibraryOutcome {
     let started = tokio::time::Instant::now();
     website.with_on_link_find_callback(Some(Arc::new(move |link, html| {
         (link_decoder.decode(link), html)
     })));
-    website.crawl().await;
-    let completion = crawl_completion(
-        started.elapsed(),
-        bounds.max_crawl_duration,
-        website.size(),
-        bounds.max_pages_per_crawl,
-    );
+    let stopped = {
+        let crawl = website.crawl();
+        let stop = stop.notified();
+        tokio::pin!(crawl, stop);
+        tokio::select! {
+            biased;
+            () = &mut crawl => false,
+            () = &mut stop => true,
+        }
+    };
+    let completion = if stopped {
+        CrawlCompletion::HardTimeoutTruncated
+    } else {
+        crawl_completion(
+            started.elapsed(),
+            bounds.max_crawl_duration,
+            website.size(),
+            bounds.max_pages_per_crawl,
+        )
+    };
     let outcome = library_outcome(&website, completion);
     website.unsubscribe();
     outcome
@@ -928,7 +955,7 @@ impl SpiderImpl {
             .with_limit(self.config.max_pages_per_crawl)
             .with_delay(delay_millis)
             .with_caching(false)
-            .with_retry_strategy(Arc::new(TruncationAwareRetry {
+            .with_retry_strategy(Arc::new(PageRetryStrategy {
                 max_retries: u32::from(self.config.retry_count),
             }))
             .build()
@@ -945,8 +972,10 @@ impl SpiderImpl {
             max_crawl_duration: self.config.max_crawl_duration,
             max_pages_per_crawl: self.config.max_pages_per_crawl,
         };
+        let stop_crawl = Arc::new(Notify::new());
+        let crawl_stop = Arc::clone(&stop_crawl);
         tokio::spawn(async move {
-            let outcome = run_library_crawl(website, link_decoder, bounds).await;
+            let outcome = run_library_crawl(website, link_decoder, bounds, crawl_stop).await;
             let _ = outcome_tx.send(outcome);
         });
 
@@ -1004,13 +1033,15 @@ impl SpiderImpl {
                     },
                 };
                 diagnostics.pages_received += 1;
+                let status_code = page.status_code.as_u16();
+                diagnostics.status_counts.count(status_code);
 
                 if !first_page_seen {
                     apply_library_page(
                         &mut diagnostics,
                         &crawl_root_url,
                         page.get_url(),
-                        page.status_code.as_u16(),
+                        status_code,
                         page.final_redirect_destination.as_deref(),
                         page.anti_bot_tech,
                     );
@@ -1019,6 +1050,14 @@ impl SpiderImpl {
                         Some(CrawlFailureKind::RedirectProblem)
                     );
                     first_page_seen = true;
+                }
+
+                if diagnostics.rate_limit.is_none()
+                    && let Some(signal) =
+                        RateLimitSignal::from_page(status_code, page.headers.as_ref())
+                {
+                    apply_rate_limit_signal(&mut diagnostics, signal);
+                    stop_crawl.notify_one();
                 }
 
                 match filter.admit(page.get_url()) {
@@ -1139,6 +1178,21 @@ fn redirect_signal(crawl_root_url: &str, final_url: &str) -> Option<DiagnosticSi
         "library_redirect_to_unrelated_host",
     ))
 }
+
+/// Records the answer that stops the crawl. Spider's reading of a refused
+/// root (a vendor block, a JavaScript challenge) keeps precedence over the
+/// generic rate-limit failure, like it does over the access-denied one.
+fn apply_rate_limit_signal(diagnostics: &mut CrawlDiagnostics, signal: RateLimitSignal) {
+    diagnostics.rate_limit = Some(signal);
+    if diagnostics.failure_kind.is_none() {
+        diagnostics.apply_signal(DiagnosticSignal::new(
+            CrawlFailureKind::RateLimited,
+            RATE_LIMIT_ANSWER_STOPPED_CRAWL,
+        ));
+    }
+}
+
+const RATE_LIMIT_ANSWER_STOPPED_CRAWL: &str = "rate_limit_answer_stopped_crawl";
 
 fn apply_library_outcome(diagnostics: &mut CrawlDiagnostics, outcome: LibraryOutcome) {
     diagnostics.completion = outcome.completion;
@@ -1337,6 +1391,10 @@ mod tests {
     #[derive(Clone)]
     enum SiteResponse {
         Html(&'static str, String),
+        /// `Html` answered after a delay, like a slow server.
+        SlowHtml(Duration, &'static str, String),
+        /// An empty answer with extra header lines, each `Name: value\r\n`.
+        WithHeaders(&'static str, &'static str),
         Redirect(&'static str),
         /// Close the connection without answering, like a crashed server.
         Drop,
@@ -1432,10 +1490,20 @@ mod tests {
                     log.push((host, target.clone(), user_agent, accept_encoding));
                     previous
                 };
-                let response = match handler(&target, previous) {
-                    SiteResponse::Html(status, body) => format!(
+                let html_response = |status: &str, body: &str| {
+                    format!(
                         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
+                    )
+                };
+                let response = match handler(&target, previous) {
+                    SiteResponse::Html(status, body) => html_response(status, &body),
+                    SiteResponse::SlowHtml(delay, status, body) => {
+                        tokio::time::sleep(delay).await;
+                        html_response(status, &body)
+                    }
+                    SiteResponse::WithHeaders(status, extra_headers) => format!(
+                        "HTTP/1.1 {status}\r\n{extra_headers}Content-Length: 0\r\nConnection: close\r\n\r\n"
                     ),
                     SiteResponse::Redirect(location) => format!(
                         "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -1812,6 +1880,164 @@ mod tests {
         ] {
             assert!(discovered.contains(expected), "missing {expected}");
         }
+    }
+
+    /// The root links a page the shop rate limits and the head of a slow,
+    /// endless chain of pages, so a crawl that keeps going is visible.
+    fn rate_limited_site(limited: SiteResponse) -> SiteHandler {
+        Arc::new(move |target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/limited">limited</a><a href="/chain/1">chain</a>"#.to_string(),
+            ),
+            "/limited" => limited.clone(),
+            _ if target.starts_with("/chain/") => {
+                let hop: usize = target.trim_start_matches("/chain/").parse().unwrap_or(0);
+                SiteResponse::SlowHtml(
+                    Duration::from_millis(20),
+                    "200 OK",
+                    format!(r#"<a href="/chain/{}">next</a>"#, hop + 1),
+                )
+            }
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        })
+    }
+
+    #[tokio::test]
+    async fn should_stop_the_crawl_on_a_rate_limit_answer_and_record_retry_after() {
+        for (answer, retry_count, expected) in [
+            (
+                SiteResponse::WithHeaders("429 Too Many Requests", "Retry-After: 1800\r\n"),
+                2,
+                RateLimitSignal {
+                    status: 429,
+                    retry_after: Some(Duration::from_secs(1800)),
+                },
+            ),
+            (
+                SiteResponse::WithHeaders("503 Service Unavailable", "Retry-After: 120\r\n"),
+                0,
+                RateLimitSignal {
+                    status: 503,
+                    retry_after: Some(Duration::from_secs(120)),
+                },
+            ),
+        ] {
+            let site = TestSite::spawn(rate_limited_site(answer)).await;
+            let config = CrawlerConfig {
+                retry_count,
+                max_pages_per_crawl: 1_000,
+                ..test_config()
+            };
+            let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+
+            let (discovered, diagnostics) =
+                run_crawl(&spider, "http://example.com/").await.unwrap();
+
+            assert_eq!(diagnostics.rate_limit, Some(expected), "{diagnostics:?}");
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::RateLimited),
+                "{diagnostics:?}"
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some(RATE_LIMIT_ANSWER_STOPPED_CRAWL)
+            );
+            assert_eq!(
+                diagnostics.completion,
+                CrawlCompletion::HardTimeoutTruncated,
+                "{diagnostics:?}"
+            );
+            let counted = match expected.status {
+                429 => diagnostics.status_counts.rate_limited,
+                _ => diagnostics.status_counts.server_error,
+            };
+            assert_eq!(counted, 1, "{diagnostics:?}");
+            assert!(
+                discovered.contains("http://example.com/"),
+                "pages delivered before the answer are kept: {discovered:?}"
+            );
+            // A 429 is not retried per page; the 503 case runs without retries.
+            assert_eq!(
+                site.requests_for("/limited").await,
+                1,
+                "{}",
+                expected.status
+            );
+            // Stopped: the chain, which the hard timeout alone would walk for
+            // seconds, ends within a few hops of the answer.
+            assert_eq!(
+                site.requests_for("/chain/50").await,
+                0,
+                "crawl went on after the {} answer",
+                expected.status
+            );
+            site.finish().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn should_count_delivered_pages_by_status_class() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/missing">missing</a><a href="/product/1">product</a>"#.to_string(),
+            ),
+            "/product/1" => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert_eq!(
+            diagnostics.status_counts,
+            StatusCounts {
+                success: 2,
+                client_error: 1,
+                ..StatusCounts::default()
+            },
+            "{diagnostics:?}"
+        );
+        assert_eq!(diagnostics.pages_received, 3);
+        assert_eq!(diagnostics.rate_limit, None);
+        assert_eq!(diagnostics.failure_kind, None);
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+    }
+
+    #[test]
+    fn should_keep_the_library_root_signal_over_the_rate_limit_failure() {
+        let mut diagnostics = page_diagnostics("https://example.com/", 429);
+        diagnostics.apply_signal(DiagnosticSignal::new(
+            CrawlFailureKind::CloudflareChallenge,
+            "library_cloudflare_antibot",
+        ));
+        let signal = RateLimitSignal {
+            status: 429,
+            retry_after: None,
+        };
+
+        apply_rate_limit_signal(&mut diagnostics, signal);
+
+        assert_eq!(diagnostics.rate_limit, Some(signal));
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::CloudflareChallenge)
+        );
+
+        let mut diagnostics = page_diagnostics("https://example.com/", 429);
+        apply_rate_limit_signal(&mut diagnostics, signal);
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::RateLimited)
+        );
+        assert_eq!(
+            diagnostics.diagnostic_reason.as_deref(),
+            Some(RATE_LIMIT_ANSWER_STOPPED_CRAWL)
+        );
     }
 
     #[tokio::test]
@@ -2322,11 +2548,11 @@ mod tests {
     }
 
     #[test]
-    fn should_stop_spider_retries_for_truncated_bodies_only() {
-        let strategy = TruncationAwareRetry { max_retries: 2 };
-        let outcome = |content_truncated: bool| AttemptOutcome {
+    fn should_stop_spider_retries_for_truncated_bodies_and_rate_limits_only() {
+        let strategy = PageRetryStrategy { max_retries: 2 };
+        let outcome = |status_code: u16, content_truncated: bool| AttemptOutcome {
             attempt: 1,
-            status_code: spider::reqwest::StatusCode::BAD_GATEWAY,
+            status_code: spider::reqwest::StatusCode::from_u16(status_code).unwrap(),
             should_retry: true,
             content_truncated,
             waf_check: false,
@@ -2341,8 +2567,10 @@ mod tests {
         };
 
         assert_eq!(strategy.max_retries(), 2);
-        assert!(!strategy.on_retry(&outcome(true)).should_retry);
-        assert!(strategy.on_retry(&outcome(false)).should_retry);
+        assert!(!strategy.on_retry(&outcome(502, true)).should_retry);
+        assert!(!strategy.on_retry(&outcome(429, false)).should_retry);
+        assert!(strategy.on_retry(&outcome(502, false)).should_retry);
+        assert!(strategy.on_retry(&outcome(503, false)).should_retry);
     }
 
     #[tokio::test]

@@ -510,6 +510,8 @@ impl SpiderServiceImpl {
             robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
             lagged = diagnostics.lagged,
             initial_anti_bot = ?diagnostics.initial_anti_bot,
+            status_counts = ?diagnostics.status_counts,
+            rate_limit = ?diagnostics.rate_limit,
             "{}",
             crawl_outcome_message(completion)
         );

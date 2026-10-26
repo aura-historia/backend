@@ -301,7 +301,7 @@ html-escape = "0.3.0"
 regex = "1.12.4"
 indexmap = { version = "2.14.0", features = ["serde"] }
 slug = "0.1.6"
-spider = { version = "2", default-features = false, features = ["sync", "regex", "reqwest_rustls_tls", "auto_throttle", "robots_cache", "rate_limit"] }
+spider = { version = "2", default-features = false, features = ["sync", "regex", "reqwest_rustls_tls", "auto_throttle", "robots_cache", "rate_limit", "headers"] }
 scraper = "0.29.0"
 schemars = "1.2.1"
 kuchiki = "0.8.1"
