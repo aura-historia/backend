@@ -28,7 +28,7 @@ use url::Url;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReviewServerConfigError {
-    #[error(transparent)]
+    #[error("CRAWLER_REVIEW_BIND_ADDR must be host:port")]
     InvalidBindAddress(#[from] std::net::AddrParseError),
     #[error("CRAWLER_REVIEW_AUTH_TOKEN is required for non-loopback bind addresses")]
     AuthenticationRequiredForNonLoopback,
@@ -1766,6 +1766,61 @@ Origin: http://127.0.0.1:7878/x
         .validate();
 
         assert!(result.is_ok());
+    }
+
+    // Tests that touch the process environment are serialized, so no test reads the
+    // environment while another one changes it.
+    fn set_env(name: &str, value: Option<&str>) {
+        match value {
+            Some(value) => unsafe { std::env::set_var(name, value) },
+            None => unsafe { std::env::remove_var(name) },
+        }
+    }
+
+    const REVIEW_BIND_ADDR_ENV: &str = "CRAWLER_REVIEW_BIND_ADDR";
+    const REVIEW_AUTH_TOKEN_ENV: &str = "CRAWLER_REVIEW_AUTH_TOKEN";
+
+    /// Reads the review config from exactly these review settings, leaving them unset afterwards.
+    fn review_config_from(
+        bind_addr: Option<&str>,
+        auth_token: Option<&str>,
+    ) -> Result<ReviewServerConfig, ReviewServerConfigError> {
+        set_env(REVIEW_BIND_ADDR_ENV, bind_addr);
+        set_env(REVIEW_AUTH_TOKEN_ENV, auth_token);
+        let config = ReviewServerConfig::from_env();
+        set_env(REVIEW_BIND_ADDR_ENV, None);
+        set_env(REVIEW_AUTH_TOKEN_ENV, None);
+        config
+    }
+
+    #[rstest::rstest]
+    #[case::unset(None)]
+    #[case::blank(Some("  "))]
+    #[serial_test::serial]
+    fn should_name_the_missing_token_when_a_non_loopback_bind_has_none(
+        #[case] auth_token: Option<&'static str>,
+    ) {
+        let error = review_config_from(Some("0.0.0.0:7878"), auth_token)
+            .err()
+            .unwrap_or_else(|| panic!("a non-loopback bind without a token must fail"));
+
+        assert_eq!(
+            error.to_string(),
+            "CRAWLER_REVIEW_AUTH_TOKEN is required for non-loopback bind addresses"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn should_name_the_bind_address_when_it_is_not_host_and_port() {
+        let error = review_config_from(Some("localhost"), None)
+            .err()
+            .unwrap_or_else(|| panic!("a bind address without a port must fail"));
+
+        assert_eq!(
+            error.to_string(),
+            "CRAWLER_REVIEW_BIND_ADDR must be host:port"
+        );
     }
 
     #[tokio::test]

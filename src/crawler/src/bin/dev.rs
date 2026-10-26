@@ -190,7 +190,7 @@ async fn main() {
         }
 
         let review_config = ReviewServerConfig::from_env()
-            .expect("CRAWLER_REVIEW_BIND_ADDR must be host:port")
+            .unwrap_or_else(|error| panic!("invalid crawler review console configuration: {error}"))
             .allow_local_mutations_without_token();
 
         info!(
