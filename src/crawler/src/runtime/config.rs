@@ -1,8 +1,10 @@
 //! Environment settings shared by every crawler entry point.
 
+use super::shutdown::DEFAULT_SHUTDOWN_GRACE_PERIOD;
 use crate::authoring::CrawlerAuthoringMode;
 use crate::llm_runtime::CrawlerLlmRateLimitConfig;
 use crate::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiConfigError, CrawlerVertexAiModels};
+use std::time::Duration;
 use tracing::info;
 
 const AUTHORING_MODE_ENV: &str = "CRAWLER_AUTHORING_MODE";
@@ -19,6 +21,8 @@ const REMOVED_ENV: [&str; 3] = [
 pub struct CrawlerRuntimeConfig {
     pub authoring: CrawlerAuthoringMode,
     pub llm: CrawlerLlmConfig,
+    /// How long running work may take to finish after the first SIGTERM or SIGINT.
+    pub shutdown_grace_period: Duration,
 }
 
 /// Whether the crawler may call an LLM, and with which provider settings.
@@ -68,6 +72,8 @@ pub enum CrawlerRuntimeConfigError {
 impl CrawlerRuntimeConfig {
     /// Reads the authoring mode and, unless it is `manual`, the Vertex AI selection and LLM
     /// rate limits, then logs the effective configuration that [`build`](super::build) applies.
+    /// The shutdown grace period is no environment setting; it starts at
+    /// [`DEFAULT_SHUTDOWN_GRACE_PERIOD`].
     pub fn from_env() -> Result<Self, CrawlerRuntimeConfigError> {
         for name in REMOVED_ENV {
             // A non-UTF-8 value is still a value: it must fail like any other.
@@ -103,7 +109,11 @@ impl CrawlerRuntimeConfig {
                 "Crawler LLM governor configured"
             );
         }
-        Ok(Self { authoring, llm })
+        Ok(Self {
+            authoring,
+            llm,
+            shutdown_grace_period: DEFAULT_SHUTDOWN_GRACE_PERIOD,
+        })
     }
 }
 

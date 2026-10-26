@@ -546,7 +546,7 @@ impl CrawlerCronJob {
         let mut deferred = 0usize;
 
         loop {
-            while join_set.len() < spider_concurrency {
+            while join_set.len() < spider_concurrency && !self.stop.is_requested() {
                 if no_more_candidates || fetch_failed {
                     break;
                 }
@@ -1140,6 +1140,64 @@ mod tests {
         job.run_spider_once().await;
 
         assert!(refill_started_while_slow_running.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn should_finish_the_running_crawl_without_starting_another_once_stopped() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .once()
+            .returning(|_, _| {
+                Box::pin(async { Ok(vec![spider_candidate(CrawlerDomainId::new())]) })
+            });
+        spider_candidates
+            .expect_mark_crawl_completed()
+            .once()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+        let crawl_started = Arc::new(Notify::new());
+        let release_crawl = Arc::new(Notify::new());
+        let crawl_started_for_mock = Arc::clone(&crawl_started);
+        let release_crawl_for_mock = Arc::clone(&release_crawl);
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .once()
+            .returning(move |_, _, _, _| {
+                let crawl_started = Arc::clone(&crawl_started_for_mock);
+                let release_crawl = Arc::clone(&release_crawl_for_mock);
+                Box::pin(async move {
+                    crawl_started.notify_one();
+                    release_crawl.notified().await;
+                    Ok(SpiderRunResult {
+                        total_links: 10,
+                        product_urls_count: 5,
+                        product_pattern: None,
+                        completion: CrawlCompletion::Completed,
+                        pending_url_pattern_review: None,
+                    })
+                })
+            });
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig {
+                spider_concurrency: 1,
+                ..CrawlerCronConfig::default()
+            },
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(MockScraperCandidateService::new()),
+            Box::new(MockScraperService::new()),
+            noop_listing_source_registration(),
+            noop_raw_capture(),
+        );
+        let stop = job.stop_handle();
+
+        tokio::join!(job.run_spider_once(), async {
+            crawl_started.notified().await;
+            stop.request();
+            release_crawl.notify_one();
+        });
     }
 
     #[tokio::test]

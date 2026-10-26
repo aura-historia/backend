@@ -26,6 +26,10 @@ The local `dev` binary runs the same pipeline through the shared [composition ro
 
 The crawler scheduler is deployed as a single process. Its spider and scraper workers may process many domains concurrently, while process-local per-component domain locks plus URL and ListingSource locks coordinate work inside that process. Spider and scraper may work on the same domain concurrently, each bounded by its own per-domain throttle. Different domains remain concurrent; multi-process or horizontally scaled scheduler coordination is outside the current design.
 
+## Stopping the crawler
+
+`server` and `dev` stop gracefully on SIGTERM (`systemctl stop`) or SIGINT (Ctrl+C). The crawler logs `crawler.shutdown.started` naming the signal, stops the review console and starts no new spider or scraper pass, spider crawl or scraper domain batch; a running scraper batch finishes its current URL and defers the rest to a later run. Running work then has a grace period, 30 seconds by default, to finish, and raw observations already scraped are flushed to raw capture before the process exits 0 with `crawler.shutdown.completed`. Work still running when the grace period ends is abandoned and the process exits 0 with `crawler.shutdown.grace_period_expired`; an abandoned spider crawl or scraper URL records no outcome and is selected again after restart. A second signal during the grace period exits at once with 128 plus the signal number. Give the service manager a stop timeout longer than the grace period (systemd's default `TimeoutStopSec` of 90 seconds is enough) so it does not escalate to SIGKILL first.
+
 ## Local database
 
 [`src/crawler/docker-compose.yml`](../../src/crawler/docker-compose.yml) starts PostgreSQL 16. The Linux and Windows scripts both create the crawler server and demo databases, migrate them, report their status, reset them, and stop the container. Keep both script sets aligned.
