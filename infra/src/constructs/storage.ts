@@ -75,6 +75,7 @@ export class Storage extends Construct {
       username: "aura_admin",
       secretName: `/aura-historia/${props.config.stage}/postgres/admin`,
     });
+    this.adminCredentials.applyRemovalPolicy(props.config.removalPolicy);
 
     this.database = new rds.DatabaseInstance(this, "Postgres", {
       instanceIdentifier: `aura-historia-postgres-${props.config.stage}`,
@@ -108,23 +109,27 @@ export class Storage extends Construct {
       username: "aura_runtime",
       databaseName: rdsConfig.databaseName,
       adminCredentials: this.adminCredentials,
+      removalPolicy: props.config.removalPolicy,
     });
     this.migrationCredentials = applicationCredentials(this, "PostgresMigrationCredentials", {
       stage: props.config.stage,
       username: "aura_migrator",
       databaseName: rdsConfig.databaseName,
       adminCredentials: this.adminCredentials,
+      removalPolicy: props.config.removalPolicy,
     });
     this.inspectionCredentials = applicationCredentials(this, "PostgresInspectionCredentials", {
       stage: props.config.stage,
       username: "aura_inspector",
       databaseName: rdsConfig.databaseName,
       adminCredentials: this.adminCredentials,
+      removalPolicy: props.config.removalPolicy,
     });
     this.replicationCredentials = dmsReplicationCredentials(this, "PostgresReplicationCredentials", {
       stage: props.config.stage,
       databaseName: rdsConfig.databaseName,
       host: this.database.dbInstanceEndpointAddress,
+      removalPolicy: props.config.removalPolicy,
     });
 
     this.postgres = {
@@ -155,15 +160,18 @@ interface ApplicationCredentialProps {
   readonly username: string;
   readonly databaseName: string;
   readonly adminCredentials: rds.DatabaseSecret;
+  readonly removalPolicy: cdk.RemovalPolicy;
 }
 
 function applicationCredentials(scope: Construct, id: string, props: ApplicationCredentialProps): rds.DatabaseSecret {
-  return new rds.DatabaseSecret(scope, id, {
+  const credentials = new rds.DatabaseSecret(scope, id, {
     username: props.username,
     dbname: props.databaseName,
     secretName: `/aura-historia/${props.stage}/postgres/${roleSecretName(props.username)}`,
     masterSecret: props.adminCredentials,
   });
+  credentials.applyRemovalPolicy(props.removalPolicy);
+  return credentials;
 }
 
 function roleSecretName(username: string): string {
@@ -174,6 +182,7 @@ interface DmsReplicationCredentialProps {
   readonly stage: string;
   readonly databaseName: string;
   readonly host: string;
+  readonly removalPolicy: cdk.RemovalPolicy;
 }
 
 function dmsReplicationCredentials(
@@ -184,6 +193,7 @@ function dmsReplicationCredentials(
   return new secretsmanager.Secret(scope, id, {
     description: "Private PostgreSQL DMS replication credentials",
     secretName: `/aura-historia/${props.stage}/postgres/replication`,
+    removalPolicy: props.removalPolicy,
     generateSecretString: {
       excludeCharacters: " %+~`#$&*()|[]{}:;<>?!'/@\\\"",
       generateStringKey: "password",
