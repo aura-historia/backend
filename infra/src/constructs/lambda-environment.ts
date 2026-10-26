@@ -105,6 +105,7 @@ function listingProviderEnvironment(context: LambdaEnvironmentContext): Record<s
   const { config, search } = context;
   return {
     STAGE: config.stage,
+    PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED: String(config.isProd),
     OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
     OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/reader/password`),
     OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/reader/username`),

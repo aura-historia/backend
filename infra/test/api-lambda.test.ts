@@ -58,6 +58,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "OAUTH_ISSUER_URL",
     "OPENSEARCH_ENDPOINT_URL",
     "PRODUCT_LISTING_INGESTION_QUEUE_URL",
+    "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
     "POSTGRES_DATABASE",
     "POSTGRES_HOST",
     "POSTGRES_MAX_CONNECTIONS",
@@ -108,6 +109,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     });
     expect(JSON.stringify(functionResource.Properties.Code)).toContain("AuraHistoriaApiArtifactKey");
     expect(environment.Variables.STAGE).toBe(stage);
+    expect(environment.Variables.PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED).toBe(String(stage === "prod"));
     expect(environment.Variables.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
     expect(environment.Variables.COMMIT_SHA).toEqual({ Ref: "CommitSHA" });
     expect(environment.Variables.S3_BUCKET_NAME_TEMPLATES).toBe("aura-historia-release-bundles-eu-central-1");
