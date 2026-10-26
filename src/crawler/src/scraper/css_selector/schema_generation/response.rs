@@ -253,7 +253,7 @@ impl ProductListingSchemaGenerationResponse {
                 let Some(schema) = self.removed_schema else {
                     return Err(ProductListingSchemaResponseValidationError::RemovedMissingSchema);
                 };
-                if let Err(detail) = schema.validate_for_llm_response() {
+                if let Err(detail) = schema.validate() {
                     return Err(
                         ProductListingSchemaResponseValidationError::InvalidRemovedSchema {
                             detail,

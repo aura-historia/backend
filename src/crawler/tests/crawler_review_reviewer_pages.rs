@@ -237,10 +237,7 @@ async fn should_refuse_reviewer_page_when_review_is_not_open_for_schema_review()
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (_, review_id) = pending_schema_review(&pool).await;
-    repository
-        .reject_review(review_id, None, false)
-        .await
-        .unwrap();
+    repository.reject_review(review_id, None).await.unwrap();
 
     let result = repository
         .check_reviewer_page_target(review_id, &url("https://example.com/products/2"))
@@ -269,10 +266,7 @@ async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_
         STATUS_PENDING_REVIEW
     );
 
-    repository
-        .reject_review(review_id, None, false)
-        .await
-        .unwrap();
+    repository.reject_review(review_id, None).await.unwrap();
 
     assert!(
         !repository
@@ -371,6 +365,34 @@ async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it(
             .validation_summary
             .get("schema_matrix")
             .is_none()
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_drop_generated_matrix_summary_with_cached_matrix_when_reviewer_adds_a_page() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (_, review_id) = pending_schema_review(&pool).await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET validation_summary = validation_summary \
+         || '{\"schema_matrix\": {}, \"schema_matrix_summary\": {}}' \
+         WHERE review_id = $1",
+    )
+    .bind(review_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let sold_url = url("https://example.com/products/sold");
+
+    repository
+        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .await
+        .unwrap();
+
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(
+        detail.review.validation_summary,
+        json!({ "manual_authoring": true })
     );
 }
 
@@ -598,7 +620,7 @@ async fn should_not_join_when_no_product_schema_review_is_pending() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (listing_source_id, review_id) = pending_schema_review(&pool).await;
     repository
-        .reject_review(review_id, Some("not a product page"), false)
+        .reject_review(review_id, Some("not a product page"))
         .await
         .unwrap();
 
@@ -690,7 +712,7 @@ async fn should_not_treat_rejection_as_verdict_on_waiting_pages() {
         .unwrap();
 
     repository
-        .reject_review(review_id, Some("not a product page"), false)
+        .reject_review(review_id, Some("not a product page"))
         .await
         .unwrap();
 

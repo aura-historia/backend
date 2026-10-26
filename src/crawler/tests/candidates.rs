@@ -1,8 +1,8 @@
-use crawler::CrawlerDomainId;
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
     DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, RedirectUrlMove,
-    ScrapeCompletion, ScraperCandidateService, ScraperCandidateServiceImpl,
+    SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCompletion, ScraperCandidateService,
+    ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::classification::url_metadata::{
@@ -12,6 +12,7 @@ use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use crawler::spider::discovery::website_spider::CrawlCompletion;
+use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -629,16 +630,18 @@ async fn insert_product_url(
 async fn insert_pending_product_schema_review(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
-) {
+) -> CrawlerReviewId {
+    let review_id = CrawlerReviewId::new();
     sqlx::query(
         "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload) \
          VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', 'manual_schema_required', '{\"schemas\": []}'::jsonb)",
     )
-    .bind(uuid::Uuid::new_v4())
+    .bind(review_id.as_uuid())
     .bind(listing_source_id.as_uuid())
     .execute(pool)
     .await
     .unwrap();
+    review_id
 }
 
 /// Stores `product_schema` as the source's cached schema row; the candidate query reads only
@@ -879,6 +882,93 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
     assert_eq!(other_class, UrlClass::ProductListing.to_string());
     assert!(!candidates.iter().any(|c| c.url == target_url));
     assert!(candidates.iter().any(|c| c.url == other_url));
+}
+
+#[derive(sqlx::FromRow)]
+struct ScrapeOutcomeRow {
+    url_class: String,
+    last_error_kind: Option<String>,
+    last_error_message: Option<String>,
+    failure_count: i32,
+    last_status_code: Option<i32>,
+    retry_scheduled: bool,
+    scraped_now: bool,
+    last_scraped_hash: Option<String>,
+}
+
+/// A page evaluated without a capture keeps its product class and its outcome, waits for
+/// the normal scrape interval instead of a retry, and keeps the page hash of its last
+/// capture so the next scrape evaluates it again.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_mark_scraped_without_capture_should_record_outcome_until_the_scrape_interval() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-untitled.example.com")
+            .await;
+    let url =
+        url::Url::parse("https://scraper-untitled.example.com/furniture/item-1208922").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    sqlx::query(
+        "UPDATE listing_source_urls \
+         SET failure_count = 2, last_status_code = 503, last_error_kind = 'HTTP_503', \
+             last_scraped_hash = 'hash-of-last-capture' \
+         WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let message = "Required value missing from 'https://scraper-untitled.example.com/furniture/item-1208922': `title` is blank";
+
+    let stale = service
+        .mark_scraped_without_capture(
+            &listing_source_id,
+            &url,
+            "MissingRequiredValue",
+            message,
+            Some(&raw_input_hash()),
+        )
+        .await
+        .unwrap();
+    let applied = service
+        .mark_scraped_without_capture(
+            &listing_source_id,
+            &url,
+            "MissingRequiredValue",
+            message,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(stale, CrawlerUrlWriteOutcome::NoopStale);
+    assert_eq!(applied, CrawlerUrlWriteOutcome::Applied);
+    let row = sqlx::query_as::<_, ScrapeOutcomeRow>(
+        "SELECT url_class, last_error_kind, last_error_message, failure_count, last_status_code, \
+                next_retry_at IS NOT NULL AS retry_scheduled, \
+                last_scraped > NOW() - INTERVAL '1 minute' AS scraped_now, last_scraped_hash \
+         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.url_class, UrlClass::ProductListing.to_string());
+    assert_eq!(row.last_error_kind.as_deref(), Some("MissingRequiredValue"));
+    assert_eq!(row.last_error_message.as_deref(), Some(message));
+    assert_eq!(row.failure_count, 0);
+    assert_eq!(row.last_status_code, None);
+    assert!(!row.retry_scheduled);
+    assert!(row.scraped_now);
+    assert_eq!(
+        row.last_scraped_hash.as_deref(),
+        Some("hash-of-last-capture")
+    );
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    assert!(!candidates.iter().any(|c| c.url == url));
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -1213,6 +1303,240 @@ async fn scraper_should_order_urls_within_selected_domain_by_oldest_work_first()
         .collect();
 
     assert_eq!(urls, vec![never_url, oldest_url]);
+}
+
+// ---------------------------------------------------------------------------
+// get_candidates — pages waiting on a schema review yield their batch slots
+// ---------------------------------------------------------------------------
+
+/// Asks to record that `url` waits on `wait.review_id` with a retry that is already due.
+async fn mark_due_schema_review_wait(
+    service: &ScraperCandidateServiceImpl,
+    listing_source_id: ListingSourceId,
+    url: &str,
+    wait: SchemaReviewWait,
+) -> CrawlerUrlWriteOutcome {
+    service
+        .mark_waiting_on_schema_review(SchemaReviewWaitRequest {
+            url_failure: fetch_failure_request(
+                listing_source_id,
+                url::Url::parse(url).unwrap(),
+                "PendingSchemaReview",
+                "blocked pending product schema review",
+                None,
+                time::OffsetDateTime::now_utc() - time::Duration::minutes(1),
+                None,
+            ),
+            wait,
+        })
+        .await
+        .unwrap()
+}
+
+/// Records that `url` waits on `wait.review_id` with a retry that is already due.
+async fn record_due_schema_review_wait(
+    service: &ScraperCandidateServiceImpl,
+    listing_source_id: ListingSourceId,
+    url: &str,
+    wait: SchemaReviewWait,
+) {
+    let outcome = mark_due_schema_review_wait(service, listing_source_id, url, wait).await;
+    assert_eq!(outcome, CrawlerUrlWriteOutcome::Applied);
+}
+
+/// Gives the ListingSource a cached schema and a pending product-schema review for its
+/// failing pages to wait on.
+async fn insert_schemas_and_pending_review(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+) -> CrawlerReviewId {
+    insert_cached_product_schemas(
+        pool,
+        listing_source_id,
+        serde_json::json!([{ "title": { "type": "text", "selector": "h1", "cardinality": "first" } }]),
+    )
+    .await;
+    insert_pending_product_schema_review(pool, listing_source_id).await
+}
+
+async fn persisted_schema_review_wait(pool: &sqlx::PgPool, url: &str) -> (Option<uuid::Uuid>, i32) {
+    sqlx::query_as(
+        "SELECT schema_review_waited_on, schema_review_wait_streak \
+         FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_order_pages_waiting_on_a_schema_review_after_other_due_pages() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-order.example.com")
+            .await;
+    let waiting_url = "https://waiting-order.example.com/p/a-waiting";
+    let never_url = "https://waiting-order.example.com/p/never";
+    let stale_url = "https://waiting-order.example.com/p/stale";
+    for url in [waiting_url, never_url, stale_url] {
+        insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    }
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '5 days' WHERE url = $1",
+    )
+    .bind(stale_url)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let review_id = insert_schemas_and_pending_review(&pool, listing_source_id).await;
+    record_due_schema_review_wait(
+        &service,
+        listing_source_id,
+        waiting_url,
+        SchemaReviewWait {
+            review_id,
+            streak: 1,
+        },
+    )
+    .await;
+
+    let urls_in_batch = |limit| {
+        let service = &service;
+        async move {
+            service
+                .get_candidates(1, limit, &[])
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|candidate| candidate.url.to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    assert_eq!(
+        urls_in_batch(2).await,
+        vec![never_url, stale_url],
+        "a never-scraped page waiting on a review must not take a slot ahead of extractable pages"
+    );
+    assert_eq!(
+        urls_in_batch(3).await,
+        vec![never_url, stale_url, waiting_url]
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_keep_a_schema_review_wait_only_until_another_outcome_replaces_it() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-state.example.com")
+            .await;
+    let url = "https://waiting-state.example.com/p/1";
+    let parsed_url = url::Url::parse(url).unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    let wait = SchemaReviewWait {
+        review_id: insert_schemas_and_pending_review(&pool, listing_source_id).await,
+        streak: 3,
+    };
+    let candidate_wait = || async {
+        let candidates = service.get_candidates(10, 10, &[]).await.unwrap();
+        let [candidate] = candidates.as_slice() else {
+            panic!("expected exactly one candidate");
+        };
+        candidate.schema_review_wait
+    };
+
+    record_due_schema_review_wait(&service, listing_source_id, url, wait).await;
+    assert_eq!(candidate_wait().await, Some(wait));
+
+    service
+        .mark_scraper_failure(
+            &listing_source_id,
+            &parsed_url,
+            "NormalizationError",
+            "normalization failed",
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        candidate_wait().await,
+        None,
+        "a later outcome ends the wait even when its write leaves the wait columns"
+    );
+
+    record_due_schema_review_wait(&service, listing_source_id, url, wait).await;
+    service
+        .mark_fetch_failure(
+            &listing_source_id,
+            &parsed_url,
+            "HTTP_500",
+            "server error",
+            Some(500),
+            time::OffsetDateTime::now_utc() - time::Duration::minutes(1),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(candidate_wait().await, None);
+    assert_eq!(persisted_schema_review_wait(&pool, url).await, (None, 0));
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_record_a_schema_review_wait_only_on_a_pending_review_of_its_source() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-guard.example.com")
+            .await;
+    let url = "https://waiting-guard.example.com/p/1";
+    insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    let review_id = insert_schemas_and_pending_review(&pool, listing_source_id).await;
+    let other_listing_source_id = ListingSourceId::new();
+    insert_listing_source_with_domain(&pool, other_listing_source_id, "other-guard.example.com")
+        .await;
+    let other_source_review_id =
+        insert_pending_product_schema_review(&pool, other_listing_source_id).await;
+    let wait_on = |review_id| SchemaReviewWait {
+        review_id,
+        streak: 2,
+    };
+
+    for (review_id, case) in [
+        (CrawlerReviewId::new(), "an unknown review"),
+        (other_source_review_id, "another ListingSource's review"),
+    ] {
+        assert_eq!(
+            mark_due_schema_review_wait(&service, listing_source_id, url, wait_on(review_id)).await,
+            CrawlerUrlWriteOutcome::NoopStale,
+            "a page must not wait on {case}"
+        );
+    }
+    sqlx::query("UPDATE crawler_reviews SET status = 'REJECTED' WHERE review_id = $1")
+        .bind(review_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        mark_due_schema_review_wait(&service, listing_source_id, url, wait_on(review_id)).await,
+        CrawlerUrlWriteOutcome::NoopStale,
+        "a page must not wait on a closed review"
+    );
+
+    assert_eq!(persisted_schema_review_wait(&pool, url).await, (None, 0));
+    let (last_error_kind, failure_count): (Option<String>, i32) = sqlx::query_as(
+        "SELECT last_error_kind, failure_count FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((last_error_kind, failure_count), (None, 0));
 }
 
 // ---------------------------------------------------------------------------

@@ -102,6 +102,11 @@ CREATE TABLE listing_source_urls (
     -- Stable raw-capture identity; it survives URL moves of the same listing.
     raw_source_record_key TEXT NOT NULL,
     last_source_listing_id TEXT,
+    -- The pending product-schema review this page waits on and how many consecutive scrapes
+    -- waited on it, so its retry delay grows while that review stays pending. Meaningful only
+    -- while `last_error_kind` is `PendingSchemaReview`.
+    schema_review_waited_on   UUID,
+    schema_review_wait_streak INT NOT NULL DEFAULT 0,
     CHECK (char_length(url) > 0),
     CHECK (url_class IN ('product', 'category', 'imprint', 'info', 'other')),
     CHECK (crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')),
@@ -110,6 +115,10 @@ CREATE TABLE listing_source_urls (
         CHECK (char_length(raw_source_record_key) > 0),
     CONSTRAINT listing_source_urls_last_source_listing_id_nonempty
         CHECK (last_source_listing_id IS NULL OR char_length(last_source_listing_id) > 0),
+    CONSTRAINT listing_source_urls_schema_review_wait_shape_check CHECK (
+        (schema_review_waited_on IS NULL AND schema_review_wait_streak = 0)
+        OR (schema_review_waited_on IS NOT NULL AND schema_review_wait_streak > 0)
+    ),
     PRIMARY KEY (url)
 );
 
@@ -133,6 +142,13 @@ CREATE TABLE crawler_reviews (
     created            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reviewed           TIMESTAMPTZ,
+    -- A needs-repair verdict keeps the review pending and records when and why repair was
+    -- requested. No verdict writes the legacy terminal `NEEDS_REPAIR` status any more.
+    repair_requested   TIMESTAMPTZ,
+    repair_note        TEXT,
+    -- The stored removed-page templates a product-schema candidate started from, so approval
+    -- keeps a template another writer stored since then instead of dropping it.
+    removed_page_schemas_base JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- A URL-pattern review belongs to one domain of its own ListingSource.
     CONSTRAINT crawler_reviews_listing_source_domain_fkey
         FOREIGN KEY (listing_source_id, domain_id)
@@ -141,7 +157,13 @@ CREATE TABLE crawler_reviews (
     CONSTRAINT crawler_reviews_artifact_domain_shape_check CHECK (
         (artifact_type = 'URL_PATTERN' AND domain_id IS NOT NULL)
         OR (artifact_type = 'PRODUCT_SCHEMA' AND domain_id IS NULL)
-    )
+    ),
+    CONSTRAINT crawler_reviews_repair_request_shape_check CHECK (
+        (repair_requested IS NULL AND repair_note IS NULL)
+        OR (repair_requested IS NOT NULL AND repair_note IS NOT NULL AND btrim(repair_note) <> '')
+    ),
+    CONSTRAINT crawler_reviews_removed_page_schemas_base_shape_check
+        CHECK (jsonb_typeof(removed_page_schemas_base) = 'array')
 );
 
 CREATE INDEX idx_crawler_reviews_status
@@ -200,7 +222,7 @@ AS $$
 BEGIN
     IF NEW.candidate_payload IS DISTINCT FROM OLD.candidate_payload THEN
         NEW.candidate_version = OLD.candidate_version + 1;
-        NEW.validation_summary = NEW.validation_summary - 'schema_matrix';
+        NEW.validation_summary = NEW.validation_summary - 'schema_matrix' - 'schema_matrix_summary';
     END IF;
     RETURN NEW;
 END;

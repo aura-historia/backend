@@ -16,14 +16,17 @@ pub(super) fn normalize_page_classification_text(value: &str) -> String {
 /// them: a matched notice is compared with the titles cached product schemas extract
 /// from the same page ([`super::RemovedPageMatch::is_notice`]).
 fn selected_texts(selector: &CssSelector, html: &Html) -> Option<Vec<String>> {
-    let rule = ExtractionRule {
+    selected_text_rule(selector).apply(html).ok()
+}
+
+/// The text rule a removed-page selector is applied as.
+pub(super) fn selected_text_rule(selector: &CssSelector) -> ExtractionRule {
+    ExtractionRule {
         selector: selector.clone(),
         additional_selectors: vec![],
         extract: ExtractionKind::Text,
         cardinality: ExtractionCardinality::All,
-    };
-
-    rule.apply(html).ok()
+    }
 }
 
 /// Compiles a removed-page regex. Rejects empty and invalid patterns, and patterns

@@ -5,6 +5,10 @@ use crate::review::model::{
     SchemaReviewPageInput,
 };
 use crate::review::repository::CrawlerReviewRepository;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::removed_page_schema_repository::{
+    RemovedPageSchemaRepository as _, RemovedPageSchemaRepositoryImpl,
+};
 use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
 use crate::scraper::scraper_service::{ScrapedProduct, ScraperError};
 use serde_json::json;
@@ -214,7 +218,7 @@ async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_re
     );
     let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
     repository
-        .reject_review(rejected, Some("not a product page"), false)
+        .reject_review(rejected, Some("not a product page"))
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     let mut candidates = MockScraperCandidateService::new();
@@ -330,6 +334,106 @@ async fn should_attach_failing_page_without_generation_when_authoring_is_auto() 
     assert_failing_page_waits_on_pending_schema_review(CrawlerAuthoringMode::Auto).await;
 }
 
+fn fetcher_returning_once(html: String) -> MockHtmlFetcher {
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let html = html.clone();
+        Box::pin(async move { Ok(fetch_result(html)) })
+    });
+    fetcher
+}
+
+fn missing_required_value(result: Result<Option<ScrapedProduct>, ScraperError>) -> String {
+    match result {
+        Err(ScraperError::MissingRequiredValue { findings, .. }) => findings.to_string(),
+        Err(error) => panic!("expected a missing required value, got {error}"),
+        Ok(_) => panic!("expected a missing required value, got a scraped product"),
+    }
+}
+
+/// A product page that names no item opens no review an operator could only reject, which
+/// would classify the product as a non-product page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_no_manual_review_when_the_cached_schema_finds_an_empty_title_element() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let service = scraper_with_review_gate(
+        fetcher_returning_once(untitled_html()),
+        schema_service_without_generation(Some(cached_schemas(id, vec![item_title_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let result = service.scrape(primary_only_request(&id, &url)).await.result;
+
+    assert_eq!(missing_required_value(result), "`title` is blank");
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
+        None
+    );
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_not_wait_on_pending_review_when_the_cached_schema_finds_an_empty_title_element() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let review_id = open_pending_schema_review(&repository, &id).await;
+    let service = scraper_with_review_gate(
+        fetcher_returning_once(untitled_html()),
+        schema_service_without_generation(Some(cached_schemas(id, vec![item_title_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let result = service.scrape(primary_only_request(&id, &url)).await.result;
+
+    assert_eq!(missing_required_value(result), "`title` is blank");
+    let pages = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read review pages: {error}"));
+    assert!(pages.iter().all(|page| page.role != PAGE_ROLE_WAITING_PAGE));
+}
+
+/// An empty title is no reason to skip schema work when the cached schema also captures
+/// something other than the product's values from the page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_manual_review_when_an_empty_title_element_comes_with_another_implausible_value()
+ {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let page = untitled_html().replace(
+        r#"<span id="state">Request for more info</span>"#,
+        r#"<span id="state">Sold .badge { color: red; }</span>"#,
+    );
+    let service = scraper_with_review_gate(
+        fetcher_returning_once(page),
+        schema_service_without_generation(Some(cached_schemas(id, vec![item_title_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let result = service.scrape(primary_only_request(&id, &url)).await.result;
+
+    let review = repository
+        .get_review(pending_review_id(result))
+        .await
+        .unwrap_or_else(|error| panic!("read manual review: {error}"));
+    assert_eq!(review.review.reason, MANUAL_SCHEMA_REASON);
+}
+
 /// The schema cache serves `stale` on the first read and `approved` on every later one, as when a
 /// review is approved while the page is scraped. Generation fails the test.
 fn schema_service_approving_during_scrape(
@@ -397,4 +501,331 @@ async fn should_use_schemas_approved_during_scrape_when_authoring_is_manual() {
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_use_schemas_approved_during_scrape_when_authoring_is_review() {
     assert_page_uses_schemas_approved_during_scrape(CrawlerAuthoringMode::Review).await;
+}
+
+async fn product_schema_review_count(pool: &PgPool, listing_source_id: &ListingSourceId) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM crawler_reviews \
+         WHERE listing_source_id = $1 AND artifact_type = 'PRODUCT_SCHEMA'",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("count product-schema reviews: {error}"))
+}
+
+/// A needs-repair verdict keeps the review pending: its triggering page and every other failing
+/// page wait on it again, and the reviewer's candidate edits survive the next scrapes.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_keep_needs_repair_review_and_its_candidate_edits_when_its_pages_are_scraped_again()
+{
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let other_url = Url::parse("https://example.com/products/other-template").unwrap();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let scraper = |page_url: &Url| {
+        scraper_with_review_gate(
+            fetcher_returning_sample_page_at(page_url, 1),
+            schema_service_without_generation(Some(cached_schemas(id, vec![stale_schema()]))),
+            repository.clone(),
+            MockScraperCandidateService::new(),
+            CrawlerAuthoringMode::Manual,
+        )
+    };
+    let review_id = pending_review_id(
+        scraper(&url)
+            .scrape(primary_only_request(&id, &url))
+            .await
+            .result,
+    );
+    let mut edited_schema = minimal_schema();
+    edited_schema.title.selector = CssSelector::from("h1.reviewer-edit");
+    let edited_candidate = json!({ "schemas": [edited_schema] });
+    repository
+        .update_candidate_payload(review_id, edited_candidate.clone())
+        .await
+        .unwrap_or_else(|error| panic!("edit candidate: {error}"));
+    repository
+        .request_repair(
+            review_id,
+            Some("  title selector misses the sold variant  "),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("request repair: {error}"));
+
+    for page_url in [&url, &other_url] {
+        let result = scraper(page_url)
+            .scrape(primary_only_request(&id, page_url))
+            .await
+            .result;
+        assert_eq!(pending_review_id(result), review_id);
+    }
+
+    let review = repository
+        .get_review(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read review: {error}"));
+    assert_eq!(review.review.status, "PENDING_REVIEW");
+    assert_eq!(review.review.candidate_payload, edited_candidate);
+    assert_eq!(
+        review
+            .review
+            .repair_request
+            .map(|request| request.note)
+            .as_deref(),
+        Some("title selector misses the sold variant")
+    );
+    let waiting_pages = review
+        .pages
+        .iter()
+        .filter(|page| page.role == PAGE_ROLE_WAITING_PAGE)
+        .map(|page| page.url.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(waiting_pages, vec![other_url.as_str()]);
+    assert_eq!(product_schema_review_count(&pool, &id).await, 1);
+}
+
+/// A sold item the shop keeps at HTTP 200 with a notice and no product markup.
+const REMOVAL_NOTICE_HTML: &str = r#"<!DOCTYPE html><html><body><main>
+    <h1>Biedermeier Chair</h1><p class="notice">This item is no longer available</p>
+    </main></body></html>"#;
+
+/// The candidate a reviewer saves to declare the notice page removed: the cached schemas kept
+/// as they are, plus a selector-bound template for the notice.
+fn candidate_declaring_the_notice_page_removed() -> serde_json::Value {
+    json!({
+        "schemas": [minimal_schema()],
+        "removed_page_schemas": [{ "selector": "p.notice", "text": "no longer available" }],
+    })
+}
+
+fn manual_scraper_with_removed_page_templates(
+    pool: &PgPool,
+    html: &'static str,
+    cached: ListingSourceProductSchema,
+    repository: CrawlerReviewRepository,
+) -> ScraperServiceImpl {
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher
+        .expect_fetch()
+        .once()
+        .returning(move |_| Box::pin(async move { Ok(fetch_result(html.to_owned())) }));
+    let pool: &'static PgPool = Box::leak(Box::new(pool.clone()));
+    scraper_with_review_gate(
+        fetcher,
+        schema_service_without_generation(Some(cached)),
+        repository,
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    )
+    .with_removed_page_schema_repository(Box::new(RemovedPageSchemaRepositoryImpl::new(pool)))
+}
+
+/// Opens the manual review for the notice page, declares the page removed on it and approves.
+async fn approve_removed_page_template_for_notice_page(
+    pool: &PgPool,
+    id: &ListingSourceId,
+    repository: &CrawlerReviewRepository,
+) -> crate::CrawlerReviewId {
+    let opening = manual_scraper_with_removed_page_templates(
+        pool,
+        REMOVAL_NOTICE_HTML,
+        cached_schemas(*id, vec![minimal_schema()]),
+        repository.clone(),
+    );
+    let review_id = pending_review_id(
+        opening
+            .scrape(primary_only_request(id, &product_url()))
+            .await
+            .result,
+    );
+    repository
+        .update_candidate_payload(review_id, candidate_declaring_the_notice_page_removed())
+        .await
+        .unwrap_or_else(|error| panic!("declare the page removed: {error}"));
+    repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap_or_else(|error| panic!("approve the removed-page template: {error}"));
+    review_id
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_capture_a_notice_page_as_removed_once_its_review_approves_a_template() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    let rescraping = manual_scraper_with_removed_page_templates(
+        &pool,
+        REMOVAL_NOTICE_HTML,
+        cached_schemas(id, vec![minimal_schema()]),
+        repository.clone(),
+    );
+
+    let result = rescraping
+        .scrape(primary_only_request(&id, &product_url()))
+        .await
+        .result;
+
+    assert!(
+        matches!(result, Err(ScraperError::ProductListingRemoved { .. })),
+        "expected the verified removal that becomes the raw delete capture, got {result:?}"
+    );
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
+        None,
+        "the notice page must open no second review"
+    );
+    let stored = RemovedPageSchemaRepositoryImpl::new(&pool)
+        .find_removed_page_schema(&id)
+        .await
+        .unwrap_or_else(|error| panic!("read removed-page templates: {error}"))
+        .map(|row| row.removed_page_schemas);
+    assert_eq!(
+        stored,
+        Some(vec![RemovedPageSchema {
+            selector: CssSelector::from("p.notice"),
+            text: Some("no longer available".to_owned()),
+            regex: None,
+        }])
+    );
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_scrape_a_product_page_the_approved_template_matches_while_a_cached_schema_extracts_it()
+ {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    let product_with_a_sold_related_item: &'static str = Box::leak(
+        sample_html()
+            .replace(
+                "</main>",
+                r#"<aside><p class="notice">This item is no longer available</p></aside></main>"#,
+            )
+            .into_boxed_str(),
+    );
+    let service = manual_scraper_with_removed_page_templates(
+        &pool,
+        product_with_a_sold_related_item,
+        cached_schemas(id, vec![minimal_schema()]),
+        repository,
+    );
+
+    let result = service
+        .scrape(primary_only_request(&id, &product_url()))
+        .await
+        .result;
+
+    let scraped = result.unwrap_or_else(|error| panic!("expected a scraped product: {error}"));
+    assert!(
+        scraped.is_some(),
+        "the cached schema's product must win over the template"
+    );
+}
+
+/// Opens a review on a ListingSource whose notice page is captured as removed, saves
+/// `removed_page_schemas` in place of the stored templates the candidate opened with, and
+/// approves.
+async fn approve_reviewed_removed_page_templates(
+    id: &ListingSourceId,
+    repository: &CrawlerReviewRepository,
+    removed_page_schemas: serde_json::Value,
+) {
+    let review_id = open_pending_schema_review(repository, id).await;
+    let opened = repository
+        .get_review(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read the review: {error}"));
+    assert_eq!(
+        opened.review.candidate_payload["removed_page_schemas"],
+        candidate_declaring_the_notice_page_removed()["removed_page_schemas"],
+        "the review must open with the stored template"
+    );
+    repository
+        .update_candidate_payload(
+            review_id,
+            json!({
+                "schemas": [minimal_schema()],
+                "removed_page_schemas": removed_page_schemas,
+            }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("edit the stored templates: {error}"));
+    repository
+        .approve_review(review_id, None)
+        .await
+        .unwrap_or_else(|error| panic!("approve the edited templates: {error}"));
+}
+
+async fn scrape_notice_page(
+    pool: &PgPool,
+    id: &ListingSourceId,
+    repository: &CrawlerReviewRepository,
+    html: &'static str,
+) -> Result<Option<ScrapedProduct>, ScraperError> {
+    manual_scraper_with_removed_page_templates(
+        pool,
+        html,
+        cached_schemas(*id, vec![minimal_schema()]),
+        repository.clone(),
+    )
+    .scrape(primary_only_request(id, &product_url()))
+    .await
+    .result
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_stop_capturing_a_notice_page_as_removed_once_a_review_retires_its_template() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+
+    approve_reviewed_removed_page_templates(&id, &repository, json!([])).await;
+    let result = scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
+
+    assert!(
+        matches!(result, Err(ScraperError::PendingSchemaReview { .. })),
+        "a page no template matches must wait on a schema review, got {result:?}"
+    );
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_match_what_the_edited_template_declares_once_a_review_edits_it() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    const WITHDRAWN_NOTICE_HTML: &str = r#"<!DOCTYPE html><html><body><main>
+    <h1>Biedermeier Chair</h1><p class="notice">This item was withdrawn from sale</p>
+    </main></body></html>"#;
+
+    approve_reviewed_removed_page_templates(
+        &id,
+        &repository,
+        json!([{ "selector": "p.notice", "text": "withdrawn from sale" }]),
+    )
+    .await;
+    let withdrawn = scrape_notice_page(&pool, &id, &repository, WITHDRAWN_NOTICE_HTML).await;
+    let no_longer_available =
+        scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
+
+    assert!(
+        matches!(withdrawn, Err(ScraperError::ProductListingRemoved { .. })),
+        "the edited template must capture its notice page as removed, got {withdrawn:?}"
+    );
+    assert!(
+        matches!(
+            no_longer_available,
+            Err(ScraperError::PendingSchemaReview { .. })
+        ),
+        "the notice the template no longer declares must not be captured as removed, got {no_longer_available:?}"
+    );
 }

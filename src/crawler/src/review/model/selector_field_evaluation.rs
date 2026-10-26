@@ -22,17 +22,24 @@ pub struct SelectorFieldEvaluation {
     /// `images` rule failed the page, for example by skipping every element.
     #[serde(default)]
     pub skipped_element_count: Option<usize>,
+    /// Elements a text rule's selectors matched that hold no visible text, summed over the
+    /// primary and additional selectors; `0` for every other rule, whose match counts
+    /// include every element. When no element with a value matched, a count above zero
+    /// tells a page that leaves the field empty from a selector that matched nothing.
+    #[serde(default)]
+    pub empty_element_count: usize,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A matrix cached before the `images` rule skipped elements has no
-    /// `skipped_element_count`. It still loads: an `images` rule that applied then had no
-    /// element to skip, and one that failed the page reports no count either.
+    /// A matrix cached before the `images` rule skipped elements, or before empty elements
+    /// were counted, has neither count. It still loads: an `images` rule that applied then
+    /// had no element to skip, one that failed the page reports no count either, and an
+    /// unknown empty-element count reads as none.
     #[test]
-    fn should_load_a_cached_field_evaluation_without_skipped_element_count() {
+    fn should_load_a_cached_field_evaluation_without_skipped_or_empty_element_counts() {
         let field = serde_json::json!({
             "field": "images",
             "selector": "#gallery a",
@@ -46,5 +53,6 @@ mod tests {
             .expect("a cached field evaluation without the count must load");
 
         assert_eq!(field.skipped_element_count, None);
+        assert_eq!(field.empty_element_count, 0);
     }
 }

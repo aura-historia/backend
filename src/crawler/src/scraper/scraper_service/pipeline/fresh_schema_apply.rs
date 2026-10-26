@@ -2,8 +2,9 @@ use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, Raw
 use crate::scraper::css_selector::product_schema_service::{
     GeneratedSingleSchema, SchemaLlmEvaluation,
 };
-use crate::scraper::css_selector::removed_page_schema::ListingSourceRemovedPageSchema;
-use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::removed_page_schema::{
+    ListingSourceRemovedPageSchema, RemovedPageSchema, extend_with_new_removed_page_schemas,
+};
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
@@ -129,9 +130,7 @@ impl ScraperServiceImpl {
         match existing {
             Some(existing) => {
                 let mut schemas = existing.removed_page_schemas;
-                if !schemas.contains(&schema) {
-                    schemas.push(schema);
-                }
+                extend_with_new_removed_page_schemas(&mut schemas, [schema]);
                 self.removed_page_schema_repository
                     .update_removed_page_schema(listing_source_id, &schemas)
                     .await

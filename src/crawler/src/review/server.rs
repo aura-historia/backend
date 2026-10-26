@@ -492,6 +492,7 @@ impl ReviewServer {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
                 Err(err @ ReviewRepositoryError::InvalidUrlPatternCandidate)
                 | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
+                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
                 }
@@ -514,7 +515,7 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .reject_review(review_id, payload.notes.as_deref(), false)
+                .reject_review(review_id, payload.notes.as_deref())
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
@@ -537,10 +538,14 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .reject_review(review_id, payload.notes.as_deref(), true)
+                .request_repair(review_id, payload.notes.as_deref())
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+                Err(err @ ReviewRepositoryError::MissingRepairNote)
+                | Err(err @ ReviewRepositoryError::NotPending(_)) => {
+                    HttpResponse::json(400, &json!({ "error": err.to_string() }))
+                }
                 Err(err) => internal_error(err),
             };
         }
@@ -572,11 +577,13 @@ impl ReviewServer {
                 Err(err @ ReviewRepositoryError::InvalidSchemaField(_))
                 | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
                 | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
+                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
                 | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
                 }
-                Err(err @ ReviewRepositoryError::StaleApprovedReview(_)) => {
+                Err(err @ ReviewRepositoryError::StaleApprovedReview(_))
+                | Err(err @ ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)) => {
                     HttpResponse::json(409, &json!({ "error": err.to_string() }))
                 }
                 Err(err) => internal_error(err),
@@ -606,11 +613,13 @@ impl ReviewServer {
                 | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
                 | Err(err @ ReviewRepositoryError::InvalidUrlPatternCandidate)
                 | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
+                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
                 | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
                 }
-                Err(err @ ReviewRepositoryError::StaleApprovedReview(_)) => {
+                Err(err @ ReviewRepositoryError::StaleApprovedReview(_))
+                | Err(err @ ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)) => {
                     HttpResponse::json(409, &json!({ "error": err.to_string() }))
                 }
                 Err(err) => internal_error(err),
@@ -1937,7 +1946,7 @@ Origin: http://127.0.0.1:7878/x
             }
         }
 
-        fn schema(title_selector: &str) -> ProductCssSelectorSchema {
+        pub(super) fn schema(title_selector: &str) -> ProductCssSelectorSchema {
             ProductCssSelectorSchema {
                 source_listing_id: Some(rule("span.id", ExtractionKind::Text)),
                 title: rule(title_selector, ExtractionKind::Text),
@@ -2167,6 +2176,116 @@ Origin: http://127.0.0.1:7878/x
                 pages.iter().all(|page| page["apply_ok"] == json!(false)),
                 "the edited `h2` title selector matches none of the fetched pages: {stored}"
             );
+        }
+    }
+
+    mod needs_repair {
+        use super::matrix_refresh::schema;
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use crate::review::repository::CrawlerReviewRepository;
+        use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use std::net::SocketAddr;
+        use std::sync::Arc;
+        use test_api::IntegrationTestService as _;
+
+        const TOKEN: &str = "review-token";
+
+        /// Sends an authorized request and returns its status line and JSON body.
+        async fn send(
+            server: &ReviewServer,
+            request: &str,
+            body: &str,
+        ) -> (String, serde_json::Value) {
+            let response = server
+                .route(&format!(
+                    "{request} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\n\r\n{body}"
+                ))
+                .await
+                .to_string();
+            let (head, json) = response
+                .split_once("\r\n\r\n")
+                .unwrap_or_else(|| panic!("response without body: {response}"));
+            let status = head.lines().next().unwrap_or_default().to_owned();
+            let json = serde_json::from_str(json)
+                .unwrap_or_else(|error| panic!("response body is not JSON ({error}): {response}"));
+            (status, json)
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_show_the_repair_note_on_the_review_api_and_refuse_a_blank_note() {
+            let pool = test_api::get_postgres_client().await;
+            let listing_source_id = ListingSourceId::new();
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                 (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+                 VALUES ($1, 'Repair source', 'repair-source', TRUE, NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert listing source: {error}"));
+            let repository = CrawlerReviewRepository::new(pool);
+            let review_id = repository
+                .create_schema_review(
+                    &listing_source_id,
+                    "manual_schema_required",
+                    &[schema("h1")],
+                    vec![],
+                    json!({}),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("create schema review: {error}"));
+            let server = ReviewServer::new(
+                repository,
+                Arc::new(RejectingDomainAdministration),
+                ReviewServerConfig {
+                    bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                    auth_token: Some(TOKEN.to_owned()),
+                    local_mutations_without_token: false,
+                },
+                Arc::new(MockHtmlFetcher::new()),
+            );
+            let needs_repair = format!("POST /api/reviews/{review_id}/needs-repair");
+
+            for blank in ["", r#"{"notes": null}"#, r#"{"notes": " \n "}"#] {
+                let (status, body) = send(&server, &needs_repair, blank).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{blank}: {status} {body}"
+                );
+            }
+            let (status, body) = send(
+                &server,
+                &needs_repair,
+                r#"{"notes": " title misses sold pages "}"#,
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {body}");
+
+            let (status, detail) =
+                send(&server, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {detail}");
+            let review = &detail["review"];
+            assert_eq!(review["status"], "PENDING_REVIEW");
+            assert_eq!(review["repair_request"]["note"], "title misses sold pages");
+            assert!(
+                review["repair_request"]["requested"].is_string(),
+                "{review}"
+            );
+            let (_, queue) = send(&server, "GET /api/reviews", "").await;
+            assert_eq!(queue[0]["repair_request"], review["repair_request"]);
+
+            let (status, body) = send(
+                &server,
+                &format!("POST /api/reviews/{review_id}/reject"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {body}");
+            let (status, body) = send(&server, &needs_repair, r#"{"notes": "too late"}"#).await;
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {body}");
         }
     }
 }

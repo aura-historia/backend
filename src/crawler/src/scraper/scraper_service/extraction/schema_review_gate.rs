@@ -141,6 +141,7 @@ fn with_schema_matrix_summary(
                     "field": field.field,
                     "selector": field.selector,
                     "selector_match_count": field.selector_match_count,
+                    "empty_element_count": field.empty_element_count,
                     "present_but_missing_rule": selector_missing,
                     "error": field.error,
                 });
@@ -242,6 +243,7 @@ mod tests {
     fn should_record_present_but_missing_rule_failures_in_validation_summary() {
         let matrix = SchemaMatrix {
             review_id: None,
+            removed_page_matches: Vec::new(),
             candidates: vec![SchemaCandidateEvaluation {
                 schema_index: 0,
                 pages: vec![SchemaPageEvaluation {
@@ -253,6 +255,7 @@ mod tests {
                     error: Some("failed to extract `title`".to_string()),
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "title".to_string(),
                         selector: "h1.product".to_string(),
@@ -261,6 +264,7 @@ mod tests {
                         error: None,
                         required: true,
                         skipped_element_count: None,
+                        empty_element_count: 0,
                     }],
                 }],
             }],
@@ -359,7 +363,8 @@ mod tests {
                         "field": "title",
                         "check": "REPEATED_ACROSS_PAGES",
                         "values": ["Sold items - Navarro"]
-                    }]
+                    }],
+                    "identity_agreement_findings": []
                 },
                 {
                     "schema_index": 0,
@@ -371,7 +376,8 @@ mod tests {
                         "field": "title",
                         "check": "REPEATED_ACROSS_PAGES",
                         "values": ["Sold items - Navarro"]
-                    }]
+                    }],
+                    "identity_agreement_findings": []
                 }
             ])
         );
@@ -459,6 +465,7 @@ mod tests {
     fn should_not_report_miss_when_an_additional_selector_matches() {
         let matrix = SchemaMatrix {
             review_id: None,
+            removed_page_matches: Vec::new(),
             candidates: vec![SchemaCandidateEvaluation {
                 schema_index: 0,
                 pages: vec![SchemaPageEvaluation {
@@ -470,6 +477,7 @@ mod tests {
                     error: None,
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "description".to_string(),
                         selector: "div.titre + p".to_string(),
@@ -478,6 +486,7 @@ mod tests {
                         error: None,
                         required: false,
                         skipped_element_count: None,
+                        empty_element_count: 0,
                     }],
                 }],
             }],
@@ -499,6 +508,7 @@ mod tests {
     fn should_not_record_missing_images_as_present_but_missing_rule_failure() {
         let matrix = SchemaMatrix {
             review_id: None,
+            removed_page_matches: Vec::new(),
             candidates: vec![SchemaCandidateEvaluation {
                 schema_index: 0,
                 pages: vec![SchemaPageEvaluation {
@@ -510,6 +520,7 @@ mod tests {
                     error: None,
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
+                    identity_agreement_findings: Default::default(),
                     fields: vec![SelectorFieldEvaluation {
                         field: "images".to_string(),
                         selector: "#gallery img".to_string(),
@@ -518,6 +529,7 @@ mod tests {
                         error: None,
                         required: false,
                         skipped_element_count: Some(0),
+                        empty_element_count: 0,
                     }],
                 }],
             }],

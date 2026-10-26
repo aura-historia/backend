@@ -59,6 +59,48 @@ impl RemovedPageSchemaRepository for NullRemovedPageSchemaRepository {
     }
 }
 
+/// Locks and reads the ListingSource's stored removed-page templates for the rest of the
+/// caller's transaction, or `None` when it stores none. A stored row that no longer decodes
+/// fails the read.
+pub(crate) async fn lock_stored_removed_page_schemas(
+    connection: &mut sqlx::PgConnection,
+    listing_source_id: &ListingSourceId,
+) -> Result<Option<Vec<RemovedPageSchema>>, sqlx::Error> {
+    sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT removed_page_schema FROM listing_source_removed_page_schemas
+         WHERE listing_source_id = $1
+         FOR UPDATE",
+    )
+    .bind(Uuid::from(*listing_source_id))
+    .fetch_optional(&mut *connection)
+    .await?
+    .map(serde_json::from_value)
+    .transpose()
+    .map_err(|e| sqlx::Error::Decode(Box::new(e)))
+}
+
+/// Stores `removed_page_schemas` as the ListingSource's removed-page templates inside the
+/// caller's transaction, replacing the stored list.
+pub(crate) async fn store_removed_page_schemas(
+    connection: &mut sqlx::PgConnection,
+    listing_source_id: &ListingSourceId,
+    removed_page_schemas: &[RemovedPageSchema],
+) -> Result<(), sqlx::Error> {
+    let schema_json =
+        serde_json::to_value(removed_page_schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+    sqlx::query(
+        "INSERT INTO listing_source_removed_page_schemas (listing_source_id, removed_page_schema, created, updated)
+         VALUES ($1, $2, NOW(), NOW())
+         ON CONFLICT (listing_source_id) DO UPDATE
+         SET removed_page_schema = EXCLUDED.removed_page_schema, updated = NOW()",
+    )
+    .bind(Uuid::from(*listing_source_id))
+    .bind(schema_json)
+    .execute(&mut *connection)
+    .await?;
+    Ok(())
+}
+
 pub struct RemovedPageSchemaRepositoryImpl<'a> {
     pool: &'a PgPool,
 }

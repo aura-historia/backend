@@ -7,6 +7,7 @@ let selectedField = 'title';
 let selectedPageId = null;
 let activeWorkbenchPanel = 'selector';
 let pickedSelector = '';
+let removedPageTemplateRefusal = null;
 let dirty = false;
 let selectedReviewUpdatedAt = null;
 let selectedReviewStatus = null;
@@ -215,6 +216,7 @@ function renderReviewQueueItem(r) {
       <div class="queue-row">
         <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
         ${statusBadge(r.status)}
+        ${isWaitingForRepair(r) ? statusBadge('Waiting for repair') : ''}
       </div>
       <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
       ${evaluation ? `<div class="queue-meta">${statusBadge(evaluation.approved_by_llm ? 'LLM approved' : 'LLM not approved')} ${statusBadge(evaluation.confidence || 'unknown confidence')}</div>` : ''}
@@ -286,6 +288,7 @@ function renderDetail(detail, matrix) {
           <div class="review-title">
             <strong>${escapeHtml(review.listing_source_name || review.listing_source_id)}</strong>
             ${statusBadge(review.status)}
+            ${isWaitingForRepair(review) ? statusBadge('Waiting for repair') : ''}
             ${statusBadge(review.artifact_type)}
           </div>
           <div class="review-meta">
@@ -296,6 +299,7 @@ function renderDetail(detail, matrix) {
         </div>
         ${renderApprovalPanel(review)}
       </div>
+      ${renderRepairRequest(review)}
       ${renderAutoSchemaEvaluation(review)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`;
@@ -315,6 +319,25 @@ function renderApprovalPanel(review) {
       <button class="primary" onclick="approveReview()">Approve</button>
       <button class="danger" onclick="rejectReview()">Reject</button>
       <button onclick="needsRepair()">Needs repair</button>
+    </div>`;
+}
+
+function isWaitingForRepair(review) {
+    return review?.status === 'PENDING_REVIEW' && Boolean(review.repair_request);
+}
+
+function renderRepairRequest(review) {
+    const request = review?.repair_request;
+    if (!request) return '';
+    const title = isWaitingForRepair(review) ? 'Waiting for repair' : 'Repair requested';
+    return `<div class="review-card repair-request-card">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>${title}</strong>
+          <span class="muted">${escapeHtml(request.note)}</span>
+        </div>
+        ${timeBadge(request.requested, 'Repair requested')}
+      </div>
     </div>`;
 }
 
@@ -448,6 +471,7 @@ function renderSchemaWorkbench(detail, matrix) {
           ${workbenchTab('selector', 'Selector')}
           ${workbenchTab('data', 'Extracted Data')}
           ${workbenchTab('diff', 'Schema Diff')}
+          ${workbenchTab('removed', `Removed Page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
           ${workbenchTab('json', 'JSON')}
         </div>
         ${renderWorkbenchPanel(detail, matrix, schemas)}
@@ -478,6 +502,7 @@ function workbenchTab(key, label) {
 function renderWorkbenchPanel(detail, matrix, schemas) {
     if (activeWorkbenchPanel === 'data') return renderDataPanel(matrix);
     if (activeWorkbenchPanel === 'diff') return renderDiffPanel(schemas);
+    if (activeWorkbenchPanel === 'removed') return renderRemovedPagePanel(detail, matrix);
     if (activeWorkbenchPanel === 'json') return renderJsonPanel(detail);
     return renderSelectorPanel(schemas, matrix);
 }
@@ -627,6 +652,166 @@ function renderDiffPanel(schemas) {
     </div>`;
 }
 
+// Removed-page templates for pages a shop serves at HTTP 200 with a removal notice and no
+// product markup. The list opens with the ListingSource's stored templates and approval
+// replaces them with it; the matrix shows which review pages they match.
+function currentRemovedPageTemplates() {
+    return (((selectedDetail.review || {}).candidate_payload || {}).removed_page_schemas) || [];
+}
+
+function removedPageTemplatesEditable(detail) {
+    return detail.review.status === 'PENDING_REVIEW';
+}
+
+function renderRemovedPagePanel(detail, matrix) {
+    const editable = removedPageTemplatesEditable(detail);
+    const disabled = editable ? '' : 'disabled';
+    const templates = currentRemovedPageTemplates();
+    return `<div class="tab-panel">
+      <div class="panel-title">
+        <strong>Removed-page templates</strong>
+        <span class="muted">${editable
+            ? 'Declare a page removed: a selector bound to the removal notice, with text it contains or a regex. A regex that matches any text is rejected. The list starts from the stored templates; approval replaces them with it, so removing a template here retires it.'
+            : detail.review.status === 'APPROVED'
+                ? 'Stored when the review was approved; edit or retire templates on a pending review.'
+                : 'This review is closed without approval; it did not change the stored templates.'}</span>
+      </div>
+      ${templates.map((template, index) => renderRemovedPageTemplate(template, index, disabled)).join('')
+        || '<div class="muted">No removed-page template.</div>'}
+      <div class="actions">
+        <button ${disabled} onclick="addRemovedPageTemplate()" title="Starts from the clicked element when one is picked">Add template</button>
+        <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>
+        <button ${disabled} onclick="discardEdits()">Discard edits</button>
+      </div>
+      ${renderRemovedPageTemplateRefusal()}
+      <div class="picked" id="pickedElement">${pickedSelector ? `<strong>${escapeHtml(pickedSelector)}</strong>` : 'No element picked yet.'}</div>
+      <h3>Matched review pages</h3>
+      ${renderRemovedPageMatches(matrix, templates)}
+    </div>`;
+}
+
+function renderRemovedPageTemplate(template, index, disabled) {
+    const mode = template.regex !== undefined && template.regex !== null ? 'regex' : 'text';
+    const value = mode === 'regex' ? template.regex : (template.text || '');
+    return `<div class="field-grid removed-page-template">
+      <label>Template ${index + 1} selector
+        <input ${disabled} value="${escapeHtmlAttr(template.selector || '')}" oninput="setRemovedPageTemplate(${index}, {selector: this.value})">
+      </label>
+      <label>Match
+        <select ${disabled} onchange="setRemovedPageTemplateMode(${index}, this.value)">
+          <option value="text" ${mode === 'text' ? 'selected' : ''}>Text</option>
+          <option value="regex" ${mode === 'regex' ? 'selected' : ''}>Regex</option>
+        </select>
+      </label>
+      <label>${mode === 'regex' ? 'Regex' : 'Notice text'}
+        <input ${disabled} value="${escapeHtmlAttr(value)}" oninput="setRemovedPageTemplateValue(${index}, this.value)">
+      </label>
+      <div class="actions">
+        <button onclick="postHighlight(currentRemovedPageTemplates()[${index}].selector, 'Removed notice', '#dc2626')">Highlight</button>
+        <button ${disabled} onclick="usePickedForRemovedPageTemplate(${index})">Use clicked element</button>
+        <button ${disabled} onclick="removeRemovedPageTemplate(${index})">Remove</button>
+      </div>
+    </div>`;
+}
+
+// Mirrors `removed_page_matches` in the schema matrix: the review pages the templates match,
+// and whether the scraper would capture each as removed or keep scraping it as a product
+// because a candidate schema still extracts it.
+function renderRemovedPageMatches(matrix, templates) {
+    if (!templates.length) return '<div class="muted">Declare a template to see the pages it matches.</div>';
+    if (dirty) return '<div class="muted">Save the templates to evaluate them on the review pages.</div>';
+    const matches = (matrix && matrix.removed_page_matches) || [];
+    if (!matches.length) return '<div class="muted">No review page matches the templates.</div>';
+    return `<table>
+      <thead><tr><th>Page</th><th>Role</th><th>Outcome</th><th>Matched notices</th></tr></thead>
+      <tbody>${matches.map(match => `<tr>
+        <td>${productPageLink(match.url)}</td>
+        <td>${escapeHtml(match.role)}</td>
+        <td>${match.outcome === 'REMOVED'
+            ? statusBadge('Captured as removed')
+            : statusBadge('Scraped as a product: a candidate schema extracts it')}</td>
+        <td>${(match.templates || []).map(t => `Template ${t.template_index + 1}: ${escapeHtml((t.notices || []).join(' | '))}`).join('<br>')}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+// An emptied list stays in the payload as `[]`: the server keeps the candidate's templates when
+// the key is left out, so retiring the last template must send the empty list.
+function editRemovedPageTemplates(edit) {
+    const payload = schemasPayload();
+    payload.removed_page_schemas = payload.removed_page_schemas || [];
+    edit(payload.removed_page_schemas);
+    selectedDetail.review.candidate_payload = payload;
+    markDirty();
+}
+
+function setRemovedPageTemplate(index, changes) {
+    editRemovedPageTemplates(templates => Object.assign(templates[index], changes));
+}
+
+function setRemovedPageTemplateMode(index, mode) {
+    editRemovedPageTemplates(templates => {
+        const template = templates[index];
+        const value = template.regex ?? template.text ?? '';
+        delete template.text;
+        delete template.regex;
+        template[mode] = value;
+    });
+    rerenderWorkbench();
+}
+
+function setRemovedPageTemplateValue(index, value) {
+    editRemovedPageTemplates(templates => {
+        const template = templates[index];
+        if (template.regex !== undefined && template.regex !== null) template.regex = value;
+        else template.text = value;
+    });
+}
+
+function addRemovedPageTemplate() {
+    editRemovedPageTemplates(templates => templates.push({selector: pickedSelector || '', text: ''}));
+    rerenderWorkbench();
+}
+
+function usePickedForRemovedPageTemplate(index) {
+    if (!pickedSelector) return;
+    setRemovedPageTemplate(index, {selector: pickedSelector});
+    rerenderWorkbench();
+    postHighlight(pickedSelector, 'Removed notice', '#dc2626');
+}
+
+function removeRemovedPageTemplate(index) {
+    editRemovedPageTemplates(templates => templates.splice(index, 1));
+    rerenderWorkbench();
+}
+
+// The server validates templates under the generated contract; its refusal stays on the
+// panel with the unsaved edits so the reviewer can correct them.
+async function saveRemovedPageTemplates() {
+    const reviewId = selectedId;
+    removedPageTemplateRefusal = null;
+    try {
+        await saveCandidatePayload(schemasPayload());
+    } catch (error) {
+        removedPageTemplateRefusal = {reviewId, message: apiErrorMessage(error)};
+        rerenderWorkbench();
+    }
+}
+
+function renderRemovedPageTemplateRefusal() {
+    if (!removedPageTemplateRefusal || removedPageTemplateRefusal.reviewId !== selectedId) return '';
+    return `<div class="hint-card finding-hint"><span>${escapeHtml(removedPageTemplateRefusal.message)}</span></div>`;
+}
+
+function apiErrorMessage(error) {
+    const message = String((error && error.message) || error);
+    try {
+        return JSON.parse(message).error || message;
+    } catch (_) {
+        return message;
+    }
+}
+
 function renderJsonPanel(detail) {
     return `<div class="tab-panel">
       <div class="panel-title">
@@ -654,13 +839,15 @@ function renderCoverageSummary(matrix) {
       <strong>Coverage</strong>
       <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
       ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
+      ${renderSchemasApplyingToNoPage(matrix)}
       ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
       ${renderSkippedElementSummary(currentCandidatePagesWithSkippedElements(matrix))}
       ${renderPlausibilitySummary(matrix)}
     </div>`;
 }
 
-// Check codes of `plausibility_findings` and `cross_page_findings` in the schema matrix.
+// Check codes of `plausibility_findings`, `cross_page_findings` and
+// `identity_agreement_findings` in the schema matrix.
 const plausibilityCheckDescriptions = {
     BLANK: 'is blank',
     TOO_LONG: 'is longer than a label',
@@ -669,13 +856,19 @@ const plausibilityCheckDescriptions = {
     DUPLICATE_VALUES: 'repeats a value',
     INVALID_IDENTIFIER: 'is not a valid source listing id',
     WORD_LIST: 'is a list of words, not an identifier',
-    REPEATED_ACROSS_PAGES: 'repeats a value of another product page'
+    REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
+    DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
+    DIFFERS_FROM_CAPTURED_IDENTITY: 'differs from the identity the listing was captured under'
 };
 
-// The per-page and cross-page plausibility checks a matrix page failed. Any of them
-// keeps a generated schema out of auto-approval.
+// The per-page, cross-page and identity agreement checks a matrix page failed. Any of
+// them keeps a generated schema out of auto-approval.
 function pageFindings(page) {
-    return [...(page?.plausibility_findings || []), ...(page?.cross_page_findings || [])];
+    return [
+        ...(page?.plausibility_findings || []),
+        ...(page?.cross_page_findings || []),
+        ...(page?.identity_agreement_findings || [])
+    ];
 }
 
 function fieldFindings(page, field) {
@@ -698,6 +891,18 @@ function renderSharedValues(findings) {
     const values = findings.flatMap(finding => finding.values || []);
     if (!values.length) return '';
     return `<div class="muted">Also extracted from another product page: ${values.map(value => expandableValue(value)).join(', ')}</div>`;
+}
+
+// Identity agreement findings name the identities that contradict the extracted one: the
+// other schemas' on the same page, or the one the listing was captured under.
+function renderContradictingIdentities(findings) {
+    const values = findings
+        .filter(finding => finding.check === 'DIFFERS_FROM_OTHER_SCHEMAS' || finding.check === 'DIFFERS_FROM_CAPTURED_IDENTITY')
+        .flatMap(finding => (finding.values || []).map(value =>
+            `${finding.check === 'DIFFERS_FROM_CAPTURED_IDENTITY' ? 'captured' : 'other schema'}: ${expandableValue(value)}`
+        ));
+    if (!values.length) return '';
+    return `<div class="muted">Contradicting identities: ${values.join(', ')}</div>`;
 }
 
 function renderPlausibilitySummary(matrix) {
@@ -735,16 +940,18 @@ function renderOptionalMissSummary(pagesWithMisses) {
     if (!pagesWithMisses.length) return '';
     const pageWord = pagesWithMisses.length === 1 ? 'page' : 'pages';
     const perPage = pagesWithMisses.map(page => {
-        const fields = optionalFieldMisses(page).map(field => escapeHtml(displayName(field.field))).join(', ');
+        const fields = optionalFieldMisses(page).map(field =>
+            `${escapeHtml(displayName(field.field))}${matchedOnlyEmptyElements(field) ? ' (empty element)' : ''}`
+        ).join(', ');
         return `${escapeHtml(displayName(page.role))} (${fields})`;
     }).join('; ');
-    return `<div class="muted">Optional rules matched nothing (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
+    return `<div class="muted">Optional rules yielded no value (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
 }
 
 // Mirrors `optional_field_misses` in the persisted schema matrix summary: a soft
 // rule (not required, no selector error, not `images`, whose empty-container case is
 // decided by the page-level apply result) whose primary and additional selectors all
-// matched nothing on a page that still applied.
+// matched nothing with visible text on a page that still applied.
 function optionalFieldMisses(page) {
     if (!page?.apply_ok) return [];
     return (page.fields || []).filter(field =>
@@ -820,6 +1027,17 @@ function pageCovered(matrix, pageReference) {
     );
 }
 
+// Schemas that apply to no live review page. The reviewer retires a schema whose template the
+// shop no longer uses by deleting it from the candidate; another page of its template, added to
+// the review, shows whether it is still needed.
+function renderSchemasApplyingToNoPage(matrix) {
+    const unused = matrix.candidates
+        .filter(candidate => (candidate.pages || []).length && candidate.pages.every(page => !page.apply_ok))
+        .map(candidate => escapeHtml(schemaLabel(candidate.schema_index)));
+    if (!unused.length) return '';
+    return `<div class="muted">Applies to no live page: ${unused.join(', ')}. Add a page of its template, or delete the schema once the shop no longer uses that template.</div>`;
+}
+
 function currentCandidateFailures(matrix) {
     const candidate = selectedCandidate(matrix);
     if (!candidate) return [];
@@ -851,11 +1069,20 @@ function currentMatrixPage(matrix) {
     return candidate ? selectedMatrixPage(candidate) : null;
 }
 
+// A missed rule whose selectors found elements, all without visible text: the page leaves
+// the field empty where the rule expects it, rather than the rule not fitting the page.
+function matchedOnlyEmptyElements(field) {
+    return field.empty_element_count > 0;
+}
+
 function renderOptionalFieldMisses(misses) {
-    if (!misses.length) return '';
-    return `<div class="muted">Rule matched nothing, field left empty: ${
-        misses.map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code>`).join(', ')
-    }</div>`;
+    const fieldList = fields => fields
+        .map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code>`)
+        .join(', ');
+    const unmatched = misses.filter(field => !matchedOnlyEmptyElements(field));
+    const empty = misses.filter(matchedOnlyEmptyElements);
+    return (unmatched.length ? `<div class="muted">Rule matched nothing, field left empty: ${fieldList(unmatched)}</div>` : '')
+        + (empty.length ? `<div class="muted">Rule matched only empty elements, field left empty: ${fieldList(empty)}</div>` : '');
 }
 
 function selectedMatrixPage(candidate) {
@@ -881,7 +1108,7 @@ function rawDataCell(raw, page) {
             return `
       <div class="${findings.length ? 'implausible-field' : ''}">
         <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : ''}</dd>
+        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : renderContradictingIdentities(findings)}</dd>
       </div>`;
         }).join('')
     }</dl>`;
@@ -1241,9 +1468,11 @@ async function rejectReview() {
 }
 
 async function needsRepair() {
+    const notes = (prompt('What needs repair?') || '').trim();
+    if (!notes) return;
     await api(`/api/reviews/${selectedId}/needs-repair`, {
         method: 'POST',
-        body: JSON.stringify({notes: prompt('Repair notes') || null})
+        body: JSON.stringify({notes})
     });
     await loadReviews();
     await loadSelectedReview(false);
@@ -1306,6 +1535,7 @@ async function deleteCurrentSchema() {
 
 async function discardEdits() {
     dirty = false;
+    removedPageTemplateRefusal = null;
     await loadSelectedReview(false);
 }
 

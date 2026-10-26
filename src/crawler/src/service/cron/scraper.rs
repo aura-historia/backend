@@ -1,10 +1,12 @@
 use super::job::CrawlerCronJob;
+use crate::CrawlerReviewId;
 use crate::network::policy::{
     NetworkErrorKind, domain_cooldown, domain_failure_kind, durable_retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{
-    DomainCircuitOpenRequest, FetchFailureRequest, RedirectUrlMove, ScrapeCompletion,
-    ScraperCandidate, ScraperCandidateService, next_domain_failure_streak,
+    DomainCircuitOpenRequest, FetchFailureRequest, RedirectUrlMove, SchemaReviewWait,
+    SchemaReviewWaitRequest, ScrapeCompletion, ScraperCandidate, ScraperCandidateService,
+    next_domain_failure_streak,
 };
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
@@ -31,10 +33,18 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
 
-/// Retry cooldown applied to URLs whose scrape failed on schema generation, review or
-/// LLM-budget outcomes rather than on transport, so the next pass does not re-spend
-/// LLM budget on the same ListingSource.
+/// Retry cooldown applied to URLs whose scrape failed on schema generation, review,
+/// identity-conflict or LLM-budget outcomes rather than on transport, so the next pass
+/// neither re-spends LLM budget on the same ListingSource nor refetches a page that waits
+/// for the reviewer.
 const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
+/// Upper bound of the retry delay of a page that keeps waiting on the same pending
+/// product-schema review. Approval releases waiting pages at once; the bound keeps a page
+/// whose review closes another way from waiting much longer than a reviewer's working
+/// session.
+const SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY: Duration = Duration::from_secs(4 * 60 * 60);
+/// `last_error_kind` of a URL whose schema derived another identity than the captured one.
+const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
 
 /// Every scrape completion records its URL `ACTIVE`, sold pages included.
 /// `DORMANT_SOLD` is scheduled exactly like `ACTIVE`, so the scraper no longer writes
@@ -573,22 +583,12 @@ async fn handle_successful_scrape(
     scraped: ScrapedProduct,
 ) -> ScrapeCandidateOutcome {
     let url_moved = candidate.url != scraped.effective_url;
-    if candidate
+    if let Some(captured_identity) = candidate
         .last_source_listing_id
         .as_deref()
-        .is_some_and(|identity| identity != scraped.source_listing_id)
+        .filter(|identity| *identity != scraped.source_listing_id)
     {
-        warn!(
-            event = "crawler.product_url_move_rejected_identity_conflict",
-            listing_source_id = %candidate.listing_source_id,
-            url = %candidate.url,
-            source_identity = %scraped.source_listing_id,
-            "Rejecting scrape because crawler identity changed"
-        );
-        return ScrapeCandidateOutcome {
-            skipped: true,
-            ..Default::default()
-        };
+        return reject_identity_conflict(candidate, ctx, captured_identity, &scraped).await;
     }
     if url_moved {
         match ctx
@@ -698,6 +698,41 @@ async fn handle_successful_scrape(
             on_success: RawCaptureSuccessAction::MarkScraped(meta),
             on_failure: RawCaptureFailureAction::None,
         }),
+        ..Default::default()
+    }
+}
+
+/// A page whose schema derives another identity than the one its listing was captured
+/// under is not captured: the new identity would start a second listing. The conflict is
+/// a schema outcome the reviewer resolves, so the URL keeps it with the schema cooldown
+/// instead of being refetched on every scheduler pass.
+async fn reject_identity_conflict(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    captured_identity: &str,
+    scraped: &ScrapedProduct,
+) -> ScrapeCandidateOutcome {
+    warn!(
+        event = "crawler.product_url_move_rejected_identity_conflict",
+        listing_source_id = %candidate.listing_source_id,
+        url = %candidate.url,
+        captured_identity = %captured_identity,
+        source_identity = %scraped.source_listing_id,
+        "Rejecting scrape because crawler identity changed"
+    );
+    let error_message = format!(
+        "extracted source listing id `{}` differs from the captured `{captured_identity}`",
+        scraped.source_listing_id
+    );
+    persist_schema_retry_cooldown(
+        candidate,
+        ctx,
+        SOURCE_LISTING_ID_CONFLICT_ERROR_KIND,
+        &error_message,
+    )
+    .await;
+    ScrapeCandidateOutcome {
+        errored: true,
         ..Default::default()
     }
 }
@@ -938,6 +973,45 @@ fn log_domain_open_result(
     }
 }
 
+/// How a scrape error that is not an HTTP failure is recorded on its URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonHttpFailureRecord {
+    /// The page waits on this pending product-schema review: the URL is retried after a
+    /// delay that grows while it keeps waiting on the same review.
+    SchemaReviewWait(CrawlerReviewId),
+    /// Another schema-work outcome: the URL is retried after the schema cooldown.
+    SchemaRetryCooldown,
+    /// Any other failure: recorded without delaying the next scrape.
+    ScraperFailure,
+    /// The page was evaluated and has nothing to capture: the URL counts as scraped and
+    /// keeps the outcome until a later scrape completes, without a retry.
+    ScrapedWithoutCapture,
+}
+
+impl NonHttpFailureRecord {
+    fn of(error: &ScraperError) -> Self {
+        match error {
+            ScraperError::MissingRequiredValue { .. } => return Self::ScrapedWithoutCapture,
+            ScraperError::PendingSchemaReview { review_id, .. } => {
+                return Self::SchemaReviewWait(*review_id);
+            }
+            _ => {}
+        }
+        let schema_work_outcome = matches!(
+            error,
+            ScraperError::SchemaRegenerationExhausted { .. }
+                | ScraperError::FreshSchemaImplausible { .. }
+                | ScraperError::SchemaClassificationRejected { .. }
+                | ScraperError::LlmBudgetExceeded { .. }
+        ) || is_schema_generation_validation_failure(error);
+        if schema_work_outcome {
+            Self::SchemaRetryCooldown
+        } else {
+            Self::ScraperFailure
+        }
+    }
+}
+
 async fn persist_non_http_failure(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
@@ -945,53 +1019,161 @@ async fn persist_non_http_failure(
     error_message: &str,
 ) {
     let error_kind = scraper_error_kind(error);
-    let has_retry_cooldown = matches!(
-        error,
-        ScraperError::SchemaRegenerationExhausted { .. }
-            | ScraperError::FreshSchemaImplausible { .. }
-            | ScraperError::SchemaClassificationRejected { .. }
-            | ScraperError::LlmBudgetExceeded { .. }
-            | ScraperError::PendingSchemaReview { .. }
-    ) || is_schema_generation_validation_failure(error);
-    if has_retry_cooldown {
-        let next_retry_at = time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
-        persist_url_failure(
-            ctx,
-            FetchFailureRequest {
-                listing_source_id: candidate.listing_source_id,
-                url: candidate.url.clone(),
-                error_kind: error_kind.to_owned(),
-                error_message: error_message.to_owned(),
-                status_code: None,
-                next_retry_at,
-                expected_last_captured_raw_input_sha256: candidate
-                    .last_captured_raw_input_sha256
-                    .clone(),
-            },
-        )
-        .await;
-    } else {
-        match ctx
-            .scraper_candidates
-            .mark_scraper_failure(
-                &candidate.listing_source_id,
-                &candidate.url,
-                error_kind,
-                error_message,
-                candidate.last_captured_raw_input_sha256.as_deref(),
-            )
-            .await
-        {
-            Ok(CrawlerUrlWriteOutcome::Applied) => {}
-            Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
-                listing_source_id = %candidate.listing_source_id,
-                url = %candidate.url,
-                crawler_url_write_outcome = "stale_noop",
-                "Skipped stale crawler failure metadata"
-            ),
-            Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
+    match NonHttpFailureRecord::of(error) {
+        NonHttpFailureRecord::SchemaReviewWait(review_id) => {
+            persist_schema_review_wait(candidate, ctx, review_id, error_kind, error_message).await;
         }
+        NonHttpFailureRecord::SchemaRetryCooldown => {
+            persist_schema_retry_cooldown(candidate, ctx, error_kind, error_message).await;
+        }
+        NonHttpFailureRecord::ScraperFailure => {
+            persist_scraper_failure(candidate, ctx, error_kind, error_message).await;
+        }
+        NonHttpFailureRecord::ScrapedWithoutCapture => {
+            persist_scraped_without_capture(candidate, ctx, error_kind, error_message).await;
+        }
+    }
+}
+
+async fn persist_scraped_without_capture(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    outcome_kind: &str,
+    outcome_message: &str,
+) {
+    match ctx
+        .scraper_candidates
+        .mark_scraped_without_capture(
+            &candidate.listing_source_id,
+            &candidate.url,
+            outcome_kind,
+            outcome_message,
+            candidate.last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler scrape outcome"
+        ),
+        Err(error) => warn!(error = %error, "Failed to persist scraper outcome"),
+    }
+}
+
+/// Records a schema outcome on the URL with the bounded schema cooldown, so the URL waits
+/// for the schemas to change instead of being retried on every scheduler pass.
+async fn persist_schema_retry_cooldown(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error_kind: &str,
+    error_message: &str,
+) {
+    let next_retry_at = time::OffsetDateTime::now_utc()
+        + time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
+    persist_url_failure(
+        ctx,
+        FetchFailureRequest {
+            listing_source_id: candidate.listing_source_id,
+            url: candidate.url.clone(),
+            error_kind: error_kind.to_owned(),
+            error_message: error_message.to_owned(),
+            status_code: None,
+            next_retry_at,
+            expected_last_captured_raw_input_sha256: candidate
+                .last_captured_raw_input_sha256
+                .clone(),
+        },
+    )
+    .await;
+}
+
+/// Records that the page waits on a pending product-schema review. The retry delay grows
+/// with each consecutive wait on the same review, so pages that cannot succeed before the
+/// reviewer decides stop refetching every schema cooldown; approval releases them at once.
+async fn persist_schema_review_wait(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    review_id: CrawlerReviewId,
+    error_kind: &str,
+    error_message: &str,
+) {
+    let wait = SchemaReviewWait::after(candidate.schema_review_wait, review_id);
+    let next_retry_at = time::OffsetDateTime::now_utc()
+        + time::Duration::seconds(schema_review_wait_retry_delay(wait.streak).as_secs() as i64);
+    let request = SchemaReviewWaitRequest {
+        url_failure: FetchFailureRequest {
+            listing_source_id: candidate.listing_source_id,
+            url: candidate.url.clone(),
+            error_kind: error_kind.to_owned(),
+            error_message: error_message.to_owned(),
+            status_code: None,
+            next_retry_at,
+            expected_last_captured_raw_input_sha256: candidate
+                .last_captured_raw_input_sha256
+                .clone(),
+        },
+        wait,
+    };
+    match ctx
+        .scraper_candidates
+        .mark_waiting_on_schema_review(request)
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler schema review wait"
+        ),
+        Err(error) => warn!(
+            error = %error,
+            url = %candidate.url,
+            "Failed to persist crawler schema review wait"
+        ),
+    }
+}
+
+/// The schema cooldown doubled for each earlier consecutive wait on the same review, capped
+/// at [`SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY`].
+fn schema_review_wait_retry_delay(streak: u32) -> Duration {
+    let doublings = streak.saturating_sub(1);
+    2_u32
+        .checked_pow(doublings)
+        .and_then(|factor| SCHEMA_ERROR_RETRY_COOLDOWN.checked_mul(factor))
+        .map_or(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY, |delay| {
+            delay.min(SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY)
+        })
+}
+
+async fn persist_scraper_failure(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    error_kind: &str,
+    error_message: &str,
+) {
+    match ctx
+        .scraper_candidates
+        .mark_scraper_failure(
+            &candidate.listing_source_id,
+            &candidate.url,
+            error_kind,
+            error_message,
+            candidate.last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler failure metadata"
+        ),
+        Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
     }
 }
 
@@ -1045,6 +1227,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
         // The label predates plausibility checks and stays stable for persisted rows.
         ScraperError::FreshSchemaImplausible { .. } => "FreshSchemaNormalizationFailed",
+        ScraperError::MissingRequiredValue { .. } => "MissingRequiredValue",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
         ScraperError::RawNormalizationInput(_) => "RawNormalizationInput",
@@ -3234,25 +3417,19 @@ mod tests {
                 vec![first, second]
             }));
         scraper_candidates
-            .expect_mark_fetch_failure()
+            .expect_mark_waiting_on_schema_review()
             .once()
-            .withf(
-                move |received_listing_source_id,
-                      received_url,
-                      kind,
-                      _,
-                      _,
-                      _,
-                      expected_raw_input_sha256| {
-                    *received_listing_source_id == listing_source_id
-                        && received_url == &first_url
-                        && kind == "PendingSchemaReview"
-                        && expected_raw_input_sha256.is_none()
-                },
-            )
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .withf(move |request| {
+                request.url_failure.listing_source_id == listing_source_id
+                    && request.url_failure.url == first_url
+                    && request.url_failure.error_kind == "PendingSchemaReview"
+                    && request
+                        .url_failure
+                        .expected_last_captured_raw_input_sha256
+                        .is_none()
+            })
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        scraper_candidates.expect_mark_fetch_failure().never();
 
         // The first page waits on the pending review; a cached schema still extracts the second.
         let mut scraper_service = MockScraperService::new();
@@ -3283,6 +3460,169 @@ mod tests {
         job.run_scraper_once().await;
     }
 
+    mod schema_review_wait_backoff {
+        use super::*;
+
+        const BASE: Duration = SCHEMA_ERROR_RETRY_COOLDOWN;
+
+        #[test]
+        fn should_double_the_retry_delay_for_each_consecutive_wait() {
+            assert_eq!(schema_review_wait_retry_delay(1), BASE);
+            assert_eq!(schema_review_wait_retry_delay(2), BASE * 2);
+            assert_eq!(schema_review_wait_retry_delay(3), BASE * 4);
+        }
+
+        #[test]
+        fn should_cap_the_retry_delay_however_long_the_review_stays_pending() {
+            assert_eq!(
+                schema_review_wait_retry_delay(4),
+                SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY
+            );
+            assert_eq!(
+                schema_review_wait_retry_delay(40),
+                SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY
+            );
+            assert_eq!(
+                schema_review_wait_retry_delay(u32::MAX),
+                SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY
+            );
+        }
+
+        #[test]
+        fn should_continue_the_streak_only_on_the_same_review() {
+            let review_id = CrawlerReviewId::new();
+            let first = SchemaReviewWait::after(None, review_id);
+            let second = SchemaReviewWait::after(Some(first), review_id);
+            let other_review = SchemaReviewWait::after(Some(second), CrawlerReviewId::new());
+
+            assert_eq!(first.streak, 1);
+            assert_eq!(second.streak, 2);
+            assert_eq!(other_review.streak, 1);
+        }
+
+        /// Scrapes one candidate that waits on `review_id` and returns the persisted wait
+        /// request.
+        async fn persisted_wait(
+            previous: Option<SchemaReviewWait>,
+            review_id: CrawlerReviewId,
+        ) -> SchemaReviewWaitRequest {
+            let url = url::Url::parse("https://example.com/product/waiting").unwrap();
+            let mut candidate = scraper_candidate("Test ListingSource", url);
+            candidate.schema_review_wait = previous;
+            let recorded = Arc::new(std::sync::Mutex::new(None));
+
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_waiting_on_schema_review()
+                .once()
+                .returning({
+                    let recorded = recorded.clone();
+                    move |request| {
+                        *recorded.lock().unwrap() = Some(request);
+                        Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                    }
+                });
+            scraper_candidates.expect_mark_fetch_failure().never();
+            let mut scraper_service = MockScraperService::new();
+            scraper_service
+                .expect_scrape()
+                .once()
+                .returning(move |request| {
+                    let url = request.url;
+                    Box::pin(async move {
+                        scrape_outcome(Err(ScraperError::PendingSchemaReview { url, review_id }))
+                    })
+                });
+
+            let mut ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+            ctx.domain_id = candidate.domain_id;
+            scrape_domain_candidates(vec![candidate], ctx).await;
+
+            recorded.lock().unwrap().take().expect("wait was persisted")
+        }
+
+        fn assert_retry_after(
+            request: &SchemaReviewWaitRequest,
+            before: time::OffsetDateTime,
+            delay: Duration,
+        ) {
+            let delay = time::Duration::seconds(delay.as_secs() as i64);
+            let next_retry_at = request.url_failure.next_retry_at;
+            assert!(
+                next_retry_at >= before + delay,
+                "{next_retry_at} is earlier than {delay}"
+            );
+            assert!(next_retry_at <= time::OffsetDateTime::now_utc() + delay);
+        }
+
+        #[tokio::test]
+        async fn should_grow_the_retry_delay_when_the_page_waits_on_the_same_review_again() {
+            let review_id = CrawlerReviewId::new();
+            let before = time::OffsetDateTime::now_utc();
+
+            let request = persisted_wait(
+                Some(SchemaReviewWait {
+                    review_id,
+                    streak: 2,
+                }),
+                review_id,
+            )
+            .await;
+
+            assert_eq!(
+                request.wait,
+                SchemaReviewWait {
+                    review_id,
+                    streak: 3
+                }
+            );
+            assert_eq!(request.url_failure.error_kind, "PendingSchemaReview");
+            assert_retry_after(&request, before, BASE * 4);
+        }
+
+        #[tokio::test]
+        async fn should_restart_at_the_schema_cooldown_when_the_page_waits_on_a_new_review() {
+            let review_id = CrawlerReviewId::new();
+            let before = time::OffsetDateTime::now_utc();
+
+            let request = persisted_wait(
+                Some(SchemaReviewWait {
+                    review_id: CrawlerReviewId::new(),
+                    streak: 5,
+                }),
+                review_id,
+            )
+            .await;
+
+            assert_eq!(
+                request.wait,
+                SchemaReviewWait {
+                    review_id,
+                    streak: 1
+                }
+            );
+            assert_retry_after(&request, before, BASE);
+        }
+
+        #[tokio::test]
+        async fn should_cap_the_retry_delay_when_the_review_stays_pending() {
+            let review_id = CrawlerReviewId::new();
+            let before = time::OffsetDateTime::now_utc();
+
+            let request = persisted_wait(
+                Some(SchemaReviewWait {
+                    review_id,
+                    streak: 12,
+                }),
+                review_id,
+            )
+            .await;
+
+            assert_eq!(request.wait.streak, 13);
+            assert_retry_after(&request, before, SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY);
+        }
+    }
+
     /// `FreshSchemaImplausible` must be handled identically to
     /// `SchemaRegenerationExhausted`: write a cooldown via `mark_fetch_failure`
     /// so the URL is held back until the backoff window expires.
@@ -3309,6 +3649,56 @@ mod tests {
             let url = request.url;
             Box::pin(async move {
                 scrape_outcome(Err(ScraperError::FreshSchemaImplausible {
+                    url,
+                    findings: Default::default(),
+                }))
+            })
+        });
+
+        let job = scraper_job(
+            CrawlerCronConfig::default(),
+            scraper_candidates,
+            scraper_service,
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    /// A page that leaves a required value empty is recorded as scraped with its outcome:
+    /// no retry cooldown, and no failure that keeps the URL due on every pass.
+    #[tokio::test]
+    async fn should_mark_scraped_without_capture_for_missing_required_value() {
+        let url = url::Url::parse("https://example.com/product/1").unwrap();
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain({
+                let url = url.clone();
+                move || vec![scraper_candidate("Test ListingSource", url.clone())]
+            }));
+        scraper_candidates
+            .expect_mark_scraped_without_capture()
+            .once()
+            .withf({
+                let url = url.clone();
+                move |_, received_url, kind, message, expected_raw_input_sha256| {
+                    *received_url == url
+                        && kind == "MissingRequiredValue"
+                        && message.starts_with(
+                            "Required value missing from 'https://example.com/product/1'",
+                        )
+                        && expected_raw_input_sha256.is_none()
+                }
+            })
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        scraper_candidates.expect_mark_fetch_failure().never();
+        scraper_candidates.expect_mark_scraper_failure().never();
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::MissingRequiredValue {
                     url,
                     findings: Default::default(),
                 }))
@@ -3677,11 +4067,9 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_mark_fetch_failure()
+            .expect_mark_waiting_on_schema_review()
             .once()
-            .returning(|_, _, _, _, _, _, _| {
-                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-            });
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         scraper_candidates
             .expect_close_domain_circuit()
             .once()
@@ -3776,5 +4164,215 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// A sold page that the active-template schemas no longer extract, as on Hingstons
+    /// Antiques, where the add-to-cart button that carried the identity disappears.
+    mod sold_page_identity {
+        use super::*;
+        use crate::scraper::css_selector::product_schema::{
+            ListingSourceProductSchema, ProductCssSelectorSchema,
+        };
+        use crate::scraper::css_selector::product_schema_service::MockProductListingSchemaService;
+        use crate::scraper::css_selector::rule::{
+            CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
+        };
+        use crate::scraper::scraper_service::html_fetcher::{FetchedHtml, MockHtmlFetcher};
+        use crate::scraper::scraper_service::service::ScraperServiceImpl;
+        use product_listing_core::listing_availability::ListingAvailability;
+        use product_listing_normalization::{
+            ListingAvailabilityQuickCheck, ProductListingRawValuesNormalizationOutcome,
+            ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
+        };
+
+        const CAPTURED_IDENTITY: &str = "53036";
+
+        fn rule(selector: &str, extract: ExtractionKind) -> ExtractionRule {
+            ExtractionRule {
+                selector: CssSelector::from(selector),
+                additional_selectors: vec![],
+                extract,
+                cardinality: ExtractionCardinality::First,
+            }
+        }
+
+        fn attribute(selector: &str, name: &str) -> ExtractionRule {
+            rule(selector, ExtractionKind::Attribute { name: name.into() })
+        }
+
+        fn schema(identity: ExtractionRule, state_selector: &str) -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                source_listing_id: Some(identity),
+                title: rule("h1", ExtractionKind::Text),
+                description: None,
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: rule(state_selector, ExtractionKind::Text),
+                images: ExtractionRule {
+                    cardinality: ExtractionCardinality::All,
+                    ..attribute("div.product img", "src")
+                },
+                raw_attributes: Default::default(),
+            }
+        }
+
+        /// The schema the listing was captured with: its identity and its state are the
+        /// add-to-cart button, which a sold page no longer renders.
+        fn active_template_schema() -> ProductCssSelectorSchema {
+            schema(
+                attribute("button.single_add_to_cart_button", "value"),
+                "button.single_add_to_cart_button",
+            )
+        }
+
+        fn sold_page() -> String {
+            r#"<!DOCTYPE html>
+            <html><body>
+              <div class="product" id="product-53036" data-product_id="53036">
+                <h1>Georgian Mahogany Chair</h1>
+                <p class="stock out-of-stock">Sold</p>
+                <img src="/images/chair-640x640.jpg">
+              </div>
+            </body></html>"#
+                .to_owned()
+        }
+
+        fn sold_candidate() -> ScraperCandidate {
+            let mut candidate = scraper_candidate(
+                "Hingstons",
+                url::Url::parse("https://example.com/product/georgian-chair").unwrap(),
+            );
+            candidate.last_source_listing_id = Some(CAPTURED_IDENTITY.to_owned());
+            candidate
+        }
+
+        /// The ListingSource's cached schemas are the active-template schema and
+        /// `sold_template`, and every fetch returns the sold page.
+        fn context(
+            candidate: &ScraperCandidate,
+            sold_template: ProductCssSelectorSchema,
+            scraper_candidates: MockScraperCandidateService,
+        ) -> ScrapeDomainContext {
+            let url = candidate.url.clone();
+            let mut fetcher = MockHtmlFetcher::new();
+            fetcher.expect_fetch().returning(move |_| {
+                let url = url.clone();
+                Box::pin(
+                    async move { Ok(FetchedHtml::new(sold_page(), url, reqwest::StatusCode::OK)) },
+                )
+            });
+            let cached = ListingSourceProductSchema {
+                listing_source_id: candidate.listing_source_id,
+                product_schemas: vec![active_template_schema(), sold_template],
+                created: time::OffsetDateTime::now_utc(),
+                updated: time::OffsetDateTime::now_utc(),
+            };
+            let mut schema_service = MockProductListingSchemaService::new();
+            schema_service
+                .expect_find_product_schema()
+                .returning(move |_| {
+                    let cached = cached.clone();
+                    Box::pin(async move { Ok(Some(cached)) })
+                });
+            let scraper_candidates = Arc::new(scraper_candidates);
+            let scraper = ScraperServiceImpl::new(
+                Box::new(fetcher),
+                Box::new(schema_service),
+                scraper_candidates.clone(),
+            );
+            let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
+            ScrapeDomainContext {
+                scraper: Arc::new(scraper),
+                scraper_candidates,
+                lock_manager: Arc::new(LocalLockManager::new()),
+                command_tx,
+                budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+                domain_id: candidate.domain_id,
+                batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+            }
+        }
+
+        #[tokio::test]
+        async fn should_capture_the_listing_as_sold_when_the_sold_template_derives_the_same_identity()
+         {
+            let candidate = sold_candidate();
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates.expect_mark_fetch_failure().never();
+            let ctx = context(
+                &candidate,
+                schema(attribute("div.product", "data-product_id"), "p.stock"),
+                scraper_candidates,
+            );
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(!outcome.errored && !outcome.skipped);
+            let capture = outcome
+                .capture
+                .expect("the sold page must be captured under the listing's identity");
+            match &capture.on_success {
+                RawCaptureSuccessAction::MarkScraped(meta) => {
+                    assert_eq!(meta.source_listing_id, CAPTURED_IDENTITY);
+                }
+                _ => panic!("a sold product page must be marked scraped after capture"),
+            }
+            let resolved = match ProductListingRawValuesNormalizer::new()
+                .normalize(&capture.item.command.input)
+            {
+                ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => resolved,
+                other => panic!("the sold capture must normalize: {other:?}"),
+            };
+            assert_eq!(resolved.source_listing_id.as_ref(), CAPTURED_IDENTITY);
+            assert_eq!(
+                resolved.availability,
+                ProductListingRawValuesPatch::Set(ListingAvailabilityQuickCheck::Resolved(
+                    ListingAvailability::SoldOut
+                ))
+            );
+        }
+
+        #[tokio::test]
+        async fn should_record_an_identity_conflict_with_the_schema_cooldown_when_the_sold_template_derives_another_identity()
+         {
+            let before = time::OffsetDateTime::now_utc();
+            let candidate = sold_candidate();
+            let url = candidate.url.clone();
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_fetch_failure()
+                .once()
+                .withf(
+                    move |_, received_url, kind, message, status_code, next_retry_at, _| {
+                        let cooldown =
+                            time::Duration::seconds(SCHEMA_ERROR_RETRY_COOLDOWN.as_secs() as i64);
+                        *received_url == url
+                            && kind == SOURCE_LISTING_ID_CONFLICT_ERROR_KIND
+                            && message.contains("`product-53036`")
+                            && message.contains("`53036`")
+                            && status_code.is_none()
+                            && *next_retry_at >= before + cooldown
+                            && *next_retry_at <= time::OffsetDateTime::now_utc() + cooldown
+                    },
+                )
+                .returning(|_, _, _, _, _, _, _| {
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
+            scraper_candidates.expect_mark_as_scraped().never();
+            let ctx = context(
+                &candidate,
+                schema(attribute("div.product", "id"), "p.stock"),
+                scraper_candidates,
+            );
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(outcome.capture.is_none());
+            assert!(outcome.errored, "an identity conflict is a failed scrape");
+            assert!(
+                !outcome.skipped,
+                "an identity conflict has a durable outcome"
+            );
+        }
     }
 }
