@@ -9,7 +9,6 @@
 //! gcloud auth application-default login
 //! $env:VERTEX_AI_PROJECT_ID="my-project"
 //! $env:VERTEX_AI_LOCATION="europe-west3"
-//! $env:SPIDER_MAX_SIZE_BYTES="8388608"
 //! cargo run -p crawler --bin dev
 //! ```
 //!
@@ -19,7 +18,7 @@
 //! |------------------|--------------------------------------|--------------------------------------------------|
 //! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required unless the authoring mode is `manual`)* |
 //! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required unless the authoring mode is `manual`)* |
-//! | `SPIDER_MAX_SIZE_BYTES` | Spider page-body ceiling in bytes, from `1048576` (1 MiB) through `8388608` (8 MiB, the crawler's own response-body limit); every crawl fails while it is unset or out of range | *(required)*; use `8388608` |
+//! | `SPIDER_MAX_SIZE_BYTES` | Spider page-body ceiling in bytes, from `1048576` (1 MiB) through `8388608` (8 MiB, the crawler's own response-body limit); every crawl fails while it is out of range. `server` requires it; this binary defaults it | `8388608` |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
 //! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.5-flash` |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
@@ -111,10 +110,17 @@ fn demo_listing_sources() -> Vec<RegisteredListingSource> {
     .collect()
 }
 
+/// The spider reads this on every crawl and fails the crawl while it is
+/// unset; `server` requires it explicitly, the dev binary defaults it.
+const SPIDER_MAX_SIZE_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
+/// The crawler's own response-body limit: the largest accepted value.
+const DEV_SPIDER_MAX_SIZE_BYTES: &str = "8388608";
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
+    default_spider_body_limit();
 
     async {
         // Fail fast on invalid runtime settings before starting Docker or touching the database.
@@ -276,4 +282,47 @@ fn init_logging() {
         .json()
         .with_env_filter(filter)
         .init();
+}
+
+/// Gives an unset `SPIDER_MAX_SIZE_BYTES` the dev default so a local run
+/// crawls out of the box; an explicit value, valid or not, is left for the
+/// spider to validate.
+fn default_spider_body_limit() {
+    if env::var_os(SPIDER_MAX_SIZE_BYTES_ENV).is_some() {
+        return;
+    }
+    // SAFETY: runs at startup, like `dotenvy::dotenv()` above, before the
+    // runtime executes any task that reads the environment.
+    unsafe { env::set_var(SPIDER_MAX_SIZE_BYTES_ENV, DEV_SPIDER_MAX_SIZE_BYTES) };
+    info!(
+        variable = SPIDER_MAX_SIZE_BYTES_ENV,
+        value = DEV_SPIDER_MAX_SIZE_BYTES,
+        "Spider page-body limit unset; using the dev default"
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_spider_body_limit};
+    use std::env;
+
+    /// One test owns the variable: parallel tests would race on process state.
+    #[test]
+    fn should_default_the_spider_body_limit_only_while_unset() {
+        // SAFETY: the only test in this binary that touches the environment.
+        unsafe { env::remove_var(SPIDER_MAX_SIZE_BYTES_ENV) };
+        default_spider_body_limit();
+        assert_eq!(
+            env::var(SPIDER_MAX_SIZE_BYTES_ENV).as_deref(),
+            Ok(DEV_SPIDER_MAX_SIZE_BYTES)
+        );
+
+        unsafe { env::set_var(SPIDER_MAX_SIZE_BYTES_ENV, "1048576") };
+        default_spider_body_limit();
+        assert_eq!(
+            env::var(SPIDER_MAX_SIZE_BYTES_ENV).as_deref(),
+            Ok("1048576")
+        );
+        unsafe { env::remove_var(SPIDER_MAX_SIZE_BYTES_ENV) };
+    }
 }
