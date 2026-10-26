@@ -455,10 +455,10 @@ impl WoocommerceProductEventKind {
 
     /// Returns the raw operation a delivery captures, or `None` for an ignored delivery.
     ///
-    /// A variation is part of its parent product's listing, never a listing of its own. After a
-    /// variation is saved or deleted, WooCommerce re-saves the variable parent and delivers the
-    /// parent's own `product.updated`, which refreshes that listing. Native deletions carry only
-    /// `id`, so a deleted variation targets its own record key and never the parent's.
+    /// A variation is part of its parent product's listing, never a listing of its own. When
+    /// WooCommerce's product API saves or deletes a variation it re-saves the variable parent and
+    /// delivers the parent's own `product.updated`, which refreshes that listing. Native deletions
+    /// carry only `id`, so a deleted variation targets its own record key and never the parent's.
     fn capture_operation(
         self,
         product: &WoocommerceProductPayload,
@@ -1733,7 +1733,7 @@ mod tests {
     }
 
     #[test]
-    fn should_capture_variation_delete_for_the_variation_id_not_its_parent() {
+    fn should_capture_delete_by_delivered_id_even_for_a_variation_payload() {
         let observation = WoocommerceProductEventKind::Delete
             .raw_observation(&source(), variation_of_parent_120(Some("publish")))
             .unwrap_or_else(|error| panic!("mapping failed: {error}"))

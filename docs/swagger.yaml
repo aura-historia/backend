@@ -2580,9 +2580,11 @@ paths:
 
         - `product.created` and `product.updated` with `type: variation` are authorized ignored events whatever their
 
-        status and require only `id`. A variation belongs to its parent product's listing; WooCommerce re-saves the
+        status and require only `id`. A variation belongs to its parent product's listing: when WooCommerce saves or
 
-        parent after a variation changes and delivers the parent's own `product.updated`, which refreshes that listing.
+        deletes a variation it re-saves the parent and delivers the parent's own `product.updated`, which refreshes
+
+        that listing.
 
         - `product.deleted` captures a DELETE for the delivered `id` and requires only `id`. WooCommerce sends only
 
@@ -23843,15 +23845,9 @@ components:
         type:
           type: string
           nullable: true
-          description: "Optional WooCommerce product type.
+          description: "Optional WooCommerce product type. `variation` marks a variation of a parent product and makes
 
-            `variation` marks a variation of its parent product. Aura lists the parent product only, so a variation
-
-            event is authorized ignored input whatever its status and requires only `id`; the parent's own
-
-            `product.updated`, which WooCommerce sends after a variation changes, refreshes the parent's listing.
-
-            Other or missing types follow `status`.
+            the event authorized ignored input whatever its status. Other or missing types follow `status`.
 
             "
           example: simple
@@ -23938,9 +23934,7 @@ components:
 
         Only `id` is required. If `name` or `permalink` are provided they may still be used by the backend,
 
-        but the event remains valid with just the product ID. WooCommerce sends only `id` for a deleted
-
-        variation as well; that DELETE targets the variation's ID and never withdraws its parent's listing.
+        but the event remains valid with just the product ID.
 
         "
       required:

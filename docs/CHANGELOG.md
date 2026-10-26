@@ -4,8 +4,8 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-26 — WooCommerce variation webhooks (#2523)
 
-- `POST /v1/webhooks/woocommerce/{listingSourceId}` treats `product.created` and `product.updated` payloads with `type: variation` as authorized ignored events whatever their `status`: bodyless `204` after the immediate partner/source grant check, with no queue send, provider receipt or listing. They previously created a second listing keyed by the variation ID. A variation belongs to its parent product's listing: after a variation save, stock change or deletion WooCommerce re-saves the variable parent and delivers the parent's own `product.updated`, which refreshes the parent's price and availability. HMAC verification still covers the exact untouched request bytes.
-- `product.deleted` is unchanged. WooCommerce sends only `id`, so deleting a variation captures a DELETE for the variation's ID and never withdraws the parent's listing. Later variation updates do not withdraw a listing created from a variation ID before this change; withdraw it through the partner API.
+- `POST /v1/webhooks/woocommerce/{listingSourceId}` treats `product.created` and `product.updated` payloads with `type: variation` as authorized ignored events whatever their `status` (bodyless `204`, no queue send, receipt or listing). They previously created a second listing keyed by the variation ID. The parent's own `product.updated`, which WooCommerce delivers after saving or deleting a variation, refreshes the parent's listing. `product.deleted` is unchanged and never withdraws a variation's parent.
+- Later variation events do not withdraw a listing created from a variation ID before this change; withdraw it through the partner API.
 
 ## 2026-10-25 — Consumer-only MCP catalogue (#2481)
 
