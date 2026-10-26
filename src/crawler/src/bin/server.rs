@@ -49,6 +49,7 @@ use crawler::logging::{
     HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, cloudwatch_logging_config,
     ensure_cloudwatch_log_destination,
 };
+use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
@@ -172,7 +173,7 @@ fn build_log_filter() -> EnvFilter {
         .unwrap_or("info")
         .to_string();
     let directives = format!(
-        "{raw_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
+        "{raw_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
     );
     EnvFilter::new(directives)
 }
@@ -181,23 +182,33 @@ fn init_crawler_logging(
     cloudwatch_config: Option<&CloudWatchLoggingConfig>,
     cloudwatch_client: Option<CloudWatchLogsClient>,
 ) -> Option<tracing_cloudwatch::CloudWatchWorkerGuard> {
+    // Both sinks write metric records as bare EMF objects; see `crawler::metrics`.
     let stdout_layer = tracing_subscriber::fmt::layer()
         .json()
-        .with_current_span(true)
-        .with_span_list(true)
-        .with_ansi(false);
+        .with_ansi(false)
+        .event_format(EmfPassthroughFormat::new(
+            tracing_subscriber::fmt::format()
+                .json()
+                .with_current_span(true)
+                .with_span_list(true),
+        ));
 
     if let (Some(config), Some(client)) = (cloudwatch_config, cloudwatch_client) {
         let (cloudwatch_layer, cloudwatch_guard) = tracing_cloudwatch::layer()
             .with_fmt_layer(
                 tracing_subscriber::fmt::layer()
                     .json()
-                    .with_current_span(true)
-                    .with_span_list(true)
-                    .with_ansi(false),
+                    .with_ansi(false)
+                    .event_format(EmfPassthroughFormat::new(
+                        tracing_subscriber::fmt::format()
+                            .json()
+                            .with_current_span(true)
+                            .with_span_list(true)
+                            .with_file(false)
+                            .with_line_number(false)
+                            .with_target(false),
+                    )),
             )
-            .with_code_location(false)
-            .with_target(false)
             .with_client(
                 client,
                 tracing_cloudwatch::ExportConfig::default()
