@@ -13,6 +13,7 @@ const admission = require("./admission.cjs");
 const inspection = require("./inspection.cjs");
 const schema = require("./schema.cjs");
 const reviewer = require("./review.cjs");
+const reviewObservations = require("./review-observations.cjs");
 const storage = require("./storage.cjs");
 const imageCatalog = require("../container-images.json");
 
@@ -577,6 +578,10 @@ async function prepare(env = process.env, options = {}) {
       hardFindings: findings,
       capturedRelations: capturedRelations(task),
       observedAt: new Date().toISOString(),
+      operationalEvidence: reviewObservations.collect(ctx, {
+        baseline, bundle, live, checks: manualInput.nativeChecks,
+        repo: env.DELIVERY_REPO_DIR || ".",
+      }, { api, store }),
     };
     const inventoryRef = store.putImmutableJson(
       ctx.bucket,
