@@ -622,6 +622,8 @@ fn log_crawl_outcome(
         robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
         lagged = diagnostics.lagged,
         initial_anti_bot = ?diagnostics.initial_anti_bot,
+        status_counts = ?diagnostics.status_counts,
+        rate_limit = ?diagnostics.rate_limit,
         pending_url_pattern_review = ?state.pending_url_pattern_review.map(|id| id.to_string()),
         "{}",
         crawl_outcome_message(completion, state.pending_url_pattern_review.is_some())
