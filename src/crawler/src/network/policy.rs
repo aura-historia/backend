@@ -68,6 +68,13 @@ impl DomainFailureKind {
         }
     }
 
+    /// Whether one observation of this kind opens the circuit. A timeout,
+    /// a connection failure or a DNS timeout also comes from a slow host, so
+    /// those kinds need sustained evidence first (`scraper::domain_circuit`).
+    pub const fn opens_on_first_failure(self) -> bool {
+        !matches!(self, Self::Timeout | Self::Connect | Self::DnsTimeout)
+    }
+
     pub const fn base_cooldown(self) -> Duration {
         match self {
             Self::Http429 => Duration::from_secs(10 * 60),
