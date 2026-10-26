@@ -104,6 +104,34 @@ engine availability, backups, retention/removal policies, quotas and cost before
 execution; dev resources may be destructive on deletion. Retained resources still
 require ownership and recovery planning.
 
+### Production deletion protection
+
+CDK enforces termination protection on every production application stack. Production
+PostgreSQL and Cognito also enable native deletion protection. The database, user pool
+and all five PostgreSQL credential secrets retain their physical resources on deletion
+and replacement. Stack termination protection does not prevent destructive updates or
+direct service API calls; resource retention does not preserve application availability.
+
+The production `network`, `data` and `identity` stacks require the checked-in
+[platform stack policy](../infra/stack-policies/protected-platform.json), which allows
+modification but denies resource replacement and removal during updates. Stack policies
+are separate CloudFormation settings; CDK template deployment does not install them.
+Apply the policy under approved platform maintenance, from the repository root:
+
+```sh
+for boundary in network data identity; do
+  aws cloudformation set-stack-policy --region eu-central-1 \
+    --stack-name "application-prod-${boundary}" \
+    --stack-policy-body file://infra/stack-policies/protected-platform.json
+done
+```
+
+Verify each policy with `get-stack-policy`, each stack's `EnableTerminationProtection`
+with `describe-stacks`, and the effective PostgreSQL/Cognito deletion-protection settings.
+Changes to protected data/identity templates require platform maintenance; routine
+application promotion rejects them. Intentional replacement or teardown requires a
+separately reviewed, resource-specific policy override and recovery plan.
+
 ### Fresh database baseline
 
 The [initial business schema](../migrations/20260725090000_initial_business_schema.sql)
