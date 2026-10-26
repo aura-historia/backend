@@ -22,6 +22,13 @@ const DEFAULT_ALPHA: f64 = 0.15;
 const DEFAULT_MAX_DELAY: Duration = Duration::from_secs(10);
 const MAX_ENTRIES: usize = 10_000;
 
+/// A domain's smoothed response latency and the number of responses behind it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DomainLatencyStats {
+    pub smoothed: Duration,
+    pub samples: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScraperAutoThrottleConfig {
     pub target_concurrency: f64,
@@ -279,13 +286,19 @@ impl ScraperAutoThrottle {
     }
 
     pub fn latency_ms(&self, domain: &str) -> Option<f64> {
+        self.latency(domain)
+            .map(|latency| latency.smoothed.as_micros() as f64 / 1000.0)
+    }
+
+    /// The domain's smoothed response latency, `None` before its first response.
+    pub fn latency(&self, domain: &str) -> Option<DomainLatencyStats> {
         let domain = crate::network::policy::canonical_crawler_domain(domain);
         self.domains.get(&domain).and_then(|entry| {
-            if entry.samples.load(Ordering::Relaxed) == 0 {
-                None
-            } else {
-                Some(entry.ema_micros() / 1000.0)
-            }
+            let samples = entry.samples.load(Ordering::Relaxed);
+            (samples > 0).then(|| DomainLatencyStats {
+                smoothed: Duration::from_micros(entry.ema_micros().max(0.0) as u64),
+                samples,
+            })
         })
     }
 

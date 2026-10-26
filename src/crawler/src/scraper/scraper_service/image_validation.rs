@@ -1,6 +1,6 @@
 use crate::network::policy::{
-    CrawlerClientError, PublicTargetError, classify_reqwest_error, error_with_sources,
-    public_http_client, redirect_target, resolve_public_http_target,
+    CrawlerClientError, PublicTargetError, RequestTimeouts, classify_reqwest_error,
+    error_with_sources, public_http_client, redirect_target, resolve_public_http_target,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use regex::regex;
@@ -216,20 +216,23 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
     let mut current_url = url.clone();
     let mut redirect_count = 0;
     let response = loop {
-        let client = match public_http_client(&current_url, IMAGE_PROBE_TIMEOUT).await {
-            Ok(client) => client,
-            Err(CrawlerClientError::Target(error)) => {
-                tracing::debug!("Image dimension probe rejected target");
-                return image_validation_for_target_error(error);
-            }
-            Err(error) => {
-                tracing::debug!(
-                    error = %error_with_sources(&error),
-                    "Image dimension probe client unavailable"
-                );
-                return ImageValidation::Unknown;
-            }
-        };
+        let client =
+            match public_http_client(&current_url, RequestTimeouts::uniform(IMAGE_PROBE_TIMEOUT))
+                .await
+            {
+                Ok(client) => client,
+                Err(CrawlerClientError::Target(error)) => {
+                    tracing::debug!("Image dimension probe rejected target");
+                    return image_validation_for_target_error(error);
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        error = %error_with_sources(&error),
+                        "Image dimension probe client unavailable"
+                    );
+                    return ImageValidation::Unknown;
+                }
+            };
         let response = match client
             .get(current_url.clone())
             .header(reqwest::header::RANGE, IMAGE_PROBE_BYTES)

@@ -151,30 +151,48 @@ pub async fn resolve_public_http_target(
     Ok(PublicTarget { host, addresses })
 }
 
+/// Bounds for one crawler HTTP request. DNS resolution and connecting share
+/// `connect`; `request` bounds the whole exchange, body included, and may
+/// exceed `connect` for a host that answers slowly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequestTimeouts {
+    pub connect: Duration,
+    pub request: Duration,
+}
+
+impl RequestTimeouts {
+    pub const fn uniform(timeout: Duration) -> Self {
+        Self {
+            connect: timeout,
+            request: timeout,
+        }
+    }
+}
+
 /// Client settings every crawler request shares: the crawler identity, the
 /// platform trust store, HTTP/1.1, no automatic redirects and bounded
 /// timeouts. [`public_http_client`] adds the pinned public addresses; tests
 /// build local clients from the same base.
 pub fn crawler_client_builder(
-    timeout: Duration,
+    timeouts: RequestTimeouts,
 ) -> Result<reqwest::ClientBuilder, CrawlerClientError> {
     let tls = crate::network::tls::platform_tls_config().map_err(CrawlerClientError::TrustStore)?;
     Ok(reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .user_agent(crate::network::CRAWLER_USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(timeout)
-        .connect_timeout(timeout)
+        .timeout(timeouts.request)
+        .connect_timeout(timeouts.connect)
         .no_proxy()
         .http1_only())
 }
 
 pub async fn public_http_client(
     url: &Url,
-    timeout: Duration,
+    timeouts: RequestTimeouts,
 ) -> Result<reqwest::Client, CrawlerClientError> {
-    let target = resolve_public_http_target(url, timeout).await?;
-    crawler_client_builder(timeout)?
+    let target = resolve_public_http_target(url, timeouts.connect).await?;
+    crawler_client_builder(timeouts)?
         .resolve_to_addrs(&target.host, &target.addresses)
         .build()
         .map_err(CrawlerClientError::Build)
@@ -502,7 +520,7 @@ mod tests {
             String::from_utf8_lossy(&request[..read]).into_owned()
         });
 
-        let client = crawler_client_builder(Duration::from_secs(5))
+        let client = crawler_client_builder(RequestTimeouts::uniform(Duration::from_secs(5)))
             .unwrap()
             .build()
             .unwrap();
@@ -549,7 +567,7 @@ mod tests {
             while connection.is_handshaking() && connection.complete_io(&mut socket).is_ok() {}
         });
 
-        let error = crawler_client_builder(Duration::from_secs(5))
+        let error = crawler_client_builder(RequestTimeouts::uniform(Duration::from_secs(5)))
             .unwrap()
             .resolve("localhost", addr)
             .build()

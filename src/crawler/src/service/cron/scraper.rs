@@ -15,8 +15,8 @@ use crate::scraper::scraper_service::domain::product::{
     current_fetch_failure, domain_health_for_scraper_error, with_scrape_observation,
 };
 use crate::scraper::scraper_service::{
-    DomainFetchHealth, FetchFailureContext, FetchFailureSource, ScrapeMode, ScrapeOutcome,
-    ScrapeRequest, ScrapedProduct, ScraperError, ScraperService,
+    DomainFetchHealth, DomainFetchStats, FetchFailureContext, FetchFailureSource, ScrapeMode,
+    ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperError, ScraperService,
 };
 use crate::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
@@ -750,6 +750,7 @@ struct HttpFailure {
     status_code: Option<u16>,
     retry_after: Option<Duration>,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+    fetch_stats: Option<DomainFetchStats>,
 }
 
 fn http_failure(
@@ -771,6 +772,7 @@ fn http_failure(
         retry_after: error_retry_after,
         source: FetchFailureSource::Primary,
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
+        fetch_stats: None,
     });
     Some(HttpFailure {
         url: context.url,
@@ -778,6 +780,7 @@ fn http_failure(
         status_code: context.status_code.or(error_status_code),
         retry_after: context.retry_after.or(error_retry_after),
         expected_last_captured_raw_input_sha256: context.expected_last_captured_raw_input_sha256,
+        fetch_stats: context.fetch_stats,
     })
 }
 
@@ -839,7 +842,9 @@ async fn persist_http_failure(
         error_message: error_message.to_owned(),
         status_code: status_code.map(i32::from),
         next_retry_at,
-        expected_last_captured_raw_input_sha256: failure.expected_last_captured_raw_input_sha256,
+        expected_last_captured_raw_input_sha256: failure
+            .expected_last_captured_raw_input_sha256
+            .clone(),
     };
 
     let decision = evidence.decide(
@@ -865,7 +870,7 @@ async fn persist_http_failure(
                 url_failure,
                 domain_kind,
                 status_code,
-                failure.retry_after,
+                &failure,
                 evidence,
             )
             .await,
@@ -926,9 +931,10 @@ async fn open_domain_circuit(
     url_failure: FetchFailureRequest,
     domain_kind: DomainFailureKind,
     status_code: Option<u16>,
-    retry_after: Option<Duration>,
+    failure: &HttpFailure,
     evidence: &DomainBatchEvidence,
 ) -> Option<DomainHealthSnapshot> {
+    let retry_after = failure.retry_after;
     let failure_streak = next_domain_failure_streak(&candidate.domain_health, domain_kind);
     let domain_cooldown = domain_cooldown(domain_kind, failure_streak, retry_after);
     let next_scrape_at =
@@ -958,6 +964,13 @@ async fn open_domain_circuit(
             batch_attempted_urls = evidence.attempted_urls() + 1,
             batch_slow_host_urls = evidence.slow_host_urls()
                 + usize::from(!domain_kind.opens_on_first_failure()),
+            latency_smoothed_ms = failure
+                .fetch_stats
+                .map(|stats| stats.smoothed_latency.as_millis()),
+            latency_samples = failure.fetch_stats.map(|stats| stats.latency_samples),
+            fetch_attempt_timeout_ms = failure
+                .fetch_stats
+                .map(|stats| stats.attempt_timeout.as_millis()),
             "Opened scraper domain circuit"
         ),
         Ok(None) => debug!(
@@ -4451,6 +4464,7 @@ mod tests {
                     Some(seed_fence.as_slice()),
                     NetworkErrorKind::HttpStatus(429),
                     Some(429),
+                    None,
                     None,
                 );
                 let mut outcome = scrape_outcome(Err(ScraperError::HttpError {
