@@ -1973,12 +1973,12 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
     assert_eq!(
         stored_url_classes(&pool, domain_id).await,
         vec![
-            (urls[3].to_string(), "other".to_owned()),
+            (urls[3].to_string(), "info".to_owned()),
             (urls[0].to_string(), "product".to_owned()),
             (urls[1].to_string(), "product".to_owned()),
             (urls[2].to_string(), "other".to_owned()),
         ],
-        "approval classifies the stored active URLs; a sold URL keeps its class"
+        "approval classifies the stored active URLs as the spider would; a sold URL keeps its class"
     );
     let (next_crawl_at, failure_count, error_kind) = domain_crawl_schedule(&pool, domain_id).await;
     assert_eq!(
