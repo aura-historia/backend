@@ -8,7 +8,7 @@ The `server` binary needs:
 
 | Input | Purpose |
 |---|---|
-| `LOCAL_DB_URL` | Crawler-local Postgres connection. |
+| Docker and the crawler compose file | Crawler-local Postgres, started and bootstrapped by `server`; see [single-server deployment](#single-server-deployment). |
 | `BUSINESS_DATABASE_URL` | Authoritative ListingSource reads and ProductListing raw capture. |
 | `SPIDER_MAX_SIZE_BYTES` | Required spider page-body ceiling; use a value from 1 MiB through 8 MiB. |
 | `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` | Vertex AI configuration; not read with `CRAWLER_AUTHORING_MODE=manual`. |
@@ -20,7 +20,7 @@ The `server` binary needs:
 
 Optional `CRAWLER_CLOUDWATCH_LOG_GROUP` and `CRAWLER_CLOUDWATCH_LOG_STREAM` enable CloudWatch log export. That deployment needs permission to create the group and stream and put log events. Logs must expose operational outcomes and identifiers without raw source payloads.
 
-The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces `BUSINESS_DATABASE_URL`, AWS credentials and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, starts the local database container itself, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable.
+The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces `BUSINESS_DATABASE_URL`, AWS credentials and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, uses the `crawler_demo` database instead of `crawler_server`, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it.
 
 `server` and `dev` apply crawler-local migrations at startup. Migrations under [`src/crawler/migrations`](../../src/crawler/migrations/) are the authoritative crawler database contract; do not repair the live schema by hand. This lifecycle is outside the AWS Deploy/Migrate/Initialize workflows: manual Migrate owns only business PostgreSQL migrations, and FX-only Initialize never migrates crawler state.
 
@@ -74,6 +74,72 @@ With `CRAWLER_AUTHORING_MODE=manual`, where the LLM would run the crawler opens 
 A domain the spider records as `NEEDS_OPERATOR` ([repeated deterministic failures](scheduling-and-retries.md#scraper-domain-circuits)) opens no review: the console lists it above the review queue with its last failure kind and failure count, and the operator fixes the configuration (the right crawl root, or removing and re-registering the domain) or disables crawling for the ListingSource. A `NO_PATTERN` decision that turns out wrong is reset the same way.
 
 A page that is not a product page should be excluded by narrowing the URL pattern. Rejecting a `manual_schema_required` review classifies its seed and triggering pages as non-product pages, so the review is not reopened for them; its waiting and reviewer-added pages keep their class. To keep a candidate that is not ready yet, give the review the needs-repair [verdict](extraction-and-review.md#review-rail) instead of rejecting it. A product page that leaves its title or state empty where a cached schema finds the element opens no review; it records a [missing required value](extraction-and-review.md#missing-required-values) instead, so an untitled product is never rejected as a non-product page.
+
+## Single-server deployment
+
+Production runs one `server` process on one Linux host under systemd. Start from the example unit [`crawler-server.service`](../../src/crawler/scripts/linux/crawler-server.service) and environment file [`.env.example`](../../src/crawler/.env.example); real values live only on the host.
+
+### Build and host setup
+
+Build with `cargo build --release --locked -p crawler --bin server` and copy `target/release/server` to the host, for example `/opt/crawler/bin/server`. Crawler-local migrations are embedded in the binary.
+
+`server` does not read `LOCAL_DB_URL`. At every start [`bootstrap_local_database`](../../src/crawler/src/local_db.rs) runs `docker compose -f <crate dir>/docker-compose.yml up -d`, where `<crate dir>` is the build checkout's `src/crawler` path compiled into the binary, connects as `postgres:postgres` to `localhost:5432`, creates the `crawler_server` database if it is missing and applies pending migrations. Startup fails unless the host has:
+
+- Docker Engine with the compose plugin;
+- [`docker-compose.yml`](../../src/crawler/docker-compose.yml) at that same absolute path, so build on the host from a checkout that stays there or at an identical path elsewhere;
+- a service user in the `docker` group, which is root-equivalent.
+
+The container publishes port 5432 on all interfaces with the fixed password, and Docker bypasses host firewalls such as `ufw`, so block the port in the provider firewall or security group. The `crawler_pgdata` volume holds all crawler state; back it up.
+
+`BUSINESS_DATABASE_URL` must reach the business PostgreSQL from the host, for example through a security-group rule for the host's address and `sslmode=require` in the URL. A failed connection at startup stops the process. Business migrations belong to the manual Migrate workflow, never to the crawler, so the business schema must already be current.
+
+Prepare the host once:
+
+```sh
+useradd --system --home-dir /var/lib/crawler --shell /usr/sbin/nologin crawler
+usermod -aG docker crawler
+install -d -m 0750 -o root -g crawler /etc/crawler
+install -m 0640 -o root -g crawler src/crawler/.env.example /etc/crawler/crawler.env  # then fill in
+install -m 0644 src/crawler/scripts/linux/crawler-server.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now crawler-server
+```
+
+### Authoring mode
+
+Launch with `CRAWLER_AUTHORING_MODE=manual`: the crawler makes no LLM call and reads no Vertex AI setting ([`config.rs`](../../src/crawler/src/runtime/config.rs)). A later switch to `review` or `auto` makes `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` and Application Default Credentials on the host required; startup fails without them.
+
+### Review console access
+
+[`ReviewServerConfig`](../../src/crawler/src/review/server.rs) applies these rules:
+
+- `CRAWLER_REVIEW_BIND_ADDR` defaults to `127.0.0.1:7878`; any value that is not `host:port`, including an empty one, fails startup.
+- An empty or whitespace-only `CRAWLER_REVIEW_AUTH_TOKEN` counts as unset. A non-loopback bind without a token fails startup with `CRAWLER_REVIEW_AUTH_TOKEN is required for non-loopback bind addresses`.
+- `server` accepts review mutations only with the bearer token, so approving manual reviews needs the token even on loopback. Without a token, reads are open to anyone who reaches the port.
+
+For launch, keep the loopback bind, set a random token, and tunnel: `ssh -L 7878:127.0.0.1:7878 <host>`, then open `http://127.0.0.1:7878`. The alternative is a non-loopback bind behind a TLS-terminating reverse proxy; the token is then mandatory and the session cookie is `Secure`, so browsers must use HTTPS.
+
+### Logging
+
+Logs are JSON on stdout, stored by the journal (`journalctl -u crawler-server`). `LOG_LEVEL` sets the base filter level (default `info`) in [`server.rs`](../../src/crawler/src/bin/server.rs); `RUST_LOG` is not read.
+
+Setting `CRAWLER_CLOUDWATCH_LOG_GROUP` adds CloudWatch Logs export, which needs `logs:CreateLogGroup`, `logs:CreateLogStream` and `logs:PutLogEvents`; `server` creates the group and stream at every start and fails startup if that fails or either name is blank ([`logging.rs`](../../src/crawler/src/logging.rs)). Set `CRAWLER_CLOUDWATCH_LOG_STREAM`: its fallback, `HOSTNAME`, is not set by systemd, so the stream would be `unknown-host`. Credentials and region come from the AWS SDK default chain: an EC2 instance profile, a profile in the service user's `~/.aws` selected with `AWS_PROFILE` (including `credential_process`, for example IAM Roles Anywhere off AWS), or access keys in the environment file. Set `AWS_REGION` unless the profile or instance provides it.
+
+### systemd unit
+
+The example unit runs `server` as the unprivileged `crawler` user with `EnvironmentFile=/etc/crawler/crawler.env`, `Restart=on-failure`, `KillSignal=SIGTERM` and `TimeoutStopSec=45s`, a margin above the 30-second graceful-shutdown period before systemd sends SIGKILL. Its working directory is the empty state directory because `server` also loads a `.env` from its working directory or a parent; variables already in the environment take precedence.
+
+Run exactly one instance: no second host and no manual `server` next to the unit. The scheduler coordinates only through process-local locks ([scheduling and retries](scheduling-and-retries.md)), so a second process would crawl and capture the same work concurrently.
+
+### Upgrade
+
+Run `systemctl stop crawler-server`, replace the binary, keep the compose file at its compiled path, and run `systemctl start crawler-server`. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so rolling back to an older binary after a migration requires restoring the database.
+
+### After start
+
+- The journal shows `Connected to crawler-local Postgres`, `Connected to authoritative business Postgres`, `Crawler authoring mode configured: ...` with `authoring_mode` `manual` and `authoring_mode_source` `env`, and `Crawler review console listening`.
+- `curl -fsS http://127.0.0.1:7878/health` returns `{"ok":true}`.
+- `curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7878/api/listing_sources` lists the ListingSources, with domains waiting for an operator first.
+- The first spider pass does not log a `SPIDER_MAX_SIZE_BYTES` error: the spider checks that value, from 1048576 through 8388608, on each crawl, not at startup.
 
 ## Metrics and alarms
 
