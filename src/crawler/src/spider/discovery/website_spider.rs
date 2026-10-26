@@ -225,6 +225,14 @@ impl CrawlDiagnostics {
         self.failure_kind = Some(signal.kind);
         self.diagnostic_reason = Some(signal.reason.to_string());
     }
+
+    fn count_rejection(&mut self, rejection: LocalRejection) {
+        match rejection {
+            LocalRejection::Host => self.rejected_host += 1,
+            LocalRejection::Blacklist => self.rejected_blacklist += 1,
+            LocalRejection::Duplicate => self.rejected_duplicate += 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -700,6 +708,90 @@ struct LibraryOutcome {
     initial_anti_bot: AntiBotTech,
 }
 
+/// The whole-crawl bounds `crawl_completion` judges a finished crawl against.
+#[derive(Debug, Clone, Copy)]
+struct CrawlBounds {
+    max_crawl_duration: Duration,
+    max_pages_per_crawl: u32,
+}
+
+/// Runs Spider to its end and snapshots what the library learned about the
+/// site. Spider's broadcast closes with the unsubscribe, which ends the filter
+/// task's page loop.
+async fn run_library_crawl(
+    mut website: Website,
+    link_decoder: FoundLinkDecoder,
+    bounds: CrawlBounds,
+) -> LibraryOutcome {
+    let started = tokio::time::Instant::now();
+    website.with_on_link_find_callback(Some(Arc::new(move |link, html| {
+        (link_decoder.decode(link), html)
+    })));
+    website.crawl().await;
+    let completion = crawl_completion(
+        started.elapsed(),
+        bounds.max_crawl_duration,
+        website.size(),
+        bounds.max_pages_per_crawl,
+    );
+    let outcome = library_outcome(&website, completion);
+    website.unsubscribe();
+    outcome
+}
+
+fn library_outcome(website: &Website, completion: CrawlCompletion) -> LibraryOutcome {
+    LibraryOutcome {
+        completion,
+        status: *website.get_status(),
+        meta: *website.get_website_meta_info(),
+        initial_html_length: website.get_initial_html_length(),
+        initial_should_retry: website.get_initial_page_should_retry(),
+        initial_anti_bot: *website.get_initial_anti_bot_tech(),
+    }
+}
+
+/// Why the local filter dropped a page Spider delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalRejection {
+    Host,
+    Blacklist,
+    Duplicate,
+}
+
+/// Local admission of the pages Spider delivers: the configured host only,
+/// nothing the URL blacklist or the link decoder refused, each URL once.
+struct LocalFilter {
+    configured_root: Url,
+    /// An unrelated root redirect makes every delivered page off-host.
+    root_redirect_rejected: bool,
+    refused_links: RefusedLinks,
+    seen: Bloom<String>,
+}
+
+impl LocalFilter {
+    fn admit(&mut self, raw_url: &str) -> Result<CrawledUrl, LocalRejection> {
+        if is_refused_link(&self.refused_links, raw_url) {
+            return Err(LocalRejection::Blacklist);
+        }
+        let parsed = Url::parse(raw_url).map_err(|_| LocalRejection::Host)?;
+        let normalized = CrawledUrl::new(parsed);
+        if self.root_redirect_rejected
+            || !is_same_or_www_host(&self.configured_root, normalized.as_url())
+        {
+            return Err(LocalRejection::Host);
+        }
+        if normalized.is_blacklisted() {
+            return Err(LocalRejection::Blacklist);
+        }
+        let key = normalized.to_string();
+        if self.seen.check(&key) {
+            return Err(LocalRejection::Duplicate);
+        }
+        self.seen.set(&key);
+        Ok(normalized)
+    }
+}
+
 /// robots.txt `Crawl-delay` only ever raises the configured spider delay.
 fn crawl_delay_millis(configured_millis: u64, crawl_delay: Option<Duration>) -> u64 {
     crawl_delay.map_or(configured_millis, |delay| {
@@ -844,41 +936,30 @@ impl SpiderImpl {
 
         let mut spider_rx = website.subscribe(512);
 
-        let max_crawl_duration = self.config.max_crawl_duration;
-        let max_pages_per_crawl = self.config.max_pages_per_crawl;
+        let link_decoder = FoundLinkDecoder {
+            host_whitelist: host_whitelist_regex,
+            deny_list,
+            refused: decoder_refused_links,
+        };
+        let bounds = CrawlBounds {
+            max_crawl_duration: self.config.max_crawl_duration,
+            max_pages_per_crawl: self.config.max_pages_per_crawl,
+        };
         tokio::spawn(async move {
-            let started = tokio::time::Instant::now();
-            let link_decoder = FoundLinkDecoder {
-                host_whitelist: host_whitelist_regex,
-                deny_list,
-                refused: decoder_refused_links,
-            };
-            website.with_on_link_find_callback(Some(Arc::new(move |link, html| {
-                (link_decoder.decode(link), html)
-            })));
-            website.crawl().await;
-            let outcome = LibraryOutcome {
-                completion: crawl_completion(
-                    started.elapsed(),
-                    max_crawl_duration,
-                    website.size(),
-                    max_pages_per_crawl,
-                ),
-                status: *website.get_status(),
-                meta: *website.get_website_meta_info(),
-                initial_html_length: website.get_initial_html_length(),
-                initial_should_retry: website.get_initial_page_should_retry(),
-                initial_anti_bot: *website.get_initial_anti_bot_tech(),
-            };
-            website.unsubscribe();
+            let outcome = run_library_crawl(website, link_decoder, bounds).await;
             let _ = outcome_tx.send(outcome);
         });
 
         let config = self.config.clone();
         let crawl_root_url = root_url.to_string();
         tokio::spawn(async move {
-            let mut bloom = Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
-                .expect("bloom filter init failed");
+            let mut filter = LocalFilter {
+                configured_root: root_url,
+                root_redirect_rejected: false,
+                refused_links,
+                seen: Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
+                    .expect("bloom filter init failed"),
+            };
             let mut diagnostics = CrawlDiagnostics {
                 root_preflight_status: Some(root_preflight_status),
                 robots_policy: Some(robots.policy),
@@ -889,8 +970,6 @@ impl SpiderImpl {
                 ..CrawlDiagnostics::default()
             };
             let mut first_page_seen = false;
-            let configured_root = Url::parse(&crawl_root_url).ok();
-            let mut root_redirect_rejected = false;
             // Accepted URLs wait here instead of blocking the broadcast
             // subscription: Spider's 512-slot broadcast drops pages once the
             // subscriber falls behind, while this queue only holds small
@@ -935,49 +1014,20 @@ impl SpiderImpl {
                         page.final_redirect_destination.as_deref(),
                         page.anti_bot_tech,
                     );
-                    root_redirect_rejected = matches!(
+                    filter.root_redirect_rejected = matches!(
                         diagnostics.failure_kind,
                         Some(CrawlFailureKind::RedirectProblem)
                     );
                     first_page_seen = true;
                 }
 
-                let raw_url = page.get_url();
-
-                if is_refused_link(&refused_links, raw_url) {
-                    diagnostics.rejected_blacklist += 1;
-                    continue;
+                match filter.admit(page.get_url()) {
+                    Ok(url) => {
+                        diagnostics.accepted += 1;
+                        pending.push_back(CrawledPage { url });
+                    }
+                    Err(rejection) => diagnostics.count_rejection(rejection),
                 }
-
-                let Ok(parsed) = url::Url::parse(raw_url) else {
-                    diagnostics.rejected_host += 1;
-                    continue;
-                };
-                let normalized = CrawledUrl::new(parsed);
-
-                if root_redirect_rejected
-                    || !configured_root
-                        .as_ref()
-                        .is_some_and(|root| is_same_or_www_host(root, normalized.as_url()))
-                {
-                    diagnostics.rejected_host += 1;
-                    continue;
-                }
-
-                if normalized.is_blacklisted() {
-                    diagnostics.rejected_blacklist += 1;
-                    continue;
-                }
-
-                let normalized_str = normalized.to_string();
-
-                if bloom.check(&normalized_str) {
-                    diagnostics.rejected_duplicate += 1;
-                    continue;
-                }
-                bloom.set(&normalized_str);
-                diagnostics.accepted += 1;
-                pending.push_back(CrawledPage { url: normalized });
             }
 
             match outcome_rx.await {
