@@ -39,7 +39,7 @@ use reviewer_page_url::{
 };
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, approval_product_schemas,
-    update_schema_field_payload, validate_product_schemas,
+    holds_live_schemas, update_schema_field_payload, validate_product_schemas,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -1436,11 +1436,11 @@ async fn persist_approved_schema_edit(
     candidate: &ProductSchemaReviewCandidate,
     validation_summary: serde_json::Value,
 ) -> Result<(), ReviewRepositoryError> {
-    let stored_schemas = ProductSchemaReviewCandidate::decode_stored(stored_candidate_payload)
-        .ok()
-        .map(|stored| stored.schemas);
     let live = lock_live_product_schemas(transaction, listing_source_id).await?;
-    if live.is_none_or(|live| stored_schemas.as_ref() != Some(&live.product_schemas)) {
+    if !holds_live_schemas(
+        stored_candidate_payload,
+        live.as_ref().map(|live| live.product_schemas.as_slice()),
+    ) {
         return Err(ReviewRepositoryError::StaleApprovedReview(review_id));
     }
     persist_product_schemas(transaction, listing_source_id, &candidate.schemas).await?;

@@ -574,19 +574,7 @@ impl ReviewServer {
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err @ ReviewRepositoryError::InvalidSchemaField(_))
-                | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
-                | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
-                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
-                | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
-                | Err(err @ ReviewRepositoryError::NotPending(_)) => {
-                    HttpResponse::json(400, &json!({ "error": err.to_string() }))
-                }
-                Err(err @ ReviewRepositoryError::StaleApprovedReview(_))
-                | Err(err @ ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)) => {
-                    HttpResponse::json(409, &json!({ "error": err.to_string() }))
-                }
-                Err(err) => internal_error(err),
+                Err(err) => candidate_edit_error(err),
             };
         }
 
@@ -609,20 +597,7 @@ impl ReviewServer {
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err @ ReviewRepositoryError::InvalidSchemaField(_))
-                | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
-                | Err(err @ ReviewRepositoryError::InvalidUrlPatternCandidate)
-                | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
-                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
-                | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
-                | Err(err @ ReviewRepositoryError::NotPending(_)) => {
-                    HttpResponse::json(400, &json!({ "error": err.to_string() }))
-                }
-                Err(err @ ReviewRepositoryError::StaleApprovedReview(_))
-                | Err(err @ ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)) => {
-                    HttpResponse::json(409, &json!({ "error": err.to_string() }))
-                }
-                Err(err) => internal_error(err),
+                Err(err) => candidate_edit_error(err),
             };
         }
 
@@ -1149,6 +1124,27 @@ fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
             409,
             &json!({ "error": "review candidate or pages changed; refresh and evaluate again" }),
         ),
+        other => internal_error(other),
+    }
+}
+
+/// Maps a refused candidate edit (`/candidate` or `/schema-field`) to its answer: 400 for an
+/// edit the review cannot take, 409 for an approved review whose candidate is no longer live.
+fn candidate_edit_error(error: ReviewRepositoryError) -> HttpResponse {
+    match error {
+        ReviewRepositoryError::InvalidSchemaField(_)
+        | ReviewRepositoryError::RequiredSchemaField(_)
+        | ReviewRepositoryError::InvalidUrlPatternCandidate
+        | ReviewRepositoryError::InvalidProductSchemaCandidate
+        | ReviewRepositoryError::InvalidRemovedPageTemplate { .. }
+        | ReviewRepositoryError::UnsupportedArtifact(_, _)
+        | ReviewRepositoryError::NotPending(_) => {
+            HttpResponse::json(400, &json!({ "error": error.to_string() }))
+        }
+        ReviewRepositoryError::StaleApprovedReview(_)
+        | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_) => {
+            HttpResponse::json(409, &json!({ "error": error.to_string() }))
+        }
         other => internal_error(other),
     }
 }

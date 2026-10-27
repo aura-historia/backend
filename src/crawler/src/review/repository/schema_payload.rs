@@ -162,6 +162,19 @@ fn validate_removed_page_schemas(
         })
 }
 
+/// Whether the stored candidate of an approved review is the ListingSource's `live` schema list,
+/// the condition for editing the live list through that review. A stored candidate that no longer
+/// decodes is not provably the live list, and no list is live before the first approval.
+pub(super) fn holds_live_schemas(
+    stored_candidate_payload: &serde_json::Value,
+    live: Option<&[ProductCssSelectorSchema]>,
+) -> bool {
+    live.is_some_and(|live| {
+        ProductSchemaReviewCandidate::decode_stored(stored_candidate_payload)
+            .is_ok_and(|stored| stored.schemas == live)
+    })
+}
+
 pub(super) fn approval_product_schemas(
     reason: &str,
     existing: Option<&ListingSourceProductSchema>,
@@ -199,37 +212,78 @@ pub(super) fn update_schema_field_payload(
         )));
     };
 
-    update_schema_rule(schema, field, rule)?;
+    SchemaField::parse(field)?.set_rule(schema, rule)?;
     validate_product_schemas(&schemas)?;
     Ok(candidate.with_schemas(schemas))
 }
 
-fn update_schema_rule(
-    schema: &mut ProductCssSelectorSchema,
-    field: &str,
-    rule: Option<ExtractionRule>,
-) -> Result<(), ReviewRepositoryError> {
-    match field {
-        "source_listing_id" => schema.source_listing_id = rule,
-        "title" => {
-            schema.title =
-                rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
-        }
-        "state" => {
-            schema.state =
-                rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
-        }
-        "images" => {
-            schema.images =
-                rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
-        }
-        "description" => schema.description = rule,
-        "price" => schema.price = rule,
-        "price_estimate_min" => schema.price_estimate_min = rule,
-        "price_estimate_max" => schema.price_estimate_max = rule,
-        other => return Err(ReviewRepositoryError::InvalidSchemaField(other.into())),
+/// A rule of a product schema that a field edit sets or deletes, named on the wire by the
+/// schema's JSON key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SchemaField {
+    SourceListingId,
+    Title,
+    Description,
+    Price,
+    PriceEstimateMin,
+    PriceEstimateMax,
+    State,
+    Images,
+}
+
+impl SchemaField {
+    fn parse(field: &str) -> Result<Self, ReviewRepositoryError> {
+        Ok(match field {
+            "source_listing_id" => Self::SourceListingId,
+            "title" => Self::Title,
+            "description" => Self::Description,
+            "price" => Self::Price,
+            "price_estimate_min" => Self::PriceEstimateMin,
+            "price_estimate_max" => Self::PriceEstimateMax,
+            "state" => Self::State,
+            "images" => Self::Images,
+            other => return Err(ReviewRepositoryError::InvalidSchemaField(other.into())),
+        })
     }
-    Ok(())
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::SourceListingId => "source_listing_id",
+            Self::Title => "title",
+            Self::Description => "description",
+            Self::Price => "price",
+            Self::PriceEstimateMin => "price_estimate_min",
+            Self::PriceEstimateMax => "price_estimate_max",
+            Self::State => "state",
+            Self::Images => "images",
+        }
+    }
+
+    /// Sets this field of `schema` to `rule`, or deletes it when `rule` is `None`; a required
+    /// field cannot be deleted.
+    fn set_rule(
+        self,
+        schema: &mut ProductCssSelectorSchema,
+        rule: Option<ExtractionRule>,
+    ) -> Result<(), ReviewRepositoryError> {
+        let required =
+            |rule: Option<ExtractionRule>| rule.ok_or_else(|| self.required_field_error());
+        match self {
+            Self::SourceListingId => schema.source_listing_id = rule,
+            Self::Title => schema.title = required(rule)?,
+            Self::Description => schema.description = rule,
+            Self::Price => schema.price = rule,
+            Self::PriceEstimateMin => schema.price_estimate_min = rule,
+            Self::PriceEstimateMax => schema.price_estimate_max = rule,
+            Self::State => schema.state = required(rule)?,
+            Self::Images => schema.images = required(rule)?,
+        }
+        Ok(())
+    }
+
+    fn required_field_error(self) -> ReviewRepositoryError {
+        ReviewRepositoryError::RequiredSchemaField(self.name().into())
+    }
 }
 
 fn merge_product_schema_lists(
