@@ -233,44 +233,50 @@ fn add_identity_agreement_findings(
 pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
     schema_matrix_has_required_coverage(matrix)
         && optional_rules_missing_on_every_page(matrix).is_empty()
-        && !matrix
-            .candidates
+        && implausible_page_evaluations(matrix).next().is_none()
+}
+
+/// Every candidate's page evaluations that failed a per-page, cross-page or identity agreement
+/// check, each with its candidate's schema index. Deterministic approval refuses a matrix with
+/// any of them, and so does the review agent's [approval
+/// guard](crate::review::approval_guard), so the two refuse the same findings.
+fn implausible_page_evaluations(
+    matrix: &SchemaMatrix,
+) -> impl Iterator<Item = (usize, &SchemaPageEvaluation)> {
+    matrix.candidates.iter().flat_map(|candidate| {
+        candidate
+            .pages
             .iter()
-            .flat_map(|candidate| &candidate.pages)
-            .any(SchemaPageEvaluation::fails_plausibility_checks)
+            .filter(|page| page.fails_plausibility_checks())
+            .map(move |page| (candidate.schema_index, page))
+    })
 }
 
 /// A review page on which a candidate's extraction failed a per-page, cross-page or
 /// identity agreement check.
-#[derive(Debug, serde::Serialize)]
-pub(crate) struct ImplausiblePage<'a> {
-    schema_index: usize,
-    page_reference: &'a SchemaPageReference,
-    url: &'a str,
-    role: &'a str,
-    plausibility_findings: &'a PlausibilityFindings,
-    cross_page_findings: &'a CrossPageFindings,
-    identity_agreement_findings: &'a IdentityAgreementFindings,
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ImplausiblePage {
+    pub schema_index: usize,
+    pub page_reference: SchemaPageReference,
+    pub url: String,
+    pub role: String,
+    pub plausibility_findings: PlausibilityFindings,
+    pub cross_page_findings: CrossPageFindings,
+    pub identity_agreement_findings: IdentityAgreementFindings,
 }
 
-pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage<'_>> {
-    matrix
-        .candidates
-        .iter()
-        .flat_map(|candidate| {
-            candidate
-                .pages
-                .iter()
-                .filter(|page| page.fails_plausibility_checks())
-                .map(|page| ImplausiblePage {
-                    schema_index: candidate.schema_index,
-                    page_reference: &page.page_reference,
-                    url: &page.url,
-                    role: &page.role,
-                    plausibility_findings: &page.plausibility_findings,
-                    cross_page_findings: &page.cross_page_findings,
-                    identity_agreement_findings: &page.identity_agreement_findings,
-                })
+/// The extractions deterministic approval refuses, as [`implausible_page_evaluations`] finds
+/// them.
+pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage> {
+    implausible_page_evaluations(matrix)
+        .map(|(schema_index, page)| ImplausiblePage {
+            schema_index,
+            page_reference: page.page_reference.clone(),
+            url: page.url.clone(),
+            role: page.role.clone(),
+            plausibility_findings: page.plausibility_findings.clone(),
+            cross_page_findings: page.cross_page_findings.clone(),
+            identity_agreement_findings: page.identity_agreement_findings.clone(),
         })
         .collect()
 }

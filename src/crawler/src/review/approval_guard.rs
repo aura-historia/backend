@@ -10,7 +10,7 @@ use crate::review::model::{
 };
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
-    OptionalRuleTotalMiss, optional_rules_missing_on_every_page,
+    ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
 };
 use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField};
 use crate::spider::classification::url_metadata::UrlClass;
@@ -47,10 +47,14 @@ pub enum FailedApprovalCheck {
     RequiredFieldEmpty { fields: Vec<EmptyRequiredField> },
     /// Rules of a candidate schema that match nothing on every page the schema applies to.
     RuleMatchesNothing { rules: Vec<OptionalRuleTotalMiss> },
+    /// Candidate extractions that fail a per-page, cross-page or identity agreement plausibility
+    /// check, which deterministic approval in `auto` mode refuses too, on any page.
+    ImplausibleExtraction { pages: Vec<ImplausiblePage> },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
     /// The review's URL sample holds no URL the crawler captured a product from, so nothing
-    /// shows that the pattern finds products.
+    /// shows that the pattern finds products, as on a domain the crawler captured no product on
+    /// yet: a human decides.
     NoCapturedProductUrl,
     /// Sample URLs the crawler captured a product from that the pattern does not match.
     ProductUrlsNotMatched { urls: Vec<String> },
@@ -110,10 +114,15 @@ impl fmt::Display for FailedApprovalCheck {
                 "{} rule(s) match nothing on every page their schema applies to",
                 rules.len()
             ),
+            Self::ImplausibleExtraction { pages } => write!(
+                formatter,
+                "{} extraction(s) fail a plausibility check deterministic approval refuses",
+                pages.len()
+            ),
             Self::CandidateUndecided => write!(formatter, "the URL-pattern candidate is undecided"),
             Self::NoCapturedProductUrl => write!(
                 formatter,
-                "the review's URL sample holds no URL the crawler captured a product from"
+                "the review's URL sample holds no URL the crawler captured a product from, so nothing shows the decision finds products; stage the candidate and leave the decision to a human"
             ),
             Self::ProductUrlsNotMatched { urls } => write!(
                 formatter,
@@ -141,7 +150,9 @@ pub(crate) struct CurrentReview<'a> {
 /// review's stored `matrix` is a live evaluation of exactly what approval would make live, of
 /// exactly the review's current pages, fetched within `max_age` of `now`; every review page is
 /// covered by a schema or captured as removed; no schema leaves a required field empty on a
-/// product page; and no rule matches nothing on every page its schema applies to.
+/// product page; no rule matches nothing on every page its schema applies to; and no extraction
+/// fails a plausibility check that deterministic approval refuses, so the guard is never less
+/// strict than the `auto` gate.
 pub(crate) fn product_schema_approval_checks(
     matrix: Option<&SchemaMatrix>,
     review: &CurrentReview<'_>,
@@ -193,6 +204,10 @@ pub(crate) fn product_schema_approval_checks(
     let rules = optional_rules_missing_on_every_page(matrix);
     if !rules.is_empty() {
         failed.push(FailedApprovalCheck::RuleMatchesNothing { rules });
+    }
+    let implausible = implausible_pages(matrix);
+    if !implausible.is_empty() {
+        failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
     }
     failed
 }
@@ -349,12 +364,15 @@ fn is_non_product_url(url: &str) -> bool {
 mod tests {
     use super::*;
     use crate::review::model::PAGE_ROLE_PRIMARY;
-    use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
+    use crate::review::schema_evaluation::{
+        evaluate_schema_matrix_for_live_review_pages, schema_matrix_deterministic_approval_ok,
+    };
     use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
     use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
+    use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck};
     use crate::{CrawlerReviewId, CrawlerReviewPageId};
     use std::collections::HashMap;
 
@@ -419,12 +437,23 @@ mod tests {
         pages: &[(CrawlerReviewPage, String)],
         fetched_ago: Duration,
     ) -> SchemaMatrix {
+        live_matrix_of_captured(schemas, templates, pages, fetched_ago, &HashMap::new())
+    }
+
+    /// As [`live_matrix`], with the source listing id each page URL's listing was captured under.
+    fn live_matrix_of_captured(
+        schemas: &[ProductCssSelectorSchema],
+        templates: &[RemovedPageSchema],
+        pages: &[(CrawlerReviewPage, String)],
+        fetched_ago: Duration,
+        captured_identities: &HashMap<String, String>,
+    ) -> SchemaMatrix {
         let mut matrix = evaluate_schema_matrix_for_live_review_pages(
             CrawlerReviewId::new(),
             schemas,
             templates,
             pages,
-            &HashMap::new(),
+            captured_identities,
         );
         matrix.live_evaluation = Some(LiveMatrixEvaluation {
             candidate_version: 3,
@@ -579,7 +608,8 @@ mod tests {
         );
     }
 
-    /// A schema that finds the title element but no text in it leaves the product untitled.
+    /// A schema that finds the title element but no text in it leaves the product untitled; the
+    /// blank title is also a plausibility finding the `auto` gate refuses.
     #[test]
     fn should_name_the_required_field_a_schema_leaves_empty_on_a_product_page() {
         let pages = [
@@ -604,8 +634,117 @@ mod tests {
                         field: "title",
                     }],
                 },
+                FailedApprovalCheck::ImplausibleExtraction {
+                    pages: implausible_pages(&matrix),
+                },
             ]
         );
+    }
+
+    /// The pages of a matrix whose only refusal is its implausible extractions, asserting that
+    /// deterministic approval in `auto` mode refuses the same matrix, so the guard is never less
+    /// strict than that gate.
+    fn implausible_only(
+        matrix: &SchemaMatrix,
+        pages: &[CrawlerReviewPage],
+    ) -> Vec<ImplausiblePage> {
+        let refused = checks(Some(matrix), pages);
+        assert!(
+            !schema_matrix_deterministic_approval_ok(matrix),
+            "the auto gate refuses it too"
+        );
+        match refused.as_slice() {
+            [FailedApprovalCheck::ImplausibleExtraction { pages }] => {
+                assert_eq!(*pages, implausible_pages(matrix));
+                pages.clone()
+            }
+            other => panic!("expected only implausible extractions: {other:?}"),
+        }
+    }
+
+    /// Two review pages show different products, so a title both extract names the shop or the
+    /// category, not the product, even where the schema covers every page.
+    #[test]
+    fn should_refuse_a_value_the_schema_extracts_from_the_pages_of_two_products() {
+        let pages = [
+            product_page("chair", "h1", "Antique Shop"),
+            product_page("table", "h1", "Antique Shop"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let implausible = implausible_only(&matrix, &review_pages(&pages));
+
+        assert_eq!(implausible.len(), 2, "{implausible:?}");
+        for page in &implausible {
+            assert!(
+                matches!(
+                    page.cross_page_findings.as_slice(),
+                    [finding] if finding.field == PlausibilityField::Title
+                        && finding.check == CrossPageCheck::RepeatedAcrossPages
+                ),
+                "{page:?}"
+            );
+        }
+    }
+
+    /// An identity other than the one the page's listing was captured under would split the
+    /// product into two listings or stop its updates.
+    #[test]
+    fn should_refuse_an_identity_that_differs_from_the_captured_one() {
+        let pages = [
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ];
+        let captured = HashMap::from([(pages[0].0.url.clone(), "chair-1890".to_owned())]);
+        let matrix =
+            live_matrix_of_captured(&[schema("h1")], &[], &pages, Duration::ZERO, &captured);
+
+        let implausible = implausible_only(&matrix, &review_pages(&pages));
+
+        assert!(
+            matches!(
+                implausible.as_slice(),
+                [page] if page.url == pages[0].0.url
+                    && matches!(
+                        page.identity_agreement_findings.as_slice(),
+                        [finding] if finding.check
+                            == IdentityAgreementCheck::DiffersFromCapturedIdentity
+                    )
+            ),
+            "{implausible:?}"
+        );
+    }
+
+    /// A per-page finding that only lowers a schema's rank, such as a price of zeros, leaves the
+    /// page covered and still refuses deterministic approval, so it refuses the agent's too.
+    #[test]
+    fn should_refuse_a_per_page_finding_that_leaves_the_page_covered() {
+        let pages = [
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ]
+        .map(|(page, html)| {
+            (
+                page,
+                html.replace("</body>", "<span class=\"price\">£0.00</span></body>"),
+            )
+        });
+        let mut priced = schema("h1");
+        priced.price = Some(rule(".price", ExtractionKind::Text));
+        let matrix = live_matrix(&[priced], &[], &pages, Duration::ZERO);
+
+        let implausible = implausible_only(&matrix, &review_pages(&pages));
+
+        assert_eq!(implausible.len(), 2, "{implausible:?}");
+        for page in &implausible {
+            assert!(
+                page.plausibility_findings
+                    .as_slice()
+                    .iter()
+                    .all(|finding| finding.field == PlausibilityField::Price),
+                "{page:?}"
+            );
+        }
     }
 
     /// A page declared removed is resolved only where a template captures it as removed in the
