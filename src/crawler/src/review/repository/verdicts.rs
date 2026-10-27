@@ -12,9 +12,9 @@ use super::review_events::{
 use super::schema_payload::ProductSchemaReviewCandidate;
 use super::url_sample::fetch_url_sample;
 use super::{
-    CrawlerReviewRepository, ReviewRepositoryError, classify_with_pattern,
-    crawler_domain_id_from_uuid, fetch_review_pages, listing_source_id_from_uuid,
-    lock_live_product_schemas, persist_product_schemas,
+    CrawlerReviewRepository, ReviewRepositoryError, crawler_domain_id_from_uuid,
+    fetch_review_pages, listing_source_id_from_uuid, lock_live_product_schemas,
+    persist_product_schemas,
 };
 use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crate::review::approval_guard::{
@@ -29,6 +29,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     lock_stored_removed_page_schemas, store_removed_page_schemas,
 };
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
+use crate::spider::classification::url_classifier::classify_url;
 use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -818,7 +819,7 @@ async fn reclassify_domain_urls(
     let (urls, classes): (Vec<String>, Vec<String>) = stored
         .into_iter()
         .filter_map(|(url, current_class)| {
-            let class = classify_with_pattern(&url, pattern);
+            let class = classify_url(&url, pattern).to_string();
             (class != current_class).then_some((url, class))
         })
         .unzip();

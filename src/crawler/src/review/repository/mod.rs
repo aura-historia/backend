@@ -15,7 +15,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
-use crate::spider::utils::url::CrawledUrl;
+use crate::spider::classification::url_classifier::classify_url;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -640,7 +640,7 @@ impl CrawlerReviewRepository {
             for raw_url in urls {
                 let current_match = current_pattern.map(|pattern| pattern.is_match(raw_url));
                 let candidate_match = candidate_pattern.map(|pattern| pattern.is_match(raw_url));
-                let candidate_class = classify_with_pattern(raw_url, candidate_pattern);
+                let candidate_class = classify_url(raw_url, candidate_pattern).to_string();
                 let review_url_id = CrawlerReviewUrlId::new();
                 sqlx::query(
                     "INSERT INTO crawler_review_urls (
@@ -1731,13 +1731,6 @@ fn append_manual_schema_edit(
         }
     }
     validation_summary
-}
-
-fn classify_with_pattern(raw_url: &str, pattern: Option<&Regex>) -> String {
-    let Ok(url) = Url::parse(raw_url) else {
-        return "other".to_string();
-    };
-    CrawledUrl::new(url).classify(pattern).to_string()
 }
 
 #[cfg(test)]

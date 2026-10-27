@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
+use crate::spider::classification::url_classifier::classify_url;
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
@@ -14,12 +15,10 @@ use crate::spider::discovery::website_spider::{
 };
 use crate::spider::service::crawl_run_state::CrawlRunState;
 use crate::spider::service::product_pattern::ProductListingPattern;
-use crate::spider::utils::url::CrawledUrl;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
 
-use crate::spider::classification::url_metadata::UrlClass;
 use thiserror::Error;
 
 /// URLs from every outcome are persisted; `completion` tells the scheduler
@@ -174,10 +173,7 @@ impl SpiderServiceImpl {
 
         for page in pages {
             urls.push(page.url.as_url().clone());
-
-            let class_str = classify_url(page.url.as_url().as_str(), pattern).as_str();
-            let class = std::str::FromStr::from_str(class_str).unwrap_or(UrlClass::Other);
-            classes.push(class);
+            classes.push(classify_url(page.url.as_url().as_str(), pattern.as_regex()));
         }
 
         if !urls.is_empty() {
@@ -706,55 +702,9 @@ fn crawl_outcome_message(
     }
 }
 
-fn classify_url(url: &str, product_pattern: &ProductListingPattern) -> UrlClass {
-    let crawled = match Url::parse(url) {
-        Ok(parsed) => CrawledUrl::new(parsed),
-        Err(_) => return UrlClass::Other,
-    };
-
-    crawled.classify(product_pattern.as_regex())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use regex::Regex;
-
-    #[test]
-    fn should_classify_product_when_pattern_matches_for_type() {
-        let pattern = ProductListingPattern::Known(Regex::new(r"/product/").unwrap());
-
-        let class = classify_url("https://example.com/product/42", &pattern);
-
-        assert_eq!(class, UrlClass::ProductListing);
-    }
-
-    #[test]
-    fn should_classify_imprint_when_url_contains_legal_keywords_for_type() {
-        let pattern = ProductListingPattern::Unknown;
-
-        let class = classify_url("https://example.com/impressum", &pattern);
-
-        assert_eq!(class, UrlClass::Imprint);
-    }
-
-    #[test]
-    fn should_classify_category_when_url_contains_category_keywords_for_type() {
-        let pattern = ProductListingPattern::Unknown;
-
-        let class = classify_url("https://example.com/collections/modern", &pattern);
-
-        assert_eq!(class, UrlClass::Category);
-    }
-
-    #[test]
-    fn should_classify_other_when_url_does_not_match_any_rule_for_type() {
-        let pattern = ProductListingPattern::Unknown;
-
-        let class = classify_url("https://example.com/random-page", &pattern);
-
-        assert_eq!(class, UrlClass::Other);
-    }
+    use crate::spider::classification::url_metadata::UrlClass;
 
     #[test]
     fn should_map_known_db_value_when_loading_url_class() {
@@ -774,11 +724,13 @@ mod tests {
 #[cfg(test)]
 mod service_tests {
     use super::*;
+    use crate::spider::classification::url_metadata::UrlClass;
     use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
     use crate::spider::classification::url_pattern_service::MockUrlPatternService;
     use crate::spider::discovery::website_spider::{
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
+    use crate::spider::utils::url::CrawledUrl;
     use regex::Regex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::{mpsc, oneshot};
