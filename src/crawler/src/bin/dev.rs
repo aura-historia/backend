@@ -32,7 +32,8 @@
 //! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations as a human, in `agent` mode too | unset |
 //! | `CRAWLER_REVIEW_AGENT_TOKEN`, `CRAWLER_REVIEW_AGENT_APPROVALS` | Removed: any non-empty value fails startup. `agent` mode generates the agents' tokens and lets the reviewer agent decide | unset |
 //! | `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` | The review agents' approvals plus rejections per rolling hour in `agent` mode | `20` |
-//! | `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` | How old the live evaluation an agent approval rests on may be | `30` |
+//! | `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` | How old the live matrix or the sample labels an agent approval rests on may be | `30` |
+//! | `CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS` | How many sample URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many `NOT_PRODUCT` | `3` |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!

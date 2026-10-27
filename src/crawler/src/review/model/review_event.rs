@@ -102,7 +102,8 @@ impl ReviewActor {
 /// What a review mutation did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewEventAction {
-    /// `POST /api/reviews/{id}/candidate`, which also declares removed pages.
+    /// `POST /api/reviews/{id}/candidate`, which also declares removed pages, and
+    /// `POST /api/reviews/{id}/sample-labels`: sample labels belong to the candidate.
     CandidateEdited,
     /// `POST /api/reviews/{id}/schema-field`.
     SchemaFieldEdited,

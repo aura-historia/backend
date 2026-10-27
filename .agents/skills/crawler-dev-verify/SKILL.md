@@ -120,14 +120,17 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    tokens: read them into shell variables, for example
    `AUTHOR=$(python3 -c 'import json; print(json.load(open("review-agent-tokens.json"))["author"])')`.
 3. **Act as an agent.** Send `Authorization: Bearer $AUTHOR` or `$REVIEWER`; no `Origin` header
-   is needed. The author stages candidates (`/candidate`, `/schema-field`, `/pages`); the reviewer
-   refreshes the live evaluation (`GET /api/reviews/{id}/matrix?refresh=true`, polled without
-   `refresh` until it answers 200; for a URL-pattern review it lists the sample URLs it fetched and
-   their `PRODUCT_MARKUP` outcome) and approves with the `expected_candidate_version` it read, or
-   rejects with `notes`. Expect `403` `AUTHOR_CANNOT_DECIDE` and
-   `REVIEWER_CANNOT_CHANGE_CANDIDATES` for the other role's routes, and `409` with `failed_checks`
-   when the approval guard refuses. The event trail (`GET /api/reviews/{id}`, `events`) records
-   `AGENT_AUTHOR` and `AGENT_REVIEWER`.
+   is needed. The author stages candidates (`/candidate`, `/schema-field`, `/pages`) and labels a
+   URL-pattern review's sample (`/sample-labels`, `PRODUCT` or `NOT_PRODUCT` with a `reason`, with
+   the `expected_candidate_version`); the reviewer refreshes a product-schema review's live matrix
+   (`GET /api/reviews/{id}/matrix?refresh=true`, polled without `refresh` until it answers 200) and
+   approves with the `expected_candidate_version` it read, or rejects with `notes`. Expect `403`
+   `AUTHOR_CANNOT_DECIDE` and `REVIEWER_CANNOT_CHANGE_CANDIDATES` for the other role's routes, and
+   `409` with `failed_checks` when the approval guard refuses (for a URL pattern `TOO_FEW_LABELS`,
+   `LABELS_EXPIRED`, `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`). Until a pattern is
+   approved the spider stores every crawled URL as `other`; check `listing_source_urls.url_class`.
+   The event trail (`GET /api/reviews/{id}`, `events`) records `AGENT_AUTHOR` and
+   `AGENT_REVIEWER`.
 4. **Rotation and kill switch.** A restart writes new tokens and the old ones answer `401`; a
    restart with `CRAWLER_AUTHORING_MODE=manual` removes the file. Delete nothing else by hand.
 

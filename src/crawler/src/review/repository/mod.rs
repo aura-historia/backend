@@ -32,12 +32,12 @@ mod live_matrix;
 mod restore;
 mod review_events;
 mod reviewer_page_url;
+mod sample_labels;
 mod schema_payload;
-mod url_sample;
 mod verdicts;
 
 pub use live_matrix::EvaluatedSchemaMatrix;
-pub use url_sample::UrlSampleToEvaluate;
+pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use verdicts::Approval;
 
 use review_events::{ReviewMutation, commit_with_event, fetch_review_events};
@@ -67,7 +67,7 @@ pub enum ReviewRepositoryError {
     )]
     AgentMayChangeOnlyPendingReviews(CrawlerReviewId),
     #[error(
-        "the reviewer agent changes no candidate: candidate and schema-field edits, removed-page declarations and review pages are the author agent's or a human's"
+        "the reviewer agent changes no candidate: candidate and schema-field edits, removed-page declarations, sample labels and review pages are the author agent's or a human's"
     )]
     ReviewerMayNotChangeCandidates,
     #[error(
@@ -88,6 +88,22 @@ pub enum ReviewRepositoryError {
     UnregisteredRawAttributeKey(String),
     #[error("invalid URL-pattern review candidate")]
     InvalidUrlPatternCandidate,
+    #[error("a URL-pattern review holds at most {MAX_SAMPLE_LABELS} sample labels")]
+    TooManySampleLabels,
+    #[error(
+        "URL `{0}` is neither a URL of the review's sample nor an http(s) URL on the default port, without credentials, on a domain of the review's ListingSource"
+    )]
+    SampleLabelUrlNotAllowed(String),
+    #[error(
+        "the label of `{0}` needs a reason of at most {MAX_SAMPLE_LABEL_REASON_CHARS} characters saying why the URL is or is not a product page"
+    )]
+    InvalidSampleLabelReason(String),
+    #[error("URL `{0}` is labelled more than once")]
+    DuplicateSampleLabel(String),
+    #[error(
+        "a candidate edit keeps the sample labels; change them with POST /api/reviews/{{id}}/sample-labels"
+    )]
+    SampleLabelsChangedThroughCandidate,
     #[error("invalid ProductSchema review candidate")]
     InvalidProductSchemaCandidate,
     #[error("invalid removed-page template {index}: {reason}")]
@@ -987,16 +1003,10 @@ impl CrawlerReviewRepository {
 
         if status == STATUS_PENDING_REVIEW {
             let (candidate_payload, removed_page_schemas_changed) = match artifact_type.as_str() {
-                ARTIFACT_URL_PATTERN => {
-                    let candidate = serde_json::from_value::<UrlPatternReviewCandidate>(
-                        candidate_payload.clone(),
-                    )
-                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                    candidate
-                        .validated_pattern()
-                        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                    (candidate_payload, false)
-                }
+                ARTIFACT_URL_PATTERN => (
+                    url_pattern_candidate_edit(candidate_payload, &stored_candidate_payload)?,
+                    false,
+                ),
                 ARTIFACT_PRODUCT_SCHEMA => {
                     let edit = ProductSchemaCandidateEdit::parse(&candidate_payload)?;
                     let current =
@@ -1196,6 +1206,33 @@ impl CrawlerReviewRepository {
         review.candidate_payload = reviewed.with_schemas(merged).to_payload()?;
         Ok(())
     }
+}
+
+/// The URL-pattern candidate a whole-candidate edit with `posted` stores in place of `stored`: the
+/// posted decision with the stored sample labels, which change only through the sample labels. A
+/// posted candidate that names other labels is refused rather than silently losing them; one
+/// that names none keeps the stored ones. A stored candidate that no longer decodes keeps no
+/// labels, so an edit can still repair it.
+fn url_pattern_candidate_edit(
+    posted: serde_json::Value,
+    stored: &serde_json::Value,
+) -> Result<serde_json::Value, ReviewRepositoryError> {
+    let candidate = serde_json::from_value::<UrlPatternReviewCandidate>(posted.clone())
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    candidate
+        .validated_pattern()
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    let stored_labels = serde_json::from_value::<UrlPatternReviewCandidate>(stored.clone())
+        .ok()
+        .and_then(|stored| stored.sample_labels);
+    if candidate
+        .sample_labels
+        .is_some_and(|posted| Some(&posted) != stored_labels.as_ref())
+    {
+        return Err(ReviewRepositoryError::SampleLabelsChangedThroughCandidate);
+    }
+    UrlPatternReviewCandidate::payload_with_sample_labels(posted, stored_labels.as_ref())
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)
 }
 
 /// Locks and reads the ListingSource's live product schemas for the rest of the transaction.

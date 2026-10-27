@@ -1,7 +1,7 @@
 //! Whether a fetched page is the page of one product by its own structured data: a schema.org
-//! `Product` in JSON-LD or microdata, parsed deterministically. A URL-pattern review's live
-//! evaluation counts such a page as a product page (`docs/crawler/extraction-and-review.md`,
-//! approval guard).
+//! `Product` in JSON-LD or microdata, parsed deterministically. It is information for whoever
+//! inspects a page, such as the review agents labelling a URL sample, and decides no approval
+//! (`docs/crawler/extraction-and-review.md`, approval guard).
 
 use scraper::{ElementRef, Html, Selector};
 use serde_json::{Map, Value};
@@ -20,7 +20,7 @@ static SCRIPTS: LazyLock<Selector> =
 /// product nested in another item, such as a list or a page, does not count, and a page that lists
 /// several products top-level, such as a category page marking each product card, is no product
 /// page. A script that is not valid JSON shows nothing.
-pub(crate) fn describes_one_product(html: &str) -> bool {
+pub fn describes_one_product(html: &str) -> bool {
     let document = Html::parse_document(html);
     let json_ld = json_ld_products(&document);
     let microdata = microdata_products(&document);

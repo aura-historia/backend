@@ -1,11 +1,15 @@
+use super::SampleLabels;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UrlPatternReviewCandidate {
     pub decision: UrlPatternDecision,
     pub current_pattern: Option<String>,
+    /// Which URLs of the review's sample, or of its ListingSource's domains, are product pages, as
+    /// the author agent or a human labelled them; set only through the review's sample labels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample_labels: Option<SampleLabels>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -34,6 +38,10 @@ pub enum UrlPatternCandidateError {
     Undecided,
     #[error("invalid URL pattern: {0}")]
     InvalidRegex(#[from] regex::Error),
+    #[error("a URL-pattern candidate is a JSON object")]
+    NotAnObject,
+    #[error("the sample labels of a URL-pattern candidate do not serialize")]
+    Payload(#[source] serde_json::Error),
 }
 
 impl UrlPatternReviewCandidate {
@@ -41,7 +49,32 @@ impl UrlPatternReviewCandidate {
         Self {
             decision,
             current_pattern: current_pattern.map(|pattern| pattern.as_str().to_owned()),
+            sample_labels: None,
         }
+    }
+
+    /// The stored or posted candidate `payload` with `labels` as its sample labels, and without
+    /// any when `labels` is `None`; its other keys stay as they are. A payload that is no JSON
+    /// object holds no candidate.
+    pub fn payload_with_sample_labels(
+        mut payload: serde_json::Value,
+        labels: Option<&SampleLabels>,
+    ) -> Result<serde_json::Value, UrlPatternCandidateError> {
+        let candidate = payload
+            .as_object_mut()
+            .ok_or(UrlPatternCandidateError::NotAnObject)?;
+        match labels {
+            Some(labels) => {
+                candidate.insert(
+                    SAMPLE_LABELS_KEY.to_owned(),
+                    serde_json::to_value(labels).map_err(UrlPatternCandidateError::Payload)?,
+                );
+            }
+            None => {
+                candidate.remove(SAMPLE_LABELS_KEY);
+            }
+        }
+        Ok(payload)
     }
 
     /// The pattern approval would store: `Some` regex, or `None` for a decided `NO_PATTERN`.
@@ -55,27 +88,10 @@ impl UrlPatternReviewCandidate {
             UrlPatternDecision::Undecided => Err(UrlPatternCandidateError::Undecided),
         }
     }
-
-    /// SHA-256 of the decision approval would make live, so an approval can tell whether a live
-    /// evaluation of the URL sample was made for exactly this decision.
-    pub fn decision_sha256(&self) -> String {
-        // Serializing a decision of strings cannot fail.
-        let decision = serde_json::to_vec(&self.decision).unwrap_or_default();
-        Sha256::digest(decision)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
-    }
-
-    /// The decision's pattern, `None` while the candidate decides no pattern or nothing yet, or
-    /// holds one that does not compile, which approval refuses on its own.
-    pub fn decision_pattern(&self) -> Option<Regex> {
-        match &self.decision {
-            UrlPatternDecision::Pattern { value } => Regex::new(value).ok(),
-            UrlPatternDecision::NoPattern | UrlPatternDecision::Undecided => None,
-        }
-    }
 }
+
+/// The key of a URL-pattern candidate that holds its sample labels.
+const SAMPLE_LABELS_KEY: &str = "sample_labels";
 
 #[cfg(test)]
 mod tests {
@@ -117,31 +133,47 @@ mod tests {
         assert_eq!(no_pattern.validated_pattern().ok(), Some(None));
     }
 
-    /// The fingerprint follows the decision alone: the domain's current pattern is no part of
-    /// what approval makes live.
+    /// Sample labels go in and out of a candidate's payload without touching its other keys,
+    /// and a candidate without labels reads and stores as before they existed.
     #[test]
-    fn should_fingerprint_exactly_the_decision() {
-        let decided = |value: &str, current: Option<&str>| {
-            UrlPatternReviewCandidate::new(
-                UrlPatternDecision::Pattern {
-                    value: value.to_owned(),
-                },
-                current.map(|current| Regex::new(current).unwrap()).as_ref(),
-            )
+    fn should_set_and_drop_sample_labels_keeping_the_other_keys_of_the_payload() {
+        let labels = SampleLabels {
+            labelled_at: time::OffsetDateTime::UNIX_EPOCH,
+            labels: Vec::new(),
         };
+        let stored = serde_json::json!({
+            "decision": { "type": "PATTERN", "value": "/item/" },
+            "current_pattern": null,
+            "note": "kept",
+        });
 
+        let labelled =
+            UrlPatternReviewCandidate::payload_with_sample_labels(stored.clone(), Some(&labels))
+                .unwrap_or_else(|error| panic!("{error}"));
+        let unlabelled =
+            UrlPatternReviewCandidate::payload_with_sample_labels(labelled.clone(), None)
+                .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(labelled["note"], "kept");
         assert_eq!(
-            decided("/item/", None).decision_sha256(),
-            decided("/item/", Some("/old/")).decision_sha256()
+            serde_json::from_value::<UrlPatternReviewCandidate>(labelled)
+                .ok()
+                .and_then(|candidate| candidate.sample_labels),
+            Some(labels)
         );
-        assert_ne!(
-            decided("/item/", None).decision_sha256(),
-            decided("/item/[0-9]+", None).decision_sha256()
+        assert_eq!(unlabelled, stored);
+        assert_eq!(
+            serde_json::to_value(
+                serde_json::from_value::<UrlPatternReviewCandidate>(stored.clone())
+                    .unwrap_or_else(|error| panic!("{error}"))
+            )
+            .ok()
+            .map(|payload| payload.get("sample_labels").is_none()),
+            Some(true)
         );
-        assert_ne!(
-            UrlPatternReviewCandidate::new(UrlPatternDecision::NoPattern, None).decision_sha256(),
-            UrlPatternReviewCandidate::new(UrlPatternDecision::Undecided, None).decision_sha256()
-        );
-        assert_eq!(decided("/item/", None).decision_sha256().len(), 64);
+        assert!(matches!(
+            UrlPatternReviewCandidate::payload_with_sample_labels(serde_json::json!([]), None),
+            Err(UrlPatternCandidateError::NotAnObject)
+        ));
     }
 }

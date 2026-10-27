@@ -1984,6 +1984,7 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
                     value: "[".to_owned(),
                 },
                 current_pattern: None,
+                sample_labels: None,
             }),
         )
         .await;
@@ -2228,6 +2229,7 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
                     value: "/item/".to_owned(),
                 },
                 current_pattern: None,
+                sample_labels: None,
             }),
         )
         .await
@@ -2452,6 +2454,7 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
                     value: "/item/".to_owned(),
                 },
                 current_pattern: None,
+                sample_labels: None,
             }),
         )
         .await

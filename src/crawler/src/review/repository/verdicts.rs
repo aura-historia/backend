@@ -10,7 +10,6 @@ use super::review_events::{
     commit_with_event,
 };
 use super::schema_payload::ProductSchemaReviewCandidate;
-use super::url_sample::fetch_url_sample;
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, crawler_domain_id_from_uuid,
     fetch_review_pages, listing_source_id_from_uuid, lock_live_product_schemas,
@@ -18,7 +17,7 @@ use super::{
 };
 use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crate::review::approval_guard::{
-    CurrentReview, CurrentUrlPatternReview, FailedApprovalCheck, product_schema_approval_checks,
+    CurrentReview, FailedApprovalCheck, UrlPatternLabelRules, product_schema_approval_checks,
     url_pattern_approval_checks,
 };
 use crate::review::model::*;
@@ -82,29 +81,23 @@ impl CrawlerReviewRepository {
 
         let event = match review.artifact_type.as_str() {
             ARTIFACT_URL_PATTERN => {
-                // A stored evaluation that no longer decodes shows nothing.
-                let evaluation =
-                    UrlSampleEvaluation::stored_in(&review.validation_summary).and_then(Result::ok);
+                let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
+                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
                 if guarded {
-                    guard_agent_url_pattern_approval(
-                        &mut transaction,
-                        review_id,
-                        &review,
-                        evaluation.as_ref(),
-                        self.agent_decisions.max_matrix_age,
-                    )
-                    .await?;
+                    guard_agent_url_pattern_approval(review_id, &candidate, &self.agent_decisions)?;
                 }
+                let configuration = make_reviewed_url_pattern_live(
+                    &mut transaction,
+                    review_id,
+                    &review,
+                    &candidate,
+                    self.url_classifier,
+                )
+                .await?;
                 ReviewMutation::UrlPatternApproved {
                     notes: approval.notes,
-                    url_sample_evaluation: evaluation,
-                    configuration: make_reviewed_url_pattern_live(
-                        &mut transaction,
-                        review_id,
-                        &review,
-                        self.url_classifier,
-                    )
-                    .await?,
+                    sample_labels: candidate.sample_labels,
+                    configuration,
                 }
             }
             ARTIFACT_PRODUCT_SCHEMA => {
@@ -380,31 +373,23 @@ fn guard_agent_product_schema_approval(
     )
 }
 
-/// Refuses a review agent's approval of a URL-pattern review that fails a check of the
-/// [approval guard](crate::review::approval_guard) on the review's URL sample, each URL with
-/// whether the crawler captured a product from it, and on `evaluation`, the live evaluation of
-/// the sample the review stores.
-async fn guard_agent_url_pattern_approval(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+/// Refuses a review agent's approval of the URL-pattern `candidate`, at the approved candidate
+/// version, that fails a check of the [approval guard](crate::review::approval_guard) on its
+/// sample labels, by the limits of `policy`.
+fn guard_agent_url_pattern_approval(
     review_id: CrawlerReviewId,
-    review: &ReviewUnderVerdict,
-    evaluation: Option<&UrlSampleEvaluation>,
-    max_evaluation_age: Duration,
+    candidate: &UrlPatternReviewCandidate,
+    policy: &AgentDecisionPolicy,
 ) -> Result<(), ReviewRepositoryError> {
-    let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
-        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    let sample = fetch_url_sample(&mut **transaction, review_id, &review.listing_source_id).await?;
     refuse_failed_checks(
         review_id,
         url_pattern_approval_checks(
-            &CurrentUrlPatternReview {
-                candidate: &candidate,
-                candidate_version: review.candidate_version,
-                sample: &sample,
-                evaluation,
+            candidate,
+            &UrlPatternLabelRules {
+                now: OffsetDateTime::now_utc(),
+                max_age: policy.max_matrix_age,
+                min_labelled_urls: policy.min_labelled_urls,
             },
-            OffsetDateTime::now_utc(),
-            max_evaluation_age,
         ),
     )
 }
@@ -459,17 +444,16 @@ async fn close_approved_review(
     Ok(())
 }
 
-/// Makes the reviewed decision of the URL-pattern review the live decision of its domain inside
-/// the approval's transaction, classifies the domain's stored URLs with it by `url_classifier`,
-/// and returns the decision it replaced and the one it made live.
+/// Makes the reviewed decision of the URL-pattern review, its `candidate`, the live decision of
+/// its domain inside the approval's transaction, classifies the domain's stored URLs with it by
+/// `url_classifier`, and returns the decision it replaced and the one it made live.
 async fn make_reviewed_url_pattern_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     review: &ReviewUnderVerdict,
+    candidate: &UrlPatternReviewCandidate,
     url_classifier: UrlClassifier,
 ) -> Result<UrlPatternApprovalRecord, ReviewRepositoryError> {
-    let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
-        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let pattern = candidate
         .validated_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
