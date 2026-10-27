@@ -82,7 +82,8 @@ async fn handler_with_budget(
             complete
         },
     )
-    .await?;
+    .await?
+    .response;
     info!(
         failed_sqs_message_count = results.batch_item_failures.len(),
         "Finished marketing consent sync FIFO batch"

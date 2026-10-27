@@ -116,9 +116,8 @@ async fn handler_with_budget(
     per_record_cap: Duration,
 ) -> Result<SqsBatchResponse, Error> {
     let record_count = event.payload.records.len();
-    let mut attempted = 0;
     let correlation = RefCell::new(None);
-    let response = process_fifo_batch(
+    let outcome = process_fifo_batch(
         event,
         remaining,
         per_record_cap,
@@ -127,7 +126,6 @@ async fn handler_with_budget(
             async move { process_ingestion_job(&body, use_case, correlation).await }
         },
         |attempt| {
-            attempted += 1;
             let (complete, category) = match &attempt.outcome {
                 RecordOutcome::Completed(JobDisposition::Complete(category)) => (true, *category),
                 RecordOutcome::Completed(JobDisposition::Failed(category)) => (false, *category),
@@ -191,17 +189,15 @@ async fn handler_with_budget(
         },
     )
     .await?;
-    let unprocessed_count = record_count - attempted;
-    let suffix_start = response.batch_item_failures.len() - unprocessed_count;
-    for failure in response.batch_item_failures.iter().skip(suffix_start) {
-        log_unprocessed(&failure.item_identifier);
+    for message_id in &outcome.unprocessed_message_ids {
+        log_unprocessed(message_id);
     }
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = response.batch_item_failures.len(),
+        failed_sqs_message_count = outcome.response.batch_item_failures.len(),
         "Finished ProductListing ingestion batch"
     );
-    Ok(response)
+    Ok(outcome.response)
 }
 
 // SQS supplies UUID message IDs; don't interpolate arbitrary event strings into diagnostics.

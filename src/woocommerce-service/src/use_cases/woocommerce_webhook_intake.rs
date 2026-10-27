@@ -34,6 +34,8 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 const PAYLOAD_SCHEMA_VERSION: u16 = 1;
 const DELETE_BASE_URL: &str = "https://woocommerce.invalid/";
 const SUBMISSION_IDENTITY_DOMAIN: &str = "aura.woocommerce.ingestion.delivery.v1";
+/// Descriptions never update Aura's canonical description, so they are not source evidence.
+const OMITTED_SOURCE_FIELDS: [&str; 2] = ["description", "short_description"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WoocommerceProductEventKind {
@@ -221,16 +223,11 @@ where
         }))
         .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
 
-        // The request ID identifies this attempt when WooCommerce supplies no delivery ID.
-        // Such a retry cannot recover the previous command identity after a lost response.
-        let idempotency_key = submission_key(
-            source.listing_source_id,
-            kind,
-            delivery_id
-                .as_deref()
-                .unwrap_or(context.request_id.as_str()),
-            delivery_id.is_some(),
-        )?;
+        let delivery_identity = match delivery_id.as_deref() {
+            Some(delivery_id) => DeliveryIdentity::Delivery(delivery_id),
+            None => DeliveryIdentity::Attempt(context.request_id.as_str()),
+        };
+        let idempotency_key = submission_key(source.listing_source_id, kind, delivery_identity)?;
         let actor = match &context.principal {
             Principal::User(user_id) => ProductListingIngestionActor::User(*user_id),
             Principal::DelegatedUser { user_id, .. } => {
@@ -313,18 +310,42 @@ where
     }
 }
 
+/// What identifies one WooCommerce webhook delivery for command retry identity.
+#[derive(Debug, Clone, Copy)]
+enum DeliveryIdentity<'a> {
+    /// The provider's `X-WC-Webhook-Delivery-ID`.
+    Delivery(&'a str),
+    /// The request ID when WooCommerce supplies no delivery ID. Such a retry cannot recover
+    /// the previous command identity after a lost response.
+    Attempt(&'a str),
+}
+
+impl DeliveryIdentity<'_> {
+    const fn kind(self) -> &'static str {
+        match self {
+            Self::Delivery(_) => "delivery",
+            Self::Attempt(_) => "attempt",
+        }
+    }
+
+    const fn value(&self) -> &str {
+        match self {
+            Self::Delivery(value) | Self::Attempt(value) => value,
+        }
+    }
+}
+
 fn submission_key(
     listing_source_id: ListingSourceId,
     kind: WoocommerceProductEventKind,
-    identity: &str,
-    has_delivery_id: bool,
+    identity: DeliveryIdentity<'_>,
 ) -> Result<ProductListingIngestionIdempotencyKey, WoocommerceWebhookIntakeError> {
     let scope = SourcePayload::new(json!({
         "domain": SUBMISSION_IDENTITY_DOMAIN,
         "listingSourceId": listing_source_id.to_string(),
         "topic": kind.as_topic(),
-        "identityKind": if has_delivery_id { "delivery" } else { "attempt" },
-        "identity": identity,
+        "identityKind": identity.kind(),
+        "identity": identity.value(),
     }))
     .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
     let digest = scope
@@ -401,17 +422,13 @@ impl WoocommerceProductEventKind {
     }
 
     /// Maps WooCommerce provider vocabulary to the generic persisted raw-input contract.
-    /// Unknown keys other than WooCommerce description fields remain in `source_payload`.
+    /// Unknown keys other than [`OMITTED_SOURCE_FIELDS`] remain in `source_payload`.
     fn raw_observation(
         self,
         source: &WoocommerceSource,
         payload: Value,
     ) -> Result<Option<WoocommerceRawObservation>, WoocommerceWebhookIntakeError> {
-        let mut sanitized_payload = payload;
-        if let Some(object) = sanitized_payload.as_object_mut() {
-            object.remove("description");
-            object.remove("short_description");
-        }
+        let sanitized_payload = sanitized_source_payload(payload);
         let source_payload = SourcePayload::new(sanitized_payload.clone())
             .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
         let product = serde_json::from_value::<WoocommerceProductPayload>(sanitized_payload)
@@ -454,6 +471,17 @@ impl WoocommerceProductEventKind {
             source_occurred_at,
         }))
     }
+}
+
+/// Removes provider fields that are not persisted as source evidence. HMAC verification has
+/// already used the untouched request bytes.
+fn sanitized_source_payload(mut payload: Value) -> Value {
+    if let Some(object) = payload.as_object_mut() {
+        for field in OMITTED_SOURCE_FIELDS {
+            object.remove(field);
+        }
+    }
+    payload
 }
 
 fn provider_receipt(
@@ -1124,16 +1152,14 @@ mod tests {
         let key = submission_key(
             source_id,
             WoocommerceProductEventKind::Update,
-            "delivery-42",
-            true,
+            DeliveryIdentity::Delivery("delivery-42"),
         )?;
         assert_eq!(
             key,
             submission_key(
                 source_id,
                 WoocommerceProductEventKind::Update,
-                "delivery-42",
-                true
+                DeliveryIdentity::Delivery("delivery-42"),
             )?
         );
         assert_ne!(
@@ -1141,8 +1167,7 @@ mod tests {
             submission_key(
                 other_source,
                 WoocommerceProductEventKind::Update,
-                "delivery-42",
-                true
+                DeliveryIdentity::Delivery("delivery-42"),
             )?
         );
         assert_ne!(
@@ -1150,8 +1175,7 @@ mod tests {
             submission_key(
                 source_id,
                 WoocommerceProductEventKind::Delete,
-                "delivery-42",
-                true
+                DeliveryIdentity::Delivery("delivery-42"),
             )?
         );
         assert_ne!(
@@ -1159,23 +1183,20 @@ mod tests {
             submission_key(
                 source_id,
                 WoocommerceProductEventKind::Update,
-                "delivery-43",
-                true
+                DeliveryIdentity::Delivery("delivery-43"),
             )?
         );
         let attempt = submission_key(
             source_id,
             WoocommerceProductEventKind::Update,
-            "request-1",
-            false,
+            DeliveryIdentity::Attempt("request-1"),
         )?;
         assert_eq!(
             attempt,
             submission_key(
                 source_id,
                 WoocommerceProductEventKind::Update,
-                "request-1",
-                false
+                DeliveryIdentity::Attempt("request-1"),
             )?
         );
         assert_ne!(
@@ -1183,8 +1204,7 @@ mod tests {
             submission_key(
                 source_id,
                 WoocommerceProductEventKind::Update,
-                "request-2",
-                false
+                DeliveryIdentity::Attempt("request-2"),
             )?
         );
         assert_ne!(
@@ -1192,8 +1212,7 @@ mod tests {
             submission_key(
                 source_id,
                 WoocommerceProductEventKind::Update,
-                "request-1",
-                true
+                DeliveryIdentity::Delivery("request-1"),
             )?
         );
         Ok(())

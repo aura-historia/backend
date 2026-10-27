@@ -224,6 +224,14 @@ where
     Ok(response)
 }
 
+/// The partial-batch response of a FIFO invocation and the records it retained unstarted.
+#[derive(Default)]
+pub struct FifoBatchOutcome {
+    pub response: SqsBatchResponse,
+    /// Records retained without being started, in batch order. Every one is also a failure.
+    pub unprocessed_message_ids: Vec<String>,
+}
+
 /// Process FIFO records one at a time. Once a record is not confirmed complete, retain its
 /// SQS message ID and every successor's ID without starting any successor. No group-based skip
 /// is safe: a partial response can checkpoint the entire FIFO batch prefix.
@@ -233,49 +241,36 @@ pub async fn process_fifo_batch<T, F, Fut>(
     per_record_cap: Duration,
     mut process: F,
     mut is_complete: impl FnMut(&RecordAttempt<T>) -> bool,
-) -> Result<SqsBatchResponse, Error>
+) -> Result<FifoBatchOutcome, Error>
 where
     F: FnMut(String) -> Fut,
     Fut: Future<Output = T>,
 {
     require_fifo_ids(&event.payload)?;
     let started_at = Instant::now();
-    let mut response = SqsBatchResponse::default();
+    let mut outcome = FifoBatchOutcome::default();
     let mut records = event.payload.records.into_iter();
     while let Some(record) = records.next() {
         let message_id = record.message_id.expect("IDs validated");
         let budget = per_record_cap.min(remaining.saturating_sub(started_at.elapsed()));
-        let record_started_at = Instant::now();
-        let outcome = if budget.is_zero() {
-            RecordOutcome::InsufficientBudget
-        } else if let Some(body) = record.body {
-            match AssertUnwindSafe(async { tokio::time::timeout(budget, process(body)).await })
-                .catch_unwind()
-                .await
-            {
-                Ok(Ok(value)) => RecordOutcome::Completed(value),
-                Ok(Err(_)) => RecordOutcome::TimedOut,
-                Err(_) => RecordOutcome::Panicked,
-            }
-        } else {
-            RecordOutcome::MissingBody
-        };
-        let attempt = RecordAttempt {
-            message_id,
-            outcome,
-            duration: record_started_at.elapsed(),
-        };
+        let attempt = attempt_record(message_id, record.body, budget, &mut process).await;
         if !is_complete(&attempt) {
-            response
+            outcome
+                .response
                 .batch_item_failures
                 .push(failure(attempt.message_id));
-            response
-                .batch_item_failures
-                .extend(records.map(|record| failure(record.message_id.expect("IDs validated"))));
+            for record in records {
+                let message_id = record.message_id.expect("IDs validated");
+                outcome
+                    .response
+                    .batch_item_failures
+                    .push(failure(message_id.clone()));
+                outcome.unprocessed_message_ids.push(message_id);
+            }
             break;
         }
     }
-    Ok(response)
+    Ok(outcome)
 }
 
 /// Processes in event order, without prefetch. `remaining` is sampled after setup, and
@@ -298,32 +293,46 @@ where
     for record in event.payload.records {
         let message_id = record.message_id.expect("IDs validated");
         let budget = per_record_cap.min(remaining.saturating_sub(started_at.elapsed()));
-        let record_started_at = Instant::now();
-        let outcome = if budget.is_zero() {
-            RecordOutcome::InsufficientBudget
-        } else if let Some(body) = record.body {
-            match AssertUnwindSafe(async { tokio::time::timeout(budget, process(body)).await })
-                .catch_unwind()
-                .await
-            {
-                Ok(Ok(value)) => RecordOutcome::Completed(value),
-                Ok(Err(_)) => RecordOutcome::TimedOut,
-                Err(_) => RecordOutcome::Panicked,
-            }
-        } else {
-            RecordOutcome::MissingBody
-        };
-        attempts.push(RecordAttempt {
-            message_id,
-            outcome,
-            duration: record_started_at.elapsed(),
-        });
+        attempts.push(attempt_record(message_id, record.body, budget, &mut process).await);
     }
     Ok(BatchResults {
         record_count,
         started_at,
         attempts,
     })
+}
+
+/// Runs one record within its budget; a zero budget never starts the work.
+async fn attempt_record<T, F, Fut>(
+    message_id: String,
+    body: Option<String>,
+    budget: Duration,
+    process: &mut F,
+) -> RecordAttempt<T>
+where
+    F: FnMut(String) -> Fut,
+    Fut: Future<Output = T>,
+{
+    let record_started_at = Instant::now();
+    let outcome = if budget.is_zero() {
+        RecordOutcome::InsufficientBudget
+    } else if let Some(body) = body {
+        match AssertUnwindSafe(async { tokio::time::timeout(budget, process(body)).await })
+            .catch_unwind()
+            .await
+        {
+            Ok(Ok(value)) => RecordOutcome::Completed(value),
+            Ok(Err(_)) => RecordOutcome::TimedOut,
+            Err(_) => RecordOutcome::Panicked,
+        }
+    } else {
+        RecordOutcome::MissingBody
+    };
+    RecordAttempt {
+        message_id,
+        outcome,
+        duration: record_started_at.elapsed(),
+    }
 }
 
 #[cfg(test)]
@@ -401,7 +410,8 @@ mod tests {
                 |attempt| matches!(attempt.outcome, RecordOutcome::Completed(true)),
             )
             .await
-            .unwrap();
+            .unwrap()
+            .response;
             assert_eq!(failed(response), ["second", "third"]);
             assert_eq!(calls.load(Ordering::SeqCst), expected_calls);
         }
@@ -421,7 +431,8 @@ mod tests {
                 |a| matches!(a.outcome, RecordOutcome::Completed(true)),
             )
             .await
-            .unwrap();
+            .unwrap()
+            .response;
             assert!(failed(response).is_empty());
         }
     }
@@ -453,7 +464,8 @@ mod tests {
                 |a| matches!(a.outcome, RecordOutcome::Completed(true)),
             )
             .await
-            .unwrap();
+            .unwrap()
+            .response;
             assert_eq!(failed(response), ["bad", "next"], "{mode}");
             assert_eq!(calls.load(Ordering::SeqCst), usize::from(mode != "expired"));
         }
