@@ -370,8 +370,11 @@ fn decision_takes(pattern: Option<&Regex>, url: &str) -> bool {
 
 /// Whether the decision's `pattern` takes the page the labelled `url` names under any spelling the
 /// crawler may store it under: the crawler's spelling of the URL on http or https, with or without
-/// `www.`, which the crawler treats as one domain. A decision anchored on one of them would
-/// otherwise pass a `NOT_PRODUCT` label in another and still take the page as the spider stored it.
+/// `www.`, which the crawler treats as one domain, each also in its [legacy
+/// spelling](CrawledUrl::legacy_spelling), under which an earlier row stays until the spider
+/// rediscovers the page and which approval classifies as it is stored. A decision that takes only
+/// one of them would otherwise pass a `NOT_PRODUCT` label in another and still take the page as
+/// the crawler stored it.
 fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
     let Some(pattern) = pattern else {
         return false;
@@ -393,6 +396,10 @@ fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
                 .then_some(spelling)
         })
         .chain(std::iter::once(url.clone()))
+        .flat_map(|spelling| {
+            let legacy = CrawledUrl::new(spelling.clone()).legacy_spelling();
+            std::iter::once(spelling).chain(legacy)
+        })
         .any(|spelling| pattern.is_match(spelling.as_str()))
 }
 
@@ -1000,6 +1007,31 @@ mod tests {
         );
         assert_eq!(
             url_checks(&on_www(r"^https://www\.antique-shop\.example/item/[^/]+$")),
+            Vec::new()
+        );
+    }
+
+    /// Rows stored while the crawler sorted query parameters keep that spelling until the spider
+    /// rediscovers them, and approval classifies them as stored: a decision that takes the
+    /// labelled `NOT_PRODUCT` page only in its legacy spelling still takes that row.
+    #[test]
+    fn should_refuse_a_decision_that_takes_a_url_labelled_not_product_in_its_legacy_spelling() {
+        let products = [1, 2, 3].map(|id| {
+            format!("https://antique-shop.example/index.php?controller=product&id_product={id}")
+        });
+        let products: Vec<&str> = products.iter().map(String::as_str).collect();
+        let category = "https://antique-shop.example/index.php?id_category=3&controller=category";
+        let not_products = [category, NOT_PRODUCTS[1], NOT_PRODUCTS[2]];
+        let deciding = |value: &str| labelled(pattern(value), &products, &not_products);
+
+        assert_eq!(
+            url_checks(&deciding(r"/index\.php\?controller=")),
+            vec![FailedApprovalCheck::NotProductLabelMatched {
+                urls: vec![category.to_owned()],
+            }]
+        );
+        assert_eq!(
+            url_checks(&deciding(r"/index\.php\?controller=product&")),
             Vec::new()
         );
     }
