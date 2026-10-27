@@ -5,7 +5,7 @@ use crate::review::assets::{
 };
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
-use crate::review::model::{CrawlerReviewPage, SchemaMatrix};
+use crate::review::model::{CrawlerReviewPage, RawAttributeKey, SchemaMatrix};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
@@ -235,6 +235,9 @@ impl ReviewServer {
                     Ok(listing_sources) => HttpResponse::json(200, &listing_sources),
                     Err(err) => internal_error(err),
                 }
+            }
+            ("GET", "/api/raw-attribute-keys") => {
+                HttpResponse::json(200, &RawAttributeKey::registry())
             }
             ("GET", "/api/reviews") => match self.repository.list_reviews(200).await {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
@@ -573,7 +576,7 @@ impl ReviewServer {
                 )
                 .await
             {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+                Ok(candidate_version) => candidate_edited(candidate_version),
                 Err(err) => candidate_edit_error(err),
             };
         }
@@ -596,7 +599,7 @@ impl ReviewServer {
                 .update_candidate_payload(review_id, candidate_payload)
                 .await
             {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+                Ok(candidate_version) => candidate_edited(candidate_version),
                 Err(err) => candidate_edit_error(err),
             };
         }
@@ -1128,12 +1131,22 @@ fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
     }
 }
 
+/// Answers an accepted candidate edit (`/candidate` or `/schema-field`) with the review's
+/// candidate version after it.
+fn candidate_edited(candidate_version: i64) -> HttpResponse {
+    HttpResponse::json(
+        200,
+        &json!({ "ok": true, "candidate_version": candidate_version }),
+    )
+}
+
 /// Maps a refused candidate edit (`/candidate` or `/schema-field`) to its answer: 400 for an
 /// edit the review cannot take, 409 for an approved review whose candidate is no longer live.
 fn candidate_edit_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::InvalidSchemaField(_)
         | ReviewRepositoryError::RequiredSchemaField(_)
+        | ReviewRepositoryError::UnregisteredRawAttributeKey(_)
         | ReviewRepositoryError::InvalidUrlPatternCandidate
         | ReviewRepositoryError::InvalidProductSchemaCandidate
         | ReviewRepositoryError::InvalidRemovedPageTemplate { .. }
@@ -2241,10 +2254,10 @@ Origin: http://127.0.0.1:7878/x
         use std::sync::Arc;
         use test_api::IntegrationTestService as _;
 
-        const TOKEN: &str = "review-token";
+        pub(super) const TOKEN: &str = "review-token";
 
         /// Sends an authorized request and returns its status line and JSON body.
-        async fn send(
+        pub(super) async fn send(
             server: &ReviewServer,
             request: &str,
             body: &str,
@@ -2337,6 +2350,101 @@ Origin: http://127.0.0.1:7878/x
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {body}");
             let (status, body) = send(&server, &needs_repair, r#"{"notes": "too late"}"#).await;
             assert!(status.starts_with("HTTP/1.1 400"), "{status} {body}");
+        }
+    }
+
+    mod schema_editing {
+        use super::matrix_refresh::schema;
+        use super::needs_repair::{TOKEN, send};
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use crate::review::repository::CrawlerReviewRepository;
+        use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use std::net::SocketAddr;
+        use std::sync::Arc;
+        use test_api::IntegrationTestService as _;
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_edit_a_registered_raw_attribute_and_answer_with_the_candidate_version() {
+            let pool = test_api::get_postgres_client().await;
+            let listing_source_id = ListingSourceId::new();
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                 (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+                 VALUES ($1, 'Raw attribute source', 'raw-attribute-source', TRUE, NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert listing source: {error}"));
+            let repository = CrawlerReviewRepository::new(pool);
+            let review_id = repository
+                .create_schema_review(
+                    &listing_source_id,
+                    "manual_schema_required",
+                    &[schema("h1")],
+                    vec![],
+                    json!({}),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("create schema review: {error}"));
+            let server = ReviewServer::new(
+                repository,
+                Arc::new(RejectingDomainAdministration),
+                ReviewServerConfig {
+                    bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                    auth_token: Some(TOKEN.to_owned()),
+                    local_mutations_without_token: false,
+                },
+                Arc::new(MockHtmlFetcher::new()),
+            );
+            let schema_field = format!("POST /api/reviews/{review_id}/schema-field");
+            let review = format!("GET /api/reviews/{review_id}");
+
+            let (status, keys) = send(&server, "GET /api/raw-attribute-keys", "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {keys}");
+            assert!(
+                keys.as_array().is_some_and(|keys| keys
+                    .iter()
+                    .any(|key| { key["key"] == "rawMaterial" && key["group"] == "material" })),
+                "{keys}"
+            );
+            let (_, before) = send(&server, &review, "").await;
+            let version = before["review"]["candidate_version"]
+                .as_i64()
+                .unwrap_or_default();
+
+            let (status, edited) = send(
+                &server,
+                &schema_field,
+                r#"{"schema_index": 0, "field": "raw_attributes.rawMaterial", "rule": {"selector": ".material", "type": "text"}}"#,
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
+            assert_eq!(edited["candidate_version"], json!(version + 1));
+            let (_, after) = send(&server, &review, "").await;
+            assert_eq!(after["review"]["candidate_version"], json!(version + 1));
+            assert_eq!(
+                after["review"]["candidate_payload"]["schemas"][0]["raw_attributes"]["rawMaterial"]
+                    ["selector"],
+                ".material"
+            );
+            assert_eq!(after["candidate_is_live"], false);
+
+            let (status, refused) = send(
+                &server,
+                &schema_field,
+                r#"{"schema_index": 0, "field": "raw_attributes.rawInvented", "rule": {"selector": ".invented", "type": "text"}}"#,
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
+            assert!(
+                refused["error"]
+                    .as_str()
+                    .is_some_and(|error| error.contains("rawInvented")),
+                "{refused}"
+            );
         }
     }
 }

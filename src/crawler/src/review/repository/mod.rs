@@ -62,6 +62,10 @@ pub enum ReviewRepositoryError {
     InvalidSchemaField(String),
     #[error("field `{0}` is required and cannot be deleted")]
     RequiredSchemaField(String),
+    #[error(
+        "raw attribute key `{0}` is not in the raw attribute registry; an edit may add only registered keys"
+    )]
+    UnregisteredRawAttributeKey(String),
     #[error("invalid URL-pattern review candidate")]
     InvalidUrlPatternCandidate,
     #[error("invalid ProductSchema review candidate")]
@@ -228,15 +232,24 @@ impl CrawlerReviewRepository {
         .transpose()
     }
 
+    /// Pending reviews of crawl-enabled ListingSources come first, newest first: a pending review
+    /// of a disabled ListingSource holds back no crawling or scraping, so it follows them, ahead of
+    /// the closed reviews.
     pub async fn list_reviews(&self, limit: i64) -> Result<Vec<CrawlerReview>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, r.artifact_type, r.status, r.reason,
-                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.repair_requested, r.repair_note,
-                    r.created, r.updated, r.reviewed
+            "SELECT r.review_id, r.listing_source_id, s.listing_source_name,
+                    COALESCE(s.crawl_enabled, FALSE) AS listing_source_crawl_enabled,
+                    r.domain_id, r.artifact_type, r.status, r.reason,
+                    r.candidate_payload, r.candidate_version, r.validation_summary, r.reviewer_notes,
+                    r.repair_requested, r.repair_note, r.created, r.updated, r.reviewed
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              ORDER BY
-               CASE WHEN r.status = 'PENDING_REVIEW' THEN 0 ELSE 1 END,
+               CASE
+                 WHEN r.status = 'PENDING_REVIEW' AND COALESCE(s.crawl_enabled, FALSE) THEN 0
+                 WHEN r.status = 'PENDING_REVIEW' THEN 1
+                 ELSE 2
+               END,
                r.created DESC
              LIMIT $1",
         )
@@ -363,9 +376,11 @@ impl CrawlerReviewRepository {
         review_id: CrawlerReviewId,
     ) -> Result<ReviewDetail, ReviewRepositoryError> {
         let row = sqlx::query(
-            "SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, r.artifact_type, r.status, r.reason,
-                    r.candidate_payload, r.validation_summary, r.reviewer_notes, r.repair_requested, r.repair_note,
-                    r.created, r.updated, r.reviewed
+            "SELECT r.review_id, r.listing_source_id, s.listing_source_name,
+                    COALESCE(s.crawl_enabled, FALSE) AS listing_source_crawl_enabled,
+                    r.domain_id, r.artifact_type, r.status, r.reason,
+                    r.candidate_payload, r.candidate_version, r.validation_summary, r.reviewer_notes,
+                    r.repair_requested, r.repair_note, r.created, r.updated, r.reviewed
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              WHERE r.review_id = $1",
@@ -376,15 +391,35 @@ impl CrawlerReviewRepository {
             .ok_or(ReviewRepositoryError::NotFound(review_id))?;
 
         let mut review = row_to_review(row)?;
+        let candidate_is_live = self.approved_candidate_is_live(&review).await?;
         self.backfill_legacy_schema_review_payload(&mut review)
             .await?;
         let pages = self.get_review_pages(review_id).await?;
         let urls = self.get_review_urls(review_id).await?;
         Ok(ReviewDetail {
             review,
+            candidate_is_live,
             pages,
             urls,
         })
+    }
+
+    /// Whether `review` is an approved product-schema review whose candidate is the ListingSource's
+    /// live schema list, the one approved review an edit is accepted on.
+    async fn approved_candidate_is_live(
+        &self,
+        review: &CrawlerReview,
+    ) -> Result<bool, ReviewRepositoryError> {
+        if review.status != STATUS_APPROVED || review.artifact_type != ARTIFACT_PRODUCT_SCHEMA {
+            return Ok(false);
+        }
+        let live = ListingSourceProductSchemaRepositoryImpl::new(&self.pool)
+            .find_product_schema(&review.listing_source_id)
+            .await?;
+        Ok(holds_live_schemas(
+            &review.candidate_payload,
+            live.as_ref().map(|live| live.product_schemas.as_slice()),
+        ))
     }
 
     pub async fn get_review_pages(
@@ -795,11 +830,12 @@ impl CrawlerReviewRepository {
         Ok(())
     }
 
+    /// Replaces the review's candidate and returns its candidate version after the edit.
     pub async fn update_candidate_payload(
         &self,
         review_id: CrawlerReviewId,
         candidate_payload: serde_json::Value,
-    ) -> Result<(), ReviewRepositoryError> {
+    ) -> Result<i64, ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
         let review = sqlx::query(
             "SELECT listing_source_id, artifact_type, status, candidate_payload, validation_summary \
@@ -837,16 +873,10 @@ impl CrawlerReviewRepository {
                 }
                 _ => candidate_payload,
             };
-            sqlx::query(
-                "UPDATE crawler_reviews SET candidate_payload = $2, updated = NOW() \
-                 WHERE review_id = $1",
-            )
-            .bind(review_id.as_uuid())
-            .bind(candidate_payload)
-            .execute(&mut *transaction)
-            .await?;
+            let candidate_version =
+                store_pending_candidate(&mut transaction, review_id, candidate_payload).await?;
             transaction.commit().await?;
-            return Ok(());
+            return Ok(candidate_version);
         }
 
         if status != STATUS_APPROVED || artifact_type != ARTIFACT_PRODUCT_SCHEMA {
@@ -863,7 +893,7 @@ impl CrawlerReviewRepository {
                 review_id,
             ));
         }
-        persist_approved_schema_edit(
+        let candidate_version = persist_approved_schema_edit(
             &mut transaction,
             review_id,
             &listing_source_id,
@@ -874,16 +904,18 @@ impl CrawlerReviewRepository {
         .await?;
         transaction.commit().await?;
         log_approved_schema_edit(review_id, &listing_source_id, candidate.schemas.len());
-        Ok(())
+        Ok(candidate_version)
     }
 
+    /// Sets or deletes one rule of a candidate schema: a core field by its schema key, a raw
+    /// attribute as `raw_attributes.<key>`. Returns the candidate version after the edit.
     pub async fn update_schema_field(
         &self,
         review_id: CrawlerReviewId,
         schema_index: usize,
         field: &str,
         rule: Option<ExtractionRule>,
-    ) -> Result<(), ReviewRepositoryError> {
+    ) -> Result<i64, ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
         let review = sqlx::query(
             "SELECT listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary \
@@ -931,7 +963,7 @@ impl CrawlerReviewRepository {
         };
         let candidate = update_schema_field_payload(&candidate_payload, schema_index, field, rule)?;
 
-        if status == STATUS_APPROVED {
+        let candidate_version = if status == STATUS_APPROVED {
             persist_approved_schema_edit(
                 &mut transaction,
                 review_id,
@@ -940,24 +972,17 @@ impl CrawlerReviewRepository {
                 &candidate,
                 validation_summary,
             )
-            .await?;
+            .await?
         } else {
-            sqlx::query(
-                "UPDATE crawler_reviews SET candidate_payload = $2, updated = NOW() \
-                 WHERE review_id = $1",
-            )
-            .bind(review_id.as_uuid())
-            .bind(candidate.to_payload()?)
-            .execute(&mut *transaction)
-            .await?;
-        }
+            store_pending_candidate(&mut transaction, review_id, candidate.to_payload()?).await?
+        };
 
         transaction.commit().await?;
 
         if status == STATUS_APPROVED {
             log_approved_schema_edit(review_id, &listing_source_id, candidate.schemas.len());
         }
-        Ok(())
+        Ok(candidate_version)
     }
 
     pub async fn approve_review(
@@ -1423,7 +1448,25 @@ async fn replace_stored_removed_page_schemas(
     Ok(replacement)
 }
 
-/// Writes an edit of an approved review to the live schemas and records it on the review.
+/// Stores the edited candidate of a pending review and returns its candidate version.
+async fn store_pending_candidate(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    candidate_payload: serde_json::Value,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "UPDATE crawler_reviews SET candidate_payload = $2, updated = NOW() \
+         WHERE review_id = $1 \
+         RETURNING candidate_version",
+    )
+    .bind(review_id.as_uuid())
+    .bind(candidate_payload)
+    .fetch_one(&mut **transaction)
+    .await
+}
+
+/// Writes an edit of an approved review to the live schemas, records it on the review and
+/// returns the review's candidate version.
 ///
 /// The edit replaces the whole live list, so it is refused unless the review's stored
 /// candidate is the live list: an edit through an older review would otherwise silently
@@ -1435,7 +1478,7 @@ async fn persist_approved_schema_edit(
     stored_candidate_payload: &serde_json::Value,
     candidate: &ProductSchemaReviewCandidate,
     validation_summary: serde_json::Value,
-) -> Result<(), ReviewRepositoryError> {
+) -> Result<i64, ReviewRepositoryError> {
     let live = lock_live_product_schemas(transaction, listing_source_id).await?;
     if !holds_live_schemas(
         stored_candidate_payload,
@@ -1445,17 +1488,17 @@ async fn persist_approved_schema_edit(
     }
     persist_product_schemas(transaction, listing_source_id, &candidate.schemas).await?;
     let validation_summary = append_manual_schema_edit(validation_summary, candidate.schemas.len());
-    sqlx::query(
+    Ok(sqlx::query_scalar(
         "UPDATE crawler_reviews \
          SET candidate_payload = $2, validation_summary = $3, updated = NOW() \
-         WHERE review_id = $1",
+         WHERE review_id = $1 \
+         RETURNING candidate_version",
     )
     .bind(review_id.as_uuid())
     .bind(candidate.to_payload()?)
     .bind(validation_summary)
-    .execute(&mut **transaction)
-    .await?;
-    Ok(())
+    .fetch_one(&mut **transaction)
+    .await?)
 }
 
 /// Attaches `pages` to the pending review `review_id` as waiting pages, whatever role they were
@@ -1675,6 +1718,7 @@ fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Erro
             row.try_get::<uuid::Uuid, _>("listing_source_id")?,
         )?,
         listing_source_name: row.try_get("listing_source_name")?,
+        listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
         domain_id: row
             .try_get::<Option<uuid::Uuid>, _>("domain_id")?
             .map(crawler_domain_id_from_uuid)
@@ -1683,6 +1727,7 @@ fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Erro
         status: row.try_get("status")?,
         reason: row.try_get("reason")?,
         candidate_payload: row.try_get("candidate_payload")?,
+        candidate_version: row.try_get("candidate_version")?,
         validation_summary: row.try_get("validation_summary")?,
         reviewer_notes: row.try_get("reviewer_notes")?,
         repair_request: row_to_repair_request(&row)?,

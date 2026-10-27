@@ -188,3 +188,50 @@ pub const RAW_ATTRIBUTE_GROUPS: &[RawAttributeGroup] = &[
         definitions: CREATOR_RAW_ATTRIBUTES,
     },
 ];
+
+/// Each registered definition with the name of its group, in registry order.
+pub fn registered_definitions()
+-> impl Iterator<Item = (&'static str, &'static RawAttributeDefinition)> {
+    RAW_ATTRIBUTE_GROUPS.iter().flat_map(|group| {
+        group
+            .definitions
+            .iter()
+            .map(move |definition| (group.name, definition))
+    })
+}
+
+pub fn is_registered_key(key: &str) -> bool {
+    registered_definitions().any(|(_, definition)| definition.key == key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn should_register_each_key_once_as_a_camel_case_raw_name() {
+        let keys: Vec<&str> = registered_definitions()
+            .map(|(_, definition)| definition.key)
+            .collect();
+
+        assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
+        assert!(keys.iter().all(|key| {
+            key.strip_prefix("raw").is_some_and(|name| {
+                name.starts_with(|first: char| first.is_ascii_uppercase())
+                    && name
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric())
+            })
+        }));
+    }
+
+    #[test]
+    fn should_recognize_only_registered_keys() {
+        assert!(is_registered_key("rawShipment"));
+        assert!(is_registered_key("rawCreatorNote"));
+        assert!(!is_registered_key("rawshipment"));
+        assert!(!is_registered_key("rawFoo"));
+        assert!(!is_registered_key(""));
+    }
+}

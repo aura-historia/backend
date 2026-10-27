@@ -8,11 +8,16 @@ pub struct CrawlerReview {
     pub review_id: CrawlerReviewId,
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: Option<String>,
+    /// Whether the ListingSource is crawled; a pending review of a disabled one holds back no
+    /// crawling or scraping.
+    pub listing_source_crawl_enabled: bool,
     pub domain_id: Option<CrawlerDomainId>,
     pub artifact_type: String,
     pub status: String,
     pub reason: String,
     pub candidate_payload: serde_json::Value,
+    /// Incremented with every change of `candidate_payload`.
+    pub candidate_version: i64,
     pub validation_summary: serde_json::Value,
     pub reviewer_notes: Option<String>,
     /// The latest needs-repair verdict. While the review is pending it waits for that repair.
