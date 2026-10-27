@@ -85,11 +85,16 @@ Check these once and pass the results into every brief, so agents do not redisco
   (`dockerd >/tmp/dockerd.log 2>&1 &`), so Docker-backed tests and the crawler dev binary run.
   It can stop when the container restarts; tell agents to check and restart it.
 - Crawler dev verification without the desktop's `crawler_demo` state, `.env` or Vertex AI
-  credentials: run the dev binary with `CRAWLER_AUTHORING_MODE=manual` (no LLM, no credentials),
-  let it bootstrap a fresh `crawler_demo`, swap the demo shops in `src/crawler/src/bin/dev.rs`
-  for real shops that exercise the change (marked TEMPORARY, never committed, reverted), author
-  URL patterns and schemas through the review console API, and inspect the results. Never invent
-  credentials.
+  credentials: agents follow [crawler-dev-verify](../crawler-dev-verify/SKILL.md) with
+  `CRAWLER_AUTHORING_MODE=manual` (no LLM, no credentials), swap in real shops that exercise the
+  change and author URL patterns and schemas through the review console API. Each agent runs on
+  its own copy of `crawler_demo` ([step 3](../crawler-dev-verify/SKILL.md#procedure)) and, while
+  children run concurrently, under its
+  [parallel-runs precondition](../crawler-dev-verify/SKILL.md#preconditions); name each agent's
+  copy database and review-console port in its brief. On a host without `crawler_demo`, create
+  it once before the first agent: start the
+  [local database](../../../docs/crawler/operations.md#local-database) and create the empty
+  database, which each run's copy migrates at startup. Never invent credentials.
 - Host-specific test failures: record any test that fails only on this host and passes in CI, so
   agents do not chase it.
 - Disk: a full workspace test run with debug info can fill a capped disk. Tell agents to build

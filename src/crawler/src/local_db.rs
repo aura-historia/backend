@@ -2,13 +2,14 @@
 //!
 //! The `server` binary connects to the database [`LOCAL_DB_URL_ENV`] names, which the operator
 //! provisions (`docs/crawler/operations.md`, single-server deployment). The fixed local URLs and
-//! the Docker bootstrap below serve only the `dev` entry points.
+//! the Docker bootstrap below serve only the `dev` entry points, through [`DevDatabase`].
 
 use sqlx::AssertSqlSafe;
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::path::Path;
 use std::process::Command;
+use std::str::FromStr;
 use std::time::Duration;
 
 pub mod crawler_domain_configuration_repository;
@@ -59,16 +60,75 @@ pub fn database_url(db_name: &str) -> String {
     )
 }
 
-pub fn demo_db_url() -> String {
-    database_url(DEMO_DB_NAME)
+/// The crawler-local database a dev entry point uses. No `Debug` outside tests: the URL holds the
+/// database password.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub enum DevDatabase {
+    /// A demo database in the crawler's Docker Compose Postgres, which the run starts and creates.
+    Demo(&'static str),
+    /// The database [`LOCAL_DB_URL_ENV`] names, for example a copy of `crawler_demo`. Whoever sets
+    /// the variable provides the database, as for `server`: the run neither starts Docker nor
+    /// creates it.
+    Configured { url: String, name: String },
 }
 
-pub fn demo_scraper_db_url() -> String {
-    database_url(DEMO_SCRAPER_DB_NAME)
+/// Why [`LOCAL_DB_URL_ENV`] cannot select the dev database. Never carries the value: the URL
+/// holds the database password.
+#[derive(Debug, thiserror::Error)]
+pub enum DevDatabaseError {
+    #[error(transparent)]
+    Unreadable(#[from] LocalDbUrlError),
+    #[error("{LOCAL_DB_URL_ENV} must be a Postgres connection URL")]
+    NotConnectionUrl(#[source] sqlx::Error),
 }
 
-pub fn demo_spider_db_url() -> String {
-    database_url(DEMO_SPIDER_DB_NAME)
+impl DevDatabase {
+    /// The database [`LOCAL_DB_URL_ENV`] names, or the demo database `demo_db_name` while the
+    /// variable is missing.
+    pub fn from_env(demo_db_name: &'static str) -> Result<Self, DevDatabaseError> {
+        Self::from_local_db_url(local_db_url_from_env(), demo_db_name)
+    }
+
+    /// Falls back to the demo database only while `LOCAL_DB_URL` is missing: an unusable value
+    /// fails startup instead of running against the demo state.
+    fn from_local_db_url(
+        url: Result<String, LocalDbUrlError>,
+        demo_db_name: &'static str,
+    ) -> Result<Self, DevDatabaseError> {
+        let url = match url {
+            Ok(url) => url,
+            Err(LocalDbUrlError::Missing) => return Ok(Self::Demo(demo_db_name)),
+            Err(error) => return Err(error.into()),
+        };
+        let options =
+            PgConnectOptions::from_str(&url).map_err(DevDatabaseError::NotConnectionUrl)?;
+        // Postgres connects to the database named like the user when the URL names none.
+        let name = options
+            .get_database()
+            .unwrap_or(options.get_username())
+            .to_owned();
+        Ok(Self::Configured { url, name })
+    }
+
+    /// The database name, which logs carry instead of the URL.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Demo(name) => name,
+            Self::Configured { name, .. } => name,
+        }
+    }
+
+    /// Starts and creates the demo database when the run uses it, and returns the URL to connect
+    /// to.
+    pub async fn prepare(&self) -> Result<String, String> {
+        match self {
+            Self::Demo(name) => {
+                bootstrap_local_database(name).await?;
+                Ok(database_url(name))
+            }
+            Self::Configured { url, .. } => Ok(url.clone()),
+        }
+    }
 }
 
 fn docker_compose_file() -> String {
@@ -216,5 +276,47 @@ mod tests {
             error.to_string(),
             "missing required environment variable: LOCAL_DB_URL"
         );
+    }
+
+    #[test]
+    fn should_use_the_demo_database_when_local_db_url_is_missing() {
+        let database = DevDatabase::from_local_db_url(Err(LocalDbUrlError::Missing), DEMO_DB_NAME);
+
+        assert!(matches!(database, Ok(DevDatabase::Demo(DEMO_DB_NAME))));
+    }
+
+    #[test]
+    fn should_use_the_database_local_db_url_names_when_it_is_set() {
+        let url = "postgres://postgres:postgres@localhost:5432/crawler_2541";
+
+        let database = DevDatabase::from_local_db_url(Ok(url.to_owned()), DEMO_DB_NAME)
+            .unwrap_or_else(|error| panic!("a Postgres URL must select its database: {error}"));
+
+        assert_eq!(
+            database,
+            DevDatabase::Configured {
+                url: url.to_owned(),
+                name: "crawler_2541".to_owned(),
+            }
+        );
+    }
+
+    #[rstest]
+    #[case::not_unicode(Err(LocalDbUrlError::NotUnicode))]
+    #[case::not_a_url(Ok("postgres://postgres:secret@localhost:port/crawler_2541".to_owned()))]
+    fn should_fail_startup_without_echoing_the_url_when_local_db_url_is_unusable(
+        #[case] url: Result<String, LocalDbUrlError>,
+    ) {
+        let error = DevDatabase::from_local_db_url(url, DEMO_DB_NAME)
+            .err()
+            .unwrap_or_else(|| {
+                panic!("an unusable LOCAL_DB_URL must not fall back to the demo database")
+            });
+
+        let mut cause: Option<&dyn std::error::Error> = Some(&error);
+        while let Some(current) = cause {
+            assert!(!current.to_string().contains("secret"), "{current}");
+            cause = current.source();
+        }
     }
 }
