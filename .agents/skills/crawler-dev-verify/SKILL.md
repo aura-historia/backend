@@ -46,6 +46,14 @@ it to the user as a ticket or a separate decision.
 - No `dev` from the same target directory running (`pgrep -x dev`, or `Get-Process dev` on
   Windows). On Windows a running `dev.exe` blocks cargo from rebuilding crawler bins; tests in
   parallel need `--target-dir target/scratch` from PowerShell.
+- Parallel runs from several worktrees on one machine: each run uses its own copy database
+  (step 3), its own `CRAWLER_REVIEW_BIND_ADDR` port and its own working directory, and leaves
+  the shared Postgres container running. Give each worktree its own target directory when the
+  disk allows. In a `CARGO_TARGET_DIR` shared between worktrees, cargo judges freshness by
+  mtime and silently reuses another worktree's crawler artifacts, so run every cargo command
+  inside one `flock` on a shared lock file that first touches your worktree's `src/crawler`
+  files (`find src/crawler -type f -exec touch {} +`). For a dev run, copy `debug/dev` to a
+  private path inside the same locked command and run only the copy.
 - `cargo fmt`, `cargo clippy` and the focused tests are already green.
 
 ## Procedure
@@ -70,12 +78,8 @@ it to the user as a ticket or a separate decision.
    connected to `crawler_demo`; retry), then start with
    `LOCAL_DB_URL=postgres://postgres:postgres@localhost:5432/crawler_<n>`. The binary uses that
    database as given and never touches `crawler_demo`, so change the copy freely and drop it at
-   the end. Parallel runs on one machine each use their own copy, their own
-   `CRAWLER_REVIEW_BIND_ADDR` port and their own working directory, run a copy of the binary
-   when they share a `CARGO_TARGET_DIR` (another build replaces `debug/dev`), and leave the
-   shared Postgres container running. On `crawler_demo` itself, copy every row you will change
-   to the scratchpad (`psql -At` with an explicit separator) and write the restore SQL before
-   the run. Either way:
+   the end. On `crawler_demo` itself, copy every row you will change to the scratchpad
+   (`psql -At` with an explicit separator) and write the restore SQL before the run. Either way:
    - Live schemas (`listing_source_product_schemas`) when the change concerns extraction: keep
      only the schema that exposes the behaviour, e.g. drop a "no-description" variant to force
      the optional-field path.
