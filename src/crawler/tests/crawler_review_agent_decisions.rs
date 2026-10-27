@@ -1181,7 +1181,7 @@ async fn candidate_sample_labels(
 /// Only the author agent and humans label a pending review's sample, each label change based on
 /// the candidate version it read, bumping it and recorded as the candidate edit of its actor, the
 /// authoring change the four-eyes rule counts. The reviewer agent labels nothing, a label names
-/// only a URL of the sample or of the ListingSource's domains, and a decided review's labels stay.
+/// only a URL of the review's domain, and a decided review's labels stay.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_let_only_the_author_agent_and_humans_label_the_sample_of_a_pending_review() {
     let pool = get_postgres_client().await;

@@ -4,9 +4,9 @@
 //! with the approval; the contract is in `docs/crawler/extraction-and-review.md` (approval guard).
 
 use crate::CrawlerReviewPageId;
-use crate::network::policy::canonical_crawler_domain;
+use crate::network::policy::{canonical_crawler_domain, url_matches_configured_domain};
 use crate::review::model::{
-    CrawlerReviewPage, LiveMatrixEvaluation, SampleLabels, SampleUrlLabel, SchemaMatrix,
+    CrawlerReviewPage, LabelledSampleUrl, LiveMatrixEvaluation, SampleUrlLabel, SchemaMatrix,
     SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
 };
 use crate::review::page_coverage::{PageCoverage, page_coverages};
@@ -57,9 +57,9 @@ pub enum FailedApprovalCheck {
     ImplausibleExtraction { pages: Vec<ImplausiblePage> },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
-    /// The candidate's sample labels mark fewer than `minimum` URLs as products or fewer than
-    /// `minimum` as no products, so they cannot show that the decision takes the shop's product
-    /// pages and leaves the rest.
+    /// The candidate's sample labels on the review's domain mark fewer than `minimum` URLs as
+    /// products or fewer than `minimum` as no products, so they cannot show that the decision
+    /// takes the domain's product pages and leaves the rest.
     TooFewLabels {
         product: usize,
         not_product: usize,
@@ -139,7 +139,7 @@ impl fmt::Display for FailedApprovalCheck {
                 minimum,
             } => write!(
                 formatter,
-                "the sample labels mark {product} URL(s) PRODUCT and {not_product} NOT_PRODUCT; an agent approval needs at least {minimum} of each, which the author agent or a human labels"
+                "the sample labels mark {product} URL(s) of the review's domain PRODUCT and {not_product} NOT_PRODUCT; an agent approval needs at least {minimum} of each, which the author agent or a human labels"
             ),
             Self::ProductLabelNotMatched { urls } => write!(
                 formatter,
@@ -308,14 +308,17 @@ fn empty_required_fields(
 
 /// The checks an agent approval of the URL-pattern `candidate` fails, none when it may go ahead:
 /// the candidate is decided, and its sample labels, which the author agent or a human set and the
-/// approval rests on alone, are consistent with the decision. They mark at least
-/// `min_labelled_urls` URLs as products and as many as no products, and the decision classifies
-/// every `PRODUCT` URL as a product page and no `NOT_PRODUCT` URL. Labels belong to the candidate,
-/// so the approved candidate version names the labels it is judged on, and they do not expire.
-/// No URL is classified by keywords or by its page's markup here: Claude decides what a product
-/// page is, and the crawler only checks that the decision follows its labels.
+/// approval rests on alone, are consistent with the decision. Only labels of URLs on the review's
+/// `domain`, the one domain the decision applies to, count: a label on another domain of the
+/// ListingSource says nothing about it. They mark at least `min_labelled_urls` URLs as products
+/// and as many as no products, and the decision classifies every `PRODUCT` URL as a product page
+/// and no `NOT_PRODUCT` URL. Labels belong to the candidate, so the approved candidate version
+/// names the labels it is judged on, and they do not expire. No URL is classified by keywords or
+/// by its page's markup here: Claude decides what a product page is, and the crawler only checks
+/// that the decision follows its labels.
 pub(crate) fn url_pattern_approval_checks(
     candidate: &UrlPatternReviewCandidate,
+    domain: &str,
     min_labelled_urls: NonZeroU32,
 ) -> Vec<FailedApprovalCheck> {
     let pattern = match &candidate.decision {
@@ -327,19 +330,28 @@ pub(crate) fn url_pattern_approval_checks(
             Err(_) => return Vec::new(),
         },
     };
-    let labels = candidate.sample_labels.as_ref();
+    let on_domain: Vec<&LabelledSampleUrl> = candidate
+        .sample_labels
+        .iter()
+        .flat_map(|labels| &labels.labels)
+        .filter(|url| is_on_domain(&url.url, domain))
+        .collect();
     let labelled = |label: SampleUrlLabel| {
-        labels
-            .into_iter()
-            .flat_map(move |labels| labels.labelled(label))
+        on_domain
+            .iter()
+            .copied()
+            .filter(move |url| url.label == label)
     };
     let mut failed = Vec::new();
     let minimum = min_labelled_urls.get();
-    let counts = labels.map(SampleLabels::counts).unwrap_or_default();
-    if counts.product.min(counts.not_product) < usize::try_from(minimum).unwrap_or(usize::MAX) {
+    let (product, not_product) = (
+        labelled(SampleUrlLabel::Product).count(),
+        labelled(SampleUrlLabel::NotProduct).count(),
+    );
+    if product.min(not_product) < usize::try_from(minimum).unwrap_or(usize::MAX) {
         failed.push(FailedApprovalCheck::TooFewLabels {
-            product: counts.product,
-            not_product: counts.not_product,
+            product,
+            not_product,
             minimum,
         });
     }
@@ -358,6 +370,12 @@ pub(crate) fn url_pattern_approval_checks(
         failed.push(FailedApprovalCheck::NotProductLabelMatched { urls: taken });
     }
     failed
+}
+
+/// Whether the labelled `url` is on `domain`, under the crawler's host identity, which treats
+/// `www.` and the bare host as one domain.
+fn is_on_domain(url: &str, domain: &str) -> bool {
+    Url::parse(url).is_ok_and(|url| url_matches_configured_domain(&url, domain))
 }
 
 /// Whether the decision's `pattern` takes the labelled `url` as a product page, matched in the
@@ -418,7 +436,7 @@ fn expired_check(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::model::{LabelledSampleUrl, PAGE_ROLE_PRIMARY};
+    use crate::review::model::{PAGE_ROLE_PRIMARY, SampleLabels};
     use crate::review::schema_evaluation::{
         evaluate_schema_matrix_for_live_review_pages, schema_matrix_deterministic_approval_ok,
     };
@@ -863,6 +881,8 @@ mod tests {
     }
 
     const MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
+    /// The domain the URL-pattern review decides, on which [`PRODUCTS`] and [`NOT_PRODUCTS`] are.
+    const REVIEW_DOMAIN: &str = "antique-shop.example";
     const PRODUCTS: [&str; 3] = [
         "https://antique-shop.example/item/oak-chair",
         "https://antique-shop.example/item/pine-table",
@@ -904,7 +924,7 @@ mod tests {
     }
 
     fn url_checks(candidate: &UrlPatternReviewCandidate) -> Vec<FailedApprovalCheck> {
-        url_pattern_approval_checks(candidate, MIN_LABELLED_URLS)
+        url_pattern_approval_checks(candidate, REVIEW_DOMAIN, MIN_LABELLED_URLS)
     }
 
     /// A decision that takes every URL labelled `PRODUCT`, in the crawler's spelling of it, and no
@@ -952,6 +972,32 @@ mod tests {
             UrlPatternReviewCandidate::new(pattern("/item/[^/]+$"), None),
             0,
             0,
+        );
+    }
+
+    /// The decision applies to the review's domain alone, so labels on another domain of the
+    /// ListingSource say nothing about it: they do not count towards the minimum, however many
+    /// there are and however well the decision follows them.
+    #[test]
+    fn should_count_only_labels_on_the_review_domain() {
+        let elsewhere =
+            |urls: [&str; 3]| urls.map(|url| url.replace(REVIEW_DOMAIN, "antique-shop.de"));
+        let (other_products, other_not_products) = (elsewhere(PRODUCTS), elsewhere(NOT_PRODUCTS));
+        let products: Vec<&str> = std::iter::once(PRODUCTS[0])
+            .chain(other_products.iter().map(String::as_str))
+            .collect();
+        let not_products: Vec<&str> = std::iter::once(NOT_PRODUCTS[0])
+            .chain(other_not_products.iter().map(String::as_str))
+            .collect();
+        let candidate = labelled(pattern("/item/[^/]+$"), &products, &not_products);
+
+        assert_eq!(
+            url_checks(&candidate),
+            vec![FailedApprovalCheck::TooFewLabels {
+                product: 1,
+                not_product: 1,
+                minimum: 3,
+            }]
         );
     }
 

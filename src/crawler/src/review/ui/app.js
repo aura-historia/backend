@@ -714,8 +714,8 @@ function decisionPreviewTakes(url) {
     }
 }
 
-// The author agent's or a human's labels of URLs of the sample or of the ListingSource's
-// domains: which are product pages. An agent approval of the pattern rests on them alone; the
+// The author agent's or a human's labels of URLs of the review's domain, its sample's among
+// them: which are product pages. An agent approval of the pattern rests on them alone; the
 // reviewer agent cannot change them.
 function renderSampleLabels(review) {
     if (review.artifact_type !== 'URL_PATTERN') return '';
@@ -741,7 +741,7 @@ function renderSampleLabels(review) {
         </tr>`;
     }).join('');
     const adder = editable ? `<div class="actions">
-        <input id="sampleLabelUrl" placeholder="Another URL of the ListingSource's domains">
+        <input id="sampleLabelUrl" placeholder="Another URL of the review's domain">
         ${renderSampleLabelSelect('PRODUCT', '', false).replace('<select', '<select id="sampleLabelKind"')}
         <input id="sampleLabelReason" placeholder="Why">
         <button onclick="addSampleLabel()">Add label</button>

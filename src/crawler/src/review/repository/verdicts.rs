@@ -9,6 +9,7 @@ use super::review_events::{
     DomainUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
     commit_with_event,
 };
+use super::sample_labels::url_pattern_review_domain;
 use super::schema_payload::ProductSchemaReviewCandidate;
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, crawler_domain_id_from_uuid,
@@ -83,10 +84,12 @@ impl CrawlerReviewRepository {
                 let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
                 if guarded {
+                    let domain = url_pattern_review_domain(&mut transaction, review_id).await?;
                     refuse_failed_checks(
                         review_id,
                         url_pattern_approval_checks(
                             &candidate,
+                            &domain,
                             self.agent_decisions.min_labelled_urls,
                         ),
                     )?;

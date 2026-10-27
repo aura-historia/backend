@@ -3072,19 +3072,22 @@ Origin: http://127.0.0.1:7878/x
     mod sample_labels {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
         use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
-        use crate::CrawlerDomainId;
         use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
         use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::model::UrlPatternDecision;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
+        use crate::{CrawlerDomainId, CrawlerReviewId};
         use listing_source_core::ListingSourceId;
         use serde_json::{Value, json};
+        use sqlx::PgPool;
         use std::net::SocketAddr;
         use std::sync::Arc;
         use test_api::IntegrationTestService as _;
 
         const SHOP: &str = "https://antique-shop.example";
+        const PRODUCTS: [&str; 3] = ["/item/oak-chair", "/item/pine-table", "/item/brass-lamp"];
+        const NOT_PRODUCTS: [&str; 3] = ["/shop/chairs", "/about-us", "/impressum"];
 
         fn labels(products: &[&str], not_products: &[&str]) -> Value {
             let label = |path: &&str, label: &str| json!({ "url": format!("{SHOP}{path}"), "label": label, "reason": "seen on the page" });
@@ -3097,9 +3100,13 @@ Origin: http://127.0.0.1:7878/x
             )
         }
 
-        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_take_the_reviewer_approval_once_the_pattern_follows_the_author_labels() {
-            let pool = test_api::get_postgres_client().await;
+        /// A review server taking the agents' guarded decisions, and the domain and the pending,
+        /// undecided URL-pattern review of the shop on [`SHOP`], whose ListingSource also holds
+        /// `other_domains`.
+        async fn url_pattern_review_server(
+            pool: &PgPool,
+            other_domains: &[&str],
+        ) -> (ReviewServer, CrawlerDomainId, CrawlerReviewId) {
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
                 "INSERT INTO listing_sources \
@@ -3107,20 +3114,26 @@ Origin: http://127.0.0.1:7878/x
                  VALUES ($1, 'Antique shop', 'antique-shop', TRUE, NOW(), NOW())",
             )
             .bind(listing_source_id.as_uuid())
-            .execute(&pool)
+            .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("insert listing source: {error}"));
             let domain_id = CrawlerDomainId::new();
-            sqlx::query(
-                "INSERT INTO listing_source_domains \
-                 (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-                 VALUES ($1, $2, 'antique-shop.example', 'antique-shop.example')",
-            )
-            .bind(domain_id.as_uuid())
-            .bind(listing_source_id.as_uuid())
-            .execute(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("insert domain: {error}"));
+            let others = other_domains
+                .iter()
+                .map(|domain| (CrawlerDomainId::new(), *domain));
+            for (id, domain) in std::iter::once((domain_id, "antique-shop.example")).chain(others) {
+                sqlx::query(
+                    "INSERT INTO listing_source_domains \
+                     (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+                     VALUES ($1, $2, $3, $3)",
+                )
+                .bind(id.as_uuid())
+                .bind(listing_source_id.as_uuid())
+                .bind(domain)
+                .execute(pool)
+                .await
+                .unwrap_or_else(|error| panic!("insert domain {domain}: {error}"));
+            }
             let repository = CrawlerReviewRepository::new(pool.clone());
             let review_id = repository
                 .create_url_pattern_review(
@@ -3150,17 +3163,22 @@ Origin: http://127.0.0.1:7878/x
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
+            (server, domain_id, review_id)
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_take_the_reviewer_approval_once_the_pattern_follows_the_author_labels() {
+            let pool = test_api::get_postgres_client().await;
+            let (server, domain_id, review_id) = url_pattern_review_server(&pool, &[]).await;
             let sample_labels = format!("POST /api/reviews/{review_id}/sample-labels");
             let candidate = format!("POST /api/reviews/{review_id}/candidate");
             let approve = format!("POST /api/reviews/{review_id}/approve");
-            let products = ["/item/oak-chair", "/item/pine-table", "/item/brass-lamp"];
-            let not_products = ["/shop/chairs", "/about-us", "/impressum"];
 
             let (status, by_reviewer) = send_as(
                 &server,
                 REVIEWER_TOKEN,
                 &sample_labels,
-                &json!({ "expected_candidate_version": 1, "labels": labels(&products, &not_products) })
+                &json!({ "expected_candidate_version": 1, "labels": labels(&PRODUCTS, &NOT_PRODUCTS) })
                     .to_string(),
             )
             .await;
@@ -3185,7 +3203,7 @@ Origin: http://127.0.0.1:7878/x
                 &server,
                 AUTHOR_TOKEN,
                 &sample_labels,
-                &json!({ "expected_candidate_version": 1, "labels": labels(&products, &not_products[..2]) })
+                &json!({ "expected_candidate_version": 1, "labels": labels(&PRODUCTS, &NOT_PRODUCTS[..2]) })
                     .to_string(),
             )
             .await;
@@ -3221,7 +3239,7 @@ Origin: http://127.0.0.1:7878/x
                 &sample_labels,
                 &json!({
                     "expected_candidate_version": decided["candidate_version"],
-                    "labels": labels(&products, &not_products),
+                    "labels": labels(&PRODUCTS, &NOT_PRODUCTS),
                 })
                 .to_string(),
             )
@@ -3278,6 +3296,44 @@ Origin: http://127.0.0.1:7878/x
             let relied_on = &detail["events"][3]["details"]["sample_labels"];
             assert_eq!(relied_on["labels"].as_array().map(Vec::len), Some(6));
             assert_eq!(relied_on["labels"][0]["label"], "PRODUCT");
+        }
+
+        /// A URL-pattern review decides one domain, so a label of a URL on another domain of its
+        /// ListingSource, which would say nothing about the decision, is refused with 400 and
+        /// changes nothing.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_a_label_on_another_domain_of_the_listing_source() {
+            let pool = test_api::get_postgres_client().await;
+            let (server, _, review_id) =
+                url_pattern_review_server(&pool, &["antique-shop.de"]).await;
+            let other_domain = "https://antique-shop.de/item/oak-chair";
+            let mut off_domain = labels(&PRODUCTS, &NOT_PRODUCTS);
+            off_domain[0]["url"] = json!(other_domain);
+
+            let (status, refused) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/sample-labels"),
+                &json!({ "expected_candidate_version": 1, "labels": off_domain }).to_string(),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
+            assert!(
+                refused["error"]
+                    .as_str()
+                    .is_some_and(|error| error.contains(other_domain)),
+                "{refused}"
+            );
+            let (_, detail) =
+                send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert_eq!(detail["review"]["candidate_version"], 1, "{detail}");
+            assert_eq!(
+                detail["review"]["candidate_payload"].get("sample_labels"),
+                None,
+                "{detail}"
+            );
+            assert_eq!(detail["events"], json!([]), "{detail}");
         }
     }
 

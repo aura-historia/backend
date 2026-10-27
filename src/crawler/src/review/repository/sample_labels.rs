@@ -1,7 +1,9 @@
 //! The sample labels of a URL-pattern review: the author agent or a human says, for URLs of the
-//! review's sample or of its ListingSource's domains, which are product pages and which are not.
-//! They belong to the candidate, so setting them bumps its version and is recorded as a candidate
-//! edit by its actor. The contract is in `docs/crawler/extraction-and-review.md` (approval guard).
+//! review's domain, its sample's among them, which are product pages and which are not. A review
+//! decides one domain, so labels on another domain of its ListingSource would say nothing about
+//! the decision. They belong to the candidate, so setting them bumps its version and is recorded
+//! as a candidate edit by its actor. The contract is in `docs/crawler/extraction-and-review.md`
+//! (approval guard).
 
 use super::review_events::{ReviewMutation, commit_with_event};
 use super::reviewer_page_url::{
@@ -12,6 +14,7 @@ use super::{
     store_pending_candidate,
 };
 use crate::CrawlerReviewId;
+use crate::network::policy::url_matches_configured_domain;
 use crate::review::model::{
     ARTIFACT_URL_PATTERN, LabelledSampleUrl, ReviewActor, STATUS_PENDING_REVIEW, SampleLabelInput,
     SampleLabels, UrlPatternReviewCandidate,
@@ -41,7 +44,6 @@ impl CrawlerReviewRepository {
     ) -> Result<i64, ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
         let ReviewUnderEdit {
-            listing_source_id,
             artifact_type,
             status,
             candidate_payload,
@@ -68,14 +70,8 @@ impl CrawlerReviewRepository {
         .bind(review_id.as_uuid())
         .fetch_all(&mut *transaction)
         .await?;
-        let domains = sqlx::query_scalar::<_, String>(
-            "SELECT listing_source_domain FROM listing_source_domains \
-             WHERE listing_source_id = $1",
-        )
-        .bind(uuid::Uuid::from(listing_source_id))
-        .fetch_all(&mut *transaction)
-        .await?;
-        let labels = validated_sample_labels(labels, &sample, &domains, OffsetDateTime::now_utc())?;
+        let domain = url_pattern_review_domain(&mut transaction, review_id).await?;
+        let labels = validated_sample_labels(labels, &sample, &domain, OffsetDateTime::now_utc())?;
         let counts = labels.as_ref().map(SampleLabels::counts);
         let candidate_payload = UrlPatternReviewCandidate::payload_with_sample_labels(
             candidate_payload,
@@ -106,18 +102,37 @@ impl CrawlerReviewRepository {
     }
 }
 
+/// The domain the URL-pattern review `review_id` decides, the only one its labels may name URLs
+/// of. A URL-pattern review always names a domain of its ListingSource, so a review without one
+/// fails as an invalid stored review.
+pub(super) async fn url_pattern_review_domain(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+) -> Result<String, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT d.listing_source_domain FROM crawler_reviews r \
+         JOIN listing_source_domains d \
+           ON d.listing_source_id = r.listing_source_id AND d.domain_id = r.domain_id \
+         WHERE r.review_id = $1",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_one(&mut **transaction)
+    .await
+}
+
 /// The sample labels `inputs` describe, labelled at `labelled_at`, or `None` for no label. Each
-/// URL must be one of the review's `sample` URLs, under the crawler's URL spelling, or an http(s)
-/// URL on the default port of one of the ListingSource's `domains`; a URL with credentials is
-/// refused either way. A label of a sample URL keeps the sample's spelling, any other URL is
-/// stored in the crawler's spelling, so a pattern is matched against it as the spider would. Each
-/// page is labelled once, in whichever spelling the crawler treats as that page (http or https,
-/// with or without `www.`), so the labels of one page never count as several, and with a reason
-/// of at most [`MAX_SAMPLE_LABEL_REASON_CHARS`] characters.
+/// URL must be on the review's `domain`, on http or https, with or without `www.`, as the crawler
+/// treats one domain: one of the review's `sample` URLs, under the crawler's URL spelling, or an
+/// http(s) URL on the default port; a URL with credentials is refused either way. A label of a
+/// sample URL keeps the sample's spelling, any other URL is stored in the crawler's spelling, so
+/// a pattern is matched against it as the spider would. Each page is labelled once, in whichever
+/// spelling the crawler treats as that page (http or https, with or without `www.`), so the
+/// labels of one page never count as several, and with a reason of at most
+/// [`MAX_SAMPLE_LABEL_REASON_CHARS`] characters.
 fn validated_sample_labels(
     inputs: Vec<SampleLabelInput>,
     sample: &[String],
-    domains: &[String],
+    domain: &str,
     labelled_at: OffsetDateTime,
 ) -> Result<Option<SampleLabels>, ReviewRepositoryError> {
     if inputs.len() > MAX_SAMPLE_LABELS {
@@ -130,7 +145,7 @@ fn validated_sample_labels(
     let mut labelled = HashSet::new();
     let mut labels = Vec::with_capacity(inputs.len());
     for input in inputs {
-        let url = labelled_url(&input.url, &sample_spellings, domains)?;
+        let url = labelled_url(&input.url, &sample_spellings, domain)?;
         let reason = input.reason.trim();
         if reason.is_empty() || reason.chars().count() > MAX_SAMPLE_LABEL_REASON_CHARS {
             return Err(ReviewRepositoryError::InvalidSampleLabelReason(url));
@@ -156,7 +171,7 @@ fn validated_sample_labels(
 fn labelled_url(
     raw_url: &str,
     sample_spellings: &HashMap<String, &String>,
-    domains: &[String],
+    domain: &str,
 ) -> Result<String, ReviewRepositoryError> {
     let not_allowed = |url: String| Err(ReviewRepositoryError::SampleLabelUrlNotAllowed(url));
     let Ok(url) = Url::parse(raw_url.trim()) else {
@@ -165,11 +180,14 @@ fn labelled_url(
     if !url.username().is_empty() || url.password().is_some() {
         return not_allowed(without_credentials(&url).to_string());
     }
+    if !url_matches_configured_domain(&url, domain) {
+        return not_allowed(url.to_string());
+    }
     let spelling = crawler_spelling(&url);
     if let Some(sample_url) = sample_spellings.get(&spelling) {
         return Ok((*sample_url).clone());
     }
-    if is_allowed_reviewer_page_url(&url, domains) {
+    if is_allowed_reviewer_page_url(&url, &[domain.to_owned()]) {
         return Ok(spelling);
     }
     not_allowed(url.to_string())
@@ -199,17 +217,13 @@ mod tests {
         ]
     }
 
-    fn domains() -> Vec<String> {
-        vec![
-            "antiques.example".to_owned(),
-            "antiques.example.de".to_owned(),
-        ]
-    }
+    /// The domain the review decides; its ListingSource also holds `antiques.example.de`.
+    const DOMAIN: &str = "antiques.example";
 
     fn validated(
         inputs: Vec<SampleLabelInput>,
     ) -> Result<Option<SampleLabels>, ReviewRepositoryError> {
-        validated_sample_labels(inputs, &sample(), &domains(), OffsetDateTime::UNIX_EPOCH)
+        validated_sample_labels(inputs, &sample(), DOMAIN, OffsetDateTime::UNIX_EPOCH)
     }
 
     fn urls(labels: &SampleLabels) -> Vec<(&str, SampleUrlLabel, &str)> {
@@ -221,10 +235,10 @@ mod tests {
     }
 
     /// A label names a sample URL in the sample's spelling, however the client spells it, or
-    /// another URL of the ListingSource's domains in the crawler's spelling; its reason is kept
-    /// trimmed.
+    /// another URL of the review's domain, on http or https, with or without `www.`, in the
+    /// crawler's spelling; its reason is kept trimmed.
     #[test]
-    fn should_take_sample_urls_and_urls_of_the_listing_source_domains() {
+    fn should_take_sample_urls_and_urls_of_the_review_domain() {
         let labels = validated(vec![
             input(
                 "https://antiques.example/item/chair/",
@@ -235,7 +249,7 @@ mod tests {
                 SampleUrlLabel::Product,
             ),
             input(
-                "https://antiques.example.de/impressum",
+                "http://antiques.example/impressum",
                 SampleUrlLabel::NotProduct,
             ),
         ])
@@ -256,7 +270,7 @@ mod tests {
                     "seen on the page"
                 ),
                 (
-                    "https://antiques.example.de/impressum",
+                    "http://antiques.example/impressum",
                     SampleUrlLabel::NotProduct,
                     "seen on the page"
                 ),
@@ -265,15 +279,23 @@ mod tests {
         assert_eq!(labels.labelled_at, OffsetDateTime::UNIX_EPOCH);
     }
 
-    /// No label names a URL outside the review's sample and the ListingSource's domains, a URL
-    /// with credentials, on another port or scheme, or one that does not parse; the refusal never
-    /// repeats credentials.
+    /// No label names a URL outside the review's domain, even on another domain of its
+    /// ListingSource, a URL with credentials, on another port or scheme, or one that does not
+    /// parse; the refusal never repeats credentials.
     #[test]
-    fn should_refuse_a_url_neither_in_the_sample_nor_on_a_listing_source_domain() {
+    fn should_refuse_a_url_not_on_the_review_domain() {
         for (raw, reported) in [
             (
                 "https://elsewhere.example/item/1",
                 "https://elsewhere.example/item/1",
+            ),
+            (
+                "https://antiques.example.de/item/1",
+                "https://antiques.example.de/item/1",
+            ),
+            (
+                "https://shop.antiques.example/item/1",
+                "https://shop.antiques.example/item/1",
             ),
             (
                 "https://antiques.example:8443/item/1",

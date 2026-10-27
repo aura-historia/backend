@@ -91,7 +91,7 @@ pub enum ReviewRepositoryError {
     #[error("a URL-pattern review holds at most {MAX_SAMPLE_LABELS} sample labels")]
     TooManySampleLabels,
     #[error(
-        "URL `{0}` is neither a URL of the review's sample nor an http(s) URL on the default port, without credentials, on a domain of the review's ListingSource"
+        "URL `{0}` is neither a URL of the review's sample nor an http(s) URL on the default port, without credentials, on the review's domain, the one domain its decision applies to"
     )]
     SampleLabelUrlNotAllowed(String),
     #[error(
