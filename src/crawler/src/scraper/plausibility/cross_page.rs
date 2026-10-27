@@ -41,6 +41,18 @@ pub struct CrossPageFinding {
     pub values: Vec<String>,
 }
 
+impl CrossPageFinding {
+    /// The finding for the `values` of `field` that another page repeats; `None` when it
+    /// repeats none.
+    fn repeated(field: PlausibilityField, values: Vec<String>) -> Option<Self> {
+        (!values.is_empty()).then_some(Self {
+            field,
+            check: CrossPageCheck::RepeatedAcrossPages,
+            values,
+        })
+    }
+}
+
 impl fmt::Display for CrossPageFinding {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -90,17 +102,12 @@ impl CrossPageFindings {
             .map(|((identities, titles), images)| {
                 Self(
                     [
-                        (PlausibilityField::SourceListingId, identities),
-                        (PlausibilityField::Title, titles),
-                        (PlausibilityField::Images, images),
+                        CrossPageFinding::repeated(PlausibilityField::SourceListingId, identities),
+                        CrossPageFinding::repeated(PlausibilityField::Title, titles),
+                        CrossPageFinding::repeated(PlausibilityField::Images, images),
                     ]
                     .into_iter()
-                    .filter(|(_, values)| !values.is_empty())
-                    .map(|(field, values)| CrossPageFinding {
-                        field,
-                        check: CrossPageCheck::RepeatedAcrossPages,
-                        values,
-                    })
+                    .flatten()
                     .collect(),
                 )
             })
