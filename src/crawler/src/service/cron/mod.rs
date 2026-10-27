@@ -3,9 +3,11 @@ mod job;
 mod metrics;
 mod scraper;
 mod spider;
+mod stop;
 
 pub use config::CrawlerCronConfig;
 pub use job::CrawlerCronJob;
+pub use stop::CronStop;
 
 #[cfg(test)]
 pub(super) mod test_support {
