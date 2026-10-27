@@ -19,8 +19,8 @@ pub struct ScrapedProduct {
     pub raw_input: ProductListingNormalizationInput,
     pub effective_url: Url,
     pub source_listing_id: String,
-    /// SHA-256 of the page's `<main>` fragment (or full HTML) that was used to
-    /// detect whether the page had changed.
+    /// SHA-256 of what the effective ordered schema set extracts from the page, which the
+    /// next scrape compares to skip an unchanged page.
     pub hash: String,
     /// Deterministic fingerprint of the extractor version, the effective ordered schema set and
     /// the fallback currency the extraction ran with.
