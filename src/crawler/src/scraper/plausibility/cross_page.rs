@@ -516,6 +516,18 @@ mod tests {
 
             assert_eq!(findings, vec![vec![], vec![]]);
         }
+
+        /// A matrix of one page, such as the triggering page of a fresh generation, has no
+        /// other product to compare it with, so that page decides.
+        #[test]
+        fn should_report_the_only_page_when_it_has_no_capturable_image() {
+            let findings = findings_with_capturable_images(&pages()[1..], &[false]);
+
+            assert_eq!(
+                findings,
+                vec![vec![CrossPageFinding::no_image_on_any_page()]]
+            );
+        }
     }
 
     mod serialization {
@@ -549,6 +561,43 @@ mod tests {
                     "check": "NO_IMAGE_ON_ANY_PAGE",
                     "values": []
                 })
+            );
+        }
+
+        /// A matrix cached before a check existed names only older check codes and still
+        /// loads. One naming a code this crawler does not know fails to load, so the review
+        /// server refreshes it from the live pages instead of showing it as passing.
+        #[test]
+        fn should_load_every_persisted_check_code_and_reject_an_unknown_one() {
+            let check_of = |finding: serde_json::Value| {
+                serde_json::from_value::<CrossPageFinding>(finding).map(|finding| finding.check)
+            };
+
+            assert_eq!(
+                check_of(serde_json::json!({
+                    "field": "title",
+                    "check": "REPEATED_ACROSS_PAGES",
+                    "values": ["Same"]
+                }))
+                .ok(),
+                Some(CrossPageCheck::RepeatedAcrossPages)
+            );
+            assert_eq!(
+                check_of(serde_json::json!({
+                    "field": "images",
+                    "check": "NO_IMAGE_ON_ANY_PAGE",
+                    "values": []
+                }))
+                .ok(),
+                Some(CrossPageCheck::NoImageOnAnyPage)
+            );
+            assert!(
+                check_of(serde_json::json!({
+                    "field": "images",
+                    "check": "NO_PHOTOS",
+                    "values": []
+                }))
+                .is_err()
             );
         }
     }
