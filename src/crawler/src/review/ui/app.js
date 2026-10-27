@@ -665,7 +665,7 @@ function renderSelectorPanel(schemas, matrix) {
         <button onclick="applyPickedSelector()">Use clicked element</button>
         <button onclick="postHighlight(currentSelector())">Highlight field</button>
         <button onclick="postHighlightSchema()">Highlight schema</button>
-        <button onclick="reloadMatrix()">Re-evaluate</button>
+        <button onclick="reevaluateMatrix()">Re-evaluate</button>
         <button onclick="discardEdits()">Discard edits</button>
       </div>
       <div class="picked" id="pickedElement">No element picked yet.</div>
@@ -984,14 +984,14 @@ function renderMatrixNotice(detail, matrix) {
     if (selectedMatrixFailure) {
         return `<div class="hint-card finding-hint">
           <span>No schema matrix: ${escapeHtml(selectedMatrixFailure)}</span>
-          <button onclick="reloadMatrix()">Re-evaluate</button>
+          <button onclick="reevaluateMatrix()">Re-evaluate</button>
         </div>`;
     }
     const unevaluated = unevaluatedReviewPages(detail, matrix);
     if (!unevaluated.length) return '';
     return `<div class="hint-card">
       <span>Not evaluated: ${unevaluated.length === 1 ? 'a page was' : `${unevaluated.length} pages were`} added to the review while this matrix was evaluated (${unevaluated.map(page => escapeHtml(reviewPageLabel(page))).join(', ')}).</span>
-      <button onclick="reloadMatrix()">Re-evaluate</button>
+      <button onclick="reevaluateMatrix()">Re-evaluate</button>
     </div>`;
 }
 
@@ -1031,12 +1031,16 @@ function renderCoverageSummary(matrix) {
     }
     const pageRefs = matrix.candidates[0].pages || [];
     const covered = pageRefs.filter(page => pageCovered(matrix, page.page_reference)).length;
+    // A review page the matrix did not evaluate is not covered until the next evaluation.
+    const unevaluated = selectedDetail ? unevaluatedReviewPages(selectedDetail, matrix).length : 0;
+    const total = pageRefs.length + unevaluated;
+    const scope = unevaluated ? 'evaluated' : 'live';
     const failures = currentCandidateFailures(matrix);
     return `<div class="hint-card">
       <strong>Coverage</strong>
-      <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
-      ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
-      ${renderSchemasApplyingToNoPage(matrix)}
+      <div>${covered} / ${total} live page${total === 1 ? '' : 's'} covered by at least one schema${unevaluated ? `; ${unevaluated} not evaluated` : ''}.</div>
+      ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : `<div class="muted">Selected schema applied to every ${scope} page.</div>`}
+      ${renderSchemasApplyingToNoPage(matrix, scope)}
       ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
       ${renderSkippedElementSummary(currentCandidatePagesWithSkippedElements(matrix))}
       ${renderPlausibilitySummary(matrix)}
@@ -1227,12 +1231,12 @@ function pageCovered(matrix, pageReference) {
 // Schemas that apply to no live review page. The reviewer retires a schema whose template the
 // shop no longer uses by deleting it from the candidate; another page of its template, added to
 // the review, shows whether it is still needed.
-function renderSchemasApplyingToNoPage(matrix) {
+function renderSchemasApplyingToNoPage(matrix, scope) {
     const unused = matrix.candidates
         .filter(candidate => (candidate.pages || []).length && candidate.pages.every(page => !page.apply_ok))
         .map(candidate => escapeHtml(schemaLabel(candidate.schema_index)));
     if (!unused.length) return '';
-    return `<div class="muted">Applies to no live page: ${unused.join(', ')}. Add a page of its template, or delete the schema once the shop no longer uses that template.</div>`;
+    return `<div class="muted">Applies to no ${scope} page: ${unused.join(', ')}. Add a page of its template, or delete the schema once the shop no longer uses that template.</div>`;
 }
 
 function currentCandidateFailures(matrix) {
@@ -1451,6 +1455,14 @@ async function reloadMatrix() {
     await loadReviews();
 }
 
+// Re-evaluating reloads the review's candidate, so it asks before discarding unsaved edits,
+// and with them a refusal of those edits.
+async function reevaluateMatrix() {
+    if (!confirmDiscardingEdits()) return;
+    editRefusal = null;
+    await reloadMatrix();
+}
+
 // Loading the current review discards the local edits, and with them a refusal of those edits.
 async function refreshSelectedReview() {
     dirty = false;
@@ -1657,8 +1669,8 @@ async function saveSchemaField(rule) {
     });
 }
 
-// Adding or removing a review page reloads the review and evaluates the matrix on its new page
-// set, so unsaved edits would be lost.
+// Re-evaluating the matrix, or adding or removing a review page, reloads the review and
+// evaluates the matrix on its page set, so unsaved edits would be lost.
 function confirmDiscardingEdits() {
     return !dirty || confirm('Discard the unsaved edits of this review?');
 }
