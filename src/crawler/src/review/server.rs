@@ -7,7 +7,9 @@ use crate::review::assets::{
 };
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
-use crate::review::model::{CrawlerReviewPage, RawAttributeKey, ReviewDetail, SchemaMatrix};
+use crate::review::model::{
+    CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SchemaMatrix,
+};
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
@@ -163,9 +165,9 @@ impl ReviewServer {
             return HttpResponse::text(400, "bad request");
         };
 
-        if self.access.authorize(&parsed).is_none() {
+        let Some(actor) = self.access.authorize(&parsed) else {
             return HttpResponse::json(401, &json!({ "error": "unauthorized" }));
-        }
+        };
 
         match (parsed.method.as_str(), parsed.path) {
             ("GET", "/") => HttpResponse::html(200, INDEX_HTML),
@@ -188,11 +190,12 @@ impl ReviewServer {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
                 Err(err) => internal_error(err),
             },
-            _ => self.route_dynamic(parsed).await,
+            _ => self.route_dynamic(parsed, actor).await,
         }
     }
 
-    async fn route_dynamic(&self, request: ParsedRequest<'_>) -> HttpResponse {
+    /// Routes a request with a path parameter. Review mutations are recorded as `actor`'s.
+    async fn route_dynamic(&self, request: ParsedRequest<'_>, actor: ReviewActor) -> HttpResponse {
         if request.method == "GET"
             && request.path.starts_with("/api/listing-sources/")
             && request.path.ends_with("/domains")
@@ -366,7 +369,7 @@ impl ReviewServer {
                     );
                 }
             };
-            return match self.add_reviewer_page(review_id, url).await {
+            return match self.add_reviewer_page(review_id, actor, url).await {
                 Ok(page) => HttpResponse::json(201, &page),
                 Err(response) => response,
             };
@@ -376,7 +379,7 @@ impl ReviewServer {
             let Some(page_id) = parse_page_id_with_suffix(request.path, "") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid page id" }));
             };
-            return match self.repository.remove_reviewer_page(page_id).await {
+            return match self.repository.remove_reviewer_page(page_id, actor).await {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
                 Err(error) => review_error(error),
             };
@@ -437,6 +440,7 @@ impl ReviewServer {
                 .repository
                 .approve_review(
                     review_id,
+                    actor,
                     payload.notes.as_deref(),
                     payload.incomplete_coverage(),
                 )
@@ -462,7 +466,7 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .reject_review(review_id, payload.notes.as_deref())
+                .reject_review(review_id, actor, payload.notes.as_deref())
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
@@ -485,7 +489,7 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .request_repair(review_id, payload.notes.as_deref())
+                .request_repair(review_id, actor, payload.notes.as_deref())
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
@@ -510,6 +514,7 @@ impl ReviewServer {
                 .repository
                 .update_schema_field(
                     review_id,
+                    actor,
                     payload.expected_candidate_version,
                     payload.schema_index,
                     &payload.field,
@@ -539,6 +544,7 @@ impl ReviewServer {
                 .repository
                 .update_candidate_payload(
                     review_id,
+                    actor,
                     payload.expected_candidate_version,
                     serde_json::Value::Object(payload.candidate),
                 )
@@ -618,6 +624,7 @@ impl ReviewServer {
     async fn add_reviewer_page(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         url: Url,
     ) -> Result<CrawlerReviewPage, HttpResponse> {
         self.repository
@@ -630,7 +637,7 @@ impl ReviewServer {
             .await
             .map_err(|err| live_url_fetch_error(url.as_str(), &err))?;
         self.repository
-            .add_reviewer_page(review_id, &url, &fetched.final_url, &fetched.html)
+            .add_reviewer_page(review_id, actor, &url, &fetched.final_url, &fetched.html)
             .await
             .map_err(review_error)
     }
@@ -1679,7 +1686,7 @@ Origin: http://127.0.0.1:7878/x
         use super::{ReviewServer, ReviewServerConfig};
         use crate::network::policy::NetworkErrorKind;
         use crate::review::matrix_refresh::MatrixRefreshStatus;
-        use crate::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput};
+        use crate::review::model::{PAGE_ROLE_PRIMARY, ReviewActor, SchemaReviewPageInput};
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
         use crate::scraper::css_selector::rule::{
@@ -2030,6 +2037,7 @@ Origin: http://127.0.0.1:7878/x
             repository
                 .update_candidate_payload(
                     fixture.review_id,
+                    ReviewActor::Human,
                     read_version,
                     json!({ "schemas": [schema("h2")] }),
                 )
@@ -2113,6 +2121,7 @@ Origin: http://127.0.0.1:7878/x
         use test_api::IntegrationTestService as _;
 
         pub(super) const TOKEN: &str = "review-token";
+        pub(super) const AGENT_TOKEN: &str = "agent-token";
 
         /// Sends an authorized request and returns its status line and JSON body.
         pub(super) async fn send(
@@ -2120,9 +2129,19 @@ Origin: http://127.0.0.1:7878/x
             request: &str,
             body: &str,
         ) -> (String, serde_json::Value) {
+            send_as(server, TOKEN, request, body).await
+        }
+
+        /// Sends a request with `token` as its bearer and returns its status line and JSON body.
+        pub(super) async fn send_as(
+            server: &ReviewServer,
+            token: &str,
+            request: &str,
+            body: &str,
+        ) -> (String, serde_json::Value) {
             let response = server
                 .route(&format!(
-                    "{request} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\n\r\n{body}"
+                    "{request} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\n\r\n{body}"
                 ))
                 .await
                 .to_string();
@@ -2214,7 +2233,7 @@ Origin: http://127.0.0.1:7878/x
 
     mod schema_editing {
         use super::matrix_refresh::schema;
-        use super::needs_repair::{TOKEN, send};
+        use super::needs_repair::{AGENT_TOKEN, TOKEN, send};
         use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
         use crate::CrawlerReviewId;
         use crate::review::repository::CrawlerReviewRepository;
@@ -2255,7 +2274,7 @@ Origin: http://127.0.0.1:7878/x
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
-                    agent_token: None,
+                    agent_token: Some(AGENT_TOKEN.to_owned()),
                     local_mutations_without_token: false,
                 },
                 Arc::new(MockHtmlFetcher::new()),
@@ -2381,6 +2400,106 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(
                 after["review"]["candidate_payload"]["schemas"][0]["title"]["selector"],
                 applied_title
+            );
+        }
+    }
+
+    mod review_event_trail {
+        use super::needs_repair::{AGENT_TOKEN, TOKEN, send, send_as};
+        use super::schema_editing::pending_review_server;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        /// The console records each edit as made by the actor of the credential it came with,
+        /// records nothing for a refused edit, and returns the trail with the review. The agent
+        /// token opens no browser session.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_record_the_actor_of_each_credential_and_return_the_trail_with_the_review() {
+            let (server, review_id) = pending_review_server().await;
+            let schema_field = format!("POST /api/reviews/{review_id}/schema-field");
+            let review = format!("GET /api/reviews/{review_id}");
+            let (_, before) = send(&server, &review, "").await;
+            let version = before["review"]["candidate_version"]
+                .as_i64()
+                .unwrap_or_else(|| panic!("review without candidate version: {before}"));
+            let title_edit = |version: i64, selector: &str| {
+                json!({
+                    "expected_candidate_version": version,
+                    "schema_index": 0,
+                    "field": "title",
+                    "rule": {"selector": selector, "type": "text"},
+                })
+                .to_string()
+            };
+
+            let (agent, agent_answer) = send_as(
+                &server,
+                AGENT_TOKEN,
+                &schema_field,
+                &title_edit(version, "h1.agent"),
+            )
+            .await;
+            let (human, human_answer) = send_as(
+                &server,
+                TOKEN,
+                &schema_field,
+                &title_edit(version + 1, "h1.human"),
+            )
+            .await;
+            let (stale, stale_answer) = send_as(
+                &server,
+                AGENT_TOKEN,
+                &schema_field,
+                &title_edit(version, "h1.stale"),
+            )
+            .await;
+            let session = server
+                .route(&format!(
+                    "POST /api/session HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {AGENT_TOKEN}\r\n\r\n"
+                ))
+                .await
+                .to_string();
+
+            assert!(agent.starts_with("HTTP/1.1 200"), "{agent} {agent_answer}");
+            assert!(human.starts_with("HTTP/1.1 200"), "{human} {human_answer}");
+            assert!(stale.starts_with("HTTP/1.1 409"), "{stale} {stale_answer}");
+            assert!(session.starts_with("HTTP/1.1 401"), "{session}");
+            assert!(!session.contains("Set-Cookie"), "{session}");
+            let (status, detail) = send_as(&server, AGENT_TOKEN, &review, "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {detail}");
+            let events = detail["events"]
+                .as_array()
+                .unwrap_or_else(|| panic!("review without events: {detail}"));
+            let trail: Vec<_> = events
+                .iter()
+                .map(|event| {
+                    (
+                        event["actor"].clone(),
+                        event["action"].clone(),
+                        event["candidate_version"].clone(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                trail,
+                vec![
+                    (
+                        json!("AGENT"),
+                        json!("SCHEMA_FIELD_EDITED"),
+                        json!(version + 1)
+                    ),
+                    (
+                        json!("HUMAN"),
+                        json!("SCHEMA_FIELD_EDITED"),
+                        json!(version + 2)
+                    ),
+                ]
+            );
+            assert!(
+                events.iter().all(|event| event["event_id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("cre_"))),
+                "{detail}"
             );
         }
     }

@@ -1,7 +1,7 @@
 use super::*;
 use crate::authoring::CrawlerAuthoringMode;
 use crate::review::model::{
-    PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE,
+    PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
     SchemaReviewPageInput,
 };
 use crate::review::page_coverage::IncompleteCoverage;
@@ -232,7 +232,7 @@ async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_re
     );
     let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
     repository
-        .reject_review(rejected, Some("not a product page"))
+        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     let mut candidates = MockScraperCandidateService::new();
@@ -559,6 +559,7 @@ async fn should_keep_needs_repair_review_and_its_candidate_edits_when_its_pages_
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             edited_candidate.clone(),
         )
@@ -567,6 +568,7 @@ async fn should_keep_needs_repair_review_and_its_candidate_edits_when_its_pages_
     repository
         .request_repair(
             review_id,
+            ReviewActor::Human,
             Some("  title selector misses the sold variant  "),
         )
         .await
@@ -647,12 +649,22 @@ async fn approve_acknowledging_coverage(
     review_id: crate::CrawlerReviewId,
 ) -> Result<(), ReviewRepositoryError> {
     match repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await
     {
         Err(ReviewRepositoryError::IncompleteCoverage { coverage, .. }) => {
             repository
-                .approve_review(review_id, None, IncompleteCoverage::Acknowledged(coverage))
+                .approve_review(
+                    review_id,
+                    ReviewActor::Human,
+                    None,
+                    IncompleteCoverage::Acknowledged(coverage),
+                )
                 .await
         }
         decided => decided,
@@ -683,6 +695,7 @@ async fn approve_removed_page_template_for_notice_page(
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(repository, review_id).await,
             candidate_declaring_the_notice_page_removed(),
         )
@@ -704,7 +717,12 @@ async fn approve_removed_page_template_for_notice_page(
         .await
         .unwrap_or_else(|error| panic!("store the matrix: {error}"));
     repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await
         .unwrap_or_else(|error| panic!("approve the removed-page template: {error}"));
     review_id
@@ -810,6 +828,7 @@ async fn approve_reviewed_removed_page_templates(
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             opened.review.candidate_version,
             json!({
                 "schemas": [minimal_schema()],

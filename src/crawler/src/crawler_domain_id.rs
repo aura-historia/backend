@@ -2,6 +2,7 @@ domain_primitives::object_id_newtype!(CrawlerDomainId, "cd");
 domain_primitives::object_id_newtype!(CrawlerReviewId, "cr");
 domain_primitives::object_id_newtype!(CrawlerReviewPageId, "crp");
 domain_primitives::object_id_newtype!(CrawlerReviewUrlId, "cru");
+domain_primitives::object_id_newtype!(CrawlerReviewEventId, "cre");
 
 #[cfg(test)]
 mod tests {
@@ -20,6 +21,10 @@ mod tests {
             (
                 CrawlerReviewUrlId::PREFIX,
                 CrawlerReviewUrlId::new().to_string(),
+            ),
+            (
+                CrawlerReviewEventId::PREFIX,
+                CrawlerReviewEventId::new().to_string(),
             ),
         ] {
             assert!(value.starts_with(&format!("{prefix}_")));

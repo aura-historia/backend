@@ -1,4 +1,4 @@
-use super::{CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl};
+use super::{CrawlerReview, CrawlerReviewEvent, CrawlerReviewPage, CrawlerReviewUrl};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -10,4 +10,6 @@ pub struct ReviewDetail {
     pub candidate_is_live: bool,
     pub pages: Vec<CrawlerReviewPage>,
     pub urls: Vec<CrawlerReviewUrl>,
+    /// Who changed the review and how, oldest first.
+    pub events: Vec<CrawlerReviewEvent>,
 }

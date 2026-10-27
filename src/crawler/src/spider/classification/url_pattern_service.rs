@@ -11,7 +11,7 @@ use crate::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, UrlPatternState,
 };
 
-use crate::review::model::UrlPatternDecision;
+use crate::review::model::{ReviewActor, UrlPatternDecision};
 use regex::Regex;
 use thiserror::Error;
 use tracing::{debug, info};
@@ -302,6 +302,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
                 review_repository
                     .approve_review(
                         review_id,
+                        ReviewActor::System,
                         Some("Applied directly by CRAWLER_AUTHORING_MODE=auto"),
                         IncompleteCoverage::Refuse,
                     )

@@ -42,6 +42,7 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `CrawlerReviewId` | `cr` |
 | `CrawlerReviewPageId` | `crp` |
 | `CrawlerReviewUrlId` | `cru` |
+| `CrawlerReviewEventId` | `cre` |
 
 ## Boundary policy
 
