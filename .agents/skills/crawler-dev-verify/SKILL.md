@@ -127,10 +127,9 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    approves with the `expected_candidate_version` it read, or rejects with `notes`. Expect `403`
    `AUTHOR_CANNOT_DECIDE` and `REVIEWER_CANNOT_CHANGE_CANDIDATES` for the other role's routes, and
    `409` with `failed_checks` when the approval guard refuses (for a URL pattern `TOO_FEW_LABELS`,
-   `LABELS_EXPIRED`, `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`). Until a pattern is
-   approved the spider stores every crawled URL as `other`; check `listing_source_urls.url_class`.
-   The event trail (`GET /api/reviews/{id}`, `events`) records `AGENT_AUTHOR` and
-   `AGENT_REVIEWER`.
+   `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`). Until a pattern is approved the
+   spider stores every crawled URL as `other`; check `listing_source_urls.url_class`. The event
+   trail (`GET /api/reviews/{id}`, `events`) records `AGENT_AUTHOR` and `AGENT_REVIEWER`.
 4. **Rotation and kill switch.** A restart writes new tokens and the old ones answer `401`; a
    restart with `CRAWLER_AUTHORING_MODE=manual` removes the file. Delete nothing else by hand.
 

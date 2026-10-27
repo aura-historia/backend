@@ -5,8 +5,8 @@
 
 use crate::CrawlerReviewPageId;
 use crate::review::model::{
-    CrawlerReviewPage, LabelledSampleUrl, LiveMatrixEvaluation, SampleLabels, SampleUrlLabel,
-    SchemaMatrix, SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
+    CrawlerReviewPage, LiveMatrixEvaluation, SampleLabels, SampleUrlLabel, SchemaMatrix,
+    SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
 };
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
@@ -63,12 +63,6 @@ pub enum FailedApprovalCheck {
         product: usize,
         not_product: usize,
         minimum: u32,
-    },
-    /// The candidate's sample labels were set longer ago than allowed.
-    LabelsExpired {
-        #[serde(with = "time::serde::rfc3339")]
-        labelled_at: OffsetDateTime,
-        max_age_minutes: u64,
     },
     /// URLs labelled `PRODUCT` that the decision does not classify as product pages.
     ProductLabelNotMatched { urls: Vec<String> },
@@ -144,12 +138,6 @@ impl fmt::Display for FailedApprovalCheck {
             } => write!(
                 formatter,
                 "the sample labels mark {product} URL(s) PRODUCT and {not_product} NOT_PRODUCT; an agent approval needs at least {minimum} of each, which the author agent or a human labels"
-            ),
-            Self::LabelsExpired {
-                max_age_minutes, ..
-            } => write!(
-                formatter,
-                "the sample labels were set more than {max_age_minutes} minutes ago; the author agent or a human labels the sample again"
             ),
             Self::ProductLabelNotMatched { urls } => write!(
                 formatter,
@@ -316,26 +304,17 @@ fn empty_required_fields(
     fields
 }
 
-/// What an agent approval of a URL-pattern review is judged by: the labels it rests on may be at
-/// most `max_age` old at `now`, and must mark at least `min_labelled_urls` URLs as products and
-/// as many as no products.
-pub(crate) struct UrlPatternLabelRules {
-    pub now: OffsetDateTime,
-    pub max_age: Duration,
-    pub min_labelled_urls: NonZeroU32,
-}
-
 /// The checks an agent approval of the URL-pattern `candidate` fails, none when it may go ahead:
 /// the candidate is decided, and its sample labels, which the author agent or a human set and the
-/// approval rests on alone, are current and consistent with the decision. They were set within
-/// the rules' age, mark at least the rules' minimum of URLs as products and as no products, and
-/// the decision classifies every `PRODUCT` URL as a product page and no `NOT_PRODUCT` URL. Labels
-/// belong to the candidate, so the approved candidate version names the labels it is judged on.
+/// approval rests on alone, are consistent with the decision. They mark at least
+/// `min_labelled_urls` URLs as products and as many as no products, and the decision classifies
+/// every `PRODUCT` URL as a product page and no `NOT_PRODUCT` URL. Labels belong to the candidate,
+/// so the approved candidate version names the labels it is judged on, and they do not expire.
 /// No URL is classified by keywords or by its page's markup here: Claude decides what a product
 /// page is, and the crawler only checks that the decision follows its labels.
 pub(crate) fn url_pattern_approval_checks(
     candidate: &UrlPatternReviewCandidate,
-    rules: &UrlPatternLabelRules,
+    min_labelled_urls: NonZeroU32,
 ) -> Vec<FailedApprovalCheck> {
     let pattern = match &candidate.decision {
         UrlPatternDecision::Undecided => return vec![FailedApprovalCheck::CandidateUndecided],
@@ -353,15 +332,7 @@ pub(crate) fn url_pattern_approval_checks(
             .flat_map(move |labels| labels.labelled(label))
     };
     let mut failed = Vec::new();
-    if let Some(labels) = labels
-        && rules.now - labels.labelled_at > rules.max_age
-    {
-        failed.push(FailedApprovalCheck::LabelsExpired {
-            labelled_at: labels.labelled_at,
-            max_age_minutes: rules.max_age.as_secs() / 60,
-        });
-    }
-    let minimum = rules.min_labelled_urls.get();
+    let minimum = min_labelled_urls.get();
     let counts = labels.map(SampleLabels::counts).unwrap_or_default();
     if counts.product.min(counts.not_product) < usize::try_from(minimum).unwrap_or(usize::MAX) {
         failed.push(FailedApprovalCheck::TooFewLabels {
@@ -370,16 +341,15 @@ pub(crate) fn url_pattern_approval_checks(
             minimum,
         });
     }
-    let takes = |url: &&LabelledSampleUrl| decision_takes(pattern.as_ref(), &url.url);
     let missed: Vec<String> = labelled(SampleUrlLabel::Product)
-        .filter(|url| !takes(url))
+        .filter(|url| !decision_takes(pattern.as_ref(), &url.url))
         .map(|url| url.url.clone())
         .collect();
     if !missed.is_empty() {
         failed.push(FailedApprovalCheck::ProductLabelNotMatched { urls: missed });
     }
     let taken: Vec<String> = labelled(SampleUrlLabel::NotProduct)
-        .filter(takes)
+        .filter(|url| decision_takes(pattern.as_ref(), &url.url))
         .map(|url| url.url.clone())
         .collect();
     if !taken.is_empty() {
@@ -411,7 +381,7 @@ fn expired_check(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::model::PAGE_ROLE_PRIMARY;
+    use crate::review::model::{LabelledSampleUrl, PAGE_ROLE_PRIMARY};
     use crate::review::schema_evaluation::{
         evaluate_schema_matrix_for_live_review_pages, schema_matrix_deterministic_approval_ok,
     };
@@ -868,12 +838,11 @@ mod tests {
     ];
 
     /// `decision` with `products` labelled `PRODUCT` and `not_products` labelled `NOT_PRODUCT`,
-    /// the labels set `labelled_ago` before now.
+    /// the labels set a year before now: labels do not expire.
     fn labelled(
         decision: UrlPatternDecision,
         products: &[&str],
         not_products: &[&str],
-        labelled_ago: Duration,
     ) -> UrlPatternReviewCandidate {
         let label = |url: &&str, label: SampleUrlLabel| LabelledSampleUrl {
             url: (*url).to_owned(),
@@ -882,7 +851,7 @@ mod tests {
         };
         UrlPatternReviewCandidate {
             sample_labels: Some(SampleLabels {
-                labelled_at: OffsetDateTime::now_utc() - labelled_ago,
+                labelled_at: OffsetDateTime::now_utc() - Duration::from_secs(365 * 24 * 60 * 60),
                 labels: products
                     .iter()
                     .map(|url| label(url, SampleUrlLabel::Product))
@@ -898,38 +867,22 @@ mod tests {
     }
 
     fn url_checks(candidate: &UrlPatternReviewCandidate) -> Vec<FailedApprovalCheck> {
-        url_pattern_approval_checks(
-            candidate,
-            &UrlPatternLabelRules {
-                now: OffsetDateTime::now_utc(),
-                max_age: MAX_AGE,
-                min_labelled_urls: MIN_LABELLED_URLS,
-            },
-        )
+        url_pattern_approval_checks(candidate, MIN_LABELLED_URLS)
     }
 
     /// A decision that takes every URL labelled `PRODUCT`, in the crawler's spelling of it, and no
-    /// URL labelled `NOT_PRODUCT` passes on a shop whose domain the keywords read as a category.
+    /// URL labelled `NOT_PRODUCT` passes on a shop whose domain the keywords read as a category,
+    /// however long ago the labels were set.
     #[test]
-    fn should_pass_a_decision_consistent_with_current_labels() {
-        let candidate = labelled(
-            pattern("/item/[^/]+$"),
-            &PRODUCTS,
-            &NOT_PRODUCTS,
-            Duration::from_secs(60),
-        );
+    fn should_pass_a_decision_consistent_with_the_labels() {
+        let candidate = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
 
         assert_eq!(url_checks(&candidate), Vec::new());
     }
 
     #[test]
     fn should_refuse_an_undecided_url_pattern() {
-        let candidate = labelled(
-            UrlPatternDecision::Undecided,
-            &PRODUCTS,
-            &NOT_PRODUCTS,
-            Duration::ZERO,
-        );
+        let candidate = labelled(UrlPatternDecision::Undecided, &PRODUCTS, &NOT_PRODUCTS);
 
         assert_eq!(
             url_checks(&candidate),
@@ -953,20 +906,11 @@ mod tests {
         };
 
         too_few(
-            labelled(
-                pattern("/item/[^/]+$"),
-                &PRODUCTS[..2],
-                &NOT_PRODUCTS,
-                Duration::ZERO,
-            ),
+            labelled(pattern("/item/[^/]+$"), &PRODUCTS[..2], &NOT_PRODUCTS),
             2,
             3,
         );
-        too_few(
-            labelled(pattern("/item/[^/]+$"), &PRODUCTS, &[], Duration::ZERO),
-            3,
-            0,
-        );
+        too_few(labelled(pattern("/item/[^/]+$"), &PRODUCTS, &[]), 3, 0);
         too_few(
             UrlPatternReviewCandidate::new(pattern("/item/[^/]+$"), None),
             0,
@@ -976,12 +920,7 @@ mod tests {
 
     #[test]
     fn should_refuse_a_decision_that_misses_a_url_labelled_product() {
-        let candidate = labelled(
-            pattern("/item/(oak|pine)-"),
-            &PRODUCTS,
-            &NOT_PRODUCTS,
-            Duration::ZERO,
-        );
+        let candidate = labelled(pattern("/item/(oak|pine)-"), &PRODUCTS, &NOT_PRODUCTS);
 
         assert_eq!(
             url_checks(&candidate),
@@ -993,7 +932,7 @@ mod tests {
 
     #[test]
     fn should_refuse_a_decision_that_takes_a_url_labelled_not_product() {
-        let candidate = labelled(pattern("/item"), &PRODUCTS, &NOT_PRODUCTS, Duration::ZERO);
+        let candidate = labelled(pattern("/item"), &PRODUCTS, &NOT_PRODUCTS);
 
         assert_eq!(
             url_checks(&candidate),
@@ -1006,43 +945,13 @@ mod tests {
     /// `NO_PATTERN` takes no URL, so labelled products always refuse it: a human decides it.
     #[test]
     fn should_refuse_no_pattern_against_urls_labelled_product() {
-        let candidate = labelled(
-            UrlPatternDecision::NoPattern,
-            &PRODUCTS,
-            &NOT_PRODUCTS,
-            Duration::ZERO,
-        );
+        let candidate = labelled(UrlPatternDecision::NoPattern, &PRODUCTS, &NOT_PRODUCTS);
 
         assert_eq!(
             url_checks(&candidate),
             vec![FailedApprovalCheck::ProductLabelNotMatched {
                 urls: PRODUCTS.map(str::to_owned).to_vec(),
             }]
-        );
-    }
-
-    /// Labels set longer ago than the live matrix may be old vouch for nothing, however
-    /// consistent.
-    #[test]
-    fn should_refuse_labels_set_too_long_ago() {
-        let candidate = labelled(
-            pattern("/item/[^/]+$"),
-            &PRODUCTS,
-            &NOT_PRODUCTS,
-            MAX_AGE + Duration::from_secs(60),
-        );
-
-        let refused = url_checks(&candidate);
-
-        assert!(
-            matches!(
-                refused.as_slice(),
-                [FailedApprovalCheck::LabelsExpired {
-                    max_age_minutes: 30,
-                    ..
-                }]
-            ),
-            "{refused:?}"
         );
     }
 

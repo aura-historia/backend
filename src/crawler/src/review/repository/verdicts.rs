@@ -17,8 +17,7 @@ use super::{
 };
 use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crate::review::approval_guard::{
-    CurrentReview, FailedApprovalCheck, UrlPatternLabelRules, product_schema_approval_checks,
-    url_pattern_approval_checks,
+    CurrentReview, FailedApprovalCheck, product_schema_approval_checks, url_pattern_approval_checks,
 };
 use crate::review::model::*;
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
@@ -84,7 +83,13 @@ impl CrawlerReviewRepository {
                 let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
                 if guarded {
-                    guard_agent_url_pattern_approval(review_id, &candidate, &self.agent_decisions)?;
+                    refuse_failed_checks(
+                        review_id,
+                        url_pattern_approval_checks(
+                            &candidate,
+                            self.agent_decisions.min_labelled_urls,
+                        ),
+                    )?;
                 }
                 let configuration = make_reviewed_url_pattern_live(
                     &mut transaction,
@@ -369,27 +374,6 @@ fn guard_agent_product_schema_approval(
             },
             OffsetDateTime::now_utc(),
             max_matrix_age,
-        ),
-    )
-}
-
-/// Refuses a review agent's approval of the URL-pattern `candidate`, at the approved candidate
-/// version, that fails a check of the [approval guard](crate::review::approval_guard) on its
-/// sample labels, by the limits of `policy`.
-fn guard_agent_url_pattern_approval(
-    review_id: CrawlerReviewId,
-    candidate: &UrlPatternReviewCandidate,
-    policy: &AgentDecisionPolicy,
-) -> Result<(), ReviewRepositoryError> {
-    refuse_failed_checks(
-        review_id,
-        url_pattern_approval_checks(
-            candidate,
-            &UrlPatternLabelRules {
-                now: OffsetDateTime::now_utc(),
-                max_age: policy.max_matrix_age,
-                min_labelled_urls: policy.min_labelled_urls,
-            },
         ),
     )
 }

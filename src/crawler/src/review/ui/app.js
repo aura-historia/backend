@@ -748,7 +748,7 @@ function renderSampleLabels(review) {
       </div>
       <div class="actions"><button class="primary" onclick="saveSampleLabels()">Save labels</button></div>` : '';
     return `<h3>Sample Labels</h3>
-      <div class="hint-card">${escapeHtml(sampleLabelCountsText(counts))} (${status}). The reviewer agent's approval needs enough labels of each, set recently, and a decision that takes every PRODUCT URL and no NOT_PRODUCT URL; schema.org Product markup decides nothing.</div>
+      <div class="hint-card">${escapeHtml(sampleLabelCountsText(counts))} (${status}). The reviewer agent's approval needs enough labels of each and a decision that takes every PRODUCT URL and no NOT_PRODUCT URL; schema.org Product markup decides nothing.</div>
       ${labels.length ? `<div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Label</th><th>Reason</th><th>Decision takes it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
       ${adder}`;
 }

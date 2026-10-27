@@ -1,7 +1,7 @@
 //! What the review agents may decide on their own: whether the reviewer agent's approvals and
 //! rejections are taken at all, which only `agent` authoring mode turns on, how many of them per
-//! hour, how recent the live matrix or the sample labels an approval rests on must be, and how
-//! many sample URLs of each label a URL-pattern approval needs. The operator contract is in
+//! hour, how recent the live matrix a product-schema approval rests on must be, and how many
+//! sample URLs of each label a URL-pattern approval needs. The operator contract is in
 //! `docs/crawler/operations.md` (review agents); the checks a guarded approval passes are in
 //! [`crate::review::approval_guard`].
 
@@ -44,7 +44,8 @@ pub struct AgentDecisionPolicy {
     /// The agent's approvals plus rejections taken within any rolling hour.
     pub max_decisions_per_hour: NonZeroU32,
     /// How long ago the review pages of the live schema matrix an agent approval rests on may
-    /// have been fetched, or the sample labels of a URL pattern it rests on set.
+    /// have been fetched. A URL pattern's sample labels do not expire: they belong to the
+    /// candidate version an approval names.
     pub max_matrix_age: Duration,
     /// How many URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many
     /// labelled `NOT_PRODUCT`.
