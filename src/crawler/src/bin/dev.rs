@@ -88,21 +88,23 @@ impl ListingSourceRegistrationSource for DemoListingSourceSource {
     }
 }
 
+/// The demo ListingSources. Their IDs end in the two hex digits of their index, the scheme the
+/// crawler-dev-verify and crawler-soak-test skills use to reuse a shop's state in `crawler_demo`.
 fn demo_listing_sources() -> Vec<RegisteredListingSource> {
     [
-        (1, "Hingstons Antiques", "hingstons-antiques"),
+        (0x71, "Hingstons Antiques", "hingstons-antiques"),
         (
-            2,
+            0x72,
             "Harrison Antique Furniture",
             "harrison-antique-furniture",
         ),
-        (3, "Collinge Antiques", "collinge-antiques"),
+        (0x73, "Collinge Antiques", "collinge-antiques"),
     ]
     .into_iter()
     .map(
         |(index, listing_source_name, listing_source_slug)| RegisteredListingSource {
             listing_source_id: ListingSourceId::try_from(
-                uuid::Uuid::parse_str(&format!("01890a5d-ac96-774b-af1d-d5586c639f7{index}"))
+                uuid::Uuid::parse_str(&format!("01890a5d-ac96-774b-af1d-d5586c639f{index:02x}"))
                     .unwrap_or_else(|error| panic!("invalid demo ListingSource ID: {error}")),
             )
             .unwrap_or_else(|error| panic!("invalid demo ListingSource ID version: {error}")),
@@ -311,8 +313,29 @@ fn default_spider_body_limit() {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_spider_body_limit};
+    use super::{
+        DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_spider_body_limit,
+        demo_listing_sources,
+    };
     use std::env;
+
+    /// `crawler_demo` keys a shop's URLs, schemas and reviews by these IDs.
+    #[test]
+    fn should_keep_the_demo_listing_source_ids() {
+        let ids: Vec<String> = demo_listing_sources()
+            .into_iter()
+            .map(|listing_source| uuid::Uuid::from(listing_source.listing_source_id).to_string())
+            .collect();
+
+        assert_eq!(
+            ids,
+            [
+                "01890a5d-ac96-774b-af1d-d5586c639f71",
+                "01890a5d-ac96-774b-af1d-d5586c639f72",
+                "01890a5d-ac96-774b-af1d-d5586c639f73",
+            ]
+        );
+    }
 
     /// One test owns the variable: parallel tests would race on process state.
     #[test]

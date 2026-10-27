@@ -67,9 +67,9 @@ it to the user as a ticket or a separate decision.
    [extraction contract](../../../docs/crawler/extraction-and-review.md#extraction-contract).
 2. **Register the shops.** The committed `dev.rs` registers three demo shops. To run others,
    replace them temporarily: edit the `(index, name, slug)` tuple array and the domain list
-   zipped in `main()`. IDs are `01890a5d-ac96-774b-af1d-d5586c639f7{index}` with a one-digit
-   index, so keep the ID format line, reuse the index of a shop already in `listing_sources`
-   (its ID ends in `7<index>`) and give a new shop an unused digit. Mark the edit `TEMPORARY`,
+   zipped in `main()`. IDs are `01890a5d-ac96-774b-af1d-d5586c639f{index:02x}`, so reuse the
+   index of a shop already in `listing_sources` (the last two hex digits of its ID, e.g. `0x0b`)
+   and give a new shop an index above every one in use. Mark the edit `TEMPORARY`,
    never commit it, and revert with `git checkout -- src/crawler/src/bin/dev.rs` at the end.
    Registration disables listing sources that are not in the list, so include every source the
    run needs.
