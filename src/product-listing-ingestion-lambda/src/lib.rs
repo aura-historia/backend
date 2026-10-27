@@ -3,7 +3,7 @@ use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
 use platform_lambda_sqs::{
-    FifoDisposition, RecordOutcome, handle_fifo_sqs_invocation, process_fifo_batch,
+    FifoDisposition, RecordOutcome, handle_fifo_sqs_invocation, process_fifo_batch, safe_message_id,
 };
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::codec;
@@ -153,7 +153,7 @@ async fn handler_with_budget(
                 disposition,
                 category,
                 command.as_ref(),
-                safe_sqs_message_id(&attempt.message_id).unwrap_or("invalid"),
+                safe_message_id(&attempt.message_id).unwrap_or("invalid"),
                 attempt.duration.as_millis(),
             );
             disposition.fifo_disposition()
@@ -261,20 +261,9 @@ fn log_attempt(
     }
 }
 
-// SQS supplies UUID message IDs; don't interpolate arbitrary event strings into diagnostics.
-// The original ID is still returned unchanged in the partial-batch response.
-fn safe_sqs_message_id(id: &str) -> Option<&str> {
-    (!id.is_empty()
-        && id.len() <= 128
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
-    .then_some(id)
-}
-
 fn log_unprocessed(message_id: &str) {
     IngestionMetricOutcome::Unprocessed.emit();
-    let sqs_message_id = safe_sqs_message_id(message_id).unwrap_or("invalid");
+    let sqs_message_id = safe_message_id(message_id).unwrap_or("invalid");
     info!(
         outcome = "unprocessed",
         sqs_message_id,
@@ -577,17 +566,6 @@ mod tests {
             assert_eq!(object.as_object().unwrap().len(), 1);
             assert_eq!(object["ingestion_outcome"].as_str(), Some(value));
         }
-    }
-
-    #[test]
-    fn only_bounded_sqs_identifiers_are_written_to_diagnostics() {
-        for id in ["sqs-1", "123e4567-e89b-12d3-a456-426614174000"] {
-            assert_eq!(safe_sqs_message_id(id), Some(id));
-        }
-        for id in ["", "a\nsecret", "arn:secret", "with space"] {
-            assert_eq!(safe_sqs_message_id(id), None);
-        }
-        assert_eq!(safe_sqs_message_id(&"x".repeat(129)), None);
     }
 
     #[test]

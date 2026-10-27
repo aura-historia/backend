@@ -56,6 +56,17 @@ fn failure(message_id: String) -> BatchItemFailure {
     failure
 }
 
+/// SQS supplies UUID message IDs; never interpolate arbitrary event strings into diagnostics.
+/// The original ID is still returned unchanged in the partial-batch response.
+pub fn safe_message_id(id: &str) -> Option<&str> {
+    (!id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
+    .then_some(id)
+}
+
 fn require_ids(event: &SqsEvent) -> Result<(), Error> {
     if event.records.iter().any(|record| {
         record
@@ -456,6 +467,17 @@ mod tests {
             .into_iter()
             .map(|f| f.item_identifier)
             .collect()
+    }
+
+    #[test]
+    fn only_bounded_sqs_identifiers_are_written_to_diagnostics() {
+        for id in ["sqs-1", "123e4567-e89b-12d3-a456-426614174000"] {
+            assert_eq!(safe_message_id(id), Some(id));
+        }
+        for id in ["", "a\nsecret", "arn:secret", "with space"] {
+            assert_eq!(safe_message_id(id), None);
+        }
+        assert_eq!(safe_message_id(&"x".repeat(129)), None);
     }
 
     fn complete_when_true(attempt: &RecordAttempt<bool>) -> FifoDisposition {
