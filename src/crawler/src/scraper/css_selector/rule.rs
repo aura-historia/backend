@@ -1610,7 +1610,8 @@ mod tests {
         }
 
         /// Harrison Antique Furniture's gallery of twenty slots: an image link per photo,
-        /// followed by empty `href="#"` slots of the same lightbox.
+        /// followed by empty `href="#"` slots of the same lightbox, each holding a hidden
+        /// image without a host.
         fn gallery_with_placeholder_anchors(photos: usize) -> Html {
             let image_links = (1..=photos).map(|index| {
                 format!(
@@ -1620,7 +1621,8 @@ mod tests {
             });
             let placeholders = (photos + 1..=20).map(|index| {
                 format!(
-                    r##"<div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_{index}_2" rel="lightbox[1] mousezoom[1]" data-largeimg="" target="_blank"></a></div>"##
+                    r##"<div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_{index}_2" rel="lightbox[1] mousezoom[1]" data-thumbnailimg="" data-largeimg="" data-video="" target="_blank"/>
+<img itemprop="image" src="//:0" alt="variant attributes" width="200" height="200" id="_EKM_PRODUCTIMAGE_{index}_2" border="0" style="display:none;" /></a></div>"##
                 )
             });
             Html::parse_document(&format!(
@@ -1699,13 +1701,15 @@ mod tests {
             );
         }
 
-        #[test]
-        fn should_yield_an_empty_gallery_when_every_matched_element_is_a_placeholder() {
-            let r = rule(
-                GALLERY_SELECTOR,
-                image_url_kind(),
-                ExtractionCardinality::All,
-            );
+        /// The slots name their lightbox and their hidden images an image in their id, so a
+        /// selector of either finds an empty gallery.
+        #[rstest]
+        #[case::slots(GALLERY_SELECTOR)]
+        #[case::hidden_images_of_the_slots("div.product-image-grid img")]
+        fn should_yield_an_empty_gallery_when_every_matched_element_is_a_placeholder(
+            #[case] selector: &str,
+        ) {
+            let r = rule(selector, image_url_kind(), ExtractionCardinality::All);
 
             let images = r
                 .apply_image_url_candidate_groups(&gallery_with_placeholder_anchors(0))
@@ -1741,6 +1745,11 @@ mod tests {
             r#"<div class="gallery-item"><span data-bg="/uploads/photo.jpg"></span></div>"#,
             image_url_kind()
         )]
+        #[case::slot_naming_its_image_next_to_a_hostless_one(
+            r##"<a href="#" rel="lightbox" data-largeimg="/uploads/photo.jpg"><img src="//:0"></a>"##,
+            image_url_kind()
+        )]
+        #[case::hostless_image_outside_an_image_context(r#"<img src="//:0">"#, image_url_kind())]
         #[case::layout_element(r#"<div class="w-full"></div>"#, image_url_kind())]
         #[case::image_link_without_the_attribute(
             r#"<a rel="lightbox" href="/uploads/photo.jpg"></a>"#,
