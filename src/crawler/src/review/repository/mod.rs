@@ -111,11 +111,19 @@ pub enum ReviewRepositoryError {
     #[error("review page {0} is a seed or triggering page of the review and cannot be removed")]
     NotReviewerAddedPage(CrawlerReviewPageId),
     #[error(
-        "review {review_id} has incomplete coverage ({coverage}); approving it needs an acknowledgement of the incomplete coverage"
+        "review {review_id} has incomplete coverage ({coverage}); approving it needs an acknowledgement of that coverage"
     )]
     IncompleteCoverage {
         review_id: CrawlerReviewId,
         coverage: ReviewPageCoverage,
+    },
+    #[error(
+        "review {review_id} has incomplete coverage ({coverage}), not the acknowledged {acknowledged}; reload the review and confirm its current coverage"
+    )]
+    StaleCoverageAcknowledgement {
+        review_id: CrawlerReviewId,
+        coverage: ReviewPageCoverage,
+        acknowledged: ReviewPageCoverage,
     },
 }
 
@@ -980,8 +988,8 @@ impl CrawlerReviewRepository {
 
     /// Makes the pending review's candidate the active configuration. A product-schema candidate
     /// that does not cover every review page is approved only with
-    /// [`IncompleteCoverage::Acknowledged`]; URL patterns have no page coverage, so their approval
-    /// ignores `incomplete_coverage`.
+    /// [`IncompleteCoverage::Acknowledged`] of the review's current coverage; URL patterns have no
+    /// page coverage, so their approval ignores `incomplete_coverage`.
     pub async fn approve_review(
         &self,
         review_id: CrawlerReviewId,
@@ -1507,11 +1515,11 @@ async fn lock_review_for_verdict(
 }
 
 /// Refuses to approve a product-schema candidate whose stored schema matrix does not cover every
-/// review page, unless the approver acknowledged the incomplete coverage. The caller holds the
-/// review's row lock, which page joins and removals, candidate edits and matrix stores take
-/// first too, so the coverage checked is the one the approval decides on. A candidate change
-/// drops the stored matrix, so a stored matrix evaluated the current candidate; one that no
-/// longer decodes vouches for no page.
+/// review page, unless the approver acknowledged exactly the review's current coverage. The
+/// caller holds the review's row lock, which page joins and removals, candidate edits and matrix
+/// stores take first too, so the coverage checked is the one the approval decides on. A
+/// candidate change drops the stored matrix, so a stored matrix evaluated the current candidate;
+/// one that no longer decodes vouches for no page.
 async fn check_approval_coverage(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -1522,15 +1530,25 @@ async fn check_approval_coverage(
     let matrix = SchemaMatrix::stored_in(validation_summary).and_then(Result::ok);
     let coverage = ReviewPageCoverage::of(matrix.as_ref(), &pages);
     if !coverage.admits(incomplete_coverage) {
-        return Err(ReviewRepositoryError::IncompleteCoverage {
-            review_id,
-            coverage,
+        return Err(match incomplete_coverage {
+            IncompleteCoverage::Refuse => ReviewRepositoryError::IncompleteCoverage {
+                review_id,
+                coverage,
+            },
+            IncompleteCoverage::Acknowledged(acknowledged) => {
+                ReviewRepositoryError::StaleCoverageAcknowledgement {
+                    review_id,
+                    coverage,
+                    acknowledged,
+                }
+            }
         });
     }
     if !coverage.is_complete() {
         info!(
             review_id = %review_id,
             covered_pages = coverage.covered,
+            removed_pages = coverage.removed,
             review_pages = coverage.total,
             not_evaluated_pages = coverage.not_evaluated,
             "Approving a product schema candidate with acknowledged incomplete coverage"

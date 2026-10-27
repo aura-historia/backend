@@ -6,7 +6,7 @@ use crate::review::assets::{
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
 use crate::review::model::{CrawlerReviewPage, RawAttributeKey, ReviewDetail, SchemaMatrix};
-use crate::review::page_coverage::IncompleteCoverage;
+use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
@@ -967,23 +967,19 @@ struct ActionPayload {
     notes: Option<String>,
 }
 
-/// An approval of `POST /api/reviews/{id}/approve`. `acknowledge_incomplete_coverage` approves a
-/// product-schema candidate that does not cover every review page; the console sends it only once
-/// the reviewer confirmed the covered and total page counts.
+/// An approval of `POST /api/reviews/{id}/approve`. `acknowledged_coverage` approves a
+/// product-schema candidate that does not cover every review page while the review's coverage is
+/// still the one it names; the console sends the coverage its confirmation dialog stated.
 #[derive(Deserialize, Default)]
 struct ApprovalPayload {
     notes: Option<String>,
-    #[serde(default)]
-    acknowledge_incomplete_coverage: bool,
+    acknowledged_coverage: Option<ReviewPageCoverage>,
 }
 
 impl ApprovalPayload {
     fn incomplete_coverage(&self) -> IncompleteCoverage {
-        if self.acknowledge_incomplete_coverage {
-            IncompleteCoverage::Acknowledged
-        } else {
-            IncompleteCoverage::Refuse
-        }
+        self.acknowledged_coverage
+            .map_or(IncompleteCoverage::Refuse, IncompleteCoverage::Acknowledged)
     }
 }
 
@@ -1175,7 +1171,8 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// unknown review or review page, 400 for a request the review cannot take, 409 for a request
 /// the review's current state refuses, and 500 for a technical failure. A 409 for a request based
 /// on an older candidate carries the review's current `candidate_version`, and one for an approval
-/// of incomplete coverage carries the `coverage` it refused.
+/// of incomplete coverage, unacknowledged or acknowledged at other counts, carries the review's
+/// current `coverage`.
 fn review_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::NotFound(_) | ReviewRepositoryError::ReviewPageNotFound(_) => {
@@ -1207,10 +1204,13 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::DuplicateReviewPage(_) => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
-        ReviewRepositoryError::IncompleteCoverage { coverage, .. } => HttpResponse::json(
-            409,
-            &json!({ "error": error.to_string(), "coverage": coverage }),
-        ),
+        ReviewRepositoryError::IncompleteCoverage { coverage, .. }
+        | ReviewRepositoryError::StaleCoverageAcknowledgement { coverage, .. } => {
+            HttpResponse::json(
+                409,
+                &json!({ "error": error.to_string(), "coverage": coverage }),
+            )
+        }
         ReviewRepositoryError::Database(_)
         | ReviewRepositoryError::Json(_)
         | ReviewRepositoryError::Regex(_) => internal_error(error),
@@ -2813,16 +2813,13 @@ Origin: http://127.0.0.1:7878/x
     mod incomplete_coverage {
         use super::needs_repair::send;
         use super::schema_editing::pending_review_server;
+        use crate::CrawlerReviewId;
+        use crate::review::server::ReviewServer;
         use serde_json::json;
         use test_api::IntegrationTestService as _;
         use url::Url;
 
-        /// A client such as the review agent reads from the refusal how much of the review the
-        /// candidate covers, and approves incomplete coverage only by acknowledging it.
-        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_refuse_approving_incomplete_coverage_with_its_page_counts_until_acknowledged()
-         {
-            let (server, review_id) = pending_review_server().await;
+        async fn join_waiting_page(server: &ReviewServer, review_id: CrawlerReviewId, slug: &str) {
             let listing_source_id = server
                 .repository
                 .get_review(review_id)
@@ -2830,7 +2827,7 @@ Origin: http://127.0.0.1:7878/x
                 .unwrap_or_else(|error| panic!("read the review: {error}"))
                 .review
                 .listing_source_id;
-            let waiting_url = Url::parse("https://edited.example/products/waiting")
+            let waiting_url = Url::parse(&format!("https://edited.example/products/{slug}"))
                 .unwrap_or_else(|error| panic!("waiting page URL: {error}"));
             server
                 .repository
@@ -2841,6 +2838,17 @@ Origin: http://127.0.0.1:7878/x
                 )
                 .await
                 .unwrap_or_else(|error| panic!("join the review: {error}"));
+        }
+
+        /// A client such as the review agent reads from the refusal how much of the review the
+        /// candidate covers, and approves incomplete coverage only by acknowledging the review's
+        /// current coverage: a page that joined since the acknowledged coverage was read refuses
+        /// the approval again.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_approving_incomplete_coverage_until_its_current_coverage_is_acknowledged()
+         {
+            let (server, review_id) = pending_review_server().await;
+            join_waiting_page(&server, review_id, "waiting").await;
             let approve = format!("POST /api/reviews/{review_id}/approve");
             let review = format!("GET /api/reviews/{review_id}");
 
@@ -2854,16 +2862,31 @@ Origin: http://127.0.0.1:7878/x
             assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
             assert_eq!(
                 refused["coverage"],
-                json!({ "covered": 0, "total": 1, "not_evaluated": 1 })
+                json!({ "covered": 0, "removed": 0, "total": 1, "not_evaluated": 1 })
             );
             assert!(refused["error"].is_string(), "{refused}");
+
+            join_waiting_page(&server, review_id, "joined-later").await;
+            let (status, stale) = send(
+                &server,
+                &approve,
+                &json!({ "notes": "looks right", "acknowledged_coverage": refused["coverage"] })
+                    .to_string(),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {stale}");
+            assert_eq!(
+                stale["coverage"],
+                json!({ "covered": 0, "removed": 0, "total": 2, "not_evaluated": 2 })
+            );
             let (_, pending) = send(&server, &review, "").await;
             assert_eq!(pending["review"]["status"], "PENDING_REVIEW");
 
             let (status, approved) = send(
                 &server,
                 &approve,
-                &json!({ "notes": "looks right", "acknowledge_incomplete_coverage": true })
+                &json!({ "notes": "looks right", "acknowledged_coverage": stale["coverage"] })
                     .to_string(),
             )
             .await;

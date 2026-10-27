@@ -963,6 +963,11 @@ async function submitEdit(edit) {
             selectedReviewNeedsRefresh = true;
             selectedReviewRefreshReason = `The candidate changed elsewhere and is at version ${currentVersion}; your edits are not saved. Refresh the review and apply them again.`;
         }
+        const coverage = refusedCoverage(error);
+        if (coverage && selectedId === reviewId) {
+            selectedReviewNeedsRefresh = true;
+            selectedReviewRefreshReason = `Not approved: the review's coverage is ${coverageText({...coverage, notEvaluated: coverage.not_evaluated})}. Refresh the review and confirm its current coverage.`;
+        }
         if (selectedDetail && selectedId === reviewId) rerenderWorkbench();
         return false;
     }
@@ -1028,18 +1033,43 @@ function renderJsonPanel(detail) {
     </div>`;
 }
 
-// The review pages at least one schema applies to, out of every review page: the coverage the
-// server checks on approval. A review page the matrix did not evaluate is not covered until the
+// The review pages the candidate resolves, out of every review page, counted as the server
+// counts them on approval: a page the removed-page templates capture as removed, or else one at
+// least one schema applies to. A review page the matrix did not evaluate is not covered until the
 // next evaluation, and without a matrix no page is evaluated.
 function reviewPageCoverage(detail, matrix) {
     const evaluatedPages = matrix?.candidates?.[0]?.pages || [];
-    if (!evaluatedPages.length) {
-        const total = (detail?.pages || []).length;
-        return {covered: 0, total, notEvaluated: total};
+    const coverage = {covered: 0, removed: 0, total: 0, notEvaluated: 0};
+    for (const page of detail?.pages || []) {
+        coverage.total += 1;
+        const evaluation = evaluatedPages.find(evaluated => evaluatesReviewPage(evaluated, page));
+        if (!evaluation) {
+            coverage.notEvaluated += 1;
+        } else if (capturedAsRemoved(matrix, evaluation.page_reference)) {
+            coverage.covered += 1;
+            coverage.removed += 1;
+        } else if (pageCovered(matrix, evaluation.page_reference)) {
+            coverage.covered += 1;
+        }
     }
-    const covered = evaluatedPages.filter(page => pageCovered(matrix, page.page_reference)).length;
-    const notEvaluated = detail ? unevaluatedReviewPages(detail, matrix).length : 0;
-    return {covered, total: evaluatedPages.length + notEvaluated, notEvaluated};
+    return coverage;
+}
+
+// A live matrix names a review page by its id; a generated matrix names the pages it was
+// generated from by position, stored as the review's pages under the same URL.
+function evaluatesReviewPage(evaluation, page) {
+    const reference = evaluation.page_reference || {};
+    if (reference.kind === 'persisted') return reference.review_page_id === page.review_page_id;
+    return reference.kind === 'input' && evaluation.url === page.url;
+}
+
+// The candidate's removed-page templates match the page and no candidate schema still extracts
+// it, so the scraper captures it as removed once the candidate is live.
+function capturedAsRemoved(matrix, pageReference) {
+    const referenceKey = pageReferenceKey(pageReference);
+    return referenceKey !== '' && (matrix.removed_page_matches || []).some(match =>
+        match.outcome === 'REMOVED' && pageReferenceKey(match.page_reference) === referenceKey
+    );
 }
 
 // A review without pages shows nothing the candidate extracts, so its coverage is never complete.
@@ -1047,8 +1077,28 @@ function coverageComplete({covered, total}) {
     return total > 0 && covered === total;
 }
 
-function coverageText({covered, total, notEvaluated}) {
-    return `${covered} / ${total} live page${total === 1 ? '' : 's'} covered by at least one schema${notEvaluated ? `; ${notEvaluated} not evaluated` : ''}`;
+function coverageText({covered, removed, total, notEvaluated}) {
+    const resolved = removed
+        ? ` (${covered - removed} by a schema, ${removed} captured as removed)`
+        : ' by at least one schema';
+    return `${covered} / ${total} live page${total === 1 ? '' : 's'} covered${resolved}${notEvaluated ? `; ${notEvaluated} not evaluated` : ''}`;
+}
+
+// The coverage an approval acknowledges, as the server reports it in a refusal.
+function acknowledgedCoverage({covered, removed, total, notEvaluated}) {
+    return {covered, removed, total, not_evaluated: notEvaluated};
+}
+
+// A 409 that carries `coverage` refused an approval because the review's coverage is not the one
+// the console showed and the reviewer confirmed; the reviewer reloads the review to see it.
+function refusedCoverage(error) {
+    if (error?.status !== 409) return null;
+    try {
+        const coverage = JSON.parse(error.message).coverage;
+        return coverage && Number.isInteger(coverage.total) ? coverage : null;
+    } catch (_) {
+        return null;
+    }
 }
 
 function renderCoverageSummary(matrix) {
@@ -1763,8 +1813,8 @@ function postHighlightSoon() {
 }
 
 // A product-schema candidate that does not cover every review page is approved only once the
-// reviewer confirms the counts; the server refuses the approval without that acknowledgement.
-// Cancelling either dialog sends no verdict.
+// reviewer confirms the counts; the approval names them, and the server refuses it without them
+// or once the review's coverage differs from them. Cancelling either dialog sends no verdict.
 async function approveReview() {
     const coverage = selectedDetail?.review.artifact_type === 'PRODUCT_SCHEMA'
         ? reviewPageCoverage(selectedDetail, selectedMatrix)
@@ -1774,7 +1824,7 @@ async function approveReview() {
     const notes = prompt('Notes');
     if (notes === null) return;
     const verdict = {notes: notes || null};
-    if (incompleteCoverage) verdict.acknowledge_incomplete_coverage = true;
+    if (incompleteCoverage) verdict.acknowledged_coverage = acknowledgedCoverage(coverage);
     await submitVerdict('approve', verdict);
 }
 

@@ -512,8 +512,7 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
         )
         .await
         .unwrap();
-    review_repository
-        .approve_review(older_review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&review_repository, older_review_id)
         .await
         .unwrap();
     let newer_review_id = review_repository
@@ -526,8 +525,7 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
         )
         .await
         .unwrap();
-    review_repository
-        .approve_review(newer_review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&review_repository, newer_review_id)
         .await
         .unwrap();
 
@@ -613,8 +611,7 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
         )
         .await
         .unwrap();
-    review_repository
-        .approve_review(initial_review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&review_repository, initial_review_id)
         .await
         .unwrap();
     let append_review_id = review_repository
@@ -628,8 +625,7 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
         .await
         .unwrap();
 
-    review_repository
-        .approve_review(append_review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&review_repository, append_review_id)
         .await
         .unwrap();
 
@@ -705,8 +701,7 @@ impl WaitingPageFixture {
             )
             .await
             .unwrap();
-        review_repository
-            .approve_review(initial_review_id, None, IncompleteCoverage::Acknowledged)
+        approve_acknowledging_coverage(&review_repository, initial_review_id)
             .await
             .unwrap();
         let review_id = review_repository
@@ -820,11 +815,7 @@ impl ClosingVerdict {
     async fn close(self, fixture: &WaitingPageFixture) -> Result<(), ReviewRepositoryError> {
         let repository = &fixture.review_repository;
         match self {
-            Self::Approve => {
-                repository
-                    .approve_review(fixture.review_id, None, IncompleteCoverage::Acknowledged)
-                    .await
-            }
+            Self::Approve => approve_acknowledging_coverage(repository, fixture.review_id).await,
             Self::Reject => repository.reject_review(fixture.review_id, None).await,
         }
     }
@@ -889,9 +880,7 @@ async fn should_not_hold_back_a_released_page_when_a_scrape_that_overlapped_appr
 
     // The page's retry found the review pending; the reviewer approves it before the scrape
     // records the next, longer wait.
-    fixture
-        .review_repository
-        .approve_review(fixture.review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&fixture.review_repository, fixture.review_id)
         .await
         .unwrap();
     assert_eq!(
@@ -1048,9 +1037,7 @@ async fn should_store_removed_page_templates_and_release_backed_off_pages_in_one
         .await
         .unwrap();
 
-    let refused = fixture
-        .review_repository
-        .approve_review(fixture.review_id, None, IncompleteCoverage::Acknowledged)
+    let refused = approve_acknowledging_coverage(&fixture.review_repository, fixture.review_id)
         .await
         .unwrap_err();
 
@@ -1092,9 +1079,7 @@ async fn should_store_removed_page_templates_and_release_backed_off_pages_in_one
     .execute(&pool)
     .await
     .unwrap();
-    fixture
-        .review_repository
-        .approve_review(fixture.review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&fixture.review_repository, fixture.review_id)
         .await
         .unwrap();
 
@@ -1159,8 +1144,7 @@ async fn should_report_approved_review_as_stale_when_its_stored_candidate_no_lon
         )
         .await
         .unwrap();
-    review_repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&review_repository, review_id)
         .await
         .unwrap();
     sqlx::query(
@@ -1500,6 +1484,25 @@ async fn candidate_change_drops_the_generated_matrix_summary_with_the_cached_mat
     );
 }
 
+/// Approves the review the way a reviewer who confirmed its incomplete coverage does: with an
+/// acknowledgement of the coverage the refused approval reports.
+async fn approve_acknowledging_coverage(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+) -> Result<(), ReviewRepositoryError> {
+    match repository
+        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .await
+    {
+        Err(ReviewRepositoryError::IncompleteCoverage { coverage, .. }) => {
+            repository
+                .approve_review(review_id, None, IncompleteCoverage::Acknowledged(coverage))
+                .await
+        }
+        decided => decided,
+    }
+}
+
 /// A product page whose title sits in a `title_tag` element.
 fn coverage_page(slug: &str, title_tag: &str) -> SchemaReviewPageInput {
     SchemaReviewPageInput {
@@ -1553,7 +1556,7 @@ async fn review_status(repository: &CrawlerReviewRepository, review_id: CrawlerR
 
 /// Approval reads the stored matrix and the review's pages under its row lock. A candidate that
 /// leaves a review page uncovered stays pending and out of the live schemas until the approver
-/// acknowledges the incomplete coverage.
+/// acknowledges the review's coverage.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_approve_a_candidate_that_leaves_a_review_page_uncovered_only_when_acknowledged() {
     let pool = get_postgres_client().await;
@@ -1583,6 +1586,7 @@ async fn should_approve_a_candidate_that_leaves_a_review_page_uncovered_only_whe
             Err(ReviewRepositoryError::IncompleteCoverage {
                 coverage: ReviewPageCoverage {
                     covered: 1,
+                    removed: 0,
                     total: 2,
                     not_evaluated: 0,
                 },
@@ -1605,7 +1609,16 @@ async fn should_approve_a_candidate_that_leaves_a_review_page_uncovered_only_whe
     );
 
     repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+        .approve_review(
+            review_id,
+            None,
+            IncompleteCoverage::Acknowledged(ReviewPageCoverage {
+                covered: 1,
+                removed: 0,
+                total: 2,
+                not_evaluated: 0,
+            }),
+        )
         .await
         .unwrap();
 
@@ -1648,6 +1661,7 @@ async fn should_approve_without_acknowledgement_once_the_stored_matrix_covers_ev
             Err(ReviewRepositoryError::IncompleteCoverage {
                 coverage: ReviewPageCoverage {
                     covered: 0,
+                    removed: 0,
                     total: 2,
                     not_evaluated: 2,
                 },
@@ -2562,8 +2576,7 @@ async fn should_keep_repair_requested_review_pending_editable_and_approvable() {
             .unwrap(),
         Some(review_id)
     );
-    repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap();
 
@@ -2697,8 +2710,7 @@ async fn should_replace_stored_removed_page_templates_with_the_reviewed_list_on_
         )
         .await
         .unwrap();
-    repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap();
 
@@ -2743,8 +2755,7 @@ async fn should_retire_every_stored_removed_page_template_when_the_reviewed_list
         )
         .await
         .unwrap();
-    repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap();
 
@@ -2774,8 +2785,7 @@ async fn should_keep_the_stored_templates_through_approval_when_a_candidate_leav
         )
         .await
         .unwrap();
-    repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap();
 
@@ -2806,8 +2816,7 @@ async fn should_accept_a_schema_edit_of_an_approved_review_that_leaves_its_templ
     insert_listing_source(&pool, listing_source_id).await;
     store_removed_page_templates(&pool, listing_source_id, vec![notice_schema("sold")]).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
-    repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap();
 
@@ -2876,8 +2885,7 @@ async fn should_accept_a_schema_field_edit_while_a_stored_template_fails_validat
         )
         .await
         .unwrap();
-    let refused = repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    let refused = approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap_err();
 
@@ -2934,8 +2942,7 @@ async fn should_keep_template_changes_made_while_the_review_was_pending() {
     )
     .await;
 
-    repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap();
 
@@ -2972,8 +2979,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
         )
         .await
         .unwrap();
-    repository
-        .approve_review(older, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, older)
         .await
         .unwrap();
     let newer = pending_schema_review(&repository, &listing_source_id).await;
@@ -2988,8 +2994,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
         )
         .await
         .unwrap();
-    repository
-        .approve_review(newer, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, newer)
         .await
         .unwrap();
 
@@ -3165,8 +3170,7 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
         )
         .await
         .unwrap();
-    let refused = repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    let refused = approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap_err();
 
@@ -3199,8 +3203,7 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
         )
         .await
         .unwrap();
-    repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap();
     assert_eq!(
@@ -3275,8 +3278,7 @@ async fn should_keep_the_review_pending_when_the_stored_removed_page_templates_d
         .await
         .unwrap();
 
-    let refused = repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    let refused = approve_acknowledging_coverage(&repository, review_id)
         .await
         .unwrap_err();
 

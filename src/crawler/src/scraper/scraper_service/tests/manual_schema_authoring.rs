@@ -5,7 +5,7 @@ use crate::review::model::{
     SchemaReviewPageInput,
 };
 use crate::review::page_coverage::IncompleteCoverage;
-use crate::review::repository::CrawlerReviewRepository;
+use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository as _, RemovedPageSchemaRepositoryImpl,
@@ -640,7 +640,29 @@ fn manual_scraper_with_removed_page_templates(
     .with_removed_page_schema_repository(Box::new(RemovedPageSchemaRepositoryImpl::new(pool)))
 }
 
-/// Opens the manual review for the notice page, declares the page removed on it and approves.
+/// Approves the review the way a reviewer who confirmed its incomplete coverage does: with an
+/// acknowledgement of the coverage the refused approval reports.
+async fn approve_acknowledging_coverage(
+    repository: &CrawlerReviewRepository,
+    review_id: crate::CrawlerReviewId,
+) -> Result<(), ReviewRepositoryError> {
+    match repository
+        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .await
+    {
+        Err(ReviewRepositoryError::IncompleteCoverage { coverage, .. }) => {
+            repository
+                .approve_review(review_id, None, IncompleteCoverage::Acknowledged(coverage))
+                .await
+        }
+        decided => decided,
+    }
+}
+
+/// Opens the manual review for the notice page, declares the page removed on it, evaluates the
+/// candidate on the page as a matrix refresh does and approves. The stored matrix shows the
+/// template captures the review's only page as removed, so the approval needs no acknowledgement
+/// of incomplete coverage.
 async fn approve_removed_page_template_for_notice_page(
     pool: &PgPool,
     id: &ListingSourceId,
@@ -666,8 +688,23 @@ async fn approve_removed_page_template_for_notice_page(
         )
         .await
         .unwrap_or_else(|error| panic!("declare the page removed: {error}"));
+    let pages = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read the review pages: {error}"))
+        .into_iter()
+        .map(|page| (page, REMOVAL_NOTICE_HTML.to_owned()))
+        .collect();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, pages)
+        .await
+        .unwrap_or_else(|error| panic!("evaluate the declaration: {error}"));
     repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+        .store_schema_matrix_if_current(review_id, &evaluated)
+        .await
+        .unwrap_or_else(|error| panic!("store the matrix: {error}"));
+    repository
+        .approve_review(review_id, None, IncompleteCoverage::Refuse)
         .await
         .unwrap_or_else(|error| panic!("approve the removed-page template: {error}"));
     review_id
@@ -781,8 +818,7 @@ async fn approve_reviewed_removed_page_templates(
         )
         .await
         .unwrap_or_else(|error| panic!("edit the stored templates: {error}"));
-    repository
-        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
+    approve_acknowledging_coverage(repository, review_id)
         .await
         .unwrap_or_else(|error| panic!("approve the edited templates: {error}"));
 }
