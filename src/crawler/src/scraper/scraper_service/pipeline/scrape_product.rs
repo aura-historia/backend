@@ -19,9 +19,8 @@ use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
-    fingerprint_scraper_context, hash_html, hash_main_fragment,
+    EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
 };
-use crate::scraper::scraper_service::util::html::extract_main_fragment;
 use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
 use listing_source_core::ListingSourceId;
@@ -95,6 +94,38 @@ impl ScraperServiceImpl {
             }
             Err(error) => {
                 warn!(error = %error, "Failed to mark URL as other");
+            }
+        }
+    }
+
+    /// Records a scrape that skipped extraction because neither the page nor the scraper
+    /// context changed since the last scrape. A failed write only delays the next scrape's
+    /// skip, so it is logged instead of failing the scrape.
+    async fn touch_unchanged_page(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        page_hash: &str,
+        schema_fingerprint: &str,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) {
+        match self
+            .candidate_service
+            .touch_scraped(
+                listing_source_id,
+                url,
+                page_hash,
+                schema_fingerprint,
+                expected_last_captured_raw_input_sha256,
+            )
+            .await
+        {
+            Ok(CrawlerUrlWriteOutcome::Applied) => {}
+            Ok(CrawlerUrlWriteOutcome::NoopStale) => {
+                debug!("Skipped stale page/schema fast-path completion");
+            }
+            Err(error) => {
+                warn!(error = %error, "Failed to touch URL after page/schema fast-path skip");
             }
         }
     }
@@ -477,11 +508,8 @@ impl ScraperServiceImpl {
             }
         }
 
-        let has_main = extract_main_fragment(&html).is_some();
-        let current_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
-
-        // Obtain the effective schema set before the fast path. Selector or raw-attribute
-        // changes must force extraction even when the page fragment is byte-identical.
+        // Obtain the effective schema set before the fast path: the page hash is what that set
+        // extracts from the page, and the fingerprint forces extraction whenever the set changes.
         let listing_source_product_schemas = match cached_product_schemas {
             Some(existing) => existing,
             None => {
@@ -497,36 +525,26 @@ impl ScraperServiceImpl {
             }
         };
         let stored_schema_fingerprint = fingerprint_scraper_context(
+            EXTRACTOR_VERSION,
             &listing_source_product_schemas.product_schemas,
             fallback_currency,
         )
         .map_err(ScraperError::SchemaFingerprint)?;
+        let page_hash = hash_page(&html, &listing_source_product_schemas.product_schemas);
 
         if !url_moved
-            && has_main
-            && last_scraped_hash == Some(current_hash.as_str())
+            && last_scraped_hash == Some(page_hash.as_str())
             && last_scraped_schema_fingerprint == Some(stored_schema_fingerprint.as_str())
         {
             debug!("Page and schema fingerprints match; skipping extraction.");
-            match self
-                .candidate_service
-                .touch_scraped(
-                    listing_source_id,
-                    url,
-                    &current_hash,
-                    &stored_schema_fingerprint,
-                    expected_last_captured_raw_input_sha256,
-                )
-                .await
-            {
-                Ok(CrawlerUrlWriteOutcome::Applied) => {}
-                Ok(CrawlerUrlWriteOutcome::NoopStale) => {
-                    debug!("Skipped stale page/schema fast-path completion");
-                }
-                Err(error) => {
-                    warn!(error = %error, "Failed to touch URL after page/schema fast-path skip");
-                }
-            }
+            self.touch_unchanged_page(
+                listing_source_id,
+                url,
+                &page_hash,
+                &stored_schema_fingerprint,
+                expected_last_captured_raw_input_sha256,
+            )
+            .await;
             return Ok(None);
         }
 
@@ -547,8 +565,9 @@ impl ScraperServiceImpl {
         if selection.fresh_schema {
             effective_schemas.push(selection.schema.clone());
         }
-        let schema_fingerprint = fingerprint_scraper_context(&effective_schemas, fallback_currency)
-            .map_err(ScraperError::SchemaFingerprint)?;
+        let schema_fingerprint =
+            fingerprint_scraper_context(EXTRACTOR_VERSION, &effective_schemas, fallback_currency)
+                .map_err(ScraperError::SchemaFingerprint)?;
         let source_listing_id =
             capture_source_listing_id(&selection.raw.source_listing_id, source_record_key)?;
         let raw_input = crawler_raw_input(
@@ -564,6 +583,13 @@ impl ScraperServiceImpl {
             .map_err(ScraperError::RawNormalizationInput)?
             .as_bytes()
             .to_vec();
+        // The hash is stored with `schema_fingerprint`, so it is what the same effective set
+        // extracts; an unchanged fingerprint means an unchanged set, already hashed above.
+        let hash = if schema_fingerprint == stored_schema_fingerprint {
+            page_hash
+        } else {
+            hash_page(&html, &effective_schemas)
+        };
 
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
         debug!(domain, "Scraping complete");
@@ -572,7 +598,7 @@ impl ScraperServiceImpl {
             raw_input,
             effective_url,
             source_listing_id: source_listing_id.to_string(),
-            hash: current_hash,
+            hash,
             schema_fingerprint,
             raw_input_sha256,
         }))

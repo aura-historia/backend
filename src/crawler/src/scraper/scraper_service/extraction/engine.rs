@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::product_schema::{
-    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
+    ApplySchemaError, ExtractionLogging, ProductCssSelectorSchema, RawExtractedProduct,
 };
 use crate::scraper::css_selector::rule::ExtractionError;
 use scraper::Html;
@@ -15,7 +15,9 @@ pub(crate) fn apply_schema_to_document(
     schema: &ProductCssSelectorSchema,
     html: &Html,
 ) -> Result<RawExtractedProduct, ApplySchemaError> {
-    schema.extract(html).map(|extraction| extraction.raw)
+    schema
+        .extract(html, ExtractionLogging::Log)
+        .map(|extraction| extraction.raw)
 }
 
 /// Applies `schema` to `html` synchronously (`scraper::Html` is `!Send`).

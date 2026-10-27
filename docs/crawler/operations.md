@@ -20,7 +20,7 @@ The `server` binary needs:
 
 Optional `CRAWLER_CLOUDWATCH_LOG_GROUP` and `CRAWLER_CLOUDWATCH_LOG_STREAM` enable CloudWatch log export. That deployment needs permission to create the group and stream and put log events. Logs must expose operational outcomes and identifiers without raw source payloads.
 
-The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces `BUSINESS_DATABASE_URL`, AWS credentials and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, starts the [local database](#local-database) itself and uses its `crawler_demo` database instead of `LOCAL_DB_URL`, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it.
+The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces `BUSINESS_DATABASE_URL`, AWS credentials and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it. Without `LOCAL_DB_URL`, `dev` starts the [local database](#local-database) itself and uses its `crawler_demo` database. With it, `dev` uses that database as given, like `server`: a run against a copy of `crawler_demo` leaves the demo state untouched, and a `.env` written for `server` points `dev` at the server database.
 
 `server` and `dev` apply crawler-local migrations at startup. Migrations under [`src/crawler/migrations`](../../src/crawler/migrations/) are the authoritative crawler database contract; do not repair the live schema by hand. This lifecycle is outside the AWS Deploy/Migrate/Initialize workflows: manual Migrate owns only business PostgreSQL migrations, and FX-only Initialize never migrates crawler state.
 
@@ -138,7 +138,7 @@ Run exactly one instance: no second host and no manual `server` next to the unit
 
 ### Upgrade
 
-Run `systemctl stop crawler-server`, replace the binary and run `systemctl start crawler-server`. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so rolling back to an older binary after a migration requires restoring the database.
+Run `systemctl stop crawler-server`, replace the binary and run `systemctl start crawler-server`. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so rolling back to an older binary after a migration requires restoring the database. A binary that raises the [extractor version](extraction-and-review.md#extraction-contract), or changes what the page hash or the scraper-context fingerprint covers, extracts every page once more at its next scheduled scrape and validates its images again, and one that changes raw extraction does so for every page whose extraction it changes, so expect longer scraper passes until each such page has been scraped once.
 
 ### After start
 

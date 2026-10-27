@@ -1,5 +1,6 @@
 use crate::scraper::css_selector::rule::{
-    ExtractionError, ExtractionRule, RuleExtraction, split_image_candidate_group,
+    ExtractionError, ExtractionRule, RuleExtraction, element_has_image_like_evidence,
+    split_image_candidate_group,
 };
 
 use listing_source_core::ListingSourceId;
@@ -170,6 +171,10 @@ impl ProductCssSelectorSchema {
             .try_for_each(|(index, schema)| schema.validate_rules().map_err(|error| (index, error)))
     }
 
+    /// Applies the `images` rule (see [`ExtractionRule::apply_image_url_candidate_groups`]).
+    /// An empty gallery yields no image instead of failing the page: the rule's matched
+    /// elements are all gallery placeholders, or its selector matched nothing and names an
+    /// image container that exists and holds no image.
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,
@@ -195,11 +200,11 @@ impl ProductCssSelectorSchema {
     /// diagnostic (warn for description and price, debug or trace otherwise) instead of a
     /// page error: one page without a description must not invalidate the schema. Only
     /// `title` and `state` fail closed on a miss; on empty elements they yield an empty
-    /// value that the blank plausibility check rejects. `images` fails closed unless the
-    /// image container exists and holds no image (see
-    /// [`Self::apply_image_url_candidate_groups`]). `images` skips
-    /// gallery elements without a value (no image URL candidate, or no attribute of an
-    /// attribute rule) and fails only when it skips every element it matched. Any other
+    /// value that the blank plausibility check rejects. `images` skips gallery elements
+    /// without a value (no image URL candidate, or no attribute of an attribute rule) and
+    /// fails closed unless the gallery is empty (see
+    /// [`Self::apply_image_url_candidate_groups`]), so a page without photos yields no
+    /// image and the plausibility checks judge it like any other extraction. Any other
     /// rule failure (invalid selector, missing attribute) still returns the
     /// corresponding [`ApplySchemaError`] variant immediately.
     ///
@@ -215,7 +220,7 @@ impl ProductCssSelectorSchema {
     /// `source_listing_id`, which joins its text as written so a captured identity stays
     /// stable (see [`ExtractionRule::apply_as_identity`]).
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
-        let mut raw = self.extract(html)?.raw;
+        let mut raw = self.extract(html, ExtractionLogging::Log)?.raw;
         raw.images = raw
             .images
             .into_iter()
@@ -235,13 +240,19 @@ impl ProductCssSelectorSchema {
     /// validation tries in order, and the result counts the `images` elements skipped for
     /// having no value. Runtime extraction and the schema review matrix both apply a
     /// schema this way, so each rule, the `images` rule included, runs once per page.
-    pub(crate) fn extract(&self, html: &Html) -> Result<SchemaExtraction, ApplySchemaError> {
+    /// `logging` decides whether it logs the optional-field misses.
+    pub(crate) fn extract(
+        &self,
+        html: &Html,
+        logging: ExtractionLogging,
+    ) -> Result<SchemaExtraction, ApplySchemaError> {
         let source_listing_id = match &self.source_listing_id {
             None => String::new(),
             Some(rule) => tolerate_optional_miss(
                 "source_listing_id",
                 rule.apply_as_identity(html),
                 OptionalMissLog::Debug,
+                logging,
             )
             .map_err(ApplySchemaError::SourceListingId)?
             .into_iter()
@@ -254,8 +265,13 @@ impl ProductCssSelectorSchema {
         let description = match &self.description {
             None => vec![],
             Some(rule) => keep_first_occurrences(
-                tolerate_optional_miss("description", rule.apply(html), OptionalMissLog::Warn)
-                    .map_err(ApplySchemaError::Description)?,
+                tolerate_optional_miss(
+                    "description",
+                    rule.apply(html),
+                    OptionalMissLog::Warn,
+                    logging,
+                )
+                .map_err(ApplySchemaError::Description)?,
             ),
         };
 
@@ -263,10 +279,12 @@ impl ProductCssSelectorSchema {
         // checks and the raw-values patch see "no price on this page".
         let price = match &self.price {
             None => None,
-            Some(rule) => tolerate_optional_miss("price", rule.apply(html), OptionalMissLog::Warn)
-                .map_err(ApplySchemaError::Price)?
-                .into_iter()
-                .next(),
+            Some(rule) => {
+                tolerate_optional_miss("price", rule.apply(html), OptionalMissLog::Warn, logging)
+                    .map_err(ApplySchemaError::Price)?
+                    .into_iter()
+                    .next()
+            }
         };
 
         let price_estimate_min = match &self.price_estimate_min {
@@ -275,6 +293,7 @@ impl ProductCssSelectorSchema {
                 "price_estimate_min",
                 rule.apply(html),
                 OptionalMissLog::Debug,
+                logging,
             )
             .map_err(ApplySchemaError::PriceEstimateMin)?
             .into_iter()
@@ -287,6 +306,7 @@ impl ProductCssSelectorSchema {
                 "price_estimate_max",
                 rule.apply(html),
                 OptionalMissLog::Debug,
+                logging,
             )
             .map_err(ApplySchemaError::PriceEstimateMax)?
             .into_iter()
@@ -302,7 +322,7 @@ impl ProductCssSelectorSchema {
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
             let values = keep_first_occurrences(
-                tolerate_optional_miss(field, rule.apply(html), OptionalMissLog::Trace)
+                tolerate_optional_miss(field, rule.apply(html), OptionalMissLog::Trace, logging)
                     .map_err(|source| ApplySchemaError::RawAttribute {
                         field: field.clone(),
                         source,
@@ -363,6 +383,18 @@ fn keep_first_occurrences(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// Whether an extraction logs its diagnostics, the optional-field misses it tolerates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExtractionLogging {
+    /// Logs each miss at its field's [`OptionalMissLog`] level, as scraping and the
+    /// schema review matrix do.
+    Log,
+    /// Logs nothing, for the page hash, which extracts a page only to compare it with
+    /// the last scrape: an unchanged page would otherwise log its misses on every
+    /// scrape, and a changed page twice.
+    Silent,
+}
+
 /// Log level of an optional-rule miss.
 ///
 /// A soft miss no longer fails the page, so selector drift on a cached schema only
@@ -379,41 +411,48 @@ enum OptionalMissLog {
 /// Turns a miss of an optional field's rule, no matched element or only empty ones, into
 /// an empty result.
 ///
-/// The miss is still recorded as a per-field diagnostic so the scrape log explains
-/// why the field is empty, and which of the two misses it was; the page itself keeps
-/// extracting.
+/// Unless `logging` is silent, the miss is still recorded as a per-field diagnostic so
+/// the scrape log explains why the field is empty, and which of the two misses it was;
+/// the page itself keeps extracting.
 fn tolerate_optional_miss(
     field: &str,
     extraction: Result<Vec<String>, ExtractionError>,
     miss_log: OptionalMissLog,
+    logging: ExtractionLogging,
 ) -> Result<Vec<String>, ExtractionError> {
     match extraction {
         Ok(values) => Ok(values),
         Err(
             miss @ (ExtractionError::NoElementMatched { .. } | ExtractionError::EmptyValue { .. }),
         ) => {
-            // The message must be a literal in each arm: a `const` in message position
-            // becomes a field named after the constant and leaves `message` empty.
-            match miss_log {
-                OptionalMissLog::Warn => tracing::warn!(
-                    field,
-                    miss = %miss,
-                    "Optional schema rule yielded no value; leaving the field empty"
-                ),
-                OptionalMissLog::Debug => tracing::debug!(
-                    field,
-                    miss = %miss,
-                    "Optional schema rule yielded no value; leaving the field empty"
-                ),
-                OptionalMissLog::Trace => tracing::trace!(
-                    field,
-                    miss = %miss,
-                    "Optional schema rule yielded no value; leaving the field empty"
-                ),
+            if logging == ExtractionLogging::Log {
+                log_optional_miss(field, &miss, miss_log);
             }
             Ok(Vec::new())
         }
         Err(err) => Err(err),
+    }
+}
+
+fn log_optional_miss(field: &str, miss: &ExtractionError, miss_log: OptionalMissLog) {
+    // The message must be a literal in each arm: a `const` in message position
+    // becomes a field named after the constant and leaves `message` empty.
+    match miss_log {
+        OptionalMissLog::Warn => tracing::warn!(
+            field,
+            miss = %miss,
+            "Optional schema rule yielded no value; leaving the field empty"
+        ),
+        OptionalMissLog::Debug => tracing::debug!(
+            field,
+            miss = %miss,
+            "Optional schema rule yielded no value; leaving the field empty"
+        ),
+        OptionalMissLog::Trace => tracing::trace!(
+            field,
+            miss = %miss,
+            "Optional schema rule yielded no value; leaving the field empty"
+        ),
     }
 }
 
@@ -455,28 +494,6 @@ fn image_container_selectors(selector: &str) -> Vec<String> {
         .collect()
 }
 
-fn element_has_image_like_evidence(element: &scraper::ElementRef<'_>) -> bool {
-    let html = element.html().to_ascii_lowercase();
-    [
-        "<img",
-        "<picture",
-        "<source",
-        " src=",
-        " srcset=",
-        " data-src=",
-        " data-srcset=",
-        " data-lazy=",
-        " data-lazy-src=",
-        " data-large_image=",
-        " data-full=",
-        " data-original=",
-        " data-zoom-image=",
-        " background-image",
-    ]
-    .iter()
-    .any(|needle| html.contains(needle))
-}
-
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RawExtractedProduct {
@@ -510,7 +527,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::scraper::css_selector::product_schema::{
-        ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
+        ApplySchemaError, ExtractionLogging, ProductCssSelectorSchema, RawExtractedProduct,
     };
     use crate::scraper::css_selector::rule::{
         CssSelector, ExtractionCardinality, ExtractionError, ExtractionKind, ExtractionRule,
@@ -731,6 +748,52 @@ mod tests {
             state: text_rule("#state"),
             images: image_rule_all("#wpgs-gallery img, .wcgs-woocommerce-product-gallery img"),
             raw_attributes: Default::default(),
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert!(result.images.is_empty());
+    }
+
+    /// A product without photos whose gallery renders only empty lightbox slots.
+    #[test]
+    fn should_extract_no_images_when_every_gallery_element_is_a_placeholder() {
+        let html = Html::parse_document(
+            r##"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <div class="product-image-grid">
+                    <div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_1_2" rel="lightbox[1]" data-largeimg=""></a></div>
+                    <div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_2_2" rel="lightbox[1]" data-largeimg=""></a></div>
+                </div>
+            </body></html>"##,
+        );
+        let schema = ProductCssSelectorSchema {
+            images: image_rule_all(r#"div.product-image-grid a[rel^="lightbox"]"#),
+            ..required_only_schema()
+        };
+
+        let extraction = schema.extract(&html, ExtractionLogging::Log).unwrap();
+
+        assert!(extraction.raw.images.is_empty());
+        assert_eq!(extraction.skipped_image_elements, 2);
+        assert_eq!(extraction.raw.title, "T");
+    }
+
+    /// A URL without a host can never be fetched, so a gallery container that holds only
+    /// such an image holds no image.
+    #[test]
+    fn should_allow_empty_images_when_the_image_container_holds_only_a_hostless_image() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <div id="wpgs-gallery">
+                    <img src="//:0" style="display:none">
+                </div>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            images: image_rule_all("#wpgs-gallery img.wp-post-image"),
+            ..required_only_schema()
         };
 
         let result = schema.apply(&html).unwrap();
@@ -1595,8 +1658,9 @@ mod tests {
         assert_eq!(result.images, vec!["a.jpg", "b.jpg", "c.jpg"]);
     }
 
-    /// The only matched `<img>` has no `src`, so no element yields a value, and no empty
-    /// image container exists.
+    /// The only matched `<img>` has no `src`, so no element yields a value; an `<img>` is
+    /// image markup rather than a gallery placeholder, and no empty image container
+    /// exists.
     #[test]
     fn should_return_err_images_when_img_element_missing_src_attribute() {
         let html = Html::parse_document(
@@ -1706,7 +1770,7 @@ mod tests {
             ..required_only_schema()
         };
 
-        let extraction = schema.extract(&html).unwrap();
+        let extraction = schema.extract(&html, ExtractionLogging::Log).unwrap();
         let applied = schema.apply(&html).unwrap();
 
         assert_eq!(
