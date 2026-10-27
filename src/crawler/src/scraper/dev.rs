@@ -1,17 +1,12 @@
 //! Local development binary — showcases end-to-end usage of [`ScraperService`].
 //!
-//! Uses a hardcoded local Postgres database (`crawler_demo_scraper`). Bootstrap with:
-//!
-//! ```powershell
-//! # from src/crawler/
-//! .\db-up.ps1
-//! .\db-migrate.ps1
-//! ```
+//! Unless `LOCAL_DB_URL` names another database, it runs `docker compose up -d` (using the
+//! `docker-compose.yml` inside the `crawler` crate) and creates `crawler_demo_scraper` itself.
 //!
 //! # What it does
 //!
 //! 1. Initialises structured info logging.
-//! 2. Connects to local Postgres and applies pending migrations.
+//! 2. Connects to the crawler-local Postgres database and applies pending migrations.
 //! 3. Wires up all real service implementations:
 //!    - [`ProductListingSchemaServiceImpl`]
 //!    - [`ScraperServiceImpl`] (backed by a real [`reqwest::Client`])
@@ -21,7 +16,7 @@
 //!
 //! | Env var          | Purpose                              | Default                         |
 //! |------------------|--------------------------------------|--------------------|
-//! | `LOCAL_DB_URL`   | Hardcoded local DB URL               | `.../crawler_demo_scraper` |
+//! | `LOCAL_DB_URL`   | Database to run against instead of `crawler_demo_scraper`. The run then neither starts Docker nor creates the database; a value that is not a connection URL fails startup | `postgres://postgres:postgres@localhost:5432/crawler_demo_scraper` |
 //! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
 //! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
@@ -44,7 +39,7 @@ use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
-use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
+use crawler::local_db::{DEMO_SCRAPER_DB_NAME, DevDatabase};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
@@ -118,9 +113,17 @@ async fn main() {
 
     unsafe { std::env::set_var("LOG_LEVEL", "info") };
     init_logging();
+    let database = DevDatabase::from_env(DEMO_SCRAPER_DB_NAME)
+        .unwrap_or_else(|error| panic!("invalid crawler-local database configuration: {error}"));
+    let span = tracing::info_span!(
+        "crawler_scraper_dev",
+        entrypoint = "dev-scraper",
+        database = database.name(),
+        target_count = targets.len()
+    );
 
-    async {
-        let pool: &'static PgPool = connect_and_migrate().await;
+    async move {
+        let pool: &'static PgPool = connect_and_migrate(&database).await;
         let service = build_scraper_service(pool);
 
         let mut products: Vec<serde_json::Value> = vec![];
@@ -190,12 +193,7 @@ async fn main() {
             .unwrap();
         info!("Output written to 'scraper_output.json'.");
     }
-    .instrument(tracing::info_span!(
-        "crawler_scraper_dev",
-        entrypoint = "dev-scraper",
-        database = DEMO_SCRAPER_DB_NAME,
-        target_count = targets.len()
-    ))
+    .instrument(span)
     .await;
 }
 
@@ -212,17 +210,17 @@ fn init_logging() {
 // Postgres helpers
 // ---------------------------------------------------------------------------
 
-/// Connects to local Postgres, applies pending migrations, and
+/// Connects to the crawler-local Postgres database, applies pending migrations, and
 /// returns a `'static` reference to a [`PgPool`].
 ///
 /// The pool is intentionally leaked: the repositories hold `&'static PgPool`
 /// references and must outlive the service, which lives until end of `main`.
-#[tracing::instrument]
-async fn connect_and_migrate() -> &'static PgPool {
-    bootstrap_local_database(DEMO_SCRAPER_DB_NAME)
+#[tracing::instrument(skip_all)]
+async fn connect_and_migrate(database: &DevDatabase) -> &'static PgPool {
+    let db_url = database
+        .prepare()
         .await
         .expect("Failed to bootstrap local Postgres database");
-    let db_url = demo_scraper_db_url();
 
     let pool = PgPoolOptions::new()
         .max_connections(DEMO_POOL_MAX_CONNECTIONS)
