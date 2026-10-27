@@ -4,7 +4,9 @@
 //! edit by its actor. The contract is in `docs/crawler/extraction-and-review.md` (approval guard).
 
 use super::review_events::{ReviewMutation, commit_with_event};
-use super::reviewer_page_url::{is_allowed_reviewer_page_url, without_credentials};
+use super::reviewer_page_url::{
+    ReviewPageIdentity, is_allowed_reviewer_page_url, without_credentials,
+};
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, ReviewUnderEdit, lock_review_for_edit,
     store_pending_candidate,
@@ -109,7 +111,9 @@ impl CrawlerReviewRepository {
 /// URL on the default port of one of the ListingSource's `domains`; a URL with credentials is
 /// refused either way. A label of a sample URL keeps the sample's spelling, any other URL is
 /// stored in the crawler's spelling, so a pattern is matched against it as the spider would. Each
-/// URL is labelled once, with a reason of at most [`MAX_SAMPLE_LABEL_REASON_CHARS`] characters.
+/// page is labelled once, in whichever spelling the crawler treats as that page (http or https,
+/// with or without `www.`), so the labels of one page never count as several, and with a reason
+/// of at most [`MAX_SAMPLE_LABEL_REASON_CHARS`] characters.
 fn validated_sample_labels(
     inputs: Vec<SampleLabelInput>,
     sample: &[String],
@@ -131,7 +135,9 @@ fn validated_sample_labels(
         if reason.is_empty() || reason.chars().count() > MAX_SAMPLE_LABEL_REASON_CHARS {
             return Err(ReviewRepositoryError::InvalidSampleLabelReason(url));
         }
-        if !labelled.insert(url.clone()) {
+        let page = ReviewPageIdentity::of_stored(&url)
+            .ok_or_else(|| ReviewRepositoryError::SampleLabelUrlNotAllowed(url.clone()))?;
+        if !labelled.insert(page) {
             return Err(ReviewRepositoryError::DuplicateSampleLabel(url));
         }
         labels.push(LabelledSampleUrl {
@@ -295,26 +301,57 @@ mod tests {
         }
     }
 
+    /// The crawler treats a trailing slash, http and https, `www.` and the bare host as one page,
+    /// so a second label of the page in another spelling is refused rather than counted again;
+    /// another query is another page.
     #[test]
     fn should_refuse_a_url_labelled_twice_under_any_spelling() {
-        let refused = validated(vec![
+        for (again, reported) in [
+            (
+                "https://antiques.example/item/chair/",
+                "https://antiques.example/item/chair",
+            ),
+            (
+                "https://www.antiques.example/item/chair",
+                "https://www.antiques.example/item/chair",
+            ),
+            (
+                "http://antiques.example/item/chair#gallery",
+                "http://antiques.example/item/chair",
+            ),
+        ] {
+            let refused = validated(vec![
+                input(
+                    "https://antiques.example/item/chair",
+                    SampleUrlLabel::Product,
+                ),
+                input(again, SampleUrlLabel::NotProduct),
+            ]);
+
+            assert!(
+                matches!(
+                    &refused,
+                    Err(ReviewRepositoryError::DuplicateSampleLabel(url)) if url == reported
+                ),
+                "{again}: {refused:?}"
+            );
+        }
+        let variants = validated(vec![
             input(
                 "https://antiques.example/item/chair",
                 SampleUrlLabel::Product,
             ),
             input(
-                "https://antiques.example/item/chair/",
-                SampleUrlLabel::NotProduct,
+                "https://antiques.example/item/chair?finish=oak",
+                SampleUrlLabel::Product,
             ),
         ]);
-
-        assert!(
-            matches!(
-                &refused,
-                Err(ReviewRepositoryError::DuplicateSampleLabel(url))
-                    if url == "https://antiques.example/item/chair"
-            ),
-            "{refused:?}"
+        assert_eq!(
+            variants
+                .ok()
+                .flatten()
+                .map(|labels| labels.counts().product),
+            Some(2)
         );
     }
 
