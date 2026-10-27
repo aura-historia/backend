@@ -82,6 +82,15 @@ pub(super) fn visible_text(
     text.into_value()
 }
 
+/// Whether a text rule extracts a value from `element`. One without visible text yields
+/// a blank value, which `first` cardinality skips. Line separators only ever stand
+/// between visible text, so they never make a blank element count as text.
+pub(super) fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
+    !visible_text(element, TextBoundaries::Separate)
+        .trim()
+        .is_empty()
+}
+
 fn push_visible_text(
     element: &scraper::ElementRef<'_>,
     inside_struck_through: bool,
