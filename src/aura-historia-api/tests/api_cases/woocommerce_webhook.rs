@@ -130,7 +130,10 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
             .as_ref()
             .ok_or("missing provider receipt")?;
         assert_eq!("product.created", receipt.scope().as_str());
-        assert_eq!("delivery-1", receipt.delivery_id());
+        // The receipt identity digests the delivery ID with the evidence, which WooCommerce
+        // delivery IDs alone cannot distinguish.
+        assert!(receipt.delivery_id().starts_with("woocommerce-"));
+        assert_ne!("delivery-1", receipt.delivery_id());
         let digest = SourcePayload::new(expected_source_payload.clone())?.canonical_sha256()?;
         assert_eq!(
             digest.as_bytes(),
@@ -348,7 +351,7 @@ async fn should_forward_machine_decimal_strings_without_running_normalization() 
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_admit_retries_and_source_order_conflicts_for_later_worker_resolution() {
+async fn should_admit_exact_retries_as_one_command_and_shared_delivery_ids_as_distinct() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
         let original = product_body_with_timestamp(27, "42.00", "2026-09-06T10:01:00");
@@ -359,7 +362,7 @@ async fn should_admit_retries_and_source_order_conflicts_for_later_worker_resolu
             (&original, "delivery-original"),
             (&original, "delivery-original"),
             (&changed, "delivery-original"),
-            (&same_timestamp, "delivery-source-order-conflict"),
+            (&same_timestamp, "delivery-same-timestamp"),
             (&stale, "delivery-stale"),
         ];
         for (body, delivery) in attempts {
@@ -377,7 +380,8 @@ async fn should_admit_retries_and_source_order_conflicts_for_later_worker_resolu
             messages[0].metadata.command_id,
             messages[1].metadata.command_id
         );
-        assert_eq!(
+        // WooCommerce reuses a delivery ID within one second for different content.
+        assert_ne!(
             messages[0].metadata.command_id,
             messages[2].metadata.command_id
         );

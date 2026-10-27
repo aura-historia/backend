@@ -774,7 +774,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(topicIds).toHaveLength(1);
     const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
       .filter((resource) => String(resource.Properties.AlarmName).includes("product-listing-ingestion"));
-    expect(alarms).toHaveLength(5);
+    expect(alarms).toHaveLength(6);
     for (const [suffix, metric, queue, threshold] of [
       ["source-age", "ApproximateAgeOfOldestMessage", "queue", 900],
       ["source-backlog", "ApproximateNumberOfMessagesVisible", "queue", 100],
@@ -801,9 +801,10 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     }
     const filters = Object.values(template.findResources("AWS::Logs::MetricFilter"))
       .filter((resource) => String(resource.Properties.LogGroupName).includes("product-listing-ingestion-lambda"));
-    expect(filters).toHaveLength(3);
+    expect(filters).toHaveLength(4);
     for (const [outcome, metric] of [
-      ["completed", "CompletedRecords"], ["failed", "FailedRecords"], ["unprocessed", "UnprocessedRecords"],
+      ["completed", "CompletedRecords"], ["rejected", "RejectedRecords"], ["failed", "FailedRecords"],
+      ["unprocessed", "UnprocessedRecords"],
     ] as const) {
       expect(filters).toContainEqual(expect.objectContaining({ Properties: {
         LogGroupName: "/aws/lambda/product-listing-ingestion-lambda-prod",
@@ -811,6 +812,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         MetricTransformations: [{ MetricName: metric, MetricNamespace: "AuraHistoria/ProductListingIngestion/prod", MetricValue: "1" }],
       } }));
     }
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: "prod-product-listing-ingestion-rejected-records",
+      Namespace: "AuraHistoria/ProductListingIngestion/prod", MetricName: "RejectedRecords",
+      Statistic: "Sum", Period: 300, Threshold: 1, EvaluationPeriods: 1,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold", TreatMissingData: "notBreaching",
+      AlarmActions: [{ Ref: topicIds[0] }],
+    });
   });
 
   test("uses prod-only age and DLQ backlog alarms on the existing SNS topic", () => {

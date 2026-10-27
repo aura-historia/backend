@@ -2549,17 +2549,17 @@ paths:
         - optionally, the WooCommerce delivery identifier in `x-wc-webhook-delivery-id`.
 
 
-        A supplied delivery identifier applies only when an event maps to raw capture. Its provider receipt retains only a
+        A supplied delivery identifier applies only when an event maps to raw capture. Its provider receipt binds the identifier to a
 
-        canonical semantic source-payload SHA-256 evidence digest for 90 days. A captured-observation retry with the same
+        canonical semantic source-payload SHA-256 evidence digest for 90 days, because WooCommerce repeats identifiers within one second.
 
-        digest may be deduplicated during downstream capture; reuse with different evidence fails in the consumer, not as an immediate HTTP `409`.
+        An exact retry of a captured observation may be deduplicated during downstream capture; a different payload under the same identifier is a separate observation ordered by `date_modified_gmt`.
 
         Logical receipt expiry permits a new receipt but never removes or rewrites a captured raw revision or its provenance.
 
-        A timestamp-free DELETE establishes a restore barrier. A later UPSERT without a provably newer `date_modified_gmt`
+        A timestamp-free DELETE sets a restore barrier at the later of its capture time and every `date_modified_gmt` already known for the product.
 
-        fails during downstream capture (`WOOCOMMERCE_PROVIDER_SOURCE_ORDER_AMBIGUOUS`), not as an immediate HTTP `409`. Admission does not create a provider receipt or raw revision; investigate the failed FIFO command before reconciliation or redrive.
+        A later observation applies only when its `date_modified_gmt` is after the barrier; older ones complete without effect. An UPSERT without `date_modified_gmt` is rejected and logged during downstream capture (`CAPTURE_RAW_PROVIDER_SOURCE_ORDER_AMBIGUOUS`), not as an immediate HTTP `409`. Admission does not create a provider receipt or raw revision.
 
         The service verifies the signature over untouched body bytes before JSON parsing, then submits mapped observations as `CAPTURE_RAW` to the shared FIFO after bearer/capability checks and source configuration lookup. The consumer checks the current partner/source grant for mapped observations; ignored no-ops check it immediately. Only a matching, confirmed queue acceptance permits `204`; rejected, oversized, unconfirmed, and not-attempted submissions are not acknowledged. The FIFO consumer later commits raw capture with the command receipt; provider receipt and source-order decisions occur during that capture. Authorized ignored create/update events are no-op `204` without queue send or receipt, even when they include a delivery identifier. Retry an uncertain submission with the same signed body, topic, source, actor and delivery identifier where provided; without a delivery identifier, retries cannot recover the original command identity after a lost reply and have no provider receipt-based deduplication guarantee. A lost reply may already have enqueued work; never infer rollback from a non-204.
 
@@ -2643,7 +2643,7 @@ paths:
         - name: x-wc-webhook-delivery-id
           in: header
           required: false
-          description: "Optional WooCommerce delivery identifier. For an event that maps to raw capture, its downstream provider receipt retains only a canonical semantic source-payload SHA-256 evidence digest for 90 days and deduplicates retries when applied. Reuse with different evidence fails during consumer capture, not as an immediate HTTP conflict. Logical receipt expiry permits a new receipt but never removes or rewrites a captured raw revision or its provenance. Authorized ignored create/update events persist no receipt and receive no receipt-based retry-deduplication, even when this header is supplied. When absent, no provider receipt or receipt-based retry-deduplication guarantee is made."
+          description: "Optional WooCommerce delivery identifier. For an event that maps to raw capture, its downstream provider receipt binds the identifier to a canonical semantic source-payload SHA-256 evidence digest for 90 days and deduplicates exact retries when applied. WooCommerce repeats an identifier within one second, so a different payload under the same identifier is a separate observation, not a conflict. Logical receipt expiry permits a new receipt but never removes or rewrites a captured raw revision or its provenance. Authorized ignored create/update events persist no receipt and receive no receipt-based retry-deduplication, even when this header is supplied. When absent, no provider receipt or receipt-based retry-deduplication guarantee is made."
           schema:
             type: string
             minLength: 1
@@ -2655,9 +2655,9 @@ paths:
 
           Every topic requires `id`. For `product.created` and `product.updated`, `status: publish` captures an UPSERT and requires nonblank `name` and `permalink`; `status: trash`, `draft`, `pending`, or `private` captures a DELETE and requires only `id`. Missing or unsupported create/update statuses are authorized ignored events and require only `id`. A create/update payload with `type: variation` is an authorized ignored event whatever its status. `product.deleted` captures a DELETE for the delivered `id` and requires only `id`; its other fields are optional and ignored when absent.
 
-          WooCommerce `description` and `short_description` are accepted but ignored on all topics. They do not populate Aura's canonical product description and are omitted from persisted `source_payload`; provider-receipt evidence digests use this sanitized payload. The webhook signature is still verified over the exact original request body bytes.
+          WooCommerce `description`, `short_description` and `related_ids` are accepted but ignored on all topics. Descriptions do not populate Aura's canonical product description, and `related_ids` is a random sample of related products; all three are omitted from persisted `source_payload`, and provider-receipt evidence digests use this sanitized payload. The webhook signature is still verified over the exact original request body bytes.
 
-          When present on an event that maps to raw capture, WooCommerce `date_modified_gmt` is the source ordering timestamp. It accepts a no-offset GMT value interpreted as UTC, RFC3339 `Z`, or RFC3339 `+00:00`; malformed or nonzero-offset values return `400 BAD_BODY_VALUE` before submission. Valid timestamps are checked for conflicts only during consumer capture. `product.created` and `product.updated` events with missing or unsupported status, or with `type: variation`, are ignored only after capability and source authorization, then acknowledge `204` without parsing `date_modified_gmt` or constructing a provider receipt; a denied ignored event returns `403 FORBIDDEN`. An authorized ignored event persists no provider receipt even if a delivery ID is supplied. Omit it when source order is unavailable; an omitted timestamp provides no source-ordering guarantee.
+          When present on an event that maps to raw capture, WooCommerce `date_modified_gmt` is the source ordering timestamp. It accepts a no-offset GMT value interpreted as UTC, RFC3339 `Z`, or RFC3339 `+00:00`; malformed or nonzero-offset values return `400 BAD_BODY_VALUE` before submission. Valid timestamps order observations of the same product only during consumer capture: older observations complete without effect, and observations with an equal timestamp apply in arrival order, except that an UPSERT never overtakes a DELETE with the same timestamp. `product.created` and `product.updated` events with missing or unsupported status, or with `type: variation`, are ignored only after capability and source authorization, then acknowledge `204` without parsing `date_modified_gmt` or constructing a provider receipt; a denied ignored event returns `403 FORBIDDEN`. An authorized ignored event persists no provider receipt even if a delivery ID is supplied. Omit it when source order is unavailable; an omitted timestamp provides no source-ordering guarantee.
 
           "
         content:

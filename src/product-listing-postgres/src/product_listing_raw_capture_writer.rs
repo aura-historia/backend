@@ -27,6 +27,7 @@ struct RawStreamHeadRow {
     latest_provider_source_operation: Option<String>,
     latest_provider_source_ordering_state: String,
     latest_provider_source_observation_sha256: Option<Vec<u8>>,
+    latest_provider_delete_barrier_at: Option<OffsetDateTime>,
 }
 
 impl SqlxProductListingRawCaptureWriterFactory {
@@ -119,7 +120,8 @@ impl ProductListingRawCaptureWriter for SqlxProductListingRawCaptureWriter<'_> {
                 latest_provider_source_nanoseconds,
                 latest_provider_source_operation,
                 latest_provider_source_ordering_state,
-                latest_provider_source_observation_sha256
+                latest_provider_source_observation_sha256,
+                latest_provider_delete_barrier_at
             FROM product_listing_raw_streams
             WHERE listing_source_id = $1
               AND ingestion_method = $2
@@ -225,11 +227,7 @@ impl ProductListingRawCaptureWriter for SqlxProductListingRawCaptureWriter<'_> {
             }
             None => LatestProviderSourceOrder::NoOrdering,
         };
-        let (
-            source_ordering_advancement,
-            source_observation_is_stale,
-            source_observation_matches_stream_head,
-        ) = source_ordering_decision(
+        let source_ordering = source_ordering_decision(
             latest_source_order,
             incoming_source_order,
             write.input.operation().as_str(),
@@ -260,19 +258,22 @@ impl ProductListingRawCaptureWriter for SqlxProductListingRawCaptureWriter<'_> {
             .map_err(capture_failed)?;
         }
 
-        if source_observation_matches_stream_head {
-            return Ok(ProductListingRawCaptureWriteOutcome::Unchanged {
-                product_listing_raw_stream_id: stream_id,
-                latest_revision,
-            });
-        }
-
-        if source_observation_is_stale {
-            return Ok(ProductListingRawCaptureWriteOutcome::Stale {
-                product_listing_raw_stream_id: stream_id,
-                latest_revision,
-            });
-        }
+        let source_ordering_advancement = match source_ordering {
+            SourceOrderingDecision::MatchesHead => {
+                return Ok(ProductListingRawCaptureWriteOutcome::Unchanged {
+                    product_listing_raw_stream_id: stream_id,
+                    latest_revision,
+                });
+            }
+            SourceOrderingDecision::Stale => {
+                return Ok(ProductListingRawCaptureWriteOutcome::Stale {
+                    product_listing_raw_stream_id: stream_id,
+                    latest_revision,
+                });
+            }
+            SourceOrderingDecision::Advance(advancement) => Some(advancement),
+            SourceOrderingDecision::Capture => None,
+        };
 
         if stream.latest_input_sha256.as_deref() == Some(write.input_sha256.as_bytes().as_slice()) {
             if let Some(source_ordering_advancement) = source_ordering_advancement.as_ref() {
@@ -376,6 +377,7 @@ fn provider_source_order_observation_sha256(
 
 #[derive(Debug, Clone, Copy)]
 struct ProviderSourceOrder {
+    occurred_at: OffsetDateTime,
     epoch_seconds: i64,
     nanoseconds: i32,
     operation: &'static str,
@@ -393,6 +395,7 @@ impl ProviderSourceOrder {
         })?;
 
         Ok(Self {
+            occurred_at: source_occurred_at,
             epoch_seconds: source_occurred_at.unix_timestamp(),
             nanoseconds,
             operation,
@@ -404,7 +407,25 @@ impl ProviderSourceOrder {
 #[derive(Debug, Clone, Copy)]
 enum SourceOrderingAdvancement {
     Known(ProviderSourceOrder),
-    UnknownDelete { observation_sha256: [u8; 32] },
+    /// Enters or stays in the timestamp-free delete state. The stored barrier becomes the
+    /// later of the capture time and `not_before`, never earlier than before.
+    UnknownDelete {
+        observation_sha256: [u8; 32],
+        not_before: Option<OffsetDateTime>,
+    },
+}
+
+/// Where an incoming provider observation falls relative to the stream's source order.
+#[derive(Debug, Clone, Copy)]
+enum SourceOrderingDecision {
+    /// Capture and record the observation as the latest source position.
+    Advance(SourceOrderingAdvancement),
+    /// Capture without changing the recorded source position.
+    Capture,
+    /// Older than the recorded position: complete without capture.
+    Stale,
+    /// The observation already recorded at the latest position: complete without capture.
+    MatchesHead,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -416,53 +437,77 @@ enum LatestProviderSourceOrder<'a> {
         operation: &'a str,
         observation_sha256: &'a [u8],
     },
+    /// A delete without a source time. Its barrier is the later of its capture time and every
+    /// source time known for the record, so the provider deleted the record no later than it.
     UnknownDelete {
-        observation_sha256: &'a [u8],
+        barrier_at: OffsetDateTime,
     },
+}
+
+impl LatestProviderSourceOrder<'_> {
+    /// The latest source time this order proves, which a following delete barrier must keep.
+    fn known_source_time(
+        self,
+    ) -> Result<Option<OffsetDateTime>, ProductListingRawCaptureWriteError> {
+        match self {
+            Self::NoOrdering => Ok(None),
+            Self::Known {
+                epoch_seconds,
+                nanoseconds,
+                ..
+            } => OffsetDateTime::from_unix_timestamp_nanos(
+                i128::from(epoch_seconds) * 1_000_000_000 + i128::from(nanoseconds),
+            )
+            .map(Some)
+            .map_err(|_| invalid_capture_state("raw stream provider source time is invalid")),
+            Self::UnknownDelete { barrier_at, .. } => Ok(Some(barrier_at)),
+        }
+    }
 }
 
 fn latest_provider_source_order(
     stream: &RawStreamHeadRow,
     expected_evidence_sha256_length: usize,
 ) -> Result<LatestProviderSourceOrder<'_>, ProductListingRawCaptureWriteError> {
+    let invalid = || invalid_capture_state("raw stream provider source ordering state is invalid");
     match stream.latest_provider_source_ordering_state.as_str() {
         "NO_ORDERING" => match (
             stream.latest_provider_source_epoch_seconds,
             stream.latest_provider_source_nanoseconds,
             stream.latest_provider_source_operation.as_deref(),
             stream.latest_provider_source_observation_sha256.as_deref(),
+            stream.latest_provider_delete_barrier_at,
         ) {
-            (None, None, None, None) => Ok(LatestProviderSourceOrder::NoOrdering),
-            _ => Err(invalid_capture_state(
-                "raw stream provider source ordering state is invalid",
-            )),
+            (None, None, None, None, None) => Ok(LatestProviderSourceOrder::NoOrdering),
+            _ => Err(invalid()),
         },
         "UNKNOWN_DELETE" => match (
             stream.latest_provider_source_epoch_seconds,
             stream.latest_provider_source_nanoseconds,
             stream.latest_provider_source_operation.as_deref(),
             stream.latest_provider_source_observation_sha256.as_deref(),
+            stream.latest_provider_delete_barrier_at,
         ) {
-            (None, None, None, Some(observation_sha256))
+            (None, None, None, Some(observation_sha256), Some(barrier_at))
                 if observation_sha256.len() == expected_evidence_sha256_length =>
             {
-                Ok(LatestProviderSourceOrder::UnknownDelete { observation_sha256 })
+                Ok(LatestProviderSourceOrder::UnknownDelete { barrier_at })
             }
-            _ => Err(invalid_capture_state(
-                "raw stream provider source ordering state is invalid",
-            )),
+            _ => Err(invalid()),
         },
         "KNOWN" => match (
             stream.latest_provider_source_epoch_seconds,
             stream.latest_provider_source_nanoseconds,
             stream.latest_provider_source_operation.as_deref(),
             stream.latest_provider_source_observation_sha256.as_deref(),
+            stream.latest_provider_delete_barrier_at,
         ) {
             (
                 Some(epoch_seconds),
                 Some(nanoseconds),
                 Some(operation @ ("UPSERT" | "DELETE")),
                 Some(observation_sha256),
+                None,
             ) if (0..1_000_000_000).contains(&nanoseconds)
                 && observation_sha256.len() == expected_evidence_sha256_length =>
             {
@@ -473,28 +518,24 @@ fn latest_provider_source_order(
                     observation_sha256,
                 })
             }
-            _ => Err(invalid_capture_state(
-                "raw stream provider source ordering state is invalid",
-            )),
+            _ => Err(invalid()),
         },
-        _ => Err(invalid_capture_state(
-            "raw stream provider source ordering state is invalid",
-        )),
+        _ => Err(invalid()),
     }
 }
 
+/// Orders an incoming provider observation against the latest recorded one; the contract is the
+/// provider source order in `docs/events/flow.md`.
 fn source_ordering_decision(
     latest: LatestProviderSourceOrder<'_>,
     incoming: Option<ProviderSourceOrder>,
     incoming_operation: &'static str,
     incoming_observation_sha256: Option<[u8; 32]>,
-) -> Result<(Option<SourceOrderingAdvancement>, bool, bool), ProductListingRawCaptureWriteError> {
+) -> Result<SourceOrderingDecision, ProductListingRawCaptureWriteError> {
     match (latest, incoming) {
-        (LatestProviderSourceOrder::NoOrdering, Some(incoming)) => Ok((
-            Some(SourceOrderingAdvancement::Known(incoming)),
-            false,
-            false,
-        )),
+        (LatestProviderSourceOrder::NoOrdering, Some(incoming)) => Ok(
+            SourceOrderingDecision::Advance(SourceOrderingAdvancement::Known(incoming)),
+        ),
         (
             LatestProviderSourceOrder::Known {
                 operation: "DELETE",
@@ -509,7 +550,7 @@ fn source_ordering_decision(
         | (LatestProviderSourceOrder::NoOrdering, None)
             if incoming_operation == "UPSERT" =>
         {
-            Ok((None, false, false))
+            Ok(SourceOrderingDecision::Capture)
         }
         (LatestProviderSourceOrder::UnknownDelete { .. }, None)
             if incoming_operation == "UPSERT" =>
@@ -517,21 +558,24 @@ fn source_ordering_decision(
             Err(ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous)
         }
         (_, None) => match incoming_observation_sha256 {
-            Some(observation_sha256) if incoming_operation == "DELETE" => Ok((
-                Some(SourceOrderingAdvancement::UnknownDelete { observation_sha256 }),
-                false,
-                false,
-            )),
-            _ => Ok((None, false, false)),
+            Some(observation_sha256) if incoming_operation == "DELETE" => Ok(
+                SourceOrderingDecision::Advance(SourceOrderingAdvancement::UnknownDelete {
+                    observation_sha256,
+                    not_before: latest.known_source_time()?,
+                }),
+            ),
+            _ => Ok(SourceOrderingDecision::Capture),
         },
-        (LatestProviderSourceOrder::UnknownDelete { .. }, Some(incoming))
-            if incoming.operation == "UPSERT" =>
-        {
-            Err(ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous)
-        }
-        (LatestProviderSourceOrder::UnknownDelete { observation_sha256 }, Some(_)) => {
-            debug_assert_eq!(observation_sha256.len(), 32);
-            Ok((None, false, false))
+        // The provider deleted the record no later than the barrier, so only a later source
+        // time follows every delete Aura has seen.
+        (LatestProviderSourceOrder::UnknownDelete { barrier_at }, Some(incoming)) => {
+            if incoming.occurred_at > barrier_at {
+                Ok(SourceOrderingDecision::Advance(
+                    SourceOrderingAdvancement::Known(incoming),
+                ))
+            } else {
+                Ok(SourceOrderingDecision::Stale)
+            }
         }
         (
             LatestProviderSourceOrder::Known {
@@ -544,21 +588,23 @@ fn source_ordering_decision(
         ) => {
             match (incoming.epoch_seconds, incoming.nanoseconds).cmp(&(epoch_seconds, nanoseconds))
             {
-                std::cmp::Ordering::Less => Ok((None, true, false)),
-                std::cmp::Ordering::Greater => Ok((
-                    Some(SourceOrderingAdvancement::Known(incoming)),
-                    false,
-                    false,
-                )),
-                std::cmp::Ordering::Equal if incoming.operation != operation => {
-                    Err(ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous)
-                }
+                std::cmp::Ordering::Less => Ok(SourceOrderingDecision::Stale),
                 std::cmp::Ordering::Equal
-                    if incoming.observation_sha256.as_slice() != observation_sha256 =>
+                    if incoming.observation_sha256.as_slice() == observation_sha256 =>
                 {
-                    Err(ProductListingRawCaptureWriteError::ProviderSourceOrderConflict)
+                    Ok(SourceOrderingDecision::MatchesHead)
                 }
-                std::cmp::Ordering::Equal => Ok((None, false, true)),
+                // Withdrawal wins a tie: an upsert never overtakes a delete with its source time.
+                std::cmp::Ordering::Equal
+                    if operation == "DELETE" && incoming.operation == "UPSERT" =>
+                {
+                    Ok(SourceOrderingDecision::Stale)
+                }
+                // Provider clocks are often second-precise: FIFO admission orders other distinct
+                // observations that share a source time, so the later one is captured.
+                std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => Ok(
+                    SourceOrderingDecision::Advance(SourceOrderingAdvancement::Known(incoming)),
+                ),
             }
         }
     }
@@ -579,6 +625,7 @@ async fn update_provider_source_order(
                     latest_provider_source_operation = $3,
                     latest_provider_source_ordering_state = 'KNOWN',
                     latest_provider_source_observation_sha256 = $4,
+                    latest_provider_delete_barrier_at = NULL,
                     updated = now()
                 WHERE product_listing_raw_stream_id = $5
                 "#,
@@ -592,7 +639,10 @@ async fn update_provider_source_order(
             .await
             .map_err(capture_failed)?;
         }
-        SourceOrderingAdvancement::UnknownDelete { observation_sha256 } => {
+        SourceOrderingAdvancement::UnknownDelete {
+            observation_sha256,
+            not_before,
+        } => {
             sqlx::query(
                 r#"
                 UPDATE product_listing_raw_streams
@@ -601,11 +651,17 @@ async fn update_provider_source_order(
                     latest_provider_source_operation = NULL,
                     latest_provider_source_ordering_state = 'UNKNOWN_DELETE',
                     latest_provider_source_observation_sha256 = $1,
+                    latest_provider_delete_barrier_at = GREATEST(
+                        latest_provider_delete_barrier_at,
+                        now(),
+                        $2
+                    ),
                     updated = now()
-                WHERE product_listing_raw_stream_id = $2
+                WHERE product_listing_raw_stream_id = $3
                 "#,
             )
             .bind(observation_sha256.as_slice())
+            .bind(not_before)
             .bind(product_listing_raw_stream_id.as_uuid())
             .execute(&mut *connection)
             .await
