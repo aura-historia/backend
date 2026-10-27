@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-27 — Prompt WooCommerce and async ingestion application (#2522)
+
+- A queued listing command that current state deterministically rejects (for example a missing or withdrawn target, an existing listing, a revoked grant or invalid content) is now dropped after one attempt instead of being retried for about 22 minutes. Later commands for the same listing or WooCommerce product no longer wait behind it, and commands for other listings never do. Admission responses are unchanged; resubmit corrected input under a new `Idempotency-Key`.
+- WooCommerce `related_ids` remains an accepted provider field but is omitted from persisted raw source evidence, like `description`. WooCommerce sends a random sample of related products, so repeated deliveries of an unchanged product are now recognized as unchanged.
+- Distinct WooCommerce deliveries with the same `date_modified_gmt` second, including the `product.created` and `product.updated` pair of one save, are now applied in arrival order instead of failing. Deliveries of different products, or with different content, that share a WooCommerce delivery ID (WooCommerce derives it from the webhook and the current second) no longer collide.
+- After a `product.deleted` (Trash), a later `product.updated` with status `publish` whose `date_modified_gmt` is after Aura received the deletion restores the listing. Updates that may predate the deletion are ignored instead of blocking the product permanently. Signed-request, HMAC and `204` admission semantics are unchanged.
+
 ## 2026-10-25 — Consumer-only MCP catalogue (#2481)
 
 - **Breaking change:** MCP removes all 36 partner tools: listing management, synchronous and asynchronous listing batches, Shopify ingestion configuration, party locations, source-location defaults, shipping profiles/defaults and listing delivery. `tools/list` returns the 38 consumer operations (12 public, 26 private-user) on one page without `nextCursor`; a call naming a removed tool fails as an unknown tool (`-32602`). Partner workflows continue unchanged through REST. The endpoint, transport, OAuth contract, scopes and the retained tools' names, schemas and behavior are unchanged. See the [MCP contract](mcp.md#partner-workflows-use-rest).

@@ -203,6 +203,124 @@ impl ProductListingIngestionError {
             },
         }
     }
+
+    /// A valid command that current authoritative state or its own content deterministically
+    /// rejects. Retrying cannot succeed, and a retained rejection would hold every later
+    /// command of its FIFO group until it dead-letters, so the consumer completes it without a
+    /// receipt. Invalid jobs, identity/integrity conflicts, invalid persisted state and
+    /// technical or temporary failures are not rejections and keep retry custody.
+    pub fn is_business_rejection(&self) -> bool {
+        match self {
+            Self::Delivery(error) => match error {
+                ProductListingDeliveryError::AuthenticationRequired
+                | ProductListingDeliveryError::Forbidden
+                | ProductListingDeliveryError::SourceNotFound
+                | ProductListingDeliveryError::NotFound
+                | ProductListingDeliveryError::StaleRevision
+                | ProductListingDeliveryError::ListingWithdrawn
+                | ProductListingDeliveryError::IntegrationMismatch
+                | ProductListingDeliveryError::ReferenceIneligible
+                | ProductListingDeliveryError::InvalidInput { .. } => true,
+                // Shipping imports include dependencies that are expected to arrive later.
+                ProductListingDeliveryError::Import(_)
+                | ProductListingDeliveryError::Unavailable
+                | ProductListingDeliveryError::OperationFailed { .. }
+                | ProductListingDeliveryError::Transaction(_) => false,
+            },
+            Self::InvalidMetadata
+            | Self::FingerprintConflict
+            | Self::BeginTransactionFailed(_)
+            | Self::CommitTransactionFailed(_)
+            | Self::Receipt(_) => false,
+            Self::Create(error) => match error {
+                CreateProductListingError::AuthenticatedActorRequired
+                | CreateProductListingError::Forbidden
+                | CreateProductListingError::ListingSourceNotFound
+                | CreateProductListingError::AuctionNotFound
+                | CreateProductListingError::AuctionSourceMismatch
+                | CreateProductListingError::SourceListingAlreadyExists
+                | CreateProductListingError::InvalidProductListing => true,
+                CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
+                | CreateProductListingError::PartnerAuthorizationInternal { .. }
+                | CreateProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
+                | CreateProductListingError::ProductListingTitleSlugAlreadyExists
+                | CreateProductListingError::ProductListingTitleSlugGenerationExhausted
+                | CreateProductListingError::CreatedEventMissing
+                | CreateProductListingError::PersistenceFailed
+                | CreateProductListingError::InvalidDeliveryPersisted { .. }
+                | CreateProductListingError::EventAppenderFailed { .. }
+                | CreateProductListingError::BeginTransactionFailed(_)
+                | CreateProductListingError::CommitTransactionFailed(_) => false,
+            },
+            Self::Update(error) => match error {
+                UpdateProductListingError::AuthenticatedActorRequired
+                | UpdateProductListingError::Forbidden
+                | UpdateProductListingError::ListingSourceNotFound
+                | UpdateProductListingError::AuctionNotFound
+                | UpdateProductListingError::AuctionSourceMismatch
+                | UpdateProductListingError::NotFound
+                | UpdateProductListingError::ListingWithdrawn
+                | UpdateProductListingError::UrlRequired
+                | UpdateProductListingError::InvalidProductListing => true,
+                UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
+                | UpdateProductListingError::PartnerAuthorizationInternal { .. }
+                | UpdateProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
+                | UpdateProductListingError::PersistenceFailed
+                | UpdateProductListingError::InvalidDeliveryPersisted { .. }
+                | UpdateProductListingError::EventAppenderFailed { .. }
+                | UpdateProductListingError::BeginTransactionFailed(_)
+                | UpdateProductListingError::CommitTransactionFailed(_) => false,
+            },
+            Self::Upsert(error) => match error {
+                UpsertProductListingError::AuthenticatedActorRequired
+                | UpsertProductListingError::Forbidden
+                | UpsertProductListingError::ListingSourceNotFound
+                | UpsertProductListingError::AuctionNotFound
+                | UpsertProductListingError::AuctionSourceMismatch
+                | UpsertProductListingError::ListingWithdrawn
+                | UpsertProductListingError::InvalidProductListing { .. } => true,
+                UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
+                | UpsertProductListingError::PartnerAuthorizationInternal { .. }
+                | UpsertProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
+                | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
+                | UpsertProductListingError::PersistenceFailed
+                | UpsertProductListingError::InvalidDeliveryPersisted { .. }
+                | UpsertProductListingError::EventAppenderFailed { .. }
+                | UpsertProductListingError::BeginTransactionFailed(_)
+                | UpsertProductListingError::CommitTransactionFailed(_) => false,
+            },
+            Self::Withdraw(error) => match error {
+                WithdrawProductListingError::AuthenticatedActorRequired
+                | WithdrawProductListingError::Forbidden
+                | WithdrawProductListingError::ListingSourceNotFound
+                | WithdrawProductListingError::NotFound => true,
+                WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
+                | WithdrawProductListingError::PartnerAuthorizationInternal { .. }
+                | WithdrawProductListingError::PersistenceFailed
+                | WithdrawProductListingError::InvalidDeliveryPersisted { .. }
+                | WithdrawProductListingError::EventAppenderFailed { .. }
+                | WithdrawProductListingError::BeginTransactionFailed(_)
+                | WithdrawProductListingError::CommitTransactionFailed(_) => false,
+            },
+            Self::CaptureRaw(error) => match error {
+                CaptureProductListingRawObservationError::AuthenticatedActorRequired
+                | CaptureProductListingRawObservationError::Forbidden
+                | CaptureProductListingRawObservationError::SourceRecordKeyTooLong { .. }
+                | CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul
+                | CaptureProductListingRawObservationError::InvalidInput { .. }
+                | CaptureProductListingRawObservationError::ListingSourceNotFound
+                | CaptureProductListingRawObservationError::ProviderReceiptDigestConflict
+                | CaptureProductListingRawObservationError::ProviderSourceOrderConflict
+                | CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => true,
+                CaptureProductListingRawObservationError::PartnerAuthorizationTemporarilyUnavailable { .. }
+                | CaptureProductListingRawObservationError::PartnerAuthorizationInternal { .. }
+                | CaptureProductListingRawObservationError::SourceRecordKeyHashCollision
+                | CaptureProductListingRawObservationError::BeginTransactionFailed(_)
+                | CaptureProductListingRawObservationError::CaptureFailed { .. }
+                | CaptureProductListingRawObservationError::CommitTransactionFailed(_) => false,
+            },
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -501,6 +619,59 @@ where
 mod diagnostic_tests {
     use super::*;
     use application::error::{StaticError, box_error};
+
+    #[test]
+    fn should_complete_only_deterministic_rejections_of_valid_commands() {
+        let rejections = [
+            ProductListingIngestionError::Create(
+                CreateProductListingError::SourceListingAlreadyExists,
+            ),
+            ProductListingIngestionError::Update(UpdateProductListingError::NotFound),
+            ProductListingIngestionError::Update(UpdateProductListingError::ListingWithdrawn),
+            ProductListingIngestionError::Upsert(UpsertProductListingError::Forbidden),
+            ProductListingIngestionError::Withdraw(WithdrawProductListingError::NotFound),
+            ProductListingIngestionError::Delivery(ProductListingDeliveryError::StaleRevision),
+            ProductListingIngestionError::CaptureRaw(
+                CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous,
+            ),
+            ProductListingIngestionError::CaptureRaw(
+                CaptureProductListingRawObservationError::ListingSourceNotFound,
+            ),
+        ];
+        let retained = [
+            ProductListingIngestionError::InvalidMetadata,
+            ProductListingIngestionError::FingerprintConflict,
+            ProductListingIngestionError::CommitTransactionFailed(
+                application::error::static_error("test transaction failure"),
+            ),
+            ProductListingIngestionError::Receipt(
+                ProductListingCommandReceiptError::InvalidPersistedState,
+            ),
+            ProductListingIngestionError::Create(CreateProductListingError::PersistenceFailed),
+            ProductListingIngestionError::Update(
+                UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable {
+                    source: box_error(StaticError("unavailable")),
+                },
+            ),
+            ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
+                shipping_service::ShippingError::ImportDependencyMissing,
+            )),
+            ProductListingIngestionError::CaptureRaw(
+                CaptureProductListingRawObservationError::SourceRecordKeyHashCollision,
+            ),
+        ];
+
+        for error in rejections {
+            assert!(error.is_business_rejection(), "{}", error.diagnostic_code());
+        }
+        for error in retained {
+            assert!(
+                !error.is_business_rejection(),
+                "{}",
+                error.diagnostic_code()
+            );
+        }
+    }
 
     #[test]
     fn ingestion_diagnostic_codes_distinguish_receipt_transaction_and_business_failures() {

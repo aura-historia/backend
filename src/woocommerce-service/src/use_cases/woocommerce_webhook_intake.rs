@@ -33,9 +33,10 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 const PAYLOAD_SCHEMA_VERSION: u16 = 1;
 const DELETE_BASE_URL: &str = "https://woocommerce.invalid/";
-const SUBMISSION_IDENTITY_DOMAIN: &str = "aura.woocommerce.ingestion.delivery.v1";
-/// Descriptions never update Aura's canonical description, so they are not source evidence.
-const OMITTED_SOURCE_FIELDS: [&str; 2] = ["description", "short_description"];
+const SUBMISSION_IDENTITY_DOMAIN: &str = "aura.woocommerce.ingestion.delivery.v2";
+/// Descriptions never update Aura's canonical description, and WooCommerce samples
+/// `related_ids` randomly on every delivery, so none of them are source evidence.
+const OMITTED_SOURCE_FIELDS: [&str; 3] = ["description", "short_description", "related_ids"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WoocommerceProductEventKind {
@@ -215,8 +216,15 @@ where
             input,
             source_occurred_at,
         } = observation;
+        let source_evidence_sha256 = SourceEvidenceSha256::new(
+            *input
+                .source_payload()
+                .canonical_sha256()
+                .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?
+                .as_bytes(),
+        );
         let provider_receipt =
-            provider_receipt(kind, delivery_id.as_deref(), input.source_payload())?;
+            provider_receipt(kind, delivery_id.as_deref(), &source_evidence_sha256)?;
         let provenance = RawProductListingProvenance::new(json!({
             "topic": kind.as_topic(),
             "deliveryId": delivery_id.as_deref(),
@@ -227,7 +235,13 @@ where
             Some(delivery_id) => DeliveryIdentity::Delivery(delivery_id),
             None => DeliveryIdentity::Attempt(context.request_id.as_str()),
         };
-        let idempotency_key = submission_key(source.listing_source_id, kind, delivery_identity)?;
+        let idempotency_key = submission_key(
+            source.listing_source_id,
+            kind,
+            &source_record_key,
+            &source_evidence_sha256,
+            delivery_identity,
+        )?;
         let actor = match &context.principal {
             Principal::User(user_id) => ProductListingIngestionActor::User(*user_id),
             Principal::DelegatedUser { user_id, .. } => {
@@ -335,15 +349,22 @@ impl DeliveryIdentity<'_> {
     }
 }
 
+/// WooCommerce derives a delivery ID from the webhook and the current second, so deliveries of
+/// different products, or of different content, can share it. The command identity therefore
+/// also binds the product and the sanitized evidence; only an exact replay reuses it.
 fn submission_key(
     listing_source_id: ListingSourceId,
     kind: WoocommerceProductEventKind,
+    source_record_key: &str,
+    source_evidence_sha256: &SourceEvidenceSha256,
     identity: DeliveryIdentity<'_>,
 ) -> Result<ProductListingIngestionIdempotencyKey, WoocommerceWebhookIntakeError> {
     let scope = SourcePayload::new(json!({
         "domain": SUBMISSION_IDENTITY_DOMAIN,
         "listingSourceId": listing_source_id.to_string(),
         "topic": kind.as_topic(),
+        "sourceRecordKey": source_record_key,
+        "sourceEvidenceSha256": lower_hex(source_evidence_sha256.as_bytes()),
         "identityKind": identity.kind(),
         "identity": identity.value(),
     }))
@@ -351,12 +372,15 @@ fn submission_key(
     let digest = scope
         .canonical_sha256()
         .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
-    let mut key = String::from("woocommerce-");
-    for byte in digest.as_bytes() {
-        key.push_str(&format!("{byte:02x}"));
-    }
-    ProductListingIngestionIdempotencyKey::new(key)
-        .map_err(|_| WoocommerceWebhookIntakeError::InvalidSubmissionIdentity)
+    ProductListingIngestionIdempotencyKey::new(format!(
+        "woocommerce-{}",
+        lower_hex(digest.as_bytes())
+    ))
+    .map_err(|_| WoocommerceWebhookIntakeError::InvalidSubmissionIdentity)
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn require_product_listings_write(
@@ -484,27 +508,34 @@ fn sanitized_source_payload(mut payload: Value) -> Value {
     payload
 }
 
+/// The receipt identity binds the evidence because WooCommerce delivery IDs are only unique per
+/// webhook and second: an exact replay is a duplicate, and a different delivery sharing the
+/// ID is a new observation for source ordering rather than a receipt conflict.
 fn provider_receipt(
     kind: WoocommerceProductEventKind,
     delivery_id: Option<&str>,
-    source_payload: &SourcePayload,
+    source_evidence_sha256: &SourceEvidenceSha256,
 ) -> Result<Option<ProductListingRawProviderReceipt>, WoocommerceWebhookIntakeError> {
     let Some(delivery_id) = delivery_id else {
         return Ok(None);
     };
     let scope = ProviderReceiptScope::new(kind.as_topic().to_owned())
         .map_err(WoocommerceWebhookIntakeError::InvalidProviderReceiptScope)?;
-    let source_evidence_sha256 = source_payload
-        .canonical_sha256()
-        .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
     let receipt = ProductListingRawProviderReceipt::new(
         scope,
-        delivery_id.to_owned(),
-        SourceEvidenceSha256::new(*source_evidence_sha256.as_bytes()),
+        receipt_delivery_id(delivery_id, source_evidence_sha256),
+        *source_evidence_sha256,
     )
     .map_err(WoocommerceWebhookIntakeError::InvalidProviderReceiptDeliveryId)?;
 
     Ok(Some(receipt))
+}
+
+fn receipt_delivery_id(delivery_id: &str, source_evidence_sha256: &SourceEvidenceSha256) -> String {
+    format!(
+        "{delivery_id}#{}",
+        lower_hex(source_evidence_sha256.as_bytes())
+    )
 }
 
 fn parse_source_occurred_at(
@@ -1041,6 +1072,7 @@ mod tests {
             "status": "publish",
             "stock_status": "instock",
             "images": [],
+            "related_ids": [7, 3],
             "date_modified_gmt": "2026-09-06T12:34:56",
             "futureWooKey": {"nested": true}
         }"#
@@ -1049,6 +1081,7 @@ mod tests {
         if let Some(object) = expected_source_payload.as_object_mut() {
             object.remove("description");
             object.remove("short_description");
+            object.remove("related_ids");
         }
         let expected_source_evidence_sha256 = *SourcePayload::new(expected_source_payload)?
             .canonical_sha256()?
@@ -1132,7 +1165,13 @@ mod tests {
             .as_ref()
             .ok_or_else(|| std::io::Error::other("provider receipt is missing"))?;
         assert_eq!("product.updated", receipt.scope().as_str());
-        assert_eq!("delivery-42", receipt.delivery_id());
+        assert_eq!(
+            format!(
+                "delivery-42#{}",
+                lower_hex(&expected_source_evidence_sha256)
+            ),
+            receipt.delivery_id()
+        );
         assert_eq!(
             &expected_source_evidence_sha256,
             receipt.source_evidence_sha256().as_bytes()
@@ -1145,74 +1184,66 @@ mod tests {
     }
 
     #[test]
-    fn submission_identity_is_delivery_scoped_with_request_attempt_fallback()
+    fn submission_identity_binds_delivery_product_and_evidence_with_request_attempt_fallback()
     -> Result<(), Box<dyn std::error::Error>> {
         let source_id = ListingSourceId::new();
-        let other_source = ListingSourceId::new();
-        let key = submission_key(
-            source_id,
-            WoocommerceProductEventKind::Update,
-            DeliveryIdentity::Delivery("delivery-42"),
-        )?;
+        let evidence = SourceEvidenceSha256::new([1; 32]);
+        let update = WoocommerceProductEventKind::Update;
+        let delivery = DeliveryIdentity::Delivery("delivery-42");
+        let original = submission_key(source_id, update, "42", &evidence, delivery)?;
+
         assert_eq!(
-            key,
-            submission_key(
-                source_id,
-                WoocommerceProductEventKind::Update,
-                DeliveryIdentity::Delivery("delivery-42"),
-            )?
+            original,
+            submission_key(source_id, update, "42", &evidence, delivery)?
         );
-        assert_ne!(
-            key,
-            submission_key(
-                other_source,
-                WoocommerceProductEventKind::Update,
-                DeliveryIdentity::Delivery("delivery-42"),
-            )?
-        );
-        assert_ne!(
-            key,
+        for different in [
+            submission_key(ListingSourceId::new(), update, "42", &evidence, delivery)?,
             submission_key(
                 source_id,
                 WoocommerceProductEventKind::Delete,
-                DeliveryIdentity::Delivery("delivery-42"),
-            )?
-        );
-        assert_ne!(
-            key,
+                "42",
+                &evidence,
+                delivery,
+            )?,
+            submission_key(source_id, update, "43", &evidence, delivery)?,
             submission_key(
                 source_id,
-                WoocommerceProductEventKind::Update,
+                update,
+                "42",
+                &SourceEvidenceSha256::new([2; 32]),
+                delivery,
+            )?,
+            submission_key(
+                source_id,
+                update,
+                "42",
+                &evidence,
                 DeliveryIdentity::Delivery("delivery-43"),
-            )?
-        );
-        let attempt = submission_key(
-            source_id,
-            WoocommerceProductEventKind::Update,
-            DeliveryIdentity::Attempt("request-1"),
-        )?;
+            )?,
+            submission_key(
+                source_id,
+                update,
+                "42",
+                &evidence,
+                DeliveryIdentity::Attempt("delivery-42"),
+            )?,
+        ] {
+            assert_ne!(original, different);
+        }
+
+        let attempt = DeliveryIdentity::Attempt("request-1");
         assert_eq!(
-            attempt,
-            submission_key(
-                source_id,
-                WoocommerceProductEventKind::Update,
-                DeliveryIdentity::Attempt("request-1"),
-            )?
+            submission_key(source_id, update, "42", &evidence, attempt)?,
+            submission_key(source_id, update, "42", &evidence, attempt)?
         );
         assert_ne!(
-            attempt,
+            submission_key(source_id, update, "42", &evidence, attempt)?,
             submission_key(
                 source_id,
-                WoocommerceProductEventKind::Update,
-                DeliveryIdentity::Attempt("request-2"),
-            )?
-        );
-        assert_ne!(
-            attempt,
-            submission_key(
-                source_id,
-                WoocommerceProductEventKind::Update,
-                DeliveryIdentity::Delivery("request-1"),
+                update,
+                "42",
+                &evidence,
+                DeliveryIdentity::Attempt("request-2")
             )?
         );
         Ok(())
@@ -1362,21 +1393,24 @@ mod tests {
     }
 
     #[test]
-    fn should_scope_woocommerce_receipts_by_topic_and_omit_absent_delivery_id()
+    fn should_scope_woocommerce_receipts_by_topic_and_evidence_and_omit_absent_delivery_id()
     -> Result<(), Box<dyn std::error::Error>> {
-        let source_payload = SourcePayload::new(json!({"id": 42}))?;
-        assert!(
-            provider_receipt(WoocommerceProductEventKind::Create, None, &source_payload)?.is_none()
-        );
+        let evidence = SourceEvidenceSha256::new([5; 32]);
+        assert!(provider_receipt(WoocommerceProductEventKind::Create, None, &evidence)?.is_none());
 
         for (kind, topic) in [
             (WoocommerceProductEventKind::Create, "product.created"),
             (WoocommerceProductEventKind::Update, "product.updated"),
             (WoocommerceProductEventKind::Delete, "product.deleted"),
         ] {
-            let receipt = provider_receipt(kind, Some("delivery-42"), &source_payload)?
+            let receipt = provider_receipt(kind, Some("delivery-42"), &evidence)?
                 .ok_or_else(|| std::io::Error::other("provider receipt is missing"))?;
             assert_eq!(topic, receipt.scope().as_str());
+            assert_eq!(
+                format!("delivery-42#{}", "05".repeat(32)),
+                receipt.delivery_id()
+            );
+            assert_eq!(&evidence, receipt.source_evidence_sha256());
         }
 
         Ok(())
@@ -1630,6 +1664,7 @@ mod tests {
         let mut alternative_product = published_product(Some("instock"));
         alternative_product["description"] = json!("Different description");
         alternative_product["short_description"] = json!("Different short description");
+        alternative_product["related_ids"] = json!([9, 8]);
         let alternative = WoocommerceProductEventKind::Create
             .raw_observation(&source(), alternative_product)
             .unwrap_or_else(|error| panic!("mapping failed: {error}"))

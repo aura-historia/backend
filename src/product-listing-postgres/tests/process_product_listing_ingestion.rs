@@ -1538,7 +1538,8 @@ async fn woocommerce_raw_command_replay_commits_only_one_capture_and_receipt() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn woocommerce_distinct_commands_keep_stale_and_conflicting_evidence_out_of_revisions() {
+async fn woocommerce_distinct_commands_keep_stale_evidence_out_and_order_equal_times_by_admission()
+{
     let pool = get_postgres_client().await;
     let source = seed_source(&pool).await;
     let (actor, _) = seed_partner(&pool, source).await;
@@ -1588,11 +1589,11 @@ async fn woocommerce_distinct_commands_keep_stale_and_conflicting_evidence_out_o
         .await
         .remove(0),
     );
-    let equal_time_conflict = verified(
+    let equal_time_successor = verified(
         prepared(
             source,
             Principal::User(actor),
-            "woo-equal-time-conflict",
+            "woo-equal-time-successor",
             vec![woocommerce_raw_capture(
                 source,
                 "Different",
@@ -1656,9 +1657,9 @@ async fn woocommerce_distinct_commands_keep_stale_and_conflicting_evidence_out_o
         ProductListingIngestionCompletion::AlreadyCompleted
     );
     assert!(matches!(
-        processor.execute(equal_time_conflict.clone()).await,
-        Err(ProductListingIngestionError::CaptureRaw(
-            CaptureProductListingRawObservationError::ProviderSourceOrderConflict
+        processor.execute(equal_time_successor).await.unwrap(),
+        ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::RawCaptured(
+            CaptureProductListingRawObservationResult::Changed { revision: 2, .. }
         ))
     ));
     assert!(matches!(
@@ -1667,8 +1668,8 @@ async fn woocommerce_distinct_commands_keep_stale_and_conflicting_evidence_out_o
             CaptureProductListingRawObservationError::ProviderReceiptDigestConflict
         ))
     ));
-    assert_eq!(counts(&pool).await, (0, 0, 3));
-    assert_eq!(raw_counts(&pool).await, (1, 1, 2));
+    assert_eq!(counts(&pool).await, (0, 0, 4));
+    assert_eq!(raw_counts(&pool).await, (1, 2, 3));
     let head: (i64, Option<i64>) = sqlx::query_as(
         "SELECT latest_revision, latest_provider_source_epoch_seconds \
          FROM product_listing_raw_streams WHERE listing_source_id = $1",
@@ -1677,17 +1678,15 @@ async fn woocommerce_distinct_commands_keep_stale_and_conflicting_evidence_out_o
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(head, (1, Some(20)));
-    for conflict in [equal_time_conflict, delivery_conflict] {
-        let receipt_count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM product_listing_command_receipts WHERE command_id = $1",
-        )
-        .bind(conflict.message.metadata.command_id.as_str())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(receipt_count, 0);
-    }
+    assert_eq!(head, (2, Some(20)));
+    let receipt_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_command_receipts WHERE command_id = $1",
+    )
+    .bind(delivery_conflict.message.metadata.command_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipt_count, 0);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

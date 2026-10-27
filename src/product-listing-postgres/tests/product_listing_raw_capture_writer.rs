@@ -830,12 +830,21 @@ async fn should_reject_conflicting_provider_delivery_id_with_canonical_evidence(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_reject_conflicting_provider_source_order_evidence() {
+async fn should_capture_later_admitted_observation_with_equal_source_time() {
     let pool = get_postgres_client().await;
     let listing_source_id =
-        seed_listing_source(&pool, "raw-capture-provider-source-order-conflict-source").await;
+        seed_listing_source(&pool, "raw-capture-provider-equal-source-time-source").await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let factory = SqlxProductListingRawCaptureWriterFactory::new();
+    let later = provider_write(
+        listing_source_id,
+        json!({"state": "different"}),
+        json!({}),
+        json!({}),
+        "delivery-same-time",
+        occurred_at(1),
+    );
+    let later_observation = source_order_observation(&later);
 
     let first = capture(
         &unit_of_work,
@@ -850,30 +859,30 @@ async fn should_reject_conflicting_provider_source_order_evidence() {
         ),
     )
     .await;
-    let source_order_conflict = capture_result(
-        &unit_of_work,
-        &factory,
-        provider_write(
-            listing_source_id,
-            json!({"state": "different"}),
-            json!({}),
-            json!({}),
-            "delivery-same-time",
-            occurred_at(1),
-        ),
-    )
-    .await;
+    let second = capture(&unit_of_work, &factory, later.clone()).await;
+    let replay = capture(&unit_of_work, &factory, later).await;
 
     assert!(matches!(
         first,
         ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. }
     ));
     assert!(matches!(
-        source_order_conflict,
-        Err(ProductListingRawCaptureWriteError::ProviderSourceOrderConflict)
+        second,
+        ProductListingRawCaptureWriteOutcome::Changed { revision: 2, .. }
     ));
-    assert_eq!(1, raw_revision_count(&pool, listing_source_id).await);
-    assert_eq!(1, provider_receipt_count(&pool, listing_source_id).await);
+    assert!(matches!(
+        replay,
+        ProductListingRawCaptureWriteOutcome::Duplicate {
+            latest_revision: 2,
+            ..
+        }
+    ));
+    assert_eq!(
+        (Some(1), Some(0), Some(later_observation.to_vec())),
+        provider_source_order_head(&pool, listing_source_id).await
+    );
+    assert_eq!(2, raw_revision_count(&pool, listing_source_id).await);
+    assert_eq!(2, provider_receipt_count(&pool, listing_source_id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -908,14 +917,14 @@ async fn should_not_collapse_equal_source_payload_with_different_operation() {
         ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. }
     ));
     assert!(matches!(
-        capture_result(&unit_of_work, &factory, delete).await,
-        Err(ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous)
+        capture(&unit_of_work, &factory, delete).await,
+        ProductListingRawCaptureWriteOutcome::Changed { revision: 2, .. }
     ));
-    assert_eq!(1, raw_revision_count(&pool, listing_source_id).await);
+    assert_eq!(2, raw_revision_count(&pool, listing_source_id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_block_timestamped_upsert_after_timestamp_free_delete_without_recording_receipt() {
+async fn should_restore_only_upserts_provably_after_a_timestamp_free_delete() {
     let pool = get_postgres_client().await;
     let listing_source_id =
         seed_listing_source(&pool, "raw-capture-unknown-delete-barrier-source").await;
@@ -966,7 +975,7 @@ async fn should_block_timestamped_upsert_after_timestamp_free_delete_without_rec
     timestamp_free_upsert.source_occurred_at = None;
     let timestamp_free_blocked =
         capture_result(&unit_of_work, &factory, timestamp_free_upsert).await;
-    let timestamped_blocked = capture_result(
+    let possibly_older = capture(
         &unit_of_work,
         &factory,
         provider_write(
@@ -985,8 +994,11 @@ async fn should_block_timestamped_upsert_after_timestamp_free_delete_without_rec
         Err(ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous)
     ));
     assert!(matches!(
-        timestamped_blocked,
-        Err(ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous)
+        possibly_older,
+        ProductListingRawCaptureWriteOutcome::Stale {
+            latest_revision: 2,
+            ..
+        }
     ));
     let source_order_state: ProviderSourceOrderStateRow = sqlx::query_as(
         "SELECT latest_provider_source_ordering_state, \
@@ -1014,8 +1026,36 @@ async fn should_block_timestamped_upsert_after_timestamp_free_delete_without_rec
         source_order_state.latest_provider_source_observation_sha256,
         Some(digest) if digest.len() == 32
     ));
-    assert_eq!(2, raw_revision_count(&pool, listing_source_id).await);
-    assert_eq!(2, provider_receipt_count(&pool, listing_source_id).await);
+    assert!(
+        unknown_delete_captured_at(&pool, listing_source_id)
+            .await
+            .is_some()
+    );
+
+    let restored = capture(
+        &unit_of_work,
+        &factory,
+        provider_write(
+            listing_source_id,
+            json!({"state": "republished"}),
+            json!({}),
+            json!({}),
+            "delivery-republished",
+            OffsetDateTime::now_utc() + Duration::from_secs(3600),
+        ),
+    )
+    .await;
+
+    assert!(matches!(
+        restored,
+        ProductListingRawCaptureWriteOutcome::Changed { revision: 3, .. }
+    ));
+    assert_eq!(
+        None,
+        unknown_delete_captured_at(&pool, listing_source_id).await
+    );
+    assert_eq!(3, raw_revision_count(&pool, listing_source_id).await);
+    assert_eq!(4, provider_receipt_count(&pool, listing_source_id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -1350,11 +1390,14 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
     let known_with_null_nanoseconds = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
-        "KNOWN",
-        Some(1),
-        None,
-        Some("UPSERT"),
-        Some(digest.clone()),
+        ProviderSourceOrderingColumns {
+            state: "KNOWN",
+            epoch_seconds: Some(1),
+            nanoseconds: None,
+            operation: Some("UPSERT"),
+            observation_sha256: Some(digest.clone()),
+            unknown_delete_captured_at: None,
+        },
     )
     .await;
     assert_provider_source_ordering_check_violation(known_with_null_nanoseconds);
@@ -1362,11 +1405,14 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
     let known_with_null_operation = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
-        "KNOWN",
-        Some(1),
-        Some(123),
-        None,
-        Some(digest.clone()),
+        ProviderSourceOrderingColumns {
+            state: "KNOWN",
+            epoch_seconds: Some(1),
+            nanoseconds: Some(123),
+            operation: None,
+            observation_sha256: Some(digest.clone()),
+            unknown_delete_captured_at: None,
+        },
     )
     .await;
     assert_provider_source_ordering_check_violation(known_with_null_operation);
@@ -1374,11 +1420,14 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
     let known_with_null_digest = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
-        "KNOWN",
-        Some(1),
-        Some(123),
-        Some("UPSERT"),
-        None,
+        ProviderSourceOrderingColumns {
+            state: "KNOWN",
+            epoch_seconds: Some(1),
+            nanoseconds: Some(123),
+            operation: Some("UPSERT"),
+            observation_sha256: None,
+            unknown_delete_captured_at: None,
+        },
     )
     .await;
     assert_provider_source_ordering_check_violation(known_with_null_digest);
@@ -1386,14 +1435,47 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
     let unknown_delete_with_null_digest = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
-        "UNKNOWN_DELETE",
-        None,
-        None,
-        None,
-        None,
+        ProviderSourceOrderingColumns {
+            state: "UNKNOWN_DELETE",
+            epoch_seconds: None,
+            nanoseconds: None,
+            operation: None,
+            observation_sha256: None,
+            unknown_delete_captured_at: None,
+        },
     )
     .await;
     assert_provider_source_ordering_check_violation(unknown_delete_with_null_digest);
+
+    let unknown_delete_without_capture_time = insert_raw_stream_with_provider_source_ordering(
+        &pool,
+        listing_source_id,
+        ProviderSourceOrderingColumns {
+            state: "UNKNOWN_DELETE",
+            epoch_seconds: None,
+            nanoseconds: None,
+            operation: None,
+            observation_sha256: Some(digest.clone()),
+            unknown_delete_captured_at: None,
+        },
+    )
+    .await;
+    assert_provider_source_ordering_check_violation(unknown_delete_without_capture_time);
+
+    let known_with_unknown_delete_capture_time = insert_raw_stream_with_provider_source_ordering(
+        &pool,
+        listing_source_id,
+        ProviderSourceOrderingColumns {
+            state: "KNOWN",
+            epoch_seconds: Some(1),
+            nanoseconds: Some(123),
+            operation: Some("UPSERT"),
+            observation_sha256: Some(digest),
+            unknown_delete_captured_at: Some(OffsetDateTime::now_utc()),
+        },
+    )
+    .await;
+    assert_provider_source_ordering_check_violation(known_with_unknown_delete_capture_time);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -1408,11 +1490,14 @@ async fn should_accept_valid_provider_source_ordering_shapes() {
     let no_ordering = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
-        "NO_ORDERING",
-        None,
-        None,
-        None,
-        None,
+        ProviderSourceOrderingColumns {
+            state: "NO_ORDERING",
+            epoch_seconds: None,
+            nanoseconds: None,
+            operation: None,
+            observation_sha256: None,
+            unknown_delete_captured_at: None,
+        },
     )
     .await;
     assert!(
@@ -1423,11 +1508,14 @@ async fn should_accept_valid_provider_source_ordering_shapes() {
     let known = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
-        "KNOWN",
-        Some(1),
-        Some(999_999_999),
-        Some("UPSERT"),
-        Some(vec![8; 32]),
+        ProviderSourceOrderingColumns {
+            state: "KNOWN",
+            epoch_seconds: Some(1),
+            nanoseconds: Some(999_999_999),
+            operation: Some("UPSERT"),
+            observation_sha256: Some(vec![8; 32]),
+            unknown_delete_captured_at: None,
+        },
     )
     .await;
     assert!(known.is_ok(), "KNOWN shape must be valid: {known:?}");
@@ -1435,11 +1523,14 @@ async fn should_accept_valid_provider_source_ordering_shapes() {
     let unknown_delete = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
-        "UNKNOWN_DELETE",
-        None,
-        None,
-        None,
-        Some(vec![7; 32]),
+        ProviderSourceOrderingColumns {
+            state: "UNKNOWN_DELETE",
+            epoch_seconds: None,
+            nanoseconds: None,
+            operation: None,
+            observation_sha256: Some(vec![7; 32]),
+            unknown_delete_captured_at: Some(OffsetDateTime::now_utc()),
+        },
     )
     .await;
     assert!(
@@ -1481,14 +1572,19 @@ async fn should_not_persist_provider_receipt_for_web_crawl() {
     );
 }
 
+struct ProviderSourceOrderingColumns<'a> {
+    state: &'a str,
+    epoch_seconds: Option<i64>,
+    nanoseconds: Option<i32>,
+    operation: Option<&'a str>,
+    observation_sha256: Option<Vec<u8>>,
+    unknown_delete_captured_at: Option<OffsetDateTime>,
+}
+
 async fn insert_raw_stream_with_provider_source_ordering(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
-    ordering_state: &str,
-    epoch_seconds: Option<i64>,
-    nanoseconds: Option<i32>,
-    operation: Option<&str>,
-    observation_sha256: Option<Vec<u8>>,
+    ordering: ProviderSourceOrderingColumns<'_>,
 ) -> Result<(), sqlx::Error> {
     let stream_id = uuid::Uuid::now_v7();
     let source_record_key = stream_id.to_string();
@@ -1507,19 +1603,21 @@ async fn insert_raw_stream_with_provider_source_ordering(
             latest_provider_source_epoch_seconds,
             latest_provider_source_nanoseconds,
             latest_provider_source_operation,
-            latest_provider_source_observation_sha256
-        ) VALUES ($1, $2, 'SHOPIFY', $3, $4, 0, $5, $6, $7, $8, $9)
+            latest_provider_source_observation_sha256,
+            latest_provider_unknown_delete_captured_at
+        ) VALUES ($1, $2, 'SHOPIFY', $3, $4, 0, $5, $6, $7, $8, $9, $10)
         "#,
     )
     .bind(stream_id)
     .bind(listing_source_id.into_uuid())
     .bind(source_record_key)
     .bind(source_record_key_sha256)
-    .bind(ordering_state)
-    .bind(epoch_seconds)
-    .bind(nanoseconds)
-    .bind(operation)
-    .bind(observation_sha256)
+    .bind(ordering.state)
+    .bind(ordering.epoch_seconds)
+    .bind(ordering.nanoseconds)
+    .bind(ordering.operation)
+    .bind(ordering.observation_sha256)
+    .bind(ordering.unknown_delete_captured_at)
     .execute(pool)
     .await
     .map(|_| ())
@@ -1744,6 +1842,20 @@ async fn provider_receipt_count(pool: &sqlx::PgPool, listing_source_id: ListingS
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("count provider receipts: {error}"))
+}
+
+async fn unknown_delete_captured_at(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+) -> Option<OffsetDateTime> {
+    sqlx::query_scalar(
+        "SELECT latest_provider_unknown_delete_captured_at FROM product_listing_raw_streams \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("read unknown-delete capture time: {error}"))
 }
 
 async fn provider_source_order_head(

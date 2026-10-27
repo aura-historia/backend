@@ -135,19 +135,32 @@ export class Observability extends Construct {
       }).addAlarmAction(alarmAction);
     }
 
-    // Runtime emits one structured outcome per record, including unprocessed suffix records.
+    // Runtime emits one structured outcome per record, including unprocessed records.
     for (const [outcome, metricName] of [
       ["completed", "CompletedRecords"],
+      ["rejected", "RejectedRecords"],
       ["failed", "FailedRecords"],
       ["unprocessed", "UnprocessedRecords"],
     ] as const) {
-      new logs.MetricFilter(this, `ProductListingIngestion${metricName}Filter`, {
+      const filter = new logs.MetricFilter(this, `ProductListingIngestion${metricName}Filter`, {
         logGroup: logs.LogGroup.fromLogGroupName(this, `ProductListingIngestion${metricName}Logs`, `/aws/lambda/product-listing-ingestion-lambda-${props.stageName}`),
         filterPattern: logs.FilterPattern.literal(`{ $.ingestion_outcome = "${outcome}" }`),
         metricNamespace: `AuraHistoria/ProductListingIngestion/${props.stageName}`,
         metricName,
         metricValue: "1",
       });
+      if (outcome === "rejected") {
+        // Rejections leave the queue without effect, so the DLQ alarm cannot see them.
+        new cloudwatch.Alarm(this, "ProductListingIngestionRejectedRecordsAlarm", {
+          alarmName: `${props.stageName}-product-listing-ingestion-rejected-records`,
+          alarmDescription: "ProductListing ingestion rejected commands without applying them; inspect the logged command identities and error codes.",
+          metric: filter.metric({ statistic: "Sum", period: cdk.Duration.minutes(5) }),
+          threshold: 1,
+          evaluationPeriods: 1,
+          comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        }).addAlarmAction(alarmAction);
+      }
     }
 
     apiAlarm(this, props.stageName, "Api4XXErrorAlarm", "4XXError", props.api, 50, 2, "Sum").addAlarmAction(alarmAction);

@@ -483,7 +483,7 @@ async fn should_acknowledge_fifo_admission_but_reject_conflicting_delivery_finge
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_apply_shopify_trigger_timestamp_ordering_and_retry_conflicts() {
+async fn should_apply_shopify_trigger_timestamp_ordering_with_equal_times_in_arrival_order() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
     let domain = source.domain.as_str();
@@ -532,7 +532,7 @@ async fn should_apply_shopify_trigger_timestamp_ordering_and_retry_conflicts() {
         .invoke(event_with_provider_metadata(
             SHOPIFY_TOPIC_PRODUCTS_UPDATE,
             domain,
-            same_time_c,
+            same_time_c.clone(),
             "shopify-event-same-time",
             Some("webhook-same-time"),
             Some("2026-01-01T00:00:02Z"),
@@ -546,15 +546,19 @@ async fn should_apply_shopify_trigger_timestamp_ordering_and_retry_conflicts() {
     assert_eq!(1, raw_revision_count(source.id, 109).await);
     assert!(matches!(
         harness.process_pending().await.as_slice(),
-        [Err(ProductListingIngestionError::CaptureRaw(
-            product_listing_service::use_cases::CaptureProductListingRawObservationError::ProviderSourceOrderConflict
+        [Ok(ProductListingIngestionCompletion::Applied(
+            ProductListingIngestionEffect::RawCaptured(_)
         ))]
     ));
-    assert_eq!(1, raw_revision_count(source.id, 109).await);
-    assert_eq!(
-        Some(occurred_at("2026-01-01T00:00:02Z")),
-        raw_revision(source.id, 109, 1).await.source_occurred_at
-    );
+    assert_eq!(2, raw_revision_count(source.id, 109).await);
+    for revision in [1, 2] {
+        assert_eq!(
+            Some(occurred_at("2026-01-01T00:00:02Z")),
+            raw_revision(source.id, 109, revision)
+                .await
+                .source_occurred_at
+        );
+    }
     assert_eq!(
         vec![
             ProviderReceiptRow {
@@ -566,6 +570,11 @@ async fn should_apply_shopify_trigger_timestamp_ordering_and_retry_conflicts() {
                 scope: SHOPIFY_TOPIC_PRODUCTS_UPDATE.to_owned(),
                 delivery_id: "shopify-webhook:webhook-older".to_owned(),
                 source_payload_sha256: source_payload_digest(&older_b),
+            },
+            ProviderReceiptRow {
+                scope: SHOPIFY_TOPIC_PRODUCTS_UPDATE.to_owned(),
+                delivery_id: "shopify-webhook:webhook-same-time".to_owned(),
+                source_payload_sha256: source_payload_digest(&same_time_c),
             },
         ],
         provider_receipts(source.id, 109).await
