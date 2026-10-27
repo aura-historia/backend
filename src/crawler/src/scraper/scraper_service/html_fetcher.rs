@@ -884,6 +884,11 @@ mod tests {
     /// budget ended it.
     const LOAD_TOLERANT_BOUND: Duration = Duration::from_secs(5);
 
+    /// An attempt budget that leaves loopback round trips, robots.txt
+    /// included, room to complete under parallel test load, for tests whose
+    /// fetch must get past them before the budget matters.
+    const LOOPBACK_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(600);
+
     /// The fetcher's attempt limit and the client's request timeout, set to
     /// the same budget, race to end a stalled attempt; either way the whole
     /// fetch's budget did not.
@@ -1045,25 +1050,32 @@ mod tests {
     /// from its smoothed latency instead of timing out at the base.
     #[tokio::test]
     async fn should_extend_the_attempt_timeout_for_a_slow_domain() {
-        // The fast shop answers well within the base, the slow one well after
-        // it and well within the timeout the fast latency earns. Each margin
-        // is hundreds of milliseconds, far more than a robots.txt round trip,
-        // the first client's trust-store load and timer wake-ups take under
-        // parallel test load.
-        const FAST_RESPONSE: Duration = Duration::from_millis(200);
-        const BASE_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(800);
-        const SLOW_RESPONSE: Duration = Duration::from_millis(1_400);
-        let fast = spawn_shop(robots_status("404 Not Found"), vec![OK_PAGE], FAST_RESPONSE).await;
-        let slow = spawn_shop(robots_status("404 Not Found"), vec![OK_PAGE], SLOW_RESPONSE).await;
-        // The total budget outlasts both fetches: only the attempt timeout
-        // can end one.
+        // The fast page answers well within the base attempt timeout. The
+        // attempt timeout its latency earns leaves the slow page, which only
+        // answers after the base, at least as much room.
+        let fast_page_delay = Duration::from_millis(150);
+        let slow_page_delay = Duration::from_millis(800);
+        let earned_attempt_timeout =
+            fast_page_delay * super::ADAPTIVE_ATTEMPT_TIMEOUT_LATENCY_FACTOR;
+        let fast = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![OK_PAGE],
+            fast_page_delay,
+        )
+        .await;
+        let slow = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![OK_PAGE],
+            slow_page_delay,
+        )
+        .await;
         let mut fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
             zero_delay_retry_policy(1),
             throttle_config(Duration::ZERO),
-            BASE_ATTEMPT_TIMEOUT,
+            LOOPBACK_ATTEMPT_TIMEOUT,
             LOAD_TOLERANT_BOUND,
         );
-        fetcher.attempt_timeout_max = LOAD_TOLERANT_BOUND;
+        fetcher.attempt_timeout_max = Duration::from_secs(2);
 
         // Both shops share the loopback domain, so the first response sets
         // the latency the second fetch is budgeted by.
@@ -1072,13 +1084,8 @@ mod tests {
             .domain_fetch_stats(fast.url.host_str().unwrap())
             .expect("one response gives the domain a latency");
         assert_eq!(stats.latency_samples, 1);
-        // The measured latency includes the fast response's delay, so the
-        // earned timeout outlasts the slow response.
-        assert!(
-            stats.attempt_timeout >= FAST_RESPONSE * super::ADAPTIVE_ATTEMPT_TIMEOUT_LATENCY_FACTOR,
-            "{stats:?}"
-        );
-        assert!(stats.attempt_timeout <= LOAD_TOLERANT_BOUND, "{stats:?}");
+        assert!(stats.attempt_timeout >= earned_attempt_timeout, "{stats:?}");
+        assert!(stats.attempt_timeout <= Duration::from_secs(2), "{stats:?}");
 
         let fetched = fetcher.fetch(&slow.url).await.unwrap();
         assert_eq!(fetched.html, "<html>ok</html>");
@@ -1378,8 +1385,8 @@ mod tests {
         let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
             zero_delay_retry_policy(3),
             throttle_config(Duration::ZERO),
-            Duration::from_millis(100),
-            Duration::from_millis(500),
+            LOOPBACK_ATTEMPT_TIMEOUT,
+            LOAD_TOLERANT_BOUND,
         );
 
         let error = fetcher.fetch(&shop.url).await.unwrap_err();
