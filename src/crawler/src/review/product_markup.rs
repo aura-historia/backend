@@ -4,7 +4,8 @@
 //! approval guard).
 
 use scraper::{ElementRef, Html, Selector};
-use serde_json::Value;
+use serde_json::{Map, Value};
+use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 static SCRIPTS: LazyLock<Selector> =
@@ -16,11 +17,12 @@ static MICRODATA_ITEMS: LazyLock<Selector> = LazyLock::new(|| {
 /// Whether `html` describes exactly one schema.org `Product` as a top-level item of its JSON-LD or
 /// of its microdata, and no more than one in either. A JSON-LD item is top-level as a script's
 /// node, a member of a top-level array or of a top-level node's `@graph`, with `@type` naming
-/// `Product` as a string or in an array; a microdata item is top-level when no other item
-/// contains it, and its `itemtype` ends in `schema.org/Product`. A product nested in another item,
-/// such as a list or a page, does not count, and a page that lists several products top-level,
-/// such as a category page marking each product card, is no product page. A script that is not
-/// valid JSON shows nothing.
+/// `Product` as a string or in an array; nodes naming the same `url`, or else the same `@id`,
+/// describe one product, as when a theme and a plugin both mark the page up. A microdata item is
+/// top-level when no other item contains it, and its `itemtype` ends in `schema.org/Product`. A
+/// product nested in another item, such as a list or a page, does not count, and a page that lists
+/// several products top-level, such as a category page marking each product card, is no product
+/// page. A script that is not valid JSON shows nothing.
 pub(crate) fn describes_one_product(html: &str) -> bool {
     let document = Html::parse_document(html);
     let json_ld = json_ld_products(&document);
@@ -28,13 +30,32 @@ pub(crate) fn describes_one_product(html: &str) -> bool {
     (json_ld == 1 || microdata == 1) && json_ld <= 1 && microdata <= 1
 }
 
+/// How many distinct products the top-level JSON-LD `Product` nodes describe: one per `url`, or
+/// else per `@id`, and one per node naming neither.
 fn json_ld_products(document: &Html) -> usize {
-    document
+    let scripts: Vec<Value> = document
         .select(&SCRIPTS)
         .filter(|script| script.attr("type").is_some_and(is_json_ld_type))
-        .filter_map(|script| serde_json::from_str::<Value>(&script.text().collect::<String>()).ok())
-        .map(|value| top_level_products(&value))
-        .sum()
+        .filter_map(|script| serde_json::from_str(&script.text().collect::<String>()).ok())
+        .collect();
+    let mut nodes = Vec::new();
+    for value in &scripts {
+        collect_top_level_products(value, &mut nodes);
+    }
+    let identified: BTreeSet<String> = nodes.iter().filter_map(|node| identity(node)).collect();
+    let anonymous = nodes.iter().filter(|node| identity(node).is_none()).count();
+    identified.len() + anonymous
+}
+
+/// What names the product a node describes: its `url`, or else its `@id`.
+fn identity(node: &Map<String, Value>) -> Option<String> {
+    ["url", "@id"].into_iter().find_map(|key| {
+        node.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| format!("{key} {name}"))
+    })
 }
 
 fn is_json_ld_type(media_type: &str) -> bool {
@@ -44,16 +65,24 @@ fn is_json_ld_type(media_type: &str) -> bool {
         .is_some_and(|essence| essence.trim().eq_ignore_ascii_case("application/ld+json"))
 }
 
-/// The `Product` nodes of a JSON-LD value at its top level: the value itself, the members of an
-/// array and the members of a node's `@graph`, never a node's other properties.
-fn top_level_products(value: &Value) -> usize {
+/// Collects the `Product` nodes of a JSON-LD value at its top level: the value itself, the members
+/// of an array and the members of a node's `@graph`, never a node's other properties.
+fn collect_top_level_products<'a>(value: &'a Value, products: &mut Vec<&'a Map<String, Value>>) {
     match value {
-        Value::Array(nodes) => nodes.iter().map(top_level_products).sum(),
-        Value::Object(node) => {
-            let itself = usize::from(node.get("@type").is_some_and(names_product));
-            itself + node.get("@graph").map_or(0, top_level_products)
+        Value::Array(nodes) => {
+            for node in nodes {
+                collect_top_level_products(node, products);
+            }
         }
-        _ => 0,
+        Value::Object(node) => {
+            if node.get("@type").is_some_and(names_product) {
+                products.push(node);
+            }
+            if let Some(graph) = node.get("@graph") {
+                collect_top_level_products(graph, products);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -150,6 +179,19 @@ mod tests {
         assert!(describes_one_product(&page("", body)), "{body}");
     }
 
+    /// A theme and a plugin often both describe the page's product; nodes naming the same `url`,
+    /// or else the same `@id`, describe one product.
+    #[rstest::rstest]
+    #[case::same_url(
+        r#"[{"@type": "Product", "@id": "https://antiques.example/item/1", "url": "https://antiques.example/item/1"}, {"@type": "Product", "@id": "/item/1#product", "url": "https://antiques.example/item/1"}]"#
+    )]
+    #[case::same_id(
+        r##"{"@graph": [{"@type": "Product", "@id": "#product"}, {"@type": "Product", "@id": "#product"}]}"##
+    )]
+    fn should_count_nodes_of_the_same_product_once(#[case] json: &str) {
+        assert!(describes_one_product(&json_ld(json)), "{json}");
+    }
+
     #[test]
     fn should_count_one_product_described_in_both_json_ld_and_microdata() {
         let html = page(
@@ -223,5 +265,34 @@ mod tests {
         );
 
         assert!(describes_one_product(&html));
+    }
+
+    fn fixture(name: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/html")
+            .join(name);
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read fixture {}: {error}", path.display()))
+    }
+
+    /// Real shop pages: product pages marked up in JSON-LD, a WooCommerce or Yoast `@graph`, a
+    /// Shopify page whose theme and app both describe the product, or microdata, show their
+    /// product; product pages without structured product markup show none.
+    #[rstest::rstest]
+    #[case::woocommerce_graph("antik-und-stil_available.html", true)]
+    #[case::item_page_graph("georgianantiques_available.html", true)]
+    #[case::shopify_theme_and_app("hickmet_poa.html", true)]
+    #[case::shopify_product_group("nicholaswells_available.html", true)]
+    #[case::single_node("proantic_available.html", true)]
+    #[case::website_and_product("chairish_available.html", true)]
+    #[case::microdata("weitze_available.html", true)]
+    #[case::yoast_graph_without_product("collingeantiques_listed.html", false)]
+    #[case::sold_page_without_product("collingeantiques_sold.html", false)]
+    #[case::no_structured_data("lot-tissimo_listed.html", false)]
+    fn should_read_the_product_markup_of_real_shop_pages(
+        #[case] name: &str,
+        #[case] product: bool,
+    ) {
+        assert_eq!(describes_one_product(&fixture(name)), product, "{name}");
     }
 }
