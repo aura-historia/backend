@@ -382,7 +382,8 @@ fn is_hostless_image(element: &scraper::ElementRef<'_>) -> bool {
 }
 
 /// Whether serialized `markup` names an image element, an image source attribute or a CSS
-/// background image anywhere, case-insensitively.
+/// background image anywhere, case-insensitively. A background image counts wherever its
+/// declaration stands, also as the first one of a `style` attribute.
 fn markup_has_image_evidence(markup: &str) -> bool {
     let markup = markup.to_ascii_lowercase();
     IMAGE_ELEMENTS
@@ -391,7 +392,7 @@ fn markup_has_image_evidence(markup: &str) -> bool {
         || IMAGE_SOURCE_ATTRIBUTES
             .iter()
             .any(|attribute| markup.contains(&format!(" {attribute}=")))
-        || markup.contains(" background-image")
+        || markup.contains("background-image")
 }
 
 #[cfg(test)]
@@ -479,5 +480,14 @@ mod tests {
         let slot = html.select(&selector).next().unwrap();
 
         assert!(is_gallery_placeholder(&slot));
+    }
+
+    #[rstest]
+    #[case::first_declaration(r#"<div style="background-image: url(/uploads/photo)"></div>"#)]
+    #[case::after_a_semicolon(r#"<div style="color: red;background-image: url(/media/1)"></div>"#)]
+    #[case::after_a_space(r#"<div style="color: red; background-image: url(/media/1)"></div>"#)]
+    #[case::uppercase(r#"<div STYLE="BACKGROUND-IMAGE: url(/uploads/photo)"></div>"#)]
+    fn should_find_image_markup_in_a_style_with_a_background_image(#[case] markup: &str) {
+        assert!(has_image_markup(markup));
     }
 }
