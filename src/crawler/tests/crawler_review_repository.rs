@@ -107,6 +107,19 @@ async fn insert_domain(
     domain_id
 }
 
+/// The candidate version a reviewer reads before editing the review's candidate.
+async fn candidate_version(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+) -> i64 {
+    repository
+        .get_review(review_id)
+        .await
+        .unwrap()
+        .review
+        .candidate_version
+}
+
 fn review_pages() -> Vec<SchemaReviewPageInput> {
     vec![SchemaReviewPageInput {
         url: "https://example.com/products/1".to_string(),
@@ -453,7 +466,11 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
 
     let updated_schema = schema("h1.new");
     review_repository
-        .update_candidate_payload(review_id, json!({ "schemas": [updated_schema.clone()] }))
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&review_repository, review_id).await,
+            json!({ "schemas": [updated_schema.clone()] }),
+        )
         .await
         .unwrap();
 
@@ -516,11 +533,18 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
     let candidate_edit = review_repository
         .update_candidate_payload(
             older_review_id,
+            candidate_version(&review_repository, older_review_id).await,
             json!({ "schemas": [schema("h1.stale-edit")] }),
         )
         .await;
     let field_edit = review_repository
-        .update_schema_field(older_review_id, 0, "title", Some(rule("h1.stale-field")))
+        .update_schema_field(
+            older_review_id,
+            candidate_version(&review_repository, older_review_id).await,
+            0,
+            "title",
+            Some(rule("h1.stale-field")),
+        )
         .await;
 
     assert!(matches!(
@@ -559,7 +583,13 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
     );
 
     review_repository
-        .update_schema_field(newer_review_id, 0, "title", Some(rule("h1.current")))
+        .update_schema_field(
+            newer_review_id,
+            candidate_version(&review_repository, newer_review_id).await,
+            0,
+            "title",
+            Some(rule("h1.current")),
+        )
         .await
         .unwrap();
     assert_eq!(live().await, vec![schema("h1.current")]);
@@ -612,7 +642,13 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
         json!({ "schemas": merged })
     );
     review_repository
-        .update_schema_field(append_review_id, 1, "title", Some(rule("h1.edited")))
+        .update_schema_field(
+            append_review_id,
+            candidate_version(&review_repository, append_review_id).await,
+            1,
+            "title",
+            Some(rule("h1.edited")),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -934,6 +970,7 @@ async fn should_store_removed_page_templates_and_release_backed_off_pages_in_one
         .review_repository
         .update_candidate_payload(
             fixture.review_id,
+            candidate_version(&fixture.review_repository, fixture.review_id).await,
             json!({
                 "schemas": [schema("h1.first")],
                 "removed_page_schemas": [notice_template("no longer available")],
@@ -1067,7 +1104,11 @@ async fn should_report_approved_review_as_stale_when_its_stored_candidate_no_lon
     .unwrap();
 
     let replaced = review_repository
-        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1.fixed")] }))
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&review_repository, review_id).await,
+            json!({ "schemas": [schema("h1.fixed")] }),
+        )
         .await;
 
     assert!(matches!(
@@ -1136,7 +1177,13 @@ async fn approved_schema_field_edit_rejects_invalid_rule_without_mutating_live_o
     let before = review_repository.get_review(review_id).await.unwrap();
 
     let result = review_repository
-        .update_schema_field(review_id, 0, "title", Some(rule("[")))
+        .update_schema_field(
+            review_id,
+            candidate_version(&review_repository, review_id).await,
+            0,
+            "title",
+            Some(rule("[")),
+        )
         .await;
 
     assert!(matches!(
@@ -1206,7 +1253,11 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
         SchemaPageReference::Persisted { review_page_id }
     );
     repository
-        .update_candidate_payload(review_id, json!({ "schemas": [schema("h2")] }))
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&repository, review_id).await,
+            json!({ "schemas": [schema("h2")] }),
+        )
         .await
         .unwrap();
     let candidate_version: i64 =
@@ -1222,7 +1273,9 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
         .await;
     assert!(matches!(
         stale_store,
-        Err(ReviewRepositoryError::CandidateChangedDuringEvaluation)
+        Err(ReviewRepositoryError::CandidateChangedDuringEvaluation {
+            candidate_version: 2
+        })
     ));
 
     let validation_summary: serde_json::Value =
@@ -1364,7 +1417,11 @@ async fn candidate_change_drops_the_generated_matrix_summary_with_the_cached_mat
     let review_id = generated_schema_review(&pool, &repository).await;
 
     repository
-        .update_candidate_payload(review_id, json!({ "schemas": [schema("h2")] }))
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&repository, review_id).await,
+            json!({ "schemas": [schema("h2")] }),
+        )
         .await
         .unwrap();
 
@@ -1598,6 +1655,7 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
     let result = repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: "[".to_owned(),
@@ -1800,6 +1858,7 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
     repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
@@ -2014,6 +2073,7 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
     repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
@@ -2101,6 +2161,55 @@ async fn pending_schema_review(
         .unwrap()
 }
 
+/// Two writers that read the same candidate version, such as a reviewer and the review agent,
+/// edit at once: the review's row lock applies one edit and refuses the other with the version
+/// it would overwrite, instead of letting it silently replace the first.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_the_second_of_two_concurrent_edits_based_on_the_same_candidate_version() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+    let read_version = candidate_version(&repository, review_id).await;
+
+    let (candidate_edit, field_edit) = tokio::join!(
+        repository.update_candidate_payload(
+            review_id,
+            read_version,
+            json!({ "schemas": [schema("h1.candidate-edit")] }),
+        ),
+        repository.update_schema_field(
+            review_id,
+            read_version,
+            0,
+            "title",
+            Some(rule("h1.field-edit")),
+        ),
+    );
+
+    let (applied, applied_title, refused) = match (candidate_edit, field_edit) {
+        (Ok(applied), Err(refused)) => (applied, "h1.candidate-edit", refused),
+        (Err(refused), Ok(applied)) => (applied, "h1.field-edit", refused),
+        outcome => panic!("exactly one of the edits must apply: {outcome:?}"),
+    };
+    assert_eq!(applied, read_version + 1);
+    assert!(
+        matches!(
+            refused,
+            ReviewRepositoryError::StaleCandidateVersion { review_id: refused_id, expected, current }
+                if refused_id == review_id && expected == read_version && current == applied
+        ),
+        "{refused:?}"
+    );
+    let review = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(review.candidate_version, applied);
+    assert_eq!(
+        review.candidate_payload["schemas"][0]["title"]["selector"],
+        applied_title
+    );
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_repair_request_without_a_note_or_once_the_review_is_closed() {
     let pool = get_postgres_client().await;
@@ -2143,7 +2252,11 @@ async fn should_keep_repair_requested_review_pending_editable_and_approvable() {
         .unwrap();
     let repaired = schema("h1.product-title");
     repository
-        .update_candidate_payload(review_id, json!({ "schemas": [repaired.clone()] }))
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&repository, review_id).await,
+            json!({ "schemas": [repaired.clone()] }),
+        )
         .await
         .unwrap();
     let waiting = repository.get_review(review_id).await.unwrap().review;
@@ -2287,7 +2400,11 @@ async fn should_replace_stored_removed_page_templates_with_the_reviewed_list_on_
         "removed_page_schemas": [notice_template("sold out")],
     });
     repository
-        .update_candidate_payload(review_id, candidate.clone())
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&repository, review_id).await,
+            candidate.clone(),
+        )
         .await
         .unwrap();
     repository.approve_review(review_id, None).await.unwrap();
@@ -2301,6 +2418,7 @@ async fn should_replace_stored_removed_page_templates_with_the_reviewed_list_on_
     let refused = repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!({
                 "schemas": [schema("h1")],
                 "removed_page_schemas": [notice_template("no longer available")],
@@ -2327,6 +2445,7 @@ async fn should_retire_every_stored_removed_page_template_when_the_reviewed_list
     repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!({ "schemas": [schema("h1")], "removed_page_schemas": [] }),
         )
         .await
@@ -2352,7 +2471,11 @@ async fn should_keep_the_stored_templates_through_approval_when_a_candidate_leav
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
 
     repository
-        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1.edited")] }))
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&repository, review_id).await,
+            json!({ "schemas": [schema("h1.edited")] }),
+        )
         .await
         .unwrap();
     repository.approve_review(review_id, None).await.unwrap();
@@ -2387,7 +2510,11 @@ async fn should_accept_a_schema_edit_of_an_approved_review_that_leaves_its_templ
     repository.approve_review(review_id, None).await.unwrap();
 
     repository
-        .update_candidate_payload(review_id, json!({ "schemas": [schema("h1.edited")] }))
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&repository, review_id).await,
+            json!({ "schemas": [schema("h1.edited")] }),
+        )
         .await
         .unwrap();
 
@@ -2438,7 +2565,13 @@ async fn should_accept_a_schema_field_edit_while_a_stored_template_fails_validat
         .unwrap();
 
     repository
-        .update_schema_field(review_id, 0, "price", Some(rule("span.price")))
+        .update_schema_field(
+            review_id,
+            candidate_version(&repository, review_id).await,
+            0,
+            "price",
+            Some(rule("span.price")),
+        )
         .await
         .unwrap();
     let refused = repository
@@ -2483,6 +2616,7 @@ async fn should_keep_template_changes_made_while_the_review_was_pending() {
     repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!({
                 "schemas": [schema("h1")],
                 "removed_page_schemas": [notice_template("withdrawn"), notice_template("reserved")],
@@ -2526,7 +2660,11 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
         "removed_page_schemas": [notice_template("sold")],
     });
     repository
-        .update_candidate_payload(older, older_candidate.clone())
+        .update_candidate_payload(
+            older,
+            candidate_version(&repository, older).await,
+            older_candidate.clone(),
+        )
         .await
         .unwrap();
     repository.approve_review(older, None).await.unwrap();
@@ -2534,6 +2672,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
     repository
         .update_candidate_payload(
             newer,
+            candidate_version(&repository, newer).await,
             json!({
                 "schemas": [schema("h1.newer")],
                 "removed_page_schemas": [notice_template("reserved")],
@@ -2546,6 +2685,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
     let template_edit = repository
         .update_candidate_payload(
             older,
+            candidate_version(&repository, older).await,
             json!({
                 "schemas": [schema("h1")],
                 "removed_page_schemas": [notice_template("withdrawn")],
@@ -2556,6 +2696,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
     let schema_edit = repository
         .update_candidate_payload(
             older,
+            candidate_version(&repository, older).await,
             json!({
                 "schemas": [schema("h1.edited")],
                 "removed_page_schemas": [notice_template("sold")],
@@ -2742,6 +2883,7 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
     repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!({ "schemas": [schema("h1")], "removed_page_schemas": [] }),
         )
         .await
@@ -2764,6 +2906,7 @@ async fn should_refuse_a_pending_candidate_whose_removed_page_regex_matches_any_
     let refused = repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!({
                 "schemas": [schema("h1")],
                 "removed_page_schemas": [{ "selector": "body", "regex": ".*" }],
@@ -2809,6 +2952,7 @@ async fn should_keep_the_review_pending_when_the_stored_removed_page_templates_d
     repository
         .update_candidate_payload(
             review_id,
+            candidate_version(&repository, review_id).await,
             json!({
                 "schemas": [schema("h1")],
                 "removed_page_schemas": [notice_template("sold")],

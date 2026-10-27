@@ -72,8 +72,10 @@ each check must answer.
    category or page title), `price` must parse, `source_listing_id` must be stable across the
    source's schemas, `images` must be product images, and selectors should be label-anchored rather
    than positional. Fix a bad field with `POST /api/reviews/{id}/schema-field`
-   (`{"schema_index":n,"field":"price","rule":{...}}`) or replace the whole candidate with
-   `POST /api/reviews/{id}/candidate` (`{"schemas":[...]}`), re-run the matrix, and only then
+   (`{"schema_index":n,"field":"price","rule":{...},"expected_candidate_version":v}`) or replace
+   the whole candidate with `POST /api/reviews/{id}/candidate`
+   (`{"schemas":[...],"expected_candidate_version":v}`), where `v` is the review's
+   `candidate_version` (a 409 means it changed: reload and edit again), re-run the matrix, and only then
    `POST /api/reviews/{id}/approve` with `{"notes":"soak: reviewed, <what you changed>"}`. Reject
    or mark `needs-repair` when no selector fix makes the page extract correctly, and record every
    decision with its time.

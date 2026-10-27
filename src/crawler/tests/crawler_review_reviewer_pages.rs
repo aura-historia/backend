@@ -297,12 +297,16 @@ fn with_html(pages: Vec<CrawlerReviewPage>) -> Vec<(CrawlerReviewPage, String)> 
         .collect()
 }
 
+/// A page added while the matrix is evaluated, by a reviewer or as a waiting page, does not fail
+/// the evaluation: the matrix of the pages it evaluated is stored and names them, and the next
+/// evaluation covers the new page.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_to_store_schema_matrix_when_reviewer_page_was_added_during_evaluation() {
+async fn should_store_the_matrix_of_the_evaluated_pages_when_a_page_was_added_during_evaluation() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (_, review_id) = pending_schema_review(&pool).await;
     let pages = repository.get_review_pages(review_id).await.unwrap();
+    let evaluated_page_id = pages[0].review_page_id;
     let evaluated = repository
         .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
         .await
@@ -313,13 +317,53 @@ async fn should_refuse_to_store_schema_matrix_when_reviewer_page_was_added_durin
         .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
         .await
         .unwrap();
+    repository
+        .store_schema_matrix_if_current(review_id, &evaluated)
+        .await
+        .unwrap();
+
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(detail.pages.len(), 2);
+    let stored_page_ids: Vec<&serde_json::Value> =
+        detail.review.validation_summary["schema_matrix"]["candidates"][0]["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|page| &page["page_reference"]["review_page_id"])
+            .collect();
+    assert_eq!(stored_page_ids, vec![&json!(evaluated_page_id)]);
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_to_store_schema_matrix_when_an_evaluated_page_was_removed_during_evaluation()
+{
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (_, review_id) = pending_schema_review(&pool).await;
+    let sold_url = url("https://example.com/products/sold");
+    let page = repository
+        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .await
+        .unwrap();
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
+        .await
+        .unwrap();
+
+    repository
+        .remove_reviewer_page(page.review_page_id)
+        .await
+        .unwrap();
     let stored = repository
         .store_schema_matrix_if_current(review_id, &evaluated)
         .await;
 
     assert!(matches!(
         stored,
-        Err(ReviewRepositoryError::CandidateChangedDuringEvaluation)
+        Err(ReviewRepositoryError::CandidateChangedDuringEvaluation {
+            candidate_version: 1
+        })
     ));
     let detail = repository.get_review(review_id).await.unwrap();
     assert!(

@@ -570,6 +570,7 @@ impl ReviewServer {
                 .repository
                 .update_schema_field(
                     review_id,
+                    payload.expected_candidate_version,
                     payload.schema_index,
                     &payload.field,
                     payload.rule,
@@ -588,7 +589,7 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/candidate") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let candidate_payload: serde_json::Value = match serde_json::from_str(request.body) {
+            let payload: CandidatePayload = match serde_json::from_str(request.body) {
                 Ok(value) => value,
                 Err(err) => {
                     return HttpResponse::json(400, &json!({ "error": err.to_string() }));
@@ -596,7 +597,11 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .update_candidate_payload(review_id, candidate_payload)
+                .update_candidate_payload(
+                    review_id,
+                    payload.expected_candidate_version,
+                    serde_json::Value::Object(payload.candidate),
+                )
                 .await
             {
                 Ok(candidate_version) => candidate_edited(candidate_version),
@@ -988,12 +993,23 @@ struct ActionPayload {
 
 /// A rule edit of `POST /api/reviews/{id}/schema-field`. The `rule` key is required: an explicit
 /// `null` deletes the rule, while a left-out or misspelled key is refused instead of deleting it.
+/// `expected_candidate_version` is the candidate version the edit was based on.
 #[derive(Deserialize)]
 struct SchemaFieldPayload {
+    expected_candidate_version: i64,
     schema_index: usize,
     field: String,
     #[serde(deserialize_with = "Option::deserialize")]
     rule: Option<ExtractionRule>,
+}
+
+/// A whole-candidate edit of `POST /api/reviews/{id}/candidate`: the candidate's keys next to the
+/// candidate version the edit was based on.
+#[derive(Deserialize)]
+struct CandidatePayload {
+    expected_candidate_version: i64,
+    #[serde(flatten)]
+    candidate: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -1126,12 +1142,20 @@ fn matrix_refresh_timeout(review_id: CrawlerReviewId, deadline: Duration) -> Htt
 
 fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
-        ReviewRepositoryError::CandidateChangedDuringEvaluation => HttpResponse::json(
-            409,
-            &json!({ "error": "review candidate or pages changed; refresh and evaluate again" }),
-        ),
+        ReviewRepositoryError::CandidateChangedDuringEvaluation { candidate_version } => {
+            review_changed(&error, candidate_version)
+        }
         other => internal_error(other),
     }
+}
+
+/// Answers a request the review changed under with 409 and the review's current candidate
+/// version, the one shape of a conflict the caller resolves by reloading the review and retrying.
+fn review_changed(error: &ReviewRepositoryError, candidate_version: i64) -> HttpResponse {
+    HttpResponse::json(
+        409,
+        &json!({ "error": error.to_string(), "candidate_version": candidate_version }),
+    )
 }
 
 /// Answers an accepted candidate edit (`/candidate` or `/schema-field`) with the review's
@@ -1144,12 +1168,15 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 }
 
 /// Maps a refused candidate edit (`/candidate` or `/schema-field`) to its answer: 404 for an
-/// unknown review, 400 for an edit the review cannot take, 409 for an approved review whose
-/// candidate is no longer live.
+/// unknown review, 400 for an edit the review cannot take, 409 for an edit based on an older
+/// candidate version and for an approved review whose candidate is no longer live.
 fn candidate_edit_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::NotFound(_) => {
             HttpResponse::json(404, &json!({ "error": error.to_string() }))
+        }
+        ReviewRepositoryError::StaleCandidateVersion { current, .. } => {
+            review_changed(&error, current)
         }
         ReviewRepositoryError::InvalidSchemaField(_)
         | ReviewRepositoryError::RequiredSchemaField(_)
@@ -1904,7 +1931,7 @@ Origin: http://127.0.0.1:7878/x
     #[test]
     fn should_delete_a_schema_field_rule_only_on_an_explicit_null() {
         let deletion = serde_json::from_str::<SchemaFieldPayload>(
-            r#"{"schema_index": 0, "field": "price", "rule": null}"#,
+            r#"{"expected_candidate_version": 1, "schema_index": 0, "field": "price", "rule": null}"#,
         );
 
         assert!(matches!(
@@ -1912,14 +1939,42 @@ Origin: http://127.0.0.1:7878/x
             Ok(SchemaFieldPayload { rule: None, .. })
         ));
         for body in [
-            r#"{"schema_index": 0, "field": "price"}"#,
-            r#"{"schema_index": 0, "field": "price", "rules": {"selector": ".price", "type": "text"}}"#,
+            r#"{"expected_candidate_version": 1, "schema_index": 0, "field": "price"}"#,
+            r#"{"expected_candidate_version": 1, "schema_index": 0, "field": "price", "rules": {"selector": ".price", "type": "text"}}"#,
         ] {
             assert!(
                 serde_json::from_str::<SchemaFieldPayload>(body).is_err(),
                 "{body} must be refused, not read as a deletion"
             );
         }
+    }
+
+    #[test]
+    fn should_refuse_a_candidate_edit_that_names_no_candidate_version_it_was_based_on() {
+        for refused in [
+            serde_json::from_str::<SchemaFieldPayload>(
+                r#"{"schema_index": 0, "field": "price", "rule": null}"#,
+            )
+            .err(),
+            serde_json::from_str::<CandidatePayload>(r#"{"schemas": []}"#).err(),
+        ] {
+            assert!(
+                refused
+                    .is_some_and(|error| error.to_string().contains("expected_candidate_version")),
+                "an edit without the version it was based on must be refused"
+            );
+        }
+
+        let edit = serde_json::from_str::<CandidatePayload>(
+            r#"{"expected_candidate_version": 3, "schemas": [], "removed_page_schemas": []}"#,
+        )
+        .unwrap_or_else(|error| panic!("versioned candidate edit: {error}"));
+        assert_eq!(edit.expected_candidate_version, 3);
+        assert_eq!(
+            serde_json::Value::Object(edit.candidate),
+            json!({ "schemas": [], "removed_page_schemas": [] }),
+            "the version is no key of the candidate"
+        );
     }
 
     mod matrix_refresh {
@@ -1955,6 +2010,7 @@ Origin: http://127.0.0.1:7878/x
         /// behind a robots.txt `Crawl-delay`.
         struct PacedFetcher {
             released: Semaphore,
+            requested: AtomicUsize,
             fetched: AtomicUsize,
             failure: Option<&'static str>,
         }
@@ -1963,6 +2019,7 @@ Origin: http://127.0.0.1:7878/x
             fn new(failure: Option<&'static str>) -> Arc<Self> {
                 Arc::new(Self {
                     released: Semaphore::new(0),
+                    requested: AtomicUsize::new(0),
                     fetched: AtomicUsize::new(0),
                     failure,
                 })
@@ -1971,11 +2028,24 @@ Origin: http://127.0.0.1:7878/x
             fn release(&self, pages: usize) {
                 self.released.add_permits(pages);
             }
+
+            /// Waits until a refresh asks for its first page, by when it has read the review's
+            /// page set.
+            async fn wait_for_first_request(&self) {
+                for _ in 0..200 {
+                    if self.requested.load(Ordering::SeqCst) > 0 {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                panic!("the matrix refresh requested no page");
+            }
         }
 
         #[async_trait::async_trait]
         impl HtmlFetcher for PacedFetcher {
             async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+                self.requested.fetch_add(1, Ordering::SeqCst);
                 let permit =
                     self.released
                         .acquire()
@@ -2058,6 +2128,7 @@ Origin: http://127.0.0.1:7878/x
         struct Fixture {
             pool: PgPool,
             server: ReviewServer,
+            listing_source_id: ListingSourceId,
             review_id: CrawlerReviewId,
         }
 
@@ -2110,6 +2181,7 @@ Origin: http://127.0.0.1:7878/x
             Fixture {
                 pool,
                 server,
+                listing_source_id,
                 review_id,
             }
         }
@@ -2249,8 +2321,19 @@ Origin: http://127.0.0.1:7878/x
 
             let started = get_matrix(&fixture.server, fixture.review_id, true).await;
             assert!(started.starts_with("HTTP/1.1 202"), "{started}");
-            CrawlerReviewRepository::new(fixture.pool.clone())
-                .update_candidate_payload(fixture.review_id, json!({ "schemas": [schema("h2")] }))
+            let repository = CrawlerReviewRepository::new(fixture.pool.clone());
+            let read_version = repository
+                .get_review(fixture.review_id)
+                .await
+                .unwrap_or_else(|error| panic!("read review: {error}"))
+                .review
+                .candidate_version;
+            repository
+                .update_candidate_payload(
+                    fixture.review_id,
+                    read_version,
+                    json!({ "schemas": [schema("h2")] }),
+                )
                 .await
                 .unwrap_or_else(|error| panic!("edit candidate: {error}"));
             fetcher.release(PAGE_COUNT);
@@ -2267,6 +2350,54 @@ Origin: http://127.0.0.1:7878/x
             assert!(
                 pages.iter().all(|page| page["apply_ok"] == json!(false)),
                 "the edited `h2` title selector matches none of the fetched pages: {stored}"
+            );
+        }
+
+        /// Waiting pages that join while the live pages are fetched must not fail the refresh,
+        /// or a reviewer gets no matrix until the joins stop: it answers the matrix of the pages
+        /// it evaluated, and the next refresh covers the page that joined.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_the_matrix_of_the_evaluated_pages_when_a_page_joins_during_the_refresh()
+         {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture(fetcher.clone()).await;
+            let repository = CrawlerReviewRepository::new(fixture.pool.clone());
+            let joining_url = Url::parse("https://paced.example/products/joining")
+                .unwrap_or_else(|error| panic!("joining page URL: {error}"));
+
+            let started = get_matrix(&fixture.server, fixture.review_id, true).await;
+            assert!(started.starts_with("HTTP/1.1 202"), "{started}");
+            fetcher.wait_for_first_request().await;
+            let joined = repository
+                .join_pending_schema_review(&fixture.listing_source_id, &joining_url, PAGE_HTML)
+                .await
+                .unwrap_or_else(|error| panic!("join the pending review: {error}"));
+            fetcher.release(PAGE_COUNT);
+            let settled = poll_until_settled(&fixture.server, fixture.review_id).await;
+
+            assert_eq!(joined, Some(fixture.review_id));
+            assert_eq!(
+                repository
+                    .get_review_pages(fixture.review_id)
+                    .await
+                    .unwrap_or_else(|error| panic!("read review pages: {error}"))
+                    .len(),
+                PAGE_COUNT + 1
+            );
+            assert!(settled.starts_with("HTTP/1.1 200"), "{settled}");
+            let stored = stored_matrix(&fixture.pool, fixture.review_id)
+                .await
+                .unwrap_or_else(|| panic!("the matrix of the evaluated pages must be stored"));
+            let evaluated_urls: Vec<&str> = stored["candidates"][0]["pages"]
+                .as_array()
+                .unwrap_or_else(|| panic!("stored matrix has no pages: {stored}"))
+                .iter()
+                .filter_map(|page| page["url"].as_str())
+                .collect();
+            assert_eq!(evaluated_urls.len(), PAGE_COUNT, "{stored}");
+            assert!(
+                !evaluated_urls.contains(&joining_url.as_str()),
+                "the joining page is left to the next refresh: {stored}"
             );
         }
     }
@@ -2385,6 +2516,7 @@ Origin: http://127.0.0.1:7878/x
         use super::matrix_refresh::schema;
         use super::needs_repair::{TOKEN, send};
         use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use crate::CrawlerReviewId;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use listing_source_core::ListingSourceId;
@@ -2393,14 +2525,14 @@ Origin: http://127.0.0.1:7878/x
         use std::sync::Arc;
         use test_api::IntegrationTestService as _;
 
-        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_edit_a_registered_raw_attribute_and_answer_with_the_candidate_version() {
+        /// A review server over a pending manual schema review, and that review.
+        async fn pending_review_server() -> (ReviewServer, CrawlerReviewId) {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
                 "INSERT INTO listing_sources \
                  (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-                 VALUES ($1, 'Raw attribute source', 'raw-attribute-source', TRUE, NOW(), NOW())",
+                 VALUES ($1, 'Edited source', 'edited-source', TRUE, NOW(), NOW())",
             )
             .bind(listing_source_id.as_uuid())
             .execute(&pool)
@@ -2427,6 +2559,19 @@ Origin: http://127.0.0.1:7878/x
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
+            (server, review_id)
+        }
+
+        async fn candidate_version(server: &ReviewServer, review_id: CrawlerReviewId) -> i64 {
+            let (_, detail) = send(server, &format!("GET /api/reviews/{review_id}"), "").await;
+            detail["review"]["candidate_version"]
+                .as_i64()
+                .unwrap_or_else(|| panic!("review without candidate version: {detail}"))
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_edit_a_registered_raw_attribute_and_answer_with_the_candidate_version() {
+            let (server, review_id) = pending_review_server().await;
             let schema_field = format!("POST /api/reviews/{review_id}/schema-field");
             let review = format!("GET /api/reviews/{review_id}");
 
@@ -2438,15 +2583,18 @@ Origin: http://127.0.0.1:7878/x
                     .any(|key| { key["key"] == "rawMaterial" && key["group"] == "material" })),
                 "{keys}"
             );
-            let (_, before) = send(&server, &review, "").await;
-            let version = before["review"]["candidate_version"]
-                .as_i64()
-                .unwrap_or_default();
+            let version = candidate_version(&server, review_id).await;
 
             let (status, edited) = send(
                 &server,
                 &schema_field,
-                r#"{"schema_index": 0, "field": "raw_attributes.rawMaterial", "rule": {"selector": ".material", "type": "text"}}"#,
+                &json!({
+                    "expected_candidate_version": version,
+                    "schema_index": 0,
+                    "field": "raw_attributes.rawMaterial",
+                    "rule": {"selector": ".material", "type": "text"},
+                })
+                .to_string(),
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
@@ -2463,7 +2611,13 @@ Origin: http://127.0.0.1:7878/x
             let (status, refused) = send(
                 &server,
                 &schema_field,
-                r#"{"schema_index": 0, "field": "raw_attributes.rawInvented", "rule": {"selector": ".invented", "type": "text"}}"#,
+                &json!({
+                    "expected_candidate_version": version + 1,
+                    "schema_index": 0,
+                    "field": "raw_attributes.rawInvented",
+                    "rule": {"selector": ".invented", "type": "text"},
+                })
+                .to_string(),
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
@@ -2474,24 +2628,82 @@ Origin: http://127.0.0.1:7878/x
                 "{refused}"
             );
 
-            let unknown_review_id = crate::CrawlerReviewId::new();
+            let unknown_review_id = CrawlerReviewId::new();
             for (request, body) in [
                 (
                     format!("POST /api/reviews/{unknown_review_id}/schema-field"),
-                    r#"{"schema_index": 0, "field": "title", "rule": {"selector": "h1", "type": "text"}}"#
-                        .to_owned(),
+                    json!({
+                        "expected_candidate_version": 1,
+                        "schema_index": 0,
+                        "field": "title",
+                        "rule": {"selector": "h1", "type": "text"},
+                    }),
                 ),
                 (
                     format!("POST /api/reviews/{unknown_review_id}/candidate"),
-                    json!({ "schemas": [schema("h1")] }).to_string(),
+                    json!({ "expected_candidate_version": 1, "schemas": [schema("h1")] }),
                 ),
             ] {
-                let (status, missing) = send(&server, &request, &body).await;
+                let (status, missing) = send(&server, &request, &body.to_string()).await;
                 assert!(
                     status.starts_with("HTTP/1.1 404"),
                     "{request}: {status} {missing}"
                 );
             }
+        }
+
+        /// Two writers, such as a reviewer and the review agent, edit the candidate version they
+        /// both read at once: one edit applies, and the other is refused with 409 and the
+        /// version it would have overwritten, instead of silently replacing the first.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_with_the_current_version_the_second_of_two_edits_based_on_one_version()
+         {
+            let (server, review_id) = pending_review_server().await;
+            let version = candidate_version(&server, review_id).await;
+            let field_edit = json!({
+                "expected_candidate_version": version,
+                "schema_index": 0,
+                "field": "title",
+                "rule": {"selector": "h1.field-edit", "type": "text"},
+            })
+            .to_string();
+            let candidate_edit = json!({
+                "expected_candidate_version": version,
+                "schemas": [schema("h1.candidate-edit")],
+            })
+            .to_string();
+
+            let schema_field = format!("POST /api/reviews/{review_id}/schema-field");
+            let candidate = format!("POST /api/reviews/{review_id}/candidate");
+
+            let (field_answer, candidate_answer) = tokio::join!(
+                send(&server, &schema_field, &field_edit),
+                send(&server, &candidate, &candidate_edit),
+            );
+
+            let ((applied, applied_title), (refused_status, refused)) =
+                match (field_answer, candidate_answer) {
+                    ((status, applied), refused) if status.starts_with("HTTP/1.1 200") => {
+                        ((applied, "h1.field-edit"), refused)
+                    }
+                    (refused, (status, applied)) if status.starts_with("HTTP/1.1 200") => {
+                        ((applied, "h1.candidate-edit"), refused)
+                    }
+                    answers => panic!("one of the edits must apply: {answers:?}"),
+                };
+            assert_eq!(applied["candidate_version"], json!(version + 1));
+            assert!(
+                refused_status.starts_with("HTTP/1.1 409"),
+                "{refused_status} {refused}"
+            );
+            assert_eq!(refused["candidate_version"], json!(version + 1));
+            assert!(refused["error"].is_string(), "{refused}");
+            let (_, after) = send(&server, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert_eq!(after["review"]["candidate_version"], json!(version + 1));
+            assert_eq!(
+                after["review"]["candidate_payload"]["schemas"][0]["title"]["selector"],
+                applied_title
+            );
         }
     }
 }

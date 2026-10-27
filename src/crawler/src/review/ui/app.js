@@ -1,6 +1,7 @@
 let selectedId = null;
 let selectedDetail = null;
 let selectedMatrix = null;
+let selectedMatrixFailure = '';
 let selectedSchemaIndex = 0;
 let compareSchemaIndex = 1;
 let selectedField = 'title';
@@ -132,8 +133,25 @@ async function api(path, options = {}, allowPrompt = true) {
     if (res.status === 401 && allowPrompt && await requestReviewAuthToken()) {
         return api(path, options, false);
     }
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+        const error = new Error(await res.text());
+        error.status = res.status;
+        throw error;
+    }
     return res.json();
+}
+
+// A 409 that carries `candidate_version` means the review changed under the request: an edit
+// based on an older candidate version, or a matrix refresh during which the candidate changed
+// or an evaluated page was removed. The request may be repeated once the review is reloaded.
+function changedCandidateVersion(error) {
+    if (error?.status !== 409) return null;
+    try {
+        const version = JSON.parse(error.message).candidate_version;
+        return Number.isInteger(version) ? version : null;
+    } catch (_) {
+        return null;
+    }
 }
 
 async function loadReviews() {
@@ -299,19 +317,29 @@ async function pollSchemaMatrix(reviewId, matrix) {
     return pollSchemaMatrix(reviewId, await api(`/api/reviews/${reviewId}/matrix`));
 }
 
+// A failed matrix refresh leaves the review workable: the workbench shows why, without a
+// matrix, and Re-evaluate starts a new refresh. The console never retries on its own.
 async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     if (!selectedId) return;
     const reviewId = selectedId;
     const detail = await api(`/api/reviews/${reviewId}`);
-    const matrix = detail.review.artifact_type === 'PRODUCT_SCHEMA'
-        ? await loadSchemaMatrix(reviewId, refreshMatrix)
-        : null;
+    let matrix = null;
+    let matrixFailure = '';
+    if (detail.review.artifact_type === 'PRODUCT_SCHEMA') {
+        try {
+            matrix = await loadSchemaMatrix(reviewId, refreshMatrix);
+        } catch (error) {
+            matrix = {review_id: reviewId, candidates: [], removed_page_matches: []};
+            matrixFailure = apiErrorMessage(error);
+        }
+    }
     if (matrix && rawAttributeKeys === null) {
         rawAttributeKeys = await api('/api/raw-attribute-keys').catch(() => null);
     }
     if (selectedId !== reviewId) return;
     selectedDetail = detail;
     selectedMatrix = matrix;
+    selectedMatrixFailure = matrixFailure;
     selectedReviewUpdatedAt = detail.review.updated;
     selectedReviewStatus = detail.review.status;
     selectedReviewNeedsRefresh = false;
@@ -352,6 +380,7 @@ function renderDetail(detail, matrix) {
       </div>
       ${renderRepairRequest(review)}
       ${renderEditRefusal()}
+      ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`;
@@ -927,8 +956,43 @@ async function submitEdit(edit) {
         await edit();
     } catch (error) {
         editRefusal = {reviewId, message: apiErrorMessage(error)};
+        const currentVersion = changedCandidateVersion(error);
+        if (currentVersion !== null && selectedId === reviewId) {
+            selectedReviewNeedsRefresh = true;
+            selectedReviewRefreshReason = `The candidate changed elsewhere and is at version ${currentVersion}; your edits are not saved. Refresh the review and apply them again.`;
+        }
         if (selectedDetail && selectedId === reviewId) rerenderWorkbench();
     }
+}
+
+// Every candidate edit names the candidate version it was based on, so the server refuses it
+// once another writer has changed the candidate.
+function expectedCandidateVersion() {
+    return selectedDetail.review.candidate_version;
+}
+
+// The saved edit is the candidate version the next edit builds on, even when reloading the
+// review afterwards fails.
+function recordSavedCandidateVersion(saved) {
+    dirty = false;
+    if (selectedDetail && Number.isInteger(saved?.candidate_version)) {
+        selectedDetail.review.candidate_version = saved.candidate_version;
+    }
+}
+
+function renderMatrixNotice(detail, matrix) {
+    if (selectedMatrixFailure) {
+        return `<div class="hint-card finding-hint">
+          <span>No schema matrix: ${escapeHtml(selectedMatrixFailure)}</span>
+          <button onclick="reloadMatrix()">Re-evaluate</button>
+        </div>`;
+    }
+    const unevaluated = unevaluatedReviewPages(detail, matrix);
+    if (!unevaluated.length) return '';
+    return `<div class="hint-card">
+      <span>Not evaluated: ${unevaluated.length === 1 ? 'a page was' : `${unevaluated.length} pages were`} added to the review while this matrix was evaluated (${unevaluated.map(page => escapeHtml(reviewPageLabel(page))).join(', ')}).</span>
+      <button onclick="reloadMatrix()">Re-evaluate</button>
+    </div>`;
 }
 
 function renderEditRefusal() {
@@ -1218,10 +1282,24 @@ function renderOptionalFieldMisses(misses) {
         + (empty.length ? `<div class="muted">Rule matched only empty elements, field left empty: ${fieldList(empty)}</div>` : '');
 }
 
+// A live matrix names the review pages it evaluated and leaves out a page that joined while it
+// was evaluated; a generated one references the pages it was given by position.
 function selectedMatrixPage(candidate) {
-    return (candidate.pages || []).find(page =>
-        pageReferenceKey(page.page_reference) === `persisted:${selectedPageId}`
-    ) || (candidate.pages || [])[0] || null;
+    const pages = candidate.pages || [];
+    const selected = pages.find(page => pageReferenceKey(page.page_reference) === `persisted:${selectedPageId}`);
+    if (selected) return selected;
+    return isLiveMatrixCandidate(candidate) ? null : pages[0] || null;
+}
+
+function isLiveMatrixCandidate(candidate) {
+    return (candidate.pages || []).some(page => page.page_reference?.kind === 'persisted');
+}
+
+function unevaluatedReviewPages(detail, matrix) {
+    const candidate = (matrix.candidates || [])[0];
+    if (!candidate || !isLiveMatrixCandidate(candidate)) return [];
+    const evaluated = new Set(candidate.pages.map(page => pageReferenceKey(page.page_reference)));
+    return (detail.pages || []).filter(page => !evaluated.has(`persisted:${page.review_page_id}`));
 }
 
 function selectedCandidate(matrix) {
@@ -1373,8 +1451,10 @@ async function reloadMatrix() {
     await loadReviews();
 }
 
+// Loading the current review discards the local edits, and with them a refusal of those edits.
 async function refreshSelectedReview() {
     dirty = false;
+    editRefusal = null;
     await loadSelectedReview(false);
     await loadReviews();
 }
@@ -1562,11 +1642,16 @@ async function deleteCurrentRule() {
 
 async function saveSchemaField(rule) {
     await submitEdit(async () => {
-        await api(`/api/reviews/${selectedId}/schema-field`, {
+        const saved = await api(`/api/reviews/${selectedId}/schema-field`, {
             method: 'POST',
-            body: JSON.stringify({schema_index: selectedSchemaIndex, field: selectedField, rule})
+            body: JSON.stringify({
+                expected_candidate_version: expectedCandidateVersion(),
+                schema_index: selectedSchemaIndex,
+                field: selectedField,
+                rule
+            })
         });
-        dirty = false;
+        recordSavedCandidateVersion(saved);
         await loadSelectedReview(false, true);
         await loadReviews();
     });
@@ -1685,8 +1770,11 @@ async function saveCandidatePayload(payload) {
     selectedDetail.review.candidate_payload = payload;
     markDirty();
     await submitEdit(async () => {
-        await api(`/api/reviews/${selectedId}/candidate`, {method: 'POST', body: JSON.stringify(payload)});
-        dirty = false;
+        const saved = await api(`/api/reviews/${selectedId}/candidate`, {
+            method: 'POST',
+            body: JSON.stringify({...payload, expected_candidate_version: expectedCandidateVersion()})
+        });
+        recordSavedCandidateVersion(saved);
         await loadSelectedReview(false, true);
         await loadReviews();
     });
