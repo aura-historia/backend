@@ -101,8 +101,8 @@ pub enum ProductListingIngestionFailureClass {
     /// A command that cannot apply as delivered however often it is retried: invalid metadata,
     /// a command, provider-receipt or shipping key reused for different content, a source-key
     /// hash collision, or invalid persisted state that needs an operator repair. The consumer
-    /// moves it to failure custody after one retry instead of letting it hold its FIFO group for
-    /// the whole retry budget.
+    /// moves it to failure custody when it is delivered again instead of letting it hold its
+    /// FIFO group for the whole retry budget.
     Unprocessable,
     /// Technical or temporary failures keep retry custody.
     Retryable,

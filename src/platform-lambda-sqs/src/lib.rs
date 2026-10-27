@@ -251,8 +251,9 @@ pub enum FifoDisposition {
     /// Can never succeed as delivered, so retrying would only hold its message group until the
     /// queue's redrive dead-letters it. A redelivered record moves to failure custody and is
     /// deleted once custody is confirmed, letting the rest of its group continue. A first
-    /// delivery gets one retry, which absorbs a consumer deploy that lags its producer; it and
-    /// any unconfirmed transfer are retained like [`FifoDisposition::Retain`].
+    /// delivery is retained like [`FifoDisposition::Retain`], so nothing is parked within one
+    /// visibility timeout of its first delivery, which absorbs a consumer deploy that lags its
+    /// producer; an unconfirmed transfer is retained too.
     Park,
     /// Not confirmed complete: retain the record and every later record of its message group.
     Retain,
@@ -337,6 +338,8 @@ const APPROXIMATE_RECEIVE_COUNT_ATTRIBUTE: &str = "ApproximateReceiveCount";
 
 /// Only a redelivered record that custody can hold unchanged may be parked: an unreadable
 /// receive count counts as a first delivery, and message attributes cannot be carried over.
+/// The receive count proves an earlier delivery, not an earlier attempt: a record retained
+/// unstarted behind its group's head or an exhausted budget can be parked on its first attempt.
 fn custody_copy(
     record: &SqsMessage,
     message_id: &str,
@@ -386,7 +389,12 @@ async fn move_to_custody<C: FailureCustody>(
             );
             true
         }
-        Ok(Err(_)) => stay_in_source_queue(sqs_message_id, "custody_transfer_unconfirmed"),
+        Ok(Err(FailureCustodyError::Unconfirmed(_))) => {
+            stay_in_source_queue(sqs_message_id, "custody_transfer_unconfirmed")
+        }
+        Ok(Err(FailureCustodyError::MissingMessageId)) => {
+            stay_in_source_queue(sqs_message_id, "custody_message_id_missing")
+        }
         Err(_) => stay_in_source_queue(sqs_message_id, "custody_transfer_timeout"),
     }
 }

@@ -1,7 +1,10 @@
 //! Failure custody for FIFO records that can never succeed. Moving such a record out of its
 //! source queue releases its message group instead of holding it for the whole retry budget.
 
-use aws_sdk_sqs::{Client, operation::send_message::builders::SendMessageFluentBuilder};
+use aws_sdk_sqs::{
+    Client, error::ProvideErrorMetadata,
+    operation::send_message::builders::SendMessageFluentBuilder,
+};
 use lambda_runtime::Error;
 use std::future::Future;
 
@@ -9,7 +12,8 @@ use std::future::Future;
 pub const DEAD_LETTER_QUEUE_URL_ENV: &str = "DEAD_LETTER_QUEUE_URL";
 
 /// The FIFO identity and unchanged body a record keeps in custody. The original SQS message ID
-/// deduplicates a repeated transfer after a lost acknowledgment.
+/// deduplicates a repeated transfer only within the SQS five-minute deduplication interval; a
+/// redelivery after a lost acknowledgment that arrives later can leave a second custody copy.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParkedRecord {
     pub message_id: String,
@@ -80,10 +84,19 @@ impl FailureCustody for SqsDeadLetterCustody {
         // Boxed so the SDK's deeply nested request future does not overflow the layout queries
         // of every Lambda future that awaits a batch.
         Box::pin(async move {
-            let output = request
-                .send()
-                .await
-                .map_err(|error| FailureCustodyError::Unconfirmed(Box::new(error)))?;
+            let output = request.send().await.map_err(|error| {
+                // A bounded AWS error code tells a misconfigured queue or grant apart from a
+                // transient failure; the error's message is not logged.
+                tracing::warn!(
+                    aws_error_code = error
+                        .code()
+                        .filter(|code| code.len() <= 128
+                            && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.'))
+                        .unwrap_or("unknown"),
+                    "Failure custody send to the dead-letter queue failed"
+                );
+                FailureCustodyError::Unconfirmed(Box::new(error))
+            })?;
             output
                 .message_id
                 .filter(|id| !id.is_empty())

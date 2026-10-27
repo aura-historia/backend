@@ -195,6 +195,8 @@ as `Ingestion command cannot apply as delivered` and parked in the DLQ on their 
 redelivery. Later commands of their group then run, so a dependent update or withdraw may
 have been rejected and need resubmission once the cause is repaired. Technical failures reach
 the DLQ only after the retry budget and delay only later records of their own message group.
+A consumer rolled back behind a producer that already sends a newer command version parks
+those commands on their next delivery; redrive them once a compatible consumer runs.
 
 A completed old command replays as a no-op; an old **unfinished** command can still apply
 against newer state or fail guards. Before redrive, inspect source-order barriers, current

@@ -2,7 +2,9 @@ use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
-use platform_lambda_sqs::{FailureCustody, FifoDisposition, RecordOutcome, process_fifo_batch};
+use platform_lambda_sqs::{
+    FailureCustody, FifoDisposition, RecordOutcome, process_fifo_batch, safe_message_id,
+};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 use user_loops::{LoopsMarketingEmailConsentWriter, LoopsNewsletterConfig};
@@ -80,12 +82,12 @@ async fn handler_with_budget(
             match disposition {
                 FifoDisposition::Complete => {}
                 FifoDisposition::Park => warn!(
-                    message_id = %attempt.message_id,
+                    message_id = safe_message_id(&attempt.message_id).unwrap_or("invalid"),
                     outcome = outcome_category(&attempt.outcome),
                     "Marketing consent sync job cannot complete as delivered"
                 ),
                 FifoDisposition::Retain => warn!(
-                    message_id = %attempt.message_id,
+                    message_id = safe_message_id(&attempt.message_id).unwrap_or("invalid"),
                     outcome = outcome_category(&attempt.outcome),
                     "Marketing consent sync record retained for SQS retry or redrive"
                 ),
