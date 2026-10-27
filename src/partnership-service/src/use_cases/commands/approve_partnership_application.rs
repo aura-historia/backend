@@ -249,6 +249,7 @@ where
                             }
                         })?,
                         presentation: listing_source.presentation,
+                        platform_technology: None,
                         referral_configuration: None,
                     });
                     let source = self
@@ -1291,6 +1292,7 @@ mod tests {
                 url: None,
                 image: None,
             },
+            platform_technology: None,
             referral_configuration: None,
         });
         let party_version = PartyStorageVersion::try_from(1_i64)
@@ -1408,6 +1410,7 @@ mod tests {
                 url: None,
                 image: None,
             },
+            platform_technology: None,
             referral_configuration: None,
         });
         let source_version = match ListingSourceStorageVersion::try_from(1_i64) {

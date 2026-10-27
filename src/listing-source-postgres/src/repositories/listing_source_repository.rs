@@ -20,6 +20,7 @@ struct SourceRow {
     operator_party_id: uuid::Uuid,
     url: Option<String>,
     image: Option<String>,
+    platform_technology: Option<String>,
     referral_configuration: Option<serde_json::Value>,
     version: i64,
     created: OffsetDateTime,
@@ -44,7 +45,13 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         &mut self,
         id: ListingSourceId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
-        let row=sqlx::query_as::<_,SourceRow>("SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1").bind(id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(db_read)?;
+        let row = sqlx::query_as::<_, SourceRow>(
+            "SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1",
+        )
+        .bind(id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(db_read)?;
         match row {
             Some(row) => load(self.connection, row).await.map(Some),
             None => Ok(None),
@@ -54,7 +61,13 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         &mut self,
         slug: &ListingSourceSlugId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
-        let row=sqlx::query_as::<_,SourceRow>("SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_slug_id=$1").bind(slug.as_ref()).fetch_optional(&mut *self.connection).await.map_err(db_read)?;
+        let row = sqlx::query_as::<_, SourceRow>(
+            "SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_slug_id=$1",
+        )
+        .bind(slug.as_ref())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(db_read)?;
         match row {
             Some(row) => load(self.connection, row).await.map(Some),
             None => Ok(None),
@@ -65,7 +78,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         id: ListingSourceId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
         let row = sqlx::query_as::<_, SourceRow>(
-            "SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1 FOR UPDATE",
+            "SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1 FOR UPDATE",
         )
         .bind(id.into_uuid())
         .fetch_optional(&mut *self.connection)
@@ -172,7 +185,20 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
             }
         })?;
         let referral_configuration = referral_json(source.referral_configuration());
-        let row=sqlx::query_as::<_,SourceRow>("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,referral_configuration,version,created,updated").bind(source.id().into_uuid()).bind(source.slug_id().as_ref()).bind(source.name().as_ref()).bind(source.operator_party_id().into_uuid()).bind(source.presentation().url.as_ref().map(Url::as_str)).bind(source.presentation().image.as_ref().map(Url::as_str)).bind(referral_configuration).fetch_one(&mut *self.connection).await.map_err(db_write)?;
+        let row = sqlx::query_as::<_, SourceRow>(
+            "INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
+        )
+        .bind(source.id().into_uuid())
+        .bind(source.slug_id().as_ref())
+        .bind(source.name().as_ref())
+        .bind(source.operator_party_id().into_uuid())
+        .bind(source.presentation().url.as_ref().map(Url::as_str))
+        .bind(source.presentation().image.as_ref().map(Url::as_str))
+        .bind(source.platform_technology().map(AsRef::as_ref))
+        .bind(referral_configuration)
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(db_write)?;
         write_configuration(self.connection, source.id(), configuration).await?;
         load(self.connection, row).await
     }
@@ -195,7 +221,21 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
             }
         })?;
         let referral_configuration = referral_json(source.referral_configuration());
-        let row=sqlx::query_as::<_,SourceRow>("UPDATE listing_sources SET name=$1,operator_party_id=$2,url=$3,image=$4,referral_configuration=$5,version=version+1,updated=aura_advance_updated(updated) WHERE listing_source_id=$6 AND version=$7 RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,referral_configuration,version,created,updated").bind(source.name().as_ref()).bind(source.operator_party_id().into_uuid()).bind(source.presentation().url.as_ref().map(Url::as_str)).bind(source.presentation().image.as_ref().map(Url::as_str)).bind(referral_configuration).bind(source.id().into_uuid()).bind(expected).fetch_optional(&mut *self.connection).await.map_err(db_write)?.ok_or(ListingSourceRepositoryError::ConcurrencyConflict)?;
+        let row = sqlx::query_as::<_, SourceRow>(
+            "UPDATE listing_sources SET name=$1,operator_party_id=$2,url=$3,image=$4,platform_technology=$5,referral_configuration=$6,version=version+1,updated=aura_advance_updated(updated) WHERE listing_source_id=$7 AND version=$8 RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
+        )
+        .bind(source.name().as_ref())
+        .bind(source.operator_party_id().into_uuid())
+        .bind(source.presentation().url.as_ref().map(Url::as_str))
+        .bind(source.presentation().image.as_ref().map(Url::as_str))
+        .bind(source.platform_technology().map(AsRef::as_ref))
+        .bind(referral_configuration)
+        .bind(source.id().into_uuid())
+        .bind(expected)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(db_write)?
+        .ok_or(ListingSourceRepositoryError::ConcurrencyConflict)?;
         // Preserve acquisition bindings when an unrelated source edit retains identical
         // integration configuration. Real configuration replacement still fences imports.
         if &existing_configuration != configuration {
@@ -272,6 +312,7 @@ async fn load(
                 .transpose()
                 .map_err(invalid)?,
         },
+        platform_technology: row.platform_technology,
         referral_configuration: parse_referral(row.referral_configuration)?,
     })
     .map_err(invalid)?;
@@ -575,6 +616,7 @@ mod tests {
             operator_party_id,
             ingestion_methods: HashSet::from([method]),
             presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
             referral_configuration: None,
         });
         sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
@@ -683,6 +725,7 @@ mod tests {
                 ),
                 image: None,
             },
+            platform_technology: Some(PlatformTechnology::try_from("BIGCOMMERCE").unwrap()),
             referral_configuration: None,
         });
         let configuration = ListingSourceIngestionConfigurations(vec![
@@ -734,7 +777,30 @@ mod tests {
         .await
         .unwrap_or_else(|error| panic!("insert listing source grant: {error}"));
 
-        assert_eq!(source.id(), stored.source.id());
+        assert_eq!(source, stored.source);
+        let mut read_tx = unit_of_work.begin().await.unwrap();
+        let repository = SqlxListingSourceRepositoryFactory::new();
+        assert_eq!(
+            Some(&source),
+            repository
+                .in_transaction(&mut read_tx)
+                .find_by_id(source.id())
+                .await
+                .unwrap()
+                .as_ref()
+                .map(|stored| &stored.source)
+        );
+        assert_eq!(
+            Some(&source),
+            repository
+                .in_transaction(&mut read_tx)
+                .find_by_slug(source.slug_id())
+                .await
+                .unwrap()
+                .as_ref()
+                .map(|stored| &stored.source)
+        );
+        read_tx.commit().await.unwrap();
         assert_eq!(configuration, stored.configuration);
         let name_search = sqlx::query_scalar::<_, String>(
             "SELECT name_search FROM listing_sources WHERE listing_source_id = $1",
@@ -758,6 +824,16 @@ mod tests {
         );
         assert_eq!(operator_party_id, details.operator_party_id);
         assert_eq!(source.ingestion_methods(), &details.ingestion_methods);
+        assert_eq!(
+            source.platform_technology(),
+            details.platform_technology.as_ref()
+        );
+        let slug_details = readers
+            .find_details_by_slug(source.slug_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(details, slug_details);
 
         let shopify = readers
             .find_by_domain(
@@ -800,6 +876,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("verify WooCommerce signature: {error}"))
         );
 
+        source.replace_platform_technology(Some(PlatformTechnology::try_from("SHOPWARE").unwrap()));
         source.replace_ingestion_methods(HashSet::from([ListingIngestionMethod::PartnerApi]));
         let updated_configuration =
             ListingSourceIngestionConfigurations(vec![ListingIngestionConfiguration::PartnerApi]);
@@ -817,6 +894,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("commit update transaction: {error}"));
         assert_eq!(updated_configuration, updated.configuration);
+        assert_eq!(source, updated.source);
         let web_crawl_configured = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (SELECT 1 FROM listing_source_web_crawl_ingestion_configurations WHERE listing_source_id=$1)",
         )

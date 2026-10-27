@@ -28,6 +28,7 @@ pub struct UpdateListingSourceCommand {
     pub ingestion_configuration: RequiredPatch<UpdateListingSourceIngestionConfigurations>,
     pub url: PatchField<url::Url>,
     pub image: PatchField<url::Url>,
+    pub platform_technology: PatchField<PlatformTechnology>,
     pub referral_configuration: PatchField<ReferralConfiguration>,
 }
 
@@ -202,10 +203,17 @@ fn apply_update(
     }
     if command.url.is_changed() || command.image.is_changed() {
         let presentation = ListingSourcePresentation {
-            url: patch_url(source.presentation().url.clone(), &command.url),
-            image: patch_url(source.presentation().image.clone(), &command.image),
+            url: patch_optional(source.presentation().url.clone(), &command.url),
+            image: patch_optional(source.presentation().image.clone(), &command.image),
         };
         outcome = outcome.combine(source.replace_presentation(presentation));
+    }
+    if command.platform_technology.is_changed() {
+        let platform = patch_optional(
+            source.platform_technology().cloned(),
+            &command.platform_technology,
+        );
+        outcome = outcome.combine(source.replace_platform_technology(platform));
     }
     match &command.referral_configuration {
         PatchField::Unchanged => {}
@@ -217,7 +225,7 @@ fn apply_update(
     Ok(outcome)
 }
 
-fn patch_url(current: Option<url::Url>, patch: &PatchField<url::Url>) -> Option<url::Url> {
+fn patch_optional<T: Clone>(current: Option<T>, patch: &PatchField<T>) -> Option<T> {
     match patch {
         PatchField::Unchanged => current,
         PatchField::Set(value) => Some(value.clone()),
@@ -416,6 +424,7 @@ mod tests {
             operator_party_id: PartyId::new(),
             ingestion_methods: std::collections::HashSet::from([ListingIngestionMethod::WebCrawl]),
             presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
             referral_configuration: None,
         });
         StoredListingSource {
@@ -439,6 +448,7 @@ mod tests {
             ingestion_configuration: RequiredPatch::Unchanged,
             url: PatchField::Unchanged,
             image: PatchField::Unchanged,
+            platform_technology: PatchField::Unchanged,
             referral_configuration: PatchField::Unchanged,
         }
     }
@@ -553,6 +563,48 @@ mod tests {
             if !allowed {
                 assert!(matches!(result, Err(UpdateListingSourceError::Forbidden)));
             }
+        }
+    }
+
+    #[test]
+    fn should_patch_platform_technology_independently_of_ingestion() {
+        let stored = source();
+        let mut source = stored.source;
+        let mut configuration = stored.configuration;
+        let original_configuration = configuration.clone();
+        let original_methods = source.ingestion_methods().clone();
+        let mut command = command(source.id());
+
+        for (patch, expected, changed) in [
+            (
+                PatchField::Set(PlatformTechnology::try_from("BIGCOMMERCE").unwrap()),
+                Some("BIGCOMMERCE"),
+                true,
+            ),
+            (PatchField::Unchanged, Some("BIGCOMMERCE"), false),
+            (
+                PatchField::Set(PlatformTechnology::try_from("BIGCOMMERCE").unwrap()),
+                Some("BIGCOMMERCE"),
+                false,
+            ),
+            (
+                PatchField::Set(PlatformTechnology::try_from("SHOPIFY").unwrap()),
+                Some("SHOPIFY"),
+                true,
+            ),
+            (PatchField::Clear, None, true),
+            (PatchField::Clear, None, false),
+        ] {
+            command.platform_technology = patch;
+            assert_eq!(
+                changed,
+                apply_update(&mut source, &mut configuration, &command)
+                    .unwrap()
+                    .changed()
+            );
+            assert_eq!(expected, source.platform_technology().map(AsRef::as_ref));
+            assert_eq!(original_methods, *source.ingestion_methods());
+            assert_eq!(original_configuration, configuration);
         }
     }
 }
