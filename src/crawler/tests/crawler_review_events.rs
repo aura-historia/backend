@@ -1,12 +1,14 @@
 //! The review event trail: every accepted review mutation appends exactly one event, with its
 //! actor, in the mutation's own transaction, and a refused mutation appends none.
 
+use crawler::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+use crawler::review::approval_guard::FailedApprovalCheck;
 use crawler::review::model::{
     CrawlerReviewEvent, PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_PENDING_REVIEW,
     SchemaReviewPageInput, UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
-use crawler::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
+use crawler::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
@@ -60,6 +62,14 @@ fn notice_template(text: &str) -> RemovedPageSchema {
 
 fn url(raw: &str) -> Url {
     Url::parse(raw).unwrap()
+}
+
+/// A repository that takes the review agent's guarded approvals and rejections.
+fn deciding_agent_repository(pool: &PgPool) -> CrawlerReviewRepository {
+    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy {
+        approvals: AgentApprovals::Guarded,
+        ..AgentDecisionPolicy::default()
+    })
 }
 
 /// A ListingSource on `example.com` and its domain.
@@ -135,33 +145,60 @@ async fn candidate_version(
         .candidate_version
 }
 
+/// Approves the review's current candidate version as `actor`, as an approver who just read it.
+async fn approve(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+    actor: ReviewActor,
+    notes: Option<&str>,
+    incomplete_coverage: IncompleteCoverage,
+) -> Result<(), ReviewRepositoryError> {
+    let expected_candidate_version = repository.candidate_version(review_id).await?;
+    repository
+        .approve_review(
+            review_id,
+            actor,
+            Approval {
+                expected_candidate_version,
+                notes,
+                incomplete_coverage,
+            },
+        )
+        .await
+}
+
 async fn approve_acknowledging_coverage(
     repository: &CrawlerReviewRepository,
     review_id: CrawlerReviewId,
     actor: ReviewActor,
     notes: Option<&str>,
 ) {
-    let Err(ReviewRepositoryError::IncompleteCoverage { coverage, .. }) = repository
-        .approve_review(review_id, actor, notes, IncompleteCoverage::Refuse)
-        .await
+    let Err(ReviewRepositoryError::IncompleteCoverage { coverage, .. }) = approve(
+        repository,
+        review_id,
+        actor,
+        notes,
+        IncompleteCoverage::Refuse,
+    )
+    .await
     else {
         panic!("a review without a stored matrix has incomplete coverage");
     };
-    repository
-        .approve_review(
-            review_id,
-            actor,
-            notes,
-            IncompleteCoverage::Acknowledged(coverage),
-        )
-        .await
-        .unwrap();
+    approve(
+        repository,
+        review_id,
+        actor,
+        notes,
+        IncompleteCoverage::Acknowledged(coverage),
+    )
+    .await
+    .unwrap();
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_version() {
     let pool = get_postgres_client().await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
+    let repository = deciding_agent_repository(&pool);
     let (listing_source_id, _) = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     let added_url = url("https://example.com/products/2");
@@ -243,8 +280,9 @@ async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_
     assert!(events.iter().all(|event| event.review_id == review_id));
 }
 
-/// An approval keeps the live schema list and stored removed-page templates it replaced, which a
-/// restore needs, and the coverage it was accepted under.
+/// An approval keeps the live schema list and stored removed-page templates it replaced and the
+/// ones it made live, which a restore needs, and the coverage it was accepted under. It moves the
+/// review past the approved candidate version.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverage() {
     let pool = get_postgres_client().await;
@@ -282,7 +320,7 @@ async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverag
     approve_acknowledging_coverage(
         &repository,
         review_id,
-        ReviewActor::Agent,
+        ReviewActor::Human,
         Some("matches the shop"),
     )
     .await;
@@ -292,7 +330,7 @@ async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverag
         trail(&events),
         vec![
             (ReviewActor::Agent, ReviewEventAction::CandidateEdited, 2),
-            (ReviewActor::Agent, ReviewEventAction::Approved, 2),
+            (ReviewActor::Human, ReviewEventAction::Approved, 3),
         ]
     );
     let approval = &events[1];
@@ -303,6 +341,8 @@ async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverag
             "coverage": { "covered": 0, "removed": 0, "total": 1, "not_evaluated": 1 },
             "replaced_product_schemas": [schema("h1.old")],
             "replaced_removed_page_schemas": [notice_template("sold")],
+            "approved_product_schemas": [schema("h1.new")],
+            "approved_removed_page_schemas": [],
         })
     );
 }
@@ -376,24 +416,27 @@ async fn should_keep_the_url_pattern_decision_an_approval_replaced() {
         .await
         .unwrap();
 
-    repository
-        .approve_review(
-            review_id,
-            ReviewActor::System,
-            Some("Applied directly by CRAWLER_AUTHORING_MODE=auto"),
-            IncompleteCoverage::Refuse,
-        )
-        .await
-        .unwrap();
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::System,
+        Some("Applied directly by CRAWLER_AUTHORING_MODE=auto"),
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
 
     let events = events(&repository, review_id).await;
     assert_eq!(
         trail(&events),
-        vec![(ReviewActor::System, ReviewEventAction::Approved, 1)]
+        vec![(ReviewActor::System, ReviewEventAction::Approved, 2)]
     );
     assert_eq!(
         events[0].details,
-        json!({ "replaced_url_pattern": { "url_pattern": "/old/", "url_pattern_state": "MATCHED" } })
+        json!({
+            "replaced_url_pattern": { "url_pattern": "/old/", "url_pattern_state": "MATCHED" },
+            "approved_url_pattern": { "url_pattern": "/new/", "url_pattern_state": "MATCHED" },
+        })
     );
 }
 
@@ -533,7 +576,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_record_no_event_for_a_refused_mutation() {
     let pool = get_postgres_client().await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
+    let repository = deciding_agent_repository(&pool);
     let (listing_source_id, _) = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     let seed_page_id = repository.get_review_pages(review_id).await.unwrap()[0].review_page_id;
@@ -569,14 +612,14 @@ async fn should_record_no_event_for_a_refused_mutation() {
         repository
             .request_repair(review_id, ReviewActor::Agent, Some("  "))
             .await,
-        repository
-            .approve_review(
-                review_id,
-                ReviewActor::Agent,
-                None,
-                IncompleteCoverage::Refuse,
-            )
-            .await,
+        approve(
+            &repository,
+            review_id,
+            ReviewActor::Agent,
+            None,
+            IncompleteCoverage::Refuse,
+        )
+        .await,
     ];
 
     assert!(
@@ -588,8 +631,8 @@ async fn should_record_no_event_for_a_refused_mutation() {
                 Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(_)),
                 Err(ReviewRepositoryError::NotReviewerAddedPage(_)),
                 Err(ReviewRepositoryError::MissingRepairNote),
-                Err(ReviewRepositoryError::IncompleteCoverage { .. }),
-            ]
+                Err(ReviewRepositoryError::AgentApprovalRefused { failed_checks, .. }),
+            ] if failed_checks.as_slice() == [FailedApprovalCheck::LiveMatrixMissing]
         ),
         "{refusals:?}"
     );
@@ -601,7 +644,7 @@ async fn should_record_no_event_for_a_refused_mutation() {
         .unwrap();
     let closed = [
         repository
-            .reject_review(review_id, ReviewActor::Agent, None)
+            .reject_review(review_id, ReviewActor::Agent, Some("not a shop page"))
             .await,
         repository
             .request_repair(review_id, ReviewActor::Agent, Some("fix it"))
@@ -624,7 +667,7 @@ async fn should_record_no_event_for_a_refused_mutation() {
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_roll_back_the_mutation_when_its_event_cannot_be_recorded() {
     let pool = get_postgres_client().await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
+    let repository = deciding_agent_repository(&pool);
     let (listing_source_id, _) = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     sqlx::query(
@@ -677,11 +720,11 @@ async fn should_roll_back_the_mutation_when_its_event_cannot_be_recorded() {
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_keep_the_trail_append_only_with_known_actors_and_actions() {
     let pool = get_postgres_client().await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
+    let repository = deciding_agent_repository(&pool);
     let (listing_source_id, _) = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     repository
-        .reject_review(review_id, ReviewActor::Agent, None)
+        .reject_review(review_id, ReviewActor::Agent, Some("not a shop page"))
         .await
         .unwrap();
 
@@ -704,7 +747,7 @@ async fn should_keep_the_trail_append_only_with_known_actors_and_actions() {
         .execute(&pool)
     };
     let lowercase_actor = insert("agent", "REJECTED").await;
-    let unknown_action = insert("AGENT", "RESTORED").await;
+    let unknown_action = insert("AGENT", "RESTORE").await;
 
     for refused in [
         rewrite.map(|_| ()),

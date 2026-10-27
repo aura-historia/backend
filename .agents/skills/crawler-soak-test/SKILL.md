@@ -76,7 +76,9 @@ each check must answer.
    the whole candidate with `POST /api/reviews/{id}/candidate`
    (`{"schemas":[...],"expected_candidate_version":v}`), where `v` is the review's
    `candidate_version` (a 409 means it changed: reload and edit again), re-run the matrix, and only then
-   `POST /api/reviews/{id}/approve` with `{"notes":"soak: reviewed, <what you changed>"}`. A 409
+   `POST /api/reviews/{id}/approve` with
+   `{"notes":"soak: reviewed, <what you changed>","expected_candidate_version":v}`, `v` being the
+   version you reviewed (a 409 with `candidate_version` means it changed since: reload, re-check). A 409
    with `coverage` means the stored matrix does not cover every review page (a page declared
    removed counts once the re-run matrix captures it as removed): re-run the matrix or fix the
    candidate, and send that `coverage` back as `"acknowledged_coverage"` only for pages you leave

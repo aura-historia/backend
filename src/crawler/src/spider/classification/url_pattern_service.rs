@@ -3,7 +3,7 @@ use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
 use crate::review::page_coverage::IncompleteCoverage;
-use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
+use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
@@ -299,12 +299,17 @@ impl UrlPatternService for UrlPatternServiceImpl {
             if apply_directly {
                 // Approval stores the pattern, so the review records what became active. A URL
                 // pattern has no page coverage to acknowledge.
+                let expected_candidate_version =
+                    review_repository.candidate_version(review_id).await?;
                 review_repository
                     .approve_review(
                         review_id,
                         ReviewActor::System,
-                        Some("Applied directly by CRAWLER_AUTHORING_MODE=auto"),
-                        IncompleteCoverage::Refuse,
+                        Approval {
+                            expected_candidate_version,
+                            notes: Some("Applied directly by CRAWLER_AUTHORING_MODE=auto"),
+                            incomplete_coverage: IncompleteCoverage::Refuse,
+                        },
                     )
                     .await?;
                 debug!(crawl_root_url, domain_id = %domain_id, review_id = %review_id, "Applied inferred product URL pattern");

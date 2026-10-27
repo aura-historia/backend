@@ -5,7 +5,7 @@ use crawler::review::model::{
 use crawler::review::model::{ReviewActor, UrlPatternDecision, UrlPatternReviewCandidate};
 use crawler::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crawler::review::repository::{
-    CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
+    Approval, CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
 };
 use crawler::scraper::candidate_service::{
     FetchFailureRequest, SchemaReviewWait, SchemaReviewWaitRequest, ScraperCandidateService,
@@ -1310,6 +1310,7 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
                     )
                 })
                 .collect(),
+            time::OffsetDateTime::now_utc(),
         )
         .await
         .unwrap();
@@ -1336,7 +1337,7 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
     assert_eq!(candidate_version, 2);
 
     let stale_store = repository
-        .store_schema_matrix_if_current(review_id, &matrix)
+        .store_schema_matrix_if_current(review_id, matrix)
         .await;
     assert!(matches!(
         stale_store,
@@ -1372,11 +1373,12 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
                     )
                 })
                 .collect(),
+            time::OffsetDateTime::now_utc(),
         )
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, &fresh_matrix)
+        .store_schema_matrix_if_current(review_id, fresh_matrix)
         .await
         .unwrap();
 
@@ -1459,12 +1461,13 @@ async fn schema_matrix_write_drops_the_generated_matrix_summary() {
                     )
                 })
                 .collect(),
+            time::OffsetDateTime::now_utc(),
         )
         .await
         .unwrap();
 
-    repository
-        .store_schema_matrix_if_current(review_id, &evaluated)
+    let stored = repository
+        .store_schema_matrix_if_current(review_id, evaluated)
         .await
         .unwrap();
 
@@ -1472,7 +1475,7 @@ async fn schema_matrix_write_drops_the_generated_matrix_summary() {
         stored_validation_summary(&pool, review_id).await,
         json!({
             "auto_schema_evaluation": { "decision": "APPROVE" },
-            "schema_matrix": evaluated.matrix,
+            "schema_matrix": stored.matrix,
         })
     );
 }
@@ -1499,30 +1502,52 @@ async fn candidate_change_drops_the_generated_matrix_summary_with_the_cached_mat
     );
 }
 
+/// Approves the review's current candidate version as `actor`, as an approver who just read it.
+async fn approve(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+    actor: ReviewActor,
+    notes: Option<&str>,
+    incomplete_coverage: IncompleteCoverage,
+) -> Result<(), ReviewRepositoryError> {
+    let expected_candidate_version = repository.candidate_version(review_id).await?;
+    repository
+        .approve_review(
+            review_id,
+            actor,
+            Approval {
+                expected_candidate_version,
+                notes,
+                incomplete_coverage,
+            },
+        )
+        .await
+}
+
 /// Approves the review the way a reviewer who confirmed its incomplete coverage does: with an
 /// acknowledgement of the coverage the refused approval reports.
 async fn approve_acknowledging_coverage(
     repository: &CrawlerReviewRepository,
     review_id: CrawlerReviewId,
 ) -> Result<(), ReviewRepositoryError> {
-    match repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await
+    match approve(
+        repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
     {
         Err(ReviewRepositoryError::IncompleteCoverage { coverage, .. }) => {
-            repository
-                .approve_review(
-                    review_id,
-                    ReviewActor::Human,
-                    None,
-                    IncompleteCoverage::Acknowledged(coverage),
-                )
-                .await
+            approve(
+                repository,
+                review_id,
+                ReviewActor::Human,
+                None,
+                IncompleteCoverage::Acknowledged(coverage),
+            )
+            .await
         }
         decided => decided,
     }
@@ -1561,11 +1586,15 @@ async fn store_schema_matrix(
         })
         .collect();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, live_pages)
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            live_pages,
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, &evaluated)
+        .store_schema_matrix_if_current(review_id, evaluated)
         .await
         .unwrap();
 }
@@ -1601,14 +1630,14 @@ async fn should_approve_a_candidate_that_leaves_a_review_page_uncovered_only_whe
         .unwrap();
     store_schema_matrix(&repository, review_id, &pages).await;
 
-    let refused = repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await;
+    let refused = approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await;
 
     assert!(
         matches!(
@@ -1638,20 +1667,20 @@ async fn should_approve_a_candidate_that_leaves_a_review_page_uncovered_only_whe
             .is_none()
     );
 
-    repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Acknowledged(ReviewPageCoverage {
-                covered: 1,
-                removed: 0,
-                total: 2,
-                not_evaluated: 0,
-            }),
-        )
-        .await
-        .unwrap();
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Acknowledged(ReviewPageCoverage {
+            covered: 1,
+            removed: 0,
+            total: 2,
+            not_evaluated: 0,
+        }),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(review_status(&repository, review_id).await, STATUS_APPROVED);
     assert!(
@@ -1683,14 +1712,14 @@ async fn should_approve_without_acknowledgement_once_the_stored_matrix_covers_ev
         .await
         .unwrap();
 
-    let without_matrix = repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await;
+    let without_matrix = approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await;
     assert!(
         matches!(
             without_matrix,
@@ -1708,15 +1737,15 @@ async fn should_approve_without_acknowledgement_once_the_stored_matrix_covers_ev
     );
 
     store_schema_matrix(&repository, review_id, &pages).await;
-    repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await
-        .unwrap();
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(review_status(&repository, review_id).await, STATUS_APPROVED);
 }
@@ -1783,6 +1812,7 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
                 .into_iter()
                 .map(|page| (page, html.to_owned()))
                 .collect(),
+            time::OffsetDateTime::now_utc(),
         )
         .await
         .unwrap();
@@ -2016,14 +2046,14 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
     .await
     .unwrap();
 
-    let result = repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await;
+    let result = approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await;
 
     assert!(result.is_err());
     let pattern: (Option<String>, String) = sqlx::query_as(
@@ -2075,24 +2105,24 @@ async fn should_allow_only_one_concurrent_review_approval() {
 
     let (first, second) = tokio::join!(
         async move {
-            first
-                .approve_review(
-                    review_id,
-                    ReviewActor::Human,
-                    None,
-                    IncompleteCoverage::Refuse,
-                )
-                .await
+            approve(
+                &first,
+                review_id,
+                ReviewActor::Human,
+                None,
+                IncompleteCoverage::Refuse,
+            )
+            .await
         },
         async move {
-            second
-                .approve_review(
-                    review_id,
-                    ReviewActor::Human,
-                    None,
-                    IncompleteCoverage::Refuse,
-                )
-                .await
+            approve(
+                &second,
+                review_id,
+                ReviewActor::Human,
+                None,
+                IncompleteCoverage::Refuse,
+            )
+            .await
         }
     );
 
@@ -2136,15 +2166,15 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
         .await
         .unwrap();
 
-    repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await
-        .unwrap();
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
 
     let row: (Option<String>, String) = sqlx::query_as(
         "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
@@ -2178,14 +2208,14 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
         .await
         .unwrap();
 
-    let undecided_approval = repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await;
+    let undecided_approval = approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await;
     repository
         .update_candidate_payload(
             review_id,
@@ -2200,15 +2230,15 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
         )
         .await
         .unwrap();
-    repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await
-        .unwrap();
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(
         undecided_approval,
@@ -2425,15 +2455,15 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
         .await
         .unwrap();
 
-    repository
-        .approve_review(
-            review_id,
-            ReviewActor::Human,
-            None,
-            IncompleteCoverage::Refuse,
-        )
-        .await
-        .unwrap();
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         stored_url_classes(&pool, domain_id).await,
@@ -3176,6 +3206,7 @@ async fn should_show_a_stored_template_that_matches_a_product_page_in_the_schema
                 .into_iter()
                 .map(|page| (page, html.to_owned()))
                 .collect(),
+            time::OffsetDateTime::now_utc(),
         )
         .await
         .unwrap();
@@ -3275,6 +3306,7 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
                 .cloned()
                 .zip(review_pages().into_iter().map(|page| page.raw_html))
                 .collect(),
+            time::OffsetDateTime::now_utc(),
         )
         .await
         .unwrap();

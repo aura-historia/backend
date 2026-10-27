@@ -393,12 +393,16 @@ function renderDetail(detail, matrix) {
 function renderApprovalPanel(detail) {
     const review = detail.review;
     if (review.status !== 'PENDING_REVIEW') {
-        if (review.status === 'APPROVED' && review.artifact_type === 'PRODUCT_SCHEMA') {
-            return `<div class="approval-actions">${detail.candidate_is_live
+        if (review.status !== 'APPROVED') return '';
+        const live = review.artifact_type === 'PRODUCT_SCHEMA'
+            ? (detail.candidate_is_live
                 ? statusBadge('Live schema editable')
-                : '<span class="badge" title="The live schemas changed since this review was approved">Read-only: not the live schemas</span>'}</div>`;
-        }
-        return '';
+                : '<span class="badge" title="The live schemas changed since this review was approved">Read-only: not the live schemas</span>')
+            : '';
+        const restore = approvalRestorable(detail)
+            ? '<button onclick="restoreApproval()" title="Bring back the live configuration this approval replaced">Restore previous</button>'
+            : '';
+        return live || restore ? `<div class="approval-actions">${live}${restore}</div>` : '';
     }
     return `<div class="approval-actions">
       <button class="primary" onclick="approveReview()">Approve</button>
@@ -470,8 +474,19 @@ const REVIEW_EVENT_LABELS = {
     PAGE_REMOVED: 'Page removed',
     REPAIR_REQUESTED: 'Repair requested',
     APPROVED: 'Approved',
-    REJECTED: 'Rejected'
+    REJECTED: 'Rejected',
+    RESTORED: 'Restored'
 };
+
+// An approval whose event keeps what it made live can be restored once; the server also
+// refuses the restore once a newer change is live.
+function approvalRestorable(detail) {
+    const events = detail?.events || [];
+    const details = events.find(event => event.action === 'APPROVED')?.details || {};
+    const keepsWhatWentLive = details.approved_product_schemas !== undefined
+        || details.approved_url_pattern !== undefined;
+    return keepsWhatWentLive && !events.some(event => event.action === 'RESTORED');
+}
 
 // The review's event trail, newest first: each decision and edit with the actor that made it.
 function renderReviewEvents(detail) {
@@ -516,6 +531,10 @@ function reviewEventSummary(event) {
             if (!coverage) return '';
             return coverageText({...coverage, notEvaluated: coverage.not_evaluated});
         }
+        case 'RESTORED':
+            return details.replaced_url_pattern !== undefined
+                ? 'URL pattern the approval replaced is live again'
+                : 'schemas the approval replaced are live again';
         default:
             return '';
     }
@@ -1887,9 +1906,21 @@ async function approveReview() {
     if (incompleteCoverage && !confirm(`Coverage is incomplete: ${coverageText(coverage)}.\n\nApprove this candidate anyway?`)) return;
     const notes = prompt('Notes');
     if (notes === null) return;
-    const verdict = {notes: notes || null};
+    const verdict = {notes: notes || null, expected_candidate_version: expectedCandidateVersion()};
     if (incompleteCoverage) verdict.acknowledged_coverage = acknowledgedCoverage(coverage);
     await submitVerdict('approve', verdict);
+}
+
+// Brings back what this review's approval replaced, while what it made live is still live.
+// Cancelling either dialog sends nothing.
+async function restoreApproval() {
+    const what = selectedDetail?.review.artifact_type === 'URL_PATTERN'
+        ? 'the URL pattern'
+        : 'the schema list and removed-page templates';
+    if (!confirm(`Restore ${what} this approval replaced? Pages waiting on a review are retried with it.`)) return;
+    const notes = prompt('Why restore?');
+    if (notes === null) return;
+    await submitVerdict('restore', {notes: notes || null});
 }
 
 async function rejectReview() {

@@ -2,8 +2,11 @@ use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
-use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::removed_page_schema::{
+    RemovedPageSchema, rebase_reviewed_removed_page_schemas,
+};
 use crate::scraper::css_selector::rule::ExtractionRule;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 use super::ReviewRepositoryError;
@@ -68,19 +71,38 @@ impl ProductSchemaReviewCandidate {
         Self { schemas, ..self }
     }
 
-    /// This candidate holding `removed_page_schemas` instead of its own.
-    pub(super) fn with_removed_page_schemas(
-        self,
-        removed_page_schemas: Vec<RemovedPageSchema>,
-    ) -> Self {
-        Self {
-            removed_page_schemas,
-            ..self
-        }
-    }
-
     pub(super) fn to_payload(&self) -> Result<serde_json::Value, ReviewRepositoryError> {
         Ok(serde_json::to_value(self)?)
+    }
+
+    /// SHA-256 of this candidate's schemas and removed-page templates, equal for equal
+    /// candidates: their serialization keeps field order and sorts raw attribute keys.
+    pub(super) fn fingerprint(&self) -> Result<String, ReviewRepositoryError> {
+        Ok(Sha256::digest(serde_json::to_vec(self)?)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect())
+    }
+
+    /// The product-schema configuration approving this reviewed candidate makes live: the schema
+    /// list approval stores, merged with the `live` list for a legacy single-schema append or
+    /// repair, and the removed-page templates rebased onto the changes other writers made to the
+    /// `stored` list since the review read it as `base`. The live matrix evaluates exactly this,
+    /// and approval stores exactly this.
+    pub(super) fn going_live(
+        &self,
+        reason: &str,
+        live: Option<&ListingSourceProductSchema>,
+        base: &[RemovedPageSchema],
+        stored: &[RemovedPageSchema],
+    ) -> Result<Self, ReviewRepositoryError> {
+        let schemas = approval_product_schemas(reason, live, self.schemas.clone())?;
+        let removed_page_schemas =
+            rebase_reviewed_removed_page_schemas(base, self.removed_page_schemas.clone(), stored);
+        Ok(Self {
+            schemas,
+            removed_page_schemas,
+        })
     }
 }
 

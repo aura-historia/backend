@@ -8,10 +8,10 @@ use crate::review::assets::{
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
 use crate::review::model::{
-    CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SchemaMatrix,
+    CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, ReviewSchemaMatrix, SchemaMatrix,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
-use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
+use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
@@ -68,7 +68,8 @@ impl ReviewServer {
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
         Self {
-            repository,
+            // The console decides the review agent's approvals and rejections by its settings.
+            repository: repository.with_agent_decisions(config.agent_decisions.clone()),
             domain_administration,
             access: ReviewAccess::new(config),
             html_fetcher,
@@ -80,9 +81,13 @@ impl ReviewServer {
     pub async fn run(self) -> std::io::Result<()> {
         let bind_addr = self.access.bind_addr();
         let listener = TcpListener::bind(bind_addr).await?;
+        let agent_decisions = self.access.agent_decisions();
         info!(
             bind_addr = %bind_addr,
             agent_access = self.access.agent_access(),
+            agent_approvals = agent_decisions.approvals.as_str(),
+            agent_max_decisions_per_hour = agent_decisions.max_decisions_per_hour.get(),
+            agent_matrix_max_age_minutes = agent_decisions.max_matrix_age.as_secs() / 60,
             "Crawler review console listening"
         );
 
@@ -342,7 +347,7 @@ impl ReviewServer {
                 Err(err) => return review_error(err),
             };
             if !refresh && let Some(matrix) = cached_schema_matrix(&detail) {
-                return HttpResponse::json(200, &matrix);
+                return HttpResponse::json(200, &ReviewSchemaMatrix::of(matrix, &detail.pages));
             }
             return self.refresh_schema_matrix(review_id).await;
         }
@@ -438,12 +443,30 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .approve_review(
-                    review_id,
-                    actor,
-                    payload.notes.as_deref(),
-                    payload.incomplete_coverage(),
-                )
+                .approve_review(review_id, actor, payload.approval())
+                .await
+            {
+                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+                Err(err) => review_error(err),
+            };
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/restore")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/restore") else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            let payload: ActionPayload = match parse_verdict_payload(request.body) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
+                }
+            };
+            return match self
+                .repository
+                .restore_approval(review_id, actor, payload.notes.as_deref())
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
@@ -605,17 +628,17 @@ impl ReviewServer {
     }
 
     async fn evaluate_live_schema_matrix(self, review_id: CrawlerReviewId) -> MatrixRefreshOutcome {
+        let fetched_at = time::OffsetDateTime::now_utc();
         let pages = self.live_review_pages(review_id).await?;
         let evaluated = self
             .repository
-            .evaluate_schema_matrix_for_live_pages(review_id, pages)
+            .evaluate_schema_matrix_for_live_pages(review_id, pages, fetched_at)
             .await
             .map_err(review_error)?;
         self.repository
-            .store_schema_matrix_if_current(review_id, &evaluated)
+            .store_schema_matrix_if_current(review_id, evaluated)
             .await
-            .map_err(review_error)?;
-        Ok(evaluated.matrix)
+            .map_err(review_error)
     }
 
     /// Fetches a reviewer-chosen page of the review's ListingSource and stores it as a review
@@ -849,24 +872,31 @@ where
     read_bounded_request_body(stream, headers).await.map(Some)
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 struct ActionPayload {
     notes: Option<String>,
 }
 
-/// An approval of `POST /api/reviews/{id}/approve`. `acknowledged_coverage` approves a
-/// product-schema candidate that does not cover every review page while the review's coverage is
-/// still the one it names; the console sends the coverage its confirmation dialog stated.
-#[derive(Deserialize, Default)]
+/// An approval of `POST /api/reviews/{id}/approve`. `expected_candidate_version` is the
+/// candidate version the approver read, as for a candidate edit. `acknowledged_coverage` approves
+/// a product-schema candidate that does not cover every review page while the review's coverage
+/// is still the one it names; the console sends the coverage its confirmation dialog stated.
+#[derive(Deserialize)]
 struct ApprovalPayload {
+    expected_candidate_version: i64,
     notes: Option<String>,
     acknowledged_coverage: Option<ReviewPageCoverage>,
 }
 
 impl ApprovalPayload {
-    fn incomplete_coverage(&self) -> IncompleteCoverage {
-        self.acknowledged_coverage
-            .map_or(IncompleteCoverage::Refuse, IncompleteCoverage::Acknowledged)
+    fn approval(&self) -> Approval<'_> {
+        Approval {
+            expected_candidate_version: self.expected_candidate_version,
+            notes: self.notes.as_deref(),
+            incomplete_coverage: self
+                .acknowledged_coverage
+                .map_or(IncompleteCoverage::Refuse, IncompleteCoverage::Acknowledged),
+        }
     }
 }
 
@@ -901,14 +931,10 @@ struct ReviewPagePayload {
     url: String,
 }
 
-/// Reads the body of a verdict, where an empty body stands for a verdict without notes.
-fn parse_verdict_payload<T: DeserializeOwned + Default>(
-    body: &str,
-) -> Result<T, serde_json::Error> {
-    if body.trim().is_empty() {
-        return Ok(T::default());
-    }
-    serde_json::from_str(body)
+/// Reads the body of a verdict, where an empty body stands for an empty object: a verdict
+/// without notes, or an approval refused for naming no candidate version.
+fn parse_verdict_payload<T: DeserializeOwned>(body: &str) -> Result<T, serde_json::Error> {
+    serde_json::from_str(if body.trim().is_empty() { "{}" } else { body })
 }
 
 fn parse_review_id(path: &str) -> Option<CrawlerReviewId> {
@@ -1028,11 +1054,13 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 }
 
 /// Maps a refused review request to its answer, the same on every review route: 404 for an
-/// unknown review or review page, 400 for a request the review cannot take, 409 for a request
-/// the review's current state refuses, and 500 for a technical failure. A 409 for a request based
-/// on an older candidate carries the review's current `candidate_version`, and one for an approval
-/// of incomplete coverage, unacknowledged or acknowledged at other counts, carries the review's
-/// current `coverage`.
+/// unknown review or review page, 400 for a request the review cannot take, 403 with a `reason`
+/// for a change the actor may not make, 409 for a request the review's current state refuses,
+/// 429 with `Retry-After` once the review agent made its decisions of the hour, and 500 for a
+/// technical failure. A 409 for a request based on an older candidate carries the review's
+/// current `candidate_version`, one for an approval of incomplete coverage, unacknowledged or
+/// acknowledged at other counts, carries the review's current `coverage`, and one for an agent
+/// approval the approval guard refuses lists its `failed_checks`.
 fn review_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::NotFound(_) | ReviewRepositoryError::ReviewPageNotFound(_) => {
@@ -1040,6 +1068,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::NotPending(_)
         | ReviewRepositoryError::MissingRepairNote
+        | ReviewRepositoryError::MissingRejectionNote
         | ReviewRepositoryError::UnsupportedArtifact(_, _)
         | ReviewRepositoryError::InvalidSchemaField(_)
         | ReviewRepositoryError::RequiredSchemaField(_)
@@ -1050,12 +1079,19 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::ReviewPageUrlNotAllowed(_)
         | ReviewRepositoryError::ReviewPageLimitReached(_)
         | ReviewRepositoryError::NotReviewerAddedPage(_)
-        | ReviewRepositoryError::RedirectedToNonProductPage(_) => {
+        | ReviewRepositoryError::RedirectedToNonProductPage(_)
+        | ReviewRepositoryError::NoApprovalToRestore(_)
+        | ReviewRepositoryError::ApprovalNotRestorable { .. } => {
             HttpResponse::json(400, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(_) => {
-            HttpResponse::json(403, &json!({ "error": error.to_string() }))
+            forbidden(&error, "AGENT_CHANGES_ONLY_PENDING_REVIEWS")
         }
+        ReviewRepositoryError::AgentDecisionsOff => forbidden(&error, "AGENT_DECISIONS_OFF"),
+        ReviewRepositoryError::AgentCoverageAcknowledgement => {
+            forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
+        }
+        ReviewRepositoryError::RestoreNeedsHuman => forbidden(&error, "RESTORE_NEEDS_HUMAN"),
         ReviewRepositoryError::StaleCandidateVersion { current, .. } => {
             review_changed(&error, current)
         }
@@ -1064,7 +1100,9 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::StaleApprovedReview(_)
         | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)
-        | ReviewRepositoryError::DuplicateReviewPage(_) => {
+        | ReviewRepositoryError::DuplicateReviewPage(_)
+        | ReviewRepositoryError::ApprovalAlreadyRestored(_)
+        | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_) => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::IncompleteCoverage { coverage, .. }
@@ -1074,10 +1112,37 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
                 &json!({ "error": error.to_string(), "coverage": coverage }),
             )
         }
+        ReviewRepositoryError::AgentApprovalRefused {
+            ref failed_checks, ..
+        } => HttpResponse::json(
+            409,
+            &json!({ "error": error.to_string(), "failed_checks": failed_checks }),
+        ),
+        ReviewRepositoryError::AgentDecisionLimitReached { limit, retry_after } => {
+            HttpResponse::json(
+                429,
+                &json!({
+                    "error": error.to_string(),
+                    "reason": "AGENT_DECISION_LIMIT",
+                    "limit": limit,
+                    "retry_after_secs": retry_after.as_secs(),
+                }),
+            )
+            .with_header("Retry-After", retry_after.as_secs().to_string())
+        }
         ReviewRepositoryError::Database(_)
         | ReviewRepositoryError::Json(_)
         | ReviewRepositoryError::Regex(_) => internal_error(error),
     }
+}
+
+/// Answers a change `error` says the actor may not make with 403 and the machine-readable
+/// `reason` a client such as the review agent acts on.
+fn forbidden(error: &ReviewRepositoryError, reason: &str) -> HttpResponse {
+    HttpResponse::json(
+        403,
+        &json!({ "error": error.to_string(), "reason": reason }),
+    )
 }
 
 fn internal_error(error: impl std::fmt::Display + std::fmt::Debug) -> HttpResponse {
@@ -1121,6 +1186,8 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::review::agent_decisions::AgentDecisionPolicy;
+    use crate::review::approval_guard::FailedApprovalCheck;
     use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
     use crate::service::crawler_domain_configuration::{
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
@@ -1196,6 +1263,7 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: auth_token.map(str::to_owned),
                 agent_token: None,
+                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             },
             Arc::new(MockHtmlFetcher::new()),
@@ -1316,6 +1384,7 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_token: None,
+                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             },
             Arc::new(StaticHtmlFetcher),
@@ -1345,6 +1414,7 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_token: None,
+                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             },
             Arc::new(StaticHtmlFetcher),
@@ -1426,6 +1496,7 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_string()),
                 agent_token: None,
+                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             },
             Arc::new(StaticHtmlFetcher),
@@ -1510,6 +1581,7 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_token: None,
+                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             }
             .allow_local_mutations_without_token(),
@@ -1685,8 +1757,97 @@ Origin: http://127.0.0.1:7878/x
         );
     }
 
+    /// The answers a client such as the review agent acts on: a 403 names its `reason`, a guard
+    /// refusal lists its `failed_checks`, and the hourly cap says when to retry.
+    #[test]
+    fn should_answer_agent_refusals_with_a_reason_failed_checks_or_a_retry_time() {
+        let answer = |error| {
+            let response = review_error(error).to_string();
+            let (head, body) = response
+                .split_once("\r\n\r\n")
+                .unwrap_or_else(|| panic!("response without body: {response}"));
+            let body: serde_json::Value = serde_json::from_str(body)
+                .unwrap_or_else(|error| panic!("body is not JSON ({error}): {response}"));
+            (head.to_owned(), body)
+        };
+
+        for (error, reason) in [
+            (
+                ReviewRepositoryError::AgentDecisionsOff,
+                "AGENT_DECISIONS_OFF",
+            ),
+            (
+                ReviewRepositoryError::AgentCoverageAcknowledgement,
+                "AGENT_COVERAGE_ACKNOWLEDGEMENT",
+            ),
+            (
+                ReviewRepositoryError::RestoreNeedsHuman,
+                "RESTORE_NEEDS_HUMAN",
+            ),
+            (
+                ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(CrawlerReviewId::new()),
+                "AGENT_CHANGES_ONLY_PENDING_REVIEWS",
+            ),
+        ] {
+            let (head, body) = answer(error);
+            assert!(head.starts_with("HTTP/1.1 403 Forbidden"), "{head}");
+            assert_eq!(body["reason"], reason);
+            assert!(body["error"].is_string(), "{body}");
+        }
+
+        let (head, body) = answer(ReviewRepositoryError::AgentApprovalRefused {
+            review_id: CrawlerReviewId::new(),
+            failed_checks: vec![FailedApprovalCheck::LiveMatrixMissing],
+        });
+        assert!(head.starts_with("HTTP/1.1 409 Conflict"), "{head}");
+        assert_eq!(
+            body["failed_checks"],
+            json!([{ "check": "LIVE_MATRIX_MISSING" }])
+        );
+        assert!(
+            body["error"].as_str().is_some_and(
+                |error| error.contains("no schema matrix evaluated on the live review pages")
+            ),
+            "{body}"
+        );
+
+        let (head, body) = answer(ReviewRepositoryError::AgentDecisionLimitReached {
+            limit: 20,
+            retry_after: Duration::from_secs(754),
+        });
+        assert!(head.starts_with("HTTP/1.1 429 Too Many Requests"), "{head}");
+        assert!(head.contains("\r\nRetry-After: 754"), "{head}");
+        assert_eq!(body["reason"], "AGENT_DECISION_LIMIT");
+        assert_eq!(body["retry_after_secs"], 754);
+        assert_eq!(body["limit"], 20);
+    }
+
+    /// An approval names the candidate version its approver read, like a candidate edit.
+    #[test]
+    fn should_refuse_an_approval_that_names_no_candidate_version() {
+        for body in ["", r#"{"notes": "looks right"}"#] {
+            let refused = parse_verdict_payload::<ApprovalPayload>(body).err();
+            assert!(
+                refused
+                    .is_some_and(|error| error.to_string().contains("expected_candidate_version")),
+                "{body:?} must be refused"
+            );
+        }
+        let payload = parse_verdict_payload::<ApprovalPayload>(
+            r#"{"expected_candidate_version": 4, "notes": "looks right"}"#,
+        )
+        .unwrap_or_else(|error| panic!("versioned approval: {error}"));
+        let approval = payload.approval();
+        assert_eq!(approval.expected_candidate_version, 4);
+        assert_eq!(approval.notes, Some("looks right"));
+        assert_eq!(approval.incomplete_coverage, IncompleteCoverage::Refuse);
+        assert!(
+            parse_verdict_payload::<ActionPayload>("").is_ok_and(|payload| payload.notes.is_none())
+        );
+    }
+
     mod matrix_refresh {
-        use super::{ReviewServer, ReviewServerConfig};
+        use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig};
         use crate::network::policy::NetworkErrorKind;
         use crate::review::matrix_refresh::MatrixRefreshStatus;
         use crate::review::model::{PAGE_ROLE_PRIMARY, ReviewActor, SchemaReviewPageInput};
@@ -1881,6 +2042,7 @@ Origin: http://127.0.0.1:7878/x
                         bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                         auth_token: None,
                         agent_token: None,
+                        agent_decisions: AgentDecisionPolicy::default(),
                         local_mutations_without_token: false,
                     },
                     fetcher.clone(),
@@ -2109,12 +2271,30 @@ Origin: http://127.0.0.1:7878/x
                 !evaluated_urls.contains(&joining_url.as_str()),
                 "the joining page is left to the next refresh: {stored}"
             );
+            let joined_page = repository
+                .get_review_pages(fixture.review_id)
+                .await
+                .unwrap_or_else(|error| panic!("read review pages: {error}"))
+                .into_iter()
+                .find(|page| page.url == joining_url.as_str())
+                .unwrap_or_else(|| panic!("the joining page is a review page"));
+            let answered: serde_json::Value = settled
+                .split_once("\r\n\r\n")
+                .and_then(|(_, body)| serde_json::from_str(body).ok())
+                .unwrap_or_else(|| panic!("matrix answer is not JSON: {settled}"));
+            assert_eq!(
+                answered["not_evaluated_pages"],
+                json!([joined_page.review_page_id]),
+                "the answer names the page the matrix did not evaluate"
+            );
         }
     }
 
     mod needs_repair {
         use super::matrix_refresh::schema;
-        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use super::{
+            AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
+        };
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use listing_source_core::ListingSourceId;
@@ -2188,6 +2368,7 @@ Origin: http://127.0.0.1:7878/x
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
                     agent_token: None,
+                    agent_decisions: AgentDecisionPolicy::default(),
                     local_mutations_without_token: false,
                 },
                 Arc::new(MockHtmlFetcher::new()),
@@ -2237,7 +2418,9 @@ Origin: http://127.0.0.1:7878/x
     mod schema_editing {
         use super::matrix_refresh::schema;
         use super::needs_repair::{AGENT_TOKEN, TOKEN, send};
-        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use super::{
+            AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
+        };
         use crate::CrawlerReviewId;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
@@ -2249,6 +2432,13 @@ Origin: http://127.0.0.1:7878/x
 
         /// A review server over a pending manual schema review, and that review.
         pub(super) async fn pending_review_server() -> (ReviewServer, CrawlerReviewId) {
+            pending_review_server_deciding(AgentDecisionPolicy::default()).await
+        }
+
+        /// As [`pending_review_server`], taking the agent's decisions by `agent_decisions`.
+        pub(super) async fn pending_review_server_deciding(
+            agent_decisions: AgentDecisionPolicy,
+        ) -> (ReviewServer, CrawlerReviewId) {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -2278,6 +2468,7 @@ Origin: http://127.0.0.1:7878/x
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
                     agent_token: Some(AGENT_TOKEN.to_owned()),
+                    agent_decisions,
                     local_mutations_without_token: false,
                 },
                 Arc::new(MockHtmlFetcher::new()),
@@ -2514,11 +2705,20 @@ Origin: http://127.0.0.1:7878/x
             let (server, review_id) = pending_review_server().await;
             let review = format!("GET /api/reviews/{review_id}");
             let approve = format!("POST /api/reviews/{review_id}/approve");
-            let (_, incomplete) = send(&server, &approve, "").await;
+            let (_, incomplete) = send(
+                &server,
+                &approve,
+                &json!({ "expected_candidate_version": 1 }).to_string(),
+            )
+            .await;
             let (status, approved) = send(
                 &server,
                 &approve,
-                &json!({ "acknowledged_coverage": incomplete["coverage"] }).to_string(),
+                &json!({
+                    "expected_candidate_version": 1,
+                    "acknowledged_coverage": incomplete["coverage"],
+                })
+                .to_string(),
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
@@ -2590,6 +2790,113 @@ Origin: http://127.0.0.1:7878/x
         }
     }
 
+    /// The console takes the agent's verdicts by its own settings, and only a human restores.
+    mod agent_decisions {
+        use super::needs_repair::{AGENT_TOKEN, TOKEN, send_as};
+        use super::schema_editing::pending_review_server_deciding;
+        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_take_the_agent_verdicts_by_the_console_settings() {
+            let (off, off_review) =
+                pending_review_server_deciding(AgentDecisionPolicy::default()).await;
+            let (status, refused) = send_as(
+                &off,
+                AGENT_TOKEN,
+                &format!("POST /api/reviews/{off_review}/reject"),
+                &json!({ "notes": "not a product page" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 403"), "{status} {refused}");
+            assert_eq!(refused["reason"], "AGENT_DECISIONS_OFF");
+
+            let (guarded, guarded_review) = pending_review_server_deciding(AgentDecisionPolicy {
+                approvals: AgentApprovals::Guarded,
+                ..AgentDecisionPolicy::default()
+            })
+            .await;
+            let (status, refused) = send_as(
+                &guarded,
+                AGENT_TOKEN,
+                &format!("POST /api/reviews/{guarded_review}/approve"),
+                &json!({ "expected_candidate_version": 1 }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(
+                refused["failed_checks"],
+                json!([{ "check": "LIVE_MATRIX_MISSING" }])
+            );
+            let (_, detail) = send_as(
+                &guarded,
+                TOKEN,
+                &format!("GET /api/reviews/{guarded_review}"),
+                "",
+            )
+            .await;
+            assert_eq!(detail["review"]["status"], "PENDING_REVIEW");
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_restore_an_approval_for_a_human_only() {
+            let (server, review_id) =
+                pending_review_server_deciding(AgentDecisionPolicy::default()).await;
+            let approve = format!("POST /api/reviews/{review_id}/approve");
+            let restore = format!("POST /api/reviews/{review_id}/restore");
+            let (_, incomplete) = send_as(
+                &server,
+                TOKEN,
+                &approve,
+                &json!({ "expected_candidate_version": 1 }).to_string(),
+            )
+            .await;
+            let (status, approved) = send_as(
+                &server,
+                TOKEN,
+                &approve,
+                &json!({
+                    "expected_candidate_version": 1,
+                    "acknowledged_coverage": incomplete["coverage"],
+                })
+                .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
+
+            let (agent_status, by_agent) = send_as(&server, AGENT_TOKEN, &restore, "").await;
+            let (status, restored) = send_as(
+                &server,
+                TOKEN,
+                &restore,
+                &json!({ "notes": "wrong schema" }).to_string(),
+            )
+            .await;
+            let (again_status, again) = send_as(&server, TOKEN, &restore, "").await;
+
+            assert!(
+                agent_status.starts_with("HTTP/1.1 403"),
+                "{agent_status} {by_agent}"
+            );
+            assert_eq!(by_agent["reason"], "RESTORE_NEEDS_HUMAN");
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {restored}");
+            assert!(
+                again_status.starts_with("HTTP/1.1 409"),
+                "{again_status} {again}"
+            );
+            let (_, detail) =
+                send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
+            let last = detail["events"]
+                .as_array()
+                .and_then(|events| events.last())
+                .unwrap_or_else(|| panic!("review without events: {detail}"));
+            assert_eq!(last["action"], "RESTORED");
+            assert_eq!(last["actor"], "HUMAN");
+            assert_eq!(last["notes"], "wrong schema");
+        }
+    }
+
     /// The answers a client such as the review agent tells an unknown review and a closed
     /// review by.
     mod refused_review_requests {
@@ -2624,6 +2931,10 @@ Origin: http://127.0.0.1:7878/x
                 ),
                 (
                     format!("POST /api/reviews/{unknown}/approve"),
+                    json!({ "expected_candidate_version": 1 }).to_string(),
+                ),
+                (
+                    format!("POST /api/reviews/{unknown}/restore"),
                     String::new(),
                 ),
                 (format!("POST /api/reviews/{unknown}/reject"), String::new()),
@@ -2760,7 +3071,7 @@ Origin: http://127.0.0.1:7878/x
             let (status, refused) = send(
                 &server,
                 &approve,
-                &json!({ "notes": "looks right" }).to_string(),
+                &json!({ "expected_candidate_version": 1, "notes": "looks right" }).to_string(),
             )
             .await;
 
@@ -2775,8 +3086,12 @@ Origin: http://127.0.0.1:7878/x
             let (status, stale) = send(
                 &server,
                 &approve,
-                &json!({ "notes": "looks right", "acknowledged_coverage": refused["coverage"] })
-                    .to_string(),
+                &json!({
+                    "expected_candidate_version": 1,
+                    "notes": "looks right",
+                    "acknowledged_coverage": refused["coverage"],
+                })
+                .to_string(),
             )
             .await;
 
@@ -2791,8 +3106,12 @@ Origin: http://127.0.0.1:7878/x
             let (status, approved) = send(
                 &server,
                 &approve,
-                &json!({ "notes": "looks right", "acknowledged_coverage": stale["coverage"] })
-                    .to_string(),
+                &json!({
+                    "expected_candidate_version": 1,
+                    "notes": "looks right",
+                    "acknowledged_coverage": stale["coverage"],
+                })
+                .to_string(),
             )
             .await;
 
