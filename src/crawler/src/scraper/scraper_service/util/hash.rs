@@ -6,28 +6,85 @@ use sha2::{Digest, Sha256};
 /// `None` if no `<main>` tag is present.
 pub(crate) fn hash_main_fragment(html: &str) -> Option<String> {
     let content = extract_main_fragment(html)?;
-    let mut hasher = Sha256::new();
-    hasher.update(content.as_bytes());
-    let digest = hasher.finalize();
-    Some(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+    Some(sha256_hex(content.as_bytes()))
 }
 
 /// Returns the SHA-256 hex digest of the full HTML string.
 pub(crate) fn hash_html(html: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(html.as_bytes());
-    let digest = hasher.finalize();
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    sha256_hex(html.as_bytes())
 }
 
-/// Fingerprint the ordered effective schema set and source fallback currency.
-/// Schema structures serialize deterministically (raw keys are a `BTreeMap`), so a selector or
-/// fallback-currency change forces extraction even for unchanged HTML.
+/// Version of the extraction behaviour that turns a page and its schema set into raw values.
+///
+/// It is part of the scraper-context fingerprint, so raising it extracts every page once more at
+/// its next scrape although neither the page nor its schemas changed. Raise it with every change
+/// that alters the raw values extracted from unchanged HTML under an unchanged schema set
+/// (`docs/crawler/extraction-and-review.md#extraction-contract`).
+pub(crate) const EXTRACTOR_VERSION: u32 = 1;
+
+/// Fingerprint the extractor version, the ordered effective schema set and the source fallback
+/// currency. Schema structures serialize deterministically (raw keys are a `BTreeMap`), so an
+/// extractor-version, selector or fallback-currency change forces extraction even for unchanged
+/// HTML.
 pub(crate) fn fingerprint_scraper_context(
+    extractor_version: u32,
     schemas: &[ProductCssSelectorSchema],
     fallback_currency: Option<money::Currency>,
 ) -> Result<String, serde_json::Error> {
-    let encoded = serde_json::to_vec(&(schemas, fallback_currency.map(money::Currency::as_str)))?;
-    let digest = Sha256::digest(encoded);
-    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+    let encoded = serde_json::to_vec(&(
+        extractor_version,
+        schemas,
+        fallback_currency.map(money::Currency::as_str),
+    ))?;
+    Ok(sha256_hex(&encoded))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_hash_main_fragment_when_main_tag_exists() {
+        let html = "<html><body><main><h1>Hello</h1></main></body></html>";
+        let hash = hash_main_fragment(html).expect("should find <main> tag");
+
+        let mut hasher = Sha256::new();
+        hasher.update("<h1>Hello</h1>".as_bytes());
+        let expected: String = hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+
+        assert_eq!(hash, expected);
+    }
+
+    #[test]
+    fn should_return_none_from_hash_main_fragment_when_main_tag_missing() {
+        let html = "<html><body><section>No main</section></body></html>";
+        assert!(hash_main_fragment(html).is_none());
+    }
+
+    #[test]
+    fn should_hash_full_html_when_main_tag_missing() {
+        let html = "<html><body><section>No main</section></body></html>";
+        let hash = hash_html(html);
+
+        let mut hasher = Sha256::new();
+        hasher.update(html.as_bytes());
+        let expected: String = hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+
+        assert_eq!(hash, expected);
+    }
 }

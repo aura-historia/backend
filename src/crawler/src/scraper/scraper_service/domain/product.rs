@@ -22,7 +22,8 @@ pub struct ScrapedProduct {
     /// SHA-256 of the page's `<main>` fragment (or full HTML) that was used to
     /// detect whether the page had changed.
     pub hash: String,
-    /// Deterministic fingerprint of the effective ordered schema set.
+    /// Deterministic fingerprint of the extractor version, the effective ordered schema set and
+    /// the fallback currency the extraction ran with.
     pub schema_fingerprint: String,
     /// Shared provider-neutral raw-input hash used for local change detection.
     pub raw_input_sha256: Vec<u8>,

@@ -19,7 +19,7 @@ use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
-    fingerprint_scraper_context, hash_html, hash_main_fragment,
+    EXTRACTOR_VERSION, fingerprint_scraper_context, hash_html, hash_main_fragment,
 };
 use crate::scraper::scraper_service::util::html::extract_main_fragment;
 use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
@@ -497,6 +497,7 @@ impl ScraperServiceImpl {
             }
         };
         let stored_schema_fingerprint = fingerprint_scraper_context(
+            EXTRACTOR_VERSION,
             &listing_source_product_schemas.product_schemas,
             fallback_currency,
         )
@@ -547,8 +548,9 @@ impl ScraperServiceImpl {
         if selection.fresh_schema {
             effective_schemas.push(selection.schema.clone());
         }
-        let schema_fingerprint = fingerprint_scraper_context(&effective_schemas, fallback_currency)
-            .map_err(ScraperError::SchemaFingerprint)?;
+        let schema_fingerprint =
+            fingerprint_scraper_context(EXTRACTOR_VERSION, &effective_schemas, fallback_currency)
+                .map_err(ScraperError::SchemaFingerprint)?;
         let source_listing_id =
             capture_source_listing_id(&selection.raw.source_listing_id, source_record_key)?;
         let raw_input = crawler_raw_input(
