@@ -9,12 +9,19 @@ use tracing::info;
 
 const AUTHORING_MODE_ENV: &str = "CRAWLER_AUTHORING_MODE";
 
-/// Settings `CRAWLER_AUTHORING_MODE` replaced. A value in one of them fails startup, so an
-/// environment cannot keep a dead review setting and believe it still applies.
-const REMOVED_ENV: [&str; 3] = [
-    "CRAWLER_REVIEW_REQUIRED",
-    "CRAWLER_REVIEW_URL_PATTERN_REQUIRED",
-    "CRAWLER_SCHEMA_LLM_REVIEW_MODE",
+/// What replaced the review settings `CRAWLER_AUTHORING_MODE` took over.
+const SET_AUTHORING_MODE_INSTEAD: &str =
+    "set CRAWLER_AUTHORING_MODE (auto, review or manual) instead";
+
+/// Removed settings and what replaced each. A value in one of them fails startup, so an
+/// environment cannot keep a dead setting and believe it still applies.
+const REMOVED_ENV: [(&str, &str); 3] = [
+    ("CRAWLER_REVIEW_REQUIRED", SET_AUTHORING_MODE_INSTEAD),
+    (
+        "CRAWLER_REVIEW_URL_PATTERN_REQUIRED",
+        SET_AUTHORING_MODE_INSTEAD,
+    ),
+    ("CRAWLER_SCHEMA_LLM_REVIEW_MODE", SET_AUTHORING_MODE_INSTEAD),
 ];
 
 /// Environment settings shared by every crawler entry point.
@@ -63,8 +70,11 @@ pub enum CrawlerRuntimeConfigError {
         value: String,
         accepted: String,
     },
-    #[error("{name} was removed; set {AUTHORING_MODE_ENV} (auto, review or manual) instead")]
-    RemovedSetting { name: &'static str },
+    #[error("{name} was removed; {replacement}")]
+    RemovedSetting {
+        name: &'static str,
+        replacement: &'static str,
+    },
     #[error(transparent)]
     VertexAi(#[from] CrawlerVertexAiConfigError),
 }
@@ -75,10 +85,10 @@ impl CrawlerRuntimeConfig {
     /// The shutdown grace period is no environment setting; it starts at
     /// [`DEFAULT_SHUTDOWN_GRACE_PERIOD`].
     pub fn from_env() -> Result<Self, CrawlerRuntimeConfigError> {
-        for name in REMOVED_ENV {
+        for (name, replacement) in REMOVED_ENV {
             // A non-UTF-8 value is still a value: it must fail like any other.
             if !matches!(env_value(name), Ok(None)) {
-                return Err(CrawlerRuntimeConfigError::RemovedSetting { name });
+                return Err(CrawlerRuntimeConfigError::RemovedSetting { name, replacement });
             }
         }
         let (authoring, source) = enum_from_env(
@@ -356,7 +366,8 @@ mod tests {
         assert!(matches!(
             config,
             Err(CrawlerRuntimeConfigError::RemovedSetting {
-                name: "CRAWLER_REVIEW_REQUIRED"
+                name: "CRAWLER_REVIEW_REQUIRED",
+                ..
             })
         ));
     }
