@@ -463,7 +463,21 @@ mod tests {
     )]
     #[case::image_without_a_source(r#"<img class="lazy">"#)]
     #[case::real_image_next_to_a_hostless_one(r#"<img src="//:0"><img src="/uploads/photo">"#)]
+    #[case::real_image_inside_an_element_with_a_hostless_source(
+        r#"<div data-src="//:0"><img src="/uploads/photo"></div>"#
+    )]
     fn should_find_image_markup_when_an_image_may_have_a_source(#[case] markup: &str) {
         assert!(has_image_markup(markup));
+    }
+
+    /// A host-less URL names no image file, even with an image file name.
+    #[test]
+    fn should_take_a_slot_whose_hidden_image_file_has_no_host_for_a_placeholder() {
+        let html =
+            Html::parse_fragment(r##"<a href="#" rel="lightbox"><img src="//:0/blank.gif"></a>"##);
+        let selector = scraper::Selector::parse("a").unwrap();
+        let slot = html.select(&selector).next().unwrap();
+
+        assert!(is_gallery_placeholder(&slot));
     }
 }
