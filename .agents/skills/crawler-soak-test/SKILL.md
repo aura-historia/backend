@@ -72,8 +72,10 @@ each check must answer.
    category or page title), `price` must parse, `source_listing_id` must be stable across the
    source's schemas, `images` must be product images, and selectors should be label-anchored rather
    than positional. Fix a bad field with `POST /api/reviews/{id}/schema-field`
-   (`{"schema_index":n,"field":"price","rule":{...}}`) or replace the whole candidate with
-   `POST /api/reviews/{id}/candidate` (`{"schemas":[...]}`), re-run the matrix, and only then
+   (`{"schema_index":n,"field":"price","rule":{...},"expected_candidate_version":v}`) or replace
+   the whole candidate with `POST /api/reviews/{id}/candidate`
+   (`{"schemas":[...],"expected_candidate_version":v}`), where `v` is the review's
+   `candidate_version` (a 409 means it changed: reload and edit again), re-run the matrix, and only then
    `POST /api/reviews/{id}/approve` with `{"notes":"soak: reviewed, <what you changed>"}`. Reject
    or mark `needs-repair` when no selector fix makes the page extract correctly, and record every
    decision with its time.
@@ -103,10 +105,11 @@ each check must answer.
    review's candidate and drop the LLM's new schema unless it is better. After approving, read
    the next captures in `scraped_raw_observations.json` (identity, description items, distinct
    images) to confirm the schema does what the matrix suggested.
-   The console's field editor only edits core fields of a schema, and editing an approved review
-   rewrites the live list from that review's candidate. Fix raw attributes or add schemas while
-   the review is still pending (`POST …/candidate`); a change after approval needs the live
-   `listing_source_product_schemas` row, and the note must say so.
+   The console edits core fields and registered raw attributes and adds or deletes schemas.
+   Editing an approved review rewrites the live list from that review's candidate, so only the
+   approved review whose candidate is still live accepts edits (`candidate_is_live`), and
+   removed-page templates change only while a review is pending. Make a change after approval
+   on that review, not in the `listing_source_product_schemas` row, and say so in the note.
 5. **Stop** after 60–90 minutes, or earlier if every domain is terminal, with Ctrl+C in the tab.
    Take a final database snapshot and log summary. The scraper pass is a barrier, so a pass that
    is still running at stop time is itself a finding.

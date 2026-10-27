@@ -76,8 +76,18 @@ pub enum ReviewRepositoryError {
         "approved review {0} cannot change removed-page templates; edit or retire them on a pending review"
     )]
     ApprovedRemovedPageTemplatesChanged(CrawlerReviewId),
-    #[error("review candidate or pages changed during schema-matrix evaluation")]
-    CandidateChangedDuringEvaluation,
+    #[error(
+        "the review's candidate changed, or a page the schema matrix evaluated was removed, while the matrix was evaluated; evaluate it again"
+    )]
+    CandidateChangedDuringEvaluation { candidate_version: i64 },
+    #[error(
+        "review {review_id} changed since candidate version {expected} and is at candidate version {current}; reload it and apply the edit to its current candidate"
+    )]
+    StaleCandidateVersion {
+        review_id: CrawlerReviewId,
+        expected: i64,
+        current: i64,
+    },
     #[error(
         "approved review {0} no longer holds the live product schemas; edit the review whose candidate is live"
     )]
@@ -119,7 +129,7 @@ pub struct EvaluatedSchemaMatrix {
     pub matrix: SchemaMatrix,
     candidate_version: i64,
     candidate_hash: String,
-    /// The review pages the matrix covers, sorted so it compares with the stored page set.
+    /// The review pages the matrix evaluated.
     page_ids: Vec<uuid::Uuid>,
 }
 
@@ -830,27 +840,23 @@ impl CrawlerReviewRepository {
         Ok(())
     }
 
-    /// Replaces the review's candidate and returns its candidate version after the edit.
+    /// Replaces the review's candidate, read at `expected_candidate_version`, and returns its
+    /// candidate version after the edit.
     pub async fn update_candidate_payload(
         &self,
         review_id: CrawlerReviewId,
+        expected_candidate_version: i64,
         candidate_payload: serde_json::Value,
     ) -> Result<i64, ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
-        let review = sqlx::query(
-            "SELECT listing_source_id, artifact_type, status, candidate_payload, validation_summary \
-             FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
-        )
-        .bind(review_id.as_uuid())
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
-        let listing_source_id =
-            listing_source_id_from_uuid(review.try_get::<uuid::Uuid, _>("listing_source_id")?)?;
-        let artifact_type: String = review.try_get("artifact_type")?;
-        let status: String = review.try_get("status")?;
-        let stored_candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
-        let validation_summary: serde_json::Value = review.try_get("validation_summary")?;
+        let ReviewUnderEdit {
+            listing_source_id,
+            artifact_type,
+            status,
+            candidate_payload: stored_candidate_payload,
+            validation_summary,
+            ..
+        } = lock_review_for_edit(&mut transaction, review_id, expected_candidate_version).await?;
 
         if status == STATUS_PENDING_REVIEW {
             let candidate_payload = match artifact_type.as_str() {
@@ -907,31 +913,26 @@ impl CrawlerReviewRepository {
         Ok(candidate_version)
     }
 
-    /// Sets or deletes one rule of a candidate schema: a core field by its schema key, a raw
-    /// attribute as `raw_attributes.<key>`. Returns the candidate version after the edit.
+    /// Sets or deletes one rule of a candidate schema, read at `expected_candidate_version`: a
+    /// core field by its schema key, a raw attribute as `raw_attributes.<key>`. Returns the
+    /// candidate version after the edit.
     pub async fn update_schema_field(
         &self,
         review_id: CrawlerReviewId,
+        expected_candidate_version: i64,
         schema_index: usize,
         field: &str,
         rule: Option<ExtractionRule>,
     ) -> Result<i64, ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
-        let review = sqlx::query(
-            "SELECT listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary \
-             FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
-        )
-        .bind(review_id.as_uuid())
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
-        let listing_source_id =
-            listing_source_id_from_uuid(review.try_get::<uuid::Uuid, _>("listing_source_id")?)?;
-        let artifact_type: String = review.try_get("artifact_type")?;
-        let status: String = review.try_get("status")?;
-        let reason: String = review.try_get("reason")?;
-        let stored_candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
-        let validation_summary: serde_json::Value = review.try_get("validation_summary")?;
+        let ReviewUnderEdit {
+            listing_source_id,
+            artifact_type,
+            status,
+            reason,
+            candidate_payload: stored_candidate_payload,
+            validation_summary,
+        } = lock_review_for_edit(&mut transaction, review_id, expected_candidate_version).await?;
 
         if artifact_type != ARTIFACT_PRODUCT_SCHEMA {
             return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -1213,11 +1214,10 @@ impl CrawlerReviewRepository {
         let captured_identities = self
             .captured_identities(review.try_get("listing_source_id")?, &pages)
             .await?;
-        let mut page_ids: Vec<uuid::Uuid> = pages
+        let page_ids = pages
             .iter()
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
-        page_ids.sort_unstable();
         Ok(EvaluatedSchemaMatrix {
             matrix: evaluate_schema_matrix_for_live_review_pages(
                 review_id,
@@ -1282,15 +1282,43 @@ impl CrawlerReviewRepository {
             .collect())
     }
 
+    /// Stores the matrix as the review's cached matrix while the review still holds the
+    /// candidate it evaluated and every page it evaluated. Pages that joined the review while it
+    /// was evaluated are not in it until the next evaluation: they must not keep a refresh from
+    /// ever storing its matrix while waiting pages keep joining.
     pub async fn store_schema_matrix_if_current(
         &self,
         review_id: CrawlerReviewId,
         evaluated: &EvaluatedSchemaMatrix,
     ) -> Result<(), ReviewRepositoryError> {
         let matrix = serde_json::to_value(&evaluated.matrix)?;
+        let mut transaction = self.pool.begin().await?;
+        // The row lock waits for page joins and edits in flight, which lock the review first.
+        let (candidate_version, candidate_hash) = sqlx::query_as::<_, (i64, String)>(
+            "SELECT candidate_version, encode(digest(candidate_payload::text, 'sha256'), 'hex') \
+             FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+        )
+        .bind(review_id.as_uuid())
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        let page_ids = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT review_page_id FROM crawler_review_pages WHERE review_id = $1",
+        )
+        .bind(review_id.as_uuid())
+        .fetch_all(&mut *transaction)
+        .await?;
+        if candidate_version != evaluated.candidate_version
+            || candidate_hash != evaluated.candidate_hash
+            || !evaluated.page_ids.iter().all(|id| page_ids.contains(id))
+        {
+            return Err(ReviewRepositoryError::CandidateChangedDuringEvaluation {
+                candidate_version,
+            });
+        }
         // `schema_matrix_summary` judges the matrix schema generation stored, so it leaves with
         // that matrix instead of standing next to a refreshed one.
-        let result = sqlx::query(
+        sqlx::query(
             "UPDATE crawler_reviews
              SET validation_summary = jsonb_set(
                      CASE jsonb_typeof(validation_summary)
@@ -1302,25 +1330,13 @@ impl CrawlerReviewRepository {
                      true
                  ),
                  updated = NOW()
-             WHERE review_id = $1
-               AND candidate_version = $3
-               AND encode(digest(candidate_payload::text, 'sha256'), 'hex') = $4
-               AND $5::uuid[] = ARRAY(
-                   SELECT review_page_id FROM crawler_review_pages
-                   WHERE review_id = $1 ORDER BY review_page_id
-               )",
+             WHERE review_id = $1",
         )
         .bind(review_id.as_uuid())
         .bind(matrix)
-        .bind(evaluated.candidate_version)
-        .bind(&evaluated.candidate_hash)
-        .bind(&evaluated.page_ids)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
-
-        if result.rows_affected() == 0 {
-            return Err(ReviewRepositoryError::CandidateChangedDuringEvaluation);
-        }
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -1446,6 +1462,54 @@ async fn replace_stored_removed_page_schemas(
         );
     }
     Ok(replacement)
+}
+
+/// The state of a review a candidate edit decides on, read under the review's row lock.
+struct ReviewUnderEdit {
+    listing_source_id: ListingSourceId,
+    artifact_type: String,
+    status: String,
+    reason: String,
+    candidate_payload: serde_json::Value,
+    validation_summary: serde_json::Value,
+}
+
+/// Locks the review for a candidate edit based on `expected_candidate_version`, so concurrent
+/// edits of it apply one after the other, and reads what the edit decides on. An edit based on
+/// another version than the review's is refused: it would silently overwrite every edit made
+/// since its writer read the candidate.
+async fn lock_review_for_edit(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    expected_candidate_version: i64,
+) -> Result<ReviewUnderEdit, ReviewRepositoryError> {
+    let review = sqlx::query(
+        "SELECT listing_source_id, artifact_type, status, reason, candidate_payload, \
+                candidate_version, validation_summary \
+         FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    let candidate_version: i64 = review.try_get("candidate_version")?;
+    if candidate_version != expected_candidate_version {
+        return Err(ReviewRepositoryError::StaleCandidateVersion {
+            review_id,
+            expected: expected_candidate_version,
+            current: candidate_version,
+        });
+    }
+    Ok(ReviewUnderEdit {
+        listing_source_id: listing_source_id_from_uuid(
+            review.try_get::<uuid::Uuid, _>("listing_source_id")?,
+        )?,
+        artifact_type: review.try_get("artifact_type")?,
+        status: review.try_get("status")?,
+        reason: review.try_get("reason")?,
+        candidate_payload: review.try_get("candidate_payload")?,
+        validation_summary: review.try_get("validation_summary")?,
+    })
 }
 
 /// Stores the edited candidate of a pending review and returns its candidate version.

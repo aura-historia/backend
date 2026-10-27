@@ -136,6 +136,19 @@ async fn open_pending_schema_review(
         .unwrap_or_else(|error| panic!("open pending review: {error}"))
 }
 
+/// The candidate version a reviewer reads before editing the review's candidate.
+async fn candidate_version(
+    repository: &CrawlerReviewRepository,
+    review_id: crate::CrawlerReviewId,
+) -> i64 {
+    repository
+        .get_review(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read the review: {error}"))
+        .review
+        .candidate_version
+}
+
 fn pending_review_id(
     result: Result<Option<ScrapedProduct>, ScraperError>,
 ) -> crate::CrawlerReviewId {
@@ -543,7 +556,11 @@ async fn should_keep_needs_repair_review_and_its_candidate_edits_when_its_pages_
     edited_schema.title.selector = CssSelector::from("h1.reviewer-edit");
     let edited_candidate = json!({ "schemas": [edited_schema] });
     repository
-        .update_candidate_payload(review_id, edited_candidate.clone())
+        .update_candidate_payload(
+            review_id,
+            candidate_version(&repository, review_id).await,
+            edited_candidate.clone(),
+        )
         .await
         .unwrap_or_else(|error| panic!("edit candidate: {error}"));
     repository
@@ -641,7 +658,11 @@ async fn approve_removed_page_template_for_notice_page(
             .result,
     );
     repository
-        .update_candidate_payload(review_id, candidate_declaring_the_notice_page_removed())
+        .update_candidate_payload(
+            review_id,
+            candidate_version(repository, review_id).await,
+            candidate_declaring_the_notice_page_removed(),
+        )
         .await
         .unwrap_or_else(|error| panic!("declare the page removed: {error}"));
     repository
@@ -751,6 +772,7 @@ async fn approve_reviewed_removed_page_templates(
     repository
         .update_candidate_payload(
             review_id,
+            opened.review.candidate_version,
             json!({
                 "schemas": [minimal_schema()],
                 "removed_page_schemas": removed_page_schemas,
