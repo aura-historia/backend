@@ -128,9 +128,27 @@ pub(crate) async fn filter_valid_image_urls(
     valid
 }
 
+/// Keeps the first candidate of each ordered image candidate group that
+/// resolves against `base_url`, for offline schema ranking. Ranking runs
+/// without network access, so the probe of [`filter_valid_image_urls`] cannot
+/// run and every parseable URL counts; the capture-time probe decides.
+pub(crate) fn filter_image_urls_offline(raw_images: &[String], base_url: &Url) -> Vec<String> {
+    raw_images
+        .iter()
+        .filter_map(|raw_image| {
+            split_image_candidate_group(raw_image)
+                .into_iter()
+                .find_map(|raw_candidate| {
+                    resolve_image_candidate(raw_candidate, base_url)
+                        .map(|_| raw_candidate.trim().to_owned())
+                })
+        })
+        .collect()
+}
+
 /// Resolves one raw image candidate against the page URL. `None` means the
 /// candidate is not a usable URL.
-pub(crate) fn resolve_image_candidate(raw_candidate: &str, base_url: &Url) -> Option<Url> {
+fn resolve_image_candidate(raw_candidate: &str, base_url: &Url) -> Option<Url> {
     let trimmed = raw_candidate.trim();
     if trimmed.is_empty() {
         return None;

@@ -1,9 +1,8 @@
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
-use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::plausibility::PlausibilityFindings;
-use crate::scraper::scraper_service::image_validation::resolve_image_candidate;
+use crate::scraper::scraper_service::image_validation::filter_image_urls_offline;
 use scraper::Html;
 
 // ---------------------------------------------------------------------------
@@ -208,23 +207,7 @@ pub fn rank_applicable_schemas(
         if findings.rejects_candidate() {
             continue;
         }
-        // Network image probing is unavailable here, so every parseable URL
-        // counts as an image candidate and the capture-time probe decides.
-        // Preserve ordered candidate-group semantics by choosing the first
-        // parseable candidate from each group.
-        let validated_image_urls = candidate
-            .raw
-            .images
-            .iter()
-            .filter_map(|raw_image| {
-                split_image_candidate_group(raw_image)
-                    .into_iter()
-                    .find_map(|raw_candidate| {
-                        resolve_image_candidate(raw_candidate, &base_url)
-                            .map(|_| raw_candidate.trim().to_owned())
-                    })
-            })
-            .collect();
+        let validated_image_urls = filter_image_urls_offline(&candidate.raw.images, &base_url);
         checked_candidates.push(CheckedSchemaCandidate::new(
             candidate,
             findings,
