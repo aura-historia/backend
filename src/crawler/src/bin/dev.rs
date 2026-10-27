@@ -1,9 +1,10 @@
 //! Local development binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
 //! antique ListingSources without needing a running ListingSource service.
 //!
-//! On startup it automatically runs `docker compose up -d` (using the
-//! `docker-compose.yml` inside the `crawler` crate) and waits for Postgres to
-//! become ready before applying migrations. No manual setup required — just:
+//! Unless `LOCAL_DB_URL` names another database, on startup it automatically runs
+//! `docker compose up -d` (using the `docker-compose.yml` inside the `crawler` crate), creates
+//! `crawler_demo` and waits for Postgres to become ready before applying migrations. No manual
+//! setup required — just:
 //!
 //! ```powershell
 //! gcloud auth application-default login
@@ -25,7 +26,7 @@
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
-//! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
+//! | `LOCAL_DB_URL`   | Database to run against instead of `crawler_demo`, e.g. a copy of it. The run then neither starts Docker nor creates the database; a value that is not a connection URL fails startup | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `CRAWLER_AUTHORING_MODE` | `auto` (LLM, high-confidence schemas auto-approved), `review` (LLM, human approves) or `manual` (no LLM, operator writes patterns and schemas); invalid values fail startup | `review` |
 //! | `CRAWLER_REVIEW_REQUIRED`, `CRAWLER_REVIEW_URL_PATTERN_REQUIRED`, `CRAWLER_SCHEMA_LLM_REVIEW_MODE` | Removed: any non-empty value fails startup. Replace them with `CRAWLER_AUTHORING_MODE` (mapping in `docs/crawler/operations.md#authoring-modes`) | unset |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
@@ -46,14 +47,17 @@
 //! `docs/crawler/operations.md#stopping-the-crawler`.
 
 use listing_source_core::ListingSourceId;
+use sqlx::postgres::PgConnectOptions;
 use std::env;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use crawler::local_db::{
-    DEMO_DB_NAME, bootstrap_local_database,
+    DEMO_DB_NAME, LOCAL_DB_URL_ENV, LocalDbUrlError, bootstrap_local_database,
     crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl, demo_db_url,
+    local_db_url_from_env,
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
@@ -129,8 +133,15 @@ async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
     default_spider_body_limit();
+    let database = DevDatabase::from_env()
+        .unwrap_or_else(|error| panic!("invalid crawler-local database configuration: {error}"));
+    let span = tracing::info_span!(
+        "crawler_dev",
+        entrypoint = "dev",
+        database = database.name()
+    );
 
-    async {
+    async move {
         // Fail fast on invalid runtime settings before starting Docker or touching the database.
         let runtime_config = CrawlerRuntimeConfig::from_env()
             .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
@@ -147,11 +158,13 @@ async fn main() {
             ..Default::default()
         };
 
-        let db_url = demo_db_url();
-        if let Err(error) = bootstrap_local_database(DEMO_DB_NAME).await {
-            error!(error = ?error, "Failed to bootstrap local Postgres database");
-            return;
-        }
+        let db_url = match database.prepare().await {
+            Ok(db_url) => db_url,
+            Err(error) => {
+                error!(error = ?error, "Failed to bootstrap local Postgres database");
+                return;
+            }
+        };
 
         info!("Waiting for Postgres to be ready…");
         let pool = match connect_with_retry(&config, &db_url).await {
@@ -223,11 +236,7 @@ async fn main() {
         .run()
         .await;
     }
-    .instrument(tracing::info_span!(
-        "crawler_dev",
-        entrypoint = "dev",
-        database = DEMO_DB_NAME
-    ))
+    .instrument(span)
     .await;
 }
 
@@ -235,10 +244,74 @@ async fn main() {
 // Database helpers
 // ---------------------------------------------------------------------------
 
+/// The crawler-local database a dev run uses. No `Debug` outside tests: the URL holds the
+/// database password.
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+enum DevDatabase {
+    /// `crawler_demo` in the crawler's Docker Compose Postgres, which the run starts and creates.
+    Demo,
+    /// The database `LOCAL_DB_URL` names, for example a copy of `crawler_demo`. Whoever sets the
+    /// variable provides the database, as for `server`: the run neither starts Docker nor creates it.
+    Configured { url: String, name: String },
+}
+
+/// Why `LOCAL_DB_URL` cannot select the dev database. Never carries the value: the URL holds the
+/// database password.
+#[derive(Debug, thiserror::Error)]
+enum DevDatabaseError {
+    #[error(transparent)]
+    Unreadable(#[from] LocalDbUrlError),
+    #[error("{LOCAL_DB_URL_ENV} must be a Postgres connection URL")]
+    NotConnectionUrl(#[source] sqlx::Error),
+}
+
+impl DevDatabase {
+    fn from_env() -> Result<Self, DevDatabaseError> {
+        Self::from_local_db_url(local_db_url_from_env())
+    }
+
+    /// Falls back to `crawler_demo` only while `LOCAL_DB_URL` is missing: an unusable value fails
+    /// startup instead of running against the demo state.
+    fn from_local_db_url(url: Result<String, LocalDbUrlError>) -> Result<Self, DevDatabaseError> {
+        let url = match url {
+            Ok(url) => url,
+            Err(LocalDbUrlError::Missing) => return Ok(Self::Demo),
+            Err(error) => return Err(error.into()),
+        };
+        let options =
+            PgConnectOptions::from_str(&url).map_err(DevDatabaseError::NotConnectionUrl)?;
+        // Postgres connects to the database named like the user when the URL names none.
+        let name = options
+            .get_database()
+            .unwrap_or(options.get_username())
+            .to_owned();
+        Ok(Self::Configured { url, name })
+    }
+
+    /// The database name, which logs carry instead of the URL.
+    fn name(&self) -> &str {
+        match self {
+            Self::Demo => DEMO_DB_NAME,
+            Self::Configured { name, .. } => name,
+        }
+    }
+
+    /// Starts and creates the demo database when the run uses it, and returns the URL to connect to.
+    async fn prepare(&self) -> Result<String, String> {
+        match self {
+            Self::Demo => {
+                bootstrap_local_database(DEMO_DB_NAME).await?;
+                Ok(demo_db_url())
+            }
+            Self::Configured { url, .. } => Ok(url.clone()),
+        }
+    }
+}
+
 /// Attempts to connect to Postgres, retrying with exponential back-off.
 /// This handles the window between `docker compose up -d` returning and
 /// Postgres actually accepting connections.
-#[tracing::instrument(skip(config), fields(db_url = %db_url))]
+#[tracing::instrument(skip_all)]
 async fn connect_with_retry(
     config: &CrawlerCronConfig,
     db_url: &str,
@@ -305,8 +378,56 @@ fn default_spider_body_limit() {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_spider_body_limit};
+    use super::{
+        DEV_SPIDER_MAX_SIZE_BYTES, DevDatabase, SPIDER_MAX_SIZE_BYTES_ENV,
+        default_spider_body_limit,
+    };
+    use crawler::local_db::LocalDbUrlError;
+    use rstest::rstest;
     use std::env;
+    use std::error::Error;
+
+    #[test]
+    fn should_use_crawler_demo_when_local_db_url_is_missing() {
+        let database = DevDatabase::from_local_db_url(Err(LocalDbUrlError::Missing));
+
+        assert!(matches!(database, Ok(DevDatabase::Demo)));
+    }
+
+    #[test]
+    fn should_use_the_database_local_db_url_names_when_it_is_set() {
+        let url = "postgres://postgres:postgres@localhost:5432/crawler_2541";
+
+        let database = DevDatabase::from_local_db_url(Ok(url.to_owned()))
+            .unwrap_or_else(|error| panic!("a Postgres URL must select its database: {error}"));
+
+        assert_eq!(
+            database,
+            DevDatabase::Configured {
+                url: url.to_owned(),
+                name: "crawler_2541".to_owned(),
+            }
+        );
+    }
+
+    #[rstest]
+    #[case::not_unicode(Err(LocalDbUrlError::NotUnicode))]
+    #[case::not_a_url(Ok("postgres://postgres:secret@localhost:port/crawler_2541".to_owned()))]
+    fn should_fail_startup_without_echoing_the_url_when_local_db_url_is_unusable(
+        #[case] url: Result<String, LocalDbUrlError>,
+    ) {
+        let error = DevDatabase::from_local_db_url(url)
+            .err()
+            .unwrap_or_else(|| {
+                panic!("an unusable LOCAL_DB_URL must not fall back to crawler_demo")
+            });
+
+        let mut cause: Option<&dyn Error> = Some(&error);
+        while let Some(current) = cause {
+            assert!(!current.to_string().contains("secret"), "{current}");
+            cause = current.source();
+        }
+    }
 
     /// One test owns the variable: parallel tests would race on process state.
     #[test]
