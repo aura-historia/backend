@@ -1,3 +1,4 @@
+use crate::metrics::{CrawlerMetric, MetricRecord};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::info;
 
@@ -65,6 +66,16 @@ fn average_seconds(total_ms: u64, total: u64) -> f64 {
     total_ms as f64 / total as f64 / 1000.0
 }
 
+/// Records how long a scheduler pass took as `metric` and returns the duration in
+/// milliseconds for the pass summary.
+pub(super) fn emit_pass_duration(metric: CrawlerMetric, pass_start: tokio::time::Instant) -> u64 {
+    let duration_ms = u64::try_from(pass_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+    MetricRecord::global()
+        .with_value(metric, duration_ms)
+        .emit();
+    duration_ms
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,6 +108,21 @@ mod tests {
         counter.record(1, 100);
 
         assert_eq!(counter.snapshot(), (0, 0));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_emit_the_pass_duration_as_a_crawler_wide_metric() {
+        let (metrics, _guard) = crate::metrics::test_support::capture_metrics();
+        let pass_start = tokio::time::Instant::now();
+        tokio::time::advance(std::time::Duration::from_millis(1_500)).await;
+
+        let duration_ms = emit_pass_duration(CrawlerMetric::SpiderPassDuration, pass_start);
+
+        assert_eq!(duration_ms, 1_500);
+        assert_eq!(
+            metrics.values(CrawlerMetric::SpiderPassDuration),
+            vec![(vec![], 1_500)]
+        );
     }
 
     #[test]

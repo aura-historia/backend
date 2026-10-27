@@ -1,5 +1,6 @@
 use super::config::CrawlerCronConfig;
 use super::metrics::PerfCounter;
+use super::stop::CronStop;
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::scraper_service::ScraperService;
 use crate::service::listing_source_registration::ListingSourceRegistrationService;
@@ -24,6 +25,7 @@ pub struct CrawlerCronJob {
     pub(super) raw_capture: Arc<dyn ProductListingRawCaptureService>,
     pub(super) spider_perf: Arc<PerfCounter>,
     pub(super) scraper_perf: Arc<PerfCounter>,
+    pub(super) stop: CronStop,
 }
 
 impl CrawlerCronJob {
@@ -49,9 +51,18 @@ impl CrawlerCronJob {
             raw_capture: raw_capture.into(),
             spider_perf: Arc::new(PerfCounter::new(50, "spider")),
             scraper_perf: Arc::new(PerfCounter::new(500, "scraper")),
+            stop: CronStop::default(),
         }
     }
 
+    /// The switch that makes [`run_loop`](Self::run_loop) stop starting work and return once
+    /// the work already running has finished.
+    pub fn stop_handle(&self) -> CronStop {
+        self.stop.clone()
+    }
+
+    /// Runs the ListingSource sync, spider and scraper loops until a stop is requested through
+    /// [`stop_handle`](Self::stop_handle) and the work already running has finished.
     #[tracing::instrument(name = "crawler_run_loop", skip(self))]
     pub async fn run_loop(self) {
         info!("Starting crawler cron job loop");
@@ -79,24 +90,29 @@ impl CrawlerCronJob {
 
     #[tracing::instrument(name = "crawler_spider_loop", skip(self))]
     async fn spider_loop(&self) {
-        loop {
+        while !self.stop.is_requested() {
             self.run_spider_once().await;
-            tokio::time::sleep(self.config.spider_interval).await;
+            self.stop.sleep(self.config.spider_interval).await;
         }
     }
 
     #[tracing::instrument(name = "crawler_scraper_loop", skip(self))]
     async fn scraper_loop(&self) {
-        loop {
+        while !self.stop.is_requested() {
             self.run_scraper_once().await;
-            tokio::time::sleep(self.config.scraper_interval).await;
+            self.stop.sleep(self.config.scraper_interval).await;
         }
     }
 
     #[tracing::instrument(name = "crawler_listing_source_sync_loop", skip(self))]
     async fn listing_source_sync_loop(&self) {
         loop {
-            tokio::time::sleep(self.config.listing_source_sync_interval).await;
+            self.stop
+                .sleep(self.config.listing_source_sync_interval)
+                .await;
+            if self.stop.is_requested() {
+                break;
+            }
             self.run_listing_source_sync_once().await;
         }
     }
@@ -134,7 +150,7 @@ mod tests {
     use super::*;
     use crate::scraper::candidate_service::MockScraperCandidateService;
     use crate::scraper::scraper_service::MockScraperService;
-    use crate::service::cron::test_support::noop_raw_capture;
+    use crate::service::cron::test_support::{noop_listing_source_registration, noop_raw_capture};
     use crate::service::listing_source_registration::{
         ListingSourceRegistrationService, MockListingSourceRegistrationRepository,
         MockListingSourceRegistrationSource,
@@ -142,6 +158,8 @@ mod tests {
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::local_lock::LocalLockManager;
     use crate::spider::service::MockSpiderService;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
 
     #[tokio::test]
     async fn should_run_listing_source_sync() {
@@ -202,5 +220,61 @@ mod tests {
         );
 
         job.run_listing_source_sync_once().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_return_from_run_loop_without_a_new_pass_once_stopped() {
+        let spider_passes = Arc::new(AtomicUsize::new(0));
+        let scraper_passes = Arc::new(AtomicUsize::new(0));
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let spider_counter = Arc::clone(&spider_passes);
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, _| {
+                // A second pass fails its loop task instead of spinning on the cleared interval.
+                let previous_passes = spider_counter.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(previous_passes, 0, "a second spider pass started");
+                Box::pin(async { Ok(vec![]) })
+            });
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_count_due_urls()
+            .returning(|| Box::pin(async { Ok(0) }));
+        let scraper_counter = Arc::clone(&scraper_passes);
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(move |_, _, _| {
+                // A second pass fails its loop task instead of spinning on the cleared interval.
+                let previous_passes = scraper_counter.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(previous_passes, 0, "a second scraper pass started");
+                Box::pin(async { Ok(vec![]) })
+            });
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(MockSpiderService::new()),
+            Box::new(scraper_candidates),
+            Box::new(MockScraperService::new()),
+            noop_listing_source_registration(),
+            noop_raw_capture(),
+        );
+        let stop = job.stop_handle();
+        let running = tokio::spawn(job.run_loop());
+        while spider_passes.load(Ordering::SeqCst) == 0
+            || scraper_passes.load(Ordering::SeqCst) == 0
+        {
+            tokio::task::yield_now().await;
+        }
+
+        stop.request();
+
+        // The loops would otherwise sleep for their whole interval before the next pass.
+        tokio::time::timeout(Duration::from_secs(1), running)
+            .await
+            .expect("run_loop must return once stopped")
+            .expect("run_loop must not panic");
+        assert_eq!(spider_passes.load(Ordering::SeqCst), 1);
+        assert_eq!(scraper_passes.load(Ordering::SeqCst), 1);
     }
 }

@@ -875,6 +875,41 @@ async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
 }
 
 // ---------------------------------------------------------------------------
+// count_due_urls — counts exactly the URLs candidate selection could return
+// ---------------------------------------------------------------------------
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_count_due_urls_by_the_candidate_eligibility_rule() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-due.example.com")
+            .await;
+    for index in 1..=3 {
+        insert_product_url(
+            &pool,
+            listing_source_id,
+            domain_id,
+            &format!("https://scraper-due.example.com/p/{index}"),
+        )
+        .await;
+    }
+    sqlx::query("UPDATE listing_source_urls SET last_scraped = NOW() WHERE url = $1")
+        .bind("https://scraper-due.example.com/p/3")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let due = service.count_due_urls().await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+
+    assert_eq!(due, 2);
+    assert_eq!(due, candidates.len() as u64);
+}
+
+// ---------------------------------------------------------------------------
 // get_candidates — non-product URL class is NOT returned
 // ---------------------------------------------------------------------------
 

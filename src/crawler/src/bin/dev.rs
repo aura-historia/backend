@@ -37,6 +37,13 @@
 //! the demo ListingSources, short cron intervals, the tokenless local review console, and a file
 //! sink: changed raw observations are written to `scraped_raw_observations.json` instead of
 //! calling the ProductListing raw-capture use case.
+//!
+//! # Stopping
+//!
+//! Ctrl+C (SIGINT) or SIGTERM stops the binary gracefully: no new spider or scraper work starts,
+//! running work gets 30 seconds to finish and the raw observations captured so far are written,
+//! then the process exits 0. A second Ctrl+C exits at once. The contract is in
+//! `docs/crawler/operations.md#stopping-the-crawler`.
 
 use listing_source_core::ListingSourceId;
 use std::env;
@@ -49,6 +56,7 @@ use crawler::local_db::{
     crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl, demo_db_url,
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
+use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
@@ -189,7 +197,7 @@ async fn main() {
         }
 
         let review_config = ReviewServerConfig::from_env()
-            .expect("CRAWLER_REVIEW_BIND_ADDR must be host:port")
+            .unwrap_or_else(|error| panic!("invalid crawler review console configuration: {error}"))
             .allow_local_mutations_without_token();
 
         info!(
@@ -276,11 +284,14 @@ fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let crawler_level = env::var("CRAWLER_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let filter = tracing_subscriber::EnvFilter::new(format!(
-        "{raw_level},crawler={crawler_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
+        "{raw_level},crawler={crawler_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
     ));
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(filter)
+        .event_format(EmfPassthroughFormat::new(
+            tracing_subscriber::fmt::format().json(),
+        ))
         .init();
 }
 

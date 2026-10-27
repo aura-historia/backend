@@ -5,7 +5,8 @@
 //! settings and [`build`] wires everything else once — the LLM models selected by
 //! [`CrawlerLlmConfig`], repositories, the schema service, scraper, spider, URL classification,
 //! the LLM governor, the review server and the cron job. [`CrawlerRuntime::run`] then runs the
-//! review server and cron loop until either stops.
+//! review server and cron loop until either stops or a SIGTERM or SIGINT stops them gracefully
+//! ([operations](../../../docs/crawler/operations.md#stopping-the-crawler)).
 //!
 //! Startup failures panic with a descriptive message, matching the production server's
 //! fail-fast startup.
@@ -40,14 +41,17 @@ use crate::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceI
 use large_language_model::{LargeLanguageModel, VertexAiGemini};
 use sqlx::PgPool;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::info;
 
 mod config;
+mod shutdown;
 
 pub use config::{
     ConfigSource, CrawlerLlmConfig, CrawlerRuntimeConfig, CrawlerRuntimeConfigError,
     CrawlerVertexAiLlmConfig,
 };
+pub use shutdown::DEFAULT_SHUTDOWN_GRACE_PERIOD;
 
 /// What a crawler entry point supplies; everything else is shared wiring.
 pub struct CrawlerRuntimeProfile {
@@ -112,6 +116,7 @@ pub async fn apply_local_migrations(pool: &PgPool) {
 pub struct CrawlerRuntime {
     review_server: ReviewServer,
     cron_job: CrawlerCronJob,
+    shutdown_grace_period: Duration,
 }
 
 /// Wires the crawler pipeline on a migrated crawler-local `pool`, creating the LLM models that
@@ -121,8 +126,12 @@ pub fn build(
     profile: CrawlerRuntimeProfile,
     config: CrawlerRuntimeConfig,
 ) -> CrawlerRuntime {
-    let CrawlerRuntimeConfig { authoring, llm } = config;
-    match llm {
+    let CrawlerRuntimeConfig {
+        authoring,
+        llm,
+        shutdown_grace_period,
+    } = config;
+    let (review_server, cron_job) = match llm {
         CrawlerLlmConfig::VertexAi(vertex) => {
             let governor = Arc::new(CrawlerLlmGovernor::new(vertex.rate_limit));
             let models = CrawlerLlmModels::vertex_ai(&vertex);
@@ -131,6 +140,11 @@ pub fn build(
         CrawlerLlmConfig::Disabled => {
             wire(pool, profile, authoring, CrawlerLlmModels::disabled(), None)
         }
+    };
+    CrawlerRuntime {
+        review_server,
+        cron_job,
+        shutdown_grace_period,
     }
 }
 
@@ -140,7 +154,7 @@ fn wire<Llm>(
     authoring: CrawlerAuthoringMode,
     models: CrawlerLlmModels<Llm>,
     llm_governor: Option<Arc<CrawlerLlmGovernor>>,
-) -> CrawlerRuntime
+) -> (ReviewServer, CrawlerCronJob)
 where
     Llm: LargeLanguageModel + 'static,
 {
@@ -277,36 +291,35 @@ where
         fetcher,
     );
 
-    CrawlerRuntime {
-        review_server,
-        cron_job,
-    }
+    (review_server, cron_job)
 }
 
 impl CrawlerRuntime {
-    /// Runs the review server and cron loop until either task ends.
+    /// Runs the review server and cron loop until either task ends or a SIGTERM or SIGINT stops
+    /// them. A stop returns once running work finishes or the grace period expires, so the
+    /// binary exits 0; a second signal exits the process at once with 128 plus its number.
     pub async fn run(self) {
         let Self {
             review_server,
             cron_job,
+            shutdown_grace_period,
         } = self;
-        let review_handle = tokio::spawn(async move {
-            review_server
-                .run()
-                .await
-                .expect("crawler review server failed")
-        });
-        let cron_handle = tokio::spawn(async move {
-            cron_job.run_loop().await;
-        });
-
-        tokio::select! {
-            result = review_handle => {
-                result.expect("crawler review server task panicked");
-            }
-            result = cron_handle => {
-                result.expect("crawler cron task panicked");
-            }
+        let cron_stop = cron_job.stop_handle();
+        let exit = shutdown::supervise(
+            async move {
+                review_server
+                    .run()
+                    .await
+                    .expect("crawler review server failed")
+            },
+            cron_job.run_loop(),
+            cron_stop,
+            shutdown_grace_period,
+            shutdown::os_stop_signals(),
+        )
+        .await;
+        if let shutdown::RuntimeExit::Forced(signal) = exit {
+            std::process::exit(signal.forced_exit_code());
         }
     }
 }
@@ -479,6 +492,7 @@ mod tests {
         CrawlerRuntimeConfig {
             authoring: CrawlerAuthoringMode::Manual,
             llm: CrawlerLlmConfig::Disabled,
+            shutdown_grace_period: DEFAULT_SHUTDOWN_GRACE_PERIOD,
         }
     }
 
