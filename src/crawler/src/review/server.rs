@@ -1081,7 +1081,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::NotReviewerAddedPage(_)
         | ReviewRepositoryError::RedirectedToNonProductPage(_)
         | ReviewRepositoryError::NoApprovalToRestore(_)
-        | ReviewRepositoryError::ApprovalNotRestorable(_) => {
+        | ReviewRepositoryError::ApprovalNotRestorable { .. } => {
             HttpResponse::json(400, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(_) => {

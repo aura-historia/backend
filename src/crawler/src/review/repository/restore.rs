@@ -110,7 +110,7 @@ fn approval_record<T: DeserializeOwned>(
     approval: &RecordedApproval,
 ) -> Result<T, ReviewRepositoryError> {
     serde_json::from_value(approval.details.clone())
-        .map_err(|_| ReviewRepositoryError::ApprovalNotRestorable(review_id))
+        .map_err(|source| ReviewRepositoryError::ApprovalNotRestorable { review_id, source })
 }
 
 /// Stores the schema list and removed-page templates the approval replaced, under the same locks

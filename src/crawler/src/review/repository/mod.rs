@@ -161,9 +161,13 @@ pub enum ReviewRepositoryError {
     #[error("review {0} has no approval to restore")]
     NoApprovalToRestore(CrawlerReviewId),
     #[error(
-        "the approval of review {0} predates restorable approvals: its event does not keep the configuration it made live"
+        "the approval of review {review_id} predates restorable approvals: its event does not keep the configuration it made live"
     )]
-    ApprovalNotRestorable(CrawlerReviewId),
+    ApprovalNotRestorable {
+        review_id: CrawlerReviewId,
+        #[source]
+        source: serde_json::Error,
+    },
     #[error("the approval of review {0} was already restored")]
     ApprovalAlreadyRestored(CrawlerReviewId),
     #[error(

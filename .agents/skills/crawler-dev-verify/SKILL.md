@@ -21,7 +21,7 @@ never in the repo. The evidence sources are:
 |---|---|---|
 | Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d crawler_demo` | `listing_source_domains` (crawl and scrape timers, failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, `last_source_listing_id`), `listing_source_product_schemas` (live schemas), `crawler_reviews` and `crawler_review_pages` (status, reason, seed pages), `listing_sources.llm_calls_count` |
 | JSON log | `target/soak/<date>/verify-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url` | pass totals (`Scraper scheduler pass complete`), every `WARN` and `ERROR` kind, the change's own diagnostic, LLM retries |
-| Review console | `http://127.0.0.1:7878`: `GET /api/reviews`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair` with an `Origin: http://127.0.0.1:7878` header | candidates, the deterministic gate on live seed pages, review decisions |
+| Review console | `http://127.0.0.1:7878`: `GET /api/reviews`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair` with an `Origin: http://127.0.0.1:7878` header (an approval carries the `expected_candidate_version` it was based on) | candidates, the deterministic gate on live seed pages, review decisions |
 | Raw captures | `scraped_raw_observations.json` in the binary's working directory (a JSON array; `sourceRecordKey`, `sourcePayload`, `rawValues`) | what was extracted per page |
 | Live pages | curl with the crawler user agent (`AuraHistoriaBot/1.0 (+https://aura-historia.com)`) | whether a selector is right for a page variant |
 
