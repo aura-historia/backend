@@ -277,8 +277,9 @@ fn largest_srcset_candidate(srcset: Option<&str>) -> Option<(String, usize)> {
 
 fn is_probably_image_url(url: &str, source: ImageCandidateSource) -> bool {
     match source {
-        ImageCandidateSource::ImageSpecific => is_url_like(url) || has_known_image_extension(url),
-        ImageCandidateSource::ImageLikeLink => is_url_like(url) || has_known_image_extension(url),
+        ImageCandidateSource::ImageSpecific | ImageCandidateSource::ImageLikeLink => {
+            is_url_like(url) || has_known_image_extension(url)
+        }
         ImageCandidateSource::GenericLink => has_known_image_extension(url),
     }
 }
@@ -299,26 +300,38 @@ pub(crate) fn has_known_image_extension(url: &str) -> bool {
         || lower.contains(".avif")
 }
 
+/// Elements that are image markup.
+const IMAGE_ELEMENTS: [&str; 3] = ["img", "picture", "source"];
+
+/// Attributes that hold an image source, as image elements and lazy loaders write them.
+const IMAGE_SOURCE_ATTRIBUTES: [&str; 10] = [
+    "src",
+    "srcset",
+    "data-src",
+    "data-srcset",
+    "data-lazy",
+    "data-lazy-src",
+    "data-large_image",
+    "data-full",
+    "data-original",
+    "data-zoom-image",
+];
+
 /// Whether `element` or a descendant carries image markup: an `img`, `picture` or `source`
 /// element, an image source attribute or a CSS background image.
 pub(crate) fn element_has_image_like_evidence(element: &scraper::ElementRef<'_>) -> bool {
-    let html = element.html().to_ascii_lowercase();
-    [
-        "<img",
-        "<picture",
-        "<source",
-        " src=",
-        " srcset=",
-        " data-src=",
-        " data-srcset=",
-        " data-lazy=",
-        " data-lazy-src=",
-        " data-large_image=",
-        " data-full=",
-        " data-original=",
-        " data-zoom-image=",
-        " background-image",
-    ]
-    .iter()
-    .any(|needle| html.contains(needle))
+    markup_has_image_evidence(&element.html())
+}
+
+/// Whether serialized `markup` names an image element, an image source attribute or a CSS
+/// background image anywhere, case-insensitively.
+fn markup_has_image_evidence(markup: &str) -> bool {
+    let markup = markup.to_ascii_lowercase();
+    IMAGE_ELEMENTS
+        .iter()
+        .any(|name| markup.contains(&format!("<{name}")))
+        || IMAGE_SOURCE_ATTRIBUTES
+            .iter()
+            .any(|attribute| markup.contains(&format!(" {attribute}=")))
+        || markup.contains(" background-image")
 }
