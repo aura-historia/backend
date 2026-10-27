@@ -116,9 +116,8 @@ async fn handler_with_budget(
     per_record_cap: Duration,
 ) -> Result<SqsBatchResponse, Error> {
     let record_count = event.payload.records.len();
-    let mut attempted = 0;
     let correlation = RefCell::new(None);
-    let response = process_fifo_batch(
+    let outcome = process_fifo_batch(
         event,
         remaining,
         per_record_cap,
@@ -127,81 +126,134 @@ async fn handler_with_budget(
             async move { process_ingestion_job(&body, use_case, correlation).await }
         },
         |attempt| {
-            attempted += 1;
-            let (complete, category) = match &attempt.outcome {
-                RecordOutcome::Completed(JobDisposition::Complete(category)) => (true, *category),
-                RecordOutcome::Completed(JobDisposition::Failed(category)) => (false, *category),
-                RecordOutcome::MissingBody => (false, "missing_message_body"),
-                RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-                RecordOutcome::TimedOut => (false, "execution_timeout"),
-                RecordOutcome::Panicked => (false, "handler_panicked"),
+            let (disposition, category) = match &attempt.outcome {
+                RecordOutcome::Completed(JobDisposition::Complete(category)) => {
+                    (AttemptDisposition::Completed, *category)
+                }
+                RecordOutcome::Completed(JobDisposition::Rejected(category)) => {
+                    (AttemptDisposition::Rejected, *category)
+                }
+                RecordOutcome::Completed(JobDisposition::Failed(category)) => {
+                    (AttemptDisposition::Retained, *category)
+                }
+                RecordOutcome::MissingBody => {
+                    (AttemptDisposition::Retained, "missing_message_body")
+                }
+                RecordOutcome::InsufficientBudget => (
+                    AttemptDisposition::Retained,
+                    "insufficient_invocation_budget",
+                ),
+                RecordOutcome::TimedOut => (AttemptDisposition::Retained, "execution_timeout"),
+                RecordOutcome::Panicked => (AttemptDisposition::Retained, "handler_panicked"),
             };
             let command = correlation.borrow_mut().take();
-            let sqs_message_id = safe_sqs_message_id(&attempt.message_id).unwrap_or("invalid");
-            let duration_ms = attempt.duration.as_millis();
-            match (complete, command.as_ref()) {
-                (true, Some(command)) => {
-                    IngestionMetricOutcome::Completed.emit();
-                    info!(
-                        outcome = category,
-                        sqs_message_id,
-                        duration_ms,
-                        command_id = %command.command_id,
-                        submission_id = %command.submission_id,
-                        listing_source_id = %command.listing_source_id,
-                        request_id = command.request_id.as_deref().unwrap_or(""),
-                        correlation_id = command.correlation_id.as_deref().unwrap_or(""),
-                        operation = command.operation,
-                        item_index = command.index,
-                        "Ingestion command completed"
-                    );
-                }
-                (true, None) => {
-                    IngestionMetricOutcome::Completed.emit();
-                    info!(
-                        outcome = category,
-                        sqs_message_id, duration_ms, "Ingestion command completed"
-                    );
-                }
-                (false, Some(command)) => {
-                    IngestionMetricOutcome::Failed.emit();
-                    warn!(
-                        error_code = category,
-                        sqs_message_id,
-                        duration_ms,
-                        command_id = %command.command_id,
-                        submission_id = %command.submission_id,
-                        listing_source_id = %command.listing_source_id,
-                        request_id = command.request_id.as_deref().unwrap_or(""),
-                        correlation_id = command.correlation_id.as_deref().unwrap_or(""),
-                        operation = command.operation,
-                        item_index = command.index,
-                        "Ingestion command retained for retry"
-                    );
-                }
-                (false, None) => {
-                    IngestionMetricOutcome::Failed.emit();
-                    warn!(
-                        error_code = category,
-                        sqs_message_id, duration_ms, "Ingestion command retained for retry"
-                    );
-                }
-            }
-            complete
+            log_attempt(
+                disposition,
+                category,
+                command.as_ref(),
+                safe_sqs_message_id(&attempt.message_id).unwrap_or("invalid"),
+                attempt.duration.as_millis(),
+            );
+            disposition.acknowledges()
         },
     )
     .await?;
-    let unprocessed_count = record_count - attempted;
-    let suffix_start = response.batch_item_failures.len() - unprocessed_count;
-    for failure in response.batch_item_failures.iter().skip(suffix_start) {
-        log_unprocessed(&failure.item_identifier);
+    for message_id in &outcome.unprocessed_message_ids {
+        log_unprocessed(message_id);
     }
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = response.batch_item_failures.len(),
+        failed_sqs_message_count = outcome.response.batch_item_failures.len(),
         "Finished ProductListing ingestion batch"
     );
-    Ok(response)
+    Ok(outcome.response)
+}
+
+/// How one attempted record leaves the queue.
+#[derive(Clone, Copy)]
+enum AttemptDisposition {
+    Completed,
+    /// A deterministic business rejection: acknowledged without a receipt so it cannot hold
+    /// its FIFO group. The producer must resubmit corrected input.
+    Rejected,
+    Retained,
+}
+
+impl AttemptDisposition {
+    const fn acknowledges(self) -> bool {
+        matches!(self, Self::Completed | Self::Rejected)
+    }
+
+    const fn metric(self) -> IngestionMetricOutcome {
+        match self {
+            Self::Completed => IngestionMetricOutcome::Completed,
+            Self::Rejected => IngestionMetricOutcome::Rejected,
+            Self::Retained => IngestionMetricOutcome::Failed,
+        }
+    }
+}
+
+fn log_attempt(
+    disposition: AttemptDisposition,
+    category: &'static str,
+    command: Option<&CommandCorrelation>,
+    sqs_message_id: &str,
+    duration_ms: u128,
+) {
+    disposition.metric().emit();
+    match (disposition, command) {
+        (AttemptDisposition::Completed, Some(command)) => info!(
+            outcome = category,
+            sqs_message_id,
+            duration_ms,
+            command_id = %command.command_id,
+            submission_id = %command.submission_id,
+            listing_source_id = %command.listing_source_id,
+            request_id = command.request_id.as_deref().unwrap_or(""),
+            correlation_id = command.correlation_id.as_deref().unwrap_or(""),
+            operation = command.operation,
+            item_index = command.index,
+            "Ingestion command completed"
+        ),
+        (AttemptDisposition::Completed, None) => info!(
+            outcome = category,
+            sqs_message_id, duration_ms, "Ingestion command completed"
+        ),
+        (AttemptDisposition::Rejected, Some(command)) => warn!(
+            error_code = category,
+            sqs_message_id,
+            duration_ms,
+            command_id = %command.command_id,
+            submission_id = %command.submission_id,
+            listing_source_id = %command.listing_source_id,
+            request_id = command.request_id.as_deref().unwrap_or(""),
+            correlation_id = command.correlation_id.as_deref().unwrap_or(""),
+            operation = command.operation,
+            item_index = command.index,
+            "Ingestion command rejected without retry"
+        ),
+        (AttemptDisposition::Rejected, None) => warn!(
+            error_code = category,
+            sqs_message_id, duration_ms, "Ingestion command rejected without retry"
+        ),
+        (AttemptDisposition::Retained, Some(command)) => warn!(
+            error_code = category,
+            sqs_message_id,
+            duration_ms,
+            command_id = %command.command_id,
+            submission_id = %command.submission_id,
+            listing_source_id = %command.listing_source_id,
+            request_id = command.request_id.as_deref().unwrap_or(""),
+            correlation_id = command.correlation_id.as_deref().unwrap_or(""),
+            operation = command.operation,
+            item_index = command.index,
+            "Ingestion command retained for retry"
+        ),
+        (AttemptDisposition::Retained, None) => warn!(
+            error_code = category,
+            sqs_message_id, duration_ms, "Ingestion command retained for retry"
+        ),
+    }
 }
 
 // SQS supplies UUID message IDs; don't interpolate arbitrary event strings into diagnostics.
@@ -250,6 +302,7 @@ struct CommandCorrelation {
 #[derive(Clone, Copy)]
 enum IngestionMetricOutcome {
     Completed,
+    Rejected,
     Failed,
     Unprocessed,
 }
@@ -260,6 +313,7 @@ impl IngestionMetricOutcome {
     const fn json(self) -> &'static str {
         match self {
             Self::Completed => r#"{"ingestion_outcome":"completed"}"#,
+            Self::Rejected => r#"{"ingestion_outcome":"rejected"}"#,
             Self::Failed => r#"{"ingestion_outcome":"failed"}"#,
             Self::Unprocessed => r#"{"ingestion_outcome":"unprocessed"}"#,
         }
@@ -273,6 +327,7 @@ impl IngestionMetricOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JobDisposition {
     Complete(&'static str),
+    Rejected(&'static str),
     Failed(&'static str),
 }
 
@@ -300,6 +355,9 @@ async fn process_ingestion_job(
         Ok(ProductListingIngestionCompletion::Applied(_)) => JobDisposition::Complete("applied"),
         Ok(ProductListingIngestionCompletion::AlreadyCompleted) => {
             JobDisposition::Complete("already_completed")
+        }
+        Err(error) if error.is_business_rejection() => {
+            JobDisposition::Rejected(error.diagnostic_code())
         }
         Err(error) => JobDisposition::Failed(error.diagnostic_code()),
     }
@@ -547,7 +605,7 @@ mod tests {
         let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
         let create = golden_body(0);
         let update = golden_body(1);
-        let use_case = FakeUseCase::new([Mode::Applied, Mode::Complete, Mode::MissingTarget]);
+        let use_case = FakeUseCase::new([Mode::Applied, Mode::Complete, Mode::ReceiptFailure]);
         let response = handler(
             event(&[
                 (Some("sqs-1"), Some(&create)),
@@ -575,7 +633,7 @@ mod tests {
         let expected = [
             ("sqs-1", "applied", None),
             ("sqs-2", "already_completed", None),
-            ("sqs-3", "", Some("UPDATE_NOT_FOUND")),
+            ("sqs-3", "", Some("RECEIPT_OPERATION_FAILED")),
         ];
         for (fields, (sqs_id, outcome, error_code)) in attempted.iter().zip(expected) {
             assert_eq!(
@@ -635,11 +693,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn captured_logs_distinguish_forbidden_receipt_and_unconfirmed_commit_without_causes() {
-        let body = golden_body(1);
+    async fn should_acknowledge_business_rejections_without_blocking_successors() {
+        let update = golden_body(1);
+        let create = golden_body(0);
         for (mode, expected) in [
             (Mode::MissingTarget, "UPDATE_NOT_FOUND"),
             (Mode::Forbidden, "UPDATE_FORBIDDEN"),
+        ] {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
+            let use_case = FakeUseCase::new([mode, Mode::Applied]);
+            let response = handler(
+                event(&[
+                    (Some("rejected"), Some(&update)),
+                    (Some("next"), Some(&create)),
+                ]),
+                &use_case,
+            )
+            .await
+            .unwrap();
+            drop(guard);
+            assert!(failure_ids(response).is_empty(), "{expected}");
+            assert_eq!(use_case.calls(), 2);
+            let records = events.lock().unwrap();
+            let rejection = records
+                .iter()
+                .find(|fields| fields.get("error_code").is_some_and(|v| v == expected))
+                .unwrap();
+            assert_eq!(
+                rejection.get("message").map(String::as_str),
+                Some("Ingestion command rejected without retry")
+            );
+            assert_eq!(
+                rejection.get("command_id").map(String::as_str),
+                Some(codec::decode(&update).unwrap().command_id())
+            );
+            assert!(!format!("{records:?}").contains("SENTINEL_ERROR_TEXT"));
+        }
+    }
+
+    #[tokio::test]
+    async fn captured_logs_distinguish_receipt_and_unconfirmed_commit_without_causes() {
+        let body = golden_body(1);
+        for (mode, expected) in [
             (Mode::ReceiptFailure, "RECEIPT_OPERATION_FAILED"),
             (Mode::CommitUnknown, "COMMIT_UNCONFIRMED"),
         ] {
@@ -889,7 +985,7 @@ mod tests {
         let use_case = FakeUseCase::new([Mode::MissingTarget]);
         assert_eq!(
             process_ingestion_job(&body, &use_case, &correlation).await,
-            JobDisposition::Failed("UPDATE_NOT_FOUND")
+            JobDisposition::Rejected("UPDATE_NOT_FOUND")
         );
         let command = correlation.borrow_mut().take().unwrap();
         assert_eq!(command.command_id, decoded.command_id());

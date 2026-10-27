@@ -198,8 +198,6 @@ pub enum ProductListingRawCaptureWriteError {
     SourceRecordKeyHashCollision,
     #[error("provider delivery ID conflicts with existing source evidence")]
     ProviderReceiptDigestConflict,
-    #[error("provider source order conflicts with existing source evidence")]
-    ProviderSourceOrderConflict,
     #[error("provider source order cannot safely restore a withdrawn listing")]
     ProviderSourceOrderAmbiguous,
     #[error("raw product listing capture failed")]
