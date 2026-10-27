@@ -118,7 +118,7 @@ pub enum ReviewRepositoryError {
         coverage: ReviewPageCoverage,
     },
     #[error(
-        "review {review_id} has incomplete coverage ({coverage}), not the acknowledged {acknowledged}; reload the review and confirm its current coverage"
+        "review {review_id} has incomplete coverage ({coverage}), not the acknowledged coverage ({acknowledged}); reload the review and confirm its current coverage"
     )]
     StaleCoverageAcknowledgement {
         review_id: CrawlerReviewId,
