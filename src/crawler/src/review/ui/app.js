@@ -946,9 +946,10 @@ async function saveRemovedPageTemplates() {
     await saveCandidatePayload(schemasPayload());
 }
 
-// The server refuses an edit with a message (an invalid rule or template, a stale approved
-// review, a page outside the ListingSource); it stays above the workbench with the unsaved edits
-// so the reviewer can correct them. Returns whether the edit went through.
+// The server refuses an edit or a verdict with a message (an invalid rule or template, a stale
+// approved review, a page outside the ListingSource, a closed review, incomplete coverage); it
+// stays above the workbench with the unsaved edits so the reviewer can correct them. Returns
+// whether the request went through.
 async function submitEdit(edit) {
     const reviewId = selectedId;
     editRefusal = null;
@@ -1027,13 +1028,23 @@ function renderJsonPanel(detail) {
     </div>`;
 }
 
-// The review pages at least one schema applies to, out of every review page. A review page the
-// matrix did not evaluate is not covered until the next evaluation.
+// The review pages at least one schema applies to, out of every review page: the coverage the
+// server checks on approval. A review page the matrix did not evaluate is not covered until the
+// next evaluation, and without a matrix no page is evaluated.
 function reviewPageCoverage(detail, matrix) {
-    const evaluatedPages = matrix.candidates[0].pages || [];
+    const evaluatedPages = matrix?.candidates?.[0]?.pages || [];
+    if (!evaluatedPages.length) {
+        const total = (detail?.pages || []).length;
+        return {covered: 0, total, notEvaluated: total};
+    }
     const covered = evaluatedPages.filter(page => pageCovered(matrix, page.page_reference)).length;
     const notEvaluated = detail ? unevaluatedReviewPages(detail, matrix).length : 0;
     return {covered, total: evaluatedPages.length + notEvaluated, notEvaluated};
+}
+
+// A review without pages shows nothing the candidate extracts, so its coverage is never complete.
+function coverageComplete({covered, total}) {
+    return total > 0 && covered === total;
 }
 
 function coverageText({covered, total, notEvaluated}) {
@@ -1751,31 +1762,43 @@ function postHighlightSoon() {
     }, 350);
 }
 
+// A product-schema candidate that does not cover every review page is approved only once the
+// reviewer confirms the counts; the server refuses the approval without that acknowledgement.
+// Cancelling either dialog sends no verdict.
 async function approveReview() {
-    await api(`/api/reviews/${selectedId}/approve`, {
-        method: 'POST',
-        body: JSON.stringify({notes: prompt('Notes') || null})
-    });
-    await loadReviews();
-    await loadSelectedReview(false);
+    const coverage = selectedDetail?.review.artifact_type === 'PRODUCT_SCHEMA'
+        ? reviewPageCoverage(selectedDetail, selectedMatrix)
+        : null;
+    const incompleteCoverage = coverage !== null && !coverageComplete(coverage);
+    if (incompleteCoverage && !confirm(`Coverage is incomplete: ${coverageText(coverage)}.\n\nApprove this candidate anyway?`)) return;
+    const notes = prompt('Notes');
+    if (notes === null) return;
+    const verdict = {notes: notes || null};
+    if (incompleteCoverage) verdict.acknowledge_incomplete_coverage = true;
+    await submitVerdict('approve', verdict);
 }
 
 async function rejectReview() {
-    await api(`/api/reviews/${selectedId}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({notes: prompt('Notes') || null})
-    });
-    await loadReviews();
-    await loadSelectedReview(false);
+    const notes = prompt('Notes');
+    if (notes === null) return;
+    await submitVerdict('reject', {notes: notes || null});
 }
 
 async function needsRepair() {
     const notes = (prompt('What needs repair?') || '').trim();
     if (!notes) return;
-    await api(`/api/reviews/${selectedId}/needs-repair`, {
+    await submitVerdict('needs-repair', {notes});
+}
+
+// A refused verdict leaves the review on screen as it was and shows why; only an accepted one
+// reloads the review and the queue.
+async function submitVerdict(verdict, body) {
+    const reviewId = selectedId;
+    const decided = await submitEdit(() => api(`/api/reviews/${reviewId}/${verdict}`, {
         method: 'POST',
-        body: JSON.stringify({notes})
-    });
+        body: JSON.stringify(body)
+    }));
+    if (!decided) return;
     await loadReviews();
     await loadSelectedReview(false);
 }

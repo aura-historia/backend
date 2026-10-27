@@ -76,7 +76,10 @@ each check must answer.
    the whole candidate with `POST /api/reviews/{id}/candidate`
    (`{"schemas":[...],"expected_candidate_version":v}`), where `v` is the review's
    `candidate_version` (a 409 means it changed: reload and edit again), re-run the matrix, and only then
-   `POST /api/reviews/{id}/approve` with `{"notes":"soak: reviewed, <what you changed>"}`. Reject
+   `POST /api/reviews/{id}/approve` with `{"notes":"soak: reviewed, <what you changed>"}`. A 409
+   with `coverage` means the stored matrix does not cover every review page: re-run the matrix or
+   fix the candidate, and add `"acknowledge_incomplete_coverage":true` only for pages you leave
+   uncovered on purpose (such as a page declared removed), named in the note. Reject
    or mark `needs-repair` when no selector fix makes the page extract correctly, and record every
    decision with its time.
    Each wrong candidate is itself a finding: note the field, the wrong selector and the live value.

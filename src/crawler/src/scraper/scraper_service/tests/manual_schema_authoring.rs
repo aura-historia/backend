@@ -4,6 +4,7 @@ use crate::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE,
     SchemaReviewPageInput,
 };
+use crate::review::page_coverage::IncompleteCoverage;
 use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
@@ -666,7 +667,7 @@ async fn approve_removed_page_template_for_notice_page(
         .await
         .unwrap_or_else(|error| panic!("declare the page removed: {error}"));
     repository
-        .approve_review(review_id, None)
+        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
         .await
         .unwrap_or_else(|error| panic!("approve the removed-page template: {error}"));
     review_id
@@ -781,7 +782,7 @@ async fn approve_reviewed_removed_page_templates(
         .await
         .unwrap_or_else(|error| panic!("edit the stored templates: {error}"));
     repository
-        .approve_review(review_id, None)
+        .approve_review(review_id, None, IncompleteCoverage::Acknowledged)
         .await
         .unwrap_or_else(|error| panic!("approve the edited templates: {error}"));
 }
