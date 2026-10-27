@@ -62,9 +62,10 @@ it to the user as a ticket or a separate decision.
    change or capture field that proves the change, and the failure that the change removes.
    Example (#2116): the per-field miss diagnostic appears, no `fresh_schema_generation` review
    is created, the page is captured with the field empty. Ask, too, whether the change alters
-   the raw values extracted from unchanged HTML and therefore needs an `EXTRACTOR_VERSION`
-   raise under the rule in the
-   [extraction contract](../../../docs/crawler/extraction-and-review.md#extraction-contract).
+   what is captured from an unchanged raw extraction, such as image validation or which cached
+   schema a page uses, and therefore needs an `EXTRACTOR_VERSION` raise under the rule in the
+   [extraction contract](../../../docs/crawler/extraction-and-review.md#extraction-contract);
+   a change to raw extraction alone changes the page hash and needs none.
 2. **Register the shops.** The committed `dev.rs` registers three demo shops. To run others,
    replace them temporarily: edit the `(index, name, slug)` tuple array and the domain list
    zipped in `main()`. IDs are `01890a5d-ac96-774b-af1d-d5586c639f{index:02x}`, so reuse the
