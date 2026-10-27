@@ -1,3 +1,4 @@
+pub mod access;
 pub mod assets;
 pub mod http;
 mod matrix_refresh;

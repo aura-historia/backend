@@ -1003,43 +1003,14 @@ impl CrawlerReviewRepository {
 
         match review.artifact_type.as_str() {
             ARTIFACT_URL_PATTERN => {
-                let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
-                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                let pattern = candidate
-                    .validated_pattern()
-                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                let domain_id = domain_id.ok_or(sqlx::Error::RowNotFound)?;
-                let result = sqlx::query(
-                    "UPDATE listing_source_domains \
-                     SET url_pattern = $3, \
-                         url_pattern_state = CASE WHEN $3 IS NULL THEN 'NO_PATTERN' ELSE 'MATCHED' END \
-                     WHERE listing_source_id = $1 AND domain_id = $2",
-                )
-                .bind(uuid::Uuid::from(listing_source_id))
-                .bind(domain_id.as_uuid())
-                .bind(pattern)
-                .execute(&mut *transaction)
-                .await?;
-                if result.rows_affected() == 0 {
-                    return Err(ReviewRepositoryError::NotFound(review_id));
-                }
-                let live_pattern = pattern
-                    .map(Regex::new)
-                    .transpose()
-                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                let reclassified = reclassify_domain_urls(
+                make_reviewed_url_pattern_live(
                     &mut transaction,
+                    review_id,
                     &listing_source_id,
                     domain_id,
-                    live_pattern.as_ref(),
+                    &review.candidate_payload,
                 )
                 .await?;
-                info!(
-                    review_id = %review_id,
-                    domain_id = %domain_id,
-                    reclassified_urls = reclassified,
-                    "Approved URL pattern classified the domain's stored URLs"
-                );
             }
             ARTIFACT_PRODUCT_SCHEMA => {
                 check_approval_coverage(
@@ -1350,6 +1321,55 @@ async fn lock_live_product_schemas(
             })
         })
         .transpose()
+}
+
+/// Makes the reviewed decision of the URL-pattern review `review_id` the live decision of its
+/// domain inside the approval's transaction, and classifies the domain's stored URLs with it.
+async fn make_reviewed_url_pattern_live(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+    domain_id: Option<CrawlerDomainId>,
+    candidate_payload: &serde_json::Value,
+) -> Result<(), ReviewRepositoryError> {
+    let candidate = UrlPatternReviewCandidate::deserialize(candidate_payload)
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    let pattern = candidate
+        .validated_pattern()
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    let domain_id = domain_id.ok_or(sqlx::Error::RowNotFound)?;
+    let result = sqlx::query(
+        "UPDATE listing_source_domains \
+         SET url_pattern = $3, \
+             url_pattern_state = CASE WHEN $3 IS NULL THEN 'NO_PATTERN' ELSE 'MATCHED' END \
+         WHERE listing_source_id = $1 AND domain_id = $2",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(domain_id.as_uuid())
+    .bind(pattern)
+    .execute(&mut **transaction)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(ReviewRepositoryError::NotFound(review_id));
+    }
+    let live_pattern = pattern
+        .map(Regex::new)
+        .transpose()
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    let reclassified = reclassify_domain_urls(
+        transaction,
+        listing_source_id,
+        domain_id,
+        live_pattern.as_ref(),
+    )
+    .await?;
+    info!(
+        review_id = %review_id,
+        domain_id = %domain_id,
+        reclassified_urls = reclassified,
+        "Approved URL pattern classified the domain's stored URLs"
+    );
+    Ok(())
 }
 
 /// Makes the reviewed candidate of the product-schema review `review_id` live inside the
