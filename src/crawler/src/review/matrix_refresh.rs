@@ -1,13 +1,15 @@
-//! Background schema-matrix refreshes for the review console.
+//! Background refreshes of a review's live evaluation for the review console: a product-schema
+//! review's schema matrix, or a URL-pattern review's evaluation of its URL sample.
 //!
-//! A refresh fetches every review page live through the scraper's fetcher, which paces
-//! requests by the shop's robots.txt `Crawl-delay`. That can take longer than one console
+//! A refresh fetches the review's pages or sample URLs live through the scraper's fetcher, which
+//! paces requests by the shop's robots.txt `Crawl-delay`. That can take longer than one console
 //! request may run, so a refresh runs as a task of its own: at most one per review, which
 //! later requests join, and whose result the console polls for.
 
 use crate::CrawlerReviewId;
 use crate::review::http::HttpResponse;
-use crate::review::model::ReviewSchemaMatrix;
+use crate::review::model::{ReviewSchemaMatrix, UrlSampleEvaluation};
+use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::future::Future;
@@ -16,8 +18,18 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::error;
 
-/// The refreshed matrix, or the response that explains why the refresh failed.
-pub(crate) type MatrixRefreshOutcome = Result<ReviewSchemaMatrix, HttpResponse>;
+/// A review's live evaluation as the review API answers it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub(crate) enum ReviewLiveEvaluation {
+    /// A product-schema review's schema matrix on its live pages.
+    SchemaMatrix(ReviewSchemaMatrix),
+    /// A URL-pattern review's evaluation of its URL sample.
+    UrlSample(UrlSampleEvaluation),
+}
+
+/// The refreshed live evaluation, or the response that explains why the refresh failed.
+pub(crate) type MatrixRefreshOutcome = Result<ReviewLiveEvaluation, HttpResponse>;
 
 /// What a console request without `refresh` learns about a review's refresh.
 pub(crate) enum MatrixRefreshStatus {
@@ -126,8 +138,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Notify;
 
-    fn matrix() -> ReviewSchemaMatrix {
-        ReviewSchemaMatrix::of(
+    fn matrix() -> ReviewLiveEvaluation {
+        ReviewLiveEvaluation::SchemaMatrix(ReviewSchemaMatrix::of(
             SchemaMatrix {
                 review_id: None,
                 candidates: Vec::new(),
@@ -135,7 +147,7 @@ mod tests {
                 live_evaluation: None,
             },
             &[],
-        )
+        ))
     }
 
     fn panicking_refresh() -> MatrixRefreshOutcome {

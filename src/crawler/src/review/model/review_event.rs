@@ -21,24 +21,41 @@ pub struct CrawlerReviewEvent {
 }
 
 /// Who made a review mutation. The review console resolves it from the request's credential:
-/// the agent token acts as `Agent`; the review token, a browser session and the `dev` binary's
+/// in `agent` authoring mode the author agent's generated token acts as `AgentAuthor` and the
+/// reviewer agent's as `AgentReviewer`; the review token, a browser session and the `dev` binary's
 /// local same-origin requests act as `Human`. `System` is the crawler itself, which approves an
-/// inferred URL pattern directly in `auto` authoring mode; no request acts as it.
+/// inferred URL pattern directly in `auto` authoring mode; no request acts as it. `LegacyAgent`,
+/// persisted as `AGENT`, is the single review agent that changed reviews before the author and
+/// reviewer roles existed: the event trail keeps it, and no request acts as it any more.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewActor {
     Human,
-    Agent,
+    LegacyAgent,
+    AgentAuthor,
+    AgentReviewer,
     System,
 }
 
 impl ReviewActor {
-    pub const ALL: [Self; 3] = [Self::Human, Self::Agent, Self::System];
+    pub const ALL: [Self; 5] = [
+        Self::Human,
+        Self::LegacyAgent,
+        Self::AgentAuthor,
+        Self::AgentReviewer,
+        Self::System,
+    ];
+
+    /// The actors that are review agents, whose decisions the approval guard, the hourly cap and
+    /// the four-eyes rule govern.
+    pub const AGENTS: [Self; 3] = [Self::LegacyAgent, Self::AgentAuthor, Self::AgentReviewer];
 
     /// The persisted and serialized name.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Human => "HUMAN",
-            Self::Agent => "AGENT",
+            Self::LegacyAgent => "AGENT",
+            Self::AgentAuthor => "AGENT_AUTHOR",
+            Self::AgentReviewer => "AGENT_REVIEWER",
             Self::System => "SYSTEM",
         }
     }
@@ -48,11 +65,31 @@ impl ReviewActor {
         Self::ALL.into_iter().find(|actor| actor.as_str() == value)
     }
 
+    pub const fn is_agent(self) -> bool {
+        matches!(
+            self,
+            Self::LegacyAgent | Self::AgentAuthor | Self::AgentReviewer
+        )
+    }
+
+    /// Whether the actor may change what a review approves: its candidate, schema fields,
+    /// removed-page declarations and pages. The reviewer agent only judges what the author agent or
+    /// a human staged, and the retired single agent acts no more.
+    pub const fn may_change_candidates(self) -> bool {
+        !matches!(self, Self::LegacyAgent | Self::AgentReviewer)
+    }
+
+    /// Whether the actor may approve or reject a review. The author agent stages candidates for
+    /// the reviewer agent or a human to decide, and the retired single agent acts no more.
+    pub const fn may_decide(self) -> bool {
+        !matches!(self, Self::LegacyAgent | Self::AgentAuthor)
+    }
+
     /// Whether the actor may change a review that is no longer pending, such as the approved
-    /// review whose candidate is live, where an edit rewrites the live configuration. The agent
-    /// changes only pending reviews, so it changes live configuration only through an approval.
+    /// review whose candidate is live, where an edit rewrites the live configuration. Agents
+    /// change only pending reviews, so they change live configuration only through an approval.
     pub const fn may_change_decided_reviews(self) -> bool {
-        !matches!(self, Self::Agent)
+        !self.is_agent()
     }
 
     /// Whether the actor may restore the live configuration an approval replaced: only a human
@@ -112,6 +149,15 @@ impl ReviewEventAction {
             .into_iter()
             .find(|action| action.as_str() == value)
     }
+
+    /// The actions that change what a review approves: its candidate, removed-page declarations
+    /// included, and its pages. An agent that made one of them on a review never approves it.
+    pub const CHANGES_CANDIDATE: [Self; 4] = [
+        Self::CandidateEdited,
+        Self::SchemaFieldEdited,
+        Self::PageAdded,
+        Self::PageRemoved,
+    ];
 }
 
 impl std::fmt::Display for ReviewActor {
@@ -145,23 +191,49 @@ mod tests {
                 Some(serde_json::Value::from(actor.as_str()))
             );
         }
-        for unknown in ["human", "Agent", "", "ROBOT"] {
+        for unknown in ["human", "Agent", "", "ROBOT", "AGENT_OBSERVER"] {
             assert_eq!(ReviewActor::from_persisted(unknown), None, "{unknown}");
         }
     }
 
     #[test]
     fn should_let_only_a_human_restore_an_approval() {
-        assert!(ReviewActor::Human.may_restore_approvals());
-        assert!(!ReviewActor::Agent.may_restore_approvals());
-        assert!(!ReviewActor::System.may_restore_approvals());
+        for actor in ReviewActor::ALL {
+            assert_eq!(
+                actor.may_restore_approvals(),
+                actor == ReviewActor::Human,
+                "{actor}"
+            );
+        }
     }
 
     #[test]
-    fn should_let_only_the_agent_change_nothing_but_pending_reviews() {
-        assert!(!ReviewActor::Agent.may_change_decided_reviews());
-        assert!(ReviewActor::Human.may_change_decided_reviews());
-        assert!(ReviewActor::System.may_change_decided_reviews());
+    fn should_let_no_agent_change_anything_but_pending_reviews() {
+        for actor in ReviewActor::ALL {
+            assert_eq!(
+                actor.may_change_decided_reviews(),
+                !ReviewActor::AGENTS.contains(&actor),
+                "{actor}"
+            );
+        }
+    }
+
+    /// The author agent stages and the reviewer agent decides, so neither does the other's part;
+    /// the retired single agent does neither, and humans and the crawler both.
+    #[rstest::rstest]
+    #[case::human(ReviewActor::Human, true, true)]
+    #[case::author(ReviewActor::AgentAuthor, true, false)]
+    #[case::reviewer(ReviewActor::AgentReviewer, false, true)]
+    #[case::retired_agent(ReviewActor::LegacyAgent, false, false)]
+    #[case::system(ReviewActor::System, true, true)]
+    fn should_split_staging_and_deciding_between_the_agent_roles(
+        #[case] actor: ReviewActor,
+        #[case] changes_candidates: bool,
+        #[case] decides: bool,
+    ) {
+        assert_eq!(actor.may_change_candidates(), changes_candidates);
+        assert_eq!(actor.may_decide(), decides);
+        assert_eq!(actor.is_agent(), ReviewActor::AGENTS.contains(&actor));
     }
 
     #[test]

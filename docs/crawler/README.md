@@ -44,7 +44,7 @@ Crawler IDs exposed by the review service use TypeIDs: domains `cd`, reviews `cr
 - `dev-spider` and `dev-scraper` are focused development entry points for their respective passes.
 - `fetch-fixture` saves source HTML for stable parser and schema snapshots; it is not a production ingestion path.
 
-`server` and `dev` share one composition root, [`crawler::runtime`](../../src/crawler/src/runtime.rs). Each binary supplies only its ListingSource source, raw-capture sink, cron settings and review-console settings, so new crawler dependencies are wired there rather than in a binary. They stay separate binaries so local fixtures and the tokenless review console never ship in `server`.
+`server` and `dev` share one composition root, [`crawler::runtime`](../../src/crawler/src/runtime.rs). Each binary supplies only its ListingSource source, raw-capture sink, cron settings, review-console settings and state directory, so new crawler dependencies are wired there rather than in a binary. They stay separate binaries so local fixtures and the tokenless review console never ship in `server`.
 
 ## Boundaries
 

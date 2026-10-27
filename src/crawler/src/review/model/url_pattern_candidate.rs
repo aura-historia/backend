@@ -1,5 +1,6 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UrlPatternReviewCandidate {
@@ -54,6 +55,26 @@ impl UrlPatternReviewCandidate {
             UrlPatternDecision::Undecided => Err(UrlPatternCandidateError::Undecided),
         }
     }
+
+    /// SHA-256 of the decision approval would make live, so an approval can tell whether a live
+    /// evaluation of the URL sample was made for exactly this decision.
+    pub fn decision_sha256(&self) -> String {
+        // Serializing a decision of strings cannot fail.
+        let decision = serde_json::to_vec(&self.decision).unwrap_or_default();
+        Sha256::digest(decision)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    /// The decision's pattern, `None` while the candidate decides no pattern or nothing yet, or
+    /// holds one that does not compile, which approval refuses on its own.
+    pub fn decision_pattern(&self) -> Option<Regex> {
+        match &self.decision {
+            UrlPatternDecision::Pattern { value } => Regex::new(value).ok(),
+            UrlPatternDecision::NoPattern | UrlPatternDecision::Undecided => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -94,5 +115,33 @@ mod tests {
 
         assert_eq!(pattern.validated_pattern().ok(), Some(Some("/product/")));
         assert_eq!(no_pattern.validated_pattern().ok(), Some(None));
+    }
+
+    /// The fingerprint follows the decision alone: the domain's current pattern is no part of
+    /// what approval makes live.
+    #[test]
+    fn should_fingerprint_exactly_the_decision() {
+        let decided = |value: &str, current: Option<&str>| {
+            UrlPatternReviewCandidate::new(
+                UrlPatternDecision::Pattern {
+                    value: value.to_owned(),
+                },
+                current.map(|current| Regex::new(current).unwrap()).as_ref(),
+            )
+        };
+
+        assert_eq!(
+            decided("/item/", None).decision_sha256(),
+            decided("/item/", Some("/old/")).decision_sha256()
+        );
+        assert_ne!(
+            decided("/item/", None).decision_sha256(),
+            decided("/item/[0-9]+", None).decision_sha256()
+        );
+        assert_ne!(
+            UrlPatternReviewCandidate::new(UrlPatternDecision::NoPattern, None).decision_sha256(),
+            UrlPatternReviewCandidate::new(UrlPatternDecision::Undecided, None).decision_sha256()
+        );
+        assert_eq!(decided("/item/", None).decision_sha256().len(), 64);
     }
 }

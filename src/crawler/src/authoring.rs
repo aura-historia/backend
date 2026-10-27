@@ -16,10 +16,14 @@ pub enum CrawlerAuthoringMode {
     /// No LLM call: where generation would run, the crawler opens a review an operator
     /// completes by hand.
     Manual,
+    /// As `manual` for the crawler, which makes no LLM call and opens the same reviews; the author
+    /// agent stages URL patterns and schemas through the review console and the reviewer agent
+    /// approves or rejects them within the approval guard, each with a token generated at start.
+    Agent,
 }
 
 impl CrawlerAuthoringMode {
-    pub const ALL: [Self; 3] = [Self::Auto, Self::Review, Self::Manual];
+    pub const ALL: [Self; 4] = [Self::Auto, Self::Review, Self::Manual, Self::Agent];
 
     pub fn parse(raw: &str) -> Option<Self> {
         let normalized = raw.trim().to_ascii_lowercase();
@@ -33,12 +37,20 @@ impl CrawlerAuthoringMode {
             Self::Auto => "auto",
             Self::Review => "review",
             Self::Manual => "manual",
+            Self::Agent => "agent",
         }
     }
 
-    /// Whether the mode makes LLM calls at all.
+    /// Whether the mode makes LLM calls at all. Without them, where generation would run, the
+    /// crawler opens a review for an operator or the review agents to complete.
     pub const fn uses_llm(self) -> bool {
-        !matches!(self, Self::Manual)
+        !matches!(self, Self::Manual | Self::Agent)
+    }
+
+    /// Whether the review agents work the review console: the author agent stages candidates and
+    /// the reviewer agent decides them.
+    pub const fn has_review_agents(self) -> bool {
+        matches!(self, Self::Agent)
     }
 }
 
@@ -59,6 +71,10 @@ mod tests {
         assert_eq!(
             CrawlerAuthoringMode::parse("MANUAL"),
             Some(CrawlerAuthoringMode::Manual)
+        );
+        assert_eq!(
+            CrawlerAuthoringMode::parse("Agent"),
+            Some(CrawlerAuthoringMode::Agent)
         );
     }
 
@@ -83,5 +99,18 @@ mod tests {
         );
         assert!(CrawlerAuthoringMode::default().uses_llm());
         assert!(!CrawlerAuthoringMode::Manual.uses_llm());
+    }
+
+    /// `agent` is `manual` for the crawler, with the review agents on the console.
+    #[test]
+    fn should_make_no_llm_call_and_run_the_review_agents_only_in_agent_mode() {
+        for mode in CrawlerAuthoringMode::ALL {
+            assert_eq!(
+                mode.has_review_agents(),
+                mode == CrawlerAuthoringMode::Agent,
+                "{mode:?}"
+            );
+        }
+        assert!(!CrawlerAuthoringMode::Agent.uses_llm());
     }
 }

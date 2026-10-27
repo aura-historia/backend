@@ -78,7 +78,7 @@ impl Default for CrawlerLlmRetryPolicy {
     }
 }
 
-/// The model wired when `CRAWLER_AUTHORING_MODE=manual`. Manual authoring keeps every call path
+/// The model wired when `CRAWLER_AUTHORING_MODE` is `manual` or `agent`. Both keep every call path
 /// from reaching it; if one does, the call fails permanently instead of contacting a provider.
 pub struct DisabledLlm;
 
@@ -92,7 +92,9 @@ impl LargeLanguageModel for DisabledLlm {
         Output: DeserializeOwned + Send,
     {
         Err(LargeLanguageModelError::Permanent {
-            source: static_error("crawler LLM calls are disabled by CRAWLER_AUTHORING_MODE=manual"),
+            source: static_error(
+                "crawler LLM calls are disabled by CRAWLER_AUTHORING_MODE=manual or agent",
+            ),
         })
     }
 }

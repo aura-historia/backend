@@ -55,6 +55,7 @@ regex = { workspace = true }
 dotenvy = { workspace = true }
 bloomfilter = "3.0.1"
 futures = { workspace = true }
+getrandom = { workspace = true }
 sha2 = { workspace = true }
 url-normalize = { workspace = true }
 dashmap = "6.2.1"
