@@ -14,14 +14,28 @@ pub(crate) fn hash_html(html: &str) -> String {
     sha256_hex(html.as_bytes())
 }
 
-/// Fingerprint the ordered effective schema set and source fallback currency.
-/// Schema structures serialize deterministically (raw keys are a `BTreeMap`), so a selector or
-/// fallback-currency change forces extraction even for unchanged HTML.
+/// Version of the extraction behaviour that turns a page and its schema set into raw values.
+///
+/// It is part of the scraper-context fingerprint, so raising it extracts every page once more at
+/// its next scrape although neither the page nor its schemas changed. Raise it with every change
+/// that alters the raw values extracted from unchanged HTML under an unchanged schema set
+/// (`docs/crawler/extraction-and-review.md#extraction-contract`).
+pub(crate) const EXTRACTOR_VERSION: u32 = 1;
+
+/// Fingerprint the extractor version, the ordered effective schema set and the source fallback
+/// currency. Schema structures serialize deterministically (raw keys are a `BTreeMap`), so an
+/// extractor-version, selector or fallback-currency change forces extraction even for unchanged
+/// HTML.
 pub(crate) fn fingerprint_scraper_context(
+    extractor_version: u32,
     schemas: &[ProductCssSelectorSchema],
     fallback_currency: Option<money::Currency>,
 ) -> Result<String, serde_json::Error> {
-    let encoded = serde_json::to_vec(&(schemas, fallback_currency.map(money::Currency::as_str)))?;
+    let encoded = serde_json::to_vec(&(
+        extractor_version,
+        schemas,
+        fallback_currency.map(money::Currency::as_str),
+    ))?;
     Ok(sha256_hex(&encoded))
 }
 
