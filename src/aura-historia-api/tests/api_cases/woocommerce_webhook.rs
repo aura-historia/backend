@@ -437,6 +437,106 @@ async fn should_admit_delete_without_immediate_withdrawal() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_keep_one_active_parent_listing_through_native_variation_events() {
+    let result: TestResult = async {
+        let (source, token) = webhook_auth().await?;
+        let parent = |price: &str, modified: &str| -> Result<String, serde_json::Error> {
+            let mut body: Value =
+                serde_json::from_str(&product_body_with_timestamp(120, price, modified))?;
+            body["type"] = json!("variable");
+            Ok(body.to_string())
+        };
+        let variation = json!({
+            "id": 122,
+            "type": "variation",
+            "parent_id": 120,
+            "name": "Woo Cabinet",
+            "permalink": "https://partner.example/products/120",
+            "price": "35.00",
+            "status": "publish",
+            "stock_status": "instock",
+            "images": []
+        })
+        .to_string();
+        // WooCommerce re-syncs the parent after a variation save and delivers the parent's update.
+        let deliveries = [
+            (
+                "product.created",
+                parent("25.00", "2026-10-26T20:00:00")?,
+                "parent-created",
+            ),
+            ("product.created", variation.clone(), "variation-created"),
+            ("product.updated", variation, "variation-updated"),
+            (
+                "product.updated",
+                parent("30.00", "2026-10-26T20:46:39")?,
+                "parent-refreshed",
+            ),
+            (
+                "product.deleted",
+                json!({"id": 122}).to_string(),
+                "variation-deleted",
+            ),
+        ];
+        for (topic, body, delivery) in &deliveries {
+            assert_eq!(
+                reqwest::StatusCode::NO_CONTENT,
+                send(&source, &token, topic, body, Some(delivery))
+                    .await?
+                    .status()
+            );
+        }
+
+        let source_id = source.parse::<ListingSourceId>()?;
+        let messages = woocommerce_ingestion_messages(source_id);
+        let mut captured_keys = Vec::new();
+        let pool = get_postgres_client().await;
+        let processor = super::async_product_listing_ingestion::processor(&pool);
+        for message in &messages {
+            let ProductListingIngestionIntent::CaptureRaw(command) = &message.intent else {
+                panic!("expected raw capture intent");
+            };
+            captured_keys.push(command.source_record_key.clone());
+            let envelope = codec::decode(&codec::encode(message)?)?.into_service_envelope()?;
+            let capture = processor.execute(envelope).await?;
+            normalize_captured_revision(&pool, &capture).await?;
+        }
+        assert_eq!(vec!["120", "120", "122"], captured_keys);
+
+        let listings: Vec<(String, String, Option<i64>)> = sqlx::query_as(
+            "SELECT source_listing_id, lifecycle, price_amount FROM product_listings \
+             WHERE listing_source_id = $1",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            vec![("120".to_owned(), "ACTIVE".to_owned(), Some(3000))],
+            listings
+        );
+        let outcomes: Vec<(String, String)> = sqlx::query_as(
+            "SELECT s.source_record_key, n.outcome FROM product_listing_raw_normalizations n \
+             JOIN product_listing_raw_streams s USING (product_listing_raw_stream_id) \
+             WHERE s.listing_source_id = $1 ORDER BY s.source_record_key, n.revision",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            vec![
+                ("120".to_owned(), "APPLIED".to_owned()),
+                ("120".to_owned(), "APPLIED".to_owned()),
+                ("122".to_owned(), "IGNORED".to_owned())
+            ],
+            outcomes
+        );
+        Ok(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_verify_webhooks_against_rotated_secret_using_exact_raw_body() {
     let result: TestResult = async {
         let (source, webhook_token) = webhook_auth().await?;

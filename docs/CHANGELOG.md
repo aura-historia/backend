@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-26 — WooCommerce variation webhooks (#2523)
+
+- `POST /v1/webhooks/woocommerce/{listingSourceId}` treats `product.created` and `product.updated` payloads with `type: variation` as authorized ignored events whatever their `status` (bodyless `204`, no queue send, receipt or listing). They previously created a second listing keyed by the variation ID. The parent's own `product.updated`, which WooCommerce delivers after saving or deleting a variation, refreshes the parent's listing. `product.deleted` is unchanged and never withdraws a variation's parent.
+
 ## 2026-10-25 — Consumer-only MCP catalogue (#2481)
 
 - **Breaking change:** MCP removes all 36 partner tools: listing management, synchronous and asynchronous listing batches, Shopify ingestion configuration, party locations, source-location defaults, shipping profiles/defaults and listing delivery. `tools/list` returns the 38 consumer operations (12 public, 26 private-user) on one page without `nextCursor`; a call naming a removed tool fails as an unknown tool (`-32602`). Partner workflows continue unchanged through REST. The endpoint, transport, OAuth contract, scopes and the retained tools' names, schemas and behavior are unchanged. See the [MCP contract](mcp.md#partner-workflows-use-rest).
