@@ -6301,10 +6301,14 @@ dependencies = [
 name = "platform-lambda-sqs"
 version = "0.1.0"
 dependencies = [
+ "aws-config",
+ "aws-sdk-sqs",
  "aws_lambda_events",
  "futures-util",
  "lambda_runtime",
  "platform-lambda-bootstrap",
+ "test-api",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]

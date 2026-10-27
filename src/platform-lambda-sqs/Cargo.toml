@@ -4,9 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aws-config = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["sqs"] }
 futures-util = { workspace = true }
 lambda_runtime = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 tracing = { workspace = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["sqs"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

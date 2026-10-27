@@ -189,18 +189,21 @@ Exact route and wire definitions live in [CDC routing](../../src/aura-historia-c
 Workers invoke service use cases and acknowledge only confirmed completed outcomes.
 Duplicates, authoritative stale skips and deliberately ignored inputs may complete;
 missing required source, active leases, malformed jobs, dependency failure or uncertain
-commit/effect do not. SQS transport IDs are not business idempotency keys.
+commit/effect do not. A FIFO consumer moves a job that can never succeed as delivered into
+its own DLQ on redelivery and acknowledges it only once the transfer is confirmed
+([failure custody](../durable-worker-runbook.md#failure-custody-and-controlled-redrive)).
+SQS transport IDs are not business idempotency keys.
 
 | Consumer | Authority and completion rule |
 | --- | --- |
-| ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; other failures retain only their own FIFO message group. |
+| ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; invalid commands, identity conflicts and invalid persisted state move to the DLQ on redelivery; other failures retain only their own FIFO message group. |
 | Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version. |
 | Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. An effective apply/clear appends `ENRICHMENT_CONTENT_ASSESSED` (exactly `{}`) and advances listing freshness and the projection fence; duplicates, stale results and empty clears do not. |
 | Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
 | Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit in-app notification and digest membership (or legacy delivery intent) together. |
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
 | Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. |
-| Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; see [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
+| Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; an undecodable job or missing intent moves to the DLQ on redelivery. See [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
 | Geographic resolution | Reserve a bounded, database-budgeted claim; call the provider outside transactions; commit permitted evidence and its signal under the same unexpired claim/generation. Negative outcomes have reconsideration deadlines; provider/configuration failures retain failure custody. |
 
 ProductListing projections use externally versioned, content-free

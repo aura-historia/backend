@@ -36,6 +36,7 @@ pub use commands::process_product_listing_ingestion::{
     ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
     ProductListingIngestionCompletion, ProductListingIngestionEffect,
     ProductListingIngestionEnvelope, ProductListingIngestionError,
+    ProductListingIngestionFailureClass,
 };
 pub use commands::product_listing_ingestion::{
     ProductListingIngestionActor, ProductListingIngestionCommandId,
