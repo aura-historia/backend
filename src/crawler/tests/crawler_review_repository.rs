@@ -1,3 +1,4 @@
+use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, STATUS_APPROVED,
     STATUS_PENDING_REVIEW, SchemaPageReference, SchemaReviewPageInput,
@@ -28,6 +29,7 @@ use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
     SpiderCandidateService, SpiderCandidateServiceImpl,
 };
+use crawler::spider::classification::url_classifier::UrlClassifier;
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
@@ -2484,6 +2486,75 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
         (failure_count, error_kind.as_deref()),
         (1, Some("RateLimited")),
         "earlier failure state is left as it was"
+    );
+}
+
+/// In `agent` mode the review rail classifies as the spider does there, by the pattern alone: the
+/// review's URL sample carries no keyword class, and approval makes the URLs the pattern takes
+/// product URLs and leaves every other one unclassified, on a shop whose domain the keywords read
+/// as a category.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agent_mode() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone())
+        .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent));
+    let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "antique-shop.example.com").await;
+    let urls = [
+        "https://antique-shop.example.com/item/1",
+        "https://antique-shop.example.com/item/2",
+        "https://antique-shop.example.com/about",
+    ]
+    .map(|url| url::Url::parse(url).unwrap());
+    url_repository
+        .upsert_links_batch(&listing_source_id, &domain_id, &urls, &[UrlClass::Other; 3])
+        .await
+        .unwrap();
+    let review_id = undecided_url_pattern_review(
+        &repository,
+        listing_source_id,
+        domain_id,
+        &urls.iter().map(ToString::to_string).collect::<Vec<_>>(),
+    )
+    .await;
+    let sample_classes: Vec<Option<String>> = repository
+        .get_review(review_id)
+        .await
+        .unwrap()
+        .urls
+        .into_iter()
+        .map(|url| url.candidate_class)
+        .collect();
+    repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            json!({ "decision": { "type": "PATTERN", "value": "/item/" }, "current_pattern": null }),
+        )
+        .await
+        .unwrap();
+
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(sample_classes, vec![Some("other".to_owned()); 3]);
+    assert_eq!(
+        stored_url_classes(&pool, domain_id).await,
+        vec![
+            (urls[2].to_string(), "other".to_owned()),
+            (urls[0].to_string(), "product".to_owned()),
+            (urls[1].to_string(), "product".to_owned()),
+        ]
     );
 }
 

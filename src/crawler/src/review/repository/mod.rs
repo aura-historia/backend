@@ -15,7 +15,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
-use crate::spider::classification::url_classifier::classify_url;
+use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -202,6 +202,9 @@ pub struct CrawlerReviewRepository {
     /// What the review agents may decide; agent decisions are off unless the review console of
     /// `agent` authoring mode configures them.
     agent_decisions: AgentDecisionPolicy,
+    /// How a URL-pattern review's sample and, once a decision goes live, the domain's stored URLs
+    /// are classified: as the spider classifies them in the configured authoring mode.
+    url_classifier: UrlClassifier,
 }
 
 pub struct SchemaReviewWithStatusInput<'a> {
@@ -219,6 +222,15 @@ impl CrawlerReviewRepository {
         Self {
             pool,
             agent_decisions: AgentDecisionPolicy::default(),
+            url_classifier: UrlClassifier::default(),
+        }
+    }
+
+    /// This repository classifying URLs with `url_classifier`, the spider's of the authoring mode.
+    pub fn with_url_classifier(self, url_classifier: UrlClassifier) -> Self {
+        Self {
+            url_classifier,
+            ..self
         }
     }
 
@@ -640,7 +652,10 @@ impl CrawlerReviewRepository {
             for raw_url in urls {
                 let current_match = current_pattern.map(|pattern| pattern.is_match(raw_url));
                 let candidate_match = candidate_pattern.map(|pattern| pattern.is_match(raw_url));
-                let candidate_class = classify_url(raw_url, candidate_pattern).to_string();
+                let candidate_class = self
+                    .url_classifier
+                    .classify(raw_url, candidate_pattern)
+                    .to_string();
                 let review_url_id = CrawlerReviewUrlId::new();
                 sqlx::query(
                     "INSERT INTO crawler_review_urls (

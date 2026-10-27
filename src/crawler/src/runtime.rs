@@ -31,6 +31,7 @@ use crate::service::listing_source_registration::{
 use crate::service::raw_capture::ProductListingRawCaptureService;
 use crate::spider::candidate_service::SpiderCandidateServiceImpl;
 use crate::spider::classification::url_classification_service::UrlClassificationServiceImpl;
+use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crate::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crate::spider::classification::url_pattern_service::{
@@ -183,7 +184,10 @@ where
         listing_source_source,
         raw_capture,
     } = profile;
-    let review_repo = CrawlerReviewRepository::new(pool.clone());
+    // The spider and the review rail classify URLs alike, as the authoring mode selects.
+    let url_classifier = UrlClassifier::for_authoring(authoring);
+    let review_repo =
+        CrawlerReviewRepository::new(pool.clone()).with_url_classifier(url_classifier);
 
     let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(Box::leak(
         Box::new(pool.clone()),
@@ -251,6 +255,7 @@ where
     ));
 
     let spider_config = SpiderServiceConfig {
+        url_classifier,
         ..Default::default()
     };
     let website_spider = Box::new(SpiderImpl::new(cron_config.spider_website_config()));

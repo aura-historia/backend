@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
-use crate::spider::classification::url_classifier::classify_url;
+use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
@@ -40,6 +40,8 @@ pub struct SpiderServiceConfig {
     pub db_batch_size: usize,
     pub max_sample_urls: usize,
     pub min_inference_sample_urls: usize,
+    /// How crawled URLs are classified; the authoring mode selects it.
+    pub url_classifier: UrlClassifier,
 }
 
 #[derive(Debug, Error)]
@@ -119,6 +121,7 @@ impl Default for SpiderServiceConfig {
             db_batch_size: 100,
             max_sample_urls: 500,
             min_inference_sample_urls: 20,
+            url_classifier: UrlClassifier::default(),
         }
     }
 }
@@ -173,7 +176,11 @@ impl SpiderServiceImpl {
 
         for page in pages {
             urls.push(page.url.as_url().clone());
-            classes.push(classify_url(page.url.as_url().as_str(), pattern.as_regex()));
+            classes.push(
+                self.config
+                    .url_classifier
+                    .classify(page.url.as_url().as_str(), pattern.as_regex()),
+            );
         }
 
         if !urls.is_empty() {
@@ -724,6 +731,7 @@ mod tests {
 #[cfg(test)]
 mod service_tests {
     use super::*;
+    use crate::spider::classification::url_classifier::UrlClassifier;
     use crate::spider::classification::url_metadata::UrlClass;
     use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
     use crate::spider::classification::url_pattern_service::MockUrlPatternService;
@@ -1793,6 +1801,117 @@ mod service_tests {
                 min_sample_size: 20,
             }) if url == crawl_root_url
         ));
+    }
+
+    /// Pages of a shop whose paths the keywords read as a category, an imprint and an info page,
+    /// next to its item pages, enough to classify at the threshold.
+    fn shop_pages() -> Vec<String> {
+        let mut paths = item_pages();
+        paths.extend(["/shop/chairs", "/impressum", "/about-us"].map(str::to_owned));
+        paths
+    }
+
+    /// The classes a crawl of [`shop_pages`] stores with `url_classifier`, by path, while the
+    /// domain's pattern is `stored_pattern` or, without one, while its URL-pattern review is
+    /// pending.
+    async fn stored_classes(
+        url_classifier: UrlClassifier,
+        stored_pattern: Option<&'static str>,
+    ) -> Vec<(String, UrlClass)> {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, shop_pages());
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(move |_, _| {
+                Box::pin(
+                    async move { Ok(stored_pattern.map(|pattern| Regex::new(pattern).unwrap())) },
+                )
+            });
+        mock_pattern_service
+            .expect_classify_and_save()
+            .returning(move |_, _, _, _, _| {
+                Box::pin(
+                    async move { Err(pending_review(listing_source_id, CrawlerReviewId::new())) },
+                )
+            });
+        mock_pattern_service
+            .expect_mark_as_crawled()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+        let stored = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&stored);
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .returning(move |_, _, urls, classes| {
+                recorded.lock().unwrap().extend(
+                    urls.iter()
+                        .map(|url| url.path().to_owned())
+                        .zip(classes.iter().copied()),
+                );
+                Box::pin(async { Ok(Vec::new()) })
+            });
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig {
+                url_classifier,
+                ..SpiderServiceConfig::default()
+            },
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .await
+            .unwrap_or_else(|error| panic!("crawl: {error}"));
+
+        stored.lock().unwrap().clone()
+    }
+
+    fn class_of(classes: &[(String, UrlClass)], path: &str) -> UrlClass {
+        classes
+            .iter()
+            .find(|(stored, _)| stored == path)
+            .map(|(_, class)| *class)
+            .unwrap_or_else(|| panic!("{path} not stored: {classes:?}"))
+    }
+
+    /// In `agent` mode Claude decides what a product page is: until its pattern is approved the
+    /// spider stores every crawled URL unclassified, where the other modes apply the keywords.
+    #[tokio::test]
+    async fn should_leave_crawled_urls_unclassified_in_agent_mode_until_a_pattern_is_approved() {
+        let agent = stored_classes(UrlClassifier::PatternOnly, None).await;
+        let other_modes = stored_classes(UrlClassifier::PatternAndKeywords, None).await;
+
+        assert_eq!(agent.len(), shop_pages().len());
+        assert!(
+            agent.iter().all(|(_, class)| *class == UrlClass::Other),
+            "{agent:?}"
+        );
+        assert_eq!(class_of(&other_modes, "/shop/chairs"), UrlClass::Category);
+        assert_eq!(class_of(&other_modes, "/impressum"), UrlClass::Imprint);
+        assert_eq!(class_of(&other_modes, "/about-us"), UrlClass::Info);
+        assert_eq!(class_of(&other_modes, "/item/1"), UrlClass::Other);
+    }
+
+    /// Once Claude's pattern is approved, a crawl in `agent` mode classifies by it alone: what it
+    /// takes is a product URL and the rest stays unclassified.
+    #[tokio::test]
+    async fn should_classify_by_the_approved_pattern_alone_in_agent_mode() {
+        let agent = stored_classes(UrlClassifier::PatternOnly, Some("/item/")).await;
+        let other_modes = stored_classes(UrlClassifier::PatternAndKeywords, Some("/item/")).await;
+
+        for classes in [&agent, &other_modes] {
+            assert_eq!(class_of(classes, "/item/7"), UrlClass::ProductListing);
+        }
+        for path in ["/shop/chairs", "/impressum", "/about-us"] {
+            assert_eq!(class_of(&agent, path), UrlClass::Other, "{path}");
+        }
+        assert_eq!(class_of(&other_modes, "/shop/chairs"), UrlClass::Category);
     }
 }
 
