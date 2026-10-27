@@ -131,14 +131,6 @@ impl DevDatabase {
     }
 }
 
-pub fn demo_scraper_db_url() -> String {
-    database_url(DEMO_SCRAPER_DB_NAME)
-}
-
-pub fn demo_spider_db_url() -> String {
-    database_url(DEMO_SPIDER_DB_NAME)
-}
-
 fn docker_compose_file() -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("docker-compose.yml")
