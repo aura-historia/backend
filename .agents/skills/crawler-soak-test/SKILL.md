@@ -105,10 +105,11 @@ each check must answer.
    review's candidate and drop the LLM's new schema unless it is better. After approving, read
    the next captures in `scraped_raw_observations.json` (identity, description items, distinct
    images) to confirm the schema does what the matrix suggested.
-   The console's field editor only edits core fields of a schema, and editing an approved review
-   rewrites the live list from that review's candidate. Fix raw attributes or add schemas while
-   the review is still pending (`POST …/candidate`); a change after approval needs the live
-   `listing_source_product_schemas` row, and the note must say so.
+   The console edits core fields and registered raw attributes and adds or deletes schemas.
+   Editing an approved review rewrites the live list from that review's candidate, so only the
+   approved review whose candidate is still live accepts edits (`candidate_is_live`), and
+   removed-page templates change only while a review is pending. Make a change after approval
+   on that review, not in the `listing_source_product_schemas` row, and say so in the note.
 5. **Stop** after 60–90 minutes, or earlier if every domain is terminal, with Ctrl+C in the tab.
    Take a final database snapshot and log summary. The scraper pass is a barrier, so a pass that
    is still running at stop time is itself a finding.
