@@ -128,13 +128,14 @@ pub(crate) async fn filter_valid_image_urls(
     valid
 }
 
-/// Keeps the first candidate of each ordered image candidate group that
-/// [`filter_valid_image_urls`] would keep if its target check and probe
-/// accepted every image, for offline schema ranking, which has no network
-/// access. A URL whose own dimensions show a small image is therefore rejected
-/// as at capture, while a URL that gives no size counts, `thumb`-named or not,
-/// because only the capture-time probe can read its size.
+/// Keeps the images [`filter_valid_image_urls`] would keep if its target check
+/// and probe accepted every image, for offline schema ranking, which has no
+/// network access: the first candidate of each ordered image candidate group,
+/// without duplicates. A URL whose own dimensions show a small image is
+/// therefore rejected as at capture, while a URL that gives no size counts,
+/// `thumb`-named or not, because only the capture-time probe can read its size.
 pub(crate) fn filter_image_urls_offline(raw_images: &[String], base_url: &Url) -> Vec<String> {
+    let mut seen = HashSet::new();
     raw_images
         .iter()
         .filter_map(|raw_image| {
@@ -144,6 +145,7 @@ pub(crate) fn filter_image_urls_offline(raw_images: &[String], base_url: &Url) -
                 .find(|resolved| !ImageUrlHint::of(resolved).rejects_by_itself())
                 .map(String::from)
         })
+        .filter(|image_url| seen.insert(image_url.clone()))
         .collect()
 }
 
@@ -617,6 +619,7 @@ mod tests {
             "/photo.jpg?width=1000&height=150&mode=max".to_string(),
             THUMBNAIL_NAMED_UPLOAD.to_string(),
             "//".to_string(),
+            "https://example.com/image-800x600.jpg".to_string(),
         ];
         let captured = filter_valid_image_urls(
             raw_images.clone(),
@@ -633,7 +636,7 @@ mod tests {
                 "https://example.com/image-800x600.jpg",
                 THUMBNAIL_NAMED_UPLOAD
             ],
-            "URL dimensions reject without a probe; a thumbnail name alone does not"
+            "URL dimensions reject without a probe; a thumbnail name alone does not; a repeated image is kept once"
         );
         assert_eq!(filter_image_urls_offline(&raw_images, &base), captured);
     }
