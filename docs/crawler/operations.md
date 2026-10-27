@@ -52,7 +52,7 @@ The server also hosts the crawler review console. It binds to `127.0.0.1:7878` u
 
 `GET /health` is the only unauthenticated liveness endpoint and returns no crawler state. With a review token configured, `/api/health` is authenticated.
 
-`GET /api/listing_sources` is the operator's overview: each ListingSource with its pending reviews, URL counts and, per domain, the last crawl outcome, failure kind, failure count and next crawl time as [crawl completion](scheduling-and-retries.md#spider-crawl-completion) records them. It lists ListingSources with a domain waiting for an operator first, so a domain waiting for a review or for an operator is visible there without the logs.
+`GET /api/listing_sources` is the operator's overview: each ListingSource with its pending reviews, URL counts and, per domain, the last crawl outcome, failure kind, failure count and next crawl time as [crawl completion](scheduling-and-retries.md#spider-crawl-completion) records them. It lists ListingSources with a domain waiting for an operator first, so a domain waiting for a review or for an operator is visible there without the logs. `GET /api/reviews`, the console's queue, lists pending reviews of crawl-enabled ListingSources first, then pending reviews of disabled ones, which the console marks and which hold back no crawl or scrape, then closed reviews, newest first within each.
 
 ### Authoring modes
 

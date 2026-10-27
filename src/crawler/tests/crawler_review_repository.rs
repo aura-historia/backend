@@ -531,6 +531,18 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
         field_edit,
         Err(ReviewRepositoryError::StaleApprovedReview(id)) if id == older_review_id
     ));
+    let candidate_is_live = |review_id| {
+        let review_repository = review_repository.clone();
+        async move {
+            review_repository
+                .get_review(review_id)
+                .await
+                .unwrap()
+                .candidate_is_live
+        }
+    };
+    assert!(!candidate_is_live(older_review_id).await);
+    assert!(candidate_is_live(newer_review_id).await);
     let live = || async {
         schema_repository
             .find_product_schema(&listing_source_id)
@@ -1917,6 +1929,50 @@ async fn should_list_listing_source_with_a_domain_waiting_for_an_operator_first(
     );
     assert_eq!(domains[0].crawl_failure_count, 5);
     assert_eq!(domains[0].next_crawl_at, None);
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_pending_reviews_of_disabled_listing_sources_after_those_of_enabled_ones() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let enabled_source = ListingSourceId::new();
+    insert_listing_source(&pool, enabled_source).await;
+    let disabled_source = ListingSourceId::new();
+    insert_listing_source(&pool, disabled_source).await;
+    sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
+        .bind(disabled_source.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let enabled_pending = pending_schema_review(&repository, &enabled_source).await;
+    let disabled_pending = pending_schema_review(&repository, &disabled_source).await;
+    let closed = repository
+        .create_schema_review_with_status(SchemaReviewWithStatusInput {
+            listing_source_id: &enabled_source,
+            reason: "initial_schema_generation",
+            schemas: &[schema("h1")],
+            pages: review_pages(),
+            validation_summary: json!({}),
+            status: STATUS_APPROVED,
+            notes: None,
+        })
+        .await
+        .unwrap();
+
+    let queue = repository.list_reviews(10).await.unwrap();
+
+    assert_eq!(
+        queue
+            .iter()
+            .map(|review| (review.review_id, review.listing_source_crawl_enabled))
+            .collect::<Vec<_>>(),
+        vec![
+            (enabled_pending, true),
+            (disabled_pending, false),
+            (closed, true)
+        ],
+        "a newer pending review of a disabled ListingSource follows the older one of an enabled ListingSource"
+    );
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
