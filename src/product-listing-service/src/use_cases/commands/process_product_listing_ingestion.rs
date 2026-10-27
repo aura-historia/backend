@@ -195,7 +195,6 @@ impl ProductListingIngestionError {
                 CaptureProductListingRawObservationError::PartnerAuthorizationInternal { .. } => "CAPTURE_RAW_PARTNER_AUTHORIZATION_INTERNAL",
                 CaptureProductListingRawObservationError::SourceRecordKeyHashCollision => "CAPTURE_RAW_SOURCE_RECORD_KEY_HASH_COLLISION",
                 CaptureProductListingRawObservationError::ProviderReceiptDigestConflict => "CAPTURE_RAW_PROVIDER_RECEIPT_DIGEST_CONFLICT",
-                CaptureProductListingRawObservationError::ProviderSourceOrderConflict => "CAPTURE_RAW_PROVIDER_SOURCE_ORDER_CONFLICT",
                 CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => "CAPTURE_RAW_PROVIDER_SOURCE_ORDER_AMBIGUOUS",
                 CaptureProductListingRawObservationError::BeginTransactionFailed(_) => "CAPTURE_RAW_BEGIN_TRANSACTION_FAILED",
                 CaptureProductListingRawObservationError::CaptureFailed { .. } => "CAPTURE_RAW_CAPTURE_FAILED",
@@ -221,9 +220,8 @@ impl ProductListingIngestionError {
                 | ProductListingDeliveryError::IntegrationMismatch
                 | ProductListingDeliveryError::ReferenceIneligible
                 | ProductListingDeliveryError::InvalidInput { .. } => true,
-                // Shipping imports include dependencies that are expected to arrive later.
-                ProductListingDeliveryError::Import(_)
-                | ProductListingDeliveryError::Unavailable
+                ProductListingDeliveryError::Import(error) => is_shipping_import_rejection(error),
+                ProductListingDeliveryError::Unavailable
                 | ProductListingDeliveryError::OperationFailed { .. }
                 | ProductListingDeliveryError::Transaction(_) => false,
             },
@@ -310,7 +308,6 @@ impl ProductListingIngestionError {
                 | CaptureProductListingRawObservationError::InvalidInput { .. }
                 | CaptureProductListingRawObservationError::ListingSourceNotFound
                 | CaptureProductListingRawObservationError::ProviderReceiptDigestConflict
-                | CaptureProductListingRawObservationError::ProviderSourceOrderConflict
                 | CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => true,
                 CaptureProductListingRawObservationError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | CaptureProductListingRawObservationError::PartnerAuthorizationInternal { .. }
@@ -320,6 +317,38 @@ impl ProductListingIngestionError {
                 | CaptureProductListingRawObservationError::CommitTransactionFailed(_) => false,
             },
         }
+    }
+}
+
+/// A shipping import that current shipping state deterministically rejects. A catalog
+/// dependency that has not arrived yet, and storage or transaction failures, keep retry custody.
+fn is_shipping_import_rejection(error: &shipping_service::ShippingError) -> bool {
+    use shipping_service::ShippingError;
+    match error {
+        ShippingError::AuthenticationRequired
+        | ShippingError::SourceAccessDenied
+        | ShippingError::SourceNotFound
+        | ShippingError::ProfileNotFound
+        | ShippingError::AttributedPartyNotFound { .. }
+        | ShippingError::LocationNotFound
+        | ShippingError::LocationRetired
+        | ShippingError::StaleRevision
+        | ShippingError::InvalidRevision
+        | ShippingError::CreationKeyConflict
+        | ShippingError::ImportAuthorityStale
+        | ShippingError::ImportOwnershipConflict
+        | ShippingError::ImportRequestConflict
+        | ShippingError::ImportOutOfOrder
+        | ShippingError::ImportIdentityExists
+        | ShippingError::InvalidInput
+        | ShippingError::InvalidTerms(_)
+        | ShippingError::Profile(_) => true,
+        ShippingError::ImportDependencyMissing
+        | ShippingError::RevisionExhausted
+        | ShippingError::PersistenceUnavailable { .. }
+        | ShippingError::CorruptShippingState { .. }
+        | ShippingError::PersistenceFailed { .. }
+        | ShippingError::Transaction(_) => false,
     }
 }
 
@@ -631,6 +660,9 @@ mod diagnostic_tests {
             ProductListingIngestionError::Upsert(UpsertProductListingError::Forbidden),
             ProductListingIngestionError::Withdraw(WithdrawProductListingError::NotFound),
             ProductListingIngestionError::Delivery(ProductListingDeliveryError::StaleRevision),
+            ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
+                shipping_service::ShippingError::ImportOwnershipConflict,
+            )),
             ProductListingIngestionError::CaptureRaw(
                 CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous,
             ),
