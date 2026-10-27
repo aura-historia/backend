@@ -3,9 +3,9 @@ use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use visible_text::{TextBoundaries, visible_text};
+use visible_text::{TextBoundaries, has_visible_text, visible_text};
 
-pub(crate) use image_url::has_known_image_extension;
+pub(crate) use image_url::{element_has_image_like_evidence, has_known_image_extension};
 
 mod image_url;
 mod visible_text;
@@ -447,15 +447,6 @@ fn extract_from_element(
             })
         }
     }
-}
-
-/// Whether a text rule extracts a value from `element`. One without visible text yields
-/// a blank value, which `first` cardinality skips. Line separators only ever stand
-/// between visible text, so they never make a blank element count as text.
-fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
-    !visible_text(element, TextBoundaries::Separate)
-        .trim()
-        .is_empty()
 }
 
 #[cfg(test)]

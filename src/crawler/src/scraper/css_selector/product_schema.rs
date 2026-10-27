@@ -1,5 +1,6 @@
 use crate::scraper::css_selector::rule::{
-    ExtractionError, ExtractionRule, RuleExtraction, split_image_candidate_group,
+    ExtractionError, ExtractionRule, RuleExtraction, element_has_image_like_evidence,
+    split_image_candidate_group,
 };
 
 use listing_source_core::ListingSourceId;
@@ -453,28 +454,6 @@ fn image_container_selectors(selector: &str) -> Vec<String> {
             }
         })
         .collect()
-}
-
-fn element_has_image_like_evidence(element: &scraper::ElementRef<'_>) -> bool {
-    let html = element.html().to_ascii_lowercase();
-    [
-        "<img",
-        "<picture",
-        "<source",
-        " src=",
-        " srcset=",
-        " data-src=",
-        " data-srcset=",
-        " data-lazy=",
-        " data-lazy-src=",
-        " data-large_image=",
-        " data-full=",
-        " data-original=",
-        " data-zoom-image=",
-        " background-image",
-    ]
-    .iter()
-    .any(|needle| html.contains(needle))
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

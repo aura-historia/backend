@@ -1,5 +1,5 @@
-//! Image URLs of a matched element, as an `image_url` rule captures them: the element's
-//! ordered image URL candidates, joined into one group.
+//! Images of a matched element: its ordered image URL candidates, joined into one group as
+//! an `image_url` rule captures them, and whether it carries image markup at all.
 
 use super::IMAGE_CANDIDATE_SEPARATOR;
 use std::collections::HashSet;
@@ -249,4 +249,28 @@ pub(crate) fn has_known_image_extension(url: &str) -> bool {
         || lower.contains(".webp")
         || lower.contains(".gif")
         || lower.contains(".avif")
+}
+
+/// Whether `element` or a descendant carries image markup: an `img`, `picture` or `source`
+/// element, an image source attribute or a CSS background image.
+pub(crate) fn element_has_image_like_evidence(element: &scraper::ElementRef<'_>) -> bool {
+    let html = element.html().to_ascii_lowercase();
+    [
+        "<img",
+        "<picture",
+        "<source",
+        " src=",
+        " srcset=",
+        " data-src=",
+        " data-srcset=",
+        " data-lazy=",
+        " data-lazy-src=",
+        " data-large_image=",
+        " data-full=",
+        " data-original=",
+        " data-zoom-image=",
+        " background-image",
+    ]
+    .iter()
+    .any(|needle| html.contains(needle))
 }
