@@ -223,76 +223,46 @@ fn log_attempt(
     sqs_message_id: &str,
     duration_ms: u128,
 ) {
+    // tracing needs a literal level and message per call site; this writes the shared
+    // correlation fields once for every disposition.
+    macro_rules! log_with_command {
+        ($level:ident, $category:ident, $message:literal) => {
+            match command {
+                Some(command) => $level!(
+                    $category = category,
+                    sqs_message_id,
+                    duration_ms,
+                    command_id = %command.command_id,
+                    submission_id = %command.submission_id,
+                    listing_source_id = %command.listing_source_id,
+                    request_id = command.request_id.as_deref().unwrap_or(""),
+                    correlation_id = command.correlation_id.as_deref().unwrap_or(""),
+                    operation = command.operation,
+                    item_index = command.index,
+                    $message
+                ),
+                None => $level!($category = category, sqs_message_id, duration_ms, $message),
+            }
+        };
+    }
     disposition.metric().emit();
-    match (disposition, command) {
-        (AttemptDisposition::Completed, Some(command)) => info!(
-            outcome = category,
-            sqs_message_id,
-            duration_ms,
-            command_id = %command.command_id,
-            submission_id = %command.submission_id,
-            listing_source_id = %command.listing_source_id,
-            request_id = command.request_id.as_deref().unwrap_or(""),
-            correlation_id = command.correlation_id.as_deref().unwrap_or(""),
-            operation = command.operation,
-            item_index = command.index,
-            "Ingestion command completed"
-        ),
-        (AttemptDisposition::Completed, None) => info!(
-            outcome = category,
-            sqs_message_id, duration_ms, "Ingestion command completed"
-        ),
-        (AttemptDisposition::Rejected, Some(command)) => warn!(
-            error_code = category,
-            sqs_message_id,
-            duration_ms,
-            command_id = %command.command_id,
-            submission_id = %command.submission_id,
-            listing_source_id = %command.listing_source_id,
-            request_id = command.request_id.as_deref().unwrap_or(""),
-            correlation_id = command.correlation_id.as_deref().unwrap_or(""),
-            operation = command.operation,
-            item_index = command.index,
-            "Ingestion command rejected without retry"
-        ),
-        (AttemptDisposition::Rejected, None) => warn!(
-            error_code = category,
-            sqs_message_id, duration_ms, "Ingestion command rejected without retry"
-        ),
-        (AttemptDisposition::Unprocessable, Some(command)) => warn!(
-            error_code = category,
-            sqs_message_id,
-            duration_ms,
-            command_id = %command.command_id,
-            submission_id = %command.submission_id,
-            listing_source_id = %command.listing_source_id,
-            request_id = command.request_id.as_deref().unwrap_or(""),
-            correlation_id = command.correlation_id.as_deref().unwrap_or(""),
-            operation = command.operation,
-            item_index = command.index,
-            "Ingestion command cannot apply as delivered"
-        ),
-        (AttemptDisposition::Unprocessable, None) => warn!(
-            error_code = category,
-            sqs_message_id, duration_ms, "Ingestion command cannot apply as delivered"
-        ),
-        (AttemptDisposition::Retained, Some(command)) => warn!(
-            error_code = category,
-            sqs_message_id,
-            duration_ms,
-            command_id = %command.command_id,
-            submission_id = %command.submission_id,
-            listing_source_id = %command.listing_source_id,
-            request_id = command.request_id.as_deref().unwrap_or(""),
-            correlation_id = command.correlation_id.as_deref().unwrap_or(""),
-            operation = command.operation,
-            item_index = command.index,
-            "Ingestion command retained for retry"
-        ),
-        (AttemptDisposition::Retained, None) => warn!(
-            error_code = category,
-            sqs_message_id, duration_ms, "Ingestion command retained for retry"
-        ),
+    match disposition {
+        AttemptDisposition::Completed => {
+            log_with_command!(info, outcome, "Ingestion command completed")
+        }
+        AttemptDisposition::Rejected => {
+            log_with_command!(warn, error_code, "Ingestion command rejected without retry")
+        }
+        AttemptDisposition::Unprocessable => {
+            log_with_command!(
+                warn,
+                error_code,
+                "Ingestion command cannot apply as delivered"
+            )
+        }
+        AttemptDisposition::Retained => {
+            log_with_command!(warn, error_code, "Ingestion command retained for retry")
+        }
     }
 }
 
