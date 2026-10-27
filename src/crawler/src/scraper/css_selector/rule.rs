@@ -1,4 +1,4 @@
-use image_url::image_url_candidate_group;
+use image_url::{image_url_candidate_group, is_gallery_placeholder};
 use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -119,6 +119,8 @@ pub enum ExtractionCardinality {
 /// The values a rule extracted from a page and the matched elements it skipped.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct RuleExtraction {
+    /// Empty only for an empty gallery: an `images` rule whose matched elements are all
+    /// gallery placeholders.
     pub(crate) values: Vec<String>,
     /// Matched elements without a value: no image URL candidate, or no attribute of an
     /// attribute rule. Only the `images` rule skips elements
@@ -133,7 +135,9 @@ pub(crate) struct RuleExtraction {
 enum ElementWithoutValue {
     /// Fails the rule.
     Fails,
-    /// Skips and counts the element (see [`RuleExtraction::skipped_elements`]).
+    /// Skips and counts the element (see [`RuleExtraction::skipped_elements`]). A rule that
+    /// skips every element it matched yields no value when each one is a gallery
+    /// placeholder, an empty gallery, and fails otherwise.
     Skipped,
 }
 
@@ -218,9 +222,11 @@ impl ExtractionRule {
     /// Applies this rule as the `images` rule: with cardinality `all`, whatever its
     /// configured cardinality, so every gallery element yields its ordered image URL
     /// candidates as one group. A matched element without a value (no image URL
-    /// candidate, or no attribute of an attribute rule) is skipped and counted; the rule
-    /// fails with the first skipped element's error only when it skips every element it
-    /// matched.
+    /// candidate, or no attribute of an attribute rule) is skipped and counted. When the
+    /// rule skips every element it matched, a gallery whose elements are all placeholders
+    /// (see [`is_gallery_placeholder`]) is empty and yields no value; otherwise the
+    /// selector does not fit the page, and the rule fails with the error of the first
+    /// skipped element that is not a placeholder.
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,
@@ -285,7 +291,7 @@ impl ExtractionRule {
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut extraction = RuleExtraction::default();
         let mut extracted = ExtractedElements::new();
-        let mut first_skipped_error = None;
+        let mut first_non_placeholder_error = None;
 
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
@@ -304,7 +310,11 @@ impl ExtractionRule {
                     }
                     Err(error) if without_value == ElementWithoutValue::Skipped => {
                         extraction.skipped_elements += 1;
-                        first_skipped_error.get_or_insert(error);
+                        if first_non_placeholder_error.is_none()
+                            && !is_gallery_placeholder(&element)
+                        {
+                            first_non_placeholder_error = Some(error);
+                        }
                     }
                     Err(error) => return Err(error),
                 }
@@ -312,7 +322,11 @@ impl ExtractionRule {
         }
 
         if extraction.values.is_empty() {
-            return Err(first_skipped_error.unwrap_or_else(|| self.no_element_matched()));
+            return match first_non_placeholder_error {
+                Some(error) => Err(error),
+                None if extraction.skipped_elements > 0 => Ok(extraction),
+                None => Err(self.no_element_matched()),
+            };
         }
 
         Ok(extraction)
@@ -1584,7 +1598,7 @@ mod tests {
     }
 
     /// A gallery whose matched elements include elements without a value, which the
-    /// `images` rule skips (#2099).
+    /// `images` rule skips (#2099), up to a gallery of placeholders only (#2432).
     mod image_elements_without_candidate {
         use super::*;
 
@@ -1594,16 +1608,16 @@ mod tests {
             format!("https://files.ekmcdn.com/shop/images/side-table-({index})-5702-p.jpg")
         }
 
-        /// Harrison Antique Furniture's gallery of a product with eight photos: eight
-        /// image links followed by twelve empty `href="#"` slots of the same lightbox.
-        fn gallery_with_placeholder_anchors() -> Html {
-            let image_links = (1..=8).map(|index| {
+        /// Harrison Antique Furniture's gallery of twenty slots: an image link per photo,
+        /// followed by empty `href="#"` slots of the same lightbox.
+        fn gallery_with_placeholder_anchors(photos: usize) -> Html {
+            let image_links = (1..=photos).map(|index| {
                 format!(
                     r#"<div><a href="{}" rel="lightbox[1] mousezoom[1]" target="_blank"></a></div>"#,
                     image_url(index)
                 )
             });
-            let placeholders = (9..=20).map(|index| {
+            let placeholders = (photos + 1..=20).map(|index| {
                 format!(
                     r##"<div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_{index}_2" rel="lightbox[1] mousezoom[1]" data-largeimg="" target="_blank"></a></div>"##
                 )
@@ -1623,7 +1637,7 @@ mod tests {
             );
 
             let images = r
-                .apply_image_url_candidate_groups(&gallery_with_placeholder_anchors())
+                .apply_image_url_candidate_groups(&gallery_with_placeholder_anchors(8))
                 .unwrap();
 
             assert_eq!(images.values, (1..=8).map(image_url).collect::<Vec<_>>());
@@ -1676,7 +1690,7 @@ mod tests {
                 ExtractionCardinality::All,
             );
 
-            let err = r.apply(&gallery_with_placeholder_anchors()).unwrap_err();
+            let err = r.apply(&gallery_with_placeholder_anchors(8)).unwrap_err();
 
             assert!(
                 matches!(&err, ExtractionError::MissingAttribute { attribute, .. } if attribute == "image URL candidate"),
@@ -1685,13 +1699,67 @@ mod tests {
         }
 
         #[test]
-        fn should_fail_when_no_matched_element_has_an_image_url_candidate() {
+        fn should_yield_an_empty_gallery_when_every_matched_element_is_a_placeholder() {
+            let r = rule(
+                GALLERY_SELECTOR,
+                image_url_kind(),
+                ExtractionCardinality::All,
+            );
+
+            let images = r
+                .apply_image_url_candidate_groups(&gallery_with_placeholder_anchors(0))
+                .unwrap();
+
+            assert_eq!(
+                images,
+                RuleExtraction {
+                    values: vec![],
+                    skipped_elements: 20,
+                }
+            );
+        }
+
+        /// Elements without a value that are not all gallery placeholders mean a selector
+        /// that does not fit the page, so it never passes as an empty gallery.
+        #[rstest]
+        #[case::navigation_link(r##"<a href="#"></a>"##, image_url_kind())]
+        #[case::labelled_control(r##"<a href="#" class="zoom">Zoom</a>"##, image_url_kind())]
+        #[case::wrapper_around_its_image(
+            r#"<div class="gallery-item"><img src="/uploads/photo.jpg"></div>"#,
+            image_url_kind()
+        )]
+        #[case::image_the_rule_cannot_read(
+            r#"<div class="gallery-item" data-lazy="/uploads/photo.jpg"></div>"#,
+            image_url_kind()
+        )]
+        #[case::image_link_without_the_attribute(
+            r#"<a rel="lightbox" href="/uploads/photo.jpg"></a>"#,
+            attr_kind("data-full")
+        )]
+        fn should_fail_when_an_element_without_a_value_is_not_a_placeholder(
+            #[case] element: &str,
+            #[case] kind: ExtractionKind,
+        ) {
+            let doc = html(&format!(r#"<div class="thumbs">{element}</div>"#));
+            let r = rule(".thumbs > *", kind, ExtractionCardinality::All);
+
+            let err = r.apply_image_url_candidate_groups(&doc).unwrap_err();
+
+            assert!(
+                matches!(&err, ExtractionError::MissingAttribute { selector, .. } if selector == ".thumbs > *"),
+                "unexpected error: {err:?}"
+            );
+        }
+
+        #[test]
+        fn should_fail_with_the_error_of_the_first_element_that_is_not_a_placeholder() {
             let doc = html(
-                r##"<div class="thumbs"><a href="#" rel="lightbox"></a><a href="#" rel="lightbox"></a></div>"##,
+                r##"<div class="thumbs"><a href="#" rel="lightbox"></a><a href="#" rel="lightbox"></a></div>
+                <div class="actions"><a href="#">Add to wishlist</a></div>"##,
             );
             let r = rule_with_additional(
-                ".missing",
-                vec![".thumbs a"],
+                ".thumbs a",
+                vec![".actions a"],
                 image_url_kind(),
                 ExtractionCardinality::All,
             );
@@ -1702,7 +1770,7 @@ mod tests {
                 matches!(
                     &err,
                     ExtractionError::MissingAttribute { selector, attribute }
-                        if selector == ".thumbs a" && attribute == "image URL candidate"
+                        if selector == ".actions a" && attribute == "image URL candidate"
                 ),
                 "unexpected error: {err:?}"
             );

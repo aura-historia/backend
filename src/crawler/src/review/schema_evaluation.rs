@@ -324,8 +324,8 @@ pub(crate) fn optional_rules_missing_on_every_page(
 }
 
 /// A rule whose miss leaves the field empty instead of failing the page. `images`
-/// is excluded because its soft case (an existing but empty container) is decided by
-/// the page-level apply result, not by match counts.
+/// is excluded because its soft case (an empty gallery) is decided by the page-level
+/// apply result, not by match counts.
 pub(crate) fn selector_field_is_soft(field: &SelectorFieldEvaluation) -> bool {
     !field.required && field.error.is_none() && field.field != "images"
 }

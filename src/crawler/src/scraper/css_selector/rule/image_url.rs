@@ -1,7 +1,9 @@
 //! Images of a matched element: its ordered image URL candidates, joined into one group as
-//! an `image_url` rule captures them, and whether it carries image markup at all.
+//! an `image_url` rule captures them, whether it carries image markup at all, and whether
+//! it is an empty gallery slot.
 
 use super::IMAGE_CANDIDATE_SEPARATOR;
+use super::visible_text::has_visible_text;
 use std::collections::HashSet;
 
 /// The element's image URL candidates joined into one group, or `None` when it has none.
@@ -12,6 +14,18 @@ pub(super) fn image_url_candidate_group(element: &scraper::ElementRef<'_>) -> Op
     }
 
     Some(candidates.join(IMAGE_CANDIDATE_SEPARATOR.encode_utf8(&mut [0; 4])))
+}
+
+/// Whether `element` is a gallery slot without an image, as galleries render for photos a
+/// product does not have (`<a rel="lightbox" href="#"></a>`): its own attributes name an
+/// image context, and it holds no image URL candidate, no image markup and no visible
+/// text. An element that holds an image the rule cannot read, such as a gallery wrapper
+/// around its `<img>`, is no placeholder, and neither is a control with a label.
+pub(super) fn is_gallery_placeholder(element: &scraper::ElementRef<'_>) -> bool {
+    element_attrs_have_image_context(element)
+        && image_url_candidate_group(element).is_none()
+        && !element_has_image_like_evidence(element)
+        && !has_visible_text(element)
 }
 
 fn image_url_candidates_for_element(element: &scraper::ElementRef<'_>) -> Vec<String> {

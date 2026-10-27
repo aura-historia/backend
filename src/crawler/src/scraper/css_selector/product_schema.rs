@@ -171,6 +171,10 @@ impl ProductCssSelectorSchema {
             .try_for_each(|(index, schema)| schema.validate_rules().map_err(|error| (index, error)))
     }
 
+    /// Applies the `images` rule (see [`ExtractionRule::apply_image_url_candidate_groups`]).
+    /// An empty gallery yields no image instead of failing the page: the rule's matched
+    /// elements are all gallery placeholders, or its selector matched nothing and names an
+    /// image container that exists and holds no image.
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,
@@ -196,11 +200,11 @@ impl ProductCssSelectorSchema {
     /// diagnostic (warn for description and price, debug or trace otherwise) instead of a
     /// page error: one page without a description must not invalidate the schema. Only
     /// `title` and `state` fail closed on a miss; on empty elements they yield an empty
-    /// value that the blank plausibility check rejects. `images` fails closed unless the
-    /// image container exists and holds no image (see
-    /// [`Self::apply_image_url_candidate_groups`]). `images` skips
-    /// gallery elements without a value (no image URL candidate, or no attribute of an
-    /// attribute rule) and fails only when it skips every element it matched. Any other
+    /// value that the blank plausibility check rejects. `images` skips gallery elements
+    /// without a value (no image URL candidate, or no attribute of an attribute rule) and
+    /// fails closed unless the gallery is empty (see
+    /// [`Self::apply_image_url_candidate_groups`]), so a page without photos yields no
+    /// image and the plausibility checks judge it like any other extraction. Any other
     /// rule failure (invalid selector, missing attribute) still returns the
     /// corresponding [`ApplySchemaError`] variant immediately.
     ///
@@ -715,6 +719,30 @@ mod tests {
         let result = schema.apply(&html).unwrap();
 
         assert!(result.images.is_empty());
+    }
+
+    /// A product without photos whose gallery renders only empty lightbox slots.
+    #[test]
+    fn should_extract_no_images_when_every_gallery_element_is_a_placeholder() {
+        let html = Html::parse_document(
+            r##"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <div class="product-image-grid">
+                    <div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_1_2" rel="lightbox[1]" data-largeimg=""></a></div>
+                    <div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_2_2" rel="lightbox[1]" data-largeimg=""></a></div>
+                </div>
+            </body></html>"##,
+        );
+        let schema = ProductCssSelectorSchema {
+            images: image_rule_all(r#"div.product-image-grid a[rel^="lightbox"]"#),
+            ..required_only_schema()
+        };
+
+        let extraction = schema.extract(&html).unwrap();
+
+        assert!(extraction.raw.images.is_empty());
+        assert_eq!(extraction.skipped_image_elements, 2);
+        assert_eq!(extraction.raw.title, "T");
     }
 
     #[test]
@@ -1574,8 +1602,9 @@ mod tests {
         assert_eq!(result.images, vec!["a.jpg", "b.jpg", "c.jpg"]);
     }
 
-    /// The only matched `<img>` has no `src`, so no element yields a value, and no empty
-    /// image container exists.
+    /// The only matched `<img>` has no `src`, so no element yields a value; an `<img>` is
+    /// image markup rather than a gallery placeholder, and no empty image container
+    /// exists.
     #[test]
     fn should_return_err_images_when_img_element_missing_src_attribute() {
         let html = Html::parse_document(
