@@ -120,7 +120,8 @@ pub enum ExtractionCardinality {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct RuleExtraction {
     /// Empty only for an empty gallery: an `images` rule whose matched elements are all
-    /// gallery placeholders.
+    /// gallery placeholders, or, as the schema applies it, one whose selector matched
+    /// nothing and names an existing image container without an image.
     pub(crate) values: Vec<String>,
     /// Matched elements without a value: no image URL candidate, or no attribute of an
     /// attribute rule. Only the `images` rule skips elements
