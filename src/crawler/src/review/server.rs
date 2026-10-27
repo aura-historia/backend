@@ -429,7 +429,7 @@ impl ReviewServer {
             };
             return match self.repository.remove_reviewer_page(page_id).await {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(error) => reviewer_page_error(error),
+                Err(error) => review_error(error),
             };
         }
 
@@ -578,7 +578,7 @@ impl ReviewServer {
                 .await
             {
                 Ok(candidate_version) => candidate_edited(candidate_version),
-                Err(err) => candidate_edit_error(err),
+                Err(err) => review_error(err),
             };
         }
 
@@ -605,7 +605,7 @@ impl ReviewServer {
                 .await
             {
                 Ok(candidate_version) => candidate_edited(candidate_version),
-                Err(err) => candidate_edit_error(err),
+                Err(err) => review_error(err),
             };
         }
 
@@ -767,7 +767,7 @@ impl ReviewServer {
         self.repository
             .check_reviewer_page_target(review_id, &url)
             .await
-            .map_err(reviewer_page_error)?;
+            .map_err(review_error)?;
         let fetched = self
             .html_fetcher
             .fetch(&url)
@@ -776,7 +776,7 @@ impl ReviewServer {
         self.repository
             .add_reviewer_page(review_id, &url, &fetched.final_url, &fetched.html)
             .await
-            .map_err(reviewer_page_error)
+            .map_err(review_error)
     }
 
     async fn live_review_page(
@@ -1167,52 +1167,44 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
     )
 }
 
-/// Maps a refused candidate edit (`/candidate` or `/schema-field`) to its answer: 404 for an
-/// unknown review, 400 for an edit the review cannot take, 409 for an edit based on an older
-/// candidate version and for an approved review whose candidate is no longer live.
-fn candidate_edit_error(error: ReviewRepositoryError) -> HttpResponse {
+/// Maps a refused review request to its answer, the same on every review route: 404 for an
+/// unknown review or review page, 400 for a request the review cannot take, 409 for a request
+/// the review's current state refuses, and 500 for a technical failure. A 409 for a request based
+/// on an older candidate carries the review's current `candidate_version`.
+fn review_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
-        ReviewRepositoryError::NotFound(_) => {
+        ReviewRepositoryError::NotFound(_) | ReviewRepositoryError::ReviewPageNotFound(_) => {
             HttpResponse::json(404, &json!({ "error": error.to_string() }))
         }
-        ReviewRepositoryError::StaleCandidateVersion { current, .. } => {
-            review_changed(&error, current)
-        }
-        ReviewRepositoryError::InvalidSchemaField(_)
+        ReviewRepositoryError::NotPending(_)
+        | ReviewRepositoryError::MissingRepairNote
+        | ReviewRepositoryError::UnsupportedArtifact(_, _)
+        | ReviewRepositoryError::InvalidSchemaField(_)
         | ReviewRepositoryError::RequiredSchemaField(_)
         | ReviewRepositoryError::UnregisteredRawAttributeKey(_)
         | ReviewRepositoryError::InvalidUrlPatternCandidate
         | ReviewRepositoryError::InvalidProductSchemaCandidate
         | ReviewRepositoryError::InvalidRemovedPageTemplate { .. }
-        | ReviewRepositoryError::UnsupportedArtifact(_, _)
-        | ReviewRepositoryError::NotPending(_) => {
-            HttpResponse::json(400, &json!({ "error": error.to_string() }))
-        }
-        ReviewRepositoryError::StaleApprovedReview(_)
-        | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_) => {
-            HttpResponse::json(409, &json!({ "error": error.to_string() }))
-        }
-        other => internal_error(other),
-    }
-}
-
-fn reviewer_page_error(error: ReviewRepositoryError) -> HttpResponse {
-    match error {
-        ReviewRepositoryError::NotFound(_) | ReviewRepositoryError::ReviewPageNotFound(_) => {
-            HttpResponse::json(404, &json!({ "error": error.to_string() }))
-        }
-        ReviewRepositoryError::DuplicateReviewPage(_) => {
-            HttpResponse::json(409, &json!({ "error": error.to_string() }))
-        }
-        ReviewRepositoryError::ReviewPageUrlNotAllowed(_)
+        | ReviewRepositoryError::ReviewPageUrlNotAllowed(_)
         | ReviewRepositoryError::ReviewPageLimitReached(_)
         | ReviewRepositoryError::NotReviewerAddedPage(_)
-        | ReviewRepositoryError::RedirectedToNonProductPage(_)
-        | ReviewRepositoryError::UnsupportedArtifact(_, _)
-        | ReviewRepositoryError::NotPending(_) => {
+        | ReviewRepositoryError::RedirectedToNonProductPage(_) => {
             HttpResponse::json(400, &json!({ "error": error.to_string() }))
         }
-        other => internal_error(other),
+        ReviewRepositoryError::StaleCandidateVersion { current, .. } => {
+            review_changed(&error, current)
+        }
+        ReviewRepositoryError::CandidateChangedDuringEvaluation { candidate_version } => {
+            review_changed(&error, candidate_version)
+        }
+        ReviewRepositoryError::StaleApprovedReview(_)
+        | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)
+        | ReviewRepositoryError::DuplicateReviewPage(_) => {
+            HttpResponse::json(409, &json!({ "error": error.to_string() }))
+        }
+        ReviewRepositoryError::Database(_)
+        | ReviewRepositoryError::Json(_)
+        | ReviewRepositoryError::Regex(_) => internal_error(error),
     }
 }
 
