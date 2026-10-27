@@ -2163,7 +2163,8 @@ async fn pending_schema_review(
 
 /// Two writers that read the same candidate version, such as a reviewer and the review agent,
 /// edit at once: the review's row lock applies one edit and refuses the other with the version
-/// it would overwrite, instead of letting it silently replace the first.
+/// it would overwrite, instead of letting it silently replace the first. The test holds the
+/// review row until both edits wait on it, so both are in flight before either applies.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_the_second_of_two_concurrent_edits_based_on_the_same_candidate_version() {
     let pool = get_postgres_client().await;
@@ -2172,8 +2173,14 @@ async fn should_refuse_the_second_of_two_concurrent_edits_based_on_the_same_cand
     insert_listing_source(&pool, listing_source_id).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     let read_version = candidate_version(&repository, review_id).await;
+    let mut review_lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM crawler_reviews WHERE review_id = $1 FOR UPDATE")
+        .bind(review_id.as_uuid())
+        .execute(&mut *review_lock)
+        .await
+        .unwrap();
 
-    let (candidate_edit, field_edit) = tokio::join!(
+    let (candidate_edit, field_edit, ()) = tokio::join!(
         repository.update_candidate_payload(
             review_id,
             read_version,
@@ -2186,6 +2193,10 @@ async fn should_refuse_the_second_of_two_concurrent_edits_based_on_the_same_cand
             "title",
             Some(rule("h1.field-edit")),
         ),
+        async {
+            wait_for_review_lock_waiters(&pool, 2).await;
+            review_lock.commit().await.unwrap();
+        },
     );
 
     let (applied, applied_title, refused) = match (candidate_edit, field_edit) {
@@ -2208,6 +2219,26 @@ async fn should_refuse_the_second_of_two_concurrent_edits_based_on_the_same_cand
         review.candidate_payload["schemas"][0]["title"]["selector"],
         applied_title
     );
+}
+
+/// Waits until `count` statements on reviews are blocked on a lock.
+async fn wait_for_review_lock_waiters(pool: &PgPool, count: i64) {
+    for _ in 0..500 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_stat_activity \
+             WHERE datname = current_database() \
+               AND wait_event_type = 'Lock' \
+               AND query LIKE '%crawler_reviews%'",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if waiting >= count {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("{count} review statements never waited on a lock");
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
