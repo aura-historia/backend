@@ -348,14 +348,24 @@ fn schema_matrix_has_required_coverage(matrix: &SchemaMatrix) -> bool {
         return false;
     }
 
-    first_candidate.pages.iter().all(|target_page| {
-        matrix.candidates.iter().any(|candidate| {
-            candidate
-                .pages
-                .iter()
-                .find(|page| page.page_reference == target_page.page_reference)
-                .is_some_and(page_has_required_extraction)
-        })
+    first_candidate
+        .pages
+        .iter()
+        .all(|target_page| schema_matrix_covers_page(matrix, &target_page.page_reference))
+}
+
+/// A page is covered when at least one candidate's extraction of it applies, so runtime
+/// selection would capture it.
+pub(crate) fn schema_matrix_covers_page(
+    matrix: &SchemaMatrix,
+    page_reference: &SchemaPageReference,
+) -> bool {
+    matrix.candidates.iter().any(|candidate| {
+        candidate
+            .pages
+            .iter()
+            .find(|page| page.page_reference == *page_reference)
+            .is_some_and(page_has_required_extraction)
     })
 }
 

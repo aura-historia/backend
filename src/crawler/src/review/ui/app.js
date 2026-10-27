@@ -948,12 +948,13 @@ async function saveRemovedPageTemplates() {
 
 // The server refuses an edit with a message (an invalid rule or template, a stale approved
 // review, a page outside the ListingSource); it stays above the workbench with the unsaved edits
-// so the reviewer can correct them.
+// so the reviewer can correct them. Returns whether the edit went through.
 async function submitEdit(edit) {
     const reviewId = selectedId;
     editRefusal = null;
     try {
         await edit();
+        return true;
     } catch (error) {
         editRefusal = {reviewId, message: apiErrorMessage(error)};
         const currentVersion = changedCandidateVersion(error);
@@ -962,6 +963,7 @@ async function submitEdit(edit) {
             selectedReviewRefreshReason = `The candidate changed elsewhere and is at version ${currentVersion}; your edits are not saved. Refresh the review and apply them again.`;
         }
         if (selectedDetail && selectedId === reviewId) rerenderWorkbench();
+        return false;
     }
 }
 
@@ -1025,20 +1027,29 @@ function renderJsonPanel(detail) {
     </div>`;
 }
 
+// The review pages at least one schema applies to, out of every review page. A review page the
+// matrix did not evaluate is not covered until the next evaluation.
+function reviewPageCoverage(detail, matrix) {
+    const evaluatedPages = matrix.candidates[0].pages || [];
+    const covered = evaluatedPages.filter(page => pageCovered(matrix, page.page_reference)).length;
+    const notEvaluated = detail ? unevaluatedReviewPages(detail, matrix).length : 0;
+    return {covered, total: evaluatedPages.length + notEvaluated, notEvaluated};
+}
+
+function coverageText({covered, total, notEvaluated}) {
+    return `${covered} / ${total} live page${total === 1 ? '' : 's'} covered by at least one schema${notEvaluated ? `; ${notEvaluated} not evaluated` : ''}`;
+}
+
 function renderCoverageSummary(matrix) {
     if (!matrix || !matrix.candidates || !matrix.candidates.length) {
         return '<div class="muted">No schema coverage data available.</div>';
     }
-    const pageRefs = matrix.candidates[0].pages || [];
-    const covered = pageRefs.filter(page => pageCovered(matrix, page.page_reference)).length;
-    // A review page the matrix did not evaluate is not covered until the next evaluation.
-    const unevaluated = selectedDetail ? unevaluatedReviewPages(selectedDetail, matrix).length : 0;
-    const total = pageRefs.length + unevaluated;
-    const scope = unevaluated ? 'evaluated' : 'live';
+    const coverage = reviewPageCoverage(selectedDetail, matrix);
+    const scope = coverage.notEvaluated ? 'evaluated' : 'live';
     const failures = currentCandidateFailures(matrix);
     return `<div class="hint-card">
       <strong>Coverage</strong>
-      <div>${covered} / ${total} live page${total === 1 ? '' : 's'} covered by at least one schema${unevaluated ? `; ${unevaluated} not evaluated` : ''}.</div>
+      <div>${coverageText(coverage)}.</div>
       ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : `<div class="muted">Selected schema applied to every ${scope} page.</div>`}
       ${renderSchemasApplyingToNoPage(matrix, scope)}
       ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}

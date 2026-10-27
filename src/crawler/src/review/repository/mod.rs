@@ -437,24 +437,7 @@ impl CrawlerReviewRepository {
         &self,
         review_id: CrawlerReviewId,
     ) -> Result<Vec<CrawlerReviewPage>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT review_page_id, review_id, url, role, html_hash, fetched
-             FROM crawler_review_pages
-             WHERE review_id = $1
-             ORDER BY
-               CASE role
-                 WHEN 'PRIMARY' THEN 0
-                  WHEN 'TRIGGERING_GENERATION_PAGE' THEN 0
-                  WHEN 'TRIGGERING_REPAIR_PAGE' THEN 0
-                 ELSE 1
-               END,
-               created",
-        )
-        .bind(review_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
-
-        rows.into_iter().map(row_to_page).collect()
+        fetch_review_pages(&self.pool, review_id).await
     }
 
     async fn get_review_urls(
@@ -1670,6 +1653,31 @@ async fn insert_review_page(
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+/// The review's pages, seed and triggering pages first, each group in the order they joined.
+async fn fetch_review_pages<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    review_id: CrawlerReviewId,
+) -> Result<Vec<CrawlerReviewPage>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT review_page_id, review_id, url, role, html_hash, fetched
+         FROM crawler_review_pages
+         WHERE review_id = $1
+         ORDER BY
+           CASE role
+             WHEN 'PRIMARY' THEN 0
+              WHEN 'TRIGGERING_GENERATION_PAGE' THEN 0
+              WHEN 'TRIGGERING_REPAIR_PAGE' THEN 0
+             ELSE 1
+           END,
+           created",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_all(executor)
+    .await?;
+
+    rows.into_iter().map(row_to_page).collect()
 }
 
 /// Drops the cached schema matrix, and the summary schema generation recorded of it, after the

@@ -16,6 +16,7 @@ use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId};
 use dashmap::DashMap;
 use listing_source_core::{Domain, ListingSourceId};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -482,7 +483,7 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/approve") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = match parse_action_payload(request.body) {
+            let payload: ActionPayload = match parse_verdict_payload(request.body) {
                 Ok(payload) => payload,
                 Err(error) => {
                     return HttpResponse::json(400, &json!({ "error": error.to_string() }));
@@ -505,7 +506,7 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/reject") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = match parse_action_payload(request.body) {
+            let payload: ActionPayload = match parse_verdict_payload(request.body) {
                 Ok(payload) => payload,
                 Err(error) => {
                     return HttpResponse::json(400, &json!({ "error": error.to_string() }));
@@ -528,7 +529,7 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/needs-repair") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = match parse_action_payload(request.body) {
+            let payload: ActionPayload = match parse_verdict_payload(request.body) {
                 Ok(payload) => payload,
                 Err(error) => {
                     return HttpResponse::json(400, &json!({ "error": error.to_string() }));
@@ -992,9 +993,12 @@ struct ReviewPagePayload {
     url: String,
 }
 
-fn parse_action_payload(body: &str) -> Result<ActionPayload, serde_json::Error> {
+/// Reads the body of a verdict, where an empty body stands for a verdict without notes.
+fn parse_verdict_payload<T: DeserializeOwned + Default>(
+    body: &str,
+) -> Result<T, serde_json::Error> {
     if body.trim().is_empty() {
-        return Ok(ActionPayload::default());
+        return Ok(T::default());
     }
     serde_json::from_str(body)
 }
@@ -1087,8 +1091,7 @@ fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
 /// The schema matrix cached on the review, or `None` when it holds none, or one that no longer
 /// decodes, so the caller refreshes it from the live pages.
 fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
-    let value = detail.review.validation_summary.get("schema_matrix")?;
-    serde_json::from_value::<SchemaMatrix>(value.clone())
+    SchemaMatrix::stored_in(&detail.review.validation_summary)?
         .inspect_err(|err| {
             warn!(
                 review_id = %detail.review.review_id,

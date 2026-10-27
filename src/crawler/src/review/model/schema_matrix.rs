@@ -10,3 +10,14 @@ pub struct SchemaMatrix {
     #[serde(default)]
     pub removed_page_matches: Vec<RemovedPageTemplateMatch>,
 }
+
+impl SchemaMatrix {
+    /// The schema matrix a review's validation summary stores, `None` when it stores none, or the
+    /// decoding error of one that no longer decodes, such as a matrix stored before a later check.
+    pub fn stored_in(
+        validation_summary: &serde_json::Value,
+    ) -> Option<Result<Self, serde_json::Error>> {
+        let stored = validation_summary.get("schema_matrix")?;
+        Some(serde_json::from_value(stored.clone()))
+    }
+}
