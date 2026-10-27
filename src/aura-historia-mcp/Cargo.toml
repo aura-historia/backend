@@ -55,7 +55,7 @@ platform-postgres = { workspace = true }
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true }
-jsonschema = { version = "0.59.0", default-features = false }
+jsonschema = { version = "0.60.1", default-features = false }
 localization = { workspace = true }
 money = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
