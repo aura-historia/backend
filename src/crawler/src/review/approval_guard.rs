@@ -4,6 +4,7 @@
 //! with the approval; the contract is in `docs/crawler/extraction-and-review.md` (approval guard).
 
 use crate::CrawlerReviewPageId;
+use crate::network::policy::canonical_crawler_domain;
 use crate::review::model::{
     CrawlerReviewPage, LiveMatrixEvaluation, SampleLabels, SampleUrlLabel, SchemaMatrix,
     SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
@@ -66,7 +67,8 @@ pub enum FailedApprovalCheck {
     },
     /// URLs labelled `PRODUCT` that the decision does not classify as product pages.
     ProductLabelNotMatched { urls: Vec<String> },
-    /// URLs labelled `NOT_PRODUCT` that the decision classifies as product pages.
+    /// URLs labelled `NOT_PRODUCT` that the decision classifies as product pages under a spelling
+    /// the crawler may store them under.
     NotProductLabelMatched { urls: Vec<String> },
 }
 
@@ -349,7 +351,7 @@ pub(crate) fn url_pattern_approval_checks(
         failed.push(FailedApprovalCheck::ProductLabelNotMatched { urls: missed });
     }
     let taken: Vec<String> = labelled(SampleUrlLabel::NotProduct)
-        .filter(|url| decision_takes(pattern.as_ref(), &url.url))
+        .filter(|url| decision_takes_any_spelling(pattern.as_ref(), &url.url))
         .map(|url| url.url.clone())
         .collect();
     if !taken.is_empty() {
@@ -364,6 +366,34 @@ fn decision_takes(pattern: Option<&Regex>, url: &str) -> bool {
     pattern.is_some_and(|pattern| {
         Url::parse(url).is_ok_and(|url| CrawledUrl::new(url).matches_pattern(pattern))
     })
+}
+
+/// Whether the decision's `pattern` takes the page the labelled `url` names under any spelling the
+/// crawler may store it under: the crawler's spelling of the URL on http or https, with or without
+/// `www.`, which the crawler treats as one domain. A decision anchored on one of them would
+/// otherwise pass a `NOT_PRODUCT` label in another and still take the page as the spider stored it.
+fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
+    let Some(pattern) = pattern else {
+        return false;
+    };
+    let Ok(url) = Url::parse(url) else {
+        return false;
+    };
+    let url = CrawledUrl::new(url).as_url().clone();
+    let Some(domain) = url.host_str().map(canonical_crawler_domain) else {
+        return pattern.is_match(url.as_str());
+    };
+    let www = format!("www.{domain}");
+    ["https", "http"]
+        .into_iter()
+        .flat_map(|scheme| [(scheme, domain.as_str()), (scheme, www.as_str())])
+        .filter_map(|(scheme, host)| {
+            let mut spelling = url.clone();
+            (spelling.set_scheme(scheme).is_ok() && spelling.set_host(Some(host)).is_ok())
+                .then_some(spelling)
+        })
+        .chain(std::iter::once(url.clone()))
+        .any(|spelling| pattern.is_match(spelling.as_str()))
 }
 
 /// The refusal of a live matrix whose pages were fetched more than `max_age` before `now`.
@@ -939,6 +969,38 @@ mod tests {
             vec![FailedApprovalCheck::NotProductLabelMatched {
                 urls: vec![NOT_PRODUCTS[0].to_owned()],
             }]
+        );
+    }
+
+    /// The crawler treats `www.` and the bare host, http and https as one page and stores
+    /// whichever spelling it found, so a decision anchored on a spelling the label does not use
+    /// still takes the page labelled `NOT_PRODUCT`; one that takes no spelling of it passes.
+    #[test]
+    fn should_refuse_a_decision_that_takes_a_url_labelled_not_product_in_another_spelling() {
+        let www_products = PRODUCTS.map(|url| url.replace("https://", "https://www."));
+        let www_products: Vec<&str> = www_products.iter().map(String::as_str).collect();
+        let on_www = |value: &str| labelled(pattern(value), &www_products, &NOT_PRODUCTS);
+
+        assert_eq!(
+            url_checks(&on_www(r"^https://www\.antique-shop\.example/")),
+            vec![FailedApprovalCheck::NotProductLabelMatched {
+                urls: NOT_PRODUCTS.map(str::to_owned).to_vec(),
+            }]
+        );
+        assert_eq!(
+            url_checks(&on_www(r"^http://antique-shop\.example/")),
+            vec![
+                FailedApprovalCheck::ProductLabelNotMatched {
+                    urls: www_products.iter().map(|url| (*url).to_owned()).collect(),
+                },
+                FailedApprovalCheck::NotProductLabelMatched {
+                    urls: NOT_PRODUCTS.map(str::to_owned).to_vec(),
+                },
+            ]
+        );
+        assert_eq!(
+            url_checks(&on_www(r"^https://www\.antique-shop\.example/item/[^/]+$")),
+            Vec::new()
         );
     }
 
