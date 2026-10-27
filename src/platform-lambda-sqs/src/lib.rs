@@ -224,6 +224,16 @@ where
     Ok(response)
 }
 
+/// How an attempted FIFO record leaves the queue. The consumer classifies each attempt; the
+/// batch keeps message-group order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FifoDisposition {
+    /// Confirmed complete: Lambda deletes the record.
+    Complete,
+    /// Not confirmed complete: retain the record and every later record of its message group.
+    Retain,
+}
+
 /// The partial-batch response of a FIFO invocation and the records it retained unstarted.
 #[derive(Default)]
 pub struct FifoBatchOutcome {
@@ -244,7 +254,7 @@ pub async fn process_fifo_batch<T, F, Fut>(
     remaining: Duration,
     per_record_cap: Duration,
     mut process: F,
-    mut is_complete: impl FnMut(&RecordAttempt<T>) -> bool,
+    mut dispose: impl FnMut(&RecordAttempt<T>) -> FifoDisposition,
 ) -> Result<FifoBatchOutcome, Error>
 where
     F: FnMut(String) -> Fut,
@@ -270,7 +280,7 @@ where
         }
         let budget = per_record_cap.min(remaining.saturating_sub(started_at.elapsed()));
         let attempt = attempt_record(message_id, record.body, budget, &mut process).await;
-        if !is_complete(&attempt) {
+        if dispose(&attempt) == FifoDisposition::Retain {
             if matches!(attempt.outcome, RecordOutcome::InsufficientBudget) {
                 retained.retain_every_group();
             } else {
@@ -448,6 +458,14 @@ mod tests {
             .collect()
     }
 
+    fn complete_when_true(attempt: &RecordAttempt<bool>) -> FifoDisposition {
+        if matches!(attempt.outcome, RecordOutcome::Completed(true)) {
+            FifoDisposition::Complete
+        } else {
+            FifoDisposition::Retain
+        }
+    }
+
     #[tokio::test]
     async fn fifo_stops_at_first_unfinished_record_and_returns_the_whole_suffix() {
         for (bad_body, expected_calls) in [(None, 1), (Some("retry"), 2)] {
@@ -468,7 +486,7 @@ mod tests {
                         body == "ok"
                     }
                 },
-                |attempt| matches!(attempt.outcome, RecordOutcome::Completed(true)),
+                complete_when_true,
             )
             .await
             .unwrap()
@@ -499,7 +517,7 @@ mod tests {
                     body == "ok"
                 }
             },
-            |attempt| matches!(attempt.outcome, RecordOutcome::Completed(true)),
+            complete_when_true,
         )
         .await
         .unwrap();
@@ -522,7 +540,7 @@ mod tests {
                     true
                 }
             },
-            |attempt| matches!(attempt.outcome, RecordOutcome::Completed(true)),
+            complete_when_true,
         )
         .await
         .unwrap();
@@ -546,7 +564,7 @@ mod tests {
                 Duration::from_secs(1),
                 Duration::from_secs(1),
                 |body| async move { body == "ok" },
-                |attempt| matches!(attempt.outcome, RecordOutcome::Completed(true)),
+                complete_when_true,
             )
             .await
             .unwrap();
@@ -569,7 +587,7 @@ mod tests {
                     true
                 }
             },
-            |attempt| matches!(attempt.outcome, RecordOutcome::Completed(true)),
+            complete_when_true,
         )
         .await
         .unwrap();
@@ -589,7 +607,7 @@ mod tests {
                 Duration::from_secs(1),
                 Duration::from_secs(1),
                 |_| async { true },
-                |a| matches!(a.outcome, RecordOutcome::Completed(true)),
+                complete_when_true,
             )
             .await
             .unwrap()
@@ -622,7 +640,7 @@ mod tests {
                         }
                     }
                 },
-                |a| matches!(a.outcome, RecordOutcome::Completed(true)),
+                complete_when_true,
             )
             .await
             .unwrap()
@@ -662,7 +680,7 @@ mod tests {
                     Duration::from_secs(1),
                     Duration::from_secs(1),
                     |_| async { true },
-                    |a| matches!(a.outcome, RecordOutcome::Completed(true)),
+                    complete_when_true,
                 )
                 .await
                 .is_err()

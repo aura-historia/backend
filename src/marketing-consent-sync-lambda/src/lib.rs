@@ -2,7 +2,7 @@ use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
-use platform_lambda_sqs::{RecordOutcome, process_fifo_batch};
+use platform_lambda_sqs::{FifoDisposition, RecordOutcome, process_fifo_batch};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 use user_loops::{LoopsMarketingEmailConsentWriter, LoopsNewsletterConfig};
@@ -65,21 +65,21 @@ async fn handler_with_budget(
         MAX_RECORD_PROCESSING_BUDGET,
         |body| async move { process_marketing_consent_sync_job(&body, use_case).await },
         |attempt| {
-            let complete = match &attempt.outcome {
-                RecordOutcome::Completed(disposition) => disposition.is_complete(),
+            let disposition = match &attempt.outcome {
+                RecordOutcome::Completed(disposition) => disposition.fifo_disposition(),
                 RecordOutcome::MissingBody
                 | RecordOutcome::InsufficientBudget
                 | RecordOutcome::TimedOut
-                | RecordOutcome::Panicked => false,
+                | RecordOutcome::Panicked => FifoDisposition::Retain,
             };
-            if !complete {
+            if disposition == FifoDisposition::Retain {
                 warn!(
                     message_id = %attempt.message_id,
                     outcome = outcome_category(&attempt.outcome),
                     "Marketing consent sync record retained for SQS retry or redrive"
                 );
             }
-            complete
+            disposition
         },
     )
     .await?
@@ -104,11 +104,13 @@ pub enum MarketingConsentSyncJobDisposition {
 }
 
 impl MarketingConsentSyncJobDisposition {
-    pub const fn is_complete(self) -> bool {
-        matches!(
-            self,
-            Self::Applied | Self::Blocked | Self::Superseded | Self::AlreadyTerminal
-        )
+    pub const fn fifo_disposition(self) -> FifoDisposition {
+        match self {
+            Self::Applied | Self::Blocked | Self::Superseded | Self::AlreadyTerminal => {
+                FifoDisposition::Complete
+            }
+            Self::Deferred | Self::Missing | Self::Retry | Self::Poison => FifoDisposition::Retain,
+        }
     }
 
     const fn category(self) -> &'static str {

@@ -2,7 +2,9 @@ use auction_postgres::SqlxAuctionReferenceValidatorFactory;
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
-use platform_lambda_sqs::{RecordOutcome, handle_fifo_sqs_invocation, process_fifo_batch};
+use platform_lambda_sqs::{
+    FifoDisposition, RecordOutcome, handle_fifo_sqs_invocation, process_fifo_batch,
+};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::codec;
 use product_listing_postgres::{
@@ -12,7 +14,7 @@ use product_listing_postgres::{
 };
 use product_listing_service::use_cases::{
     ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
-    ProductListingIngestionCompletion,
+    ProductListingIngestionCompletion, ProductListingIngestionFailureClass,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -154,7 +156,7 @@ async fn handler_with_budget(
                 safe_sqs_message_id(&attempt.message_id).unwrap_or("invalid"),
                 attempt.duration.as_millis(),
             );
-            disposition.acknowledges()
+            disposition.fifo_disposition()
         },
     )
     .await?;
@@ -180,8 +182,11 @@ enum AttemptDisposition {
 }
 
 impl AttemptDisposition {
-    const fn acknowledges(self) -> bool {
-        matches!(self, Self::Completed | Self::Rejected)
+    const fn fifo_disposition(self) -> FifoDisposition {
+        match self {
+            Self::Completed | Self::Rejected => FifoDisposition::Complete,
+            Self::Retained => FifoDisposition::Retain,
+        }
     }
 
     const fn metric(self) -> IngestionMetricOutcome {
@@ -356,10 +361,14 @@ async fn process_ingestion_job(
         Ok(ProductListingIngestionCompletion::AlreadyCompleted) => {
             JobDisposition::Complete("already_completed")
         }
-        Err(error) if error.is_business_rejection() => {
-            JobDisposition::Rejected(error.diagnostic_code())
-        }
-        Err(error) => JobDisposition::Failed(error.diagnostic_code()),
+        Err(error) => match error.failure_class() {
+            ProductListingIngestionFailureClass::BusinessRejection => {
+                JobDisposition::Rejected(error.diagnostic_code())
+            }
+            ProductListingIngestionFailureClass::Retryable => {
+                JobDisposition::Failed(error.diagnostic_code())
+            }
+        },
     }
 }
 
