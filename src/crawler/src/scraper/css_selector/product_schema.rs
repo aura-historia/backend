@@ -779,6 +779,28 @@ mod tests {
         assert_eq!(extraction.raw.title, "T");
     }
 
+    /// A URL without a host can never be fetched, so a gallery container that holds only
+    /// such an image holds no image.
+    #[test]
+    fn should_allow_empty_images_when_the_image_container_holds_only_a_hostless_image() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
+                <div id="wpgs-gallery">
+                    <img src="//:0" style="display:none">
+                </div>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            images: image_rule_all("#wpgs-gallery img.wp-post-image"),
+            ..required_only_schema()
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert!(result.images.is_empty());
+    }
+
     #[test]
     fn should_return_err_images_when_missing_image_container_selector_matches_nothing() {
         let html = Html::parse_document(

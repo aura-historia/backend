@@ -1776,6 +1776,103 @@ mod tests {
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
         }
 
+        /// Harrison Antique Furniture's lightbox gallery: an image link per photo, then
+        /// empty `href="#"` slots, each holding a hidden image without a host, up to twenty.
+        mod placeholder_gallery {
+            use super::*;
+
+            const SLOTS: &str = r#"div.product-image-grid a[rel^="lightbox"]"#;
+
+            fn photo_url(path: &str, index: usize) -> String {
+                format!("https://files.ekmcdn.com/shop/images/{path}-({index})-5702-p.jpg")
+            }
+
+            fn gallery(path: &str, photos: usize) -> String {
+                let image_links = (1..=photos).map(|index| {
+                    format!(
+                        r#"<div><a href="{}" rel="lightbox[1] mousezoom[1]" target="_blank"></a></div>"#,
+                        photo_url(path, index)
+                    )
+                });
+                let placeholders = (photos + 1..=20).map(|index| {
+                    format!(
+                        r##"<div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_{index}_2" rel="lightbox[1] mousezoom[1]" data-thumbnailimg="" data-largeimg="" data-video="" target="_blank"/>
+<img itemprop="image" src="//:0" alt="variant attributes" width="200" height="200" id="_EKM_PRODUCTIMAGE_{index}_2" border="0" style="display:none;" /></a></div>"##
+                    )
+                });
+                format!(
+                    r#"<div class="product-image-grid">{}</div>"#,
+                    image_links.chain(placeholders).collect::<String>()
+                )
+            }
+
+            fn page(path: &str, photos: usize) -> SchemaReviewPageInput {
+                product_page(path, &gallery(path, photos))
+            }
+
+            fn schema_with_image_urls(selector: &str) -> ProductCssSelectorSchema {
+                ProductCssSelectorSchema {
+                    images: ExtractionRule {
+                        selector: CssSelector::from(selector),
+                        additional_selectors: Vec::new(),
+                        extract: ExtractionKind::ImageUrl,
+                        cardinality: ExtractionCardinality::All,
+                    },
+                    ..schema("h1")
+                }
+            }
+
+            fn extracted_images(matrix: &SchemaMatrix) -> Vec<Option<Vec<String>>> {
+                matrix.candidates[0]
+                    .pages
+                    .iter()
+                    .map(|page| page.extracted.as_ref().map(|raw| raw.images.clone()))
+                    .collect()
+            }
+
+            /// The `images` rule drops the host-less hidden images, so a page of a product
+            /// without photos applies as an empty gallery and the matrix never sees `//:0`.
+            /// With no photo on any review page it cannot tell such products from a wrong
+            /// selector.
+            #[rstest::rstest]
+            #[case::slots(SLOTS)]
+            #[case::hidden_images_of_the_slots("div.product-image-grid img")]
+            fn should_block_deterministic_approval_when_every_page_has_only_placeholders(
+                #[case] selector: &str,
+            ) {
+                let pages = vec![page("chair", 0), page("table", 0)];
+
+                let matrix =
+                    evaluate_schema_matrix_for_inputs(&[schema_with_image_urls(selector)], &pages);
+
+                assert!(matrix.candidates[0].pages.iter().all(|page| page.apply_ok));
+                assert_eq!(extracted_images(&matrix), vec![Some(vec![]), Some(vec![])]);
+                assert_eq!(
+                    cross_page_findings_of(&matrix, 0),
+                    vec![no_image_on_any_page(), no_image_on_any_page()]
+                );
+                assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+            }
+
+            #[test]
+            fn should_approve_deterministically_when_another_page_has_photos() {
+                let pages = vec![page("chair", 2), page("table", 0)];
+
+                let matrix =
+                    evaluate_schema_matrix_for_inputs(&[schema_with_image_urls(SLOTS)], &pages);
+
+                assert_eq!(
+                    extracted_images(&matrix),
+                    vec![
+                        Some(vec![photo_url("chair", 1), photo_url("chair", 2)]),
+                        Some(vec![])
+                    ]
+                );
+                assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
+                assert!(schema_matrix_deterministic_approval_ok(&matrix));
+            }
+        }
+
         /// The review console reads a matrix cached before a later cross-page check.
         mod cached_matrix {
             use super::*;
