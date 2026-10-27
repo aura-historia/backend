@@ -675,11 +675,16 @@ struct WaitingPageFixture {
 
 impl WaitingPageFixture {
     async fn new(pool: &PgPool) -> Self {
+        Self::on_host(pool, "example.com").await
+    }
+
+    /// The fixture for a ListingSource of its own whose shop is at `host`.
+    async fn on_host(pool: &PgPool, host: &str) -> Self {
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let listing_source_id = ListingSourceId::new();
         insert_listing_source(pool, listing_source_id).await;
-        let domain_id = insert_domain(pool, listing_source_id, "example.com").await;
-        let url = url::Url::parse("https://example.com/products/waiting").unwrap();
+        let domain_id = insert_domain(pool, listing_source_id, host).await;
+        let url = url::Url::parse(&format!("https://{host}/products/waiting")).unwrap();
         UrlMetadataRepositoryImpl::new(pool.clone())
             .upsert_link(
                 &listing_source_id,
@@ -803,31 +808,69 @@ async fn persisted_url_wait(
     .unwrap()
 }
 
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_release_pages_backed_off_on_a_schema_review_for_immediate_retry_when_approved() {
+/// A verdict that closes the review a page waits on.
+#[derive(Clone, Copy, Debug)]
+enum ClosingVerdict {
+    Approve,
+    Reject,
+}
+
+impl ClosingVerdict {
+    async fn close(self, fixture: &WaitingPageFixture) -> Result<(), ReviewRepositoryError> {
+        let repository = &fixture.review_repository;
+        match self {
+            Self::Approve => repository.approve_review(fixture.review_id, None).await,
+            Self::Reject => repository.reject_review(fixture.review_id, None).await,
+        }
+    }
+}
+
+/// Closing the review a page backed off on releases the page for an immediate retry and clears
+/// its wait. A page of another ListingSource keeps waiting on that source's own review.
+async fn assert_closing_the_review_releases_its_backed_off_page(verdict: ClosingVerdict) {
     let pool = get_postgres_client().await;
     let fixture = WaitingPageFixture::new(&pool).await;
+    let other_source = WaitingPageFixture::on_host(&pool, "other-source.example").await;
     assert_eq!(
         fixture.wait(4, time::Duration::hours(4)).await,
         CrawlerUrlWriteOutcome::Applied
     );
+    assert_eq!(
+        other_source.wait(4, time::Duration::hours(4)).await,
+        CrawlerUrlWriteOutcome::Applied
+    );
+    let other_source_wait = persisted_url_wait(&pool, &other_source.url).await;
     assert!(
         fixture.candidate_urls().await.is_empty(),
         "the backed-off page must wait although cached schemas keep its source eligible"
     );
 
-    fixture
-        .review_repository
-        .approve_review(fixture.review_id, None)
-        .await
-        .unwrap();
+    verdict.close(&fixture).await.unwrap();
 
     assert_eq!(
         fixture.candidate_urls().await,
         vec![fixture.url.clone()],
-        "approval must release the backed-off page for an immediate retry"
+        "{verdict:?} must release the backed-off page for an immediate retry"
     );
-    assert_eq!(fixture.persisted_wait(&pool).await, (None, 0, None));
+    assert_eq!(
+        persisted_url_wait(&pool, &fixture.url).await,
+        (None, None, 0, None)
+    );
+    assert_eq!(
+        persisted_url_wait(&pool, &other_source.url).await,
+        other_source_wait,
+        "{verdict:?} must not release a page that waits on another ListingSource's review"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_release_pages_backed_off_on_a_schema_review_for_immediate_retry_when_approved() {
+    assert_closing_the_review_releases_its_backed_off_page(ClosingVerdict::Approve).await;
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_release_pages_backed_off_on_a_schema_review_for_immediate_retry_when_rejected() {
+    assert_closing_the_review_releases_its_backed_off_page(ClosingVerdict::Reject).await;
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -855,18 +898,19 @@ async fn should_not_hold_back_a_released_page_when_a_scrape_that_overlapped_appr
     assert_eq!(fixture.persisted_wait(&pool).await, (None, 0, None));
 }
 
-/// A scrape that records its wait while the approval commits must not hold back the page the
-/// approval releases: the wait write waits for the approval and then finds the review closed.
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_not_hold_back_a_released_page_when_its_wait_is_written_while_the_approval_commits()
-{
+/// A scrape that records its wait while the verdict commits must not hold back the page the
+/// verdict releases: the verdict releases the page in the transaction that closes the review, so
+/// the wait write waits for it and then finds the review closed.
+async fn assert_wait_written_while_the_verdict_commits_leaves_the_page_released(
+    verdict: ClosingVerdict,
+) {
     let pool = get_postgres_client().await;
     let fixture = std::sync::Arc::new(WaitingPageFixture::new(&pool).await);
     assert_eq!(
         fixture.wait(3, -time::Duration::minutes(1)).await,
         CrawlerUrlWriteOutcome::Applied
     );
-    // Holding the page's row stops the approval at releasing the page, after it has closed the
+    // Holding the page's row stops the verdict at releasing the page, after it has closed the
     // review but before it commits.
     let mut page_lock = pool.begin().await.unwrap();
     sqlx::query("SELECT 1 FROM listing_source_urls WHERE url = $1 FOR UPDATE")
@@ -874,16 +918,22 @@ async fn should_not_hold_back_a_released_page_when_its_wait_is_written_while_the
         .execute(&mut *page_lock)
         .await
         .unwrap();
-    let approval = tokio::spawn({
+    let closing = tokio::spawn({
         let fixture = fixture.clone();
-        async move {
-            fixture
-                .review_repository
-                .approve_review(fixture.review_id, None)
-                .await
-        }
+        async move { verdict.close(&fixture).await }
     });
     wait_for_review_wait_lock_waiters(&pool, 1).await;
+    assert_eq!(
+        fixture
+            .review_repository
+            .get_review(fixture.review_id)
+            .await
+            .unwrap()
+            .review
+            .status,
+        STATUS_PENDING_REVIEW,
+        "{verdict:?} must release the page before it commits the closed review"
+    );
     // The page's retry found the review pending and records its next, longer wait now.
     let wait = tokio::spawn({
         let fixture = fixture.clone();
@@ -893,10 +943,24 @@ async fn should_not_hold_back_a_released_page_when_its_wait_is_written_while_the
 
     page_lock.commit().await.unwrap();
 
-    approval.await.unwrap().unwrap();
+    closing.await.unwrap().unwrap();
     assert_eq!(wait.await.unwrap(), CrawlerUrlWriteOutcome::NoopStale);
     assert_eq!(fixture.persisted_wait(&pool).await, (None, 0, None));
     assert_eq!(fixture.candidate_urls().await, vec![fixture.url.clone()]);
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_hold_back_a_released_page_when_its_wait_is_written_while_the_approval_commits()
+{
+    assert_wait_written_while_the_verdict_commits_leaves_the_page_released(ClosingVerdict::Approve)
+        .await;
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_hold_back_a_released_page_when_its_wait_is_written_while_the_rejection_commits()
+{
+    assert_wait_written_while_the_verdict_commits_leaves_the_page_released(ClosingVerdict::Reject)
+        .await;
 }
 
 /// Waits until `count` statements that write a page's review wait or release it are blocked

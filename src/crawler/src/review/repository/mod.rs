@@ -23,6 +23,7 @@ use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
+use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -992,32 +993,14 @@ impl CrawlerReviewRepository {
         notes: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
-        let review = sqlx::query(
-            "SELECT listing_source_id, domain_id, artifact_type, reason, candidate_payload, \
-                    removed_page_schemas_base \
-             FROM crawler_reviews \
-             WHERE review_id = $1 AND status = 'PENDING_REVIEW' \
-             FOR UPDATE",
-        )
-        .bind(review_id.as_uuid())
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or(ReviewRepositoryError::NotPending(review_id))?;
-        let listing_source_id =
-            listing_source_id_from_uuid(review.try_get::<uuid::Uuid, _>("listing_source_id")?)?;
-        let domain_id = review
-            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
-            .map(crawler_domain_id_from_uuid)
-            .transpose()?;
-        let artifact_type: String = review.try_get("artifact_type")?;
-        let reason: String = review.try_get("reason")?;
-        let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
+        let review = lock_review_for_verdict(&mut transaction, review_id).await?;
+        let listing_source_id = review.listing_source_id;
+        let domain_id = review.domain_id;
 
-        match artifact_type.as_str() {
+        match review.artifact_type.as_str() {
             ARTIFACT_URL_PATTERN => {
-                let candidate =
-                    serde_json::from_value::<UrlPatternReviewCandidate>(candidate_payload)
-                        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+                let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
+                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
                 let pattern = candidate
                     .validated_pattern()
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
@@ -1059,9 +1042,9 @@ impl CrawlerReviewRepository {
                     &mut transaction,
                     review_id,
                     &listing_source_id,
-                    &reason,
-                    &candidate_payload,
-                    review.try_get("removed_page_schemas_base")?,
+                    &review.reason,
+                    &review.candidate_payload,
+                    review.removed_page_schemas_base.clone(),
                 )
                 .await?;
             }
@@ -1091,76 +1074,38 @@ impl CrawlerReviewRepository {
                AND ($4::uuid IS NULL OR domain_id = $4)",
         )
         .bind(uuid::Uuid::from(listing_source_id))
-        .bind(&artifact_type)
+        .bind(&review.artifact_type)
         .bind(review_id.as_uuid())
         .bind(domain_id.map(CrawlerDomainId::into_uuid))
         .execute(&mut *transaction)
         .await?;
-        match artifact_type.as_str() {
-            ARTIFACT_PRODUCT_SCHEMA => {
-                sqlx::query(
-                    "UPDATE listing_source_urls \
-                     SET next_retry_at = NULL, last_error_kind = NULL, \
-                         last_error_message = NULL, schema_review_waited_on = NULL, \
-                         schema_review_wait_streak = 0, updated = NOW() \
-                     WHERE listing_source_id = $1 \
-                       AND last_error_kind = 'PendingSchemaReview' \
-                       AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",
-                )
-                .bind(uuid::Uuid::from(listing_source_id))
-                .execute(&mut *transaction)
-                .await?;
-            }
-            ARTIFACT_URL_PATTERN => {
-                if let Some(domain_id) = domain_id {
-                    release_domain_waiting_for_url_pattern(
-                        &mut transaction,
-                        &listing_source_id,
-                        domain_id,
-                    )
-                    .await?;
-                }
-            }
-            _ => {}
-        }
+        release_work_waiting_on_decided_review(&mut transaction, &review).await?;
         transaction.commit().await?;
         Ok(())
     }
 
-    /// Closes the review without changing configuration. A domain whose crawl waits on a
-    /// URL-pattern review is released either way: the review is decided, so the next crawl may
-    /// open a new one.
+    /// Closes the review without changing configuration and, as approval does, releases the work
+    /// waiting on it: the review is decided, so a page that waited on a product-schema review is
+    /// retried at once and the next crawl of a domain that waited on a URL-pattern review may open
+    /// a new one.
     pub async fn reject_review(
         &self,
         review_id: CrawlerReviewId,
         notes: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
-        let rejected = sqlx::query(
+        let review = lock_review_for_verdict(&mut transaction, review_id).await?;
+        sqlx::query(
             "UPDATE crawler_reviews \
              SET status = 'REJECTED', reviewer_notes = COALESCE($2, reviewer_notes), \
                  reviewed = NOW(), updated = NOW() \
-             WHERE review_id = $1 AND status = 'PENDING_REVIEW' \
-             RETURNING listing_source_id, domain_id, artifact_type",
+             WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
         )
         .bind(review_id.as_uuid())
         .bind(notes)
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or(ReviewRepositoryError::NotPending(review_id))?;
-        let domain_id = rejected
-            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
-            .map(crawler_domain_id_from_uuid)
-            .transpose()?;
-        if rejected.try_get::<String, _>("artifact_type")? == ARTIFACT_URL_PATTERN
-            && let Some(domain_id) = domain_id
-        {
-            let listing_source_id = listing_source_id_from_uuid(
-                rejected.try_get::<uuid::Uuid, _>("listing_source_id")?,
-            )?;
-            release_domain_waiting_for_url_pattern(&mut transaction, &listing_source_id, domain_id)
-                .await?;
-        }
+        .execute(&mut *transaction)
+        .await?;
+        release_work_waiting_on_decided_review(&mut transaction, &review).await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -1178,18 +1123,18 @@ impl CrawlerReviewRepository {
             .map(str::trim)
             .filter(|note| !note.is_empty())
             .ok_or(ReviewRepositoryError::MissingRepairNote)?;
-        let result = sqlx::query(
+        let mut transaction = self.pool.begin().await?;
+        lock_review_for_verdict(&mut transaction, review_id).await?;
+        sqlx::query(
             "UPDATE crawler_reviews \
              SET repair_requested = NOW(), repair_note = $2, updated = NOW() \
              WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
         )
         .bind(review_id.as_uuid())
         .bind(note)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
-        if result.rows_affected() == 0 {
-            return Err(ReviewRepositoryError::NotPending(review_id));
-        }
+        transaction.commit().await?;
         info!(review_id = %review_id, "Reviewer asked for a review to be repaired");
         Ok(())
     }
@@ -1510,6 +1455,89 @@ async fn lock_review_for_edit(
         candidate_payload: review.try_get("candidate_payload")?,
         validation_summary: review.try_get("validation_summary")?,
     })
+}
+
+/// The state of a pending review a verdict decides on, read under the review's row lock.
+struct ReviewUnderVerdict {
+    listing_source_id: ListingSourceId,
+    domain_id: Option<CrawlerDomainId>,
+    artifact_type: String,
+    reason: String,
+    candidate_payload: serde_json::Value,
+    removed_page_schemas_base: serde_json::Value,
+}
+
+/// Locks the review for a verdict, so verdicts, edits and page joins on it apply one after the
+/// other, and reads what the verdict decides on. Only a pending review takes a verdict; an
+/// unknown review is told apart from a closed one.
+async fn lock_review_for_verdict(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+) -> Result<ReviewUnderVerdict, ReviewRepositoryError> {
+    let review = sqlx::query(
+        "SELECT status, listing_source_id, domain_id, artifact_type, reason, candidate_payload, \
+                removed_page_schemas_base \
+         FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    if review.try_get::<String, _>("status")? != STATUS_PENDING_REVIEW {
+        return Err(ReviewRepositoryError::NotPending(review_id));
+    }
+    Ok(ReviewUnderVerdict {
+        listing_source_id: listing_source_id_from_uuid(
+            review.try_get::<uuid::Uuid, _>("listing_source_id")?,
+        )?,
+        domain_id: review
+            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
+            .map(crawler_domain_id_from_uuid)
+            .transpose()?,
+        artifact_type: review.try_get("artifact_type")?,
+        reason: review.try_get("reason")?,
+        candidate_payload: review.try_get("candidate_payload")?,
+        removed_page_schemas_base: review.try_get("removed_page_schemas_base")?,
+    })
+}
+
+/// Releases the work that waited on the decided review for an immediate retry: every page of the
+/// ListingSource that waits on its product-schema review, or the domain whose crawl waits on its
+/// URL-pattern review. It runs last in the verdict's transaction, after the review row is locked
+/// and closed, so a wait written while the verdict commits waits for it and then finds the review
+/// closed instead of holding back a page the verdict released.
+async fn release_work_waiting_on_decided_review(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review: &ReviewUnderVerdict,
+) -> Result<(), ReviewRepositoryError> {
+    match review.artifact_type.as_str() {
+        ARTIFACT_PRODUCT_SCHEMA => {
+            sqlx::query(
+                "UPDATE listing_source_urls \
+                 SET next_retry_at = NULL, last_error_kind = NULL, \
+                     last_error_message = NULL, schema_review_waited_on = NULL, \
+                     schema_review_wait_streak = 0, updated = NOW() \
+                 WHERE listing_source_id = $1 \
+                   AND last_error_kind = 'PendingSchemaReview' \
+                   AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",
+            )
+            .bind(uuid::Uuid::from(review.listing_source_id))
+            .execute(&mut **transaction)
+            .await?;
+        }
+        ARTIFACT_URL_PATTERN => {
+            if let Some(domain_id) = review.domain_id {
+                release_domain_waiting_for_url_pattern(
+                    transaction,
+                    &review.listing_source_id,
+                    domain_id,
+                )
+                .await?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Stores the edited candidate of a pending review and returns its candidate version.
