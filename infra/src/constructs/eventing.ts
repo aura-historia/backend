@@ -100,26 +100,7 @@ export class Eventing extends Construct {
       props.workloadStorage.routerFailureArchive,
     );
 
-    createSqsEventSources(
-      this,
-      props.functions,
-      props.queues,
-      props.workerQueues,
-      props.productListingOpenSearchVersion,
-      props.productListingNormalizationVersion,
-      props.productListingIngestionVersion,
-      props.productContentAssessmentVersion,
-      props.productEmbeddingVersion,
-      props.productTranslationVersion,
-      props.searchFilterMatchNotificationVersion,
-      props.watchlistNotificationVersion,
-      props.notificationDeliveryVersion,
-      props.marketingConsentSyncVersion,
-      props.userIdentityDeletionVersion,
-      props.geoResolutionVersion,
-      props.listingGeographyVersion,
-      props.listingShippingVersion,
-    );
+    createSqsEventSources(this, props);
   }
 }
 
@@ -370,24 +351,16 @@ function createDmsCdcRouterEventSource(
 
 function createSqsEventSources(
   scope: Construct,
-  functions: LambdaFunctions,
-  queues: QueueCatalog,
-  workerQueues: WorkerQueueCatalog,
-  productListingOpenSearchVersion: lambda.IVersion,
-  productListingNormalizationVersion: lambda.IVersion,
-  productListingIngestionVersion: lambda.IVersion,
-  productContentAssessmentVersion: lambda.IVersion,
-  productEmbeddingVersion: lambda.IVersion,
-  productTranslationVersion: lambda.IVersion,
-  searchFilterMatchNotificationVersion: lambda.IVersion,
-  watchlistNotificationVersion: lambda.IVersion,
-  notificationDeliveryVersion: lambda.IVersion,
-  marketingConsentSyncVersion: lambda.IVersion,
-  userIdentityDeletionVersion: lambda.IVersion,
-  geoResolutionVersion: lambda.IVersion,
-  listingGeographyVersion: lambda.IVersion,
-  listingShippingVersion: lambda.IVersion,
+  props: EventingProps,
 ): void {
+  const {
+    functions, queues, workerQueues, productListingOpenSearchVersion,
+    productListingNormalizationVersion, productListingIngestionVersion,
+    productContentAssessmentVersion, productEmbeddingVersion, productTranslationVersion,
+    searchFilterMatchNotificationVersion, watchlistNotificationVersion,
+    notificationDeliveryVersion, marketingConsentSyncVersion, userIdentityDeletionVersion,
+    geoResolutionVersion, listingGeographyVersion, listingShippingVersion,
+  } = props;
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 
   functions.productListingIngestion.addToRolePolicy(new iam.PolicyStatement({
