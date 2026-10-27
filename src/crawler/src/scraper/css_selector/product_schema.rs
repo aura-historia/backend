@@ -397,28 +397,32 @@ fn tolerate_optional_miss(
         Err(
             miss @ (ExtractionError::NoElementMatched { .. } | ExtractionError::EmptyValue { .. }),
         ) => {
-            // The message must be a literal in each arm: a `const` in message position
-            // becomes a field named after the constant and leaves `message` empty.
-            match miss_log {
-                OptionalMissLog::Warn => tracing::warn!(
-                    field,
-                    miss = %miss,
-                    "Optional schema rule yielded no value; leaving the field empty"
-                ),
-                OptionalMissLog::Debug => tracing::debug!(
-                    field,
-                    miss = %miss,
-                    "Optional schema rule yielded no value; leaving the field empty"
-                ),
-                OptionalMissLog::Trace => tracing::trace!(
-                    field,
-                    miss = %miss,
-                    "Optional schema rule yielded no value; leaving the field empty"
-                ),
-            }
+            log_optional_miss(field, &miss, miss_log);
             Ok(Vec::new())
         }
         Err(err) => Err(err),
+    }
+}
+
+fn log_optional_miss(field: &str, miss: &ExtractionError, miss_log: OptionalMissLog) {
+    // The message must be a literal in each arm: a `const` in message position
+    // becomes a field named after the constant and leaves `message` empty.
+    match miss_log {
+        OptionalMissLog::Warn => tracing::warn!(
+            field,
+            miss = %miss,
+            "Optional schema rule yielded no value; leaving the field empty"
+        ),
+        OptionalMissLog::Debug => tracing::debug!(
+            field,
+            miss = %miss,
+            "Optional schema rule yielded no value; leaving the field empty"
+        ),
+        OptionalMissLog::Trace => tracing::trace!(
+            field,
+            miss = %miss,
+            "Optional schema rule yielded no value; leaving the field empty"
+        ),
     }
 }
 
