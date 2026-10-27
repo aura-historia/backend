@@ -837,20 +837,14 @@ impl CrawlerReviewRepository {
         candidate_payload: serde_json::Value,
     ) -> Result<i64, ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
-        let review = sqlx::query(
-            "SELECT listing_source_id, artifact_type, status, candidate_payload, validation_summary \
-             FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
-        )
-        .bind(review_id.as_uuid())
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
-        let listing_source_id =
-            listing_source_id_from_uuid(review.try_get::<uuid::Uuid, _>("listing_source_id")?)?;
-        let artifact_type: String = review.try_get("artifact_type")?;
-        let status: String = review.try_get("status")?;
-        let stored_candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
-        let validation_summary: serde_json::Value = review.try_get("validation_summary")?;
+        let ReviewUnderEdit {
+            listing_source_id,
+            artifact_type,
+            status,
+            candidate_payload: stored_candidate_payload,
+            validation_summary,
+            ..
+        } = lock_review_for_edit(&mut transaction, review_id).await?;
 
         if status == STATUS_PENDING_REVIEW {
             let candidate_payload = match artifact_type.as_str() {
@@ -917,21 +911,14 @@ impl CrawlerReviewRepository {
         rule: Option<ExtractionRule>,
     ) -> Result<i64, ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
-        let review = sqlx::query(
-            "SELECT listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary \
-             FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
-        )
-        .bind(review_id.as_uuid())
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
-        let listing_source_id =
-            listing_source_id_from_uuid(review.try_get::<uuid::Uuid, _>("listing_source_id")?)?;
-        let artifact_type: String = review.try_get("artifact_type")?;
-        let status: String = review.try_get("status")?;
-        let reason: String = review.try_get("reason")?;
-        let stored_candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
-        let validation_summary: serde_json::Value = review.try_get("validation_summary")?;
+        let ReviewUnderEdit {
+            listing_source_id,
+            artifact_type,
+            status,
+            reason,
+            candidate_payload: stored_candidate_payload,
+            validation_summary,
+        } = lock_review_for_edit(&mut transaction, review_id).await?;
 
         if artifact_type != ARTIFACT_PRODUCT_SCHEMA {
             return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -1446,6 +1433,42 @@ async fn replace_stored_removed_page_schemas(
         );
     }
     Ok(replacement)
+}
+
+/// The state of a review a candidate edit decides on, read under the review's row lock.
+struct ReviewUnderEdit {
+    listing_source_id: ListingSourceId,
+    artifact_type: String,
+    status: String,
+    reason: String,
+    candidate_payload: serde_json::Value,
+    validation_summary: serde_json::Value,
+}
+
+/// Locks the review for a candidate edit, so concurrent edits of it apply one after the other,
+/// and reads what the edit decides on.
+async fn lock_review_for_edit(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+) -> Result<ReviewUnderEdit, ReviewRepositoryError> {
+    let review = sqlx::query(
+        "SELECT listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary \
+         FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    Ok(ReviewUnderEdit {
+        listing_source_id: listing_source_id_from_uuid(
+            review.try_get::<uuid::Uuid, _>("listing_source_id")?,
+        )?,
+        artifact_type: review.try_get("artifact_type")?,
+        status: review.try_get("status")?,
+        reason: review.try_get("reason")?,
+        candidate_payload: review.try_get("candidate_payload")?,
+        validation_summary: review.try_get("validation_summary")?,
+    })
 }
 
 /// Stores the edited candidate of a pending review and returns its candidate version.
