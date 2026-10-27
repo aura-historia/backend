@@ -228,6 +228,30 @@ fn product_availability(payload: &ShopifyProductPayload) -> ProductListingRawVal
     }
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct ShopifyProductPayloadDecoder;
+
+impl ShopifyProductDecoder for ShopifyProductPayloadDecoder {
+    fn decode(
+        &self,
+        kind: ShopifyProductEventKind,
+        source: &ShopifySource,
+        payload: SourcePayload,
+    ) -> Result<ShopifyListingAction, application::error::BoxError> {
+        listing_action_with_source_occurred_at(kind, source, payload.value().clone(), None)
+            .map_err(application::error::box_error)
+    }
+}
+
+#[cfg(test)]
+fn listing_action(
+    kind: ShopifyProductEventKind,
+    source: &ShopifySource,
+    payload: Value,
+) -> Result<ShopifyListingAction, ShopifyProductEventError> {
+    listing_action_with_source_occurred_at(kind, source, payload, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,26 +527,3 @@ mod tests {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-pub struct ShopifyProductPayloadDecoder;
-
-impl ShopifyProductDecoder for ShopifyProductPayloadDecoder {
-    fn decode(
-        &self,
-        kind: ShopifyProductEventKind,
-        source: &ShopifySource,
-        payload: SourcePayload,
-    ) -> Result<ShopifyListingAction, application::error::BoxError> {
-        listing_action_with_source_occurred_at(kind, source, payload.value().clone(), None)
-            .map_err(application::error::box_error)
-    }
-}
-
-#[cfg(test)]
-fn listing_action(
-    kind: ShopifyProductEventKind,
-    source: &ShopifySource,
-    payload: Value,
-) -> Result<ShopifyListingAction, ShopifyProductEventError> {
-    listing_action_with_source_occurred_at(kind, source, payload, None)
-}
