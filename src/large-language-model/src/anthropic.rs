@@ -1,11 +1,10 @@
-use crate::claude_model::{ClaudeEffort, ClaudeModel, ClaudeThinking};
+use crate::claude_model::{ClaudeEffort, ClaudeModel, ClaudeThinking, log_model};
 use crate::{
     BatchGenerationOptions, LargeLanguageModel, LargeLanguageModelError,
-    LargeLanguageModelRetryAdvice, LargeLanguageModelRetryKind, LlmInvocationMetrics, LlmModel,
-    LlmProvider, StructuredGenerationRequest, StructuredResponseError, fetch_images,
-    fetch_images_for_requests, images_for_request, invalid_response_error, log_llm_invocation,
-    log_llm_invocation_failure, missing_field_name, parse_retry_after, request_error,
-    target_deserialization_error_kind,
+    LargeLanguageModelRetryAdvice, LargeLanguageModelRetryKind, LlmInvocationMetrics, LlmProvider,
+    StructuredGenerationRequest, StructuredResponseError, deserialize_structured_output,
+    fetch_images, fetch_images_for_requests, images_for_request, invalid_response_error,
+    log_llm_invocation, log_llm_invocation_failure, parse_retry_after, request_error,
 };
 use application::error::{box_error, static_error};
 use futures::{StreamExt, stream};
@@ -362,8 +361,9 @@ enum OutputContent {
     Other,
 }
 
-#[derive(Default, Deserialize)]
-struct Usage {
+/// Token usage in the shape Anthropic reports it, also passed through by Claude Code.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct Usage {
     input_tokens: Option<u32>,
     output_tokens: Option<u32>,
     cache_creation_input_tokens: Option<u32>,
@@ -372,28 +372,35 @@ struct Usage {
     output_tokens_details: OutputTokenDetails,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct OutputTokenDetails {
     thinking_tokens: Option<u32>,
 }
 
-impl MessagesResponse {
-    fn usage_metrics(&self) -> LlmInvocationMetrics {
-        let prompt_tokens = self.usage.input_tokens.and_then(|tokens| {
+impl Usage {
+    /// Count cache writes and reads as prompt tokens, as Anthropic bills them as input.
+    pub(crate) fn metrics(&self) -> LlmInvocationMetrics {
+        let prompt_tokens = self.input_tokens.and_then(|tokens| {
             tokens
-                .checked_add(self.usage.cache_creation_input_tokens.unwrap_or_default())?
-                .checked_add(self.usage.cache_read_input_tokens.unwrap_or_default())
+                .checked_add(self.cache_creation_input_tokens.unwrap_or_default())?
+                .checked_add(self.cache_read_input_tokens.unwrap_or_default())
         });
         LlmInvocationMetrics {
             prompt_tokens,
-            completion_tokens: self.usage.output_tokens,
+            completion_tokens: self.output_tokens,
             total_tokens: prompt_tokens
-                .zip(self.usage.output_tokens)
+                .zip(self.output_tokens)
                 .and_then(|(input, output)| input.checked_add(output)),
-            cached_prompt_tokens: self.usage.cache_read_input_tokens,
-            reasoning_tokens: self.usage.output_tokens_details.thinking_tokens,
+            cached_prompt_tokens: self.cache_read_input_tokens,
+            reasoning_tokens: self.output_tokens_details.thinking_tokens,
             ..Default::default()
         }
+    }
+}
+
+impl MessagesResponse {
+    fn usage_metrics(&self) -> LlmInvocationMetrics {
+        self.usage.metrics()
     }
 
     fn into_output<Output: DeserializeOwned>(self) -> Result<Output, LargeLanguageModelError> {
@@ -423,23 +430,7 @@ impl MessagesResponse {
         let input = serde_json::from_str::<serde_json::Value>(&text).map_err(|source| {
             invalid_response_error(StructuredResponseError::JsonSyntax { source })
         })?;
-        serde_path_to_error::deserialize(input).map_err(|source| {
-            invalid_response_error(StructuredResponseError::TargetDeserialization {
-                json_path: source.path().to_string(),
-                error_kind: target_deserialization_error_kind(source.inner()),
-                missing_field: missing_field_name(source.inner()),
-                source,
-            })
-        })
-    }
-}
-
-fn log_model(model: &str) -> LlmModel {
-    match model {
-        "claude-sonnet-5-5" => LlmModel::ClaudeSonnet55,
-        "claude-opus-5-5" => LlmModel::ClaudeOpus55,
-        "claude-haiku-5-5" => LlmModel::ClaudeHaiku55,
-        _ => LlmModel::Configured,
+        deserialize_structured_output(input)
     }
 }
 
@@ -482,7 +473,7 @@ mod tests {
     use super::*;
     use crate::{
         ClaudeHaiku55Thinking, ClaudeReducedThinkingEffort, ClaudeSonnet55Thinking,
-        GenerationOptions, LlmOperation, StructuredResponseFailureKind,
+        GenerationOptions, LlmModel, LlmOperation, StructuredResponseFailureKind,
     };
     use std::num::NonZeroUsize;
     use tokio::{

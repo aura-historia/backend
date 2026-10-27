@@ -1,3 +1,4 @@
+use crate::LlmModel;
 use serde::Serialize;
 
 /// Model selection for Anthropic's direct API with model-specific thinking modes.
@@ -67,6 +68,16 @@ impl ClaudeModel {
             }
             Self::Haiku55(ClaudeHaiku55Thinking::Disabled(_)) => Some(ClaudeThinking::Disabled),
         }
+    }
+}
+
+/// Map a configured Claude model ID to its invocation-log name.
+pub(crate) fn log_model(model: &str) -> LlmModel {
+    match model {
+        "claude-sonnet-5-5" => LlmModel::ClaudeSonnet55,
+        "claude-opus-5-5" => LlmModel::ClaudeOpus55,
+        "claude-haiku-5-5" => LlmModel::ClaudeHaiku55,
+        _ => LlmModel::Configured,
     }
 }
 

@@ -556,6 +556,21 @@ fn invalid_response_error(
     }
 }
 
+/// Deserialize already-parsed structured output into the caller's type, keeping
+/// the schema-only path and error kind the bounded response correction needs.
+fn deserialize_structured_output<Output: DeserializeOwned>(
+    value: serde_json::Value,
+) -> Result<Output, LargeLanguageModelError> {
+    serde_path_to_error::deserialize(value).map_err(|source| {
+        invalid_response_error(StructuredResponseError::TargetDeserialization {
+            json_path: source.path().to_string(),
+            error_kind: target_deserialization_error_kind(source.inner()),
+            missing_field: missing_field_name(source.inner()),
+            source,
+        })
+    })
+}
+
 async fn read_bounded_response_body(mut response: reqwest::Response) -> String {
     let mut body = Vec::with_capacity(MAX_PROVIDER_ERROR_BODY_BYTES.min(1024));
     while let Ok(Some(chunk)) = response.chunk().await {
