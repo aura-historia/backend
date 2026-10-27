@@ -5,15 +5,16 @@ use crate::{
 };
 use application::patch_field::PatchField;
 use listing_source_core::{
-    Domain, ListingIngestionMethod, ListingSourceId, ListingSourceName, PartnerizeCamref,
-    ReferralConfiguration,
+    Domain, ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
+    PartnerizeCamref, ReferralConfiguration,
 };
 use listing_source_service::ports::{
     ListingIngestionConfiguration, ListingIngestionConfigurationUpdate, ListingSourceDetails,
     UpdateListingSourceIngestionConfigurations,
 };
 use listing_source_service::use_cases::commands::{
-    create_listing_source::ListingSourceOperator, update_listing_source::RequiredPatch,
+    create_listing_source::{CreateListingSourceCommand, ListingSourceOperator},
+    update_listing_source::RequiredPatch,
 };
 use listing_source_service::use_cases::queries::search_listing_sources::{
     ListingSourceSearchSummary, SearchListingSourcesResult,
@@ -41,6 +42,40 @@ pub(crate) struct CreateListingSourceData {
     pub(crate) image: Option<Url>,
     #[serde(default)]
     pub(crate) referral_configuration: Option<ReferralConfigurationData>,
+}
+
+impl TryFrom<CreateListingSourceData> for CreateListingSourceCommand {
+    type Error = ApiError;
+
+    fn try_from(data: CreateListingSourceData) -> Result<Self, Self::Error> {
+        let ingestion_configuration = data
+            .ingestion_configuration
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, ApiError>>()?;
+        let operator = data.operator.try_into()?;
+        let name = ListingSourceName::try_from(data.name).map_err(|_| {
+            ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail("name must be nonblank and at most 255 UTF-8 bytes.")
+        })?;
+
+        Ok(Self {
+            name,
+            operator,
+            ingestion_configuration:
+                listing_source_service::ports::ListingSourceIngestionConfigurations(
+                    ingestion_configuration,
+                ),
+            presentation: ListingSourcePresentation {
+                url: data.url,
+                image: data.image,
+            },
+            referral_configuration: data
+                .referral_configuration
+                .map(TryInto::try_into)
+                .transpose()?,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]

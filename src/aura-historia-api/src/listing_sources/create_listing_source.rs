@@ -5,7 +5,6 @@ use crate::state::ListingSourcesState;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use listing_source_core::{ListingSourceName, ListingSourcePresentation};
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceCommand;
 
 pub async fn create_listing_source(
@@ -21,45 +20,9 @@ pub async fn create_listing_source(
         Ok(data) => data,
         Err(error) => return error.into_response(),
     };
-    let ingestion_configuration = match data
-        .ingestion_configuration
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<Vec<_>, ApiError>>()
-    {
-        Ok(value) => listing_source_service::ports::ListingSourceIngestionConfigurations(value),
+    let command = match CreateListingSourceCommand::try_from(data) {
+        Ok(command) => command,
         Err(error) => return error.into_response(),
-    };
-    let operator: listing_source_service::use_cases::commands::create_listing_source::ListingSourceOperator =
-        match data.operator.try_into() {
-        Ok(value) => value,
-        Err(error) => return error.into_response(),
-    };
-    let name = match ListingSourceName::try_from(data.name) {
-        Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(BAD_BODY_VALUE)
-                .with_detail("name must be nonblank and at most 255 UTF-8 bytes.")
-                .into_response();
-        }
-    };
-
-    let command = CreateListingSourceCommand {
-        name,
-        operator,
-        ingestion_configuration,
-        presentation: ListingSourcePresentation {
-            url: data.url,
-            image: data.image,
-        },
-        referral_configuration: match data
-            .referral_configuration
-            .map(TryInto::try_into)
-            .transpose()
-        {
-            Ok(value) => value,
-            Err(error) => return error.into_response(),
-        },
     };
 
     match state.create.execute(&context, command).await {

@@ -202,8 +202,8 @@ fn apply_update(
     }
     if command.url.is_changed() || command.image.is_changed() {
         let presentation = ListingSourcePresentation {
-            url: patch_url(source.presentation().url.clone(), &command.url),
-            image: patch_url(source.presentation().image.clone(), &command.image),
+            url: patch_optional(source.presentation().url.clone(), &command.url),
+            image: patch_optional(source.presentation().image.clone(), &command.image),
         };
         outcome = outcome.combine(source.replace_presentation(presentation));
     }
@@ -217,7 +217,7 @@ fn apply_update(
     Ok(outcome)
 }
 
-fn patch_url(current: Option<url::Url>, patch: &PatchField<url::Url>) -> Option<url::Url> {
+fn patch_optional<T: Clone>(current: Option<T>, patch: &PatchField<T>) -> Option<T> {
     match patch {
         PatchField::Unchanged => current,
         PatchField::Set(value) => Some(value.clone()),
