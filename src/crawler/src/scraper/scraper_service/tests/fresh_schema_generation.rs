@@ -5,6 +5,7 @@ use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::util::hash::hash_page;
 use crate::spider::classification::url_metadata::{CrawlerUrlWriteOutcome, UrlClass};
 use listing_source_core::ListingSourceId;
 
@@ -82,11 +83,16 @@ async fn should_use_yaml_only_when_single_schema_applies() {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service
+    let scraped = service
         .scrape(primary_only_request(&id, &url))
         .await
-        .unwrap();
-    assert!(result.is_some());
+        .unwrap()
+        .unwrap_or_else(|| panic!("the fresh schema must extract the page"));
+    assert_eq!(
+        scraped.hash,
+        hash_page(&sample_html(), &[invalid_schema(), minimal_schema()]),
+        "the stored page hash covers the fresh schema, as the stored fingerprint does"
+    );
 }
 
 #[tokio::test]

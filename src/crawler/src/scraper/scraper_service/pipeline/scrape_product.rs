@@ -583,6 +583,13 @@ impl ScraperServiceImpl {
             .map_err(ScraperError::RawNormalizationInput)?
             .as_bytes()
             .to_vec();
+        // The hash is stored with `schema_fingerprint`, so it is what the same effective set
+        // extracts; an unchanged fingerprint means an unchanged set, already hashed above.
+        let hash = if schema_fingerprint == stored_schema_fingerprint {
+            page_hash
+        } else {
+            hash_page(&html, &effective_schemas)
+        };
 
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
         debug!(domain, "Scraping complete");
@@ -591,8 +598,7 @@ impl ScraperServiceImpl {
             raw_input,
             effective_url,
             source_listing_id: source_listing_id.to_string(),
-            // Stored with `schema_fingerprint`, so it is what the same effective set extracts.
-            hash: hash_page(&html, &effective_schemas),
+            hash,
             schema_fingerprint,
             raw_input_sha256,
         }))
