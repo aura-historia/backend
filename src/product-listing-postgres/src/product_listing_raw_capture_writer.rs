@@ -225,11 +225,7 @@ impl ProductListingRawCaptureWriter for SqlxProductListingRawCaptureWriter<'_> {
             }
             None => LatestProviderSourceOrder::NoOrdering,
         };
-        let (
-            source_ordering_advancement,
-            source_observation_is_stale,
-            source_observation_matches_stream_head,
-        ) = source_ordering_decision(
+        let source_ordering = source_ordering_decision(
             latest_source_order,
             incoming_source_order,
             write.input.operation().as_str(),
@@ -260,19 +256,22 @@ impl ProductListingRawCaptureWriter for SqlxProductListingRawCaptureWriter<'_> {
             .map_err(capture_failed)?;
         }
 
-        if source_observation_matches_stream_head {
-            return Ok(ProductListingRawCaptureWriteOutcome::Unchanged {
-                product_listing_raw_stream_id: stream_id,
-                latest_revision,
-            });
-        }
-
-        if source_observation_is_stale {
-            return Ok(ProductListingRawCaptureWriteOutcome::Stale {
-                product_listing_raw_stream_id: stream_id,
-                latest_revision,
-            });
-        }
+        let source_ordering_advancement = match source_ordering {
+            SourceOrderingDecision::MatchesHead => {
+                return Ok(ProductListingRawCaptureWriteOutcome::Unchanged {
+                    product_listing_raw_stream_id: stream_id,
+                    latest_revision,
+                });
+            }
+            SourceOrderingDecision::Stale => {
+                return Ok(ProductListingRawCaptureWriteOutcome::Stale {
+                    product_listing_raw_stream_id: stream_id,
+                    latest_revision,
+                });
+            }
+            SourceOrderingDecision::Advance(advancement) => Some(advancement),
+            SourceOrderingDecision::Capture => None,
+        };
 
         if stream.latest_input_sha256.as_deref() == Some(write.input_sha256.as_bytes().as_slice()) {
             if let Some(source_ordering_advancement) = source_ordering_advancement.as_ref() {
@@ -407,6 +406,19 @@ enum SourceOrderingAdvancement {
     UnknownDelete { observation_sha256: [u8; 32] },
 }
 
+/// Where an incoming provider observation falls relative to the stream's source order.
+#[derive(Debug, Clone, Copy)]
+enum SourceOrderingDecision {
+    /// Capture and record the observation as the latest source position.
+    Advance(SourceOrderingAdvancement),
+    /// Capture without changing the recorded source position.
+    Capture,
+    /// Older than the recorded position: complete without capture.
+    Stale,
+    /// The observation already recorded at the latest position: complete without capture.
+    MatchesHead,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum LatestProviderSourceOrder<'a> {
     NoOrdering,
@@ -488,13 +500,11 @@ fn source_ordering_decision(
     incoming: Option<ProviderSourceOrder>,
     incoming_operation: &'static str,
     incoming_observation_sha256: Option<[u8; 32]>,
-) -> Result<(Option<SourceOrderingAdvancement>, bool, bool), ProductListingRawCaptureWriteError> {
+) -> Result<SourceOrderingDecision, ProductListingRawCaptureWriteError> {
     match (latest, incoming) {
-        (LatestProviderSourceOrder::NoOrdering, Some(incoming)) => Ok((
-            Some(SourceOrderingAdvancement::Known(incoming)),
-            false,
-            false,
-        )),
+        (LatestProviderSourceOrder::NoOrdering, Some(incoming)) => Ok(
+            SourceOrderingDecision::Advance(SourceOrderingAdvancement::Known(incoming)),
+        ),
         (
             LatestProviderSourceOrder::Known {
                 operation: "DELETE",
@@ -509,7 +519,7 @@ fn source_ordering_decision(
         | (LatestProviderSourceOrder::NoOrdering, None)
             if incoming_operation == "UPSERT" =>
         {
-            Ok((None, false, false))
+            Ok(SourceOrderingDecision::Capture)
         }
         (LatestProviderSourceOrder::UnknownDelete { .. }, None)
             if incoming_operation == "UPSERT" =>
@@ -517,12 +527,12 @@ fn source_ordering_decision(
             Err(ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous)
         }
         (_, None) => match incoming_observation_sha256 {
-            Some(observation_sha256) if incoming_operation == "DELETE" => Ok((
-                Some(SourceOrderingAdvancement::UnknownDelete { observation_sha256 }),
-                false,
-                false,
-            )),
-            _ => Ok((None, false, false)),
+            Some(observation_sha256) if incoming_operation == "DELETE" => {
+                Ok(SourceOrderingDecision::Advance(
+                    SourceOrderingAdvancement::UnknownDelete { observation_sha256 },
+                ))
+            }
+            _ => Ok(SourceOrderingDecision::Capture),
         },
         (LatestProviderSourceOrder::UnknownDelete { .. }, Some(incoming))
             if incoming.operation == "UPSERT" =>
@@ -531,7 +541,7 @@ fn source_ordering_decision(
         }
         (LatestProviderSourceOrder::UnknownDelete { observation_sha256 }, Some(_)) => {
             debug_assert_eq!(observation_sha256.len(), 32);
-            Ok((None, false, false))
+            Ok(SourceOrderingDecision::Capture)
         }
         (
             LatestProviderSourceOrder::Known {
@@ -544,11 +554,9 @@ fn source_ordering_decision(
         ) => {
             match (incoming.epoch_seconds, incoming.nanoseconds).cmp(&(epoch_seconds, nanoseconds))
             {
-                std::cmp::Ordering::Less => Ok((None, true, false)),
-                std::cmp::Ordering::Greater => Ok((
-                    Some(SourceOrderingAdvancement::Known(incoming)),
-                    false,
-                    false,
+                std::cmp::Ordering::Less => Ok(SourceOrderingDecision::Stale),
+                std::cmp::Ordering::Greater => Ok(SourceOrderingDecision::Advance(
+                    SourceOrderingAdvancement::Known(incoming),
                 )),
                 std::cmp::Ordering::Equal if incoming.operation != operation => {
                     Err(ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous)
@@ -558,7 +566,7 @@ fn source_ordering_decision(
                 {
                     Err(ProductListingRawCaptureWriteError::ProviderSourceOrderConflict)
                 }
-                std::cmp::Ordering::Equal => Ok((None, false, true)),
+                std::cmp::Ordering::Equal => Ok(SourceOrderingDecision::MatchesHead),
             }
         }
     }
