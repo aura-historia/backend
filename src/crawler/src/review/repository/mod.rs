@@ -1,5 +1,6 @@
 use crate::network::policy::url_matches_configured_domain;
 use crate::review::model::*;
+use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
@@ -109,6 +110,21 @@ pub enum ReviewRepositoryError {
     ReviewPageNotFound(CrawlerReviewPageId),
     #[error("review page {0} is a seed or triggering page of the review and cannot be removed")]
     NotReviewerAddedPage(CrawlerReviewPageId),
+    #[error(
+        "review {review_id} has incomplete coverage ({coverage}); approving it needs an acknowledgement of that coverage"
+    )]
+    IncompleteCoverage {
+        review_id: CrawlerReviewId,
+        coverage: ReviewPageCoverage,
+    },
+    #[error(
+        "review {review_id} has incomplete coverage ({coverage}), not the acknowledged coverage ({acknowledged}); reload the review and confirm its current coverage"
+    )]
+    StaleCoverageAcknowledgement {
+        review_id: CrawlerReviewId,
+        coverage: ReviewPageCoverage,
+        acknowledged: ReviewPageCoverage,
+    },
 }
 
 /// Upper bound on the pages a reviewer adds to one review. A live schema-matrix refresh refetches
@@ -437,24 +453,7 @@ impl CrawlerReviewRepository {
         &self,
         review_id: CrawlerReviewId,
     ) -> Result<Vec<CrawlerReviewPage>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT review_page_id, review_id, url, role, html_hash, fetched
-             FROM crawler_review_pages
-             WHERE review_id = $1
-             ORDER BY
-               CASE role
-                 WHEN 'PRIMARY' THEN 0
-                  WHEN 'TRIGGERING_GENERATION_PAGE' THEN 0
-                  WHEN 'TRIGGERING_REPAIR_PAGE' THEN 0
-                 ELSE 1
-               END,
-               created",
-        )
-        .bind(review_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
-
-        rows.into_iter().map(row_to_page).collect()
+        fetch_review_pages(&self.pool, review_id).await
     }
 
     async fn get_review_urls(
@@ -987,10 +986,15 @@ impl CrawlerReviewRepository {
         Ok(candidate_version)
     }
 
+    /// Makes the pending review's candidate the active configuration. A product-schema candidate
+    /// that does not cover every review page is approved only with
+    /// [`IncompleteCoverage::Acknowledged`] of the review's current coverage; URL patterns have no
+    /// page coverage, so their approval ignores `incomplete_coverage`.
     pub async fn approve_review(
         &self,
         review_id: CrawlerReviewId,
         notes: Option<&str>,
+        incomplete_coverage: IncompleteCoverage,
     ) -> Result<(), ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
         let review = lock_review_for_verdict(&mut transaction, review_id).await?;
@@ -1038,6 +1042,13 @@ impl CrawlerReviewRepository {
                 );
             }
             ARTIFACT_PRODUCT_SCHEMA => {
+                check_approval_coverage(
+                    &mut transaction,
+                    review_id,
+                    &review.validation_summary,
+                    incomplete_coverage,
+                )
+                .await?;
                 make_reviewed_product_schemas_live(
                     &mut transaction,
                     review_id,
@@ -1464,6 +1475,7 @@ struct ReviewUnderVerdict {
     artifact_type: String,
     reason: String,
     candidate_payload: serde_json::Value,
+    validation_summary: serde_json::Value,
     removed_page_schemas_base: serde_json::Value,
 }
 
@@ -1476,7 +1488,7 @@ async fn lock_review_for_verdict(
 ) -> Result<ReviewUnderVerdict, ReviewRepositoryError> {
     let review = sqlx::query(
         "SELECT status, listing_source_id, domain_id, artifact_type, reason, candidate_payload, \
-                removed_page_schemas_base \
+                validation_summary, removed_page_schemas_base \
          FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
     )
     .bind(review_id.as_uuid())
@@ -1497,8 +1509,52 @@ async fn lock_review_for_verdict(
         artifact_type: review.try_get("artifact_type")?,
         reason: review.try_get("reason")?,
         candidate_payload: review.try_get("candidate_payload")?,
+        validation_summary: review.try_get("validation_summary")?,
         removed_page_schemas_base: review.try_get("removed_page_schemas_base")?,
     })
+}
+
+/// Refuses to approve a product-schema candidate whose stored schema matrix does not cover every
+/// review page, unless the approver acknowledged exactly the review's current coverage. The
+/// caller holds the review's row lock, which page joins and removals, candidate edits and matrix
+/// stores take first too, so the coverage checked is the one the approval decides on. A
+/// candidate change drops the stored matrix, so a stored matrix evaluated the current candidate;
+/// one that no longer decodes vouches for no page.
+async fn check_approval_coverage(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    validation_summary: &serde_json::Value,
+    incomplete_coverage: IncompleteCoverage,
+) -> Result<(), ReviewRepositoryError> {
+    let pages = fetch_review_pages(&mut **transaction, review_id).await?;
+    let matrix = SchemaMatrix::stored_in(validation_summary).and_then(Result::ok);
+    let coverage = ReviewPageCoverage::of(matrix.as_ref(), &pages);
+    if !coverage.admits(incomplete_coverage) {
+        return Err(match incomplete_coverage {
+            IncompleteCoverage::Refuse => ReviewRepositoryError::IncompleteCoverage {
+                review_id,
+                coverage,
+            },
+            IncompleteCoverage::Acknowledged(acknowledged) => {
+                ReviewRepositoryError::StaleCoverageAcknowledgement {
+                    review_id,
+                    coverage,
+                    acknowledged,
+                }
+            }
+        });
+    }
+    if !coverage.is_complete() {
+        info!(
+            review_id = %review_id,
+            covered_pages = coverage.covered,
+            removed_pages = coverage.removed,
+            review_pages = coverage.total,
+            not_evaluated_pages = coverage.not_evaluated,
+            "Approving a product schema candidate with acknowledged incomplete coverage"
+        );
+    }
+    Ok(())
 }
 
 /// Releases the work that waited on the decided review for an immediate retry: every page of the
@@ -1670,6 +1726,31 @@ async fn insert_review_page(
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+/// The review's pages, seed and triggering pages first, each group in the order they joined.
+async fn fetch_review_pages<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    review_id: CrawlerReviewId,
+) -> Result<Vec<CrawlerReviewPage>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT review_page_id, review_id, url, role, html_hash, fetched
+         FROM crawler_review_pages
+         WHERE review_id = $1
+         ORDER BY
+           CASE role
+             WHEN 'PRIMARY' THEN 0
+              WHEN 'TRIGGERING_GENERATION_PAGE' THEN 0
+              WHEN 'TRIGGERING_REPAIR_PAGE' THEN 0
+             ELSE 1
+           END,
+           created",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_all(executor)
+    .await?;
+
+    rows.into_iter().map(row_to_page).collect()
 }
 
 /// Drops the cached schema matrix, and the summary schema generation recorded of it, after the

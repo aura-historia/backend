@@ -6,6 +6,7 @@ use crate::review::assets::{
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
 use crate::review::model::{CrawlerReviewPage, RawAttributeKey, ReviewDetail, SchemaMatrix};
+use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
@@ -16,6 +17,7 @@ use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId};
 use dashmap::DashMap;
 use listing_source_core::{Domain, ListingSourceId};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -482,7 +484,7 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/approve") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = match parse_action_payload(request.body) {
+            let payload: ApprovalPayload = match parse_verdict_payload(request.body) {
                 Ok(payload) => payload,
                 Err(error) => {
                     return HttpResponse::json(400, &json!({ "error": error.to_string() }));
@@ -490,7 +492,11 @@ impl ReviewServer {
             };
             return match self
                 .repository
-                .approve_review(review_id, payload.notes.as_deref())
+                .approve_review(
+                    review_id,
+                    payload.notes.as_deref(),
+                    payload.incomplete_coverage(),
+                )
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
@@ -505,7 +511,7 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/reject") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = match parse_action_payload(request.body) {
+            let payload: ActionPayload = match parse_verdict_payload(request.body) {
                 Ok(payload) => payload,
                 Err(error) => {
                     return HttpResponse::json(400, &json!({ "error": error.to_string() }));
@@ -528,7 +534,7 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/needs-repair") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = match parse_action_payload(request.body) {
+            let payload: ActionPayload = match parse_verdict_payload(request.body) {
                 Ok(payload) => payload,
                 Err(error) => {
                     return HttpResponse::json(400, &json!({ "error": error.to_string() }));
@@ -961,6 +967,22 @@ struct ActionPayload {
     notes: Option<String>,
 }
 
+/// An approval of `POST /api/reviews/{id}/approve`. `acknowledged_coverage` approves a
+/// product-schema candidate that does not cover every review page while the review's coverage is
+/// still the one it names; the console sends the coverage its confirmation dialog stated.
+#[derive(Deserialize, Default)]
+struct ApprovalPayload {
+    notes: Option<String>,
+    acknowledged_coverage: Option<ReviewPageCoverage>,
+}
+
+impl ApprovalPayload {
+    fn incomplete_coverage(&self) -> IncompleteCoverage {
+        self.acknowledged_coverage
+            .map_or(IncompleteCoverage::Refuse, IncompleteCoverage::Acknowledged)
+    }
+}
+
 /// A rule edit of `POST /api/reviews/{id}/schema-field`. The `rule` key is required: an explicit
 /// `null` deletes the rule, while a left-out or misspelled key is refused instead of deleting it.
 /// `expected_candidate_version` is the candidate version the edit was based on.
@@ -992,9 +1014,12 @@ struct ReviewPagePayload {
     url: String,
 }
 
-fn parse_action_payload(body: &str) -> Result<ActionPayload, serde_json::Error> {
+/// Reads the body of a verdict, where an empty body stands for a verdict without notes.
+fn parse_verdict_payload<T: DeserializeOwned + Default>(
+    body: &str,
+) -> Result<T, serde_json::Error> {
     if body.trim().is_empty() {
-        return Ok(ActionPayload::default());
+        return Ok(T::default());
     }
     serde_json::from_str(body)
 }
@@ -1087,8 +1112,7 @@ fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
 /// The schema matrix cached on the review, or `None` when it holds none, or one that no longer
 /// decodes, so the caller refreshes it from the live pages.
 fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
-    let value = detail.review.validation_summary.get("schema_matrix")?;
-    serde_json::from_value::<SchemaMatrix>(value.clone())
+    SchemaMatrix::stored_in(&detail.review.validation_summary)?
         .inspect_err(|err| {
             warn!(
                 review_id = %detail.review.review_id,
@@ -1146,7 +1170,9 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// Maps a refused review request to its answer, the same on every review route: 404 for an
 /// unknown review or review page, 400 for a request the review cannot take, 409 for a request
 /// the review's current state refuses, and 500 for a technical failure. A 409 for a request based
-/// on an older candidate carries the review's current `candidate_version`.
+/// on an older candidate carries the review's current `candidate_version`, and one for an approval
+/// of incomplete coverage, unacknowledged or acknowledged at other counts, carries the review's
+/// current `coverage`.
 fn review_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::NotFound(_) | ReviewRepositoryError::ReviewPageNotFound(_) => {
@@ -1177,6 +1203,13 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)
         | ReviewRepositoryError::DuplicateReviewPage(_) => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
+        }
+        ReviewRepositoryError::IncompleteCoverage { coverage, .. }
+        | ReviewRepositoryError::StaleCoverageAcknowledgement { coverage, .. } => {
+            HttpResponse::json(
+                409,
+                &json!({ "error": error.to_string(), "coverage": coverage }),
+            )
         }
         ReviewRepositoryError::Database(_)
         | ReviewRepositoryError::Json(_)
@@ -2774,6 +2807,93 @@ Origin: http://127.0.0.1:7878/x
                     .is_some_and(|error| error.contains("not pending")),
                 "{reject_again}"
             );
+        }
+    }
+
+    mod incomplete_coverage {
+        use super::needs_repair::send;
+        use super::schema_editing::pending_review_server;
+        use crate::CrawlerReviewId;
+        use crate::review::server::ReviewServer;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+        use url::Url;
+
+        async fn join_waiting_page(server: &ReviewServer, review_id: CrawlerReviewId, slug: &str) {
+            let listing_source_id = server
+                .repository
+                .get_review(review_id)
+                .await
+                .unwrap_or_else(|error| panic!("read the review: {error}"))
+                .review
+                .listing_source_id;
+            let waiting_url = Url::parse(&format!("https://edited.example/products/{slug}"))
+                .unwrap_or_else(|error| panic!("waiting page URL: {error}"));
+            server
+                .repository
+                .join_pending_schema_review(
+                    &listing_source_id,
+                    &waiting_url,
+                    "<html><body><h1>Waiting</h1></body></html>",
+                )
+                .await
+                .unwrap_or_else(|error| panic!("join the review: {error}"));
+        }
+
+        /// A client such as the review agent reads from the refusal how much of the review the
+        /// candidate covers, and approves incomplete coverage only by acknowledging the review's
+        /// current coverage: a page that joined since the acknowledged coverage was read refuses
+        /// the approval again.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_approving_incomplete_coverage_until_its_current_coverage_is_acknowledged()
+         {
+            let (server, review_id) = pending_review_server().await;
+            join_waiting_page(&server, review_id, "waiting").await;
+            let approve = format!("POST /api/reviews/{review_id}/approve");
+            let review = format!("GET /api/reviews/{review_id}");
+
+            let (status, refused) = send(
+                &server,
+                &approve,
+                &json!({ "notes": "looks right" }).to_string(),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(
+                refused["coverage"],
+                json!({ "covered": 0, "removed": 0, "total": 1, "not_evaluated": 1 })
+            );
+            assert!(refused["error"].is_string(), "{refused}");
+
+            join_waiting_page(&server, review_id, "joined-later").await;
+            let (status, stale) = send(
+                &server,
+                &approve,
+                &json!({ "notes": "looks right", "acknowledged_coverage": refused["coverage"] })
+                    .to_string(),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {stale}");
+            assert_eq!(
+                stale["coverage"],
+                json!({ "covered": 0, "removed": 0, "total": 2, "not_evaluated": 2 })
+            );
+            let (_, pending) = send(&server, &review, "").await;
+            assert_eq!(pending["review"]["status"], "PENDING_REVIEW");
+
+            let (status, approved) = send(
+                &server,
+                &approve,
+                &json!({ "notes": "looks right", "acknowledged_coverage": stale["coverage"] })
+                    .to_string(),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
+            let (_, decided) = send(&server, &review, "").await;
+            assert_eq!(decided["review"]["status"], "APPROVED");
         }
     }
 }
