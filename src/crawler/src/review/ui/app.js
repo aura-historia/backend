@@ -897,6 +897,7 @@ const plausibilityCheckDescriptions = {
     INVALID_IDENTIFIER: 'is not a valid source listing id',
     WORD_LIST: 'is a list of words, not an identifier',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
+    NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
     DIFFERS_FROM_CAPTURED_IDENTITY: 'differs from the identity the listing was captured under'
 };
@@ -1011,7 +1012,7 @@ function currentCandidatePagesWithOptionalMisses(matrix) {
 
 // Fields whose rule skipped matched elements without an image URL (no image URL candidate, or
 // no attribute of an attribute rule) on the page (`skipped_element_count`, set for the `images`
-// rule only). Many skips show a loose selector.
+// rule only). Next to extracted images, skips show a loose selector.
 function fieldsWithSkippedElements(page) {
     return (page?.fields || []).filter(field => field.skipped_element_count > 0);
 }
@@ -1031,13 +1032,27 @@ function currentCandidatePagesWithSkippedElements(matrix) {
     return (candidate.pages || []).filter(page => skippedElementCount(page) > 0);
 }
 
+// A rule that skipped every element it matched yields no image: the page shows an empty
+// gallery of placeholders, which is no sign of a loose selector.
+function isEmptyGallery(page) {
+    return fieldsWithSkippedElements(page).every(field => field.skipped_element_count === matchedElementCount(field));
+}
+
 function renderSkippedElementSummary(pagesWithSkips) {
-    if (!pagesWithSkips.length) return '';
-    const pageWord = pagesWithSkips.length === 1 ? 'page' : 'pages';
-    const perPage = pagesWithSkips.map(page =>
-        `${escapeHtml(displayName(page.role))} (${skippedElementCount(page)})`
-    ).join('; ');
-    return `<div class="muted">Selected schema skipped matched elements without an image URL, a sign of a loose selector, on ${pagesWithSkips.length} ${pageWord}: ${perPage}</div>`;
+    const summary = (pages, description) => {
+        if (!pages.length) return '';
+        const perPage = pages.map(page =>
+            `${escapeHtml(displayName(page.role))} (${skippedElementCount(page)})`
+        ).join('; ');
+        return `<div class="muted">${description} on ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}: ${perPage}</div>`;
+    };
+    return summary(
+        pagesWithSkips.filter(page => !isEmptyGallery(page)),
+        'Selected schema skipped matched elements without an image URL next to extracted images, a sign of a loose selector,'
+    ) + summary(
+        pagesWithSkips.filter(isEmptyGallery),
+        'Selected schema matched only elements without an image URL, an empty gallery,'
+    );
 }
 
 function renderSkippedElements(fields) {

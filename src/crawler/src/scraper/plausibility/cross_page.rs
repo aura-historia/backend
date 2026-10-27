@@ -17,27 +17,34 @@ use url::Url;
 pub enum CrossPageCheck {
     /// The same value is extracted from the page of another product.
     RepeatedAcrossPages,
+    /// The `images` rule yields no image that capture keeps on any review page the
+    /// candidate extracted, as a rule naming thumbnails or another feature's empty image
+    /// container, such as a customer review box, would. A single page without images may
+    /// show a product without photos, so only every page counts.
+    NoImageOnAnyPage,
 }
 
 impl CrossPageCheck {
     /// Every check, so tests can pin how the review console names each code.
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 1] = [Self::RepeatedAcrossPages];
+    pub(crate) const ALL: [Self; 2] = [Self::RepeatedAcrossPages, Self::NoImageOnAnyPage];
 
     /// How the review console describes the check.
     pub(crate) const fn description(self) -> &'static str {
         match self {
             Self::RepeatedAcrossPages => "repeats a value of another product page",
+            Self::NoImageOnAnyPage => "yields no capturable image on any review page",
         }
     }
 }
 
-/// One field of a page whose values another page of the same candidate repeats.
+/// One field of a page that failed a check against the candidate's other pages.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrossPageFinding {
     pub field: PlausibilityField,
     pub check: CrossPageCheck,
-    /// This page's values that another page shares, as extracted from this page.
+    /// This page's values that another page shares, as extracted from this page; empty
+    /// for [`CrossPageCheck::NoImageOnAnyPage`], whose page has no image to name.
     pub values: Vec<String>,
 }
 
@@ -50,6 +57,14 @@ impl CrossPageFinding {
             check: CrossPageCheck::RepeatedAcrossPages,
             values,
         })
+    }
+
+    fn no_image_on_any_page() -> Self {
+        Self {
+            field: PlausibilityField::Images,
+            check: CrossPageCheck::NoImageOnAnyPage,
+            values: Vec::new(),
+        }
     }
 }
 
@@ -74,12 +89,16 @@ pub struct PageExtraction<'a> {
     /// The page URL, against which relative image URLs resolve.
     pub url: &'a str,
     pub raw: &'a RawExtractedProduct,
+    /// Whether capture keeps any image of `raw`, as far as the image URLs show. The
+    /// caller decides it with capture's own image validation.
+    pub has_capturable_image: bool,
 }
 
 impl CrossPageFindings {
     /// Compares the extractions of `pages`, each of a different product, and returns the
     /// findings of each page in the order of `pages`. Blank values are left to the
-    /// per-page checks.
+    /// per-page checks; an `images` rule without a capturable image on any page is
+    /// reported on every page.
     pub fn of(pages: &[PageExtraction<'_>]) -> Vec<Self> {
         let identities = repeated_values(pages, |page| {
             non_blank(page.raw.source_listing_id.trim())
@@ -94,6 +113,7 @@ impl CrossPageFindings {
                 .collect()
         });
         let images = repeated_values(pages, image_identities);
+        let no_image_on_any_page = !pages.iter().any(|page| page.has_capturable_image);
 
         identities
             .into_iter()
@@ -105,6 +125,7 @@ impl CrossPageFindings {
                         CrossPageFinding::repeated(PlausibilityField::SourceListingId, identities),
                         CrossPageFinding::repeated(PlausibilityField::Title, titles),
                         CrossPageFinding::repeated(PlausibilityField::Images, images),
+                        no_image_on_any_page.then(CrossPageFinding::no_image_on_any_page),
                     ]
                     .into_iter()
                     .flatten()
@@ -212,10 +233,25 @@ mod tests {
         }
     }
 
+    /// The findings of `pages`, each of which has an image capture keeps.
     fn findings_of(pages: &[(&str, RawExtractedProduct)]) -> Vec<Vec<CrossPageFinding>> {
+        findings_with_capturable_images(pages, &vec![true; pages.len()])
+    }
+
+    /// The findings of `pages`, the page at each index having a capturable image as
+    /// `has_capturable_image` says.
+    fn findings_with_capturable_images(
+        pages: &[(&str, RawExtractedProduct)],
+        has_capturable_image: &[bool],
+    ) -> Vec<Vec<CrossPageFinding>> {
         let pages: Vec<PageExtraction<'_>> = pages
             .iter()
-            .map(|(url, raw)| PageExtraction { url, raw })
+            .zip(has_capturable_image)
+            .map(|((url, raw), has_capturable_image)| PageExtraction {
+                url,
+                raw,
+                has_capturable_image: *has_capturable_image,
+            })
             .collect();
         CrossPageFindings::of(&pages)
             .into_iter()
@@ -444,6 +480,44 @@ mod tests {
         }
     }
 
+    mod no_image_on_any_page {
+        use super::*;
+
+        fn pages() -> Vec<(&'static str, RawExtractedProduct)> {
+            vec![
+                (
+                    "https://shop.example/chair",
+                    product("13803", "Walnut chair", &["/chair-100x100.jpg"]),
+                ),
+                (
+                    "https://shop.example/table",
+                    product("13892", "Oak table", &[]),
+                ),
+            ]
+        }
+
+        /// Antik und Stil's gallery thumbnails, or Harrison's empty customer review box.
+        #[test]
+        fn should_report_every_page_when_no_page_has_a_capturable_image() {
+            let findings = findings_with_capturable_images(&pages(), &[false, false]);
+
+            assert_eq!(
+                findings,
+                vec![
+                    vec![CrossPageFinding::no_image_on_any_page()],
+                    vec![CrossPageFinding::no_image_on_any_page()],
+                ]
+            );
+        }
+
+        #[test]
+        fn should_leave_a_product_without_photos_alone_when_another_page_has_an_image() {
+            let findings = findings_with_capturable_images(&pages(), &[true, false]);
+
+            assert_eq!(findings, vec![vec![], vec![]]);
+        }
+    }
+
     mod serialization {
         use super::*;
 
@@ -462,6 +536,19 @@ mod tests {
                     "check": "REPEATED_ACROSS_PAGES",
                     "values": ["Same"]
                 }])
+            );
+        }
+
+        #[test]
+        fn should_serialize_a_missing_image_with_a_stable_check_code_and_no_values() {
+            assert_eq!(
+                serde_json::to_value(CrossPageFinding::no_image_on_any_page())
+                    .unwrap_or_else(|error| panic!("a finding must serialize: {error}")),
+                serde_json::json!({
+                    "field": "images",
+                    "check": "NO_IMAGE_ON_ANY_PAGE",
+                    "values": []
+                })
             );
         }
     }

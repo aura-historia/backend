@@ -194,9 +194,9 @@ pub struct RankedSchemaCandidate {
 /// This is the shared ranking seam for fixture tests. It applies every schema
 /// to one parsed document, drops candidates that fail a rejecting plausibility
 /// check, and performs no network or LLM work. A candidate's images count as
-/// capture would count them if every target check and probe accepted: an image
-/// URL whose own dimensions show a small image does not count, one that gives
-/// no size does.
+/// capture would count them if DNS resolution and the probe accepted every image:
+/// an image URL that capture's target check rejects, or whose own dimensions show
+/// a small image, does not count; one that gives no size does.
 pub fn rank_applicable_schemas(
     schemas: &[ProductCssSelectorSchema],
     html: &str,
