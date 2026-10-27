@@ -16,8 +16,8 @@
 //!
 //! | Env var          | Purpose                              | Default                                          |
 //! |------------------|--------------------------------------|--------------------------------------------------|
-//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required unless the authoring mode is `manual`)* |
-//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required unless the authoring mode is `manual`)* |
+//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required unless the authoring mode is `manual` or `agent`)* |
+//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required unless the authoring mode is `manual` or `agent`)* |
 //! | `SPIDER_MAX_SIZE_BYTES` | Spider page-body ceiling in bytes, from `1048576` (1 MiB) through `8388608` (8 MiB, the crawler's own response-body limit); every crawl fails while it is out of range. `server` requires it; this binary defaults it | `8388608` |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
 //! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.5-flash` |
@@ -26,21 +26,22 @@
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
-//! | `CRAWLER_AUTHORING_MODE` | `auto` (LLM, high-confidence schemas auto-approved), `review` (LLM, human approves) or `manual` (no LLM, operator writes patterns and schemas); invalid values fail startup | `review` |
+//! | `CRAWLER_AUTHORING_MODE` | `auto` (LLM, high-confidence schemas auto-approved), `review` (LLM, human approves), `manual` (no LLM, operator writes patterns and schemas) or `agent` (opt-in: as `manual`, and the author and reviewer agents work the console with tokens generated at every start into `review-agent-tokens.json` in the working directory, mode 0600; the tokenless local console stays human); invalid values fail startup | `review` |
 //! | `CRAWLER_REVIEW_REQUIRED`, `CRAWLER_REVIEW_URL_PATTERN_REQUIRED`, `CRAWLER_SCHEMA_LLM_REVIEW_MODE` | Removed: any non-empty value fails startup. Replace them with `CRAWLER_AUTHORING_MODE` (mapping in `docs/crawler/operations.md#authoring-modes`) | unset |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
-//! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations | unset |
-//! | `CRAWLER_REVIEW_AGENT_TOKEN` | Optional bearer token of the review agent, which acts as `AGENT`; needs a different `CRAWLER_REVIEW_AUTH_TOKEN` | unset |
-//! | `CRAWLER_REVIEW_AGENT_APPROVALS` | `off` (the agent's approvals and rejections are refused) or `guarded` (taken when the server's approval guard passes); invalid values fail startup | `off` |
-//! | `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` | The agent's approvals plus rejections per rolling hour | `20` |
-//! | `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` | How old the live schema matrix an agent approval rests on may be | `30` |
+//! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations as a human, in `agent` mode too | unset |
+//! | `CRAWLER_REVIEW_AGENT_TOKEN`, `CRAWLER_REVIEW_AGENT_APPROVALS` | Removed: any non-empty value fails startup. `agent` mode generates the agents' tokens and lets the reviewer agent decide | unset |
+//! | `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` | The review agents' approvals plus rejections per rolling hour in `agent` mode | `20` |
+//! | `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` | How old the live evaluation an agent approval rests on may be | `30` |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!
 //! The pipeline is wired by [`crawler::runtime`], shared with `server`. This binary only supplies
 //! the demo ListingSources, short cron intervals, the tokenless local review console, and a file
 //! sink: changed raw observations are written to `scraped_raw_observations.json` instead of
-//! calling the ProductListing raw-capture use case.
+//! calling the ProductListing raw-capture use case. Like `server`, its working directory is its
+//! state directory, where `agent` mode writes the review agents' token file; the file is
+//! git-ignored.
 //!
 //! # Stopping
 //!
@@ -215,6 +216,7 @@ async fn main() {
             CrawlerRuntimeProfile {
                 cron_config: config,
                 review_config,
+                state_directory: crawler::runtime::state_directory(),
                 listing_source_source: Box::new(DemoListingSourceSource {
                     listing_sources: demo_listing_sources(),
                 }),

@@ -1,14 +1,15 @@
-//! The review agent's decisions and a human's restore: the agent approves and rejects only while
-//! its decisions are `guarded`, every approval names the candidate version it was based on, an
-//! agent approval passes the approval guard on the server's own live evaluation, the agent's
-//! decisions of an hour are capped from the event trail, and a human restores what an approval
-//! replaced while it is still live.
+//! The review agents' decisions and a human's restore: the reviewer agent approves and rejects
+//! only while agent decisions are `guarded`, as in `agent` authoring mode, and the author agent
+//! never; the reviewer agent changes no candidate; every approval names the candidate version it
+//! was based on; an agent approval passes the four-eyes rule and the approval guard on the
+//! server's own live evaluation; the agents' decisions of an hour are capped from the event trail;
+//! and a human restores what an approval replaced while it is still live.
 
 use crawler::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
 use crawler::review::model::{
-    PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_APPROVED, STATUS_PENDING_REVIEW,
-    SchemaReviewPageInput, UrlPatternDecision,
+    EvaluatedSampleUrl, PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_APPROVED,
+    STATUS_PENDING_REVIEW, SampleUrlOutcome, SchemaReviewPageInput, UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
 use crawler::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
@@ -281,7 +282,8 @@ fn failed_checks(refusal: Result<(), ReviewRepositoryError>) -> Vec<FailedApprov
     }
 }
 
-/// With agent decisions off the agent stages candidates and leaves every decision to a human.
+/// With agent decisions off, as outside `agent` authoring mode, the author agent's staging is kept
+/// and every agent decision is left to a human.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_the_agent_verdicts_but_keep_its_staging_while_agent_decisions_are_off() {
     let pool = get_postgres_client().await;
@@ -299,7 +301,7 @@ async fn should_refuse_the_agent_verdicts_but_keep_its_staging_while_agent_decis
     let edited = repository
         .update_candidate_payload(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             1,
             json!({ "schemas": [schema("h1.agent")] }),
         )
@@ -308,16 +310,20 @@ async fn should_refuse_the_agent_verdicts_but_keep_its_staging_while_agent_decis
     repository
         .request_repair(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             Some("title selector too loose"),
         )
         .await
         .unwrap();
     let approved = repository
-        .approve_review(review_id, ReviewActor::Agent, approval(edited))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(edited))
         .await;
     let rejected = repository
-        .reject_review(review_id, ReviewActor::Agent, Some("not a product page"))
+        .reject_review(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("not a product page"),
+        )
         .await;
 
     assert!(
@@ -333,8 +339,8 @@ async fn should_refuse_the_agent_verdicts_but_keep_its_staging_while_agent_decis
     assert_eq!(
         trail(&repository, review_id).await,
         vec![
-            (ReviewActor::Agent, ReviewEventAction::CandidateEdited),
-            (ReviewActor::Agent, ReviewEventAction::RepairRequested),
+            (ReviewActor::AgentAuthor, ReviewEventAction::CandidateEdited),
+            (ReviewActor::AgentAuthor, ReviewEventAction::RepairRequested),
         ]
     );
 }
@@ -367,7 +373,7 @@ async fn should_refuse_an_approval_of_another_candidate_version_from_anyone() {
         .await
         .unwrap();
 
-    for actor in [ReviewActor::Human, ReviewActor::Agent] {
+    for actor in [ReviewActor::Human, ReviewActor::AgentReviewer] {
         let refused = repository
             .approve_review(review_id, actor, approval(1))
             .await;
@@ -461,12 +467,12 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
         .unwrap();
 
     let without_matrix = repository
-        .approve_review(review_id, ReviewActor::Agent, approval(1))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
         .await;
     let acknowledged = repository
         .approve_review(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentReviewer,
             Approval {
                 incomplete_coverage: IncompleteCoverage::Acknowledged(
                     crawler::review::page_coverage::ReviewPageCoverage {
@@ -482,7 +488,7 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
         .await;
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
     let uncovered = repository
-        .approve_review(review_id, ReviewActor::Agent, approval(1))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
         .await;
 
     assert_eq!(
@@ -509,14 +515,14 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
     let edited = repository
         .update_candidate_payload(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             1,
             json!({ "schemas": [schema("h1"), schema("h2")] }),
         )
         .await
         .unwrap();
     let dropped = repository
-        .approve_review(review_id, ReviewActor::Agent, approval(edited))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(edited))
         .await;
     store_live_matrix(
         &repository,
@@ -525,7 +531,7 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
     )
     .await;
     let expired = repository
-        .approve_review(review_id, ReviewActor::Agent, approval(edited))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(edited))
         .await;
 
     assert_eq!(
@@ -541,12 +547,12 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
     );
     assert_eq!(
         trail(&repository, review_id).await,
-        vec![(ReviewActor::Agent, ReviewEventAction::CandidateEdited)]
+        vec![(ReviewActor::AgentAuthor, ReviewEventAction::CandidateEdited)]
     );
 
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
     repository
-        .approve_review(review_id, ReviewActor::Agent, approval(edited))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(edited))
         .await
         .unwrap();
 
@@ -559,7 +565,7 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
     let approved = detail.events.last().unwrap();
     assert_eq!(
         (approved.actor, approved.action),
-        (ReviewActor::Agent, ReviewEventAction::Approved)
+        (ReviewActor::AgentReviewer, ReviewEventAction::Approved)
     );
     assert_eq!(
         approved.details["live_evaluation"]["candidate_version"],
@@ -592,7 +598,7 @@ async fn should_evaluate_the_merged_list_an_append_makes_live_and_refuse_it_once
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
     set_live_schemas(&pool, &listing_source_id, &[schema("h1.changed")]).await;
     let outdated = repository
-        .approve_review(review_id, ReviewActor::Agent, approval(1))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
         .await;
 
     assert!(
@@ -606,7 +612,7 @@ async fn should_evaluate_the_merged_list_an_append_makes_live_and_refuse_it_once
     set_live_schemas(&pool, &listing_source_id, &[schema("h1")]).await;
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
     repository
-        .approve_review(review_id, ReviewActor::Agent, approval(1))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
         .await
         .unwrap();
 
@@ -640,15 +646,23 @@ async fn should_cap_the_agent_decisions_of_an_hour_from_the_event_trail() {
 
     for review_id in &reviews[..2] {
         repository
-            .reject_review(*review_id, ReviewActor::Agent, Some("not a shop page"))
+            .reject_review(
+                *review_id,
+                ReviewActor::AgentReviewer,
+                Some("not a shop page"),
+            )
             .await
             .unwrap();
     }
     let rejection = repository
-        .reject_review(reviews[2], ReviewActor::Agent, Some("not a shop page"))
+        .reject_review(
+            reviews[2],
+            ReviewActor::AgentReviewer,
+            Some("not a shop page"),
+        )
         .await;
     let approval_after_restart = guarded(&pool, 2)
-        .approve_review(reviews[3], ReviewActor::Agent, approval(1))
+        .approve_review(reviews[3], ReviewActor::AgentReviewer, approval(1))
         .await;
 
     for refused in [rejection, approval_after_restart] {
@@ -696,7 +710,11 @@ async fn should_never_exceed_the_hourly_cap_with_concurrent_agent_decisions() {
         let review_id = *review_id;
         tokio::spawn(async move {
             repository
-                .reject_review(review_id, ReviewActor::Agent, Some("not a shop page"))
+                .reject_review(
+                    review_id,
+                    ReviewActor::AgentReviewer,
+                    Some("not a shop page"),
+                )
                 .await
         })
     }))
@@ -712,7 +730,7 @@ async fn should_never_exceed_the_hourly_cap_with_concurrent_agent_decisions() {
     }
     assert_eq!((taken, capped), (2, 3));
     let recorded: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM crawler_review_events WHERE actor = 'AGENT' AND action = 'REJECTED'",
+        "SELECT COUNT(*) FROM crawler_review_events WHERE actor = 'AGENT_REVIEWER' AND action = 'REJECTED'",
     )
     .fetch_one(&pool)
     .await
@@ -749,7 +767,7 @@ async fn should_restore_what_an_agent_approval_replaced() {
     let edited = repository
         .update_candidate_payload(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             1,
             json!({ "schemas": [schema("h1")], "removed_page_schemas": [] }),
         )
@@ -757,7 +775,7 @@ async fn should_restore_what_an_agent_approval_replaced() {
         .unwrap();
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
     repository
-        .approve_review(review_id, ReviewActor::Agent, approval(edited))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(edited))
         .await
         .unwrap();
     let waiting_url = "https://example.com/products/waiting";
@@ -775,9 +793,14 @@ async fn should_restore_what_an_agent_approval_replaced() {
     .await
     .unwrap();
 
-    let by_agent = repository
-        .restore_approval(review_id, ReviewActor::Agent, None)
-        .await;
+    let by_agents = [
+        repository
+            .restore_approval(review_id, ReviewActor::AgentReviewer, None)
+            .await,
+        repository
+            .restore_approval(review_id, ReviewActor::AgentAuthor, None)
+            .await,
+    ];
     repository
         .restore_approval(
             review_id,
@@ -790,10 +813,12 @@ async fn should_restore_what_an_agent_approval_replaced() {
         .restore_approval(review_id, ReviewActor::Human, None)
         .await;
 
-    assert!(
-        matches!(by_agent, Err(ReviewRepositoryError::RestoreNeedsHuman)),
-        "{by_agent:?}"
-    );
+    for by_agent in by_agents {
+        assert!(
+            matches!(by_agent, Err(ReviewRepositoryError::RestoreNeedsHuman)),
+            "{by_agent:?}"
+        );
+    }
     assert!(
         matches!(again, Err(ReviewRepositoryError::ApprovalAlreadyRestored(id)) if id == review_id),
         "{again:?}"
@@ -819,7 +844,7 @@ async fn should_restore_what_an_agent_approval_replaced() {
     let (approval_event, restore_event) = (&events[events.len() - 2], &events[events.len() - 1]);
     assert_eq!(
         (approval_event.actor, approval_event.action),
-        (ReviewActor::Agent, ReviewEventAction::Approved)
+        (ReviewActor::AgentReviewer, ReviewEventAction::Approved)
     );
     assert_eq!(
         (restore_event.actor, restore_event.action),
@@ -1087,7 +1112,7 @@ async fn should_take_the_agent_url_pattern_approval_only_when_it_fits_the_classi
             repository
                 .update_candidate_payload(
                     review_id,
-                    ReviewActor::Agent,
+                    ReviewActor::AgentAuthor,
                     expected_candidate_version,
                     json!({ "decision": { "type": "PATTERN", "value": pattern }, "current_pattern": null }),
                 )
@@ -1097,15 +1122,15 @@ async fn should_take_the_agent_url_pattern_approval_only_when_it_fits_the_classi
     };
 
     let undecided = repository
-        .approve_review(review_id, ReviewActor::Agent, approval(1))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
         .await;
     let too_broad = decide("/product", 1).await;
     let matches_a_category = repository
-        .approve_review(review_id, ReviewActor::Agent, approval(too_broad))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(too_broad))
         .await;
     let fitting = decide("/product/[^/]+$", too_broad).await;
     repository
-        .approve_review(review_id, ReviewActor::Agent, approval(fitting))
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
         .await
         .unwrap();
 
@@ -1126,4 +1151,463 @@ async fn should_take_the_agent_url_pattern_approval_only_when_it_fits_the_classi
             .await
             .unwrap();
     assert_eq!(url_class, "product");
+}
+
+/// The reviewer agent only judges: every change of what a review approves, its candidate, a
+/// schema field, a removed-page declaration or a page, is refused before anything is fetched or
+/// stored, and records nothing; its needs-repair verdict is taken.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_every_candidate_change_of_the_reviewer_agent_without_an_event() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    let added_url = url::Url::parse("https://example.com/products/table").unwrap();
+    let added = repository
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::AgentAuthor,
+            &added_url,
+            &added_url,
+            &shop_page(added_url.as_str()),
+        )
+        .await
+        .unwrap();
+    let other_url = url::Url::parse("https://example.com/products/other").unwrap();
+
+    let refusals = [
+        repository
+            .update_candidate_payload(
+                review_id,
+                ReviewActor::AgentReviewer,
+                1,
+                json!({ "schemas": [schema("h1.reviewer")] }),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .update_candidate_payload(
+                review_id,
+                ReviewActor::AgentReviewer,
+                1,
+                json!({ "schemas": [schema("h1")], "removed_page_schemas": [notice_template("sold")] }),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .update_schema_field(
+                review_id,
+                ReviewActor::AgentReviewer,
+                1,
+                0,
+                "title",
+                Some(rule("h1.reviewer")),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .check_reviewer_page_target(review_id, ReviewActor::AgentReviewer, &other_url)
+            .await,
+        repository
+            .add_reviewer_page(
+                review_id,
+                ReviewActor::AgentReviewer,
+                &other_url,
+                &other_url,
+                &shop_page(other_url.as_str()),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .remove_reviewer_page(added.review_page_id, ReviewActor::AgentReviewer)
+            .await,
+    ];
+    repository
+        .request_repair(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("the table page needs its own schema"),
+        )
+        .await
+        .unwrap();
+
+    for refusal in &refusals {
+        assert!(
+            matches!(
+                refusal,
+                Err(ReviewRepositoryError::ReviewerMayNotChangeCandidates)
+            ),
+            "{refusals:?}"
+        );
+    }
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(detail.review.candidate_version, 1);
+    assert_eq!(detail.pages.len(), 2);
+    assert_eq!(
+        trail(&repository, review_id).await,
+        vec![
+            (ReviewActor::AgentAuthor, ReviewEventAction::PageAdded),
+            (
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested
+            ),
+        ]
+    );
+}
+
+/// The author agent stages for the reviewer agent or a human to decide: its approval and
+/// rejection are refused whatever the review holds, and record nothing.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_every_verdict_of_the_author_agent() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+
+    let approved = repository
+        .approve_review(review_id, ReviewActor::AgentAuthor, approval(1))
+        .await;
+    let rejected = repository
+        .reject_review(review_id, ReviewActor::AgentAuthor, Some("not a shop page"))
+        .await;
+
+    for refusal in [approved, rejected] {
+        assert!(
+            matches!(refusal, Err(ReviewRepositoryError::AuthorMayNotDecide)),
+            "{refusal:?}"
+        );
+    }
+    assert_eq!(
+        repository
+            .get_review(review_id)
+            .await
+            .unwrap()
+            .review
+            .status,
+        STATUS_PENDING_REVIEW
+    );
+    assert!(trail(&repository, review_id).await.is_empty());
+}
+
+/// Four eyes: the reviewer agent approves the version the author agent staged once it evaluated
+/// it live; an edit the author makes after that evaluation is approved only as the new version,
+/// on a new evaluation.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_take_the_reviewer_approval_only_of_the_author_version_it_evaluated() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1.wrong")],
+        vec![page("chair")],
+    )
+    .await;
+    let staged = repository
+        .update_schema_field(
+            review_id,
+            ReviewActor::AgentAuthor,
+            1,
+            0,
+            "title",
+            Some(rule("h2")),
+        )
+        .await
+        .unwrap();
+    store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+    let edited_after_evaluation = repository
+        .update_schema_field(
+            review_id,
+            ReviewActor::AgentAuthor,
+            staged,
+            0,
+            "title",
+            Some(rule("h1")),
+        )
+        .await
+        .unwrap();
+
+    let evaluated_version = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(staged))
+        .await;
+    let unevaluated_version = repository
+        .approve_review(
+            review_id,
+            ReviewActor::AgentReviewer,
+            approval(edited_after_evaluation),
+        )
+        .await;
+    store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+    repository
+        .approve_review(
+            review_id,
+            ReviewActor::AgentReviewer,
+            approval(edited_after_evaluation),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(
+            evaluated_version,
+            Err(ReviewRepositoryError::StaleCandidateVersion { expected, current, .. })
+                if expected == staged && current == edited_after_evaluation
+        ),
+        "{evaluated_version:?}"
+    );
+    assert_eq!(
+        failed_checks(unevaluated_version),
+        vec![FailedApprovalCheck::LiveMatrixMissing]
+    );
+    assert_eq!(
+        live_schemas(&pool, &listing_source_id).await,
+        Some(vec![schema("h1")])
+    );
+    assert_eq!(
+        trail(&repository, review_id).await,
+        vec![
+            (
+                ReviewActor::AgentAuthor,
+                ReviewEventAction::SchemaFieldEdited
+            ),
+            (
+                ReviewActor::AgentAuthor,
+                ReviewEventAction::SchemaFieldEdited
+            ),
+            (ReviewActor::AgentReviewer, ReviewEventAction::Approved),
+        ]
+    );
+}
+
+/// No agent approves its own work: an agent that changed the candidate version it approves, or
+/// its pages, is refused with `APPROVER_IS_AUTHOR` however well the version passes the guard,
+/// while a human approves the same version. No route lets the reviewer agent change a candidate,
+/// so its change is recorded here as an event of its own.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_an_agent_approval_of_a_version_the_approving_agent_changed() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    for action in ["PAGE_REMOVED", "SCHEMA_FIELD_EDITED"] {
+        sqlx::query(
+            "INSERT INTO crawler_review_events \
+             (event_id, review_id, actor, action, candidate_version, details) \
+             VALUES ($1, $2, 'AGENT_REVIEWER', $3, 1, '{}')",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(review_id.as_uuid())
+        .bind(action)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+
+    let own_change = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
+        .await;
+
+    assert_eq!(
+        failed_checks(own_change),
+        vec![FailedApprovalCheck::ApproverIsAuthor]
+    );
+    assert_eq!(
+        repository
+            .get_review(review_id)
+            .await
+            .unwrap()
+            .review
+            .status,
+        STATUS_PENDING_REVIEW
+    );
+    repository
+        .approve_review(review_id, ReviewActor::Human, approval(1))
+        .await
+        .unwrap();
+    assert_eq!(
+        live_schemas(&pool, &listing_source_id).await,
+        Some(vec![schema("h1")])
+    );
+}
+
+/// Evaluates the URL-pattern review's sample as a refresh does, the page of each URL in
+/// `product_pages` describing one schema.org `Product` and every other page none, fetched
+/// `fetched_ago` before now, and stores it.
+async fn store_url_sample_evaluation(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+    product_pages: &[&str],
+    fetched_ago: Duration,
+) -> Vec<String> {
+    let to_evaluate = repository.url_sample_to_evaluate(review_id).await.unwrap();
+    let urls: Vec<EvaluatedSampleUrl> = to_evaluate
+        .urls()
+        .map(|(url, decision_matches)| EvaluatedSampleUrl {
+            url: url.to_owned(),
+            decision_matches,
+            outcome: if product_pages.contains(&url) {
+                SampleUrlOutcome::ProductMarkup
+            } else {
+                SampleUrlOutcome::NoProductMarkup
+            },
+        })
+        .collect();
+    let fetched = urls.iter().map(|url| url.url.clone()).collect();
+    repository
+        .store_url_sample_evaluation_if_current(
+            review_id,
+            to_evaluate.evaluated(review_id, urls, OffsetDateTime::now_utc() - fetched_ago),
+        )
+        .await
+        .unwrap();
+    fetched
+}
+
+/// On a new domain, which the crawler captured no product from, the reviewer agent approves a
+/// URL pattern on the product markup of the sample's pages that a current live evaluation found,
+/// and only on one of the decision it approves: without it, after the author changed the
+/// decision, or once it expired, it is refused.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_take_a_new_domain_url_pattern_on_product_markup_of_a_current_sample_evaluation() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let (listing_source_id, domain_id) = listing_source(&pool).await;
+    let sample = [
+        "https://example.com/item/chair",
+        "https://example.com/item/table",
+        "https://example.com/journal/restoring-oak",
+        "https://example.com/product-category/chairs",
+    ];
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "manual_url_pattern_required",
+            UrlPatternDecision::Undecided,
+            &sample.map(str::to_owned),
+            None,
+        )
+        .await
+        .unwrap();
+    let decide = |pattern: &'static str, expected_candidate_version: i64| {
+        let repository = repository.clone();
+        async move {
+            repository
+                .update_candidate_payload(
+                    review_id,
+                    ReviewActor::AgentAuthor,
+                    expected_candidate_version,
+                    json!({ "decision": { "type": "PATTERN", "value": pattern }, "current_pattern": null }),
+                )
+                .await
+                .unwrap()
+        }
+    };
+    let products = [
+        "https://example.com/item/chair",
+        "https://example.com/item/table",
+    ];
+
+    let too_narrow = decide("/item/chair$", 1).await;
+    let without_evaluation = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(too_narrow))
+        .await;
+    let fetched =
+        store_url_sample_evaluation(&repository, review_id, &products, Duration::ZERO).await;
+    let misses_a_product = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(too_narrow))
+        .await;
+    let fitting = decide("/item/[^/]+$", too_narrow).await;
+    let evaluation_dropped = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
+        .await;
+    store_url_sample_evaluation(
+        &repository,
+        review_id,
+        &products,
+        Duration::from_secs(2 * 60 * 60),
+    )
+    .await;
+    let expired = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
+        .await;
+    store_url_sample_evaluation(&repository, review_id, &products, Duration::ZERO).await;
+    repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        fetched,
+        vec![
+            "https://example.com/item/chair".to_owned(),
+            "https://example.com/item/table".to_owned(),
+            "https://example.com/journal/restoring-oak".to_owned(),
+        ],
+        "the category URL is known already, so it is not fetched"
+    );
+    assert_eq!(
+        failed_checks(without_evaluation),
+        vec![FailedApprovalCheck::NoCapturedProductUrl]
+    );
+    assert_eq!(
+        failed_checks(misses_a_product),
+        vec![FailedApprovalCheck::ProductUrlsNotMatched {
+            urls: vec!["https://example.com/item/table".to_owned()],
+        }]
+    );
+    assert_eq!(
+        failed_checks(evaluation_dropped),
+        vec![FailedApprovalCheck::NoCapturedProductUrl],
+        "the author's change dropped the evaluation of the decision it replaced"
+    );
+    assert!(
+        matches!(
+            failed_checks(expired).as_slice(),
+            [FailedApprovalCheck::LiveMatrixExpired { .. }]
+        ),
+        "an evaluation older than the allowed age vouches for nothing"
+    );
+    let decision: (Option<String>, String) = sqlx::query_as(
+        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        decision,
+        (Some("/item/[^/]+$".to_owned()), "MATCHED".to_owned())
+    );
+    let approved = repository.get_review(review_id).await.unwrap().events;
+    let approved = approved.last().unwrap();
+    assert_eq!(
+        (approved.actor, approved.action),
+        (ReviewActor::AgentReviewer, ReviewEventAction::Approved)
+    );
 }

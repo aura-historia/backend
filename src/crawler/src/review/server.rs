@@ -6,12 +6,16 @@ use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
-use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
+use crate::review::matrix_refresh::{
+    MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes, ReviewLiveEvaluation,
+};
 use crate::review::model::{
-    CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, ReviewSchemaMatrix, SchemaMatrix,
+    ARTIFACT_URL_PATTERN, CrawlerReviewPage, EvaluatedSampleUrl, RawAttributeKey, ReviewActor,
+    ReviewDetail, ReviewSchemaMatrix, SampleUrlOutcome, SchemaMatrix, UrlSampleEvaluation,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
+use crate::review::url_sample_evidence::sample_url_outcome;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
@@ -68,7 +72,7 @@ impl ReviewServer {
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
         Self {
-            // The console decides the review agent's approvals and rejections by its settings.
+            // The console decides the review agents' approvals and rejections by its settings.
             repository: repository.with_agent_decisions(config.agent_decisions.clone()),
             domain_administration,
             access: ReviewAccess::new(config),
@@ -346,10 +350,12 @@ impl ReviewServer {
                 Ok(detail) => detail,
                 Err(err) => return review_error(err),
             };
-            if !refresh && let Some(matrix) = cached_schema_matrix(&detail) {
-                return HttpResponse::json(200, &ReviewSchemaMatrix::of(matrix, &detail.pages));
+            if !refresh && let Some(evaluation) = cached_live_evaluation(&detail) {
+                return HttpResponse::json(200, &evaluation);
             }
-            return self.refresh_schema_matrix(review_id).await;
+            return self
+                .refresh_live_evaluation(review_id, &detail.review.artifact_type)
+                .await;
         }
 
         if request.method == "POST"
@@ -611,17 +617,30 @@ impl ReviewServer {
             .unwrap_or_else(|_| Err(matrix_refresh_timeout(review_id, deadline)))
     }
 
-    /// Starts a background refresh, or joins the running one, and answers with the matrix
-    /// when it finishes in time, otherwise with `202` for the console to poll.
-    async fn refresh_schema_matrix(&self, review_id: CrawlerReviewId) -> HttpResponse {
-        let refresh = self.clone().evaluate_live_schema_matrix(review_id);
+    /// Starts a background refresh of the review's live evaluation, its schema matrix or, for a
+    /// URL-pattern review, the evaluation of its URL sample, or joins the running one, and answers
+    /// with it when it finishes in time, otherwise with `202` for the console to poll.
+    async fn refresh_live_evaluation(
+        &self,
+        review_id: CrawlerReviewId,
+        artifact_type: &str,
+    ) -> HttpResponse {
+        let server = self.clone();
+        let url_pattern = artifact_type == ARTIFACT_URL_PATTERN;
+        let refresh = async move {
+            if url_pattern {
+                server.evaluate_live_url_sample(review_id).await
+            } else {
+                server.evaluate_live_schema_matrix(review_id).await
+            }
+        };
         match self
             .matrix_refreshes
             .start_or_join(review_id, refresh)
             .outcome_within(self.matrix_refresh_wait)
             .await
         {
-            Some(Ok(matrix)) => HttpResponse::json(200, &matrix),
+            Some(Ok(evaluation)) => HttpResponse::json(200, &evaluation),
             Some(Err(response)) => response,
             None => matrix_refreshing(review_id),
         }
@@ -638,7 +657,58 @@ impl ReviewServer {
         self.repository
             .store_schema_matrix_if_current(review_id, evaluated)
             .await
+            .map(ReviewLiveEvaluation::SchemaMatrix)
             .map_err(review_error)
+    }
+
+    /// Fetches the URLs of the URL-pattern review's sample that its current decision is evaluated
+    /// on, one after the other at the shop's pacing and within a deadline sized for it, and stores
+    /// what their pages showed. A URL whose fetch fails shows nothing and fails no evaluation.
+    async fn evaluate_live_url_sample(self, review_id: CrawlerReviewId) -> MatrixRefreshOutcome {
+        let fetched_at = time::OffsetDateTime::now_utc();
+        let to_evaluate = self
+            .repository
+            .url_sample_to_evaluate(review_id)
+            .await
+            .map_err(review_error)?;
+        let deadline = matrix_refresh_deadline(to_evaluate.url_count());
+        let fetch_all = async {
+            let mut evaluated = Vec::with_capacity(to_evaluate.url_count());
+            for (url, decision_matches) in to_evaluate.urls() {
+                let outcome = match Url::parse(url) {
+                    Ok(parsed) => {
+                        sample_url_outcome(&parsed, self.html_fetcher.fetch(&parsed).await)
+                    }
+                    Err(error) => SampleUrlOutcome::FetchFailed {
+                        error: error.to_string(),
+                    },
+                };
+                evaluated.push(EvaluatedSampleUrl {
+                    url: url.to_owned(),
+                    decision_matches,
+                    outcome,
+                });
+            }
+            evaluated
+        };
+        let urls = tokio::time::timeout(deadline, fetch_all)
+            .await
+            .map_err(|_| matrix_refresh_timeout(review_id, deadline))?;
+        let evaluation = self
+            .repository
+            .store_url_sample_evaluation_if_current(
+                review_id,
+                to_evaluate.evaluated(review_id, urls, fetched_at),
+            )
+            .await
+            .map_err(review_error)?;
+        info!(
+            review_id = %review_id,
+            evaluated_urls = evaluation.urls.len(),
+            product_markup_urls = evaluation.product_markup_urls().count(),
+            "URL-pattern review's sample evaluated live"
+        );
+        Ok(ReviewLiveEvaluation::UrlSample(evaluation))
     }
 
     /// Fetches a reviewer-chosen page of the review's ListingSource and stores it as a review
@@ -995,15 +1065,24 @@ fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
     })
 }
 
-/// The schema matrix cached on the review, or `None` when it holds none, or one that no longer
-/// decodes, so the caller refreshes it from the live pages.
-fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
-    SchemaMatrix::stored_in(&detail.review.validation_summary)?
+/// The live evaluation cached on the review, its schema matrix or, for a URL-pattern review, the
+/// evaluation of its URL sample, or `None` when it holds none, or one that no longer decodes, so
+/// the caller refreshes it live.
+fn cached_live_evaluation(detail: &ReviewDetail) -> Option<ReviewLiveEvaluation> {
+    let summary = &detail.review.validation_summary;
+    let cached = if detail.review.artifact_type == ARTIFACT_URL_PATTERN {
+        UrlSampleEvaluation::stored_in(summary)?.map(ReviewLiveEvaluation::UrlSample)
+    } else {
+        SchemaMatrix::stored_in(summary)?.map(|matrix| {
+            ReviewLiveEvaluation::SchemaMatrix(ReviewSchemaMatrix::of(matrix, &detail.pages))
+        })
+    };
+    cached
         .inspect_err(|err| {
             warn!(
                 review_id = %detail.review.review_id,
                 error = ?err,
-                "Cached schema matrix is invalid; refreshing from live pages"
+                "Cached live evaluation is invalid; refreshing it live"
             );
         })
         .ok()
@@ -1087,6 +1166,10 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(_) => {
             forbidden(&error, "AGENT_CHANGES_ONLY_PENDING_REVIEWS")
         }
+        ReviewRepositoryError::ReviewerMayNotChangeCandidates => {
+            forbidden(&error, "REVIEWER_CANNOT_CHANGE_CANDIDATES")
+        }
+        ReviewRepositoryError::AuthorMayNotDecide => forbidden(&error, "AUTHOR_CANNOT_DECIDE"),
         ReviewRepositoryError::AgentDecisionsOff => forbidden(&error, "AGENT_DECISIONS_OFF"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
@@ -1262,7 +1345,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: auth_token.map(str::to_owned),
-                agent_token: None,
+                agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             },
@@ -1383,7 +1466,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
-                agent_token: None,
+                agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             },
@@ -1413,7 +1496,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
-                agent_token: None,
+                agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             },
@@ -1495,7 +1578,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_string()),
-                agent_token: None,
+                agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             },
@@ -1580,7 +1663,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
-                agent_token: None,
+                agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             }
@@ -2041,7 +2124,7 @@ Origin: http://127.0.0.1:7878/x
                     ReviewServerConfig {
                         bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                         auth_token: None,
-                        agent_token: None,
+                        agent_tokens: None,
                         agent_decisions: AgentDecisionPolicy::default(),
                         local_mutations_without_token: false,
                     },
@@ -2304,7 +2387,8 @@ Origin: http://127.0.0.1:7878/x
         use test_api::IntegrationTestService as _;
 
         pub(super) const TOKEN: &str = "review-token";
-        pub(super) const AGENT_TOKEN: &str = "agent-token";
+        pub(super) const AUTHOR_TOKEN: &str = "author-token";
+        pub(super) const REVIEWER_TOKEN: &str = "reviewer-token";
 
         /// Sends an authorized request and returns its status line and JSON body.
         pub(super) async fn send(
@@ -2367,7 +2451,7 @@ Origin: http://127.0.0.1:7878/x
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
-                    agent_token: None,
+                    agent_tokens: None,
                     agent_decisions: AgentDecisionPolicy::default(),
                     local_mutations_without_token: false,
                 },
@@ -2417,11 +2501,12 @@ Origin: http://127.0.0.1:7878/x
 
     mod schema_editing {
         use super::matrix_refresh::schema;
-        use super::needs_repair::{AGENT_TOKEN, TOKEN, send};
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send};
         use super::{
             AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
         };
         use crate::CrawlerReviewId;
+        use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use listing_source_core::ListingSourceId;
@@ -2467,7 +2552,7 @@ Origin: http://127.0.0.1:7878/x
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
-                    agent_token: Some(AGENT_TOKEN.to_owned()),
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
                     agent_decisions,
                     local_mutations_without_token: false,
                 },
@@ -2599,13 +2684,13 @@ Origin: http://127.0.0.1:7878/x
     }
 
     mod review_event_trail {
-        use super::needs_repair::{AGENT_TOKEN, TOKEN, send, send_as};
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send, send_as};
         use super::schema_editing::pending_review_server;
         use serde_json::json;
         use test_api::IntegrationTestService as _;
 
         /// The console records each edit as made by the actor of the credential it came with,
-        /// records nothing for a refused edit, and returns the trail with the review. The agent
+        /// records nothing for a refused edit, and returns the trail with the review. An agent
         /// token opens no browser session.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_record_the_actor_of_each_credential_and_return_the_trail_with_the_review() {
@@ -2628,7 +2713,7 @@ Origin: http://127.0.0.1:7878/x
 
             let (agent, agent_answer) = send_as(
                 &server,
-                AGENT_TOKEN,
+                AUTHOR_TOKEN,
                 &schema_field,
                 &title_edit(version, "h1.agent"),
             )
@@ -2642,14 +2727,14 @@ Origin: http://127.0.0.1:7878/x
             .await;
             let (stale, stale_answer) = send_as(
                 &server,
-                AGENT_TOKEN,
+                AUTHOR_TOKEN,
                 &schema_field,
                 &title_edit(version, "h1.stale"),
             )
             .await;
             let session = server
                 .route(&format!(
-                    "POST /api/session HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {AGENT_TOKEN}\r\n\r\n"
+                    "POST /api/session HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {REVIEWER_TOKEN}\r\n\r\n"
                 ))
                 .await
                 .to_string();
@@ -2659,7 +2744,7 @@ Origin: http://127.0.0.1:7878/x
             assert!(stale.starts_with("HTTP/1.1 409"), "{stale} {stale_answer}");
             assert!(session.starts_with("HTTP/1.1 401"), "{session}");
             assert!(!session.contains("Set-Cookie"), "{session}");
-            let (status, detail) = send_as(&server, AGENT_TOKEN, &review, "").await;
+            let (status, detail) = send_as(&server, REVIEWER_TOKEN, &review, "").await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {detail}");
             let events = detail["events"]
                 .as_array()
@@ -2678,7 +2763,7 @@ Origin: http://127.0.0.1:7878/x
                 trail,
                 vec![
                     (
-                        json!("AGENT"),
+                        json!("AGENT_AUTHOR"),
                         json!("SCHEMA_FIELD_EDITED"),
                         json!(version + 1)
                     ),
@@ -2697,7 +2782,7 @@ Origin: http://127.0.0.1:7878/x
             );
         }
 
-        /// The agent token changes no decided review: its edits and page additions to the
+        /// The author agent changes no decided review: its edits and page additions to the
         /// approved review whose candidate is live answer 403 with an `error`, before any page is
         /// fetched, and record nothing, while the review token's edit still applies.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
@@ -2752,15 +2837,13 @@ Origin: http://127.0.0.1:7878/x
                     json!({ "url": "https://edited.example/products/1" }).to_string(),
                 ),
             ] {
-                let (status, refused) = send_as(&server, AGENT_TOKEN, &request, &body).await;
+                let (status, refused) = send_as(&server, AUTHOR_TOKEN, &request, &body).await;
                 assert!(
                     status.starts_with("HTTP/1.1 403 Forbidden"),
                     "{request}: {status} {refused}"
                 );
-                assert!(
-                    refused["error"]
-                        .as_str()
-                        .is_some_and(|error| error.contains("review agent")),
+                assert_eq!(
+                    refused["reason"], "AGENT_CHANGES_ONLY_PENDING_REVIEWS",
                     "{request}: {refused}"
                 );
             }
@@ -2790,9 +2873,9 @@ Origin: http://127.0.0.1:7878/x
         }
     }
 
-    /// The console takes the agent's verdicts by its own settings, and only a human restores.
+    /// The console takes the agents' verdicts by its own settings, and only a human restores.
     mod agent_decisions {
-        use super::needs_repair::{AGENT_TOKEN, TOKEN, send_as};
+        use super::needs_repair::{REVIEWER_TOKEN, TOKEN, send_as};
         use super::schema_editing::pending_review_server_deciding;
         use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
         use serde_json::json;
@@ -2804,7 +2887,7 @@ Origin: http://127.0.0.1:7878/x
                 pending_review_server_deciding(AgentDecisionPolicy::default()).await;
             let (status, refused) = send_as(
                 &off,
-                AGENT_TOKEN,
+                REVIEWER_TOKEN,
                 &format!("POST /api/reviews/{off_review}/reject"),
                 &json!({ "notes": "not a product page" }).to_string(),
             )
@@ -2819,7 +2902,7 @@ Origin: http://127.0.0.1:7878/x
             .await;
             let (status, refused) = send_as(
                 &guarded,
-                AGENT_TOKEN,
+                REVIEWER_TOKEN,
                 &format!("POST /api/reviews/{guarded_review}/approve"),
                 &json!({ "expected_candidate_version": 1 }).to_string(),
             )
@@ -2865,7 +2948,7 @@ Origin: http://127.0.0.1:7878/x
             .await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
 
-            let (agent_status, by_agent) = send_as(&server, AGENT_TOKEN, &restore, "").await;
+            let (agent_status, by_agent) = send_as(&server, REVIEWER_TOKEN, &restore, "").await;
             let (status, restored) = send_as(
                 &server,
                 TOKEN,
@@ -2894,6 +2977,352 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(last["action"], "RESTORED");
             assert_eq!(last["actor"], "HUMAN");
             assert_eq!(last["notes"], "wrong schema");
+        }
+    }
+
+    /// What each agent role may do on the console: the author stages, the reviewer judges, and
+    /// each refusal names its reason and records nothing.
+    mod agent_roles {
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
+        use super::schema_editing::pending_review_server_deciding;
+        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_each_role_what_the_other_role_does_with_its_reason() {
+            let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
+                approvals: AgentApprovals::Guarded,
+                ..AgentDecisionPolicy::default()
+            })
+            .await;
+            let title_edit = json!({
+                "expected_candidate_version": 1,
+                "schema_index": 0,
+                "field": "title",
+                "rule": {"selector": "h1.edited", "type": "text"},
+            })
+            .to_string();
+            let approval = json!({ "expected_candidate_version": 1 }).to_string();
+            let rejection = json!({ "notes": "not a product page" }).to_string();
+
+            // The review server's fetcher expects no call: a refused page addition fetches
+            // nothing.
+            for (token, request, body, reason) in [
+                (
+                    AUTHOR_TOKEN,
+                    format!("POST /api/reviews/{review_id}/approve"),
+                    approval.clone(),
+                    "AUTHOR_CANNOT_DECIDE",
+                ),
+                (
+                    AUTHOR_TOKEN,
+                    format!("POST /api/reviews/{review_id}/reject"),
+                    rejection.clone(),
+                    "AUTHOR_CANNOT_DECIDE",
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    format!("POST /api/reviews/{review_id}/schema-field"),
+                    title_edit.clone(),
+                    "REVIEWER_CANNOT_CHANGE_CANDIDATES",
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    format!("POST /api/reviews/{review_id}/candidate"),
+                    json!({
+                        "expected_candidate_version": 1,
+                        "schemas": [super::matrix_refresh::schema("h1.reviewer")],
+                    })
+                    .to_string(),
+                    "REVIEWER_CANNOT_CHANGE_CANDIDATES",
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    format!("POST /api/reviews/{review_id}/pages"),
+                    json!({ "url": "https://edited.example/products/1" }).to_string(),
+                    "REVIEWER_CANNOT_CHANGE_CANDIDATES",
+                ),
+                (
+                    AUTHOR_TOKEN,
+                    format!("POST /api/reviews/{review_id}/restore"),
+                    String::new(),
+                    "RESTORE_NEEDS_HUMAN",
+                ),
+            ] {
+                let (status, refused) = send_as(&server, token, &request, &body).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 403 Forbidden"),
+                    "{request}: {status} {refused}"
+                );
+                assert_eq!(refused["reason"], reason, "{request}: {refused}");
+            }
+            let (status, edited) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/schema-field"),
+                &title_edit,
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
+            let (status, repair) = send_as(
+                &server,
+                REVIEWER_TOKEN,
+                &format!("POST /api/reviews/{review_id}/needs-repair"),
+                &json!({ "notes": "the title misses sold pages" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {repair}");
+
+            let (_, detail) =
+                send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
+            let trail: Vec<_> = detail["events"]
+                .as_array()
+                .unwrap_or_else(|| panic!("review without events: {detail}"))
+                .iter()
+                .map(|event| (event["actor"].clone(), event["action"].clone()))
+                .collect();
+            assert_eq!(
+                trail,
+                vec![
+                    (json!("AGENT_AUTHOR"), json!("SCHEMA_FIELD_EDITED")),
+                    (json!("AGENT_REVIEWER"), json!("REPAIR_REQUESTED")),
+                ]
+            );
+            assert_eq!(detail["review"]["status"], "PENDING_REVIEW");
+        }
+    }
+
+    /// The live evaluation of a URL-pattern review's sample on pages a fixture shop serves: the
+    /// pages' schema.org `Product` markup is the evidence on which the reviewer agent approves the
+    /// author agent's pattern for a domain the crawler captured no product from.
+    mod url_sample_refresh {
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use crate::CrawlerDomainId;
+        use crate::network::policy::NetworkErrorKind;
+        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::model::UrlPatternDecision;
+        use crate::review::repository::CrawlerReviewRepository;
+        use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use std::collections::HashMap;
+        use std::net::SocketAddr;
+        use std::sync::{Arc, Mutex};
+        use test_api::IntegrationTestService as _;
+        use url::Url;
+
+        /// A product page as WooCommerce with Yoast serves it: one `Product` in the JSON-LD
+        /// `@graph`, next to the site's other nodes.
+        const PRODUCT_PAGE: &str = r#"<!doctype html><html><head>
+<script type="application/ld+json" class="yoast-schema-graph">{"@context":"https://schema.org","@graph":[{"@type":"WebPage","@id":"https://fixture-antiques.example/item/oak-chair/"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home"}]},{"@type":"WebSite","name":"Fixture Shop"}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org/","@type":"Product","name":"Oak chair","sku":"FS-1","offers":[{"@type":"Offer","price":"120.00","priceCurrency":"GBP"}]}</script>
+</head><body><h1 class="product_title">Oak chair</h1></body></html>"#;
+
+        /// A page the decision leaves out: an article without product markup.
+        const JOURNAL_PAGE: &str = r#"<!doctype html><html><head>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"Restoring oak"}</script>
+</head><body><h1>Restoring oak</h1></body></html>"#;
+
+        /// A shop serving its pages by URL; every other URL fails as a 404 would.
+        struct FixtureShop {
+            pages: HashMap<String, &'static str>,
+            fetched: Mutex<Vec<String>>,
+        }
+
+        #[async_trait::async_trait]
+        impl HtmlFetcher for FixtureShop {
+            async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+                self.fetched
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(url.to_string());
+                match self.pages.get(url.as_str()) {
+                    Some(html) => Ok(FetchedHtml::new(
+                        (*html).to_owned(),
+                        url.clone(),
+                        reqwest::StatusCode::OK,
+                    )),
+                    None => Err(FetchError::NetworkWithMetadata {
+                        kind: NetworkErrorKind::HttpStatus(404),
+                        status: Some(404),
+                        retry_after: None,
+                        details: "not found".to_owned(),
+                    }),
+                }
+            }
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_approve_a_new_domain_pattern_on_the_product_markup_of_the_live_sample() {
+            let pool = test_api::get_postgres_client().await;
+            let listing_source_id = ListingSourceId::new();
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                 (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+                 VALUES ($1, 'Fixture antiques', 'fixture-antiques', TRUE, NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert listing source: {error}"));
+            let domain_id = CrawlerDomainId::new();
+            sqlx::query(
+                "INSERT INTO listing_source_domains \
+                 (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+                 VALUES ($1, $2, 'fixture-antiques.example', 'fixture-antiques.example')",
+            )
+            .bind(domain_id.as_uuid())
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert domain: {error}"));
+            let sample = [
+                "https://fixture-antiques.example/item/oak-chair",
+                "https://fixture-antiques.example/item/pine-table",
+                "https://fixture-antiques.example/item/gone",
+                "https://fixture-antiques.example/journal/restoring-oak",
+                "https://fixture-antiques.example/product-category/chairs",
+                "https://fixture-antiques.example/contact",
+            ];
+            let repository = CrawlerReviewRepository::new(pool.clone());
+            let review_id = repository
+                .create_url_pattern_review(
+                    &listing_source_id,
+                    &domain_id,
+                    "manual_url_pattern_required",
+                    UrlPatternDecision::Undecided,
+                    &sample.map(str::to_owned),
+                    None,
+                )
+                .await
+                .unwrap_or_else(|error| panic!("create URL-pattern review: {error}"));
+            let shop = Arc::new(FixtureShop {
+                pages: HashMap::from([
+                    (sample[0].to_owned(), PRODUCT_PAGE),
+                    (sample[1].to_owned(), PRODUCT_PAGE),
+                    (sample[3].to_owned(), JOURNAL_PAGE),
+                ]),
+                fetched: Mutex::new(Vec::new()),
+            });
+            let server = ReviewServer::new(
+                repository,
+                Arc::new(RejectingDomainAdministration),
+                ReviewServerConfig {
+                    bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                    auth_token: Some(TOKEN.to_owned()),
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    agent_decisions: AgentDecisionPolicy {
+                        approvals: AgentApprovals::Guarded,
+                        ..AgentDecisionPolicy::default()
+                    },
+                    local_mutations_without_token: false,
+                },
+                shop.clone(),
+            );
+            let approve = format!("POST /api/reviews/{review_id}/approve");
+
+            let (status, decided) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/candidate"),
+                &json!({
+                    "expected_candidate_version": 1,
+                    "decision": { "type": "PATTERN", "value": "/item/[^/]+$" },
+                    "current_pattern": null,
+                })
+                .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {decided}");
+            let version = decided["candidate_version"].clone();
+            let (status, refused) = send_as(
+                &server,
+                REVIEWER_TOKEN,
+                &approve,
+                &json!({ "expected_candidate_version": version }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(
+                refused["failed_checks"],
+                json!([{ "check": "NO_CAPTURED_PRODUCT_URL" }])
+            );
+
+            let (status, evaluation) = send_as(
+                &server,
+                REVIEWER_TOKEN,
+                &format!("GET /api/reviews/{review_id}/matrix?refresh=true"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {evaluation}");
+            assert_eq!(evaluation["live_evaluation"]["candidate_version"], version);
+            let outcomes: Vec<_> = evaluation["urls"]
+                .as_array()
+                .unwrap_or_else(|| panic!("evaluation without URLs: {evaluation}"))
+                .iter()
+                .map(|url| {
+                    (
+                        url["url"].clone(),
+                        url["decision_matches"].clone(),
+                        url["outcome"].clone(),
+                    )
+                })
+                .collect();
+            // The sample keeps its stored order, by URL within one crawl.
+            assert_eq!(
+                outcomes,
+                vec![
+                    (json!(sample[2]), json!(true), json!("FETCH_FAILED")),
+                    (json!(sample[0]), json!(true), json!("PRODUCT_MARKUP")),
+                    (json!(sample[1]), json!(true), json!("PRODUCT_MARKUP")),
+                    (json!(sample[3]), json!(false), json!("NO_PRODUCT_MARKUP")),
+                ]
+            );
+            assert_eq!(
+                *shop
+                    .fetched
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+                [sample[2], sample[0], sample[1], sample[3]]
+                    .map(str::to_owned)
+                    .to_vec(),
+                "category and info URLs are known already and not fetched"
+            );
+
+            let (status, approved) = send_as(
+                &server,
+                REVIEWER_TOKEN,
+                &approve,
+                &json!({ "expected_candidate_version": version }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
+            let decision: (Option<String>, String) = sqlx::query_as(
+                "SELECT url_pattern, url_pattern_state FROM listing_source_domains \
+                 WHERE domain_id = $1",
+            )
+            .bind(domain_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("read domain decision: {error}"));
+            assert_eq!(
+                decision,
+                (Some("/item/[^/]+$".to_owned()), "MATCHED".to_owned())
+            );
+            let (_, detail) =
+                send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
+            let last = detail["events"]
+                .as_array()
+                .and_then(|events| events.last())
+                .unwrap_or_else(|| panic!("review without events: {detail}"));
+            assert_eq!(
+                (last["actor"].clone(), last["action"].clone()),
+                (json!("AGENT_REVIEWER"), json!("APPROVED"))
+            );
         }
     }
 

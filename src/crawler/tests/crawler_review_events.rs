@@ -206,7 +206,7 @@ async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_
     repository
         .update_candidate_payload(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             1,
             json!({
                 "schemas": [schema("h1.agent")],
@@ -229,7 +229,7 @@ async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_
     let added = repository
         .add_reviewer_page(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             &added_url,
             &added_url,
             PRODUCT_HTML,
@@ -237,7 +237,7 @@ async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_
         .await
         .unwrap();
     repository
-        .remove_reviewer_page(added.review_page_id, ReviewActor::Agent)
+        .remove_reviewer_page(added.review_page_id, ReviewActor::AgentAuthor)
         .await
         .unwrap();
     repository
@@ -245,7 +245,11 @@ async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_
         .await
         .unwrap();
     repository
-        .reject_review(review_id, ReviewActor::Agent, Some("not a product page"))
+        .reject_review(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("not a product page"),
+        )
         .await
         .unwrap();
 
@@ -253,12 +257,16 @@ async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_
     assert_eq!(
         trail(&events),
         vec![
-            (ReviewActor::Agent, ReviewEventAction::CandidateEdited, 2),
+            (
+                ReviewActor::AgentAuthor,
+                ReviewEventAction::CandidateEdited,
+                2
+            ),
             (ReviewActor::Human, ReviewEventAction::SchemaFieldEdited, 3),
-            (ReviewActor::Agent, ReviewEventAction::PageAdded, 3),
-            (ReviewActor::Agent, ReviewEventAction::PageRemoved, 3),
+            (ReviewActor::AgentAuthor, ReviewEventAction::PageAdded, 3),
+            (ReviewActor::AgentAuthor, ReviewEventAction::PageRemoved, 3),
             (ReviewActor::Human, ReviewEventAction::RepairRequested, 3),
-            (ReviewActor::Agent, ReviewEventAction::Rejected, 3),
+            (ReviewActor::AgentReviewer, ReviewEventAction::Rejected, 3),
         ]
     );
     assert_eq!(
@@ -310,7 +318,7 @@ async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverag
     repository
         .update_candidate_payload(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             1,
             json!({ "schemas": [schema("h1.new")], "removed_page_schemas": [] }),
         )
@@ -329,7 +337,11 @@ async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverag
     assert_eq!(
         trail(&events),
         vec![
-            (ReviewActor::Agent, ReviewEventAction::CandidateEdited, 2),
+            (
+                ReviewActor::AgentAuthor,
+                ReviewEventAction::CandidateEdited,
+                2
+            ),
             (ReviewActor::Human, ReviewEventAction::Approved, 3),
         ]
     );
@@ -470,7 +482,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
         repository
             .update_candidate_payload(
                 review_id,
-                ReviewActor::Agent,
+                ReviewActor::AgentAuthor,
                 version,
                 json!({ "schemas": [schema("h1.agent")] }),
             )
@@ -479,7 +491,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
         repository
             .update_candidate_payload(
                 review_id,
-                ReviewActor::Agent,
+                ReviewActor::AgentAuthor,
                 version,
                 json!({
                     "schemas": [schema("h1")],
@@ -491,7 +503,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
         repository
             .update_candidate_payload(
                 review_id,
-                ReviewActor::Agent,
+                ReviewActor::AgentAuthor,
                 version - 1,
                 json!({ "schemas": [schema("h1.stale")] }),
             )
@@ -500,7 +512,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
         repository
             .update_schema_field(
                 review_id,
-                ReviewActor::Agent,
+                ReviewActor::AgentAuthor,
                 version,
                 0,
                 "title",
@@ -509,12 +521,12 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
             .await
             .map(|_| ()),
         repository
-            .check_reviewer_page_target(review_id, ReviewActor::Agent, &other_url)
+            .check_reviewer_page_target(review_id, ReviewActor::AgentAuthor, &other_url)
             .await,
         repository
             .add_reviewer_page(
                 review_id,
-                ReviewActor::Agent,
+                ReviewActor::AgentAuthor,
                 &other_url,
                 &other_url,
                 PRODUCT_HTML,
@@ -522,7 +534,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
             .await
             .map(|_| ()),
         repository
-            .remove_reviewer_page(added.review_page_id, ReviewActor::Agent)
+            .remove_reviewer_page(added.review_page_id, ReviewActor::AgentAuthor)
             .await,
     ];
 
@@ -559,7 +571,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
     let closed_edit = repository
         .update_candidate_payload(
             rejected_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             1,
             json!({ "schemas": [schema("h1.agent")] }),
         )
@@ -586,20 +598,27 @@ async fn should_record_no_event_for_a_refused_mutation() {
         repository
             .update_candidate_payload(
                 review_id,
-                ReviewActor::Agent,
+                ReviewActor::AgentAuthor,
                 2,
                 json!({ "schemas": [schema("h1.stale")] }),
             )
             .await
             .map(|_| ()),
         repository
-            .update_schema_field(review_id, ReviewActor::Agent, 1, 0, "no_such_field", None)
+            .update_schema_field(
+                review_id,
+                ReviewActor::AgentAuthor,
+                1,
+                0,
+                "no_such_field",
+                None,
+            )
             .await
             .map(|_| ()),
         repository
             .add_reviewer_page(
                 review_id,
-                ReviewActor::Agent,
+                ReviewActor::AgentAuthor,
                 &foreign_url,
                 &foreign_url,
                 PRODUCT_HTML,
@@ -607,15 +626,15 @@ async fn should_record_no_event_for_a_refused_mutation() {
             .await
             .map(|_| ()),
         repository
-            .remove_reviewer_page(seed_page_id, ReviewActor::Agent)
+            .remove_reviewer_page(seed_page_id, ReviewActor::AgentAuthor)
             .await,
         repository
-            .request_repair(review_id, ReviewActor::Agent, Some("  "))
+            .request_repair(review_id, ReviewActor::AgentAuthor, Some("  "))
             .await,
         approve(
             &repository,
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentReviewer,
             None,
             IncompleteCoverage::Refuse,
         )
@@ -644,10 +663,14 @@ async fn should_record_no_event_for_a_refused_mutation() {
         .unwrap();
     let closed = [
         repository
-            .reject_review(review_id, ReviewActor::Agent, Some("not a shop page"))
+            .reject_review(
+                review_id,
+                ReviewActor::AgentReviewer,
+                Some("not a shop page"),
+            )
             .await,
         repository
-            .request_repair(review_id, ReviewActor::Agent, Some("fix it"))
+            .request_repair(review_id, ReviewActor::AgentReviewer, Some("fix it"))
             .await,
     ];
     for refusal in closed {
@@ -688,13 +711,17 @@ async fn should_roll_back_the_mutation_when_its_event_cannot_be_recorded() {
     let edit = repository
         .update_candidate_payload(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::AgentAuthor,
             1,
             json!({ "schemas": [schema("h1.agent")] }),
         )
         .await;
     let rejection = repository
-        .reject_review(review_id, ReviewActor::Agent, Some("not a product page"))
+        .reject_review(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("not a product page"),
+        )
         .await;
 
     assert!(
@@ -724,7 +751,11 @@ async fn should_keep_the_trail_append_only_with_known_actors_and_actions() {
     let (listing_source_id, _) = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     repository
-        .reject_review(review_id, ReviewActor::Agent, Some("not a shop page"))
+        .reject_review(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("not a shop page"),
+        )
         .await
         .unwrap();
 
@@ -746,20 +777,31 @@ async fn should_keep_the_trail_append_only_with_known_actors_and_actions() {
         .bind(action)
         .execute(&pool)
     };
-    let lowercase_actor = insert("agent", "REJECTED").await;
-    let unknown_action = insert("AGENT", "RESTORE").await;
+    let lowercase_actor = insert("agent_reviewer", "REJECTED").await;
+    let unknown_actor = insert("AGENT_OBSERVER", "REJECTED").await;
+    let unknown_action = insert("AGENT_REVIEWER", "RESTORE").await;
 
     for refused in [
         rewrite.map(|_| ()),
         delete.map(|_| ()),
         lowercase_actor.map(|_| ()),
+        unknown_actor.map(|_| ()),
         unknown_action.map(|_| ()),
     ] {
         assert!(refused.is_err());
     }
+    // The single review agent's events from before the author and reviewer roles keep `AGENT`.
+    insert("AGENT", "CANDIDATE_EDITED").await.unwrap();
     assert_eq!(
         trail(&events(&repository, review_id).await),
-        vec![(ReviewActor::Agent, ReviewEventAction::Rejected, 1)]
+        vec![
+            (ReviewActor::AgentReviewer, ReviewEventAction::Rejected, 1),
+            (
+                ReviewActor::LegacyAgent,
+                ReviewEventAction::CandidateEdited,
+                1
+            ),
+        ]
     );
 
     // An event goes with its review, here with the ListingSource the review belongs to.

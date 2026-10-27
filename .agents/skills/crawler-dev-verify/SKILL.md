@@ -104,6 +104,33 @@ it to the user as a ticket or a separate decision.
    finding with `path:line` and a sample URL, and which findings are outside the change. Leave the
    evidence paths in the shared notes folder when the task came from another session.
 
+## Agent mode
+
+Verify review-agent behaviour (#2565) with `dev` in `CRAWLER_AUTHORING_MODE=agent`. It is opt-in:
+the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI setting.
+
+1. **Start.** Run `dev` as in step 4 with `CRAWLER_AUTHORING_MODE=agent` and without
+   `CRAWLER_REVIEW_AUTH_TOKEN`, so the browser console at `http://127.0.0.1:7878` stays the human's
+   tokenless loopback console. Keep the scheduler quiet as in step 3 unless the change is a
+   pipeline change.
+2. **Token file.** The start writes `review-agent-tokens.json` to the working directory (mode
+   `0600`, `{"author": "...", "reviewer": "..."}`, git-ignored) and logs `Generated the review
+   agents' tokens of this start ...` with its `path`. Check the mode (`stat -c %a`) and that
+   neither token occurs in the JSON log or stderr (`grep -cF` with each token). Never print the
+   tokens: read them into shell variables, for example
+   `AUTHOR=$(python3 -c 'import json; print(json.load(open("review-agent-tokens.json"))["author"])')`.
+3. **Act as an agent.** Send `Authorization: Bearer $AUTHOR` or `$REVIEWER`; no `Origin` header
+   is needed. The author stages candidates (`/candidate`, `/schema-field`, `/pages`); the reviewer
+   refreshes the live evaluation (`GET /api/reviews/{id}/matrix?refresh=true`, polled without
+   `refresh` until it answers 200; for a URL-pattern review it lists the sample URLs it fetched and
+   their `PRODUCT_MARKUP` outcome) and approves with the `expected_candidate_version` it read, or
+   rejects with `notes`. Expect `403` `AUTHOR_CANNOT_DECIDE` and
+   `REVIEWER_CANNOT_CHANGE_CANDIDATES` for the other role's routes, and `409` with `failed_checks`
+   when the approval guard refuses. The event trail (`GET /api/reviews/{id}`, `events`) records
+   `AGENT_AUTHOR` and `AGENT_REVIEWER`.
+4. **Rotation and kill switch.** A restart writes new tokens and the old ones answer `401`; a
+   restart with `CRAWLER_AUTHORING_MODE=manual` removes the file. Delete nothing else by hand.
+
 ## Rules
 
 - Only `src/crawler` changes; see the scope rule above.

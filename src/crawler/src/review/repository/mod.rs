@@ -1,5 +1,5 @@
 use crate::network::policy::url_matches_configured_domain;
-use crate::review::agent_decisions::{AGENT_APPROVALS_ENV, AgentDecisionPolicy};
+use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::approval_guard::FailedApprovalCheck;
 use crate::review::model::*;
 use crate::review::page_coverage::ReviewPageCoverage;
@@ -33,9 +33,11 @@ mod restore;
 mod review_events;
 mod reviewer_page_url;
 mod schema_payload;
+mod url_sample;
 mod verdicts;
 
 pub use live_matrix::EvaluatedSchemaMatrix;
+pub use url_sample::UrlSampleToEvaluate;
 pub use verdicts::Approval;
 
 use review_events::{ReviewMutation, commit_with_event, fetch_review_events};
@@ -61,9 +63,17 @@ pub enum ReviewRepositoryError {
     #[error("review {0} is not pending review")]
     NotPending(CrawlerReviewId),
     #[error(
-        "review {0} is not pending review; the review agent changes only pending reviews and leaves decided ones to a human"
+        "review {0} is not pending review; the review agents change only pending reviews and leave decided ones to a human"
     )]
     AgentMayChangeOnlyPendingReviews(CrawlerReviewId),
+    #[error(
+        "the reviewer agent changes no candidate: candidate and schema-field edits, removed-page declarations and review pages are the author agent's or a human's"
+    )]
+    ReviewerMayNotChangeCandidates,
+    #[error(
+        "the author agent neither approves nor rejects; the reviewer agent or a human decides what it staged"
+    )]
+    AuthorMayNotDecide,
     #[error("a needs-repair verdict needs a note saying what to repair")]
     MissingRepairNote,
     #[error("review {0} has unsupported artifact type {1}")]
@@ -134,17 +144,17 @@ pub enum ReviewRepositoryError {
         acknowledged: ReviewPageCoverage,
     },
     #[error(
-        "the review agent's approvals and rejections are off ({AGENT_APPROVALS_ENV}=off); stage the candidate and leave the decision to a human"
+        "the review agents' approvals and rejections are taken only with CRAWLER_AUTHORING_MODE=agent; stage the candidate and leave the decision to a human"
     )]
     AgentDecisionsOff,
     #[error(
-        "the review agent cannot acknowledge incomplete coverage; only a human approves a candidate that does not cover every review page"
+        "a review agent cannot acknowledge incomplete coverage; only a human approves a candidate that does not cover every review page"
     )]
     AgentCoverageAcknowledgement,
     #[error("an agent rejection needs notes saying why the candidate is rejected")]
     MissingRejectionNote,
     #[error(
-        "the review agent made its {limit} approvals and rejections of the last hour; retry in {} seconds",
+        "the review agents made their {limit} approvals and rejections of the last hour; retry in {} seconds",
         retry_after.as_secs()
     )]
     AgentDecisionLimitReached { limit: u32, retry_after: Duration },
@@ -189,8 +199,8 @@ pub const MAX_WAITING_PAGES: usize = 6;
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
     pool: PgPool,
-    /// What the review agent may decide; agent decisions are off unless the review console
-    /// configures them.
+    /// What the review agents may decide; agent decisions are off unless the review console of
+    /// `agent` authoring mode configures them.
     agent_decisions: AgentDecisionPolicy,
 }
 
@@ -212,7 +222,7 @@ impl CrawlerReviewRepository {
         }
     }
 
-    /// This repository deciding the review agent's approvals and rejections by `agent_decisions`.
+    /// This repository deciding the review agents' approvals and rejections by `agent_decisions`.
     pub fn with_agent_decisions(self, agent_decisions: AgentDecisionPolicy) -> Self {
         Self {
             agent_decisions,
@@ -1251,14 +1261,19 @@ async fn lock_review_for_edit(
     })
 }
 
-/// Refuses `actor`'s change of the review `review_id` in `status` unless the review is pending or
-/// the actor may change decided reviews (see [`ReviewActor::may_change_decided_reviews`]). The
-/// caller holds the review's row lock, so the status is the one the change would apply to.
+/// Refuses `actor`'s change of the candidate or pages of the review `review_id` in `status`
+/// unless the actor may change candidates at all (see [`ReviewActor::may_change_candidates`]) and
+/// the review is pending or the actor may change decided reviews (see
+/// [`ReviewActor::may_change_decided_reviews`]). The caller holds the review's row lock, so the
+/// status is the one the change would apply to.
 fn check_actor_may_change(
     actor: ReviewActor,
     review_id: CrawlerReviewId,
     status: &str,
 ) -> Result<(), ReviewRepositoryError> {
+    if !actor.may_change_candidates() {
+        return Err(ReviewRepositoryError::ReviewerMayNotChangeCandidates);
+    }
     if status == STATUS_PENDING_REVIEW || actor.may_change_decided_reviews() {
         return Ok(());
     }

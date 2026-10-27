@@ -48,5 +48,8 @@ coverage.lcov
 **/scraper_output.json
 **/spider_output.json
 
+# The review agents' tokens the crawler writes to its working directory in agent mode
+**/review-agent-tokens.json
+
 # Prepared release plan and CDK assembly
 .release/

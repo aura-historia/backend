@@ -2153,6 +2153,7 @@ dependencies = [
  "fake",
  "futures",
  "fxrate-postgres",
+ "getrandom 0.4.3",
  "google-cloud-auth",
  "html-escape",
  "httpdate",
