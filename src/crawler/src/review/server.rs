@@ -986,10 +986,13 @@ struct ActionPayload {
     notes: Option<String>,
 }
 
+/// A rule edit of `POST /api/reviews/{id}/schema-field`. The `rule` key is required: an explicit
+/// `null` deletes the rule, while a left-out or misspelled key is refused instead of deleting it.
 #[derive(Deserialize)]
 struct SchemaFieldPayload {
     schema_index: usize,
     field: String,
+    #[serde(deserialize_with = "Option::deserialize")]
     rule: Option<ExtractionRule>,
 }
 
@@ -1140,10 +1143,14 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
     )
 }
 
-/// Maps a refused candidate edit (`/candidate` or `/schema-field`) to its answer: 400 for an
-/// edit the review cannot take, 409 for an approved review whose candidate is no longer live.
+/// Maps a refused candidate edit (`/candidate` or `/schema-field`) to its answer: 404 for an
+/// unknown review, 400 for an edit the review cannot take, 409 for an approved review whose
+/// candidate is no longer live.
 fn candidate_edit_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
+        ReviewRepositoryError::NotFound(_) => {
+            HttpResponse::json(404, &json!({ "error": error.to_string() }))
+        }
         ReviewRepositoryError::InvalidSchemaField(_)
         | ReviewRepositoryError::RequiredSchemaField(_)
         | ReviewRepositoryError::UnregisteredRawAttributeKey(_)
@@ -1894,6 +1901,27 @@ Origin: http://127.0.0.1:7878/x
         assert!(!constant_time_eq(b"token", b"tokens"));
     }
 
+    #[test]
+    fn should_delete_a_schema_field_rule_only_on_an_explicit_null() {
+        let deletion = serde_json::from_str::<SchemaFieldPayload>(
+            r#"{"schema_index": 0, "field": "price", "rule": null}"#,
+        );
+
+        assert!(matches!(
+            deletion,
+            Ok(SchemaFieldPayload { rule: None, .. })
+        ));
+        for body in [
+            r#"{"schema_index": 0, "field": "price"}"#,
+            r#"{"schema_index": 0, "field": "price", "rules": {"selector": ".price", "type": "text"}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<SchemaFieldPayload>(body).is_err(),
+                "{body} must be refused, not read as a deletion"
+            );
+        }
+    }
+
     mod matrix_refresh {
         use super::{ReviewServer, ReviewServerConfig};
         use crate::network::policy::NetworkErrorKind;
@@ -2445,6 +2473,25 @@ Origin: http://127.0.0.1:7878/x
                     .is_some_and(|error| error.contains("rawInvented")),
                 "{refused}"
             );
+
+            let unknown_review_id = crate::CrawlerReviewId::new();
+            for (request, body) in [
+                (
+                    format!("POST /api/reviews/{unknown_review_id}/schema-field"),
+                    r#"{"schema_index": 0, "field": "title", "rule": {"selector": "h1", "type": "text"}}"#
+                        .to_owned(),
+                ),
+                (
+                    format!("POST /api/reviews/{unknown_review_id}/candidate"),
+                    json!({ "schemas": [schema("h1")] }).to_string(),
+                ),
+            ] {
+                let (status, missing) = send(&server, &request, &body).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 404"),
+                    "{request}: {status} {missing}"
+                );
+            }
         }
     }
 }

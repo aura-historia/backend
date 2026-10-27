@@ -723,6 +723,8 @@ function renderSchemaOrderControls(schemas, disabled) {
     </div>`;
 }
 
+// The handlers let postHighlight name the selected field: a raw attribute key comes from the
+// candidate, and HTML escaping does not make it safe inside an inline handler's JS string.
 function renderAdditionalSelectors(rule) {
     const additional = (rule && Array.isArray(rule.additional_selectors)) ? rule.additional_selectors : [];
     return `<div class="additional-selector-card">
@@ -733,9 +735,9 @@ function renderAdditionalSelectors(rule) {
       <div class="additional-selector-list">
         ${additional.length ? additional.map((selector, index) => `
           <div class="additional-selector-row">
-            <input value="${escapeHtmlAttr(selector)}" oninput="setAdditionalSelector(${index}, this.value); postHighlight(this.value, '${escapeHtmlAttr(fieldLabel(selectedField))}')">
+            <input value="${escapeHtmlAttr(selector)}" oninput="setAdditionalSelector(${index}, this.value); postHighlight(this.value)">
             <button onclick="usePickedForAdditionalSelector(${index})">Use clicked</button>
-            <button onclick="postHighlight(additionalSelectorAt(${index}), '${escapeHtmlAttr(fieldLabel(selectedField))}')">Highlight</button>
+            <button onclick="postHighlight(additionalSelectorAt(${index}))">Highlight</button>
             <button class="danger" onclick="removeAdditionalSelector(${index})">Delete</button>
           </div>`).join('') : '<div class="muted">No additional selectors configured.</div>'}
       </div>
