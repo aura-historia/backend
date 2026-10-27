@@ -1,6 +1,6 @@
 ---
 name: crawler-dev-verify
-description: "After every change to crawler runtime code (src/crawler: scraper, spider, review, schema, scheduling), build and run the local dev binary against the crawler_demo state to confirm the change does what the task says and that nothing else regressed, before declaring the change done. Unit tests are not a substitute: they do not fetch live shops, apply cached schemas to real pages or drive the scheduler."
+description: "After every change to crawler runtime code (src/crawler: scraper, spider, review, schema, scheduling), build and run the local dev binary against the crawler_demo state or a copy of it to confirm the change does what the task says and that nothing else regressed, before declaring the change done. Unit tests are not a substitute: they do not fetch live shops, apply cached schemas to real pages or drive the scheduler."
 ---
 
 # Crawler dev verification
@@ -19,9 +19,9 @@ never in the repo. The evidence sources are:
 
 | Source | Where | What it answers |
 |---|---|---|
-| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d crawler_demo` | `listing_source_domains` (crawl and scrape timers, failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, `last_source_listing_id`), `listing_source_product_schemas` (live schemas), `crawler_reviews` and `crawler_review_pages` (status, reason, seed pages), `listing_sources.llm_calls_count` |
+| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d <db>`, `<db>` being `crawler_demo` or your copy | `listing_source_domains` (crawl and scrape timers, failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, `last_source_listing_id`), `listing_source_product_schemas` (live schemas), `crawler_reviews` and `crawler_review_pages` (status, reason, seed pages), `listing_sources.llm_calls_count` |
 | JSON log | `target/soak/<date>/verify-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url` | pass totals (`Scraper scheduler pass complete`), every `WARN` and `ERROR` kind, the change's own diagnostic, LLM retries |
-| Review console | `http://127.0.0.1:7878`: `GET /api/reviews`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair` with an `Origin: http://127.0.0.1:7878` header | candidates, the deterministic gate on live seed pages, review decisions |
+| Review console | `CRAWLER_REVIEW_BIND_ADDR`, default `http://127.0.0.1:7878`: `GET /api/reviews`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair` with an `Origin` header naming the same address | candidates, the deterministic gate on live seed pages, review decisions |
 | Raw captures | `scraped_raw_observations.json` in the binary's working directory (a JSON array; `sourceRecordKey`, `sourcePayload`, `rawValues`) | what was extracted per page |
 | Live pages | curl with the crawler user agent (`AuraHistoriaBot/1.0 (+https://aura-historia.com)`) | whether a selector is right for a page variant |
 
@@ -34,13 +34,26 @@ it to the user as a ticket or a separate decision.
 
 ## Preconditions
 
-- Docker Desktop running (`docker ps` lists `crawler-postgres-1`); the binary runs
-  `docker compose up -d` itself. `crawler_demo` keeps the state of earlier rounds: listing
-  sources, URLs, live schemas, reviews. That state is the test bed; do not reset it.
-- `.env` in the binary's working directory. In a worktree copy it from the repo root (`.env` is
-  gitignored). Never print its values.
-- No `dev.exe` running (`Get-Process dev`). While it runs, cargo cannot rebuild crawler bins;
-  tests in parallel need `--target-dir target/scratch` from PowerShell.
+- Docker running (`docker info`: Docker Desktop on Windows, `dockerd` on Linux). Without
+  `LOCAL_DB_URL` the binary runs `docker compose up -d` itself. Docker Hub may rate-limit pulls
+  (HTTP 429): when `postgres:16` is missing, tag a local PostgreSQL 16 image as `postgres:16`
+  instead of retrying. `crawler_demo` keeps the state of earlier rounds: listing sources, URLs,
+  live schemas, reviews. That state is the test bed; do not reset it.
+- `.env` in the binary's working directory for Vertex AI. In a worktree copy it from the repo
+  root (`.env` is gitignored). Never print its values. Without `.env` or credentials, run with
+  `CRAWLER_AUTHORING_MODE=manual`: no LLM call; author URL patterns and schemas through the
+  review console. A `LOCAL_DB_URL` in `.env` redirects the run; one set in the shell wins.
+- No `dev` from the same target directory running (`pgrep -x dev`, or `Get-Process dev` on
+  Windows). On Windows a running `dev.exe` blocks cargo from rebuilding crawler bins; tests in
+  parallel need `--target-dir target/scratch` from PowerShell.
+- Parallel runs from several worktrees on one machine: each run uses its own copy database
+  (step 3), its own `CRAWLER_REVIEW_BIND_ADDR` port and its own working directory, and leaves
+  the shared Postgres container running. Give each worktree its own target directory when the
+  disk allows. In a `CARGO_TARGET_DIR` shared between worktrees, cargo judges freshness by
+  mtime and silently reuses another worktree's crawler artifacts, so run every cargo command
+  inside one `flock` on a shared lock file that first touches your worktree's `src/crawler`
+  files (`find src/crawler -type f -exec touch {} +`). For a dev run, copy `debug/dev` to a
+  private path inside the same locked command and run only the copy.
 - `cargo fmt`, `cargo clippy` and the focused tests are already green.
 
 ## Procedure
@@ -48,16 +61,25 @@ it to the user as a ticket or a separate decision.
 1. **Decide what must be visible.** Write down, before starting, the log message, database
    change or capture field that proves the change, and the failure that the change removes.
    Example (#2116): the per-field miss diagnostic appears, no `fresh_schema_generation` review
-   is created, the page is captured with the field empty.
-2. **Register the shops.** The committed `dev.rs` lists three demo shops that are not in the
-   database. Replace them temporarily with the shops whose state you need, using the IDs already
-   in `listing_sources` (`...639f{index:02x}`): edit the `(index, name, slug)` tuple array, the
-   domain list zipped in `main()`, and the ID format line, which must read `{index:02x}`. Mark
-   the edit `TEMPORARY`, never commit it, and revert with
-   `git checkout -- src/crawler/src/bin/dev.rs` at the end. Registration disables listing
-   sources that are not in the list, so include every source the run needs.
-3. **Prepare the state and back it up first.** Copy every row you will change to the scratchpad
-   (`psql -At` with an explicit separator) and write the restore SQL before the run:
+   is created, the page is captured with the field empty. Ask, too, whether the change alters
+   the raw values extracted from unchanged HTML and therefore needs an `EXTRACTOR_VERSION`
+   raise under the rule in the
+   [extraction contract](../../../docs/crawler/extraction-and-review.md#extraction-contract).
+2. **Register the shops.** The committed `dev.rs` registers three demo shops. To run others,
+   replace them temporarily: edit the `(index, name, slug)` tuple array and the domain list
+   zipped in `main()`. IDs are `01890a5d-ac96-774b-af1d-d5586c639f{index:02x}`, so reuse the
+   index of a shop already in `listing_sources` (the last two hex digits of its ID, e.g. `0x0b`)
+   and give a new shop an index above every one in use. Mark the edit `TEMPORARY`,
+   never commit it, and revert with `git checkout -- src/crawler/src/bin/dev.rs` at the end.
+   Registration disables listing sources that are not in the list, so include every source the
+   run needs.
+3. **Prepare the state on a copy.** Unless the task needs `crawler_demo` itself, run against a
+   copy: `CREATE DATABASE crawler_<n> TEMPLATE crawler_demo` (it fails while another session is
+   connected to `crawler_demo`; retry), then start with
+   `LOCAL_DB_URL=postgres://postgres:postgres@localhost:5432/crawler_<n>`. The binary uses that
+   database as given and never touches `crawler_demo`, so change the copy freely and drop it at
+   the end. On `crawler_demo` itself, copy every row you will change to the scratchpad
+   (`psql -At` with an explicit separator) and write the restore SQL before the run. Either way:
    - Live schemas (`listing_source_product_schemas`) when the change concerns extraction: keep
      only the schema that exposes the behaviour, e.g. drop a "no-description" variant to force
      the optional-field path.
@@ -73,11 +95,16 @@ it to the user as a ticket or a separate decision.
    - Keep the run focused: defer other domains' pending URLs with `next_retry_at` (the domain
      `next_scrape_at` only gates domains with a failure streak), and push `next_crawl_at` out so
      the spider stays quiet unless the change is a spider change.
-4. **Build and start.** `cargo build --locked -p crawler --bin dev`, then run
-   `target/debug/dev.exe` from the worktree root with `CRAWLER_LOG_LEVEL=debug`
-   (the per-URL and per-field diagnostics are debug level), `CRAWLER_AUTHORING_MODE=review` and
-   `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS=3`; stdout to
-   `target/soak/<date>/verify-<n>.jsonl`, stderr to a separate file. Note the UTC start time.
+4. **Build and start.** `cargo build --locked -p crawler --bin dev` (with
+   `CARGO_PROFILE_DEV_DEBUG=0` on a small disk), then run `target/debug/dev` (`dev.exe` on
+   Windows, under `CARGO_TARGET_DIR` when set) from the worktree root with
+   `CRAWLER_LOG_LEVEL=debug` (the per-URL and per-field diagnostics are debug level),
+   `CRAWLER_AUTHORING_MODE=review` (or `manual`) and `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS=3`;
+   stdout to `target/soak/<date>/verify-<n>.jsonl`, stderr to a separate file. Note the UTC
+   start time and the binary's own process ID: `pgrep -x dev`, or with parallel runs
+   `pgrep -x <name>` on a private copy named for the run (at most 15 characters, all that
+   `pgrep -x` compares). `$!` after a backgrounded `cd … && …` chain names the wrapping shell,
+   which does not pass SIGINT on.
    The scraper runs 50 URLs per domain per pass and the pass is a barrier, so a 360-URL sample
    over three domains takes about five passes of four minutes in a debug build.
 5. **Watch.** Tail the log for `Scraper scheduler pass complete`, review creation, schema
@@ -97,12 +124,19 @@ it to the user as a ticket or a separate decision.
    - Spot-check every soft miss or skipped page against the live page with curl and the crawler
      user agent: a field that is on the page but not extracted is a selector defect to report,
      not a pass.
-7. **Restore and revert.** Run the restore SQL, verify schema counts, timers and review counts
-   match the backup, stop the process, revert `dev.rs`, and list what the run left behind: new
-   capture file in the worktree, updated `last_scraped` on the sample, log files.
-8. **Report** in the task summary: passes and totals, what reproduced and what did not, each new
-   finding with `path:line` and a sample URL, and which findings are outside the change. Leave the
-   evidence paths in the shared notes folder when the task came from another session.
+7. **Stop, restore and revert.** Stop the binary with SIGINT (`kill -INT <pid>`, Ctrl+C on
+   Windows), never SIGKILL: it
+   [stops gracefully](../../../docs/crawler/operations.md#stopping-the-crawler) and writes the
+   captures. Wait for the process ID to exit (`tail --pid=<pid> -f /dev/null`,
+   `Wait-Process -Id <pid>` on Windows); a wait loop on
+   `pgrep -f` matches its own command line and never ends. Then drop the copy, or run the
+   restore SQL and verify schema counts, timers and review counts match the backup.
+   Revert `dev.rs` and list what the run left behind: new capture file in the worktree, updated
+   `last_scraped` on the sample, log files.
+8. **Report** in the task summary: passes and totals, what reproduced and what did not, the
+   `EXTRACTOR_VERSION` decision from step 1, each new finding with `path:line` and a sample URL,
+   and which findings are outside the change. Leave the evidence paths in the shared notes
+   folder when the task came from another session.
 
 ## Rules
 

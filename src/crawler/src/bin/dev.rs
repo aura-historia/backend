@@ -1,9 +1,10 @@
 //! Local development binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
 //! antique ListingSources without needing a running ListingSource service.
 //!
-//! On startup it automatically runs `docker compose up -d` (using the
-//! `docker-compose.yml` inside the `crawler` crate) and waits for Postgres to
-//! become ready before applying migrations. No manual setup required — just:
+//! Unless `LOCAL_DB_URL` names another database, on startup it automatically runs
+//! `docker compose up -d` (using the `docker-compose.yml` inside the `crawler` crate), creates
+//! `crawler_demo` and waits for Postgres to become ready before applying migrations. No manual
+//! setup required — just:
 //!
 //! ```powershell
 //! gcloud auth application-default login
@@ -25,7 +26,7 @@
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
-//! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
+//! | `LOCAL_DB_URL`   | Database to run against instead of `crawler_demo`, e.g. a copy of it. The run then neither starts Docker nor creates the database; a value that is not a connection URL fails startup | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `CRAWLER_AUTHORING_MODE` | `auto` (LLM, high-confidence schemas auto-approved), `review` (LLM, human approves) or `manual` (no LLM, operator writes patterns and schemas); invalid values fail startup | `review` |
 //! | `CRAWLER_REVIEW_REQUIRED`, `CRAWLER_REVIEW_URL_PATTERN_REQUIRED`, `CRAWLER_SCHEMA_LLM_REVIEW_MODE` | Removed: any non-empty value fails startup. Replace them with `CRAWLER_AUTHORING_MODE` (mapping in `docs/crawler/operations.md#authoring-modes`) | unset |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
@@ -52,8 +53,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use crawler::local_db::{
-    DEMO_DB_NAME, bootstrap_local_database,
-    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl, demo_db_url,
+    DEMO_DB_NAME, DevDatabase,
+    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
@@ -87,21 +88,23 @@ impl ListingSourceRegistrationSource for DemoListingSourceSource {
     }
 }
 
+/// The demo ListingSources. Their IDs end in the two hex digits of their index, the scheme the
+/// crawler-dev-verify and crawler-soak-test skills use to reuse a shop's state in `crawler_demo`.
 fn demo_listing_sources() -> Vec<RegisteredListingSource> {
     [
-        (1, "Hingstons Antiques", "hingstons-antiques"),
+        (0x71, "Hingstons Antiques", "hingstons-antiques"),
         (
-            2,
+            0x72,
             "Harrison Antique Furniture",
             "harrison-antique-furniture",
         ),
-        (3, "Collinge Antiques", "collinge-antiques"),
+        (0x73, "Collinge Antiques", "collinge-antiques"),
     ]
     .into_iter()
     .map(
         |(index, listing_source_name, listing_source_slug)| RegisteredListingSource {
             listing_source_id: ListingSourceId::try_from(
-                uuid::Uuid::parse_str(&format!("01890a5d-ac96-774b-af1d-d5586c639f7{index}"))
+                uuid::Uuid::parse_str(&format!("01890a5d-ac96-774b-af1d-d5586c639f{index:02x}"))
                     .unwrap_or_else(|error| panic!("invalid demo ListingSource ID: {error}")),
             )
             .unwrap_or_else(|error| panic!("invalid demo ListingSource ID version: {error}")),
@@ -129,8 +132,15 @@ async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
     default_spider_body_limit();
+    let database = DevDatabase::from_env(DEMO_DB_NAME)
+        .unwrap_or_else(|error| panic!("invalid crawler-local database configuration: {error}"));
+    let span = tracing::info_span!(
+        "crawler_dev",
+        entrypoint = "dev",
+        database = database.name()
+    );
 
-    async {
+    async move {
         // Fail fast on invalid runtime settings before starting Docker or touching the database.
         let runtime_config = CrawlerRuntimeConfig::from_env()
             .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
@@ -147,11 +157,13 @@ async fn main() {
             ..Default::default()
         };
 
-        let db_url = demo_db_url();
-        if let Err(error) = bootstrap_local_database(DEMO_DB_NAME).await {
-            error!(error = ?error, "Failed to bootstrap local Postgres database");
-            return;
-        }
+        let db_url = match database.prepare().await {
+            Ok(db_url) => db_url,
+            Err(error) => {
+                error!(error = ?error, "Failed to bootstrap local Postgres database");
+                return;
+            }
+        };
 
         info!("Waiting for Postgres to be ready…");
         let pool = match connect_with_retry(&config, &db_url).await {
@@ -223,11 +235,7 @@ async fn main() {
         .run()
         .await;
     }
-    .instrument(tracing::info_span!(
-        "crawler_dev",
-        entrypoint = "dev",
-        database = DEMO_DB_NAME
-    ))
+    .instrument(span)
     .await;
 }
 
@@ -235,19 +243,10 @@ async fn main() {
 // Database helpers
 // ---------------------------------------------------------------------------
 
-/// Runs `docker compose up -d` from the crawler crate directory.
-///
-/// `docker compose up -d` is idempotent:
-/// - Container already running → no-op, returns immediately.
-/// - Container exists but is stopped → restarts it.
-/// - Container does not exist → creates and starts it.
-///
-/// The compose file path is baked in via `CARGO_MANIFEST_DIR` so this works
-/// regardless of the working directory when `cargo run` is invoked.
 /// Attempts to connect to Postgres, retrying with exponential back-off.
 /// This handles the window between `docker compose up -d` returning and
 /// Postgres actually accepting connections.
-#[tracing::instrument(skip(config), fields(db_url = %db_url))]
+#[tracing::instrument(skip_all)]
 async fn connect_with_retry(
     config: &CrawlerCronConfig,
     db_url: &str,
@@ -314,8 +313,29 @@ fn default_spider_body_limit() {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_spider_body_limit};
+    use super::{
+        DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_spider_body_limit,
+        demo_listing_sources,
+    };
     use std::env;
+
+    /// `crawler_demo` keys a shop's URLs, schemas and reviews by these IDs.
+    #[test]
+    fn should_keep_the_demo_listing_source_ids() {
+        let ids: Vec<String> = demo_listing_sources()
+            .into_iter()
+            .map(|listing_source| uuid::Uuid::from(listing_source.listing_source_id).to_string())
+            .collect();
+
+        assert_eq!(
+            ids,
+            [
+                "01890a5d-ac96-774b-af1d-d5586c639f71",
+                "01890a5d-ac96-774b-af1d-d5586c639f72",
+                "01890a5d-ac96-774b-af1d-d5586c639f73",
+            ]
+        );
+    }
 
     /// One test owns the variable: parallel tests would race on process state.
     #[test]
