@@ -101,8 +101,10 @@ it to the user as a ticket or a separate decision.
    `CRAWLER_LOG_LEVEL=debug` (the per-URL and per-field diagnostics are debug level),
    `CRAWLER_AUTHORING_MODE=review` (or `manual`) and `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS=3`;
    stdout to `target/soak/<date>/verify-<n>.jsonl`, stderr to a separate file. Note the UTC
-   start time and the binary's own process ID (`pgrep -x dev`): `$!` after a backgrounded
-   `cd … && …` chain names the wrapping shell, which does not pass SIGINT on.
+   start time and the binary's own process ID: `pgrep -x dev`, or with parallel runs
+   `pgrep -x <name>` on a private copy named for the run (at most 15 characters, all that
+   `pgrep -x` compares). `$!` after a backgrounded `cd … && …` chain names the wrapping shell,
+   which does not pass SIGINT on.
    The scraper runs 50 URLs per domain per pass and the pass is a barrier, so a 360-URL sample
    over three domains takes about five passes of four minutes in a debug build.
 5. **Watch.** Tail the log for `Scraper scheduler pass complete`, review creation, schema
@@ -125,7 +127,8 @@ it to the user as a ticket or a separate decision.
 7. **Stop, restore and revert.** Stop the binary with SIGINT (`kill -INT <pid>`, Ctrl+C on
    Windows), never SIGKILL: it
    [stops gracefully](../../../docs/crawler/operations.md#stopping-the-crawler) and writes the
-   captures. Wait for the process ID to exit (`tail --pid=<pid> -f /dev/null`); a wait loop on
+   captures. Wait for the process ID to exit (`tail --pid=<pid> -f /dev/null`,
+   `Wait-Process -Id <pid>` on Windows); a wait loop on
    `pgrep -f` matches its own command line and never ends. Then drop the copy, or run the
    restore SQL and verify schema counts, timers and review counts match the backup.
    Revert `dev.rs` and list what the run left behind: new capture file in the worktree, updated

@@ -9,7 +9,8 @@ ask" list in SKILL.md, it stops and reports the question instead of guessing.
 
 Add an environment paragraph to every brief with what SKILL.md's environment checks found: how
 to read GitHub (REST if GraphQL is blocked), how to open the PR, whether Docker runs, how to run
-crawler dev verification (manual mode, swapped demo shops), host-specific test failures to
+crawler dev verification (manual mode, swapped demo shops, the agent's own copy database and
+review-console port), host-specific test failures to
 ignore, and the commit trailers the session requires. Tell agents not to put model identifiers
 anywhere but the trailers. Tell them to stop every background process they start (dev
 binaries, watch loops) before reporting; a wait loop on `pgrep -f` matches its own command line
