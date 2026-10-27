@@ -312,7 +312,8 @@ pub(crate) struct CurrentUrlPatternReview<'a> {
 /// candidate is decided; a stored live evaluation of the sample, which only counts when there is
 /// one, evaluated exactly this decision at this candidate version on URLs of the sample, within
 /// `max_age` of `now`; the sample holds a URL known as a product page, one the crawler captured a
-/// product from or whose page showed one schema.org `Product` in that evaluation; and the
+/// product from or whose page showed one schema.org `Product` in that evaluation and that its URL
+/// classification does not put in the category, imprint or info class; and the
 /// decision classifies as products every such URL and none of the other sample URLs the crawler's
 /// own URL classification puts in the category, imprint or info class.
 pub(crate) fn url_pattern_approval_checks(
@@ -343,7 +344,14 @@ pub(crate) fn url_pattern_approval_checks(
         if let Some(expired) = expired_check(&evaluation.live_evaluation, now, max_age) {
             failed.push(expired);
         }
-        product_urls.extend(evaluation.product_markup_urls());
+        // Markup never overrides the crawler's own URL classification: a URL it puts in the
+        // category, imprint or info class stays one the decision must leave, whatever its page
+        // showed.
+        product_urls.extend(
+            evaluation
+                .product_markup_urls()
+                .filter(|url| !is_non_product_url(url)),
+        );
     }
     let classified_as_product = |url: &str| classified_as_product(url, pattern.as_ref());
     let products: Vec<&SampleUrl> = review
@@ -1052,6 +1060,43 @@ mod tests {
             vec![FailedApprovalCheck::ProductUrlsNotMatched {
                 urls: vec!["https://antiques.example/product/table".to_owned()],
             }]
+        );
+    }
+
+    /// Product markup on a URL the crawler classifies as a category page, which a live
+    /// evaluation never fetches, is no product evidence: the decision must still leave that URL.
+    #[test]
+    fn should_keep_a_category_url_with_product_markup_a_non_product_url() {
+        let sample = uncaptured(sample());
+        let products = [
+            "https://antiques.example/product/chair",
+            "https://antiques.example/product-category/chairs",
+        ];
+        let too_broad = url_candidate(pattern("/product"));
+        let fitting = url_candidate(pattern("/product/[^/]+$"));
+
+        assert_eq!(
+            url_checks(
+                &too_broad,
+                &sample,
+                Some(&sample_evaluation(
+                    &too_broad,
+                    &products,
+                    &[],
+                    Duration::ZERO
+                ))
+            ),
+            vec![FailedApprovalCheck::NonProductUrlsMatched {
+                urls: vec!["https://antiques.example/product-category/chairs".to_owned()],
+            }]
+        );
+        assert_eq!(
+            url_checks(
+                &fitting,
+                &sample,
+                Some(&sample_evaluation(&fitting, &products, &[], Duration::ZERO))
+            ),
+            Vec::new()
         );
     }
 

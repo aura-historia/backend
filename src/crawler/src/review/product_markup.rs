@@ -10,9 +10,6 @@ use std::sync::LazyLock;
 
 static SCRIPTS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("script[type]").unwrap_or_else(|error| panic!("{error}")));
-static MICRODATA_ITEMS: LazyLock<Selector> = LazyLock::new(|| {
-    Selector::parse("[itemscope][itemtype]").unwrap_or_else(|error| panic!("{error}"))
-});
 
 /// Whether `html` describes exactly one schema.org `Product` as a top-level item of its JSON-LD or
 /// of its microdata, and no more than one in either. A JSON-LD item is top-level as a script's
@@ -106,21 +103,26 @@ fn is_product_iri(name: &str) -> bool {
     name.ends_with("schema.org/Product")
 }
 
+/// How many microdata items inside no other item name `Product` in their `itemtype`. One pass
+/// over the document tracks whether an item contains each node, so a deeply nested page, which
+/// the shop controls, costs no more than its size; looking up each item's ancestors would cost
+/// its depth for every item.
 fn microdata_products(document: &Html) -> usize {
-    document
-        .select(&MICRODATA_ITEMS)
-        .filter(|item| {
-            item.attr("itemtype")
+    let mut products = 0;
+    let mut pending = vec![(document.tree.root(), false)];
+    while let Some((node, inside_item)) = pending.pop() {
+        let item = ElementRef::wrap(node).filter(|element| element.attr("itemscope").is_some());
+        if !inside_item
+            && item
+                .and_then(|item| item.attr("itemtype"))
                 .is_some_and(|types| types.split_ascii_whitespace().any(is_product_iri))
-        })
-        .filter(|item| !is_nested_item(*item))
-        .count()
-}
-
-fn is_nested_item(item: ElementRef<'_>) -> bool {
-    item.ancestors()
-        .filter_map(ElementRef::wrap)
-        .any(|ancestor| ancestor.attr("itemscope").is_some())
+        {
+            products += 1;
+        }
+        let inside_item = inside_item || item.is_some();
+        pending.extend(node.children().map(|child| (child, inside_item)));
+    }
+    products
 }
 
 #[cfg(test)]
@@ -177,6 +179,27 @@ mod tests {
     )]
     fn should_find_one_product_in_microdata(#[case] body: &str) {
         assert!(describes_one_product(&page("", body)), "{body}");
+    }
+
+    /// An item contains every element below it, however many plain elements lie between them.
+    #[test]
+    fn should_tell_top_level_from_nested_microdata_items_through_deep_markup() {
+        let wrapped = |outer: &str| {
+            let plain = 200;
+            page(
+                "",
+                &format!(
+                    "<div {outer}>{}<span itemscope itemtype=\"https://schema.org/Product\"></span>{}</div>",
+                    "<div>".repeat(plain),
+                    "</div>".repeat(plain)
+                ),
+            )
+        };
+
+        assert!(describes_one_product(&wrapped("class=\"page\"")));
+        assert!(!describes_one_product(&wrapped(
+            "itemscope itemtype=\"https://schema.org/WebPage\""
+        )));
     }
 
     /// A theme and a plugin often both describe the page's product; nodes naming the same `url`,
