@@ -15,5 +15,5 @@ mod test_support;
 pub mod vertex_ai;
 
 pub use crawler_domain_id::{
-    CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId,
+    CrawlerDomainId, CrawlerReviewEventId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId,
 };

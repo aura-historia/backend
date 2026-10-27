@@ -2,7 +2,7 @@ use crawler::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, STATUS_APPROVED,
     STATUS_PENDING_REVIEW, SchemaPageReference, SchemaReviewPageInput,
 };
-use crawler::review::model::{UrlPatternDecision, UrlPatternReviewCandidate};
+use crawler::review::model::{ReviewActor, UrlPatternDecision, UrlPatternReviewCandidate};
 use crawler::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crawler::review::repository::{
     CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
@@ -167,14 +167,15 @@ async fn should_not_define_database_defaults_for_crawler_object_ids() {
              ('listing_source_domains', 'domain_id'), \
              ('crawler_reviews', 'review_id'), \
              ('crawler_review_pages', 'review_page_id'), \
-             ('crawler_review_urls', 'review_url_id') \
+             ('crawler_review_urls', 'review_url_id'), \
+             ('crawler_review_events', 'event_id') \
            )",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
 
-    assert_eq!(counts, (4, 0));
+    assert_eq!(counts, (5, 0));
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -469,6 +470,7 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
     review_repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&review_repository, review_id).await,
             json!({ "schemas": [updated_schema.clone()] }),
         )
@@ -532,6 +534,7 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
     let candidate_edit = review_repository
         .update_candidate_payload(
             older_review_id,
+            ReviewActor::Human,
             candidate_version(&review_repository, older_review_id).await,
             json!({ "schemas": [schema("h1.stale-edit")] }),
         )
@@ -539,6 +542,7 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
     let field_edit = review_repository
         .update_schema_field(
             older_review_id,
+            ReviewActor::Human,
             candidate_version(&review_repository, older_review_id).await,
             0,
             "title",
@@ -584,6 +588,7 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
     review_repository
         .update_schema_field(
             newer_review_id,
+            ReviewActor::Human,
             candidate_version(&review_repository, newer_review_id).await,
             0,
             "title",
@@ -641,6 +646,7 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
     review_repository
         .update_schema_field(
             append_review_id,
+            ReviewActor::Human,
             candidate_version(&review_repository, append_review_id).await,
             1,
             "title",
@@ -816,7 +822,11 @@ impl ClosingVerdict {
         let repository = &fixture.review_repository;
         match self {
             Self::Approve => approve_acknowledging_coverage(repository, fixture.review_id).await,
-            Self::Reject => repository.reject_review(fixture.review_id, None).await,
+            Self::Reject => {
+                repository
+                    .reject_review(fixture.review_id, ReviewActor::Human, None)
+                    .await
+            }
         }
     }
 }
@@ -1028,6 +1038,7 @@ async fn should_store_removed_page_templates_and_release_backed_off_pages_in_one
         .review_repository
         .update_candidate_payload(
             fixture.review_id,
+            ReviewActor::Human,
             candidate_version(&fixture.review_repository, fixture.review_id).await,
             json!({
                 "schemas": [schema("h1.first")],
@@ -1159,6 +1170,7 @@ async fn should_report_approved_review_as_stale_when_its_stored_candidate_no_lon
     let replaced = review_repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&review_repository, review_id).await,
             json!({ "schemas": [schema("h1.fixed")] }),
         )
@@ -1232,6 +1244,7 @@ async fn approved_schema_field_edit_rejects_invalid_rule_without_mutating_live_o
     let result = review_repository
         .update_schema_field(
             review_id,
+            ReviewActor::Human,
             candidate_version(&review_repository, review_id).await,
             0,
             "title",
@@ -1308,6 +1321,7 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({ "schemas": [schema("h2")] }),
         )
@@ -1472,6 +1486,7 @@ async fn candidate_change_drops_the_generated_matrix_summary_with_the_cached_mat
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({ "schemas": [schema("h2")] }),
         )
@@ -1491,12 +1506,22 @@ async fn approve_acknowledging_coverage(
     review_id: CrawlerReviewId,
 ) -> Result<(), ReviewRepositoryError> {
     match repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await
     {
         Err(ReviewRepositoryError::IncompleteCoverage { coverage, .. }) => {
             repository
-                .approve_review(review_id, None, IncompleteCoverage::Acknowledged(coverage))
+                .approve_review(
+                    review_id,
+                    ReviewActor::Human,
+                    None,
+                    IncompleteCoverage::Acknowledged(coverage),
+                )
                 .await
         }
         decided => decided,
@@ -1577,7 +1602,12 @@ async fn should_approve_a_candidate_that_leaves_a_review_page_uncovered_only_whe
     store_schema_matrix(&repository, review_id, &pages).await;
 
     let refused = repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await;
 
     assert!(
@@ -1611,6 +1641,7 @@ async fn should_approve_a_candidate_that_leaves_a_review_page_uncovered_only_whe
     repository
         .approve_review(
             review_id,
+            ReviewActor::Human,
             None,
             IncompleteCoverage::Acknowledged(ReviewPageCoverage {
                 covered: 1,
@@ -1653,7 +1684,12 @@ async fn should_approve_without_acknowledgement_once_the_stored_matrix_covers_ev
         .unwrap();
 
     let without_matrix = repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await;
     assert!(
         matches!(
@@ -1673,7 +1709,12 @@ async fn should_approve_without_acknowledgement_once_the_stored_matrix_covers_ev
 
     store_schema_matrix(&repository, review_id, &pages).await;
     repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await
         .unwrap();
 
@@ -1904,6 +1945,7 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
     let result = repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
@@ -1975,7 +2017,12 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
     .unwrap();
 
     let result = repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await;
 
     assert!(result.is_err());
@@ -2029,12 +2076,22 @@ async fn should_allow_only_one_concurrent_review_approval() {
     let (first, second) = tokio::join!(
         async move {
             first
-                .approve_review(review_id, None, IncompleteCoverage::Refuse)
+                .approve_review(
+                    review_id,
+                    ReviewActor::Human,
+                    None,
+                    IncompleteCoverage::Refuse,
+                )
                 .await
         },
         async move {
             second
-                .approve_review(review_id, None, IncompleteCoverage::Refuse)
+                .approve_review(
+                    review_id,
+                    ReviewActor::Human,
+                    None,
+                    IncompleteCoverage::Refuse,
+                )
                 .await
         }
     );
@@ -2080,7 +2137,12 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
         .unwrap();
 
     repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await
         .unwrap();
 
@@ -2117,11 +2179,17 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
         .unwrap();
 
     let undecided_approval = repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await;
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
@@ -2133,7 +2201,12 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
         .await
         .unwrap();
     repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await
         .unwrap();
 
@@ -2340,6 +2413,7 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
@@ -2352,7 +2426,12 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
         .unwrap();
 
     repository
-        .approve_review(review_id, None, IncompleteCoverage::Refuse)
+        .approve_review(
+            review_id,
+            ReviewActor::Human,
+            None,
+            IncompleteCoverage::Refuse,
+        )
         .await
         .unwrap();
 
@@ -2395,7 +2474,7 @@ async fn should_release_waiting_domain_without_changing_pattern_when_url_pattern
     .await;
 
     repository
-        .reject_review(review_id, Some("not a shop"))
+        .reject_review(review_id, ReviewActor::Human, Some("not a shop"))
         .await
         .unwrap();
 
@@ -2410,7 +2489,9 @@ async fn should_release_waiting_domain_without_changing_pattern_when_url_pattern
     .unwrap();
     assert_eq!((pattern, state.as_str()), (None, "UNKNOWN"));
     assert!(matches!(
-        repository.reject_review(review_id, None).await,
+        repository
+            .reject_review(review_id, ReviewActor::Human, None)
+            .await,
         Err(ReviewRepositoryError::NotPending(_))
     ));
 }
@@ -2453,11 +2534,13 @@ async fn should_refuse_the_second_of_two_concurrent_edits_based_on_the_same_cand
     let (candidate_edit, field_edit, ()) = tokio::join!(
         repository.update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             read_version,
             json!({ "schemas": [schema("h1.candidate-edit")] }),
         ),
         repository.update_schema_field(
             review_id,
+            ReviewActor::Human,
             read_version,
             0,
             "title",
@@ -2521,16 +2604,21 @@ async fn should_refuse_repair_request_without_a_note_or_once_the_review_is_close
 
     for note in [None, Some(" \n ")] {
         assert!(matches!(
-            repository.request_repair(review_id, note).await,
+            repository
+                .request_repair(review_id, ReviewActor::Human, note)
+                .await,
             Err(ReviewRepositoryError::MissingRepairNote)
         ));
     }
     let review = repository.get_review(review_id).await.unwrap().review;
     assert_eq!(review.repair_request, None);
 
-    repository.reject_review(review_id, None).await.unwrap();
+    repository
+        .reject_review(review_id, ReviewActor::Human, None)
+        .await
+        .unwrap();
     assert!(matches!(
-        repository.request_repair(review_id, Some("fix the title")).await,
+        repository.request_repair(review_id, ReviewActor::Human, Some("fix the title")).await,
         Err(ReviewRepositoryError::NotPending(id)) if id == review_id
     ));
 }
@@ -2544,17 +2632,26 @@ async fn should_keep_repair_requested_review_pending_editable_and_approvable() {
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
 
     repository
-        .request_repair(review_id, Some("title misses sold pages"))
+        .request_repair(
+            review_id,
+            ReviewActor::Human,
+            Some("title misses sold pages"),
+        )
         .await
         .unwrap();
     repository
-        .request_repair(review_id, Some("title and state miss sold pages"))
+        .request_repair(
+            review_id,
+            ReviewActor::Human,
+            Some("title and state miss sold pages"),
+        )
         .await
         .unwrap();
     let repaired = schema("h1.product-title");
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({ "schemas": [repaired.clone()] }),
         )
@@ -2705,6 +2802,7 @@ async fn should_replace_stored_removed_page_templates_with_the_reviewed_list_on_
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             candidate.clone(),
         )
@@ -2723,6 +2821,7 @@ async fn should_replace_stored_removed_page_templates_with_the_reviewed_list_on_
     let refused = repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({
                 "schemas": [schema("h1")],
@@ -2750,6 +2849,7 @@ async fn should_retire_every_stored_removed_page_template_when_the_reviewed_list
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({ "schemas": [schema("h1")], "removed_page_schemas": [] }),
         )
@@ -2780,6 +2880,7 @@ async fn should_keep_the_stored_templates_through_approval_when_a_candidate_leav
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({ "schemas": [schema("h1.edited")] }),
         )
@@ -2823,6 +2924,7 @@ async fn should_accept_a_schema_edit_of_an_approved_review_that_leaves_its_templ
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({ "schemas": [schema("h1.edited")] }),
         )
@@ -2878,6 +2980,7 @@ async fn should_accept_a_schema_field_edit_while_a_stored_template_fails_validat
     repository
         .update_schema_field(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             0,
             "price",
@@ -2926,6 +3029,7 @@ async fn should_keep_template_changes_made_while_the_review_was_pending() {
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({
                 "schemas": [schema("h1")],
@@ -2974,6 +3078,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
     repository
         .update_candidate_payload(
             older,
+            ReviewActor::Human,
             candidate_version(&repository, older).await,
             older_candidate.clone(),
         )
@@ -2986,6 +3091,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
     repository
         .update_candidate_payload(
             newer,
+            ReviewActor::Human,
             candidate_version(&repository, newer).await,
             json!({
                 "schemas": [schema("h1.newer")],
@@ -3001,6 +3107,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
     let template_edit = repository
         .update_candidate_payload(
             older,
+            ReviewActor::Human,
             candidate_version(&repository, older).await,
             json!({
                 "schemas": [schema("h1")],
@@ -3012,6 +3119,7 @@ async fn should_not_let_an_older_approved_review_overwrite_a_newer_template_list
     let schema_edit = repository
         .update_candidate_payload(
             older,
+            ReviewActor::Human,
             candidate_version(&repository, older).await,
             json!({
                 "schemas": [schema("h1.edited")],
@@ -3198,6 +3306,7 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({ "schemas": [schema("h1")], "removed_page_schemas": [] }),
         )
@@ -3223,6 +3332,7 @@ async fn should_refuse_a_pending_candidate_whose_removed_page_regex_matches_any_
     let refused = repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({
                 "schemas": [schema("h1")],
@@ -3269,6 +3379,7 @@ async fn should_keep_the_review_pending_when_the_stored_removed_page_templates_d
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
             candidate_version(&repository, review_id).await,
             json!({
                 "schemas": [schema("h1")],

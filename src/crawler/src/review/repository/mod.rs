@@ -33,8 +33,11 @@ use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
 
+mod review_events;
 mod reviewer_page_url;
 mod schema_payload;
+
+use review_events::{ReplacedUrlPattern, ReviewMutation, commit_with_event, fetch_review_events};
 
 use reviewer_page_url::{
     ReviewPageIdentity, is_allowed_reviewer_page_url, reviewer_page_url, without_credentials,
@@ -56,6 +59,10 @@ pub enum ReviewRepositoryError {
     NotFound(CrawlerReviewId),
     #[error("review {0} is not pending review")]
     NotPending(CrawlerReviewId),
+    #[error(
+        "review {0} is not pending review; the review agent changes only pending reviews and leaves decided ones to a human"
+    )]
+    AgentMayChangeOnlyPendingReviews(CrawlerReviewId),
     #[error("a needs-repair verdict needs a note saying what to repair")]
     MissingRepairNote,
     #[error("review {0} has unsupported artifact type {1}")]
@@ -423,11 +430,13 @@ impl CrawlerReviewRepository {
             .await?;
         let pages = self.get_review_pages(review_id).await?;
         let urls = self.get_review_urls(review_id).await?;
+        let events = fetch_review_events(&self.pool, review_id).await?;
         Ok(ReviewDetail {
             review,
             candidate_is_live,
             pages,
             urls,
+            events,
         })
     }
 
@@ -736,15 +745,16 @@ impl CrawlerReviewRepository {
         Ok(Some(review_id))
     }
 
-    /// Checks, before the page is fetched, that `url` may be added to the review.
+    /// Checks, before the page is fetched, that `actor` may add `url` to the review.
     pub async fn check_reviewer_page_target(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         url: &Url,
     ) -> Result<(), ReviewRepositoryError> {
         let url = reviewer_page_url(url);
         let mut transaction = self.pool.begin().await?;
-        lock_reviewer_page_target(&mut transaction, review_id, &url).await?;
+        lock_reviewer_page_target(&mut transaction, review_id, actor, &url).await?;
         transaction.rollback().await?;
         Ok(())
     }
@@ -756,6 +766,7 @@ impl CrawlerReviewRepository {
     pub async fn add_reviewer_page(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         requested_url: &Url,
         fetched_url: &Url,
         raw_html: &str,
@@ -763,7 +774,7 @@ impl CrawlerReviewRepository {
         let url = reviewer_page_url(fetched_url);
         let mut transaction = self.pool.begin().await?;
         let product_url_pattern =
-            lock_reviewer_page_target(&mut transaction, review_id, &url).await?;
+            lock_reviewer_page_target(&mut transaction, review_id, actor, &url).await?;
         if is_redirect_to_non_product_page(requested_url, &url, product_url_pattern.as_deref()) {
             return Err(ReviewRepositoryError::RedirectedToNonProductPage(
                 url.to_string(),
@@ -783,9 +794,19 @@ impl CrawlerReviewRepository {
         .await
         .and_then(row_to_page)?;
         drop_cached_schema_matrix(&mut transaction, review_id).await?;
-        transaction.commit().await?;
+        commit_with_event(
+            transaction,
+            review_id,
+            actor,
+            ReviewMutation::PageAdded {
+                url: url.as_str(),
+                role: PAGE_ROLE_REVIEWER_ADDED,
+            },
+        )
+        .await?;
         info!(
             review_id = %review_id,
+            actor = %actor,
             url = %url,
             "Reviewer added a page to a product schema review"
         );
@@ -794,14 +815,16 @@ impl CrawlerReviewRepository {
 
     /// Removes a page a reviewer added or a page waiting on the review, for example once the shop
     /// has deleted it and every live matrix refresh would fail on it, and drops the cached schema
-    /// matrix. Seed and triggering pages stay.
+    /// matrix. Seed and triggering pages stay, and the review agent removes pages of pending
+    /// reviews only.
     pub async fn remove_reviewer_page(
         &self,
         review_page_id: CrawlerReviewPageId,
+        actor: ReviewActor,
     ) -> Result<(), ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
         let page = sqlx::query(
-            "SELECT r.review_id, r.status, p.role \
+            "SELECT r.review_id, r.status, p.role, p.url \
              FROM crawler_review_pages p JOIN crawler_reviews r ON r.review_id = p.review_id \
              WHERE p.review_page_id = $1 \
              FOR UPDATE OF r",
@@ -811,6 +834,8 @@ impl CrawlerReviewRepository {
         .await?
         .ok_or(ReviewRepositoryError::ReviewPageNotFound(review_page_id))?;
         let review_id = crawler_review_id_from_uuid(page.try_get("review_id")?)?;
+        let status: String = page.try_get("status")?;
+        check_actor_may_change(actor, review_id, &status)?;
         let role: String = page.try_get("role")?;
         if !matches!(
             role.as_str(),
@@ -818,7 +843,6 @@ impl CrawlerReviewRepository {
         ) {
             return Err(ReviewRepositoryError::NotReviewerAddedPage(review_page_id));
         }
-        let status: String = page.try_get("status")?;
         if !matches!(status.as_str(), STATUS_PENDING_REVIEW | STATUS_APPROVED) {
             return Err(ReviewRepositoryError::NotPending(review_id));
         }
@@ -831,9 +855,19 @@ impl CrawlerReviewRepository {
             return Err(ReviewRepositoryError::ReviewPageNotFound(review_page_id));
         }
         drop_cached_schema_matrix(&mut transaction, review_id).await?;
-        transaction.commit().await?;
+        commit_with_event(
+            transaction,
+            review_id,
+            actor,
+            ReviewMutation::PageRemoved {
+                url: page.try_get("url")?,
+                role,
+            },
+        )
+        .await?;
         info!(
             review_id = %review_id,
+            actor = %actor,
             review_page_id = %review_page_id,
             "Reviewer removed a page from a product schema review"
         );
@@ -841,10 +875,12 @@ impl CrawlerReviewRepository {
     }
 
     /// Replaces the review's candidate, read at `expected_candidate_version`, and returns its
-    /// candidate version after the edit.
+    /// candidate version after the edit. The review agent edits pending reviews only; an edit of
+    /// the approved review whose candidate is live rewrites the live schemas.
     pub async fn update_candidate_payload(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         expected_candidate_version: i64,
         candidate_payload: serde_json::Value,
     ) -> Result<i64, ReviewRepositoryError> {
@@ -856,10 +892,16 @@ impl CrawlerReviewRepository {
             candidate_payload: stored_candidate_payload,
             validation_summary,
             ..
-        } = lock_review_for_edit(&mut transaction, review_id, expected_candidate_version).await?;
+        } = lock_review_for_edit(
+            &mut transaction,
+            review_id,
+            actor,
+            expected_candidate_version,
+        )
+        .await?;
 
         if status == STATUS_PENDING_REVIEW {
-            let candidate_payload = match artifact_type.as_str() {
+            let (candidate_payload, removed_page_schemas_changed) = match artifact_type.as_str() {
                 ARTIFACT_URL_PATTERN => {
                     let candidate = serde_json::from_value::<UrlPatternReviewCandidate>(
                         candidate_payload.clone(),
@@ -868,20 +910,32 @@ impl CrawlerReviewRepository {
                     candidate
                         .validated_pattern()
                         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                    candidate_payload
+                    (candidate_payload, false)
                 }
                 ARTIFACT_PRODUCT_SCHEMA => {
                     let edit = ProductSchemaCandidateEdit::parse(&candidate_payload)?;
                     let current =
                         ProductSchemaReviewCandidate::decode_stored(&stored_candidate_payload)
                             .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-                    edit.apply_to(&current)?.to_payload()?
+                    let candidate = edit.apply_to(&current)?;
+                    let removed_page_schemas_changed =
+                        candidate.removed_page_schemas != current.removed_page_schemas;
+                    (candidate.to_payload()?, removed_page_schemas_changed)
                 }
-                _ => candidate_payload,
+                _ => (candidate_payload, false),
             };
             let candidate_version =
                 store_pending_candidate(&mut transaction, review_id, candidate_payload).await?;
-            transaction.commit().await?;
+            commit_with_event(
+                transaction,
+                review_id,
+                actor,
+                ReviewMutation::CandidateEdited {
+                    removed_page_schemas_changed,
+                    replaced_product_schemas: None,
+                },
+            )
+            .await?;
             return Ok(candidate_version);
         }
 
@@ -899,7 +953,10 @@ impl CrawlerReviewRepository {
                 review_id,
             ));
         }
-        let candidate_version = persist_approved_schema_edit(
+        let LiveSchemaEdit {
+            candidate_version,
+            replaced_product_schemas,
+        } = persist_approved_schema_edit(
             &mut transaction,
             review_id,
             &listing_source_id,
@@ -908,8 +965,22 @@ impl CrawlerReviewRepository {
             validation_summary,
         )
         .await?;
-        transaction.commit().await?;
-        log_approved_schema_edit(review_id, &listing_source_id, candidate.schemas.len());
+        commit_with_event(
+            transaction,
+            review_id,
+            actor,
+            ReviewMutation::CandidateEdited {
+                removed_page_schemas_changed: false,
+                replaced_product_schemas: Some(replaced_product_schemas),
+            },
+        )
+        .await?;
+        log_approved_schema_edit(
+            review_id,
+            actor,
+            &listing_source_id,
+            candidate.schemas.len(),
+        );
         Ok(candidate_version)
     }
 
@@ -919,6 +990,7 @@ impl CrawlerReviewRepository {
     pub async fn update_schema_field(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         expected_candidate_version: i64,
         schema_index: usize,
         field: &str,
@@ -932,7 +1004,13 @@ impl CrawlerReviewRepository {
             reason,
             candidate_payload: stored_candidate_payload,
             validation_summary,
-        } = lock_review_for_edit(&mut transaction, review_id, expected_candidate_version).await?;
+        } = lock_review_for_edit(
+            &mut transaction,
+            review_id,
+            actor,
+            expected_candidate_version,
+        )
+        .await?;
 
         if artifact_type != ARTIFACT_PRODUCT_SCHEMA {
             return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -964,8 +1042,8 @@ impl CrawlerReviewRepository {
         };
         let candidate = update_schema_field_payload(&candidate_payload, schema_index, field, rule)?;
 
-        let candidate_version = if status == STATUS_APPROVED {
-            persist_approved_schema_edit(
+        let (candidate_version, replaced_product_schemas) = if status == STATUS_APPROVED {
+            let edit = persist_approved_schema_edit(
                 &mut transaction,
                 review_id,
                 &listing_source_id,
@@ -973,15 +1051,34 @@ impl CrawlerReviewRepository {
                 &candidate,
                 validation_summary,
             )
-            .await?
+            .await?;
+            (edit.candidate_version, Some(edit.replaced_product_schemas))
         } else {
-            store_pending_candidate(&mut transaction, review_id, candidate.to_payload()?).await?
+            let candidate_version =
+                store_pending_candidate(&mut transaction, review_id, candidate.to_payload()?)
+                    .await?;
+            (candidate_version, None)
         };
+        let live_edit = replaced_product_schemas.is_some();
+        commit_with_event(
+            transaction,
+            review_id,
+            actor,
+            ReviewMutation::SchemaFieldEdited {
+                schema_index,
+                field,
+                replaced_product_schemas,
+            },
+        )
+        .await?;
 
-        transaction.commit().await?;
-
-        if status == STATUS_APPROVED {
-            log_approved_schema_edit(review_id, &listing_source_id, candidate.schemas.len());
+        if live_edit {
+            log_approved_schema_edit(
+                review_id,
+                actor,
+                &listing_source_id,
+                candidate.schemas.len(),
+            );
         }
         Ok(candidate_version)
     }
@@ -989,10 +1086,12 @@ impl CrawlerReviewRepository {
     /// Makes the pending review's candidate the active configuration. A product-schema candidate
     /// that does not cover every review page is approved only with
     /// [`IncompleteCoverage::Acknowledged`] of the review's current coverage; URL patterns have no
-    /// page coverage, so their approval ignores `incomplete_coverage`.
+    /// page coverage, so their approval ignores `incomplete_coverage`. The approval's event keeps
+    /// the live configuration it replaced.
     pub async fn approve_review(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         notes: Option<&str>,
         incomplete_coverage: IncompleteCoverage,
     ) -> Result<(), ReviewRepositoryError> {
@@ -1001,55 +1100,27 @@ impl CrawlerReviewRepository {
         let listing_source_id = review.listing_source_id;
         let domain_id = review.domain_id;
 
-        match review.artifact_type.as_str() {
-            ARTIFACT_URL_PATTERN => {
-                let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
-                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                let pattern = candidate
-                    .validated_pattern()
-                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                let domain_id = domain_id.ok_or(sqlx::Error::RowNotFound)?;
-                let result = sqlx::query(
-                    "UPDATE listing_source_domains \
-                     SET url_pattern = $3, \
-                         url_pattern_state = CASE WHEN $3 IS NULL THEN 'NO_PATTERN' ELSE 'MATCHED' END \
-                     WHERE listing_source_id = $1 AND domain_id = $2",
-                )
-                .bind(uuid::Uuid::from(listing_source_id))
-                .bind(domain_id.as_uuid())
-                .bind(pattern)
-                .execute(&mut *transaction)
-                .await?;
-                if result.rows_affected() == 0 {
-                    return Err(ReviewRepositoryError::NotFound(review_id));
-                }
-                let live_pattern = pattern
-                    .map(Regex::new)
-                    .transpose()
-                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-                let reclassified = reclassify_domain_urls(
+        let approval = match review.artifact_type.as_str() {
+            ARTIFACT_URL_PATTERN => ReviewMutation::UrlPatternApproved {
+                notes,
+                replaced_url_pattern: make_reviewed_url_pattern_live(
                     &mut transaction,
+                    review_id,
                     &listing_source_id,
                     domain_id,
-                    live_pattern.as_ref(),
+                    &review.candidate_payload,
                 )
-                .await?;
-                info!(
-                    review_id = %review_id,
-                    domain_id = %domain_id,
-                    reclassified_urls = reclassified,
-                    "Approved URL pattern classified the domain's stored URLs"
-                );
-            }
+                .await?,
+            },
             ARTIFACT_PRODUCT_SCHEMA => {
-                check_approval_coverage(
+                let coverage = check_approval_coverage(
                     &mut transaction,
                     review_id,
                     &review.validation_summary,
                     incomplete_coverage,
                 )
                 .await?;
-                make_reviewed_product_schemas_live(
+                let replaced = make_reviewed_product_schemas_live(
                     &mut transaction,
                     review_id,
                     &listing_source_id,
@@ -1058,6 +1129,12 @@ impl CrawlerReviewRepository {
                     review.removed_page_schemas_base.clone(),
                 )
                 .await?;
+                ReviewMutation::ProductSchemasApproved {
+                    notes,
+                    coverage,
+                    replaced_product_schemas: replaced.product_schemas,
+                    replaced_removed_page_schemas: replaced.removed_page_schemas,
+                }
             }
             other => {
                 return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -1065,7 +1142,7 @@ impl CrawlerReviewRepository {
                     other.into(),
                 ));
             }
-        }
+        };
 
         sqlx::query(
             "UPDATE crawler_reviews \
@@ -1091,7 +1168,8 @@ impl CrawlerReviewRepository {
         .execute(&mut *transaction)
         .await?;
         release_work_waiting_on_decided_review(&mut transaction, &review).await?;
-        transaction.commit().await?;
+        commit_with_event(transaction, review_id, actor, approval).await?;
+        info!(review_id = %review_id, actor = %actor, "Review approved");
         Ok(())
     }
 
@@ -1102,6 +1180,7 @@ impl CrawlerReviewRepository {
     pub async fn reject_review(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         notes: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
@@ -1117,7 +1196,14 @@ impl CrawlerReviewRepository {
         .execute(&mut *transaction)
         .await?;
         release_work_waiting_on_decided_review(&mut transaction, &review).await?;
-        transaction.commit().await?;
+        commit_with_event(
+            transaction,
+            review_id,
+            actor,
+            ReviewMutation::Rejected { notes },
+        )
+        .await?;
+        info!(review_id = %review_id, actor = %actor, "Review rejected");
         Ok(())
     }
 
@@ -1128,6 +1214,7 @@ impl CrawlerReviewRepository {
     pub async fn request_repair(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         note: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
         let note = note
@@ -1145,8 +1232,14 @@ impl CrawlerReviewRepository {
         .bind(note)
         .execute(&mut *transaction)
         .await?;
-        transaction.commit().await?;
-        info!(review_id = %review_id, "Reviewer asked for a review to be repaired");
+        commit_with_event(
+            transaction,
+            review_id,
+            actor,
+            ReviewMutation::RepairRequested { note },
+        )
+        .await?;
+        info!(review_id = %review_id, actor = %actor, "Reviewer asked for a review to be repaired");
         Ok(())
     }
 
@@ -1352,10 +1445,77 @@ async fn lock_live_product_schemas(
         .transpose()
 }
 
+/// Makes the reviewed decision of the URL-pattern review `review_id` the live decision of its
+/// domain inside the approval's transaction, classifies the domain's stored URLs with it, and
+/// returns the decision it replaced.
+async fn make_reviewed_url_pattern_live(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    listing_source_id: &ListingSourceId,
+    domain_id: Option<CrawlerDomainId>,
+    candidate_payload: &serde_json::Value,
+) -> Result<ReplacedUrlPattern, ReviewRepositoryError> {
+    let candidate = UrlPatternReviewCandidate::deserialize(candidate_payload)
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    let pattern = candidate
+        .validated_pattern()
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    let domain_id = domain_id.ok_or(sqlx::Error::RowNotFound)?;
+    let (url_pattern, url_pattern_state) = sqlx::query_as::<_, (Option<String>, String)>(
+        "SELECT url_pattern, url_pattern_state FROM listing_source_domains \
+         WHERE listing_source_id = $1 AND domain_id = $2 FOR UPDATE",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(domain_id.as_uuid())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET url_pattern = $3, \
+             url_pattern_state = CASE WHEN $3 IS NULL THEN 'NO_PATTERN' ELSE 'MATCHED' END \
+         WHERE listing_source_id = $1 AND domain_id = $2",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(domain_id.as_uuid())
+    .bind(pattern)
+    .execute(&mut **transaction)
+    .await?;
+    let live_pattern = pattern
+        .map(Regex::new)
+        .transpose()
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    let reclassified = reclassify_domain_urls(
+        transaction,
+        listing_source_id,
+        domain_id,
+        live_pattern.as_ref(),
+    )
+    .await?;
+    info!(
+        review_id = %review_id,
+        domain_id = %domain_id,
+        reclassified_urls = reclassified,
+        "Approved URL pattern classified the domain's stored URLs"
+    );
+    Ok(ReplacedUrlPattern {
+        url_pattern,
+        url_pattern_state,
+    })
+}
+
+/// The ListingSource's live product-schema configuration an approval replaced.
+struct ReplacedProductSchemas {
+    /// The live schema list, `None` when none was live.
+    product_schemas: Option<Vec<ProductCssSelectorSchema>>,
+    removed_page_schemas: Vec<RemovedPageSchema>,
+}
+
 /// Makes the reviewed candidate of the product-schema review `review_id` live inside the
 /// approval's transaction: its schemas, and its removed-page templates in place of the stored
 /// ones, rebased onto the stored list's changes since `removed_page_schemas_base`. The review
-/// keeps what went live, so edits through it are not refused as stale.
+/// keeps what went live, so edits through it are not refused as stale. Returns what it
+/// replaced.
 async fn make_reviewed_product_schemas_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -1363,12 +1523,12 @@ async fn make_reviewed_product_schemas_live(
     reason: &str,
     candidate_payload: &serde_json::Value,
     removed_page_schemas_base: serde_json::Value,
-) -> Result<(), ReviewRepositoryError> {
+) -> Result<ReplacedProductSchemas, ReviewRepositoryError> {
     let reviewed = ProductSchemaReviewCandidate::parse(candidate_payload)?;
     let existing = lock_live_product_schemas(transaction, listing_source_id).await?;
     let schemas = approval_product_schemas(reason, existing.as_ref(), reviewed.schemas.clone())?;
     persist_product_schemas(transaction, listing_source_id, &schemas).await?;
-    let removed_page_schemas = replace_stored_removed_page_schemas(
+    let RemovedPageSchemasReplacement { replaced, stored } = replace_stored_removed_page_schemas(
         transaction,
         review_id,
         listing_source_id,
@@ -1379,7 +1539,7 @@ async fn make_reviewed_product_schemas_live(
     let live = reviewed
         .clone()
         .with_schemas(schemas)
-        .with_removed_page_schemas(removed_page_schemas);
+        .with_removed_page_schemas(stored);
     if live != reviewed {
         sqlx::query("UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1")
             .bind(review_id.as_uuid())
@@ -1387,37 +1547,45 @@ async fn make_reviewed_product_schemas_live(
             .execute(&mut **transaction)
             .await?;
     }
-    Ok(())
+    Ok(ReplacedProductSchemas {
+        product_schemas: existing.map(|existing| existing.product_schemas),
+        removed_page_schemas: replaced,
+    })
+}
+
+/// The ListingSource's stored removed-page templates before and after an approval replaced them.
+struct RemovedPageSchemasReplacement {
+    replaced: Vec<RemovedPageSchema>,
+    stored: Vec<RemovedPageSchema>,
 }
 
 /// Replaces the ListingSource's stored removed-page templates with the `reviewed` list, rebased
-/// onto the changes other writers made since the review read the stored list as `base`, and
-/// returns the list now stored. A stored list or base that no longer decodes fails the
-/// approval.
+/// onto the changes other writers made since the review read the stored list as `base`. A
+/// stored list or base that no longer decodes fails the approval.
 async fn replace_stored_removed_page_schemas(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     listing_source_id: &ListingSourceId,
     base: serde_json::Value,
     reviewed: Vec<RemovedPageSchema>,
-) -> Result<Vec<RemovedPageSchema>, ReviewRepositoryError> {
+) -> Result<RemovedPageSchemasReplacement, ReviewRepositoryError> {
     let base: Vec<RemovedPageSchema> =
         serde_json::from_value(base).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-    let stored = lock_stored_removed_page_schemas(transaction, listing_source_id)
+    let replaced = lock_stored_removed_page_schemas(transaction, listing_source_id)
         .await?
         .unwrap_or_default();
-    let replacement = rebase_reviewed_removed_page_schemas(&base, reviewed, &stored);
-    if replacement != stored {
-        store_removed_page_schemas(transaction, listing_source_id, &replacement).await?;
+    let stored = rebase_reviewed_removed_page_schemas(&base, reviewed, &replaced);
+    if stored != replaced {
+        store_removed_page_schemas(transaction, listing_source_id, &stored).await?;
         info!(
             review_id = %review_id,
             listing_source_id = %listing_source_id,
-            removed_page_template_count = replacement.len(),
-            retired_template_count = stored.iter().filter(|schema| !replacement.contains(schema)).count(),
+            removed_page_template_count = stored.len(),
+            retired_template_count = replaced.iter().filter(|schema| !stored.contains(schema)).count(),
             "Approved removed-page templates from a product schema review"
         );
     }
-    Ok(replacement)
+    Ok(RemovedPageSchemasReplacement { replaced, stored })
 }
 
 /// The state of a review a candidate edit decides on, read under the review's row lock.
@@ -1430,13 +1598,15 @@ struct ReviewUnderEdit {
     validation_summary: serde_json::Value,
 }
 
-/// Locks the review for a candidate edit based on `expected_candidate_version`, so concurrent
-/// edits of it apply one after the other, and reads what the edit decides on. An edit based on
+/// Locks the review for `actor`'s candidate edit based on `expected_candidate_version`, so
+/// concurrent edits of it apply one after the other, and reads what the edit decides on. The
+/// review agent's edit of a decided review is refused whatever its version. An edit based on
 /// another version than the review's is refused: it would silently overwrite every edit made
 /// since its writer read the candidate.
 async fn lock_review_for_edit(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
+    actor: ReviewActor,
     expected_candidate_version: i64,
 ) -> Result<ReviewUnderEdit, ReviewRepositoryError> {
     let review = sqlx::query(
@@ -1448,6 +1618,8 @@ async fn lock_review_for_edit(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    let status: String = review.try_get("status")?;
+    check_actor_may_change(actor, review_id, &status)?;
     let candidate_version: i64 = review.try_get("candidate_version")?;
     if candidate_version != expected_candidate_version {
         return Err(ReviewRepositoryError::StaleCandidateVersion {
@@ -1461,11 +1633,27 @@ async fn lock_review_for_edit(
             review.try_get::<uuid::Uuid, _>("listing_source_id")?,
         )?,
         artifact_type: review.try_get("artifact_type")?,
-        status: review.try_get("status")?,
+        status,
         reason: review.try_get("reason")?,
         candidate_payload: review.try_get("candidate_payload")?,
         validation_summary: review.try_get("validation_summary")?,
     })
+}
+
+/// Refuses `actor`'s change of the review `review_id` in `status` unless the review is pending or
+/// the actor may change decided reviews (see [`ReviewActor::may_change_decided_reviews`]). The
+/// caller holds the review's row lock, so the status is the one the change would apply to.
+fn check_actor_may_change(
+    actor: ReviewActor,
+    review_id: CrawlerReviewId,
+    status: &str,
+) -> Result<(), ReviewRepositoryError> {
+    if status == STATUS_PENDING_REVIEW || actor.may_change_decided_reviews() {
+        return Ok(());
+    }
+    Err(ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(
+        review_id,
+    ))
 }
 
 /// The state of a pending review a verdict decides on, read under the review's row lock.
@@ -1519,13 +1707,14 @@ async fn lock_review_for_verdict(
 /// caller holds the review's row lock, which page joins and removals, candidate edits and matrix
 /// stores take first too, so the coverage checked is the one the approval decides on. A
 /// candidate change drops the stored matrix, so a stored matrix evaluated the current candidate;
-/// one that no longer decodes vouches for no page.
+/// one that no longer decodes vouches for no page. Returns the coverage the approval goes ahead
+/// under.
 async fn check_approval_coverage(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     validation_summary: &serde_json::Value,
     incomplete_coverage: IncompleteCoverage,
-) -> Result<(), ReviewRepositoryError> {
+) -> Result<ReviewPageCoverage, ReviewRepositoryError> {
     let pages = fetch_review_pages(&mut **transaction, review_id).await?;
     let matrix = SchemaMatrix::stored_in(validation_summary).and_then(Result::ok);
     let coverage = ReviewPageCoverage::of(matrix.as_ref(), &pages);
@@ -1554,7 +1743,7 @@ async fn check_approval_coverage(
             "Approving a product schema candidate with acknowledged incomplete coverage"
         );
     }
-    Ok(())
+    Ok(coverage)
 }
 
 /// Releases the work that waited on the decided review for an immediate retry: every page of the
@@ -1613,8 +1802,15 @@ async fn store_pending_candidate(
     .await
 }
 
-/// Writes an edit of an approved review to the live schemas, records it on the review and
-/// returns the review's candidate version.
+/// An edit of an approved review written to the live schemas.
+struct LiveSchemaEdit {
+    /// The review's candidate version after the edit.
+    candidate_version: i64,
+    /// The live schema list the edit replaced.
+    replaced_product_schemas: Vec<ProductCssSelectorSchema>,
+}
+
+/// Writes an edit of an approved review to the live schemas and records it on the review.
 ///
 /// The edit replaces the whole live list, so it is refused unless the review's stored
 /// candidate is the live list: an edit through an older review would otherwise silently
@@ -1626,17 +1822,16 @@ async fn persist_approved_schema_edit(
     stored_candidate_payload: &serde_json::Value,
     candidate: &ProductSchemaReviewCandidate,
     validation_summary: serde_json::Value,
-) -> Result<i64, ReviewRepositoryError> {
+) -> Result<LiveSchemaEdit, ReviewRepositoryError> {
     let live = lock_live_product_schemas(transaction, listing_source_id).await?;
-    if !holds_live_schemas(
-        stored_candidate_payload,
-        live.as_ref().map(|live| live.product_schemas.as_slice()),
-    ) {
+    let Some(live) = live
+        .filter(|live| holds_live_schemas(stored_candidate_payload, Some(&live.product_schemas)))
+    else {
         return Err(ReviewRepositoryError::StaleApprovedReview(review_id));
-    }
+    };
     persist_product_schemas(transaction, listing_source_id, &candidate.schemas).await?;
     let validation_summary = append_manual_schema_edit(validation_summary, candidate.schemas.len());
-    Ok(sqlx::query_scalar(
+    let candidate_version = sqlx::query_scalar(
         "UPDATE crawler_reviews \
          SET candidate_payload = $2, validation_summary = $3, updated = NOW() \
          WHERE review_id = $1 \
@@ -1646,7 +1841,11 @@ async fn persist_approved_schema_edit(
     .bind(candidate.to_payload()?)
     .bind(validation_summary)
     .fetch_one(&mut **transaction)
-    .await?)
+    .await?;
+    Ok(LiveSchemaEdit {
+        candidate_version,
+        replaced_product_schemas: live.product_schemas,
+    })
 }
 
 /// Attaches `pages` to the pending review `review_id` as waiting pages, whatever role they were
@@ -1771,13 +1970,15 @@ async fn drop_cached_schema_matrix(
     Ok(())
 }
 
-/// Locks the review and checks that `url` may become a reviewer page of it: the review is a
-/// pending or approved product schema review, `url` is an http(s) URL on a domain of the
-/// review's ListingSource, it is not a page of the review yet, and the reviewer page limit is not
-/// reached. Returns the product URL pattern of the domain `url` is on, once one is decided.
+/// Locks the review and checks that `actor` may make `url` a reviewer page of it: the review is a
+/// pending product schema review, or an approved one and `actor` is not the review agent, `url`
+/// is an http(s) URL on a domain of the review's ListingSource, it is not a page of the review
+/// yet, and the reviewer page limit is not reached. Returns the product URL pattern of the domain
+/// `url` is on, once one is decided.
 async fn lock_reviewer_page_target(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
+    actor: ReviewActor,
     url: &Url,
 ) -> Result<Option<String>, ReviewRepositoryError> {
     let review = sqlx::query(
@@ -1788,6 +1989,8 @@ async fn lock_reviewer_page_target(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    let status: String = review.try_get("status")?;
+    check_actor_may_change(actor, review_id, &status)?;
     let artifact_type: String = review.try_get("artifact_type")?;
     if artifact_type != ARTIFACT_PRODUCT_SCHEMA {
         return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -1795,7 +1998,6 @@ async fn lock_reviewer_page_target(
             artifact_type,
         ));
     }
-    let status: String = review.try_get("status")?;
     if !matches!(status.as_str(), STATUS_PENDING_REVIEW | STATUS_APPROVED) {
         return Err(ReviewRepositoryError::NotPending(review_id));
     }
@@ -1845,11 +2047,13 @@ async fn lock_reviewer_page_target(
 
 fn log_approved_schema_edit(
     review_id: CrawlerReviewId,
+    actor: ReviewActor,
     listing_source_id: &ListingSourceId,
     schema_count: usize,
 ) {
     info!(
         review_id = %review_id,
+        actor = %actor,
         listing_source_id = %listing_source_id,
         schema_count,
         "Approved product schema edited from review console"

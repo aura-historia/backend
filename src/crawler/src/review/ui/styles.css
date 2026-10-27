@@ -966,6 +966,42 @@ tr.failed {
     color: var(--muted);
 }
 
+.badge-actor-human {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+.badge-actor-agent {
+    background: var(--purple-soft);
+    color: var(--purple);
+}
+
+.badge-actor-system {
+    background: var(--control-disabled-bg);
+    color: var(--muted);
+}
+
+.review-events {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 10px 12px;
+    list-style: none;
+    font-size: 12px;
+}
+
+.review-event {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.review-event-notes {
+    color: var(--ink-soft);
+    font-style: italic;
+}
+
 .status-ok,
 .status-failed {
     font-weight: 700;

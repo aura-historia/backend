@@ -379,6 +379,7 @@ function renderDetail(detail, matrix) {
         ${renderApprovalPanel(detail)}
       </div>
       ${renderRepairRequest(review)}
+      ${renderReviewEvents(detail)}
       ${renderEditRefusal()}
       ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
@@ -460,6 +461,69 @@ function renderRepairRequest(review) {
         ${timeBadge(request.requested, 'Repair requested')}
       </div>
     </div>`;
+}
+
+const REVIEW_EVENT_LABELS = {
+    CANDIDATE_EDITED: 'Candidate edited',
+    SCHEMA_FIELD_EDITED: 'Field edited',
+    PAGE_ADDED: 'Page added',
+    PAGE_REMOVED: 'Page removed',
+    REPAIR_REQUESTED: 'Repair requested',
+    APPROVED: 'Approved',
+    REJECTED: 'Rejected'
+};
+
+// The review's event trail, newest first: each decision and edit with the actor that made it.
+function renderReviewEvents(detail) {
+    const events = detail?.events || [];
+    if (!events.length) return '';
+    return `<div class="review-card review-events-card">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>History</strong>
+          <span class="muted">Who changed this review: a human, the review agent or the crawler</span>
+        </div>
+      </div>
+      <ol class="review-events">${events.slice().reverse().map(renderReviewEvent).join('')}</ol>
+    </div>`;
+}
+
+function renderReviewEvent(event) {
+    const summary = reviewEventSummary(event);
+    return `<li class="review-event">
+      ${actorBadge(event.actor)}
+      <strong>${escapeHtml(REVIEW_EVENT_LABELS[event.action] || displayName(event.action))}</strong>
+      ${summary ? `<span class="muted">${escapeHtml(summary)}</span>` : ''}
+      ${event.notes ? `<span class="review-event-notes">${escapeHtml(event.notes)}</span>` : ''}
+      <span class="muted">version ${escapeHtml(event.candidate_version)}</span>
+      ${timeBadge(event.created, REVIEW_EVENT_LABELS[event.action] || displayName(event.action))}
+    </li>`;
+}
+
+function reviewEventSummary(event) {
+    const details = event.details || {};
+    const live = details.replaced_product_schemas !== undefined ? 'live schemas changed' : '';
+    switch (event.action) {
+        case 'CANDIDATE_EDITED':
+            return [details.removed_page_schemas_changed ? 'removed-page templates changed' : '', live].filter(Boolean).join('; ');
+        case 'SCHEMA_FIELD_EDITED':
+            return [`${schemaLabel(Number(details.schema_index) || 0)}: ${details.field || ''}`, live].filter(Boolean).join('; ');
+        case 'PAGE_ADDED':
+        case 'PAGE_REMOVED':
+            return details.url || '';
+        case 'APPROVED': {
+            const coverage = details.coverage;
+            if (!coverage) return '';
+            return coverageText({...coverage, notEvaluated: coverage.not_evaluated});
+        }
+        default:
+            return '';
+    }
+}
+
+function actorBadge(actor) {
+    const kind = {AGENT: 'agent', SYSTEM: 'system'}[actor] || 'human';
+    return `<span class="badge badge-actor-${kind}">${escapeHtml(displayName(actor))}</span>`;
 }
 
 function autoSchemaEvaluation(review) {
