@@ -24794,10 +24794,12 @@ components:
         operator:
           $ref: "#/components/schemas/ListingSourceOperatorInputData"
         platformTechnology:
-          allOf:
-            - $ref: "#/components/schemas/PlatformTechnology"
+          type: string
           nullable: true
-          description: Optional platform code; omission or null records no platform.
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$'
+          description: Optional platform code in ASCII SCREAMING_SNAKE_CASE; reuse established codes such as SHOPIFY or BIGCOMMERCE. Omission or null records no platform.
         ingestionConfiguration:
           type: array
           items:
@@ -24870,10 +24872,12 @@ components:
           type: string
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         platformTechnology:
-          allOf:
-            - $ref: "#/components/schemas/PlatformTechnology"
+          type: string
           nullable: true
-          description: Omission preserves the platform, null clears it, and a code replaces it.
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$'
+          description: Platform code in ASCII SCREAMING_SNAKE_CASE; reuse established codes such as SHOPIFY or BIGCOMMERCE. Omission preserves the platform, null clears it, and a code replaces it.
         ingestionConfiguration:
           type: array
           items:
