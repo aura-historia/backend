@@ -440,7 +440,6 @@ enum LatestProviderSourceOrder<'a> {
     /// A delete without a source time. Its barrier is the later of its capture time and every
     /// source time known for the record, so the provider deleted the record no later than it.
     UnknownDelete {
-        observation_sha256: &'a [u8],
         barrier_at: OffsetDateTime,
     },
 }
@@ -492,10 +491,7 @@ fn latest_provider_source_order(
             (None, None, None, Some(observation_sha256), Some(barrier_at))
                 if observation_sha256.len() == expected_evidence_sha256_length =>
             {
-                Ok(LatestProviderSourceOrder::UnknownDelete {
-                    observation_sha256,
-                    barrier_at,
-                })
+                Ok(LatestProviderSourceOrder::UnknownDelete { barrier_at })
             }
             _ => Err(invalid()),
         },
@@ -572,7 +568,7 @@ fn source_ordering_decision(
         },
         // The provider deleted the record no later than the barrier, so only a later source
         // time follows every delete Aura has seen.
-        (LatestProviderSourceOrder::UnknownDelete { barrier_at, .. }, Some(incoming)) => {
+        (LatestProviderSourceOrder::UnknownDelete { barrier_at }, Some(incoming)) => {
             if incoming.occurred_at > barrier_at {
                 Ok(SourceOrderingDecision::Advance(
                     SourceOrderingAdvancement::Known(incoming),
