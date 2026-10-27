@@ -120,59 +120,66 @@ impl ReviewAccess {
 
     /// Authorizes a request and resolves who it acts as, or `None` when it is refused as
     /// unauthorized. The agent token reads the console API and makes review mutations, never
-    /// opens a browser session and never administers domains; the review token, a browser
-    /// session (reads only) and the `dev` binary's local same-origin mutations act as
-    /// [`ReviewActor::Human`]. Without a configured review token the API is open to reads, which
-    /// record nothing; only a configured agent token is ever resolved as the agent.
+    /// opens or closes a browser session and never administers domains; the review token, a
+    /// browser session (reads and logout only) and the `dev` binary's local same-origin mutations
+    /// act as [`ReviewActor::Human`]. Without a configured review token the API is open to
+    /// reads, which record nothing; only a configured agent token is ever resolved as the agent.
+    /// An `Authorization` header that matches no configured token is refused on every API route:
+    /// a supplied credential that fails is never downgraded to a session or to tokenless access.
     pub(super) fn authorize(&self, request: &ParsedRequest<'_>) -> Option<ReviewActor> {
         if !request.path.starts_with("/api/") {
             return Some(ReviewActor::Human);
         }
 
         let bearer = self.bearer(&request.headers);
-        let session = self.has_valid_session(&request.headers);
-        let local_mutation = self.config.local_mutations_without_token
-            && self.config.auth_token.is_none()
-            && is_same_origin_loopback_request(&request.headers);
+        let session = || self.has_valid_session(&request.headers);
+        let local_mutation = || {
+            self.config.local_mutations_without_token
+                && self.config.auth_token.is_none()
+                && is_same_origin_loopback_request(&request.headers)
+        };
         match (request.method.as_str(), request.path) {
             ("POST", "/api/session") => {
                 (bearer == Bearer::ReviewToken).then_some(ReviewActor::Human)
             }
-            ("POST", "/api/session/logout") => {
-                (bearer == Bearer::ReviewToken || session).then_some(ReviewActor::Human)
-            }
+            ("POST", "/api/session/logout") => match bearer {
+                Bearer::ReviewToken => Some(ReviewActor::Human),
+                Bearer::Absent => session().then_some(ReviewActor::Human),
+                Bearer::AgentToken | Bearer::Invalid => None,
+            },
             (method, path) if is_mutation_method(method) => match bearer {
                 Bearer::ReviewToken => Some(ReviewActor::Human),
-                Bearer::AgentToken if is_review_route(path) => Some(ReviewActor::Agent),
-                Bearer::AgentToken | Bearer::None => local_mutation.then_some(ReviewActor::Human),
+                Bearer::AgentToken => is_review_route(path).then_some(ReviewActor::Agent),
+                Bearer::Absent => local_mutation().then_some(ReviewActor::Human),
+                Bearer::Invalid => None,
             },
             _ => match bearer {
                 Bearer::ReviewToken => Some(ReviewActor::Human),
                 Bearer::AgentToken => Some(ReviewActor::Agent),
-                Bearer::None => {
-                    (session || self.config.auth_token.is_none()).then_some(ReviewActor::Human)
+                Bearer::Absent => {
+                    (session() || self.config.auth_token.is_none()).then_some(ReviewActor::Human)
                 }
+                Bearer::Invalid => None,
             },
         }
     }
 
-    /// The configured token the request's bearer is. Both tokens are compared in constant time,
-    /// each on every request, so the timing tells neither apart.
+    /// The configured token the request's `Authorization` header presents. A bearer is compared
+    /// with both tokens in constant time, each on every request, so the timing tells neither
+    /// apart; a header that is not a bearer of either token is [`Bearer::Invalid`].
     fn bearer(&self, headers: &std::collections::HashMap<String, String>) -> Bearer {
-        let Some(presented) = headers
-            .get("authorization")
-            .and_then(|value| value.strip_prefix("Bearer "))
-        else {
-            return Bearer::None;
+        let Some(authorization) = headers.get("authorization") else {
+            return Bearer::Absent;
+        };
+        let Some(presented) = authorization.strip_prefix("Bearer ") else {
+            return Bearer::Invalid;
         };
         let review_token = token_matches(self.config.auth_token.as_deref(), presented);
         let agent_token = token_matches(self.config.agent_token.as_deref(), presented);
-        if review_token {
-            Bearer::ReviewToken
-        } else if agent_token {
-            Bearer::AgentToken
-        } else {
-            Bearer::None
+        match (review_token, agent_token) {
+            (true, _) => Bearer::ReviewToken,
+            (false, true) => Bearer::AgentToken,
+            (false, false) => Bearer::Invalid,
         }
     }
 
@@ -238,12 +245,15 @@ fn expired_session_cookie(config: &ReviewServerConfig) -> String {
     session_cookie(config, uuid::Uuid::nil(), Duration::ZERO)
 }
 
-/// The configured token a request's bearer matches.
+/// The credential a request's `Authorization` header presents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Bearer {
     ReviewToken,
     AgentToken,
-    None,
+    /// The request has no `Authorization` header.
+    Absent,
+    /// The header is not a bearer of a configured token.
+    Invalid,
 }
 
 fn token_matches(expected: Option<&str>, presented: &str) -> bool {
@@ -564,8 +574,9 @@ mod tests {
         );
     }
 
-    /// The tokenless local mode of the `dev` binary has no agent: a same-origin mutation acts as
-    /// a human whatever bearer it carries, and nothing else mutates.
+    /// The tokenless local mode of the `dev` binary has no agent: a same-origin mutation without
+    /// a bearer acts as a human, one with a bearer is refused since no token can match it, and
+    /// nothing else mutates.
     #[test]
     fn should_never_resolve_the_agent_in_the_tokenless_local_mode() {
         let access = ReviewAccess::new(
@@ -588,13 +599,109 @@ mod tests {
         };
 
         assert_eq!(same_origin(None), Some(ReviewActor::Human));
-        assert_eq!(same_origin(Some(AGENT_TOKEN)), Some(ReviewActor::Human));
+        assert_eq!(same_origin(Some(AGENT_TOKEN)), None);
         assert_eq!(
             actor_of(
                 &access,
                 "POST /api/reviews/cr_1/candidate",
                 Some(AGENT_TOKEN)
             ),
+            None
+        );
+    }
+
+    /// Sends `request` with exactly these `Authorization` and session cookie headers.
+    fn actor_with_headers(
+        access: &ReviewAccess,
+        request: &str,
+        authorization: Option<&str>,
+        session_cookie: Option<&str>,
+    ) -> Option<ReviewActor> {
+        let authorization = authorization
+            .map(|value| format!("Authorization: {value}\r\n"))
+            .unwrap_or_default();
+        let cookie = session_cookie
+            .map(|cookie| format!("Cookie: {cookie}\r\n"))
+            .unwrap_or_default();
+        let raw =
+            format!("{request} HTTP/1.1\r\nHost: 127.0.0.1:7878\r\n{authorization}{cookie}\r\n");
+        access.authorize(&parse_request(&raw).unwrap_or_else(|| panic!("{raw}")))
+    }
+
+    /// The `name=value` pair of the session cookie a new browser session sets.
+    fn new_session_cookie(access: &ReviewAccess) -> String {
+        let response = access.create_session().to_string();
+        response
+            .lines()
+            .find_map(|line| line.strip_prefix("Set-Cookie: "))
+            .and_then(|cookie| cookie.split(';').next())
+            .unwrap_or_else(|| panic!("session response without cookie: {response}"))
+            .to_owned()
+    }
+
+    /// A browser session reads and logs out as a human, but a request that also presents an
+    /// `Authorization` header matching no token is refused, not downgraded to the session; the
+    /// agent token never closes a session either, and a session never mutates.
+    #[rstest::rstest]
+    #[case::session_reads("GET /api/reviews", None, Some(ReviewActor::Human))]
+    #[case::session_logs_out("POST /api/session/logout", None, Some(ReviewActor::Human))]
+    #[case::session_never_mutates("POST /api/reviews/cr_1/candidate", None, None)]
+    #[case::wrong_bearer_with_session_reads("GET /api/reviews", Some("Bearer stale-token"), None)]
+    #[case::wrong_bearer_with_session_logs_out(
+        "POST /api/session/logout",
+        Some("Bearer stale-token"),
+        None
+    )]
+    #[case::another_scheme_with_session_reads(
+        "GET /api/reviews",
+        Some("Basic cmV2aWV3LXRva2Vu"),
+        None
+    )]
+    #[case::agent_token_with_session_logs_out(
+        "POST /api/session/logout",
+        Some("Bearer agent-token"),
+        None
+    )]
+    #[case::agent_token_with_session_reads(
+        "GET /api/reviews",
+        Some("Bearer agent-token"),
+        Some(ReviewActor::Agent)
+    )]
+    fn should_never_downgrade_a_failed_bearer_to_the_browser_session(
+        #[case] request: &str,
+        #[case] authorization: Option<&str>,
+        #[case] expected: Option<ReviewActor>,
+    ) {
+        let access = access_with_agent_token();
+        let cookie = new_session_cookie(&access);
+
+        assert_eq!(
+            actor_with_headers(&access, request, authorization, Some(&cookie)),
+            expected
+        );
+    }
+
+    /// Without a review token the API is open to reads, but not to a request presenting a
+    /// credential, which nothing can match.
+    #[test]
+    fn should_refuse_a_bearer_where_no_token_is_configured() {
+        let access = ReviewAccess::new(
+            ReviewServerConfig {
+                bind_addr: "127.0.0.1:7878".parse().unwrap(),
+                auth_token: None,
+                agent_token: None,
+                local_mutations_without_token: false,
+            }
+            .validate()
+            .unwrap_or_else(|error| panic!("review config: {error}")),
+        );
+
+        assert_eq!(
+            actor_of(&access, "GET /api/reviews", None),
+            Some(ReviewActor::Human)
+        );
+        assert_eq!(
+            actor_of(&access, "GET /api/reviews", Some(AGENT_TOKEN)),
             None
         );
     }
