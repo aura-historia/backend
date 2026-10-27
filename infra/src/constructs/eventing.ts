@@ -362,7 +362,12 @@ function createSqsEventSources(
     geoResolutionVersion, listingGeographyVersion, listingShippingVersion,
   } = props;
   const maximumConcurrency = (key: LambdaKey) => lambdaReservedConcurrency(key, props.config);
-  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1, maximumConcurrency("shopify"));
+  functions.shopify.addEventSource(new lambdaEventSources.SqsEventSource(queues.shopify.queue, {
+    batchSize: 10,
+    reportBatchItemFailures: true,
+    maxBatchingWindow: cdk.Duration.seconds(1),
+    maxConcurrency: maximumConcurrency("shopify"),
+  }));
 
   functions.productListingIngestion.addToRolePolicy(new iam.PolicyStatement({
     actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"],
@@ -603,25 +608,6 @@ function addWorkerLambdaEventSource(
     }
     mapping.addResourceDependency(policyResource);
   }
-}
-
-function addSqsEventSource(
-  fn: cdk.aws_lambda.Function,
-  queue: sqs.IQueue,
-  batchSize: number,
-  reportBatchItemFailures: boolean,
-  maxBatchingWindowSeconds?: number,
-  maximumConcurrency?: number,
-): void {
-  fn.addEventSource(
-    new lambdaEventSources.SqsEventSource(queue, {
-      batchSize,
-      maxConcurrency: maximumConcurrency,
-
-      reportBatchItemFailures,
-      maxBatchingWindow: maxBatchingWindowSeconds === undefined ? undefined : cdk.Duration.seconds(maxBatchingWindowSeconds),
-    }),
-  );
 }
 
 function sqsScalingConfig(maximumConcurrency: number | undefined): lambda.CfnEventSourceMapping.ScalingConfigProperty | undefined {
