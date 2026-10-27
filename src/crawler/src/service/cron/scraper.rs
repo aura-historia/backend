@@ -43,9 +43,9 @@ use tracing::{Instrument, debug, error, info, warn};
 /// for the reviewer.
 const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 /// Upper bound of the retry delay of a page that keeps waiting on the same pending
-/// product-schema review. Approval releases waiting pages at once; the bound keeps a page
-/// whose review closes another way from waiting much longer than a reviewer's working
-/// session.
+/// product-schema review. Approval and rejection release waiting pages at once; the bound
+/// keeps a page whose review stays pending, for example awaiting repair, from going unchecked
+/// for much longer than a reviewer's working session.
 const SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY: Duration = Duration::from_secs(4 * 60 * 60);
 /// `last_error_kind` of a URL whose schema derived another identity than the captured one.
 const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
@@ -1283,7 +1283,8 @@ async fn persist_schema_retry_cooldown(
 
 /// Records that the page waits on a pending product-schema review. The retry delay grows
 /// with each consecutive wait on the same review, so pages that cannot succeed before the
-/// reviewer decides stop refetching every schema cooldown; approval releases them at once.
+/// reviewer decides stop refetching every schema cooldown; approval or rejection releases them
+/// at once.
 async fn persist_schema_review_wait(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,

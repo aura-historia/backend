@@ -314,7 +314,7 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Records URL failure state for a page that waits on a pending product-schema review,
     /// including the review it waits on and the consecutive-wait streak. The write is
     /// [`NoopStale`](CrawlerUrlWriteOutcome::NoopStale) once that review is no longer pending,
-    /// so a scrape that overlapped the review's approval cannot hold back a page the approval
+    /// so a scrape that overlapped the verdict on the review cannot hold back a page the verdict
     /// released.
     async fn mark_waiting_on_schema_review(
         &self,

@@ -675,11 +675,16 @@ struct WaitingPageFixture {
 
 impl WaitingPageFixture {
     async fn new(pool: &PgPool) -> Self {
+        Self::on_host(pool, "example.com").await
+    }
+
+    /// The fixture for a ListingSource of its own whose shop is at `host`.
+    async fn on_host(pool: &PgPool, host: &str) -> Self {
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let listing_source_id = ListingSourceId::new();
         insert_listing_source(pool, listing_source_id).await;
-        let domain_id = insert_domain(pool, listing_source_id, "example.com").await;
-        let url = url::Url::parse("https://example.com/products/waiting").unwrap();
+        let domain_id = insert_domain(pool, listing_source_id, host).await;
+        let url = url::Url::parse(&format!("https://{host}/products/waiting")).unwrap();
         UrlMetadataRepositoryImpl::new(pool.clone())
             .upsert_link(
                 &listing_source_id,
@@ -821,14 +826,20 @@ impl ClosingVerdict {
 }
 
 /// Closing the review a page backed off on releases the page for an immediate retry and clears
-/// its wait.
+/// its wait. A page of another ListingSource keeps waiting on that source's own review.
 async fn assert_closing_the_review_releases_its_backed_off_page(verdict: ClosingVerdict) {
     let pool = get_postgres_client().await;
     let fixture = WaitingPageFixture::new(&pool).await;
+    let other_source = WaitingPageFixture::on_host(&pool, "other-source.example").await;
     assert_eq!(
         fixture.wait(4, time::Duration::hours(4)).await,
         CrawlerUrlWriteOutcome::Applied
     );
+    assert_eq!(
+        other_source.wait(4, time::Duration::hours(4)).await,
+        CrawlerUrlWriteOutcome::Applied
+    );
+    let other_source_wait = persisted_url_wait(&pool, &other_source.url).await;
     assert!(
         fixture.candidate_urls().await.is_empty(),
         "the backed-off page must wait although cached schemas keep its source eligible"
@@ -844,6 +855,11 @@ async fn assert_closing_the_review_releases_its_backed_off_page(verdict: Closing
     assert_eq!(
         persisted_url_wait(&pool, &fixture.url).await,
         (None, None, 0, None)
+    );
+    assert_eq!(
+        persisted_url_wait(&pool, &other_source.url).await,
+        other_source_wait,
+        "{verdict:?} must not release a page that waits on another ListingSource's review"
     );
 }
 
