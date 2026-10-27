@@ -115,13 +115,23 @@ fn evaluate_matrix(
             &html,
         ));
     }
-    for candidate in &mut candidates {
-        add_cross_page_findings(&mut candidate.pages);
-    }
-    SchemaMatrix {
+    let mut matrix = SchemaMatrix {
         review_id,
         candidates,
         removed_page_matches,
+    };
+    evaluate_cross_page_findings(&mut matrix);
+    matrix
+}
+
+/// Sets every candidate's cross-page findings from its extractions of the review pages,
+/// replacing the ones a cached matrix was stored with. They depend on the extractions
+/// alone, so a cached matrix is read through this and shows every cross-page check of
+/// this crawler, including one added after it was cached, without fetching the pages
+/// again.
+pub(crate) fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
+    for candidate in &mut matrix.candidates {
+        add_cross_page_findings(&mut candidate.pages);
     }
 }
 
@@ -1763,6 +1773,43 @@ mod tests {
 
             assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// The review console reads a matrix cached before a later cross-page check.
+        mod cached_matrix {
+            use super::*;
+
+            /// A matrix cached before `NO_IMAGE_ON_ANY_PAGE` existed holds the extractions
+            /// but only the findings of the checks of its time, here a stale repeated title.
+            #[test]
+            fn should_replace_the_cross_page_findings_a_matrix_was_cached_with() {
+                let reviews = "<div class=\"all-review-images\"></div>";
+                let pages = vec![
+                    product_page("chair", reviews),
+                    product_page("table", reviews),
+                ];
+                let evaluated = evaluate_schema_matrix_for_inputs(
+                    &[schema_with_images(".all-review-images img")],
+                    &pages,
+                );
+                let mut cached = serde_json::to_value(&evaluated)
+                    .unwrap_or_else(|error| panic!("a matrix must serialize: {error}"));
+                cached["candidates"][0]["pages"][0]["cross_page_findings"] = serde_json::json!([{
+                    "field": "title",
+                    "check": "REPEATED_ACROSS_PAGES",
+                    "values": ["Product chair"]
+                }]);
+                cached["candidates"][0]["pages"][1]["cross_page_findings"] = serde_json::json!([]);
+                let mut matrix = serde_json::from_value::<SchemaMatrix>(cached)
+                    .unwrap_or_else(|error| panic!("a cached matrix must load: {error}"));
+
+                evaluate_cross_page_findings(&mut matrix);
+
+                assert_eq!(
+                    cross_page_findings_of(&matrix, 0),
+                    vec![no_image_on_any_page(), no_image_on_any_page()]
+                );
+            }
         }
     }
 
