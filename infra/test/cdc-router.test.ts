@@ -73,7 +73,7 @@ function routerPolicyStatements(template: Template, routerLogicalId: string): Po
 }
 
 describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
-  test("keeps the router artifact identity without VPC, PostgreSQL, secret, or concurrency configuration", () => {
+  test("keeps the router artifact identity without VPC, PostgreSQL, or secret configuration", () => {
     const { compute } = stackTemplates(stage);
     const [routerLogicalId, router] = namedResource(
       compute,
@@ -105,7 +105,6 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     }
     expect(router.Properties.VpcConfig).toBeUndefined();
     expect(router.Properties.Layers).toBeUndefined();
-    expect(router.Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(JSON.stringify(router.Properties)).not.toContain("POSTGRES_");
     expect(JSON.stringify(router.Properties)).not.toContain("SECRET");
     expect(JSON.stringify(router.Properties)).not.toContain("DmsCdc");

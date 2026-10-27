@@ -10,7 +10,7 @@ import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import type { DmsCdc } from "./dms-cdc";
-import type { LambdaFunctions } from "./lambdas";
+import { lambdaReservedConcurrency, type LambdaFunctions, type LambdaKey } from "./lambdas";
 import type { QueueCatalog } from "./queues";
 import type { WorkerQueueCatalog } from "./worker-queues";
 import type { WorkloadStorage } from "./workload-storage";
@@ -100,26 +100,7 @@ export class Eventing extends Construct {
       props.workloadStorage.routerFailureArchive,
     );
 
-    createSqsEventSources(
-      this,
-      props.functions,
-      props.queues,
-      props.workerQueues,
-      props.productListingOpenSearchVersion,
-      props.productListingNormalizationVersion,
-      props.productListingIngestionVersion,
-      props.productContentAssessmentVersion,
-      props.productEmbeddingVersion,
-      props.productTranslationVersion,
-      props.searchFilterMatchNotificationVersion,
-      props.watchlistNotificationVersion,
-      props.notificationDeliveryVersion,
-      props.marketingConsentSyncVersion,
-      props.userIdentityDeletionVersion,
-      props.geoResolutionVersion,
-      props.listingGeographyVersion,
-      props.listingShippingVersion,
-    );
+    createSqsEventSources(this, props);
   }
 }
 
@@ -370,25 +351,23 @@ function createDmsCdcRouterEventSource(
 
 function createSqsEventSources(
   scope: Construct,
-  functions: LambdaFunctions,
-  queues: QueueCatalog,
-  workerQueues: WorkerQueueCatalog,
-  productListingOpenSearchVersion: lambda.IVersion,
-  productListingNormalizationVersion: lambda.IVersion,
-  productListingIngestionVersion: lambda.IVersion,
-  productContentAssessmentVersion: lambda.IVersion,
-  productEmbeddingVersion: lambda.IVersion,
-  productTranslationVersion: lambda.IVersion,
-  searchFilterMatchNotificationVersion: lambda.IVersion,
-  watchlistNotificationVersion: lambda.IVersion,
-  notificationDeliveryVersion: lambda.IVersion,
-  marketingConsentSyncVersion: lambda.IVersion,
-  userIdentityDeletionVersion: lambda.IVersion,
-  geoResolutionVersion: lambda.IVersion,
-  listingGeographyVersion: lambda.IVersion,
-  listingShippingVersion: lambda.IVersion,
+  props: EventingProps,
 ): void {
-  addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
+  const {
+    functions, queues, workerQueues, productListingOpenSearchVersion,
+    productListingNormalizationVersion, productListingIngestionVersion,
+    productContentAssessmentVersion, productEmbeddingVersion, productTranslationVersion,
+    searchFilterMatchNotificationVersion, watchlistNotificationVersion,
+    notificationDeliveryVersion, marketingConsentSyncVersion, userIdentityDeletionVersion,
+    geoResolutionVersion, listingGeographyVersion, listingShippingVersion,
+  } = props;
+  const maximumConcurrency = (key: LambdaKey) => lambdaReservedConcurrency(key, props.config);
+  functions.shopify.addEventSource(new lambdaEventSources.SqsEventSource(queues.shopify.queue, {
+    batchSize: 10,
+    reportBatchItemFailures: true,
+    maxBatchingWindow: cdk.Duration.seconds(1),
+    maxConcurrency: maximumConcurrency("shopify"),
+  }));
 
   functions.productListingIngestion.addToRolePolicy(new iam.PolicyStatement({
     actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"],
@@ -401,7 +380,7 @@ function createSqsEventSources(
     eventSourceArn: queues.productListingIngestion.queue.queueArn,
     functionName: productListingIngestionVersion.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
-    scalingConfig: { maximumConcurrency: 2 },
+    scalingConfig: sqsScalingConfig(maximumConcurrency("productListingIngestion")),
   });
   const consumerPolicy = functions.productListingIngestion.role?.node.tryFindChild("DefaultPolicy") as iam.Policy | undefined;
   if (!consumerPolicy) {
@@ -432,6 +411,7 @@ function createSqsEventSources(
     enabled: true,
     eventSourceArn: productListingOpenSearch.queue.queueArn,
     functionName: productListingOpenSearchVersion.functionArn,
+    scalingConfig: sqsScalingConfig(maximumConcurrency("productListingOpenSearch")),
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 
@@ -454,6 +434,7 @@ function createSqsEventSources(
     enabled: true,
     eventSourceArn: productListingNormalization.queue.queueArn,
     functionName: productListingNormalizationVersion.functionArn,
+    scalingConfig: sqsScalingConfig(maximumConcurrency("productListingNormalization")),
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 
@@ -465,6 +446,7 @@ function createSqsEventSources(
     productContentAssessmentVersion,
 
     "ProductListing content assessment",
+    { maximumConcurrency: maximumConcurrency("productContentAssessment") },
   );
   addWorkerLambdaEventSource(
     scope,
@@ -474,6 +456,7 @@ function createSqsEventSources(
     productEmbeddingVersion,
 
     "ProductListing embedding",
+    { maximumConcurrency: maximumConcurrency("productEmbedding") },
   );
   addWorkerLambdaEventSource(
     scope,
@@ -483,6 +466,7 @@ function createSqsEventSources(
     productTranslationVersion,
 
     "ProductListing translation",
+    { maximumConcurrency: maximumConcurrency("productTranslation") },
   );
 
   const notificationDelivery = workerQueues["notification-delivery"];
@@ -504,6 +488,7 @@ function createSqsEventSources(
     enabled: true,
     eventSourceArn: notificationDelivery.queue.queueArn,
     functionName: notificationDeliveryVersion.functionArn,
+    scalingConfig: sqsScalingConfig(maximumConcurrency("notificationDelivery")),
     functionResponseTypes: ["ReportBatchItemFailures"],
   });
 
@@ -515,6 +500,7 @@ function createSqsEventSources(
     searchFilterMatchNotificationVersion,
 
     "Search-filter match notification",
+    { maximumConcurrency: maximumConcurrency("searchFilterMatchNotification") },
   );
   addWorkerLambdaEventSource(
     scope,
@@ -524,6 +510,7 @@ function createSqsEventSources(
     watchlistNotificationVersion,
 
     "Watchlist notification",
+    { maximumConcurrency: maximumConcurrency("watchlistNotification") },
   );
 
   const marketingConsentSync = workerQueues["marketing-consent-sync"];
@@ -534,7 +521,7 @@ function createSqsEventSources(
     marketingConsentSync,
     marketingConsentSyncVersion,
     "Marketing consent sync",
-    { includeGetQueueUrl: false, dependOnAccessPolicy: true },
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: maximumConcurrency("marketingConsentSync") },
   );
   // addWorkerLambdaEventSource has already rejected a missing queue pair.
   grantFailureCustody(functions.marketingConsentSync, marketingConsentSync!.deadLetterQueue);
@@ -545,7 +532,7 @@ function createSqsEventSources(
     workerQueues["user-identity-deletion"],
     userIdentityDeletionVersion,
     "User identity deletion",
-    { includeGetQueueUrl: false, dependOnAccessPolicy: true },
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: maximumConcurrency("userIdentityDeletion") },
   );
   addWorkerLambdaEventSource(
     scope,
@@ -554,7 +541,7 @@ function createSqsEventSources(
     workerQueues["listing-geography"],
     listingGeographyVersion,
     "Listing geography",
-    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: 2 },
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: maximumConcurrency("listingGeography") },
   );
   addWorkerLambdaEventSource(
     scope,
@@ -563,11 +550,11 @@ function createSqsEventSources(
     workerQueues["listing-shipping"],
     listingShippingVersion,
     "Listing shipping",
-    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: 2 },
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: maximumConcurrency("listingShipping") },
   );
   addWorkerLambdaEventSource(scope, "GeoResolutionQueueEventSource", functions.geoResolution,
     workerQueues["geo-resolution"], geoResolutionVersion, "Geographic resolution",
-    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: 2 });
+    { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: maximumConcurrency("geoResolution") });
 }
 
 /**
@@ -611,7 +598,7 @@ function addWorkerLambdaEventSource(
     eventSourceArn: workerQueue.queue.queueArn,
     functionName: version.functionArn,
     functionResponseTypes: ["ReportBatchItemFailures"],
-    scalingConfig: options.maximumConcurrency ? { maximumConcurrency: options.maximumConcurrency } : undefined,
+    scalingConfig: sqsScalingConfig(options.maximumConcurrency),
   });
   if (options.dependOnAccessPolicy) {
     const executionPolicy = fn.role?.node.tryFindChild("DefaultPolicy") as iam.Policy | undefined;
@@ -623,19 +610,6 @@ function addWorkerLambdaEventSource(
   }
 }
 
-function addSqsEventSource(
-  fn: cdk.aws_lambda.Function,
-  queue: sqs.IQueue,
-  batchSize: number,
-  reportBatchItemFailures: boolean,
-  maxBatchingWindowSeconds?: number,
-): void {
-  fn.addEventSource(
-    new lambdaEventSources.SqsEventSource(queue, {
-      batchSize,
-
-      reportBatchItemFailures,
-      maxBatchingWindow: maxBatchingWindowSeconds === undefined ? undefined : cdk.Duration.seconds(maxBatchingWindowSeconds),
-    }),
-  );
+function sqsScalingConfig(maximumConcurrency: number | undefined): lambda.CfnEventSourceMapping.ScalingConfigProperty | undefined {
+  return maximumConcurrency === undefined ? undefined : { maximumConcurrency };
 }
