@@ -2493,9 +2493,9 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
 }
 
 /// In `agent` mode the review rail classifies as the spider does there, by the pattern alone: the
-/// review's URL sample carries no keyword class, and approval makes the URLs the pattern takes
+/// review's URL sample carries no keyword class, approval makes the URLs the pattern takes
 /// product URLs and leaves every other one unclassified, on a shop whose domain the keywords read
-/// as a category.
+/// as a category, and restoring the decision it replaced leaves every URL unclassified again.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agent_mode() {
     let pool = get_postgres_client().await;
@@ -2550,14 +2550,29 @@ async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agen
     .await
     .unwrap();
 
+    let approved_classes = stored_url_classes(&pool, domain_id).await;
+    repository
+        .restore_approval(review_id, ReviewActor::Human, None)
+        .await
+        .unwrap();
+
     assert_eq!(sample_classes, vec![Some("other".to_owned()); 3]);
     assert_eq!(
-        stored_url_classes(&pool, domain_id).await,
+        approved_classes,
         vec![
             (urls[2].to_string(), "other".to_owned()),
             (urls[0].to_string(), "product".to_owned()),
             (urls[1].to_string(), "product".to_owned()),
         ]
+    );
+    assert_eq!(
+        stored_url_classes(&pool, domain_id).await,
+        vec![
+            (urls[2].to_string(), "other".to_owned()),
+            (urls[0].to_string(), "other".to_owned()),
+            (urls[1].to_string(), "other".to_owned()),
+        ],
+        "restoring leaves every URL unclassified, where the keywords read the shop's domain as a category"
     );
 }
 
