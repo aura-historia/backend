@@ -39,35 +39,21 @@ impl ReviewPageCoverage {
     /// The coverage of the review's `pages` by its stored `matrix`, `None` when it stores none
     /// that decodes. Only the review's current pages count, each once.
     pub fn of(matrix: Option<&SchemaMatrix>, pages: &[CrawlerReviewPage]) -> Self {
-        let total = pages.len();
         let mut coverage = Self {
             covered: 0,
             removed: 0,
-            total,
+            total: pages.len(),
             not_evaluated: 0,
         };
-        let Some(matrix) = matrix else {
-            coverage.not_evaluated = total;
-            return coverage;
-        };
-        // Every candidate evaluates the same pages.
-        let evaluated_pages = matrix
-            .candidates
-            .first()
-            .map_or(&[][..], |candidate| candidate.pages.as_slice());
-        for page in pages {
-            let Some(evaluation) = evaluated_pages
-                .iter()
-                .find(|evaluation| evaluates_review_page(evaluation, page))
-            else {
-                coverage.not_evaluated += 1;
-                continue;
-            };
-            if captured_as_removed(matrix, &evaluation.page_reference) {
-                coverage.covered += 1;
-                coverage.removed += 1;
-            } else if schema_matrix_covers_page(matrix, &evaluation.page_reference) {
-                coverage.covered += 1;
+        for (_, page_coverage) in page_coverages(matrix, pages) {
+            match page_coverage {
+                PageCoverage::NotEvaluated => coverage.not_evaluated += 1,
+                PageCoverage::CapturedAsRemoved => {
+                    coverage.covered += 1;
+                    coverage.removed += 1;
+                }
+                PageCoverage::CoveredBySchema => coverage.covered += 1,
+                PageCoverage::NotCovered => {}
             }
         }
         coverage
@@ -108,6 +94,56 @@ impl fmt::Display for ReviewPageCoverage {
             write!(formatter, "; {} not evaluated", self.not_evaluated)?;
         }
         Ok(())
+    }
+}
+
+/// What a review's stored schema matrix shows for one of its pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageCoverage {
+    /// The matrix did not evaluate the page: it joined while the matrix was evaluated, or no
+    /// matrix is stored.
+    NotEvaluated,
+    /// The candidate's removed-page templates capture the page as removed.
+    CapturedAsRemoved,
+    /// At least one candidate schema applies to the page.
+    CoveredBySchema,
+    /// The matrix evaluated the page and the candidate resolves it neither way.
+    NotCovered,
+}
+
+/// Each of the review's `pages` with what its stored `matrix` shows for it, in page order;
+/// every page is [`PageCoverage::NotEvaluated`] without a matrix.
+pub fn page_coverages<'a>(
+    matrix: Option<&SchemaMatrix>,
+    pages: &'a [CrawlerReviewPage],
+) -> Vec<(&'a CrawlerReviewPage, PageCoverage)> {
+    pages
+        .iter()
+        .map(|page| (page, page_coverage(matrix, page)))
+        .collect()
+}
+
+fn page_coverage(matrix: Option<&SchemaMatrix>, page: &CrawlerReviewPage) -> PageCoverage {
+    let Some(matrix) = matrix else {
+        return PageCoverage::NotEvaluated;
+    };
+    // Every candidate evaluates the same pages.
+    let evaluated_pages = matrix
+        .candidates
+        .first()
+        .map_or(&[][..], |candidate| candidate.pages.as_slice());
+    let Some(evaluation) = evaluated_pages
+        .iter()
+        .find(|evaluation| evaluates_review_page(evaluation, page))
+    else {
+        return PageCoverage::NotEvaluated;
+    };
+    if captured_as_removed(matrix, &evaluation.page_reference) {
+        PageCoverage::CapturedAsRemoved
+    } else if schema_matrix_covers_page(matrix, &evaluation.page_reference) {
+        PageCoverage::CoveredBySchema
+    } else {
+        PageCoverage::NotCovered
     }
 }
 
