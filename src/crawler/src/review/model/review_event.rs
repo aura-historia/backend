@@ -47,6 +47,13 @@ impl ReviewActor {
     pub fn from_persisted(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|actor| actor.as_str() == value)
     }
+
+    /// Whether the actor may change a review that is no longer pending, such as the approved
+    /// review whose candidate is live, where an edit rewrites the live configuration. The agent
+    /// changes only pending reviews, so it changes live configuration only through an approval.
+    pub const fn may_change_decided_reviews(self) -> bool {
+        !matches!(self, Self::Agent)
+    }
 }
 
 /// What a review mutation did.
@@ -131,6 +138,13 @@ mod tests {
         for unknown in ["human", "Agent", "", "ROBOT"] {
             assert_eq!(ReviewActor::from_persisted(unknown), None, "{unknown}");
         }
+    }
+
+    #[test]
+    fn should_let_only_the_agent_change_nothing_but_pending_reviews() {
+        assert!(!ReviewActor::Agent.may_change_decided_reviews());
+        assert!(ReviewActor::Human.may_change_decided_reviews());
+        assert!(ReviewActor::System.may_change_decided_reviews());
     }
 
     #[test]

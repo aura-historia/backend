@@ -59,6 +59,10 @@ pub enum ReviewRepositoryError {
     NotFound(CrawlerReviewId),
     #[error("review {0} is not pending review")]
     NotPending(CrawlerReviewId),
+    #[error(
+        "review {0} is not pending review; the review agent changes only pending reviews and leaves decided ones to a human"
+    )]
+    AgentMayChangeOnlyPendingReviews(CrawlerReviewId),
     #[error("a needs-repair verdict needs a note saying what to repair")]
     MissingRepairNote,
     #[error("review {0} has unsupported artifact type {1}")]
@@ -741,15 +745,16 @@ impl CrawlerReviewRepository {
         Ok(Some(review_id))
     }
 
-    /// Checks, before the page is fetched, that `url` may be added to the review.
+    /// Checks, before the page is fetched, that `actor` may add `url` to the review.
     pub async fn check_reviewer_page_target(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         url: &Url,
     ) -> Result<(), ReviewRepositoryError> {
         let url = reviewer_page_url(url);
         let mut transaction = self.pool.begin().await?;
-        lock_reviewer_page_target(&mut transaction, review_id, &url).await?;
+        lock_reviewer_page_target(&mut transaction, review_id, actor, &url).await?;
         transaction.rollback().await?;
         Ok(())
     }
@@ -769,7 +774,7 @@ impl CrawlerReviewRepository {
         let url = reviewer_page_url(fetched_url);
         let mut transaction = self.pool.begin().await?;
         let product_url_pattern =
-            lock_reviewer_page_target(&mut transaction, review_id, &url).await?;
+            lock_reviewer_page_target(&mut transaction, review_id, actor, &url).await?;
         if is_redirect_to_non_product_page(requested_url, &url, product_url_pattern.as_deref()) {
             return Err(ReviewRepositoryError::RedirectedToNonProductPage(
                 url.to_string(),
@@ -810,7 +815,8 @@ impl CrawlerReviewRepository {
 
     /// Removes a page a reviewer added or a page waiting on the review, for example once the shop
     /// has deleted it and every live matrix refresh would fail on it, and drops the cached schema
-    /// matrix. Seed and triggering pages stay.
+    /// matrix. Seed and triggering pages stay, and the review agent removes pages of pending
+    /// reviews only.
     pub async fn remove_reviewer_page(
         &self,
         review_page_id: CrawlerReviewPageId,
@@ -828,6 +834,8 @@ impl CrawlerReviewRepository {
         .await?
         .ok_or(ReviewRepositoryError::ReviewPageNotFound(review_page_id))?;
         let review_id = crawler_review_id_from_uuid(page.try_get("review_id")?)?;
+        let status: String = page.try_get("status")?;
+        check_actor_may_change(actor, review_id, &status)?;
         let role: String = page.try_get("role")?;
         if !matches!(
             role.as_str(),
@@ -835,7 +843,6 @@ impl CrawlerReviewRepository {
         ) {
             return Err(ReviewRepositoryError::NotReviewerAddedPage(review_page_id));
         }
-        let status: String = page.try_get("status")?;
         if !matches!(status.as_str(), STATUS_PENDING_REVIEW | STATUS_APPROVED) {
             return Err(ReviewRepositoryError::NotPending(review_id));
         }
@@ -868,7 +875,8 @@ impl CrawlerReviewRepository {
     }
 
     /// Replaces the review's candidate, read at `expected_candidate_version`, and returns its
-    /// candidate version after the edit.
+    /// candidate version after the edit. The review agent edits pending reviews only; an edit of
+    /// the approved review whose candidate is live rewrites the live schemas.
     pub async fn update_candidate_payload(
         &self,
         review_id: CrawlerReviewId,
@@ -884,7 +892,13 @@ impl CrawlerReviewRepository {
             candidate_payload: stored_candidate_payload,
             validation_summary,
             ..
-        } = lock_review_for_edit(&mut transaction, review_id, expected_candidate_version).await?;
+        } = lock_review_for_edit(
+            &mut transaction,
+            review_id,
+            actor,
+            expected_candidate_version,
+        )
+        .await?;
 
         if status == STATUS_PENDING_REVIEW {
             let (candidate_payload, removed_page_schemas_changed) = match artifact_type.as_str() {
@@ -990,7 +1004,13 @@ impl CrawlerReviewRepository {
             reason,
             candidate_payload: stored_candidate_payload,
             validation_summary,
-        } = lock_review_for_edit(&mut transaction, review_id, expected_candidate_version).await?;
+        } = lock_review_for_edit(
+            &mut transaction,
+            review_id,
+            actor,
+            expected_candidate_version,
+        )
+        .await?;
 
         if artifact_type != ARTIFACT_PRODUCT_SCHEMA {
             return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -1578,13 +1598,15 @@ struct ReviewUnderEdit {
     validation_summary: serde_json::Value,
 }
 
-/// Locks the review for a candidate edit based on `expected_candidate_version`, so concurrent
-/// edits of it apply one after the other, and reads what the edit decides on. An edit based on
+/// Locks the review for `actor`'s candidate edit based on `expected_candidate_version`, so
+/// concurrent edits of it apply one after the other, and reads what the edit decides on. The
+/// review agent's edit of a decided review is refused whatever its version. An edit based on
 /// another version than the review's is refused: it would silently overwrite every edit made
 /// since its writer read the candidate.
 async fn lock_review_for_edit(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
+    actor: ReviewActor,
     expected_candidate_version: i64,
 ) -> Result<ReviewUnderEdit, ReviewRepositoryError> {
     let review = sqlx::query(
@@ -1596,6 +1618,8 @@ async fn lock_review_for_edit(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    let status: String = review.try_get("status")?;
+    check_actor_may_change(actor, review_id, &status)?;
     let candidate_version: i64 = review.try_get("candidate_version")?;
     if candidate_version != expected_candidate_version {
         return Err(ReviewRepositoryError::StaleCandidateVersion {
@@ -1609,11 +1633,27 @@ async fn lock_review_for_edit(
             review.try_get::<uuid::Uuid, _>("listing_source_id")?,
         )?,
         artifact_type: review.try_get("artifact_type")?,
-        status: review.try_get("status")?,
+        status,
         reason: review.try_get("reason")?,
         candidate_payload: review.try_get("candidate_payload")?,
         validation_summary: review.try_get("validation_summary")?,
     })
+}
+
+/// Refuses `actor`'s change of the review `review_id` in `status` unless the review is pending or
+/// the actor may change decided reviews (see [`ReviewActor::may_change_decided_reviews`]). The
+/// caller holds the review's row lock, so the status is the one the change would apply to.
+fn check_actor_may_change(
+    actor: ReviewActor,
+    review_id: CrawlerReviewId,
+    status: &str,
+) -> Result<(), ReviewRepositoryError> {
+    if status == STATUS_PENDING_REVIEW || actor.may_change_decided_reviews() {
+        return Ok(());
+    }
+    Err(ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(
+        review_id,
+    ))
 }
 
 /// The state of a pending review a verdict decides on, read under the review's row lock.
@@ -1930,13 +1970,15 @@ async fn drop_cached_schema_matrix(
     Ok(())
 }
 
-/// Locks the review and checks that `url` may become a reviewer page of it: the review is a
-/// pending or approved product schema review, `url` is an http(s) URL on a domain of the
-/// review's ListingSource, it is not a page of the review yet, and the reviewer page limit is not
-/// reached. Returns the product URL pattern of the domain `url` is on, once one is decided.
+/// Locks the review and checks that `actor` may make `url` a reviewer page of it: the review is a
+/// pending product schema review, or an approved one and `actor` is not the review agent, `url`
+/// is an http(s) URL on a domain of the review's ListingSource, it is not a page of the review
+/// yet, and the reviewer page limit is not reached. Returns the product URL pattern of the domain
+/// `url` is on, once one is decided.
 async fn lock_reviewer_page_target(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
+    actor: ReviewActor,
     url: &Url,
 ) -> Result<Option<String>, ReviewRepositoryError> {
     let review = sqlx::query(
@@ -1947,6 +1989,8 @@ async fn lock_reviewer_page_target(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    let status: String = review.try_get("status")?;
+    check_actor_may_change(actor, review_id, &status)?;
     let artifact_type: String = review.try_get("artifact_type")?;
     if artifact_type != ARTIFACT_PRODUCT_SCHEMA {
         return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -1954,7 +1998,6 @@ async fn lock_reviewer_page_target(
             artifact_type,
         ));
     }
-    let status: String = review.try_get("status")?;
     if !matches!(status.as_str(), STATUS_PENDING_REVIEW | STATUS_APPROVED) {
         return Err(ReviewRepositoryError::NotPending(review_id));
     }

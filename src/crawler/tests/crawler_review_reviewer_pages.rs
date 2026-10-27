@@ -108,7 +108,7 @@ async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_lis
     let sold_url = url("https://example.com/products/sold");
 
     repository
-        .check_reviewer_page_target(review_id, &sold_url)
+        .check_reviewer_page_target(review_id, ReviewActor::Human, &sold_url)
         .await
         .unwrap();
     let page = repository
@@ -173,7 +173,7 @@ async fn should_refuse_reviewer_page_when_url_is_outside_listing_source_domains(
     ] {
         let target = url(raw);
         let checked = repository
-            .check_reviewer_page_target(review_id, &target)
+            .check_reviewer_page_target(review_id, ReviewActor::Human, &target)
             .await;
         assert!(
             matches!(
@@ -212,7 +212,11 @@ async fn should_refuse_reviewer_page_when_url_is_already_a_page_or_limit_is_reac
     let (_, review_id) = pending_schema_review(&pool).await;
 
     let duplicate = repository
-        .check_reviewer_page_target(review_id, &url("https://www.example.com/products/1"))
+        .check_reviewer_page_target(
+            review_id,
+            ReviewActor::Human,
+            &url("https://www.example.com/products/1"),
+        )
         .await;
     assert!(matches!(
         duplicate,
@@ -267,7 +271,11 @@ async fn should_refuse_reviewer_page_when_review_is_not_open_for_schema_review()
         .unwrap();
 
     let result = repository
-        .check_reviewer_page_target(review_id, &url("https://example.com/products/2"))
+        .check_reviewer_page_target(
+            review_id,
+            ReviewActor::Human,
+            &url("https://example.com/products/2"),
+        )
         .await;
 
     assert!(matches!(result, Err(ReviewRepositoryError::NotPending(_))));
@@ -599,7 +607,7 @@ async fn should_refuse_reviewer_page_when_it_differs_from_a_review_page_only_in_
         "http://www.example.com/products/1",
     ] {
         let duplicate = repository
-            .check_reviewer_page_target(review_id, &url(raw))
+            .check_reviewer_page_target(review_id, ReviewActor::Human, &url(raw))
             .await;
 
         assert!(

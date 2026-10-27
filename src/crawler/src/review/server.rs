@@ -628,7 +628,7 @@ impl ReviewServer {
         url: Url,
     ) -> Result<CrawlerReviewPage, HttpResponse> {
         self.repository
-            .check_reviewer_page_target(review_id, &url)
+            .check_reviewer_page_target(review_id, actor, &url)
             .await
             .map_err(review_error)?;
         let fetched = self
@@ -1052,6 +1052,9 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::NotReviewerAddedPage(_)
         | ReviewRepositoryError::RedirectedToNonProductPage(_) => {
             HttpResponse::json(400, &json!({ "error": error.to_string() }))
+        }
+        ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(_) => {
+            HttpResponse::json(403, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::StaleCandidateVersion { current, .. } => {
             review_changed(&error, current)
@@ -2500,6 +2503,89 @@ Origin: http://127.0.0.1:7878/x
                     .as_str()
                     .is_some_and(|id| id.starts_with("cre_"))),
                 "{detail}"
+            );
+        }
+
+        /// The agent token changes no decided review: its edits and page additions to the
+        /// approved review whose candidate is live answer 403 with an `error`, before any page is
+        /// fetched, and record nothing, while the review token's edit still applies.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_the_agent_changes_of_an_approved_review_with_403() {
+            let (server, review_id) = pending_review_server().await;
+            let review = format!("GET /api/reviews/{review_id}");
+            let approve = format!("POST /api/reviews/{review_id}/approve");
+            let (_, incomplete) = send(&server, &approve, "").await;
+            let (status, approved) = send(
+                &server,
+                &approve,
+                &json!({ "acknowledged_coverage": incomplete["coverage"] }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
+            let (_, detail) = send(&server, &review, "").await;
+            let version = detail["review"]["candidate_version"]
+                .as_i64()
+                .unwrap_or_else(|| panic!("review without candidate version: {detail}"));
+            let title_edit = json!({
+                "expected_candidate_version": version,
+                "schema_index": 0,
+                "field": "title",
+                "rule": {"selector": "h1.edited", "type": "text"},
+            })
+            .to_string();
+
+            for (request, body) in [
+                (
+                    format!("POST /api/reviews/{review_id}/schema-field"),
+                    title_edit.clone(),
+                ),
+                (
+                    format!("POST /api/reviews/{review_id}/candidate"),
+                    json!({
+                        "expected_candidate_version": version,
+                        "schemas": [super::matrix_refresh::schema("h1.agent")],
+                    })
+                    .to_string(),
+                ),
+                (
+                    format!("POST /api/reviews/{review_id}/pages"),
+                    json!({ "url": "https://edited.example/products/1" }).to_string(),
+                ),
+            ] {
+                let (status, refused) = send_as(&server, AGENT_TOKEN, &request, &body).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 403 Forbidden"),
+                    "{request}: {status} {refused}"
+                );
+                assert!(
+                    refused["error"]
+                        .as_str()
+                        .is_some_and(|error| error.contains("review agent")),
+                    "{request}: {refused}"
+                );
+            }
+            let (status, edited) = send_as(
+                &server,
+                TOKEN,
+                &format!("POST /api/reviews/{review_id}/schema-field"),
+                &title_edit,
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
+
+            let (_, detail) = send(&server, &review, "").await;
+            let trail: Vec<_> = detail["events"]
+                .as_array()
+                .unwrap_or_else(|| panic!("review without events: {detail}"))
+                .iter()
+                .map(|event| (event["actor"].clone(), event["action"].clone()))
+                .collect();
+            assert_eq!(
+                trail,
+                vec![
+                    (json!("HUMAN"), json!("APPROVED")),
+                    (json!("HUMAN"), json!("SCHEMA_FIELD_EDITED")),
+                ]
             );
         }
     }

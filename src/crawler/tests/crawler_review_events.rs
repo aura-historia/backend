@@ -307,8 +307,8 @@ async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverag
     );
 }
 
-/// An edit through the approved review whose candidate is live rewrites the live list, so its
-/// event keeps the list it replaced, like an approval's.
+/// A human's edit through the approved review whose candidate is live rewrites the live list, so
+/// its event keeps the list it replaced, like an approval's.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_keep_the_live_schemas_an_edit_of_the_live_review_replaced() {
     let pool = get_postgres_client().await;
@@ -321,7 +321,7 @@ async fn should_keep_the_live_schemas_an_edit_of_the_live_review_replaced() {
     repository
         .update_schema_field(
             review_id,
-            ReviewActor::Agent,
+            ReviewActor::Human,
             version,
             0,
             "title",
@@ -336,7 +336,7 @@ async fn should_keep_the_live_schemas_an_edit_of_the_live_review_replaced() {
         vec![
             (ReviewActor::Human, ReviewEventAction::Approved, version),
             (
-                ReviewActor::Agent,
+                ReviewActor::Human,
                 ReviewEventAction::SchemaFieldEdited,
                 version + 1
             ),
@@ -394,6 +394,139 @@ async fn should_keep_the_url_pattern_decision_an_approval_replaced() {
     assert_eq!(
         events[0].details,
         json!({ "replaced_url_pattern": { "url_pattern": "/old/", "url_pattern_state": "MATCHED" } })
+    );
+}
+
+/// The agent changes live configuration only through an approval: every change of the approved
+/// review whose candidate is live, or of a closed review, is refused as the agent's before any
+/// other check, leaves the live schemas and the review as they were and records nothing.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_schema_review(&repository, &listing_source_id).await;
+    let added_url = url("https://example.com/products/2");
+    let added = repository
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &added_url,
+            &added_url,
+            PRODUCT_HTML,
+        )
+        .await
+        .unwrap();
+    approve_acknowledging_coverage(&repository, review_id, ReviewActor::Human, None).await;
+    let approved = repository.get_review(review_id).await.unwrap();
+    let version = approved.review.candidate_version;
+    assert!(approved.candidate_is_live);
+    let other_url = url("https://example.com/products/3");
+
+    let refusals = [
+        repository
+            .update_candidate_payload(
+                review_id,
+                ReviewActor::Agent,
+                version,
+                json!({ "schemas": [schema("h1.agent")] }),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .update_candidate_payload(
+                review_id,
+                ReviewActor::Agent,
+                version,
+                json!({
+                    "schemas": [schema("h1")],
+                    "removed_page_schemas": [notice_template("sold")],
+                }),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .update_candidate_payload(
+                review_id,
+                ReviewActor::Agent,
+                version - 1,
+                json!({ "schemas": [schema("h1.stale")] }),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .update_schema_field(
+                review_id,
+                ReviewActor::Agent,
+                version,
+                0,
+                "title",
+                Some(rule("h1.agent")),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .check_reviewer_page_target(review_id, ReviewActor::Agent, &other_url)
+            .await,
+        repository
+            .add_reviewer_page(
+                review_id,
+                ReviewActor::Agent,
+                &other_url,
+                &other_url,
+                PRODUCT_HTML,
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .remove_reviewer_page(added.review_page_id, ReviewActor::Agent)
+            .await,
+    ];
+
+    for refusal in &refusals {
+        assert!(
+            matches!(
+                refusal,
+                Err(ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(id)) if *id == review_id
+            ),
+            "{refusals:?}"
+        );
+    }
+    let after = repository.get_review(review_id).await.unwrap();
+    assert_eq!(after.review.candidate_version, version);
+    assert_eq!(
+        after.review.candidate_payload,
+        approved.review.candidate_payload
+    );
+    assert_eq!(after.pages.len(), approved.pages.len());
+    assert!(after.candidate_is_live);
+    assert_eq!(
+        trail(&after.events),
+        vec![
+            (ReviewActor::Human, ReviewEventAction::PageAdded, 1),
+            (ReviewActor::Human, ReviewEventAction::Approved, version),
+        ]
+    );
+
+    let rejected_id = pending_schema_review(&repository, &listing_source_id).await;
+    repository
+        .reject_review(rejected_id, ReviewActor::Human, None)
+        .await
+        .unwrap();
+    let closed_edit = repository
+        .update_candidate_payload(
+            rejected_id,
+            ReviewActor::Agent,
+            1,
+            json!({ "schemas": [schema("h1.agent")] }),
+        )
+        .await;
+    assert!(
+        matches!(
+            closed_edit,
+            Err(ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(id)) if id == rejected_id
+        ),
+        "{closed_edit:?}"
     );
 }
 
