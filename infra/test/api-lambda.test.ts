@@ -140,7 +140,6 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     );
     expect(JSON.stringify(functionResource.Properties).toLowerCase()).not.toContain("zoho");
     expect(environment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
-    expect(functionResource.Properties.ReservedConcurrentExecutions).toBeUndefined();
   });
 
   test("retains never-expiring log groups for each consent-emitting Lambda", () => {

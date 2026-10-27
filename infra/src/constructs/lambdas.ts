@@ -30,7 +30,7 @@ interface LambdaDefinition {
   readonly binaryName: string;
   readonly memorySize: number;
   readonly timeoutSeconds: number;
-  readonly reservedConcurrency?: (config: StageConfig) => number;
+  readonly reservedConcurrency?: (config: StageConfig) => number | undefined;
   readonly postgres?: boolean;
   readonly maxPostgresConnections?: number;
   readonly environment?: (context: LambdaEnvironmentContext) => Record<string, string>;
@@ -42,6 +42,7 @@ function defineLambdaDefinitions<T extends Record<string, LambdaDefinition>>(def
 
 const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   auraHistoriaApi: {
+    reservedConcurrency: (config) => config.isProd ? 50 : undefined,
     id: "AuraHistoriaApiLambda",
     binaryName: "aura-historia-api",
     memorySize: 512,
@@ -60,6 +61,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: mcpEnvironment,
   },
   cloudWatchLogRetention: {
+    reservedConcurrency: (config) => config.isProd ? 1 : undefined,
     id: "CloudWatchLogRetentionLambda",
     binaryName: "cloudwatch-log-retention-lambda",
     memorySize: 128,
@@ -67,6 +69,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: consentLogRetentionEnvironment,
   },
   cdcRouter: {
+    reservedConcurrency: (config) => config.isProd ? 2 : undefined,
     id: "CdcRouterLambda",
     binaryName: "cdc-router-lambda",
     memorySize: 256,
@@ -74,6 +77,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   },
 
   backendCleanup: {
+    reservedConcurrency: (config) => config.isProd ? 1 : undefined,
     id: "BackendCleanupLambda",
     binaryName: "backend-cleanup-lambda",
     memorySize: 128,
@@ -86,6 +90,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   },
 
   postConfirmation: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "PrimaryUserPoolPostConfirmationLambda",
     binaryName: "cognito-post-confirmation",
     memorySize: 256,
@@ -93,6 +98,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 5,
   },
   preSignUp: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "PrimaryUserPoolPreSignUpLambda",
     binaryName: "cognito-pre-sign-up",
     memorySize: 256,
@@ -102,6 +108,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: providerSignupEnvironment,
   },
   shopify: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "ShopifyLambda",
     binaryName: "shopify-lambda",
     memorySize: 256,
@@ -110,6 +117,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: (context) => ({ PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl }),
   },
   stripe: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "StripeLambda",
     binaryName: "stripe-lambda",
     memorySize: 256,
@@ -123,6 +131,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   },
 
   productListingOpenSearch: {
+    reservedConcurrency: (config) => config.isProd ? 10 : undefined,
     id: "ProductListingOpenSearchLambda",
     binaryName: "product-listing-opensearch-lambda",
     memorySize: 512,
@@ -144,6 +153,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
   },
   productListingNormalization: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "ProductListingNormalizationLambda",
     binaryName: "product-listing-normalization-lambda",
     memorySize: 512,
@@ -151,6 +161,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
   },
   productContentAssessment: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "ProductContentAssessmentLambda",
     binaryName: "product-content-assessment-lambda",
     memorySize: 512,
@@ -158,6 +169,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
   },
   productEmbedding: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "ProductEmbeddingLambda",
     binaryName: "product-embedding-lambda",
     memorySize: 1024,
@@ -170,6 +182,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     }),
   },
   productTranslation: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "ProductTranslationLambda",
     binaryName: "product-translation-lambda",
     memorySize: 512,
@@ -180,6 +193,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     }),
   },
   notificationDelivery: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "NotificationDeliveryLambda",
     binaryName: "notification-delivery-lambda",
     memorySize: 512,
@@ -188,6 +202,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: notificationDeliveryEnvironment,
   },
   marketingConsentSync: {
+    reservedConcurrency: (config) => config.isProd ? 2 : undefined,
     id: "MarketingConsentSyncLambda",
     binaryName: "marketing-consent-sync-lambda",
     memorySize: 512,
@@ -197,6 +212,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: marketingConsentSyncEnvironment,
   },
   userIdentityDeletion: {
+    reservedConcurrency: (config) => config.isProd ? 2 : undefined,
     id: "UserIdentityDeletionLambda",
     binaryName: "user-identity-deletion-lambda",
     memorySize: 256,
@@ -232,6 +248,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
   },
   searchFilterMatchNotification: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "SearchFilterMatchNotificationLambda",
     binaryName: "search-filter-match-notification-lambda",
     memorySize: 512,
@@ -239,6 +256,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
   },
   watchlistNotification: {
+    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
     id: "WatchlistNotificationLambda",
     binaryName: "watchlist-notification-lambda",
     memorySize: 512,
@@ -248,6 +266,12 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
+
+/** SQS mappings share the function reservation so polling cannot outrun its capacity. */
+export function lambdaReservedConcurrency(key: LambdaKey, config: StageConfig): number | undefined {
+  const definition: LambdaDefinition = LAMBDA_DEFINITIONS[key];
+  return definition.reservedConcurrency?.(config);
+}
 export const API_LAMBDA_ALIAS_NAME = "live";
 export function consentEvidenceLogGroupNames(stage: StageName): readonly [string, string] {
   return [
@@ -365,7 +389,7 @@ export class Lambdas extends Construct {
         currentVersionOptions: { description: lambdaArtifactParameters(cdk.Stack.of(this), definition.binaryName).sha256 },
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
-        reservedConcurrentExecutions: definition.reservedConcurrency?.(props.config),
+        reservedConcurrentExecutions: lambdaReservedConcurrency(key, props.config),
         logGroup: logGroups[key],
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment: lambdaEnvironment(definition, environmentContext),

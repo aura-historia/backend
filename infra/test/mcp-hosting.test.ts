@@ -171,7 +171,6 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     const rest = Object.values(compute.findResources("AWS::Lambda::Function"))
       .find((resource) => resource.Properties.FunctionName === `aura-historia-api-${stage}`)!;
     expect(rest.Properties.Environment.Variables.OAUTH_ISSUER_URL).toBe(environment.OAUTH_ISSUER_URL);
-    expect(rest.Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(rest.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
     for (const key of ["STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON"]) {

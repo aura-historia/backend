@@ -450,7 +450,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(projectionFunctions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(projectionFunctions[0].Properties.Environment.Variables).sort()).toEqual(
       ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
@@ -497,7 +496,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
@@ -566,7 +564,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"],
     );
@@ -609,7 +606,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       ["ANTHROPIC_API_KEY", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
@@ -654,7 +650,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       ["COMMIT_SHA", "MAIL_TEMPLATE_PREFIX", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_FRONTEND_ORIGIN", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
     );
@@ -712,7 +707,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         Runtime: "provided.al2023",
         Handler: "lib.handler",
       });
-      expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
       expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
         ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
       );
@@ -737,7 +731,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Timeout: 45,
     });
-    expect(consumer.resource.Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(environment).sort()).toEqual(
       ["DEAD_LETTER_QUEUE_URL", "LOOPS_API_BASE_URL", "LOOPS_API_KEY", "LOOPS_NEWSLETTER_LIST_ID", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
@@ -766,6 +759,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       EventSourceArn: sourceArn,
       FunctionName: { Ref: versionId },
       FunctionResponseTypes: ["ReportBatchItemFailures"],
+      ...(stage === "prod" ? { ScalingConfig: { MaximumConcurrency: 2 } } : {}),
     });
     expect(mappings[0][1].DependsOn).toContain(consumer.policyId);
     const queueStatements = consumer.statements.filter((statement) =>
