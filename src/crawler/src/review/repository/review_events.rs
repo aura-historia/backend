@@ -4,7 +4,7 @@
 
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
-    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction,
+    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, UrlSampleEvaluation,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -62,6 +62,11 @@ pub(super) enum ReviewMutation<'a> {
     UrlPatternApproved {
         #[serde(skip)]
         notes: Option<&'a str>,
+        /// The stored live evaluation of the review's URL sample the approval was accepted
+        /// under, when it has one: the candidate version and decision it evaluated, when the
+        /// sample was fetched and what each fetched page showed.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        url_sample_evaluation: Option<UrlSampleEvaluation>,
         #[serde(flatten)]
         configuration: UrlPatternApprovalRecord,
     },
@@ -271,10 +276,40 @@ fn row_to_event(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewEvent, sqlx::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::review::model::{EvaluatedSampleUrl, SampleUrlOutcome};
     use serde_json::json;
 
     fn details(mutation: &ReviewMutation<'_>) -> serde_json::Value {
         serde_json::to_value(mutation).unwrap_or_else(|error| panic!("details: {error}"))
+    }
+
+    fn url_pattern_record() -> UrlPatternApprovalRecord {
+        UrlPatternApprovalRecord {
+            replaced_url_pattern: DomainUrlPattern {
+                url_pattern: None,
+                url_pattern_state: "UNKNOWN".to_owned(),
+            },
+            approved_url_pattern: DomainUrlPattern {
+                url_pattern: Some("/item/".to_owned()),
+                url_pattern_state: "MATCHED".to_owned(),
+            },
+        }
+    }
+
+    fn url_sample_evaluation() -> UrlSampleEvaluation {
+        UrlSampleEvaluation {
+            review_id: CrawlerReviewId::new(),
+            live_evaluation: LiveMatrixEvaluation {
+                candidate_version: 3,
+                configuration_sha256: "decision-sha256".to_owned(),
+                fetched_at: time::OffsetDateTime::UNIX_EPOCH,
+            },
+            urls: vec![EvaluatedSampleUrl {
+                url: "https://shop.example/item/1".to_owned(),
+                decision_matches: true,
+                outcome: SampleUrlOutcome::ProductMarkup,
+            }],
+        }
     }
 
     /// The details keep what each action needs to be understood, and what an approval or a live
@@ -288,6 +323,7 @@ mod tests {
             not_evaluated: 1,
         };
         let event_id = CrawlerReviewEventId::new();
+        let sample_evaluation = url_sample_evaluation();
         for (mutation, action, notes, expected) in [
             (
                 ReviewMutation::CandidateEdited {
@@ -354,20 +390,38 @@ mod tests {
             (
                 ReviewMutation::UrlPatternApproved {
                     notes: None,
-                    configuration: UrlPatternApprovalRecord {
-                        replaced_url_pattern: DomainUrlPattern {
-                            url_pattern: None,
-                            url_pattern_state: "UNKNOWN".to_owned(),
-                        },
-                        approved_url_pattern: DomainUrlPattern {
-                            url_pattern: Some("/item/".to_owned()),
-                            url_pattern_state: "MATCHED".to_owned(),
-                        },
-                    },
+                    url_sample_evaluation: None,
+                    configuration: url_pattern_record(),
                 },
                 ReviewEventAction::Approved,
                 None,
                 json!({
+                    "replaced_url_pattern": { "url_pattern": null, "url_pattern_state": "UNKNOWN" },
+                    "approved_url_pattern": { "url_pattern": "/item/", "url_pattern_state": "MATCHED" },
+                }),
+            ),
+            (
+                ReviewMutation::UrlPatternApproved {
+                    notes: None,
+                    url_sample_evaluation: Some(sample_evaluation.clone()),
+                    configuration: url_pattern_record(),
+                },
+                ReviewEventAction::Approved,
+                None,
+                json!({
+                    "url_sample_evaluation": {
+                        "review_id": sample_evaluation.review_id,
+                        "live_evaluation": {
+                            "candidate_version": 3,
+                            "configuration_sha256": "decision-sha256",
+                            "fetched_at": "1970-01-01T00:00:00Z",
+                        },
+                        "urls": [{
+                            "url": "https://shop.example/item/1",
+                            "decision_matches": true,
+                            "outcome": "PRODUCT_MARKUP",
+                        }],
+                    },
                     "replaced_url_pattern": { "url_pattern": null, "url_pattern_state": "UNKNOWN" },
                     "approved_url_pattern": { "url_pattern": "/item/", "url_pattern_state": "MATCHED" },
                 }),
@@ -424,9 +478,18 @@ mod tests {
             configuration: configuration.clone(),
         };
 
+        let url_pattern_approval = ReviewMutation::UrlPatternApproved {
+            notes: None,
+            url_sample_evaluation: Some(url_sample_evaluation()),
+            configuration: url_pattern_record(),
+        };
+
         let read = serde_json::from_value::<ProductSchemaApprovalRecord>(details(&approval));
+        let read_url_pattern =
+            serde_json::from_value::<UrlPatternApprovalRecord>(details(&url_pattern_approval));
 
         assert_eq!(read.ok(), Some(configuration));
+        assert_eq!(read_url_pattern.ok(), Some(url_pattern_record()));
         assert!(
             serde_json::from_value::<ProductSchemaApprovalRecord>(json!({
                 "coverage": { "covered": 1, "removed": 0, "total": 1, "not_evaluated": 0 },

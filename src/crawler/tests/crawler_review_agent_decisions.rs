@@ -1557,6 +1557,13 @@ async fn should_take_a_new_domain_url_pattern_on_product_markup_of_a_current_sam
         .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
         .await;
     store_url_sample_evaluation(&repository, review_id, &products, Duration::ZERO).await;
+    let relied_on = repository
+        .get_review(review_id)
+        .await
+        .unwrap()
+        .review
+        .validation_summary["url_sample_evaluation"]
+        .clone();
     repository
         .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
         .await
@@ -1609,5 +1616,13 @@ async fn should_take_a_new_domain_url_pattern_on_product_markup_of_a_current_sam
     assert_eq!(
         (approved.actor, approved.action),
         (ReviewActor::AgentReviewer, ReviewEventAction::Approved)
+    );
+    assert_eq!(
+        relied_on["live_evaluation"]["candidate_version"],
+        json!(fitting)
+    );
+    assert_eq!(
+        approved.details["url_sample_evaluation"], relied_on,
+        "the approval keeps the evaluation of the sample it was accepted on"
     );
 }

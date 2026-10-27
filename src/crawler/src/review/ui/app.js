@@ -528,8 +528,8 @@ function reviewEventSummary(event) {
             return details.url || '';
         case 'APPROVED': {
             const coverage = details.coverage;
-            if (!coverage) return '';
-            return coverageText({...coverage, notEvaluated: coverage.not_evaluated});
+            if (coverage) return coverageText({...coverage, notEvaluated: coverage.not_evaluated});
+            return details.url_sample_evaluation ? urlSampleEvaluationText(details.url_sample_evaluation) : '';
         }
         case 'RESTORED':
             return details.replaced_url_pattern !== undefined
@@ -574,6 +574,7 @@ function renderNonSchemaReview(review, urls) {
       <div class="tab-panel">
         ${renderUrlPatternEditor(review, urls)}
         ${urls.length ? renderUrls(urls) : ''}
+        ${renderUrlSampleEvaluation(review)}
         <h3>Candidate Payload</h3>
         <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
         <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
@@ -641,6 +642,45 @@ function renderUrls(urls) {
     return `<h3>URL Pattern Preview</h3><div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Current</th><th>Candidate</th><th>Class</th></tr></thead><tbody>${
         urls.map(u => `<tr><td>${linkifyText(u.url)}</td><td>${u.current_pattern_match}</td><td>${u.candidate_pattern_match}</td><td>${escapeHtml(u.candidate_class)}</td></tr>`).join('')
     }</tbody></table></div>`;
+}
+
+function urlSampleEvaluationText(evaluation) {
+    const urls = Array.isArray(evaluation?.urls) ? evaluation.urls : [];
+    const products = urls.filter(u => u.outcome === 'PRODUCT_MARKUP').length;
+    return `${products} of ${urls.length} fetched sample pages show schema.org Product markup`;
+}
+
+// The live evaluation of a URL-pattern review's sample, stored for the decision at one candidate
+// version and dropped when the candidate changes: the evidence an agent approval rests on.
+function renderUrlSampleEvaluation(review) {
+    if (review.artifact_type !== 'URL_PATTERN') return '';
+    const evaluation = review.validation_summary?.url_sample_evaluation;
+    const evaluate = review.status === 'PENDING_REVIEW'
+        ? '<div class="actions"><button onclick="evaluateUrlSample()" title="Fetches sample URLs at the shop\'s Crawl-delay and looks for schema.org Product markup">Evaluate sample live</button></div>'
+        : '';
+    if (!evaluation) {
+        return `<h3>Live Sample Evaluation</h3><div class="muted">No live evaluation of the current decision is stored.</div>${evaluate}`;
+    }
+    const live = evaluation.live_evaluation || {};
+    const urls = Array.isArray(evaluation.urls) ? evaluation.urls : [];
+    return `<h3>Live Sample Evaluation</h3>
+      <div class="hint-card">${escapeHtml(urlSampleEvaluationText(evaluation))} (version ${escapeHtml(live.candidate_version)}) ${timeBadge(live.fetched_at, 'Fetched')}</div>
+      <div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Decision takes it</th><th>Page showed</th></tr></thead><tbody>${
+        urls.map(u => `<tr><td>${linkifyText(u.url)}</td><td>${u.decision_matches ? 'yes' : 'no'}</td><td>${statusBadge(u.outcome)} ${linkifyText(u.final_url || u.error || '')}</td></tr>`).join('')
+      }</tbody></table></div>${evaluate}`;
+}
+
+// A live evaluation fetches the sample at the shop's Crawl-delay, so it is polled like a schema
+// matrix refresh; the review it is stored on is reloaded to show it.
+async function evaluateUrlSample() {
+    if (!selectedId || !confirmDiscardingEdits()) return;
+    const reviewId = selectedId;
+    try {
+        await loadSchemaMatrix(reviewId, true);
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+    if (selectedId === reviewId) await refreshSelectedReview();
 }
 
 function renderSchemaWorkbench(detail, matrix) {

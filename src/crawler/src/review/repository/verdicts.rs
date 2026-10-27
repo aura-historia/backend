@@ -81,17 +81,22 @@ impl CrawlerReviewRepository {
 
         let event = match review.artifact_type.as_str() {
             ARTIFACT_URL_PATTERN => {
+                // A stored evaluation that no longer decodes shows nothing.
+                let evaluation =
+                    UrlSampleEvaluation::stored_in(&review.validation_summary).and_then(Result::ok);
                 if guarded {
                     guard_agent_url_pattern_approval(
                         &mut transaction,
                         review_id,
                         &review,
+                        evaluation.as_ref(),
                         self.agent_decisions.max_matrix_age,
                     )
                     .await?;
                 }
                 ReviewMutation::UrlPatternApproved {
                     notes: approval.notes,
+                    url_sample_evaluation: evaluation,
                     configuration: make_reviewed_url_pattern_live(
                         &mut transaction,
                         review_id,
@@ -375,19 +380,18 @@ fn guard_agent_product_schema_approval(
 
 /// Refuses a review agent's approval of a URL-pattern review that fails a check of the
 /// [approval guard](crate::review::approval_guard) on the review's URL sample, each URL with
-/// whether the crawler captured a product from it, and on the live evaluation of the sample the
-/// review stores. A stored evaluation that no longer decodes shows nothing.
+/// whether the crawler captured a product from it, and on `evaluation`, the live evaluation of
+/// the sample the review stores.
 async fn guard_agent_url_pattern_approval(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     review: &ReviewUnderVerdict,
+    evaluation: Option<&UrlSampleEvaluation>,
     max_evaluation_age: Duration,
 ) -> Result<(), ReviewRepositoryError> {
     let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let sample = fetch_url_sample(&mut **transaction, review_id, &review.listing_source_id).await?;
-    let evaluation =
-        UrlSampleEvaluation::stored_in(&review.validation_summary).and_then(Result::ok);
     refuse_failed_checks(
         review_id,
         url_pattern_approval_checks(
@@ -395,7 +399,7 @@ async fn guard_agent_url_pattern_approval(
                 candidate: &candidate,
                 candidate_version: review.candidate_version,
                 sample: &sample,
-                evaluation: evaluation.as_ref(),
+                evaluation,
             },
             OffsetDateTime::now_utc(),
             max_evaluation_age,
