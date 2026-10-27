@@ -27,7 +27,10 @@ You are implementing GitHub issue #<child> in aura-historia/backend as part of e
 2. Follow AGENTS.md and any nested AGENTS.md. Use the repository skills that apply, in particular
    refactor-while-implementing, and crawler-dev-verify for crawler runtime changes.
 3. Implement the issue completely within its scope. Do not widen it. Note anything outside it as
-   a follow-up finding with `path:line`.
+   a follow-up finding with `path:line`. Ask whether the change alters the raw values extracted
+   from unchanged HTML and therefore needs an `EXTRACTOR_VERSION` raise under the rule in
+   docs/crawler/extraction-and-review.md (extraction contract), and say in the report which way
+   you decided.
 4. Run the focused validation for the crates you changed (fmt, check, clippy with -D warnings,
    tests, all with --locked) and fix what fails.
 5. Commit with subjects `<type>(#<child>): <summary>`, keeping structural and behavioural changes
@@ -59,9 +62,12 @@ Implementer's report:
 
 1. Read the issue, the epic, AGENTS.md and the canonical docs the change touches. Review the diff
    for correctness, completeness against the issue's acceptance criteria, architecture rules,
-   error handling, test strength and contract or documentation drift. Use the applicable repo
-   review skills as lenses (aura-bug-hunt, aura-test-quality, aura-contracts, aura-data-events,
-   aura-security) without turning this into a whole-repository audit.
+   error handling, test strength and contract or documentation drift. Check whether the change
+   alters the raw values extracted from unchanged HTML and therefore needs an `EXTRACTOR_VERSION`
+   raise under the rule in docs/crawler/extraction-and-review.md (extraction contract), whatever
+   the implementer decided. Use the applicable repo review skills as lenses (aura-bug-hunt,
+   aura-test-quality, aura-contracts, aura-data-events, aura-security) without turning this into
+   a whole-repository audit.
 2. Apply the fixes you judge sensible as your own commits `<type>(#<child>): <summary>`. Leave
    matters of taste alone. Do not rewrite the approach unless it is wrong.
 3. Run the focused validation again (--locked) and, for crawler runtime changes, crawler-dev-verify.

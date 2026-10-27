@@ -53,7 +53,10 @@ it to the user as a ticket or a separate decision.
 1. **Decide what must be visible.** Write down, before starting, the log message, database
    change or capture field that proves the change, and the failure that the change removes.
    Example (#2116): the per-field miss diagnostic appears, no `fresh_schema_generation` review
-   is created, the page is captured with the field empty.
+   is created, the page is captured with the field empty. Ask, too, whether the change alters
+   the raw values extracted from unchanged HTML and therefore needs an `EXTRACTOR_VERSION`
+   raise under the rule in the
+   [extraction contract](../../../docs/crawler/extraction-and-review.md#extraction-contract).
 2. **Register the shops.** The committed `dev.rs` registers three demo shops. To run others,
    replace them temporarily: edit the `(index, name, slug)` tuple array and the domain list
    zipped in `main()`. IDs are `01890a5d-ac96-774b-af1d-d5586c639f7{index}` with a one-digit
@@ -123,9 +126,10 @@ it to the user as a ticket or a separate decision.
    restore SQL and verify schema counts, timers and review counts match the backup.
    Revert `dev.rs` and list what the run left behind: new capture file in the worktree, updated
    `last_scraped` on the sample, log files.
-8. **Report** in the task summary: passes and totals, what reproduced and what did not, each new
-   finding with `path:line` and a sample URL, and which findings are outside the change. Leave the
-   evidence paths in the shared notes folder when the task came from another session.
+8. **Report** in the task summary: passes and totals, what reproduced and what did not, the
+   `EXTRACTOR_VERSION` decision from step 1, each new finding with `path:line` and a sample URL,
+   and which findings are outside the change. Leave the evidence paths in the shared notes
+   folder when the task came from another session.
 
 ## Rules
 
