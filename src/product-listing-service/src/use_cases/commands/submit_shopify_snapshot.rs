@@ -10,7 +10,7 @@ use crate::use_cases::{
 };
 use application::operation_context::{CredentialCapability, OperationContext};
 use listing_source_core::{Domain, ListingSourceId};
-use listing_source_service::ports::ShopifySourceReader;
+use listing_source_service::ports::{ShopifySource, ShopifySourceReader};
 use product_listing_normalization::{RawProductListingProvenance, SourcePayload};
 use time::OffsetDateTime;
 
@@ -95,47 +95,52 @@ impl<
             .map_err(SubmitShopifySnapshotError::SourceLookup)?
             .filter(|source| source.listing_source_id == command.listing_source_id)
             .ok_or(SubmitShopifySnapshotError::SourceMismatch)?;
-        let mut items = Vec::with_capacity(command.items.len());
-        for (index, item) in command.items.into_iter().enumerate() {
-            let ShopifyListingAction::Capture(observation) = self
-                .decoder
-                .decode(item.kind, &source, item.payload)
-                .map_err(SubmitShopifySnapshotError::InvalidPayload)?
-            else {
-                return Err(SubmitShopifySnapshotError::IncompleteSelection);
-            };
-            let provenance = RawProductListingProvenance::new(serde_json::json!({
-                "shopifySnapshotStartedAt": command.snapshot_started_at.format(&time::format_description::well_known::Rfc3339)
-                    .map_err(|error| SubmitShopifySnapshotError::InvalidPayload(Box::new(error)))?,
-                "selectionComplete": true,
-            })).map_err(|error| SubmitShopifySnapshotError::InvalidPayload(Box::new(error)))?;
-            items.push(IndexedProductListingIngestionIntent {
-                index,
-                intent: ProductListingIngestionIntent::CaptureRaw(
-                    CaptureProductListingRawObservationCommand {
-                        listing_source_id: command.listing_source_id,
-                        ingestion_method: ProductListingRawIngestionMethod::Shopify,
-                        source_record_key: observation.source_record_key,
-                        input: observation.input,
-                        provenance,
-                        source_event_id: None,
-                        source_occurred_at: Some(command.snapshot_started_at),
-                        provider_receipt: None,
-                    },
-                ),
-            });
-        }
+        let submission = prepare_submission(&self.decoder, &source, command)?;
         self.intake
-            .execute(
-                context,
-                ProductListingIngestionSubmission {
-                    listing_source_id: command.listing_source_id,
-                    original_input_count: items.len(),
-                    idempotency_key: Some(command.idempotency_key),
-                    items,
-                },
-            )
+            .execute(context, submission)
             .await
             .map_err(SubmitShopifySnapshotError::Submission)
     }
+}
+
+fn prepare_submission(
+    decoder: &impl ShopifyProductDecoder,
+    source: &ShopifySource,
+    command: SubmitShopifySnapshotCommand,
+) -> Result<ProductListingIngestionSubmission, SubmitShopifySnapshotError> {
+    let mut items = Vec::with_capacity(command.items.len());
+    for (index, item) in command.items.into_iter().enumerate() {
+        let ShopifyListingAction::Capture(observation) = decoder
+            .decode(item.kind, source, item.payload)
+            .map_err(SubmitShopifySnapshotError::InvalidPayload)?
+        else {
+            return Err(SubmitShopifySnapshotError::IncompleteSelection);
+        };
+        let provenance = RawProductListingProvenance::new(serde_json::json!({
+            "shopifySnapshotStartedAt": command.snapshot_started_at.format(&time::format_description::well_known::Rfc3339)
+                .map_err(|error| SubmitShopifySnapshotError::InvalidPayload(Box::new(error)))?,
+            "selectionComplete": true,
+        })).map_err(|error| SubmitShopifySnapshotError::InvalidPayload(Box::new(error)))?;
+        items.push(IndexedProductListingIngestionIntent {
+            index,
+            intent: ProductListingIngestionIntent::CaptureRaw(
+                CaptureProductListingRawObservationCommand {
+                    listing_source_id: command.listing_source_id,
+                    ingestion_method: ProductListingRawIngestionMethod::Shopify,
+                    source_record_key: observation.source_record_key,
+                    input: observation.input,
+                    provenance,
+                    source_event_id: None,
+                    source_occurred_at: Some(command.snapshot_started_at),
+                    provider_receipt: None,
+                },
+            ),
+        });
+    }
+    Ok(ProductListingIngestionSubmission {
+        listing_source_id: command.listing_source_id,
+        original_input_count: items.len(),
+        idempotency_key: Some(command.idempotency_key),
+        items,
+    })
 }

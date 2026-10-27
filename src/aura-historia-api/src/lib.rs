@@ -1444,8 +1444,9 @@ async fn app_state_from_config_and_runtime(
                 dyn product_listing_service::use_cases::SubmitPartnerProductListingIngestionUseCase,
             >,
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
-    ).with_shopify_snapshots(Arc::new(
-        product_listing_service::use_cases::commands::submit_shopify_snapshot::SubmitShopifySnapshotHandler::new(
+    )
+    .with_shopify_snapshots(Arc::new(
+        product_listing_service::use_cases::SubmitShopifySnapshotHandler::new(
             SqlxListingSourceReaders::new(pool.clone()),
             Arc::clone(&submit_product_listing_ingestion),
             product_listing_shopify::ShopifyProductPayloadDecoder,

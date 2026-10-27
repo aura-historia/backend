@@ -78,8 +78,6 @@ enum ShopifyProductEventError {
     InvalidSourcePayload(#[source] NormalizationInputError),
     #[error("Shopify product title is missing")]
     MissingTitle,
-    #[error("Shopify product identity must be a positive integer")]
-    InvalidProductId,
     #[error("Shopify product handle is missing")]
     MissingHandle,
     #[error("Shopify listing source currency is missing for a nonblank product price")]
@@ -122,9 +120,6 @@ fn listing_action_with_source_occurred_at(
         .map_err(ShopifyProductEventError::InvalidSourcePayload)?;
     let source_record_key = product.product_id.to_string();
 
-    if product.product_id == 0 {
-        return Err(ShopifyProductEventError::InvalidProductId);
-    }
     let operation = match kind {
         ShopifyProductEventKind::Add | ShopifyProductEventKind::Update => {
             RawProductListingOperation::Upsert
@@ -133,7 +128,7 @@ fn listing_action_with_source_occurred_at(
     };
 
     let raw_values = match operation {
-        RawProductListingOperation::Upsert => active_raw_values(source, &product)?,
+        RawProductListingOperation::Upsert => upsert_raw_values(source, &product)?,
         RawProductListingOperation::Delete => RawProductListingValues::new(
             serde_json::json!({"sourceListingId": product.product_id.to_string()}),
         )
@@ -169,7 +164,7 @@ fn source_occurred_at_from_triggered_at(
         .transpose()
 }
 
-fn active_raw_values(
+fn upsert_raw_values(
     source: &ShopifySource,
     product: &ShopifyProductPayload,
 ) -> Result<RawProductListingValues, ShopifyProductEventError> {
