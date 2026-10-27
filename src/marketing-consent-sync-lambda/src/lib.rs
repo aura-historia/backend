@@ -2,7 +2,7 @@ use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
-use platform_lambda_sqs::{FifoDisposition, RecordOutcome, process_fifo_batch};
+use platform_lambda_sqs::{FailureCustody, FifoDisposition, RecordOutcome, process_fifo_batch};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 use user_loops::{LoopsMarketingEmailConsentWriter, LoopsNewsletterConfig};
@@ -34,20 +34,23 @@ pub fn invocation_budget(context: &lambda_runtime::Context) -> LambdaInvocationB
     LambdaInvocationBudget::from_context(context, LAMBDA_INVOCATION_CAP, RESPONSE_HEADROOM)
 }
 
+/// `custody` holds jobs that can never complete, normally the queue's own dead-letter queue.
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn SyncMarketingConsentIntentUseCase + Send + Sync),
+    custody: &impl FailureCustody,
 ) -> Result<SqsBatchResponse, Error> {
     let budget = invocation_budget(&event.context);
-    handler_with_invocation_budget(event, use_case, &budget).await
+    handler_with_invocation_budget(event, use_case, custody, &budget).await
 }
 
 pub async fn handler_with_invocation_budget(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn SyncMarketingConsentIntentUseCase + Send + Sync),
+    custody: &impl FailureCustody,
     budget: &LambdaInvocationBudget,
 ) -> Result<SqsBatchResponse, Error> {
-    handler_with_budget(event, use_case, budget.remaining()).await
+    handler_with_budget(event, use_case, custody, budget.remaining()).await
 }
 
 pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchResponse, Error> {
@@ -57,12 +60,14 @@ pub fn retain_all_records(event: &LambdaEvent<SqsEvent>) -> Result<SqsBatchRespo
 async fn handler_with_budget(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn SyncMarketingConsentIntentUseCase + Send + Sync),
+    custody: &impl FailureCustody,
     remaining: Duration,
 ) -> Result<SqsBatchResponse, Error> {
     let results = process_fifo_batch(
         event,
         remaining,
         MAX_RECORD_PROCESSING_BUDGET,
+        custody,
         |body| async move { process_marketing_consent_sync_job(&body, use_case).await },
         |attempt| {
             let disposition = match &attempt.outcome {
@@ -72,12 +77,18 @@ async fn handler_with_budget(
                 | RecordOutcome::TimedOut
                 | RecordOutcome::Panicked => FifoDisposition::Retain,
             };
-            if disposition == FifoDisposition::Retain {
-                warn!(
+            match disposition {
+                FifoDisposition::Complete => {}
+                FifoDisposition::Park => warn!(
+                    message_id = %attempt.message_id,
+                    outcome = outcome_category(&attempt.outcome),
+                    "Marketing consent sync job cannot complete as delivered"
+                ),
+                FifoDisposition::Retain => warn!(
                     message_id = %attempt.message_id,
                     outcome = outcome_category(&attempt.outcome),
                     "Marketing consent sync record retained for SQS retry or redrive"
-                );
+                ),
             }
             disposition
         },
@@ -104,12 +115,15 @@ pub enum MarketingConsentSyncJobDisposition {
 }
 
 impl MarketingConsentSyncJobDisposition {
+    /// An undecodable job and a missing intent can never complete: a job never recreates its
+    /// intent, so both are parked on redelivery and later intents of the recipient continue.
     pub const fn fifo_disposition(self) -> FifoDisposition {
         match self {
             Self::Applied | Self::Blocked | Self::Superseded | Self::AlreadyTerminal => {
                 FifoDisposition::Complete
             }
-            Self::Deferred | Self::Missing | Self::Retry | Self::Poison => FifoDisposition::Retain,
+            Self::Missing | Self::Poison => FifoDisposition::Park,
+            Self::Deferred | Self::Retry => FifoDisposition::Retain,
         }
     }
 
@@ -194,9 +208,9 @@ pub fn intent_id_from_job(
     Ok(job.marketing_consent_sync_intent_id)
 }
 
-fn outcome_category<T>(outcome: &RecordOutcome<T>) -> &'static str {
+fn outcome_category(outcome: &RecordOutcome<MarketingConsentSyncJobDisposition>) -> &'static str {
     match outcome {
-        RecordOutcome::Completed(_) => "not_confirmed_complete",
+        RecordOutcome::Completed(disposition) => disposition.category(),
         RecordOutcome::MissingBody => "missing_message_body",
         RecordOutcome::InsufficientBudget => "insufficient_invocation_budget",
         RecordOutcome::TimedOut => "execution_timeout",
@@ -210,6 +224,7 @@ mod tests {
     use async_trait::async_trait;
     use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
+    use platform_lambda_sqs::{FailureCustodyError, ParkedRecord};
     use std::{
         collections::VecDeque,
         sync::Mutex,
@@ -244,6 +259,7 @@ mod tests {
                 (Some("retry"), valid_body()),
             ]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .expect("batch response");
@@ -260,9 +276,13 @@ mod tests {
             SyncMarketingConsentIntentResult::Retryable,
         ] {
             let use_case = FakeUseCase::new([Ok(result)]);
-            let response = handler(events([(Some("unfinished"), valid_body())]), &use_case)
-                .await
-                .expect("batch response");
+            let response = handler(
+                events([(Some("unfinished"), valid_body())]),
+                &use_case,
+                &RecordingCustody::default(),
+            )
+            .await
+            .expect("batch response");
             assert_eq!(failure_ids(response), ["unfinished"]);
         }
     }
@@ -281,6 +301,7 @@ mod tests {
                 (Some("third"), valid_body()),
             ]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .expect("batch response");
@@ -300,6 +321,7 @@ mod tests {
                 (Some("missing-body"), "".to_owned()),
             ]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .expect("batch response");
@@ -315,6 +337,7 @@ mod tests {
                 (Some("successor"), valid_body()),
             ]),
             &PendingUseCase,
+            &RecordingCustody::default(),
             Duration::from_millis(1),
         )
         .await
@@ -327,10 +350,61 @@ mod tests {
                 (Some("successor"), valid_body()),
             ]),
             &PanickingUseCase,
+            &RecordingCustody::default(),
         )
         .await
         .expect("batch response");
         assert_eq!(failure_ids(panic), ["panic", "successor"]);
+    }
+
+    #[tokio::test]
+    async fn should_park_redelivered_invalid_jobs_and_missing_intents_so_later_intents_run() {
+        let records = || {
+            [
+                ("invalid", "not JSON".to_owned()),
+                ("missing", valid_body()),
+                ("later", valid_body()),
+            ]
+        };
+        let custody = RecordingCustody::default();
+        let use_case = FakeUseCase::new([]);
+        let response = handler(delivered_events(records(), 1), &use_case, &custody)
+            .await
+            .expect("batch response");
+        assert_eq!(failure_ids(response), ["invalid", "missing", "later"]);
+        assert_eq!(0, use_case.call_count());
+        assert!(custody.parked_ids().is_empty());
+
+        let use_case = FakeUseCase::new([
+            Ok(SyncMarketingConsentIntentResult::Missing),
+            Ok(SyncMarketingConsentIntentResult::Applied),
+        ]);
+        let response = handler(delivered_events(records(), 2), &use_case, &custody)
+            .await
+            .expect("batch response");
+        assert!(failure_ids(response).is_empty());
+        assert_eq!(2, use_case.call_count());
+        assert_eq!(custody.parked_ids(), ["invalid", "missing"]);
+    }
+
+    #[tokio::test]
+    async fn should_keep_active_leases_and_unconfirmed_syncs_retained_on_redelivery() {
+        for result in [
+            SyncMarketingConsentIntentResult::Deferred,
+            SyncMarketingConsentIntentResult::Retryable,
+        ] {
+            let custody = RecordingCustody::default();
+            let use_case = FakeUseCase::new([Ok(result)]);
+            let response = handler(
+                delivered_events([("unfinished", valid_body()), ("later", valid_body())], 5),
+                &use_case,
+                &custody,
+            )
+            .await
+            .expect("batch response");
+            assert_eq!(failure_ids(response), ["unfinished", "later"]);
+            assert!(custody.parked_ids().is_empty());
+        }
     }
 
     #[test]
@@ -363,20 +437,43 @@ mod tests {
         LambdaEvent::new(event, context)
     }
 
-    async fn handler_with_budget(
-        event: LambdaEvent<SqsEvent>,
-        use_case: &(dyn SyncMarketingConsentIntentUseCase + Send + Sync),
-        remaining: Duration,
-    ) -> Result<SqsBatchResponse, Error> {
-        handler_with_budget_impl(event, use_case, remaining).await
+    /// One recipient's records, each delivered `receive_count` times.
+    fn delivered_events<const N: usize>(
+        records: [(&str, String); N],
+        receive_count: u32,
+    ) -> LambdaEvent<SqsEvent> {
+        let mut event = events(records.map(|(message_id, body)| (Some(message_id), body)));
+        for record in &mut event.payload.records {
+            record
+                .attributes
+                .insert("MessageGroupId".to_owned(), "recipient".to_owned());
+            record.attributes.insert(
+                "ApproximateReceiveCount".to_owned(),
+                receive_count.to_string(),
+            );
+        }
+        event
     }
 
-    async fn handler_with_budget_impl(
-        event: LambdaEvent<SqsEvent>,
-        use_case: &(dyn SyncMarketingConsentIntentUseCase + Send + Sync),
-        remaining: Duration,
-    ) -> Result<SqsBatchResponse, Error> {
-        super::handler_with_budget(event, use_case, remaining).await
+    #[derive(Default)]
+    struct RecordingCustody(Mutex<Vec<ParkedRecord>>);
+
+    impl RecordingCustody {
+        fn parked_ids(&self) -> Vec<String> {
+            self.0
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|record| record.message_id.clone())
+                .collect()
+        }
+    }
+
+    impl FailureCustody for RecordingCustody {
+        async fn park(&self, record: &ParkedRecord) -> Result<String, FailureCustodyError> {
+            self.0.lock().unwrap().push(record.clone());
+            Ok("custody-message".to_owned())
+        }
     }
 
     fn epoch_millis() -> u64 {

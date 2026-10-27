@@ -1,6 +1,13 @@
 //! Native Lambda SQS batch mechanics. Business dispositions belong to the consuming adapter.
 
-use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
+mod failure_custody;
+
+pub use failure_custody::{
+    DEAD_LETTER_QUEUE_URL_ENV, FailureCustody, FailureCustodyError, ParkedRecord,
+    SqsDeadLetterCustody,
+};
+
+use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
 use futures_util::FutureExt;
 use lambda_runtime::{Context, Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
@@ -241,6 +248,12 @@ where
 pub enum FifoDisposition {
     /// Confirmed complete: Lambda deletes the record.
     Complete,
+    /// Can never succeed as delivered, so retrying would only hold its message group until the
+    /// queue's redrive dead-letters it. A redelivered record moves to failure custody and is
+    /// deleted once custody is confirmed, letting the rest of its group continue. A first
+    /// delivery gets one retry, which absorbs a consumer deploy that lags its producer; it and
+    /// any unconfirmed transfer are retained like [`FifoDisposition::Retain`].
+    Park,
     /// Not confirmed complete: retain the record and every later record of its message group.
     Retain,
 }
@@ -254,29 +267,32 @@ pub struct FifoBatchOutcome {
     pub unprocessed_message_ids: Vec<String>,
 }
 
-/// Process FIFO records one at a time. Once a record is not confirmed complete, retain it and
-/// every later record of its message group without starting them; records of other groups
-/// still run. SQS orders FIFO delivery only within a group, and Lambda deletes exactly the
-/// records a partial response omits (the AWS Powertools `skip_group_on_error` rule). A record
-/// without a group ID cannot be proven independent: it blocks, and is blocked by, every group.
-/// Exhausting the invocation budget retains every remaining record.
-pub async fn process_fifo_batch<T, F, Fut>(
+/// Process FIFO records one at a time. Once a record is neither confirmed complete nor in
+/// confirmed failure custody, retain it and every later record of its message group without
+/// starting them; records of other groups still run. SQS orders FIFO delivery only within a
+/// group, and Lambda deletes exactly the records a partial response omits (the AWS Powertools
+/// `skip_group_on_error` rule). A record without a group ID cannot be proven independent: it
+/// blocks, and is blocked by, every group. Exhausting the invocation budget retains every
+/// remaining record.
+pub async fn process_fifo_batch<T, F, Fut, C>(
     event: LambdaEvent<SqsEvent>,
     remaining: Duration,
     per_record_cap: Duration,
+    custody: &C,
     mut process: F,
     mut dispose: impl FnMut(&RecordAttempt<T>) -> FifoDisposition,
 ) -> Result<FifoBatchOutcome, Error>
 where
     F: FnMut(String) -> Fut,
     Fut: Future<Output = T>,
+    C: FailureCustody,
 {
     require_fifo_ids(&event.payload)?;
     let started_at = Instant::now();
     let mut outcome = FifoBatchOutcome::default();
     let mut retained = RetainedFifoGroups::default();
     for mut record in event.payload.records {
-        let message_id = record.message_id.expect("IDs validated");
+        let message_id = record.message_id.take().expect("IDs validated");
         let group_id = record
             .attributes
             .remove(MESSAGE_GROUP_ID_ATTRIBUTE)
@@ -289,9 +305,19 @@ where
             outcome.unprocessed_message_ids.push(message_id);
             continue;
         }
+        // The attempt consumes the body, so keep the custody copy first.
+        let custody_copy = custody_copy(&record, &message_id, group_id.as_deref());
         let budget = per_record_cap.min(remaining.saturating_sub(started_at.elapsed()));
         let attempt = attempt_record(message_id, record.body, budget, &mut process).await;
-        if dispose(&attempt) == FifoDisposition::Retain {
+        let acknowledged = match dispose(&attempt) {
+            FifoDisposition::Complete => true,
+            FifoDisposition::Retain => false,
+            FifoDisposition::Park => {
+                let budget = per_record_cap.min(remaining.saturating_sub(started_at.elapsed()));
+                move_to_custody(custody, custody_copy, &attempt.message_id, budget).await
+            }
+        };
+        if !acknowledged {
             if matches!(attempt.outcome, RecordOutcome::InsufficientBudget) {
                 retained.retain_every_group();
             } else {
@@ -307,6 +333,73 @@ where
 }
 
 const MESSAGE_GROUP_ID_ATTRIBUTE: &str = "MessageGroupId";
+const APPROXIMATE_RECEIVE_COUNT_ATTRIBUTE: &str = "ApproximateReceiveCount";
+
+/// Only a redelivered record that custody can hold unchanged may be parked: an unreadable
+/// receive count counts as a first delivery, and message attributes cannot be carried over.
+fn custody_copy(
+    record: &SqsMessage,
+    message_id: &str,
+    group_id: Option<&str>,
+) -> Result<ParkedRecord, &'static str> {
+    let redelivered = record
+        .attributes
+        .get(APPROXIMATE_RECEIVE_COUNT_ATTRIBUTE)
+        .and_then(|count| count.parse::<u32>().ok())
+        .is_some_and(|count| count >= 2);
+    if !redelivered {
+        return Err("first_delivery");
+    }
+    let group_id = group_id.ok_or("missing_message_group_id")?;
+    if !record.message_attributes.is_empty() {
+        return Err("message_attributes_present");
+    }
+    let body = record.body.as_ref().ok_or("missing_message_body")?;
+    Ok(ParkedRecord {
+        message_id: message_id.to_owned(),
+        message_group_id: group_id.to_owned(),
+        body: body.clone(),
+    })
+}
+
+/// Whether the record may be acknowledged: only once custody of it is confirmed. Anything
+/// else leaves it to the queue's native retry and redrive.
+async fn move_to_custody<C: FailureCustody>(
+    custody: &C,
+    copy: Result<ParkedRecord, &'static str>,
+    message_id: &str,
+    budget: Duration,
+) -> bool {
+    let sqs_message_id = safe_message_id(message_id).unwrap_or("invalid");
+    let record = match copy {
+        Ok(record) if !budget.is_zero() => record,
+        Ok(_) => return stay_in_source_queue(sqs_message_id, "insufficient_invocation_budget"),
+        Err(reason) => return stay_in_source_queue(sqs_message_id, reason),
+    };
+    match tokio::time::timeout(budget, custody.park(&record)).await {
+        Ok(Ok(custody_message_id)) => {
+            tracing::warn!(
+                sqs_message_id,
+                custody_message_id = safe_message_id(&custody_message_id).unwrap_or("invalid"),
+                outcome = "parked",
+                "FIFO record moved to failure custody; its message group continues"
+            );
+            true
+        }
+        Ok(Err(_)) => stay_in_source_queue(sqs_message_id, "custody_transfer_unconfirmed"),
+        Err(_) => stay_in_source_queue(sqs_message_id, "custody_transfer_timeout"),
+    }
+}
+
+/// Logs why a record that should be parked stays in its source queue; it is not acknowledged.
+fn stay_in_source_queue(sqs_message_id: &str, outcome: &'static str) -> bool {
+    tracing::warn!(
+        sqs_message_id,
+        outcome,
+        "FIFO record retained in its source queue instead of failure custody"
+    );
+    false
+}
 
 /// Message groups whose later records must wait for an unfinished predecessor.
 #[derive(Default)]
@@ -403,7 +496,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
     use std::{
         sync::{
@@ -501,6 +593,7 @@ mod tests {
                 ]),
                 Duration::from_secs(1),
                 Duration::from_secs(1),
+                &RecordingCustody::default(),
                 move |body| {
                     let calls = observed.clone();
                     async move {
@@ -532,6 +625,7 @@ mod tests {
             ]),
             Duration::from_secs(1),
             Duration::from_secs(1),
+            &RecordingCustody::default(),
             move |body| {
                 let started = observed.clone();
                 async move {
@@ -555,6 +649,7 @@ mod tests {
             grouped_event(&[("a1", "a", "wait"), ("b1", "b", "ok"), ("a2", "a", "ok")]),
             Duration::from_secs(1),
             Duration::from_millis(5),
+            &RecordingCustody::default(),
             |body| async move {
                 if body == "wait" {
                     std::future::pending::<bool>().await
@@ -585,6 +680,7 @@ mod tests {
                 event,
                 Duration::from_secs(1),
                 Duration::from_secs(1),
+                &RecordingCustody::default(),
                 |body| async move { body == "ok" },
                 complete_when_true,
             )
@@ -602,6 +698,7 @@ mod tests {
             grouped_event(&[("a1", "a", "wait"), ("b1", "b", "ok"), ("c1", "c", "ok")]),
             Duration::from_millis(5),
             Duration::from_secs(1),
+            &RecordingCustody::default(),
             |body| async move {
                 if body == "wait" {
                     std::future::pending::<bool>().await
@@ -628,6 +725,7 @@ mod tests {
                 event(&records),
                 Duration::from_secs(1),
                 Duration::from_secs(1),
+                &RecordingCustody::default(),
                 |_| async { true },
                 complete_when_true,
             )
@@ -651,6 +749,7 @@ mod tests {
                     Duration::from_secs(1)
                 },
                 Duration::from_millis(5),
+                &RecordingCustody::default(),
                 move |body| {
                     let calls = observed.clone();
                     async move {
@@ -701,6 +800,7 @@ mod tests {
                     event(records),
                     Duration::from_secs(1),
                     Duration::from_secs(1),
+                    &RecordingCustody::default(),
                     |_| async { true },
                     complete_when_true,
                 )
@@ -1049,5 +1149,169 @@ mod tests {
             results.attempts[1].outcome,
             RecordOutcome::InsufficientBudget
         ));
+    }
+
+    #[derive(Default)]
+    struct RecordingCustody {
+        parked: std::sync::Mutex<Vec<ParkedRecord>>,
+        unconfirmed: bool,
+    }
+
+    impl RecordingCustody {
+        fn parked_ids(&self) -> Vec<String> {
+            self.parked
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|record| record.message_id.clone())
+                .collect()
+        }
+    }
+
+    impl FailureCustody for RecordingCustody {
+        async fn park(&self, record: &ParkedRecord) -> Result<String, FailureCustodyError> {
+            if self.unconfirmed {
+                return Err(FailureCustodyError::MissingMessageId);
+            }
+            self.parked.lock().unwrap().push(record.clone());
+            Ok(format!("custody-{}", record.message_id))
+        }
+    }
+
+    struct PendingCustody;
+
+    impl FailureCustody for PendingCustody {
+        async fn park(&self, _: &ParkedRecord) -> Result<String, FailureCustodyError> {
+            std::future::pending().await
+        }
+    }
+
+    /// Records as `(message ID, group ID, body, ApproximateReceiveCount)`.
+    fn delivered_event(records: &[(&str, &str, &str, u32)]) -> LambdaEvent<SqsEvent> {
+        let mut event = grouped_event(
+            &records
+                .iter()
+                .map(|(id, group_id, body, _)| (*id, *group_id, *body))
+                .collect::<Vec<_>>(),
+        );
+        for (record, (_, _, _, receive_count)) in event.payload.records.iter_mut().zip(records) {
+            record.attributes.insert(
+                "ApproximateReceiveCount".to_owned(),
+                receive_count.to_string(),
+            );
+        }
+        event
+    }
+
+    /// `poison` can never succeed, `ok` completes and anything else stays unfinished.
+    fn park_poison(attempt: &RecordAttempt<String>) -> FifoDisposition {
+        match &attempt.outcome {
+            RecordOutcome::Completed(body) if body == "ok" => FifoDisposition::Complete,
+            RecordOutcome::Completed(body) if body == "poison" => FifoDisposition::Park,
+            _ => FifoDisposition::Retain,
+        }
+    }
+
+    async fn run_parking_batch(
+        event: LambdaEvent<SqsEvent>,
+        custody: &impl FailureCustody,
+        per_record_cap: Duration,
+    ) -> (FifoBatchOutcome, Vec<String>) {
+        let started = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed = started.clone();
+        let outcome = process_fifo_batch(
+            event,
+            Duration::from_secs(1),
+            per_record_cap,
+            custody,
+            move |body| {
+                let started = observed.clone();
+                async move {
+                    started.lock().unwrap().push(body.clone());
+                    body
+                }
+            },
+            park_poison,
+        )
+        .await
+        .unwrap();
+        let started = started.lock().unwrap().clone();
+        (outcome, started)
+    }
+
+    #[tokio::test]
+    async fn should_run_co_batched_successors_on_the_redelivery_that_parks_their_poisoned_head() {
+        let custody = RecordingCustody::default();
+        let first = [
+            ("a1", "a", "poison", 1),
+            ("a2", "a", "ok", 1),
+            ("b1", "b", "ok", 1),
+        ];
+        let (outcome, started) =
+            run_parking_batch(delivered_event(&first), &custody, Duration::from_secs(1)).await;
+        assert_eq!(failed(outcome.response), ["a1", "a2"]);
+        assert_eq!(outcome.unprocessed_message_ids, ["a2"]);
+        assert_eq!(started, ["poison", "ok"]);
+        assert!(custody.parked_ids().is_empty());
+
+        let redelivered = [("a1", "a", "poison", 2), ("a2", "a", "ok", 2)];
+        let (outcome, started) = run_parking_batch(
+            delivered_event(&redelivered),
+            &custody,
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(failed(outcome.response).is_empty());
+        assert_eq!(started, ["poison", "ok"]);
+        assert_eq!(
+            *custody.parked.lock().unwrap(),
+            [ParkedRecord {
+                message_id: "a1".to_owned(),
+                message_group_id: "a".to_owned(),
+                body: "poison".to_owned(),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_retain_the_group_when_a_record_cannot_move_to_custody_unchanged() {
+        let mut ungrouped = delivered_event(&[("a1", "a", "poison", 2), ("b1", "b", "ok", 2)]);
+        ungrouped.payload.records[0]
+            .attributes
+            .remove("MessageGroupId");
+        let mut attributed = delivered_event(&[("a1", "a", "poison", 2), ("a2", "a", "ok", 2)]);
+        attributed.payload.records[0]
+            .message_attributes
+            .insert("trace".to_owned(), Default::default());
+        let mut uncounted = delivered_event(&[("a1", "a", "poison", 2), ("a2", "a", "ok", 2)]);
+        uncounted.payload.records[0]
+            .attributes
+            .insert("ApproximateReceiveCount".to_owned(), "two".to_owned());
+
+        for event in [ungrouped, attributed, uncounted] {
+            let custody = RecordingCustody::default();
+            let (outcome, started) =
+                run_parking_batch(event, &custody, Duration::from_secs(1)).await;
+            assert_eq!(failed(outcome.response).len(), 2);
+            assert_eq!(started, ["poison"]);
+            assert!(custody.parked_ids().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn should_retain_the_group_when_custody_is_unconfirmed_or_times_out() {
+        let event = || delivered_event(&[("a1", "a", "poison", 3), ("a2", "a", "ok", 3)]);
+        let unconfirmed = RecordingCustody {
+            unconfirmed: true,
+            ..Default::default()
+        };
+        let (outcome, _) = run_parking_batch(event(), &unconfirmed, Duration::from_secs(1)).await;
+        assert_eq!(failed(outcome.response), ["a1", "a2"]);
+        assert_eq!(outcome.unprocessed_message_ids, ["a2"]);
+
+        let (outcome, _) =
+            run_parking_batch(event(), &PendingCustody, Duration::from_millis(5)).await;
+        assert_eq!(failed(outcome.response), ["a1", "a2"]);
+        assert_eq!(outcome.unprocessed_message_ids, ["a2"]);
     }
 }

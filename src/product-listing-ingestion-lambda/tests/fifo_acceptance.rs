@@ -2,6 +2,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
 use lambda_runtime::{Context, LambdaEvent};
 use listing_source_core::ListingSourceId;
+use platform_lambda_sqs::{FailureCustody, FailureCustodyError, ParkedRecord};
 use product_listing_core::{
     product_listing_id::ProductListingKey, source_listing_id::SourceListingId,
 };
@@ -48,6 +49,15 @@ impl ProcessProductListingIngestionUseCase for RecordingProcessor {
         } else {
             Ok(ProductListingIngestionCompletion::AlreadyCompleted)
         }
+    }
+}
+
+/// Every record here is a first delivery, which is never parked.
+struct NoCustody;
+
+impl FailureCustody for NoCustody {
+    async fn park(&self, _: &ParkedRecord) -> Result<String, FailureCustodyError> {
+        panic!("a first delivery must not move to failure custody")
     }
 }
 
@@ -129,7 +139,7 @@ async fn failed_record_retains_only_its_group_and_never_starts_its_successors() 
         seen: Mutex::new(Vec::new()),
         fail_command: Some(command_ids[1].clone()),
     };
-    let response = handler(event(&ten), &processor).await.unwrap();
+    let response = handler(event(&ten), &processor, &NoCustody).await.unwrap();
     let failures: Vec<_> = response
         .batch_item_failures
         .into_iter()
@@ -160,7 +170,9 @@ async fn failed_record_retains_only_its_group_and_never_starts_its_successors() 
         fail_command: None,
     };
     let redelivered: Vec<_> = retained.iter().map(|index| ten[*index].clone()).collect();
-    let response = handler(event(&redelivered), &replay).await.unwrap();
+    let response = handler(event(&redelivered), &replay, &NoCustody)
+        .await
+        .unwrap();
     assert!(response.batch_item_failures.is_empty());
     assert_eq!(replay.seen.lock().unwrap().len(), retained.len());
 }
@@ -263,7 +275,9 @@ async fn real_processor_acknowledges_a_rejected_update_without_blocking_its_grou
         .collect();
 
     let processor = compose_ingestion_use_case(pool.clone());
-    let response = handler(event(&bodies), processor.as_ref()).await.unwrap();
+    let response = handler(event(&bodies), processor.as_ref(), &NoCustody)
+        .await
+        .unwrap();
     assert!(response.batch_item_failures.is_empty());
 
     let listings: Vec<String> = sqlx::query_scalar(
@@ -307,14 +321,14 @@ async fn empty_single_and_malformed_first_record_have_exact_failure_boundaries()
         fail_command: None,
     };
     assert!(
-        handler(event(&[]), &processor)
+        handler(event(&[]), &processor, &NoCustody)
             .await
             .unwrap()
             .batch_item_failures
             .is_empty()
     );
     assert!(
-        handler(event(&bodies[..1]), &processor)
+        handler(event(&bodies[..1]), &processor, &NoCustody)
             .await
             .unwrap()
             .batch_item_failures
@@ -324,6 +338,7 @@ async fn empty_single_and_malformed_first_record_have_exact_failure_boundaries()
     let response = handler(
         event(&["not-json".to_owned(), bodies[0].clone()]),
         &processor,
+        &NoCustody,
     )
     .await
     .unwrap();

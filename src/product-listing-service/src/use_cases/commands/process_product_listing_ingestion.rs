@@ -98,8 +98,13 @@ pub enum ProductListingIngestionFailureClass {
     /// command of its FIFO group until it dead-letters, so the consumer completes it without a
     /// receipt.
     BusinessRejection,
-    /// Invalid jobs, identity/integrity conflicts, invalid persisted state and technical or
-    /// temporary failures keep retry custody.
+    /// A command that cannot apply as delivered however often it is retried: invalid metadata,
+    /// a command, provider-receipt or shipping key reused for different content, a source-key
+    /// hash collision, or invalid persisted state that needs an operator repair. The consumer
+    /// moves it to failure custody after one retry instead of letting it hold its FIFO group for
+    /// the whole retry budget.
+    Unprocessable,
+    /// Technical or temporary failures keep retry custody.
     Retryable,
 }
 
@@ -236,11 +241,14 @@ impl ProductListingIngestionError {
                 | ProductListingDeliveryError::OperationFailed { .. }
                 | ProductListingDeliveryError::Transaction(_) => Class::Retryable,
             },
-            Self::InvalidMetadata
-            | Self::FingerprintConflict
-            | Self::BeginTransactionFailed(_)
-            | Self::CommitTransactionFailed(_)
-            | Self::Receipt(_) => Class::Retryable,
+            Self::InvalidMetadata | Self::FingerprintConflict => Class::Unprocessable,
+            Self::BeginTransactionFailed(_) | Self::CommitTransactionFailed(_) => Class::Retryable,
+            Self::Receipt(error) => match error {
+                ProductListingCommandReceiptError::InvalidIdentity
+                | ProductListingCommandReceiptError::InvalidPersistedState => Class::Unprocessable,
+                ProductListingCommandReceiptError::AlreadyExists
+                | ProductListingCommandReceiptError::OperationFailed { .. } => Class::Retryable,
+            },
             Self::Create(error) => match error {
                 CreateProductListingError::AuthenticatedActorRequired
                 | CreateProductListingError::Forbidden
@@ -249,6 +257,7 @@ impl ProductListingIngestionError {
                 | CreateProductListingError::AuctionSourceMismatch
                 | CreateProductListingError::SourceListingAlreadyExists
                 | CreateProductListingError::InvalidProductListing => Class::BusinessRejection,
+                CreateProductListingError::InvalidDeliveryPersisted { .. } => Class::Unprocessable,
                 CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | CreateProductListingError::PartnerAuthorizationInternal { .. }
                 | CreateProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
@@ -256,7 +265,6 @@ impl ProductListingIngestionError {
                 | CreateProductListingError::ProductListingTitleSlugGenerationExhausted
                 | CreateProductListingError::CreatedEventMissing
                 | CreateProductListingError::PersistenceFailed
-                | CreateProductListingError::InvalidDeliveryPersisted { .. }
                 | CreateProductListingError::EventAppenderFailed { .. }
                 | CreateProductListingError::BeginTransactionFailed(_)
                 | CreateProductListingError::CommitTransactionFailed(_) => Class::Retryable,
@@ -271,11 +279,11 @@ impl ProductListingIngestionError {
                 | UpdateProductListingError::ListingWithdrawn
                 | UpdateProductListingError::UrlRequired
                 | UpdateProductListingError::InvalidProductListing => Class::BusinessRejection,
+                UpdateProductListingError::InvalidDeliveryPersisted { .. } => Class::Unprocessable,
                 UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | UpdateProductListingError::PartnerAuthorizationInternal { .. }
                 | UpdateProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
                 | UpdateProductListingError::PersistenceFailed
-                | UpdateProductListingError::InvalidDeliveryPersisted { .. }
                 | UpdateProductListingError::EventAppenderFailed { .. }
                 | UpdateProductListingError::BeginTransactionFailed(_)
                 | UpdateProductListingError::CommitTransactionFailed(_) => Class::Retryable,
@@ -288,12 +296,12 @@ impl ProductListingIngestionError {
                 | UpsertProductListingError::AuctionSourceMismatch
                 | UpsertProductListingError::ListingWithdrawn
                 | UpsertProductListingError::InvalidProductListing { .. } => Class::BusinessRejection,
+                UpsertProductListingError::InvalidDeliveryPersisted { .. } => Class::Unprocessable,
                 UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | UpsertProductListingError::PartnerAuthorizationInternal { .. }
                 | UpsertProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
                 | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
                 | UpsertProductListingError::PersistenceFailed
-                | UpsertProductListingError::InvalidDeliveryPersisted { .. }
                 | UpsertProductListingError::EventAppenderFailed { .. }
                 | UpsertProductListingError::BeginTransactionFailed(_)
                 | UpsertProductListingError::CommitTransactionFailed(_) => Class::Retryable,
@@ -303,10 +311,10 @@ impl ProductListingIngestionError {
                 | WithdrawProductListingError::Forbidden
                 | WithdrawProductListingError::ListingSourceNotFound
                 | WithdrawProductListingError::NotFound => Class::BusinessRejection,
+                WithdrawProductListingError::InvalidDeliveryPersisted { .. } => Class::Unprocessable,
                 WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | WithdrawProductListingError::PartnerAuthorizationInternal { .. }
                 | WithdrawProductListingError::PersistenceFailed
-                | WithdrawProductListingError::InvalidDeliveryPersisted { .. }
                 | WithdrawProductListingError::EventAppenderFailed { .. }
                 | WithdrawProductListingError::BeginTransactionFailed(_)
                 | WithdrawProductListingError::CommitTransactionFailed(_) => Class::Retryable,
@@ -319,10 +327,12 @@ impl ProductListingIngestionError {
                 | CaptureProductListingRawObservationError::InvalidInput { .. }
                 | CaptureProductListingRawObservationError::ListingSourceNotFound
                 | CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => Class::BusinessRejection,
+                CaptureProductListingRawObservationError::SourceRecordKeyHashCollision
+                | CaptureProductListingRawObservationError::ProviderReceiptDigestConflict => {
+                    Class::Unprocessable
+                }
                 CaptureProductListingRawObservationError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | CaptureProductListingRawObservationError::PartnerAuthorizationInternal { .. }
-                | CaptureProductListingRawObservationError::SourceRecordKeyHashCollision
-                | CaptureProductListingRawObservationError::ProviderReceiptDigestConflict
                 | CaptureProductListingRawObservationError::BeginTransactionFailed(_)
                 | CaptureProductListingRawObservationError::CaptureFailed { .. }
                 | CaptureProductListingRawObservationError::CommitTransactionFailed(_) => Class::Retryable,
@@ -332,8 +342,9 @@ impl ProductListingIngestionError {
 }
 
 /// A shipping import that current shipping state deterministically rejects is a business
-/// rejection. Key reuse with different content, a catalog dependency that has not arrived yet,
-/// and storage or transaction failures keep retry custody.
+/// rejection. Key reuse with different content and corrupt shipping state are unprocessable; a
+/// catalog dependency that has not arrived yet and storage or transaction failures keep retry
+/// custody.
 fn shipping_import_failure_class(
     error: &shipping_service::ShippingError,
 ) -> ProductListingIngestionFailureClass {
@@ -357,13 +368,13 @@ fn shipping_import_failure_class(
         | ShippingError::InvalidTerms(_)
         | ShippingError::Profile(_) => Class::BusinessRejection,
         // A key reused with different content is an identity conflict, like a command
-        // fingerprint conflict, and keeps queue custody for investigation.
+        // fingerprint conflict, and moves to failure custody for investigation.
         ShippingError::CreationKeyConflict
         | ShippingError::ImportRequestConflict
-        | ShippingError::ImportDependencyMissing
+        | ShippingError::CorruptShippingState { .. } => Class::Unprocessable,
+        ShippingError::ImportDependencyMissing
         | ShippingError::RevisionExhausted
         | ShippingError::PersistenceUnavailable { .. }
-        | ShippingError::CorruptShippingState { .. }
         | ShippingError::PersistenceFailed { .. }
         | ShippingError::Transaction(_) => Class::Retryable,
     }
@@ -667,7 +678,7 @@ mod diagnostic_tests {
     use application::error::{StaticError, box_error};
 
     #[test]
-    fn should_complete_only_deterministic_rejections_of_valid_commands() {
+    fn should_classify_each_failure_by_how_the_ordered_consumer_settles_it() {
         let rejections = [
             ProductListingIngestionError::Create(
                 CreateProductListingError::SourceListingAlreadyExists,
@@ -687,24 +698,20 @@ mod diagnostic_tests {
                 CaptureProductListingRawObservationError::ListingSourceNotFound,
             ),
         ];
-        let retained = [
+        let unprocessable = [
             ProductListingIngestionError::InvalidMetadata,
             ProductListingIngestionError::FingerprintConflict,
-            ProductListingIngestionError::CommitTransactionFailed(
-                application::error::static_error("test transaction failure"),
+            ProductListingIngestionError::Receipt(
+                ProductListingCommandReceiptError::InvalidIdentity,
             ),
             ProductListingIngestionError::Receipt(
                 ProductListingCommandReceiptError::InvalidPersistedState,
             ),
-            ProductListingIngestionError::Create(CreateProductListingError::PersistenceFailed),
             ProductListingIngestionError::Update(
-                UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable {
-                    source: box_error(StaticError("unavailable")),
+                UpdateProductListingError::InvalidDeliveryPersisted {
+                    source: box_error(StaticError("undecodable delivery")),
                 },
             ),
-            ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
-                shipping_service::ShippingError::ImportDependencyMissing,
-            )),
             ProductListingIngestionError::CaptureRaw(
                 CaptureProductListingRawObservationError::SourceRecordKeyHashCollision,
             ),
@@ -717,23 +724,50 @@ mod diagnostic_tests {
             ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
                 shipping_service::ShippingError::CreationKeyConflict,
             )),
+            ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
+                shipping_service::ShippingError::CorruptShippingState {
+                    source: box_error(StaticError("undecodable shipping state")),
+                },
+            )),
+        ];
+        let retryable = [
+            ProductListingIngestionError::CommitTransactionFailed(
+                application::error::static_error("test transaction failure"),
+            ),
+            ProductListingIngestionError::Receipt(ProductListingCommandReceiptError::AlreadyExists),
+            ProductListingIngestionError::Receipt(
+                ProductListingCommandReceiptError::OperationFailed {
+                    source: box_error(StaticError("unavailable")),
+                },
+            ),
+            ProductListingIngestionError::Create(CreateProductListingError::PersistenceFailed),
+            ProductListingIngestionError::Update(
+                UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable {
+                    source: box_error(StaticError("unavailable")),
+                },
+            ),
+            ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
+                shipping_service::ShippingError::ImportDependencyMissing,
+            )),
         ];
 
-        for error in rejections {
-            assert_eq!(
-                error.failure_class(),
+        for (class, errors) in [
+            (
                 ProductListingIngestionFailureClass::BusinessRejection,
-                "{}",
-                error.diagnostic_code()
-            );
-        }
-        for error in retained {
-            assert_eq!(
-                error.failure_class(),
+                &rejections[..],
+            ),
+            (
+                ProductListingIngestionFailureClass::Unprocessable,
+                &unprocessable[..],
+            ),
+            (
                 ProductListingIngestionFailureClass::Retryable,
-                "{}",
-                error.diagnostic_code()
-            );
+                &retryable[..],
+            ),
+        ] {
+            for error in errors {
+                assert_eq!(error.failure_class(), class, "{}", error.diagnostic_code());
+            }
         }
     }
 

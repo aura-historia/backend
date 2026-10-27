@@ -139,6 +139,7 @@ export class Observability extends Construct {
     for (const [outcome, metricName] of [
       ["completed", "CompletedRecords"],
       ["rejected", "RejectedRecords"],
+      ["unprocessable", "UnprocessableRecords"],
       ["failed", "FailedRecords"],
       ["unprocessed", "UnprocessedRecords"],
     ] as const) {

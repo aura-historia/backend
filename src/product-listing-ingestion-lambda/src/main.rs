@@ -4,6 +4,7 @@ use platform_lambda_bootstrap::{
     LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
     logging_config_from_env,
 };
+use platform_lambda_sqs::SqsDeadLetterCustody;
 use platform_observability::init;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_ingestion_lambda::{compose_ingestion_use_case, handle_invocation};
@@ -24,6 +25,7 @@ async fn main() -> Result<(), Error> {
     let credentials = postgres_credentials_provider_from_env()
         .await
         .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
+    let custody = SqsDeadLetterCustody::from_env().await?;
     let use_cases = Arc::new(VersionedCompositionCache::new());
 
     log_cold_start(
@@ -34,9 +36,10 @@ async fn main() -> Result<(), Error> {
         let postgres = postgres.clone();
         let credentials = Arc::clone(&credentials);
         let use_cases = Arc::clone(&use_cases);
+        let custody = custody.clone();
         async move {
             log_invocation_start("product-listing-ingestion-lambda", &event.context);
-            handle_invocation(event, move || async move {
+            handle_invocation(event, &custody, move || async move {
                 let credentials = credentials
                     .current()
                     .await

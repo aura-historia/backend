@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-27 — Unprocessable queued listing commands no longer stall their listing (#2548)
+
+- A queued listing command that can never apply as delivered (an unreadable command, a command or WooCommerce delivery identity reused for different content, or invalid stored state) is now set aside for operator review after one retry instead of being retried for about 22 minutes. Later commands for the same listing or WooCommerce product wait behind it for at most one retry, and are no longer set aside unapplied when they were queued together with it. A later command that depends on a set-aside one, such as an update after a set-aside create, is rejected as for a missing listing. Admission responses are unchanged.
+
 ## 2026-10-27 — Prompt WooCommerce and async ingestion application (#2522)
 
 - A queued listing command that current state deterministically rejects (for example a missing or withdrawn target, an existing listing, a revoked grant or invalid content) is now dropped after one attempt instead of being retried for about 22 minutes. Later commands for the same listing or WooCommerce product no longer wait behind it, and commands for other listings never do. Admission responses are unchanged; resubmit corrected input under a new `Idempotency-Key`.

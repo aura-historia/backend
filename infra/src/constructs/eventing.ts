@@ -394,6 +394,7 @@ function createSqsEventSources(
     actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"],
     resources: [queues.productListingIngestion.queue.queueArn],
   }));
+  grantFailureCustody(functions.productListingIngestion, queues.productListingIngestion.deadLetterQueue);
   const ingestionMapping = new lambda.CfnEventSourceMapping(scope, "ProductListingIngestionQueueEventSource", {
     batchSize: 10,
     enabled: true,
@@ -525,15 +526,18 @@ function createSqsEventSources(
     "Watchlist notification",
   );
 
+  const marketingConsentSync = workerQueues["marketing-consent-sync"];
   addWorkerLambdaEventSource(
     scope,
     "MarketingConsentSyncQueueEventSource",
     functions.marketingConsentSync,
-    workerQueues["marketing-consent-sync"],
+    marketingConsentSync,
     marketingConsentSyncVersion,
     "Marketing consent sync",
     { includeGetQueueUrl: false, dependOnAccessPolicy: true },
   );
+  // addWorkerLambdaEventSource has already rejected a missing queue pair.
+  grantFailureCustody(functions.marketingConsentSync, marketingConsentSync!.deadLetterQueue);
   addWorkerLambdaEventSource(
     scope,
     "UserIdentityDeletionQueueEventSource",
@@ -564,6 +568,19 @@ function createSqsEventSources(
   addWorkerLambdaEventSource(scope, "GeoResolutionQueueEventSource", functions.geoResolution,
     workerQueues["geo-resolution"], geoResolutionVersion, "Geographic resolution",
     { includeGetQueueUrl: false, dependOnAccessPolicy: true, maximumConcurrency: 2 });
+}
+
+/**
+ * FIFO consumers move records that can never succeed into their own dead-letter queue, so a
+ * poisoned head releases its message group after one retry instead of the whole retry budget.
+ * The grant lands in the execution policy that the event source mapping depends on.
+ */
+function grantFailureCustody(fn: lambda.Function, deadLetterQueue: sqs.IQueue): void {
+  fn.addEnvironment("DEAD_LETTER_QUEUE_URL", deadLetterQueue.queueUrl);
+  fn.addToRolePolicy(new iam.PolicyStatement({
+    actions: ["sqs:SendMessage"],
+    resources: [deadLetterQueue.queueArn],
+  }));
 }
 
 function addWorkerLambdaEventSource(
