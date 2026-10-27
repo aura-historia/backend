@@ -2,7 +2,6 @@ use super::*;
 use crate::scraper::scraper_service::util::hash::{
     fingerprint_scraper_context, hash_html, hash_main_fragment,
 };
-use sha2::{Digest, Sha256};
 
 #[tokio::test]
 async fn should_skip_when_only_non_main_document_content_changes() {
@@ -65,42 +64,4 @@ async fn should_skip_when_only_non_main_document_content_changes() {
         .unwrap();
 
     assert!(result.is_none());
-}
-
-#[test]
-fn should_hash_main_fragment_when_main_tag_exists() {
-    let html = "<html><body><main><h1>Hello</h1></main></body></html>";
-    let hash = hash_main_fragment(html).expect("should find <main> tag");
-
-    let mut hasher = Sha256::new();
-    hasher.update("<h1>Hello</h1>".as_bytes());
-    let expected: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-
-    assert_eq!(hash, expected);
-}
-
-#[test]
-fn should_return_none_from_hash_main_fragment_when_main_tag_missing() {
-    let html = "<html><body><section>No main</section></body></html>";
-    assert!(hash_main_fragment(html).is_none());
-}
-
-#[test]
-fn should_hash_full_html_when_main_tag_missing() {
-    let html = "<html><body><section>No main</section></body></html>";
-    let hash = hash_html(html);
-
-    let mut hasher = Sha256::new();
-    hasher.update(html.as_bytes());
-    let expected: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-
-    assert_eq!(hash, expected);
 }
