@@ -1,6 +1,6 @@
 -- The append-only trail of who changed each review and how. Every accepted review-console
--- mutation appends one row in its own transaction, and a refused mutation none; an event goes
--- only with its review.
+-- mutation appends one row in its own transaction, and a refused mutation none. An event is
+-- never updated, and deleted only with its review.
 CREATE TABLE crawler_review_events (
     event_id          UUID        PRIMARY KEY,
     review_id         UUID        NOT NULL REFERENCES crawler_reviews(review_id) ON DELETE CASCADE,
@@ -28,16 +28,21 @@ CREATE TABLE crawler_review_events (
 CREATE INDEX idx_crawler_review_events_review
     ON crawler_review_events (review_id, created);
 
-CREATE FUNCTION refuse_crawler_review_event_update()
+-- Refuses every update and every delete except the cascade of the review's own deletion, which
+-- runs from the foreign key's trigger and so one trigger level deeper than a direct statement.
+CREATE FUNCTION refuse_crawler_review_event_change()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
+        RETURN OLD;
+    END IF;
     RAISE EXCEPTION 'crawler_review_events is append-only';
 END;
 $$;
 
 CREATE TRIGGER crawler_review_events_append_only
-    BEFORE UPDATE ON crawler_review_events
+    BEFORE UPDATE OR DELETE ON crawler_review_events
     FOR EACH ROW
-    EXECUTE FUNCTION refuse_crawler_review_event_update();
+    EXECUTE FUNCTION refuse_crawler_review_event_change();

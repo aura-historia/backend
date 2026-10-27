@@ -579,9 +579,20 @@ async fn should_record_no_event_for_a_refused_mutation() {
             .await,
     ];
 
-    for refusal in &refusals {
-        assert!(refusal.is_err(), "{refusals:?}");
-    }
+    assert!(
+        matches!(
+            refusals.as_slice(),
+            [
+                Err(ReviewRepositoryError::StaleCandidateVersion { .. }),
+                Err(ReviewRepositoryError::InvalidSchemaField(_)),
+                Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(_)),
+                Err(ReviewRepositoryError::NotReviewerAddedPage(_)),
+                Err(ReviewRepositoryError::MissingRepairNote),
+                Err(ReviewRepositoryError::IncompleteCoverage { .. }),
+            ]
+        ),
+        "{refusals:?}"
+    );
     assert!(events(&repository, review_id).await.is_empty());
 
     repository
@@ -661,10 +672,10 @@ async fn should_roll_back_the_mutation_when_its_event_cannot_be_recorded() {
     assert!(detail.events.is_empty());
 }
 
-/// The trail is append-only and stores only the known actors and actions, in
-/// `SCREAMING_SNAKE_CASE`.
+/// The trail is append-only, an event is never updated and deleted only with its review, and it
+/// stores only the known actors and actions, in `SCREAMING_SNAKE_CASE`.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_to_rewrite_an_event_or_store_an_unknown_actor_or_action() {
+async fn should_keep_the_trail_append_only_with_known_actors_and_actions() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (listing_source_id, _) = listing_source(&pool).await;
@@ -675,6 +686,9 @@ async fn should_refuse_to_rewrite_an_event_or_store_an_unknown_actor_or_action()
         .unwrap();
 
     let rewrite = sqlx::query("UPDATE crawler_review_events SET actor = 'HUMAN'")
+        .execute(&pool)
+        .await;
+    let delete = sqlx::query("DELETE FROM crawler_review_events")
         .execute(&pool)
         .await;
     let insert = |actor: &'static str, action: &'static str| {
@@ -694,6 +708,7 @@ async fn should_refuse_to_rewrite_an_event_or_store_an_unknown_actor_or_action()
 
     for refused in [
         rewrite.map(|_| ()),
+        delete.map(|_| ()),
         lowercase_actor.map(|_| ()),
         unknown_action.map(|_| ()),
     ] {
@@ -703,4 +718,16 @@ async fn should_refuse_to_rewrite_an_event_or_store_an_unknown_actor_or_action()
         trail(&events(&repository, review_id).await),
         vec![(ReviewActor::Agent, ReviewEventAction::Rejected, 1)]
     );
+
+    // An event goes with its review, here with the ListingSource the review belongs to.
+    sqlx::query("DELETE FROM listing_sources WHERE listing_source_id = $1")
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM crawler_review_events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining, 0);
 }
