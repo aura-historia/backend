@@ -1,8 +1,10 @@
-//! Who may use the review console: its bearer token, the browser sessions that token opens and,
-//! in the local `dev` binary only, same-origin mutations without a token. The operator contract
-//! is in `docs/crawler/operations.md` (review service and review console access).
+//! Who may use the review console and as which actor: the human review token, the browser
+//! sessions that token opens, the review agent's own token and, in the local `dev` binary only,
+//! same-origin mutations without a token. The operator contract is in
+//! `docs/crawler/operations.md` (review service and review console access).
 
 use crate::review::http::{HttpResponse, ParsedRequest};
+use crate::review::model::ReviewActor;
 use dashmap::DashMap;
 use serde_json::json;
 use std::net::SocketAddr;
@@ -16,12 +18,21 @@ pub enum ReviewServerConfigError {
     InvalidBindAddress(#[from] std::net::AddrParseError),
     #[error("CRAWLER_REVIEW_AUTH_TOKEN is required for non-loopback bind addresses")]
     AuthenticationRequiredForNonLoopback,
+    #[error("CRAWLER_REVIEW_AGENT_TOKEN is accepted only together with CRAWLER_REVIEW_AUTH_TOKEN")]
+    AgentTokenWithoutReviewToken,
+    #[error("CRAWLER_REVIEW_AGENT_TOKEN must differ from CRAWLER_REVIEW_AUTH_TOKEN")]
+    AgentTokenEqualsReviewToken,
 }
 
 #[derive(Clone)]
 pub struct ReviewServerConfig {
     pub bind_addr: SocketAddr,
     pub auth_token: Option<String>,
+    /// The review agent's own bearer token: a request with it acts as [`ReviewActor::Agent`].
+    /// Unset, nothing acts as the agent. It is accepted only next to a different `auth_token`,
+    /// so a request never claims the agent without its token, and humans keep their own
+    /// credential when it is revoked.
+    pub agent_token: Option<String>,
     /// Lets same-origin browser requests mutate review state without a token on a
     /// loopback bind. Only the local `dev` binary opts in through
     /// [`ReviewServerConfig::allow_local_mutations_without_token`], which keeps it
@@ -34,12 +45,10 @@ impl ReviewServerConfig {
         let bind_addr: SocketAddr = std::env::var("CRAWLER_REVIEW_BIND_ADDR")
             .unwrap_or_else(|_| "127.0.0.1:7878".to_string())
             .parse()?;
-        let auth_token = std::env::var("CRAWLER_REVIEW_AUTH_TOKEN")
-            .ok()
-            .filter(|token| !token.trim().is_empty());
         Self {
             bind_addr,
-            auth_token,
+            auth_token: token_from_env("CRAWLER_REVIEW_AUTH_TOKEN"),
+            agent_token: token_from_env("CRAWLER_REVIEW_AGENT_TOKEN"),
             local_mutations_without_token: false,
         }
         .validate()
@@ -52,8 +61,9 @@ impl ReviewServerConfig {
     }
 
     pub fn allow_local_mutations_without_token(mut self) -> Self {
-        self.local_mutations_without_token =
-            self.auth_token.is_none() && self.bind_addr.ip().is_loopback();
+        self.local_mutations_without_token = self.auth_token.is_none()
+            && self.agent_token.is_none()
+            && self.bind_addr.ip().is_loopback();
         self
     }
 
@@ -61,8 +71,23 @@ impl ReviewServerConfig {
         if !self.bind_addr.ip().is_loopback() && self.auth_token.is_none() {
             return Err(ReviewServerConfigError::AuthenticationRequiredForNonLoopback);
         }
+        if let Some(agent_token) = self.agent_token.as_deref() {
+            let Some(auth_token) = self.auth_token.as_deref() else {
+                return Err(ReviewServerConfigError::AgentTokenWithoutReviewToken);
+            };
+            if constant_time_eq(agent_token.as_bytes(), auth_token.as_bytes()) {
+                return Err(ReviewServerConfigError::AgentTokenEqualsReviewToken);
+            }
+        }
         Ok(self)
     }
+}
+
+/// A token setting, where an empty or whitespace-only value counts as unset.
+fn token_from_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|token| !token.trim().is_empty())
 }
 
 const REVIEW_SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
@@ -88,33 +113,67 @@ impl ReviewAccess {
         self.config.bind_addr
     }
 
-    pub(super) fn request_is_authorized(&self, request: &ParsedRequest<'_>) -> bool {
+    /// Whether the review agent can act on the console, which the startup log reports.
+    pub(super) fn agent_access(&self) -> bool {
+        self.config.agent_token.is_some()
+    }
+
+    /// Authorizes a request and resolves who it acts as, or `None` when it is refused as
+    /// unauthorized. The agent token reads the console API and makes review mutations, never
+    /// opens a browser session and never administers domains; the review token, a browser
+    /// session (reads only) and the `dev` binary's local same-origin mutations act as
+    /// [`ReviewActor::Human`]. Without a configured review token the API is open to reads, which
+    /// record nothing; only a configured agent token is ever resolved as the agent.
+    pub(super) fn authorize(&self, request: &ParsedRequest<'_>) -> Option<ReviewActor> {
         if !request.path.starts_with("/api/") {
-            return true;
+            return Some(ReviewActor::Human);
         }
 
-        let bearer = self.authorized(&request.headers);
-        let mutation_bearer = self.config.auth_token.is_some() && bearer;
+        let bearer = self.bearer(&request.headers);
         let session = self.has_valid_session(&request.headers);
         let local_mutation = self.config.local_mutations_without_token
             && self.config.auth_token.is_none()
             && is_same_origin_loopback_request(&request.headers);
         match (request.method.as_str(), request.path) {
-            ("POST", "/api/session") => mutation_bearer,
-            ("POST", "/api/session/logout") => mutation_bearer || session,
-            (method, _) if is_mutation_method(method) => mutation_bearer || local_mutation,
-            _ => bearer || session,
+            ("POST", "/api/session") => {
+                (bearer == Bearer::ReviewToken).then_some(ReviewActor::Human)
+            }
+            ("POST", "/api/session/logout") => {
+                (bearer == Bearer::ReviewToken || session).then_some(ReviewActor::Human)
+            }
+            (method, path) if is_mutation_method(method) => match bearer {
+                Bearer::ReviewToken => Some(ReviewActor::Human),
+                Bearer::AgentToken if is_review_route(path) => Some(ReviewActor::Agent),
+                Bearer::AgentToken | Bearer::None => local_mutation.then_some(ReviewActor::Human),
+            },
+            _ => match bearer {
+                Bearer::ReviewToken => Some(ReviewActor::Human),
+                Bearer::AgentToken => Some(ReviewActor::Agent),
+                Bearer::None => {
+                    (session || self.config.auth_token.is_none()).then_some(ReviewActor::Human)
+                }
+            },
         }
     }
 
-    fn authorized(&self, headers: &std::collections::HashMap<String, String>) -> bool {
-        let Some(expected) = self.config.auth_token.as_deref() else {
-            return true;
-        };
-        headers
+    /// The configured token the request's bearer is. Both tokens are compared in constant time,
+    /// each on every request, so the timing tells neither apart.
+    fn bearer(&self, headers: &std::collections::HashMap<String, String>) -> Bearer {
+        let Some(presented) = headers
             .get("authorization")
             .and_then(|value| value.strip_prefix("Bearer "))
-            .is_some_and(|actual| constant_time_eq(actual.as_bytes(), expected.as_bytes()))
+        else {
+            return Bearer::None;
+        };
+        let review_token = token_matches(self.config.auth_token.as_deref(), presented);
+        let agent_token = token_matches(self.config.agent_token.as_deref(), presented);
+        if review_token {
+            Bearer::ReviewToken
+        } else if agent_token {
+            Bearer::AgentToken
+        } else {
+            Bearer::None
+        }
     }
 
     fn has_valid_session(&self, headers: &std::collections::HashMap<String, String>) -> bool {
@@ -179,8 +238,26 @@ fn expired_session_cookie(config: &ReviewServerConfig) -> String {
     session_cookie(config, uuid::Uuid::nil(), Duration::ZERO)
 }
 
+/// The configured token a request's bearer matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bearer {
+    ReviewToken,
+    AgentToken,
+    None,
+}
+
+fn token_matches(expected: Option<&str>, presented: &str) -> bool {
+    expected.is_some_and(|expected| constant_time_eq(presented.as_bytes(), expected.as_bytes()))
+}
+
 fn is_mutation_method(method: &str) -> bool {
     matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
+}
+
+/// The review routes the agent token may mutate: reviews and their pages, not domain
+/// administration or sessions.
+fn is_review_route(path: &str) -> bool {
+    path.starts_with("/api/reviews/") || path.starts_with("/api/review-pages/")
 }
 
 /// Browsers send `Origin` on every cross-origin mutation, so requiring it to equal
@@ -224,24 +301,35 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::review::http::parse_request;
 
     #[test]
     fn should_keep_bearer_authorization_when_local_mode_has_token_or_public_bind() {
         let with_token = ReviewServerConfig {
             bind_addr: "127.0.0.1:7878".parse().unwrap(),
             auth_token: Some("review-token".to_string()),
+            agent_token: None,
             local_mutations_without_token: false,
         }
         .allow_local_mutations_without_token();
         let public_bind = ReviewServerConfig {
             bind_addr: "0.0.0.0:7878".parse().unwrap(),
             auth_token: None,
+            agent_token: None,
+            local_mutations_without_token: false,
+        }
+        .allow_local_mutations_without_token();
+        let with_agent_token = ReviewServerConfig {
+            bind_addr: "127.0.0.1:7878".parse().unwrap(),
+            auth_token: None,
+            agent_token: Some(AGENT_TOKEN.to_string()),
             local_mutations_without_token: false,
         }
         .allow_local_mutations_without_token();
 
         assert!(!with_token.local_mutations_without_token);
         assert!(!public_bind.local_mutations_without_token);
+        assert!(!with_agent_token.local_mutations_without_token);
     }
 
     #[test]
@@ -249,6 +337,7 @@ mod tests {
         let result = ReviewServerConfig {
             bind_addr: "0.0.0.0:7878".parse().unwrap(),
             auth_token: None,
+            agent_token: None,
             local_mutations_without_token: false,
         }
         .validate();
@@ -264,6 +353,7 @@ mod tests {
         let result = ReviewServerConfig {
             bind_addr: "0.0.0.0:7878".parse().unwrap(),
             auth_token: Some("review-token".to_string()),
+            agent_token: None,
             local_mutations_without_token: false,
         }
         .validate();
@@ -276,6 +366,7 @@ mod tests {
         let result = ReviewServerConfig {
             bind_addr: "127.0.0.1:7878".parse().unwrap(),
             auth_token: None,
+            agent_token: None,
             local_mutations_without_token: false,
         }
         .validate();
@@ -294,17 +385,23 @@ mod tests {
 
     const REVIEW_BIND_ADDR_ENV: &str = "CRAWLER_REVIEW_BIND_ADDR";
     const REVIEW_AUTH_TOKEN_ENV: &str = "CRAWLER_REVIEW_AUTH_TOKEN";
+    const REVIEW_AGENT_TOKEN_ENV: &str = "CRAWLER_REVIEW_AGENT_TOKEN";
+    const REVIEW_TOKEN: &str = "review-token";
+    const AGENT_TOKEN: &str = "agent-token";
 
     /// Reads the review config from exactly these review settings, leaving them unset afterwards.
     fn review_config_from(
         bind_addr: Option<&str>,
         auth_token: Option<&str>,
+        agent_token: Option<&str>,
     ) -> Result<ReviewServerConfig, ReviewServerConfigError> {
         set_env(REVIEW_BIND_ADDR_ENV, bind_addr);
         set_env(REVIEW_AUTH_TOKEN_ENV, auth_token);
+        set_env(REVIEW_AGENT_TOKEN_ENV, agent_token);
         let config = ReviewServerConfig::from_env();
         set_env(REVIEW_BIND_ADDR_ENV, None);
         set_env(REVIEW_AUTH_TOKEN_ENV, None);
+        set_env(REVIEW_AGENT_TOKEN_ENV, None);
         config
     }
 
@@ -315,7 +412,7 @@ mod tests {
     fn should_name_the_missing_token_when_a_non_loopback_bind_has_none(
         #[case] auth_token: Option<&'static str>,
     ) {
-        let error = review_config_from(Some("0.0.0.0:7878"), auth_token)
+        let error = review_config_from(Some("0.0.0.0:7878"), auth_token, None)
             .err()
             .unwrap_or_else(|| panic!("a non-loopback bind without a token must fail"));
 
@@ -328,13 +425,177 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn should_name_the_bind_address_when_it_is_not_host_and_port() {
-        let error = review_config_from(Some("localhost"), None)
+        let error = review_config_from(Some("localhost"), None, None)
             .err()
             .unwrap_or_else(|| panic!("a bind address without a port must fail"));
 
         assert_eq!(
             error.to_string(),
             "CRAWLER_REVIEW_BIND_ADDR must be host:port"
+        );
+    }
+
+    /// Startup refuses an agent token that would let a request claim the agent without its own
+    /// credential, and names the settings, never their values.
+    #[rstest::rstest]
+    #[case::equal_to_the_review_token(
+        Some(REVIEW_TOKEN),
+        "CRAWLER_REVIEW_AGENT_TOKEN must differ from CRAWLER_REVIEW_AUTH_TOKEN"
+    )]
+    #[case::without_a_review_token(
+        None,
+        "CRAWLER_REVIEW_AGENT_TOKEN is accepted only together with CRAWLER_REVIEW_AUTH_TOKEN"
+    )]
+    #[case::without_a_review_token_but_blank(
+        Some(" "),
+        "CRAWLER_REVIEW_AGENT_TOKEN is accepted only together with CRAWLER_REVIEW_AUTH_TOKEN"
+    )]
+    #[serial_test::serial]
+    fn should_refuse_to_start_with_an_agent_token_that_is_not_its_own_credential(
+        #[case] auth_token: Option<&'static str>,
+        #[case] message: &str,
+    ) {
+        let error = review_config_from(None, auth_token, Some(REVIEW_TOKEN))
+            .err()
+            .unwrap_or_else(|| panic!("the agent token must be refused"));
+
+        assert_eq!(error.to_string(), message);
+        assert!(!error.to_string().contains(REVIEW_TOKEN));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn should_read_distinct_review_and_agent_tokens_and_a_blank_agent_token_as_unset() {
+        let both = review_config_from(None, Some(REVIEW_TOKEN), Some(AGENT_TOKEN))
+            .unwrap_or_else(|error| panic!("distinct tokens: {error}"));
+        let blank_agent = review_config_from(None, Some(REVIEW_TOKEN), Some("  "))
+            .unwrap_or_else(|error| panic!("blank agent token: {error}"));
+
+        assert_eq!(both.auth_token.as_deref(), Some(REVIEW_TOKEN));
+        assert_eq!(both.agent_token.as_deref(), Some(AGENT_TOKEN));
+        assert_eq!(blank_agent.agent_token, None);
+    }
+
+    fn access_with_agent_token() -> ReviewAccess {
+        ReviewAccess::new(
+            ReviewServerConfig {
+                bind_addr: "127.0.0.1:7878".parse().unwrap(),
+                auth_token: Some(REVIEW_TOKEN.to_string()),
+                agent_token: Some(AGENT_TOKEN.to_string()),
+                local_mutations_without_token: false,
+            }
+            .validate()
+            .unwrap_or_else(|error| panic!("review config: {error}")),
+        )
+    }
+
+    fn actor_of(access: &ReviewAccess, request: &str, token: Option<&str>) -> Option<ReviewActor> {
+        let authorization = token
+            .map(|token| format!("Authorization: Bearer {token}\r\n"))
+            .unwrap_or_default();
+        let raw = format!("{request} HTTP/1.1\r\nHost: 127.0.0.1:7878\r\n{authorization}\r\n");
+        let request =
+            parse_request(&raw).unwrap_or_else(|| panic!("request does not parse: {raw}"));
+        access.authorize(&request)
+    }
+
+    /// The agent token acts as the agent on the review API and nowhere else; the review token
+    /// acts as a human; any other bearer is refused.
+    #[rstest::rstest]
+    #[case::review_token_reads("GET /api/reviews", Some(REVIEW_TOKEN), Some(ReviewActor::Human))]
+    #[case::agent_token_reads("GET /api/reviews", Some(AGENT_TOKEN), Some(ReviewActor::Agent))]
+    #[case::review_token_edits(
+        "POST /api/reviews/cr_1/candidate",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::agent_token_edits(
+        "POST /api/reviews/cr_1/candidate",
+        Some(AGENT_TOKEN),
+        Some(ReviewActor::Agent)
+    )]
+    #[case::agent_token_approves(
+        "POST /api/reviews/cr_1/approve",
+        Some(AGENT_TOKEN),
+        Some(ReviewActor::Agent)
+    )]
+    #[case::agent_token_removes_a_review_page(
+        "DELETE /api/review-pages/crp_1",
+        Some(AGENT_TOKEN),
+        Some(ReviewActor::Agent)
+    )]
+    #[case::agent_token_opens_no_browser_session("POST /api/session", Some(AGENT_TOKEN), None)]
+    #[case::agent_token_closes_no_browser_session(
+        "POST /api/session/logout",
+        Some(AGENT_TOKEN),
+        None
+    )]
+    #[case::agent_token_registers_no_domain(
+        "POST /api/listing-sources/ls_1/domains",
+        Some(AGENT_TOKEN),
+        None
+    )]
+    #[case::agent_token_removes_no_domain(
+        "DELETE /api/listing-sources/ls_1/domains/cd_1",
+        Some(AGENT_TOKEN),
+        None
+    )]
+    #[case::review_token_opens_a_browser_session(
+        "POST /api/session",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::agent_token_prefix_reads("GET /api/reviews", Some("agent-toke"), None)]
+    #[case::longer_agent_token_edits(
+        "POST /api/reviews/cr_1/candidate",
+        Some("agent-token-2"),
+        None
+    )]
+    #[case::no_token_reads("GET /api/reviews", None, None)]
+    #[case::no_token_edits("POST /api/reviews/cr_1/candidate", None, None)]
+    fn should_resolve_the_actor_of_each_credential(
+        #[case] request: &str,
+        #[case] token: Option<&str>,
+        #[case] expected: Option<ReviewActor>,
+    ) {
+        assert_eq!(
+            actor_of(&access_with_agent_token(), request, token),
+            expected
+        );
+    }
+
+    /// The tokenless local mode of the `dev` binary has no agent: a same-origin mutation acts as
+    /// a human whatever bearer it carries, and nothing else mutates.
+    #[test]
+    fn should_never_resolve_the_agent_in_the_tokenless_local_mode() {
+        let access = ReviewAccess::new(
+            ReviewServerConfig {
+                bind_addr: "127.0.0.1:7878".parse().unwrap(),
+                auth_token: None,
+                agent_token: None,
+                local_mutations_without_token: false,
+            }
+            .allow_local_mutations_without_token(),
+        );
+        let same_origin = |token: Option<&str>| {
+            let authorization = token
+                .map(|token| format!("Authorization: Bearer {token}\r\n"))
+                .unwrap_or_default();
+            let raw = format!(
+                "POST /api/reviews/cr_1/candidate HTTP/1.1\r\nHost: 127.0.0.1:7878\r\nOrigin: http://127.0.0.1:7878\r\n{authorization}\r\n"
+            );
+            access.authorize(&parse_request(&raw).unwrap_or_else(|| panic!("{raw}")))
+        };
+
+        assert_eq!(same_origin(None), Some(ReviewActor::Human));
+        assert_eq!(same_origin(Some(AGENT_TOKEN)), Some(ReviewActor::Human));
+        assert_eq!(
+            actor_of(
+                &access,
+                "POST /api/reviews/cr_1/candidate",
+                Some(AGENT_TOKEN)
+            ),
+            None
         );
     }
 

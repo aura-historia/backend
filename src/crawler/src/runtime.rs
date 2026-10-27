@@ -473,6 +473,7 @@ mod tests {
     fn review_config() -> ReviewServerConfig {
         set_env("CRAWLER_REVIEW_BIND_ADDR", None);
         set_env("CRAWLER_REVIEW_AUTH_TOKEN", None);
+        set_env("CRAWLER_REVIEW_AGENT_TOKEN", None);
         ReviewServerConfig::from_env()
             .unwrap_or_else(|error| panic!("default review config: {error}"))
     }

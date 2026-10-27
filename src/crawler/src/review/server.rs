@@ -80,6 +80,7 @@ impl ReviewServer {
         let listener = TcpListener::bind(bind_addr).await?;
         info!(
             bind_addr = %bind_addr,
+            agent_access = self.access.agent_access(),
             "Crawler review console listening"
         );
 
@@ -126,7 +127,7 @@ impl ReviewServer {
                     let Some(request) = parse_request(&headers.head) else {
                         return Some(HttpResponse::text(400, "bad request"));
                     };
-                    if !self.access.request_is_authorized(&request) {
+                    if self.access.authorize(&request).is_none() {
                         return Some(HttpResponse::json(401, &json!({ "error": "unauthorized" })));
                     }
                     match read_bounded_request_body(stream, headers).await {
@@ -162,7 +163,7 @@ impl ReviewServer {
             return HttpResponse::text(400, "bad request");
         };
 
-        if !self.access.request_is_authorized(&parsed) {
+        if self.access.authorize(&parsed).is_none() {
             return HttpResponse::json(401, &json!({ "error": "unauthorized" }));
         }
 
@@ -1184,6 +1185,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: auth_token.map(str::to_owned),
+                agent_token: None,
                 local_mutations_without_token: false,
             },
             Arc::new(MockHtmlFetcher::new()),
@@ -1303,6 +1305,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
+                agent_token: None,
                 local_mutations_without_token: false,
             },
             Arc::new(StaticHtmlFetcher),
@@ -1331,6 +1334,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
+                agent_token: None,
                 local_mutations_without_token: false,
             },
             Arc::new(StaticHtmlFetcher),
@@ -1411,6 +1415,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_string()),
+                agent_token: None,
                 local_mutations_without_token: false,
             },
             Arc::new(StaticHtmlFetcher),
@@ -1434,7 +1439,7 @@ mod tests {
         let reviews_raw_request = format!("GET /api/reviews HTTP/1.1\r\nCookie: {cookie}\r\n\r\n");
         let reviews_request =
             parse_request(&reviews_raw_request).ok_or("reviews request should parse")?;
-        assert!(server.access.request_is_authorized(&reviews_request));
+        assert!(server.access.authorize(&reviews_request).is_some());
 
         let navigation = server
             .route(&format!(
@@ -1494,6 +1499,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
+                agent_token: None,
                 local_mutations_without_token: false,
             }
             .allow_local_mutations_without_token(),
@@ -1864,6 +1870,7 @@ Origin: http://127.0.0.1:7878/x
                     ReviewServerConfig {
                         bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                         auth_token: None,
+                        agent_token: None,
                         local_mutations_without_token: false,
                     },
                     fetcher.clone(),
@@ -2158,6 +2165,7 @@ Origin: http://127.0.0.1:7878/x
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
+                    agent_token: None,
                     local_mutations_without_token: false,
                 },
                 Arc::new(MockHtmlFetcher::new()),
@@ -2247,6 +2255,7 @@ Origin: http://127.0.0.1:7878/x
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
+                    agent_token: None,
                     local_mutations_without_token: false,
                 },
                 Arc::new(MockHtmlFetcher::new()),
