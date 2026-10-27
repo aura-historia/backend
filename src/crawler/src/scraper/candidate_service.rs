@@ -227,6 +227,8 @@ pub trait ScraperCandidateService: Send + Sync {
         redirect_move: RedirectUrlMove,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Records a durable crawler removal capture and makes the URL eligible for later rechecks.
+    /// It forgets the page hash and scraper-context fingerprint of the last product scrape, so a
+    /// page that comes back unchanged is extracted and captured again instead of skipped.
     async fn mark_removed(
         &self,
         listing_source_id: &ListingSourceId,
@@ -938,6 +940,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         let result = sqlx::query(
             "UPDATE listing_source_urls
              SET last_scraped = NOW(),
+                 last_scraped_hash = NULL,
+                 last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = $3,
                  crawler_disposition = 'ACTIVE',
                  failure_count = 0,
