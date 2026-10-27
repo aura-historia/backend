@@ -924,7 +924,7 @@ async fn should_not_collapse_equal_source_payload_with_different_operation() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_restore_only_upserts_provably_after_a_timestamp_free_delete() {
+async fn should_restore_only_upserts_newer_than_a_timestamp_free_delete() {
     let pool = get_postgres_client().await;
     let listing_source_id =
         seed_listing_source(&pool, "raw-capture-unknown-delete-barrier-source").await;
@@ -1026,11 +1026,7 @@ async fn should_restore_only_upserts_provably_after_a_timestamp_free_delete() {
         source_order_state.latest_provider_source_observation_sha256,
         Some(digest) if digest.len() == 32
     ));
-    assert!(
-        unknown_delete_captured_at(&pool, listing_source_id)
-            .await
-            .is_some()
-    );
+    assert!(delete_barrier_at(&pool, listing_source_id).await.is_some());
 
     let restored = capture(
         &unit_of_work,
@@ -1050,12 +1046,102 @@ async fn should_restore_only_upserts_provably_after_a_timestamp_free_delete() {
         restored,
         ProductListingRawCaptureWriteOutcome::Changed { revision: 3, .. }
     ));
-    assert_eq!(
-        None,
-        unknown_delete_captured_at(&pool, listing_source_id).await
-    );
+    assert_eq!(None, delete_barrier_at(&pool, listing_source_id).await);
     assert_eq!(3, raw_revision_count(&pool, listing_source_id).await);
     assert_eq!(4, provider_receipt_count(&pool, listing_source_id).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_keep_the_delete_barrier_at_the_latest_known_delete() {
+    let pool = get_postgres_client().await;
+    let listing_source_id =
+        seed_listing_source(&pool, "raw-capture-delete-barrier-latest-source").await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let factory = SqlxProductListingRawCaptureWriterFactory::new();
+    // Provider times ahead of the database clock, as from a shop whose clock runs fast.
+    let now = OffsetDateTime::now_utc();
+    let ahead = |minutes: u64| now + Duration::from_secs(minutes * 60);
+    let upsert = |state: &str, occurred_at: OffsetDateTime| {
+        provider_write(
+            listing_source_id,
+            json!({"state": state}),
+            json!({}),
+            json!({}),
+            &format!("delivery-{state}"),
+            occurred_at,
+        )
+    };
+    let delete = |state: &str, occurred_at: Option<OffsetDateTime>| {
+        let mut write = with_operation(
+            provider_write(
+                listing_source_id,
+                json!({"id": "123", "state": state}),
+                json!({}),
+                json!({}),
+                &format!("delivery-{state}"),
+                OffsetDateTime::now_utc(),
+            ),
+            RawProductListingOperation::Delete,
+        );
+        write.source_occurred_at = occurred_at;
+        write
+    };
+
+    let outcomes = [
+        capture(&unit_of_work, &factory, upsert("published", ahead(120))).await,
+        // The barrier keeps the known source time rather than the earlier capture time.
+        capture(&unit_of_work, &factory, delete("trashed", None)).await,
+        capture(
+            &unit_of_work,
+            &factory,
+            upsert("older-than-known", ahead(60)),
+        )
+        .await,
+        // A timed delete newer than the barrier replaces it as the latest known position.
+        capture(
+            &unit_of_work,
+            &factory,
+            delete("trashed-again", Some(ahead(180))),
+        )
+        .await,
+        capture(
+            &unit_of_work,
+            &factory,
+            upsert("older-than-delete", ahead(150)),
+        )
+        .await,
+        capture(
+            &unit_of_work,
+            &factory,
+            upsert("same-time-as-delete", ahead(180)),
+        )
+        .await,
+        capture(&unit_of_work, &factory, upsert("republished", ahead(240))).await,
+    ];
+
+    assert!(matches!(
+        outcomes,
+        [
+            ProductListingRawCaptureWriteOutcome::Changed { revision: 1, .. },
+            ProductListingRawCaptureWriteOutcome::Changed { revision: 2, .. },
+            ProductListingRawCaptureWriteOutcome::Stale {
+                latest_revision: 2,
+                ..
+            },
+            ProductListingRawCaptureWriteOutcome::Changed { revision: 3, .. },
+            ProductListingRawCaptureWriteOutcome::Stale {
+                latest_revision: 3,
+                ..
+            },
+            ProductListingRawCaptureWriteOutcome::Stale {
+                latest_revision: 3,
+                ..
+            },
+            ProductListingRawCaptureWriteOutcome::Changed { revision: 4, .. },
+        ]
+    ));
+    assert_eq!(None, delete_barrier_at(&pool, listing_source_id).await);
+    assert_eq!(4, raw_revision_count(&pool, listing_source_id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -1396,7 +1482,7 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
             nanoseconds: None,
             operation: Some("UPSERT"),
             observation_sha256: Some(digest.clone()),
-            unknown_delete_captured_at: None,
+            delete_barrier_at: None,
         },
     )
     .await;
@@ -1411,7 +1497,7 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
             nanoseconds: Some(123),
             operation: None,
             observation_sha256: Some(digest.clone()),
-            unknown_delete_captured_at: None,
+            delete_barrier_at: None,
         },
     )
     .await;
@@ -1426,7 +1512,7 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
             nanoseconds: Some(123),
             operation: Some("UPSERT"),
             observation_sha256: None,
-            unknown_delete_captured_at: None,
+            delete_barrier_at: None,
         },
     )
     .await;
@@ -1441,13 +1527,13 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
             nanoseconds: None,
             operation: None,
             observation_sha256: None,
-            unknown_delete_captured_at: None,
+            delete_barrier_at: None,
         },
     )
     .await;
     assert_provider_source_ordering_check_violation(unknown_delete_with_null_digest);
 
-    let unknown_delete_without_capture_time = insert_raw_stream_with_provider_source_ordering(
+    let unknown_delete_without_barrier = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
         ProviderSourceOrderingColumns {
@@ -1456,13 +1542,13 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
             nanoseconds: None,
             operation: None,
             observation_sha256: Some(digest.clone()),
-            unknown_delete_captured_at: None,
+            delete_barrier_at: None,
         },
     )
     .await;
-    assert_provider_source_ordering_check_violation(unknown_delete_without_capture_time);
+    assert_provider_source_ordering_check_violation(unknown_delete_without_barrier);
 
-    let known_with_unknown_delete_capture_time = insert_raw_stream_with_provider_source_ordering(
+    let known_with_delete_barrier = insert_raw_stream_with_provider_source_ordering(
         &pool,
         listing_source_id,
         ProviderSourceOrderingColumns {
@@ -1471,11 +1557,11 @@ async fn should_reject_null_required_provider_source_ordering_fields() {
             nanoseconds: Some(123),
             operation: Some("UPSERT"),
             observation_sha256: Some(digest),
-            unknown_delete_captured_at: Some(OffsetDateTime::now_utc()),
+            delete_barrier_at: Some(OffsetDateTime::now_utc()),
         },
     )
     .await;
-    assert_provider_source_ordering_check_violation(known_with_unknown_delete_capture_time);
+    assert_provider_source_ordering_check_violation(known_with_delete_barrier);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -1496,7 +1582,7 @@ async fn should_accept_valid_provider_source_ordering_shapes() {
             nanoseconds: None,
             operation: None,
             observation_sha256: None,
-            unknown_delete_captured_at: None,
+            delete_barrier_at: None,
         },
     )
     .await;
@@ -1514,7 +1600,7 @@ async fn should_accept_valid_provider_source_ordering_shapes() {
             nanoseconds: Some(999_999_999),
             operation: Some("UPSERT"),
             observation_sha256: Some(vec![8; 32]),
-            unknown_delete_captured_at: None,
+            delete_barrier_at: None,
         },
     )
     .await;
@@ -1529,7 +1615,7 @@ async fn should_accept_valid_provider_source_ordering_shapes() {
             nanoseconds: None,
             operation: None,
             observation_sha256: Some(vec![7; 32]),
-            unknown_delete_captured_at: Some(OffsetDateTime::now_utc()),
+            delete_barrier_at: Some(OffsetDateTime::now_utc()),
         },
     )
     .await;
@@ -1578,7 +1664,7 @@ struct ProviderSourceOrderingColumns<'a> {
     nanoseconds: Option<i32>,
     operation: Option<&'a str>,
     observation_sha256: Option<Vec<u8>>,
-    unknown_delete_captured_at: Option<OffsetDateTime>,
+    delete_barrier_at: Option<OffsetDateTime>,
 }
 
 async fn insert_raw_stream_with_provider_source_ordering(
@@ -1604,7 +1690,7 @@ async fn insert_raw_stream_with_provider_source_ordering(
             latest_provider_source_nanoseconds,
             latest_provider_source_operation,
             latest_provider_source_observation_sha256,
-            latest_provider_unknown_delete_captured_at
+            latest_provider_delete_barrier_at
         ) VALUES ($1, $2, 'SHOPIFY', $3, $4, 0, $5, $6, $7, $8, $9, $10)
         "#,
     )
@@ -1617,7 +1703,7 @@ async fn insert_raw_stream_with_provider_source_ordering(
     .bind(ordering.nanoseconds)
     .bind(ordering.operation)
     .bind(ordering.observation_sha256)
-    .bind(ordering.unknown_delete_captured_at)
+    .bind(ordering.delete_barrier_at)
     .execute(pool)
     .await
     .map(|_| ())
@@ -1844,18 +1930,18 @@ async fn provider_receipt_count(pool: &sqlx::PgPool, listing_source_id: ListingS
     .unwrap_or_else(|error| panic!("count provider receipts: {error}"))
 }
 
-async fn unknown_delete_captured_at(
+async fn delete_barrier_at(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
 ) -> Option<OffsetDateTime> {
     sqlx::query_scalar(
-        "SELECT latest_provider_unknown_delete_captured_at FROM product_listing_raw_streams \
+        "SELECT latest_provider_delete_barrier_at FROM product_listing_raw_streams \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.into_uuid())
     .fetch_one(pool)
     .await
-    .unwrap_or_else(|error| panic!("read unknown-delete capture time: {error}"))
+    .unwrap_or_else(|error| panic!("read provider delete barrier: {error}"))
 }
 
 async fn provider_source_order_head(

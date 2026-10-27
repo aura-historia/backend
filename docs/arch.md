@@ -743,7 +743,7 @@ They belong to service crates or a small shared application crate for genuinely 
 
 Webhook verification MUST happen in a provider adapter behind a service-owned port and authenticate the original request before parsing. The transport owns acknowledgement; the service owns event meaning, durable receipts, idempotency, and application-state decisions.
 
-- Processing MUST deduplicate by provider delivery identity, reject reuse with different content, and distinguish provider event time from receipt time.
+- Processing MUST deduplicate by provider delivery identity, reject reuse with different content, and distinguish provider event time from receipt time. A provider whose delivery identifiers are not unique per delivery (for example, WooCommerce derives them from the webhook and the current second) binds its receipt identity to the content digest instead, so reuse with different content is a new observation ordered by provider event time.
 - Unverifiable or malformed input MUST fail closed. Authenticated events outside supported application semantics MAY be ignored; provider-supplied identity MUST NOT be trusted as local user identity.
 - Subscription, opt-out, bounce, and complaint remain distinct facts. Events and account/profile lifecycle changes MUST NOT by themselves grant consent.
 - Errors and logs MUST NOT expose signing material, signatures, or sensitive webhook content.

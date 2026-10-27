@@ -228,7 +228,8 @@ where
 #[derive(Default)]
 pub struct FifoBatchOutcome {
     pub response: SqsBatchResponse,
-    /// Records retained without being started, in batch order. Every one is also a failure.
+    /// Records retained without an attempt because an unfinished record of their group, or an
+    /// exhausted budget, came first; in batch order. Every one is also a failure.
     pub unprocessed_message_ids: Vec<String>,
 }
 
@@ -506,6 +507,28 @@ mod tests {
         assert_eq!(failed(outcome.response), ["a2", "a3"]);
         assert_eq!(outcome.unprocessed_message_ids, ["a3"]);
         assert_eq!(*started.lock().unwrap(), ["ok", "retry", "ok", "ok"]);
+    }
+
+    #[tokio::test]
+    async fn should_retain_only_the_timed_out_group_while_budget_remains() {
+        let outcome = process_fifo_batch(
+            grouped_event(&[("a1", "a", "wait"), ("b1", "b", "ok"), ("a2", "a", "ok")]),
+            Duration::from_secs(1),
+            Duration::from_millis(5),
+            |body| async move {
+                if body == "wait" {
+                    std::future::pending::<bool>().await
+                } else {
+                    true
+                }
+            },
+            |attempt| matches!(attempt.outcome, RecordOutcome::Completed(true)),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(failed(outcome.response), ["a1", "a2"]);
+        assert_eq!(outcome.unprocessed_message_ids, ["a2"]);
     }
 
     #[tokio::test]

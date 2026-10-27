@@ -130,13 +130,11 @@ async fn should_admit_signed_woocommerce_product_without_synchronous_capture() {
             .as_ref()
             .ok_or("missing provider receipt")?;
         assert_eq!("product.created", receipt.scope().as_str());
+        // The receipt identity digests the delivery ID with the evidence, which WooCommerce
+        // delivery IDs alone cannot distinguish.
+        assert!(receipt.delivery_id().starts_with("woocommerce-"));
+        assert_ne!("delivery-1", receipt.delivery_id());
         let digest = SourcePayload::new(expected_source_payload.clone())?.canonical_sha256()?;
-        let digest_hex: String = digest
-            .as_bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        assert_eq!(format!("delivery-1#{digest_hex}"), receipt.delivery_id());
         assert_eq!(
             digest.as_bytes(),
             receipt.source_evidence_sha256().as_bytes()

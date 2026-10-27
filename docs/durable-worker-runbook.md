@@ -149,8 +149,9 @@ Archive-destination failure also needs investigation—an error does not prove a
 
 Workers use partial batch responses. Only confirmed complete records acknowledge; setup,
 wire, timeout/panic, dependency, active-claim and uncertain-effect failures retain custody.
-FIFO processing stops at the first incomplete record and reports every unprocessed
-successor, even across groups. Partial failures need not increment Lambda `Errors`;
+An incomplete FIFO record retains every later record of its message group unstarted;
+other groups in the batch continue. Records without a group ID, and records after an
+exhausted invocation budget, are all retained. Partial failures need not increment Lambda `Errors`;
 monitor outcome counts, age/backlog, DLQs and provider failures too.
 
 For recovery:
@@ -188,9 +189,10 @@ writes, normalization or manually reintroduced work. Pause producers/consumption
 an explicit backlog and retention plan; do not discard messages to stop traffic.
 
 Deploy the receipt schema, retained queue pair and compatible consumer before enabling
-producers. Apply the provider delete-barrier migration before the consumer that reads it; an
-older consumer that records a timestamp-free delete after the migration fails closed and is
-retried by its successor. Verify actual IAM/private SQS and database access, published
+producers. Deploy the consumer that reads the provider delete-barrier column immediately
+after its migration: an older consumer cannot record a timestamp-free delete once the
+migration ran, so such deletes stay retained until the new consumer runs and reach the DLQ
+if that takes longer than the retry budget. Verify actual IAM/private SQS and database access, published
 mapping, partial failure behavior, retry/DLQ transfer and bounded concurrency. Keep
 acceptance fixtures isolated and record admissions, committed receipts and normalization
 separately.
@@ -212,8 +214,9 @@ pausing shared consumption requires a separate retention plan.
 Verify the API's stage-local FIFO URL/send grant and compatible consumer before forwarding.
 Use isolated exact-byte signed probes with valid partner/source authorization. Authorized
 ignored inputs produce no command/receipt; a mapped `204` means confirmed admission only.
-Deterministic receipt/order rejections are logged and alarmed instead of retried; technical
-capture failures can still reach the FIFO DLQ without a provider retry.
+Deterministic source-order rejections are logged and alarmed instead of retried; receipt
+identity conflicts and technical capture failures can still reach the FIFO DLQ without a
+provider retry.
 
 After an uncertain HTTP reply, preserve signed bytes, source, topic, caller and delivery ID.
 Without a provider delivery ID, the original command identity may not be recoverable. Inspect

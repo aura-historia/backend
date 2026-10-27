@@ -77,10 +77,13 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   are independent of downstream normalization and projection.
 - Provider observations of one source record are ordered by provider source time. An
   older observation completes as stale. Provider clocks are often second-precise, so
-  distinct observations with an equal source time keep FIFO admission order: the later
-  one is captured. A delete without a source time records its capture time as an upper
-  bound: only an upsert with a later source time provably follows it and may restore the
-  listing; an earlier one completes as stale and a timestamp-free upsert is rejected.
+  distinct observations with an equal source time keep FIFO admission order, except that
+  an upsert never overtakes a delete with the same source time. A delete without a source
+  time sets a barrier at the later of its capture time and every source time already known
+  for the record; only an observation with a later source time moves past it, earlier ones
+  complete as stale and a timestamp-free upsert is rejected. The barrier compares provider
+  and database clocks: provider skew can delay a restore until the next edit, or let an
+  update older than the delete by less than the skew restore the listing.
 
 ## Geography dependency invalidation
 

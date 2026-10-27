@@ -34,6 +34,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 const PAYLOAD_SCHEMA_VERSION: u16 = 1;
 const DELETE_BASE_URL: &str = "https://woocommerce.invalid/";
 const SUBMISSION_IDENTITY_DOMAIN: &str = "aura.woocommerce.ingestion.delivery.v2";
+const RECEIPT_IDENTITY_DOMAIN: &str = "aura.woocommerce.receipt.delivery.v1";
 /// Descriptions never update Aura's canonical description, and WooCommerce samples
 /// `related_ids` randomly on every delivery, so none of them are source evidence.
 const OMITTED_SOURCE_FIELDS: [&str; 3] = ["description", "short_description", "related_ids"];
@@ -523,7 +524,7 @@ fn provider_receipt(
         .map_err(WoocommerceWebhookIntakeError::InvalidProviderReceiptScope)?;
     let receipt = ProductListingRawProviderReceipt::new(
         scope,
-        receipt_delivery_id(delivery_id, source_evidence_sha256),
+        receipt_delivery_id(delivery_id, source_evidence_sha256)?,
         *source_evidence_sha256,
     )
     .map_err(WoocommerceWebhookIntakeError::InvalidProviderReceiptDeliveryId)?;
@@ -531,11 +532,21 @@ fn provider_receipt(
     Ok(Some(receipt))
 }
 
-fn receipt_delivery_id(delivery_id: &str, source_evidence_sha256: &SourceEvidenceSha256) -> String {
-    format!(
-        "{delivery_id}#{}",
-        lower_hex(source_evidence_sha256.as_bytes())
-    )
+/// A fixed-length digest, so every delivery ID the header accepts still fits the receipt.
+fn receipt_delivery_id(
+    delivery_id: &str,
+    source_evidence_sha256: &SourceEvidenceSha256,
+) -> Result<String, WoocommerceWebhookIntakeError> {
+    let identity = SourcePayload::new(json!({
+        "domain": RECEIPT_IDENTITY_DOMAIN,
+        "deliveryId": delivery_id,
+        "sourceEvidenceSha256": lower_hex(source_evidence_sha256.as_bytes()),
+    }))
+    .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
+    let digest = identity
+        .canonical_sha256()
+        .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?;
+    Ok(format!("woocommerce-{}", lower_hex(digest.as_bytes())))
 }
 
 fn parse_source_occurred_at(
@@ -1166,10 +1177,10 @@ mod tests {
             .ok_or_else(|| std::io::Error::other("provider receipt is missing"))?;
         assert_eq!("product.updated", receipt.scope().as_str());
         assert_eq!(
-            format!(
-                "delivery-42#{}",
-                lower_hex(&expected_source_evidence_sha256)
-            ),
+            receipt_delivery_id(
+                "delivery-42",
+                &SourceEvidenceSha256::new(expected_source_evidence_sha256)
+            )?,
             receipt.delivery_id()
         );
         assert_eq!(
@@ -1406,12 +1417,25 @@ mod tests {
             let receipt = provider_receipt(kind, Some("delivery-42"), &evidence)?
                 .ok_or_else(|| std::io::Error::other("provider receipt is missing"))?;
             assert_eq!(topic, receipt.scope().as_str());
-            assert_eq!(
-                format!("delivery-42#{}", "05".repeat(32)),
-                receipt.delivery_id()
-            );
             assert_eq!(&evidence, receipt.source_evidence_sha256());
         }
+
+        let identity = receipt_delivery_id("delivery-42", &evidence)?;
+        assert_eq!(identity, receipt_delivery_id("delivery-42", &evidence)?);
+        assert_ne!(identity, receipt_delivery_id("delivery-43", &evidence)?);
+        assert_ne!(
+            identity,
+            receipt_delivery_id("delivery-42", &SourceEvidenceSha256::new([6; 32]))?
+        );
+        // Every delivery ID the header accepts still yields a valid receipt.
+        let longest = "d".repeat(512);
+        let receipt = provider_receipt(
+            WoocommerceProductEventKind::Update,
+            Some(&longest),
+            &evidence,
+        )?
+        .ok_or_else(|| std::io::Error::other("provider receipt is missing"))?;
+        assert_eq!(identity.len(), receipt.delivery_id().len());
 
         Ok(())
     }

@@ -307,11 +307,11 @@ impl ProductListingIngestionError {
                 | CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul
                 | CaptureProductListingRawObservationError::InvalidInput { .. }
                 | CaptureProductListingRawObservationError::ListingSourceNotFound
-                | CaptureProductListingRawObservationError::ProviderReceiptDigestConflict
                 | CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => true,
                 CaptureProductListingRawObservationError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | CaptureProductListingRawObservationError::PartnerAuthorizationInternal { .. }
                 | CaptureProductListingRawObservationError::SourceRecordKeyHashCollision
+                | CaptureProductListingRawObservationError::ProviderReceiptDigestConflict
                 | CaptureProductListingRawObservationError::BeginTransactionFailed(_)
                 | CaptureProductListingRawObservationError::CaptureFailed { .. }
                 | CaptureProductListingRawObservationError::CommitTransactionFailed(_) => false,
@@ -320,8 +320,9 @@ impl ProductListingIngestionError {
     }
 }
 
-/// A shipping import that current shipping state deterministically rejects. A catalog
-/// dependency that has not arrived yet, and storage or transaction failures, keep retry custody.
+/// A shipping import that current shipping state deterministically rejects. Key reuse with
+/// different content, a catalog dependency that has not arrived yet, and storage or transaction
+/// failures keep retry custody.
 fn is_shipping_import_rejection(error: &shipping_service::ShippingError) -> bool {
     use shipping_service::ShippingError;
     match error {
@@ -334,16 +335,18 @@ fn is_shipping_import_rejection(error: &shipping_service::ShippingError) -> bool
         | ShippingError::LocationRetired
         | ShippingError::StaleRevision
         | ShippingError::InvalidRevision
-        | ShippingError::CreationKeyConflict
         | ShippingError::ImportAuthorityStale
         | ShippingError::ImportOwnershipConflict
-        | ShippingError::ImportRequestConflict
         | ShippingError::ImportOutOfOrder
         | ShippingError::ImportIdentityExists
         | ShippingError::InvalidInput
         | ShippingError::InvalidTerms(_)
         | ShippingError::Profile(_) => true,
-        ShippingError::ImportDependencyMissing
+        // A key reused with different content is an identity conflict, like a command
+        // fingerprint conflict, and keeps queue custody for investigation.
+        ShippingError::CreationKeyConflict
+        | ShippingError::ImportRequestConflict
+        | ShippingError::ImportDependencyMissing
         | ShippingError::RevisionExhausted
         | ShippingError::PersistenceUnavailable { .. }
         | ShippingError::CorruptShippingState { .. }
@@ -691,6 +694,15 @@ mod diagnostic_tests {
             ProductListingIngestionError::CaptureRaw(
                 CaptureProductListingRawObservationError::SourceRecordKeyHashCollision,
             ),
+            ProductListingIngestionError::CaptureRaw(
+                CaptureProductListingRawObservationError::ProviderReceiptDigestConflict,
+            ),
+            ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
+                shipping_service::ShippingError::ImportRequestConflict,
+            )),
+            ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
+                shipping_service::ShippingError::CreationKeyConflict,
+            )),
         ];
 
         for error in rejections {
