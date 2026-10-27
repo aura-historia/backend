@@ -73,9 +73,15 @@ async fn should_extract_an_unchanged_page_when_the_extractor_version_was_raised(
     let id = listing_source_id();
     let previous_version = EXTRACTOR_VERSION - 1;
 
-    let scraped = scrape_unchanged_page(id, scraper_context_fingerprint(previous_version, id), 0)
-        .await
-        .unwrap_or_else(|| panic!("a raised extractor version must extract the page again"));
+    let scraped = scrape_page(
+        id,
+        &sample_html(),
+        sample_html(),
+        scraper_context_fingerprint(previous_version, id),
+        0,
+    )
+    .await
+    .unwrap_or_else(|| panic!("a raised extractor version must extract the page again"));
 
     assert_eq!(
         scraped.schema_fingerprint,
@@ -88,8 +94,14 @@ async fn should_extract_an_unchanged_page_when_the_extractor_version_was_raised(
 async fn should_skip_an_unchanged_page_when_the_extractor_version_is_unchanged() {
     let id = listing_source_id();
 
-    let scraped =
-        scrape_unchanged_page(id, scraper_context_fingerprint(EXTRACTOR_VERSION, id), 1).await;
+    let scraped = scrape_page(
+        id,
+        &sample_html(),
+        sample_html(),
+        scraper_context_fingerprint(EXTRACTOR_VERSION, id),
+        1,
+    )
+    .await;
 
     assert!(scraped.is_none());
 }
@@ -106,21 +118,22 @@ fn scraper_context_fingerprint(
     .unwrap_or_else(|error| panic!("test schema must serialize: {error}"))
 }
 
-/// Scrapes [`sample_html`] under its cached schema set, both unchanged since the scrape that
-/// stored `stored_fingerprint`, and expects the fast path to touch the URL `fast_path_touches`
-/// times.
-async fn scrape_unchanged_page(
+/// Scrapes `fetched_html` under the cached schema set, after a scrape that stored the hash of
+/// `stored_html` and `stored_fingerprint`, and expects the fast path to touch the URL
+/// `fast_path_touches` times.
+async fn scrape_page(
     listing_source_id: ListingSourceId,
+    stored_html: &str,
+    fetched_html: String,
     stored_fingerprint: String,
     fast_path_touches: usize,
 ) -> Option<ScrapedProduct> {
     let url = product_url();
-    let stored_html = sample_html();
-    let stored_hash = hash_main_fragment(&stored_html).unwrap_or_else(|| hash_html(&stored_html));
+    let stored_hash = hash_main_fragment(stored_html).unwrap_or_else(|| hash_html(stored_html));
 
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
-        let html = stored_html.clone();
+        let html = fetched_html.clone();
         Box::pin(async move { Ok(fetch_result(html)) })
     });
     let schema = listing_source_product_schemas(listing_source_id);
@@ -154,5 +167,5 @@ async fn scrape_unchanged_page(
         })
         .await
         .result
-        .unwrap_or_else(|error| panic!("scraping an unchanged page must succeed: {error}"))
+        .unwrap_or_else(|error| panic!("scraping the page must succeed: {error}"))
 }

@@ -99,6 +99,38 @@ impl ScraperServiceImpl {
         }
     }
 
+    /// Records a scrape that skipped extraction because neither the page nor the scraper
+    /// context changed since the last scrape. A failed write only delays the next scrape's
+    /// skip, so it is logged instead of failing the scrape.
+    async fn touch_unchanged_page(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        page_hash: &str,
+        schema_fingerprint: &str,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) {
+        match self
+            .candidate_service
+            .touch_scraped(
+                listing_source_id,
+                url,
+                page_hash,
+                schema_fingerprint,
+                expected_last_captured_raw_input_sha256,
+            )
+            .await
+        {
+            Ok(CrawlerUrlWriteOutcome::Applied) => {}
+            Ok(CrawlerUrlWriteOutcome::NoopStale) => {
+                debug!("Skipped stale page/schema fast-path completion");
+            }
+            Err(error) => {
+                warn!(error = %error, "Failed to touch URL after page/schema fast-path skip");
+            }
+        }
+    }
+
     #[allow(clippy::result_large_err)]
     async fn removed_page_schemas_for(
         &self,
@@ -509,25 +541,14 @@ impl ScraperServiceImpl {
             && last_scraped_schema_fingerprint == Some(stored_schema_fingerprint.as_str())
         {
             debug!("Page and schema fingerprints match; skipping extraction.");
-            match self
-                .candidate_service
-                .touch_scraped(
-                    listing_source_id,
-                    url,
-                    &current_hash,
-                    &stored_schema_fingerprint,
-                    expected_last_captured_raw_input_sha256,
-                )
-                .await
-            {
-                Ok(CrawlerUrlWriteOutcome::Applied) => {}
-                Ok(CrawlerUrlWriteOutcome::NoopStale) => {
-                    debug!("Skipped stale page/schema fast-path completion");
-                }
-                Err(error) => {
-                    warn!(error = %error, "Failed to touch URL after page/schema fast-path skip");
-                }
-            }
+            self.touch_unchanged_page(
+                listing_source_id,
+                url,
+                &current_hash,
+                &stored_schema_fingerprint,
+                expected_last_captured_raw_input_sha256,
+            )
+            .await;
             return Ok(None);
         }
 
