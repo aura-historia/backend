@@ -235,15 +235,6 @@ async fn main() {
 // Database helpers
 // ---------------------------------------------------------------------------
 
-/// Runs `docker compose up -d` from the crawler crate directory.
-///
-/// `docker compose up -d` is idempotent:
-/// - Container already running → no-op, returns immediately.
-/// - Container exists but is stopped → restarts it.
-/// - Container does not exist → creates and starts it.
-///
-/// The compose file path is baked in via `CARGO_MANIFEST_DIR` so this works
-/// regardless of the working directory when `cargo run` is invoked.
 /// Attempts to connect to Postgres, retrying with exponential back-off.
 /// This handles the window between `docker compose up -d` returning and
 /// Postgres actually accepting connections.
