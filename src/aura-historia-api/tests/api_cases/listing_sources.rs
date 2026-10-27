@@ -1060,6 +1060,45 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_create_listing_source_without_ingestion_configuration() {
+    let party_id = seed_party("Unconfigured Listing Source Operator", None, None).await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = String::from(listing_sources_token(admin_id).await);
+    let client = reqwest::Client::new();
+    let url = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
+
+    let response = client
+        .post(&url)
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "name": "Unconfigured Listing Source",
+            "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
+            "ingestionConfiguration": []
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create unconfigured listing source: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::CREATED, status);
+    let source_id = body["listingSourceId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("created response has no listing source ID"));
+
+    let response = client
+        .get(&url)
+        .bearer_auth(token)
+        .query(&[("listingSourceId", source_id)])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to read unconfigured listing source: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
+    assert_eq!(json!("Unconfigured Listing Source"), body["items"][0]["name"]);
+    assert_eq!(json!([]), body["items"][0]["ingestionMethods"]);
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_reject_noncanonical_party_ids_in_listing_source_body() {
     let admin_id = seed_user("ADMIN").await;
     let token = listing_sources_token(admin_id).await;
