@@ -5515,7 +5515,8 @@ paths:
         `query` performs a case-insensitive substring search across the ListingSource name and
         stable slug, and also the operator Party name and slug. `name` restricts the substring
         match to the ListingSource name. `listingSourceId` and `listingSourceSlugId` are exact
-        identity filters. `operatorPartyId` and `ingestionMethod` are exact filters.
+        identity filters. `operatorPartyId`, `ingestionMethod`, and `platformTechnology` are exact filters
+        and can be combined. Platform technology is descriptive metadata independent of ingestion.
 
         Results use deterministic cursor pagination. The default sort is `name` ascending;
         override it by providing both `sort` and `order`. Valid sort fields are `name`, `slug`,
@@ -5525,7 +5526,7 @@ paths:
         Responses always use `Cache-Control: no-store`.
 
         The result contains only safe business-resource fields: ListingSource identity and name,
-        operator Party reference, active ingestion methods, presentation URLs, and referral summary.
+        operator Party reference, active ingestion methods, optional platform technology, presentation URLs, and referral summary.
         Provider credentials, webhook secrets, and crawler-local configuration are never returned.
       operationId: adminSearchListingSources
       tags:
@@ -5576,6 +5577,13 @@ paths:
           schema:
             $ref: "#/components/schemas/ListingIngestionMethodData"
           example: PARTNER_API
+        - name: platformTechnology
+          in: query
+          required: false
+          description: Optional exact platform code filter, combinable with all other filters. Use reusable SCREAMING_SNAKE_CASE codes.
+          schema:
+            $ref: "#/components/schemas/PlatformTechnology"
+          example: BIGCOMMERCE
         - name: sort
           in: query
           required: false
@@ -24459,6 +24467,17 @@ components:
         searchAfter:
           type: string
           description: Opaque continuation, omitted on a terminal page.
+    PlatformTechnology:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$'
+      description: >-
+        Open platform code in ASCII SCREAMING_SNAKE_CASE. Reuse established codes such as
+        SHOPIFY, WOOCOMMERCE, BIGCOMMERCE, or SHOPWARE; other well-formed codes are accepted.
+        Descriptive admin-only metadata, independent of ingestion configuration. Recording a
+        platform does not enable ingestion or imply an installed app or Partnership.
+      example: SHOPIFY
     ListingSourceData:
       type: object
       required:
@@ -24479,6 +24498,10 @@ components:
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         operator:
           $ref: "#/components/schemas/OperatorPartyData"
+        platformTechnology:
+          allOf:
+            - $ref: "#/components/schemas/PlatformTechnology"
+          description: Recorded platform code, omitted when no platform is recorded.
         ingestionMethods:
           type: array
           items:
@@ -24571,6 +24594,10 @@ components:
           description: ListingSource name.
         operator:
           $ref: "#/components/schemas/OperatorPartyData"
+        platformTechnology:
+          allOf:
+            - $ref: "#/components/schemas/PlatformTechnology"
+          description: Recorded platform code, omitted when no platform is recorded.
         ingestionMethods:
           type: array
           items:
@@ -24766,6 +24793,11 @@ components:
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         operator:
           $ref: "#/components/schemas/ListingSourceOperatorInputData"
+        platformTechnology:
+          allOf:
+            - $ref: "#/components/schemas/PlatformTechnology"
+          nullable: true
+          description: Optional platform code; omission or null records no platform.
         ingestionConfiguration:
           type: array
           items:
@@ -24832,11 +24864,16 @@ components:
     UpdateListingSourceData:
       type: object
       additionalProperties: false
-      description: Omitted fields are unchanged. `null` clears only `url`, `image`, and `referralConfiguration`. Supplying ingestionConfiguration replaces the whole configuration list; a WooCommerce secret may be omitted only when preserving an existing WooCommerce configuration.
+      description: Omitted fields are unchanged. `null` clears only `url`, `image`, `platformTechnology`, and `referralConfiguration`. Supplying ingestionConfiguration replaces the whole configuration list; a WooCommerce secret may be omitted only when preserving an existing WooCommerce configuration.
       properties:
         name:
           type: string
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
+        platformTechnology:
+          allOf:
+            - $ref: "#/components/schemas/PlatformTechnology"
+          nullable: true
+          description: Omission preserves the platform, null clears it, and a code replaces it.
         ingestionConfiguration:
           type: array
           items:

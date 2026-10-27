@@ -10,7 +10,8 @@ use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::sort::Sort;
 use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
-    ListingSourceSearch, ListingSourceSlugId, ReferralConfiguration, SortListingSourceField,
+    ListingSourceSearch, ListingSourceSlugId, PlatformTechnology, ReferralConfiguration,
+    SortListingSourceField,
 };
 use party_core::{party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId};
 use time::OffsetDateTime;
@@ -38,6 +39,7 @@ pub struct ListingSourceSearchSummary {
     pub listing_source_slug_id: ListingSourceSlugId,
     pub name: ListingSourceName,
     pub operator: ListingSourceOperatorSummary,
+    pub platform_technology: Option<PlatformTechnology>,
     pub ingestion_methods: std::collections::HashSet<ListingIngestionMethod>,
     pub presentation: ListingSourcePresentation,
     pub referral_configuration: Option<ReferralConfiguration>,

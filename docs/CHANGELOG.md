@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-27 — ListingSource platform technology (#2567)
+
+- Admin ListingSource create, PATCH, details, and search support optional `platformTechnology` metadata and an exact search filter. Codes are open ASCII SCREAMING_SNAKE_CASE strings of 1–64 characters; reuse codes such as `SHOPIFY`, `WOOCOMMERCE`, `BIGCOMMERCE`, and `SHOPWARE`.
+- Creation omission or null records no platform; PATCH omission preserves it, null clears it, and a code replaces it. Reads omit absent values. Existing sources remain unset. Platform metadata is independent of ingestion configuration and is excluded from public and partner representations.
+
 ## 2026-10-27 — Unprocessable queued listing commands no longer stall their listing (#2548)
 
 - A queued listing command that can never apply as delivered (an unreadable command, a command or WooCommerce delivery identity reused for different content, or invalid stored state) is now set aside for operator review when it is delivered again, about 4.5 minutes later, instead of being retried for about 22 minutes. Later commands for the same listing or WooCommerce product wait behind it for at most that long, and are no longer set aside unapplied when they were queued together with it. A later command that depends on a set-aside one, such as an update after a set-aside create, is rejected as for a missing listing. Admission responses are unchanged.

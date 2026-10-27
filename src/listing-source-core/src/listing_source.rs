@@ -6,8 +6,8 @@ use url::Url;
 
 use crate::{
     InvalidListingSourceSlug, ListingIngestionMethod, ListingSourceId, ListingSourceName,
-    ListingSourceNameError, ListingSourceSlugId, ReferralConfiguration, ReferralUrlError,
-    outbound_url,
+    ListingSourceNameError, ListingSourceSlugId, PlatformTechnology, PlatformTechnologyError,
+    ReferralConfiguration, ReferralUrlError, outbound_url,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -23,6 +23,7 @@ pub struct NewListingSource {
     pub operator_party_id: PartyId,
     pub ingestion_methods: HashSet<ListingIngestionMethod>,
     pub presentation: ListingSourcePresentation,
+    pub platform_technology: Option<PlatformTechnology>,
     pub referral_configuration: Option<ReferralConfiguration>,
 }
 
@@ -35,6 +36,7 @@ pub struct RehydratedListingSourceState {
     pub operator_party_id: PartyId,
     pub ingestion_methods: HashSet<ListingIngestionMethod>,
     pub presentation: ListingSourcePresentation,
+    pub platform_technology: Option<String>,
     pub referral_configuration: Option<ReferralConfiguration>,
 }
 
@@ -44,6 +46,8 @@ pub enum RehydrateListingSourceError {
     InvalidSlug(#[source] InvalidListingSourceSlug),
     #[error("invalid persisted listing source name")]
     InvalidName(#[source] ListingSourceNameError),
+    #[error("invalid persisted platform technology")]
+    InvalidPlatformTechnology(#[source] PlatformTechnologyError),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +58,7 @@ pub struct ListingSource {
     operator_party_id: PartyId,
     ingestion_methods: HashSet<ListingIngestionMethod>,
     presentation: ListingSourcePresentation,
+    platform_technology: Option<PlatformTechnology>,
     referral_configuration: Option<ReferralConfiguration>,
 }
 
@@ -67,6 +72,7 @@ impl ListingSource {
             operator_party_id: input.operator_party_id,
             ingestion_methods: input.ingestion_methods,
             presentation: input.presentation,
+            platform_technology: input.platform_technology,
             referral_configuration: input.referral_configuration,
         }
     }
@@ -84,6 +90,11 @@ impl ListingSource {
             operator_party_id: state.operator_party_id,
             ingestion_methods: state.ingestion_methods,
             presentation: state.presentation,
+            platform_technology: state
+                .platform_technology
+                .map(PlatformTechnology::try_from)
+                .transpose()
+                .map_err(RehydrateListingSourceError::InvalidPlatformTechnology)?,
             referral_configuration: state.referral_configuration,
         })
     }
@@ -104,6 +115,13 @@ impl ListingSource {
         presentation: ListingSourcePresentation,
     ) -> ChangeOutcome {
         replace(&mut self.presentation, presentation)
+    }
+
+    pub fn replace_platform_technology(
+        &mut self,
+        platform: Option<PlatformTechnology>,
+    ) -> ChangeOutcome {
+        replace(&mut self.platform_technology, platform)
     }
 
     pub fn replace_referral_configuration(
@@ -139,6 +157,10 @@ impl ListingSource {
 
     pub fn presentation(&self) -> &ListingSourcePresentation {
         &self.presentation
+    }
+
+    pub fn platform_technology(&self) -> Option<&PlatformTechnology> {
+        self.platform_technology.as_ref()
     }
 
     pub fn referral_configuration(&self) -> Option<&ReferralConfiguration> {
@@ -177,6 +199,7 @@ mod tests {
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
             referral_configuration: None,
         });
 
@@ -204,6 +227,7 @@ mod tests {
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
             referral_configuration: None,
         });
 
@@ -222,6 +246,7 @@ mod tests {
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
             referral_configuration: None,
         };
 
@@ -237,12 +262,34 @@ mod tests {
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
             referral_configuration: None,
         };
 
         assert!(matches!(
             ListingSource::rehydrate(state),
             Err(RehydrateListingSourceError::InvalidName(_))
+        ));
+    }
+
+    #[test]
+    fn should_reject_noncanonical_persisted_platform_technology() {
+        let state = RehydratedListingSourceState {
+            id: ListingSourceId::new(),
+            slug_id: "historic-source".to_owned(),
+            name: "Historic Source".to_owned(),
+            operator_party_id: PartyId::new(),
+            ingestion_methods: HashSet::new(),
+            presentation: ListingSourcePresentation::default(),
+            platform_technology: Some("shopify".to_owned()),
+            referral_configuration: None,
+        };
+
+        assert!(matches!(
+            ListingSource::rehydrate(state),
+            Err(RehydrateListingSourceError::InvalidPlatformTechnology(
+                PlatformTechnologyError::InvalidIdentifier
+            ))
         ));
     }
 }

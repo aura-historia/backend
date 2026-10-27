@@ -11,7 +11,7 @@ use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
 use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceSearch, ListingSourceSlugId,
-    SortListingSourceField,
+    PlatformTechnology, SortListingSourceField,
 };
 use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesRequest;
 use party_core::party_id::PartyId;
@@ -32,6 +32,8 @@ struct SearchListingSourcesQuery {
     operator_party_id: Option<String>,
     #[serde(default)]
     ingestion_method: Option<String>,
+    #[serde(default)]
+    platform_technology: Option<String>,
     #[serde(default)]
     sort: Option<String>,
     #[serde(default)]
@@ -82,6 +84,13 @@ fn parse_search_listing_sources_query(
         )?,
         operator_party_id: parse_party_id(query.operator_party_id, "operatorPartyId")?,
         ingestion_method: parse_ingestion_method(query.ingestion_method)?,
+        platform_technology: query
+            .platform_technology
+            .map(|value| {
+                PlatformTechnology::try_from(value)
+                    .map_err(|error| bad_query("platformTechnology", error))
+            })
+            .transpose()?,
     };
     let sort = parse_sort(query.sort.as_deref(), query.order.as_deref())?;
     let cursor = parse_cursor(query.size.as_deref(), query.search_after.as_deref())?;
@@ -217,7 +226,7 @@ mod tests {
         let listing_source_id = ListingSourceId::new();
         let operator_party_id = PartyId::new();
         let request = parse_search_listing_sources_query(Some(&format!(
-            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&ingestionMethod=SHOPIFY&sort=created&order=desc&size=200&searchAfter={listing_source_id}"
+            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&sort=created&order=desc&size=200&searchAfter={listing_source_id}"
         )))?;
 
         assert_eq!(Some("operator"), request.search.query.as_deref());
@@ -231,6 +240,14 @@ mod tests {
             request.search.listing_source_slug_id
         );
         assert_eq!(Some(operator_party_id), request.search.operator_party_id);
+        assert_eq!(
+            Some("CUSTOM_PLATFORM_2"),
+            request
+                .search
+                .platform_technology
+                .as_ref()
+                .map(AsRef::as_ref)
+        );
         assert_eq!(
             Some(ListingIngestionMethod::Shopify),
             request.search.ingestion_method
@@ -273,6 +290,8 @@ mod tests {
             "listingSourceSlugId=Not-A-Slug",
             "operatorPartyId=not-an-object-id",
             "ingestionMethod=UNKNOWN",
+            "platformTechnology=shopify",
+            "platformTechnology=",
         ] {
             assert!(
                 parse_search_listing_sources_query(Some(query)).is_err(),

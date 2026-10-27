@@ -38,6 +38,7 @@ pub async fn update_listing_source(
         ingestion_configuration: parts.ingestion_configuration,
         url: parts.url,
         image: parts.image,
+        platform_technology: parts.platform_technology,
         referral_configuration: parts.referral_configuration,
     };
 

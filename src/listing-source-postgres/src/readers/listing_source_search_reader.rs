@@ -5,7 +5,8 @@ use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::{
     InvalidListingIngestionMethod, InvalidListingSourceSlug, ListingSourceId, ListingSourceName,
     ListingSourcePresentation, ListingSourceSearch, ListingSourceSlugId, PartnerizeCamref,
-    PartnerizeCamrefError, ReferralConfiguration, SortListingSourceField,
+    PartnerizeCamrefError, PlatformTechnology, PlatformTechnologyError, ReferralConfiguration,
+    SortListingSourceField,
 };
 use listing_source_service::ports::{
     ListingSourceSearchReadError, ListingSourceSearchReader, ListingSourceSearchReaderFactory,
@@ -57,6 +58,7 @@ struct ListingSourceSearchRow {
     operator_party_slug_id: String,
     operator_party_name: String,
     ingestion_methods: Vec<String>,
+    platform_technology: Option<String>,
     url: Option<String>,
     image: Option<String>,
     referral_configuration: Option<serde_json::Value>,
@@ -76,6 +78,8 @@ enum ListingSourceSearchRowMappingError {
     ListingSourceName(#[source] listing_source_core::ListingSourceNameError),
     #[error("invalid listing source ingestion method")]
     IngestionMethod(#[source] InvalidListingIngestionMethod),
+    #[error("invalid platform technology persisted")]
+    PlatformTechnology(#[source] PlatformTechnologyError),
     #[error("invalid listing source URL")]
     Url(#[source] url::ParseError),
     #[error("invalid listing source operator Party slug")]
@@ -107,6 +111,11 @@ impl TryFrom<ListingSourceSearchRow> for ListingSourceSearchSummary {
                 name: PartyName::try_from(row.operator_party_name)
                     .map_err(Self::Error::PartyName)?,
             },
+            platform_technology: row
+                .platform_technology
+                .map(PlatformTechnology::try_from)
+                .transpose()
+                .map_err(Self::Error::PlatformTechnology)?,
             ingestion_methods: row
                 .ingestion_methods
                 .into_iter()
@@ -178,14 +187,14 @@ impl ListingSourceSearchReader for SqlxListingSourceSearchReader<'_> {
             });
 
         let mut builder = QueryBuilder::<Postgres>::new(
-            "WITH filtered AS (SELECT s.listing_source_id, s.listing_source_slug_id, s.name AS listing_source_name, s.operator_party_id, p.party_slug_id AS operator_party_slug_id, p.name AS operator_party_name, COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS ingestion_methods, s.url, s.image, s.referral_configuration, s.created, s.updated FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id = s.listing_source_id WHERE TRUE",
+            "WITH filtered AS (SELECT s.listing_source_id, s.listing_source_slug_id, s.name AS listing_source_name, s.operator_party_id, p.party_slug_id AS operator_party_slug_id, p.name AS operator_party_name, COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS ingestion_methods, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id = s.listing_source_id WHERE TRUE",
         );
         push_filters(&mut builder, &request.search);
-        builder.push(" GROUP BY s.listing_source_id, s.listing_source_slug_id, s.name, s.operator_party_id, p.party_slug_id, p.name, s.url, s.image, s.referral_configuration, s.created, s.updated");
+        builder.push(" GROUP BY s.listing_source_id, s.listing_source_slug_id, s.name, s.operator_party_id, p.party_slug_id, p.name, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated");
         builder.push("), ranked AS (SELECT filtered.*, row_number() OVER (ORDER BY ");
         push_sort_fields(&mut builder, sort_field, sort_order);
         builder.push(
-            ", listing_source_id ASC) AS rn FROM filtered) SELECT listing_source_id, listing_source_slug_id, listing_source_name, operator_party_id, operator_party_slug_id, operator_party_name, ingestion_methods, url, image, referral_configuration, created, updated FROM ranked WHERE TRUE",
+            ", listing_source_id ASC) AS rn FROM filtered) SELECT listing_source_id, listing_source_slug_id, listing_source_name, operator_party_id, operator_party_slug_id, operator_party_name, ingestion_methods, url, image, platform_technology, referral_configuration, created, updated FROM ranked WHERE TRUE",
         );
         if let Some(search_after) = cursor.search_after {
             builder.push(" AND rn > (SELECT rn FROM ranked WHERE listing_source_id = ");
@@ -260,6 +269,11 @@ fn push_filters(builder: &mut QueryBuilder<Postgres>, search: &ListingSourceSear
             .push(" AND s.operator_party_id = ")
             .push_bind(operator_party_id.into_uuid());
     }
+    if let Some(platform) = &search.platform_technology {
+        builder
+            .push(" AND s.platform_technology = ")
+            .push_bind(platform.as_ref());
+    }
     if let Some(ingestion_method) = search.ingestion_method {
         builder.push(" AND EXISTS (SELECT 1 FROM listing_source_ingestion_methods filter_method WHERE filter_method.listing_source_id = s.listing_source_id AND filter_method.ingestion_method = ");
         builder.push_bind(ingestion_method.as_str());
@@ -315,6 +329,7 @@ mod tests {
             operator_party_slug_id: "operator".to_owned(),
             operator_party_name: "Operator".to_owned(),
             ingestion_methods: Vec::new(),
+            platform_technology: None,
             url: None,
             image: None,
             referral_configuration: None,
@@ -367,5 +382,12 @@ mod tests {
         ] {
             assert!(parse_referral_configuration(Some(value)).is_err());
         }
+    }
+
+    #[test]
+    fn should_reject_noncanonical_persisted_platform_technology() {
+        let mut invalid = row(uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+        invalid.platform_technology = Some("shopify".to_owned());
+        assert!(ListingSourceSearchSummary::try_from(invalid).is_err());
     }
 }

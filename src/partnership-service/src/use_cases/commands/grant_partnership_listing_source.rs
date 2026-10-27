@@ -646,6 +646,7 @@ mod tests {
                 operator_party_id,
                 ingestion_methods: std::collections::HashSet::new(),
                 presentation: ListingSourcePresentation::default(),
+                platform_technology: None,
                 referral_configuration: None,
             }),
             configuration: ListingSourceIngestionConfigurations::default(),

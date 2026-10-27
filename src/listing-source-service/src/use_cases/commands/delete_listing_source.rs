@@ -454,6 +454,7 @@ mod tests {
             operator_party_id: PartyId::new(),
             ingestion_methods: std::collections::HashSet::from([ListingIngestionMethod::WebCrawl]),
             presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
             referral_configuration: None,
         });
         StoredListingSource {

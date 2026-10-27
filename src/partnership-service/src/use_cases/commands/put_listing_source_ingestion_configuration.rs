@@ -311,6 +311,7 @@ mod tests {
                 operator_party_id: PartyId::new(),
                 ingestion_methods: Default::default(),
                 presentation: ListingSourcePresentation::default(),
+                platform_technology: None,
                 referral_configuration: None::<ReferralConfiguration>,
             }),
             configuration: ListingSourceIngestionConfigurations::default(),

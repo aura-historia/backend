@@ -6,7 +6,7 @@ use crate::{
 use application::patch_field::PatchField;
 use listing_source_core::{
     Domain, ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
-    PartnerizeCamref, ReferralConfiguration,
+    PartnerizeCamref, PlatformTechnology, ReferralConfiguration,
 };
 use listing_source_service::ports::{
     ListingIngestionConfiguration, ListingIngestionConfigurationUpdate, ListingSourceDetails,
@@ -41,6 +41,8 @@ pub(crate) struct CreateListingSourceData {
     #[serde(default)]
     pub(crate) image: Option<Url>,
     #[serde(default)]
+    pub(crate) platform_technology: Option<String>,
+    #[serde(default)]
     pub(crate) referral_configuration: Option<ReferralConfigurationData>,
 }
 
@@ -70,6 +72,10 @@ impl TryFrom<CreateListingSourceData> for CreateListingSourceCommand {
                 url: data.url,
                 image: data.image,
             },
+            platform_technology: data
+                .platform_technology
+                .map(parse_platform_technology)
+                .transpose()?,
             referral_configuration: data
                 .referral_configuration
                 .map(TryInto::try_into)
@@ -127,6 +133,8 @@ pub(crate) struct UpdateListingSourceData {
     #[serde(default)]
     pub(crate) image: PatchValue<Url>,
     #[serde(default)]
+    pub(crate) platform_technology: PatchValue<String>,
+    #[serde(default)]
     pub(crate) referral_configuration: PatchValue<ReferralConfigurationData>,
 }
 
@@ -147,6 +155,10 @@ impl UpdateListingSourceData {
             )?,
             url: clearable(self.url),
             image: clearable(self.image),
+            platform_technology: map_patch_result(
+                clearable(self.platform_technology),
+                parse_platform_technology,
+            )?,
             referral_configuration: map_patch_result(
                 clearable(self.referral_configuration),
                 TryInto::try_into,
@@ -161,6 +173,7 @@ pub(crate) struct UpdateListingSourceDataParts {
     pub(crate) ingestion_configuration: RequiredPatch<UpdateListingSourceIngestionConfigurations>,
     pub(crate) url: PatchField<Url>,
     pub(crate) image: PatchField<Url>,
+    pub(crate) platform_technology: PatchField<PlatformTechnology>,
     pub(crate) referral_configuration: PatchField<ReferralConfiguration>,
 }
 
@@ -343,6 +356,8 @@ pub(crate) struct ListingSourceData {
     listing_source_slug_id: String,
     name: String,
     operator: OperatorPartyData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    platform_technology: Option<String>,
     ingestion_methods: Vec<ListingIngestionMethodData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<Url>,
@@ -365,6 +380,9 @@ impl From<ListingSourceDetails> for ListingSourceData {
                 party_slug_id: value.operator_slug_id.to_string(),
                 name: value.operator_name.to_string(),
             },
+            platform_technology: value
+                .platform_technology
+                .map(|platform| platform.to_string()),
             ingestion_methods: methods_data(value.ingestion_methods),
             url: value.url,
             image: value.image,
@@ -408,6 +426,8 @@ pub(crate) struct ListingSourceSearchSummaryData {
     pub(crate) listing_source_slug_id: String,
     pub(crate) name: String,
     operator: OperatorPartyData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) platform_technology: Option<String>,
     pub(crate) ingestion_methods: Vec<ListingIngestionMethodData>,
     pub(crate) presentation: ListingSourcePresentationData,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -429,6 +449,9 @@ impl From<ListingSourceSearchSummary> for ListingSourceSearchSummaryData {
                 party_slug_id: value.operator.party_slug_id.to_string(),
                 name: value.operator.name.to_string(),
             },
+            platform_technology: value
+                .platform_technology
+                .map(|platform| platform.to_string()),
             ingestion_methods: methods_data(value.ingestion_methods),
             presentation: ListingSourcePresentationData {
                 url: value.presentation.url,
@@ -539,6 +562,10 @@ fn methods_data(values: HashSet<ListingIngestionMethod>) -> Vec<ListingIngestion
     let mut values = values.into_iter().collect::<Vec<_>>();
     values.sort_by_key(|value| value.as_str());
     values.into_iter().map(Into::into).collect()
+}
+
+fn parse_platform_technology(value: String) -> Result<PlatformTechnology, ApiError> {
+    PlatformTechnology::try_from(value).map_err(|_| invalid_body("platformTechnology"))
 }
 
 fn parse_currency(value: Option<String>) -> Result<Option<money::Currency>, ApiError> {
@@ -673,5 +700,65 @@ mod tests {
             configuration,
             Ok(ReferralConfiguration::Partnerize { camref }) if camref.as_ref() == "1101l3AbC"
         ));
+    }
+
+    fn create_data() -> serde_json::Value {
+        serde_json::json!({
+            "name": "Source",
+            "operator": {"type": "NEW", "name": "Operator"},
+            "ingestionConfiguration": []
+        })
+    }
+
+    #[test]
+    fn should_map_optional_platform_technology_on_create() {
+        for platform in [
+            None,
+            Some(serde_json::Value::Null),
+            Some(serde_json::json!("CUSTOM_PLATFORM_2")),
+        ] {
+            let mut body = create_data();
+            if let Some(value) = platform {
+                body["platformTechnology"] = value;
+            }
+            let data: CreateListingSourceData = serde_json::from_value(body.clone()).unwrap();
+            let command = CreateListingSourceCommand::try_from(data).unwrap();
+            assert_eq!(
+                body["platformTechnology"].as_str(),
+                command.platform_technology.as_ref().map(AsRef::as_ref)
+            );
+            assert!(command.ingestion_configuration.0.is_empty());
+        }
+    }
+
+    #[test]
+    fn should_map_platform_technology_patch_omission_null_and_value() {
+        for (body, expected) in [
+            (serde_json::json!({}), PatchField::Unchanged),
+            (
+                serde_json::json!({"platformTechnology": null}),
+                PatchField::Clear,
+            ),
+            (
+                serde_json::json!({"platformTechnology": "BIGCOMMERCE"}),
+                PatchField::Set(PlatformTechnology::try_from("BIGCOMMERCE").unwrap()),
+            ),
+        ] {
+            let data: UpdateListingSourceData = serde_json::from_value(body).unwrap();
+            assert_eq!(expected, data.into_parts().unwrap().platform_technology);
+        }
+    }
+
+    #[test]
+    fn should_reject_invalid_platform_technology_when_mapping_body() {
+        let mut body = create_data();
+        body["platformTechnology"] = serde_json::json!("shopify");
+        let create: CreateListingSourceData = serde_json::from_value(body).unwrap();
+        assert!(
+            matches!(CreateListingSourceCommand::try_from(create), Err(error) if error.code() == BAD_BODY_VALUE)
+        );
+        let update: UpdateListingSourceData =
+            serde_json::from_value(serde_json::json!({"platformTechnology": "shopify"})).unwrap();
+        assert!(matches!(update.into_parts(), Err(error) if error.code() == BAD_BODY_VALUE));
     }
 }
