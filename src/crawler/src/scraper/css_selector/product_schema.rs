@@ -220,7 +220,7 @@ impl ProductCssSelectorSchema {
     /// `source_listing_id`, which joins its text as written so a captured identity stays
     /// stable (see [`ExtractionRule::apply_as_identity`]).
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
-        let mut raw = self.extract(html)?.raw;
+        let mut raw = self.extract(html, ExtractionLogging::Log)?.raw;
         raw.images = raw
             .images
             .into_iter()
@@ -240,13 +240,19 @@ impl ProductCssSelectorSchema {
     /// validation tries in order, and the result counts the `images` elements skipped for
     /// having no value. Runtime extraction and the schema review matrix both apply a
     /// schema this way, so each rule, the `images` rule included, runs once per page.
-    pub(crate) fn extract(&self, html: &Html) -> Result<SchemaExtraction, ApplySchemaError> {
+    /// `logging` decides whether it logs the optional-field misses.
+    pub(crate) fn extract(
+        &self,
+        html: &Html,
+        logging: ExtractionLogging,
+    ) -> Result<SchemaExtraction, ApplySchemaError> {
         let source_listing_id = match &self.source_listing_id {
             None => String::new(),
             Some(rule) => tolerate_optional_miss(
                 "source_listing_id",
                 rule.apply_as_identity(html),
                 OptionalMissLog::Debug,
+                logging,
             )
             .map_err(ApplySchemaError::SourceListingId)?
             .into_iter()
@@ -259,8 +265,13 @@ impl ProductCssSelectorSchema {
         let description = match &self.description {
             None => vec![],
             Some(rule) => keep_first_occurrences(
-                tolerate_optional_miss("description", rule.apply(html), OptionalMissLog::Warn)
-                    .map_err(ApplySchemaError::Description)?,
+                tolerate_optional_miss(
+                    "description",
+                    rule.apply(html),
+                    OptionalMissLog::Warn,
+                    logging,
+                )
+                .map_err(ApplySchemaError::Description)?,
             ),
         };
 
@@ -268,10 +279,12 @@ impl ProductCssSelectorSchema {
         // checks and the raw-values patch see "no price on this page".
         let price = match &self.price {
             None => None,
-            Some(rule) => tolerate_optional_miss("price", rule.apply(html), OptionalMissLog::Warn)
-                .map_err(ApplySchemaError::Price)?
-                .into_iter()
-                .next(),
+            Some(rule) => {
+                tolerate_optional_miss("price", rule.apply(html), OptionalMissLog::Warn, logging)
+                    .map_err(ApplySchemaError::Price)?
+                    .into_iter()
+                    .next()
+            }
         };
 
         let price_estimate_min = match &self.price_estimate_min {
@@ -280,6 +293,7 @@ impl ProductCssSelectorSchema {
                 "price_estimate_min",
                 rule.apply(html),
                 OptionalMissLog::Debug,
+                logging,
             )
             .map_err(ApplySchemaError::PriceEstimateMin)?
             .into_iter()
@@ -292,6 +306,7 @@ impl ProductCssSelectorSchema {
                 "price_estimate_max",
                 rule.apply(html),
                 OptionalMissLog::Debug,
+                logging,
             )
             .map_err(ApplySchemaError::PriceEstimateMax)?
             .into_iter()
@@ -307,7 +322,7 @@ impl ProductCssSelectorSchema {
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
             let values = keep_first_occurrences(
-                tolerate_optional_miss(field, rule.apply(html), OptionalMissLog::Trace)
+                tolerate_optional_miss(field, rule.apply(html), OptionalMissLog::Trace, logging)
                     .map_err(|source| ApplySchemaError::RawAttribute {
                         field: field.clone(),
                         source,
@@ -368,6 +383,18 @@ fn keep_first_occurrences(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// Whether an extraction logs its diagnostics, the optional-field misses it tolerates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExtractionLogging {
+    /// Logs each miss at its field's [`OptionalMissLog`] level, as scraping and the
+    /// schema review matrix do.
+    Log,
+    /// Logs nothing, for the page hash, which extracts a page only to compare it with
+    /// the last scrape: an unchanged page would otherwise log its misses on every
+    /// scrape, and a changed page twice.
+    Silent,
+}
+
 /// Log level of an optional-rule miss.
 ///
 /// A soft miss no longer fails the page, so selector drift on a cached schema only
@@ -384,20 +411,23 @@ enum OptionalMissLog {
 /// Turns a miss of an optional field's rule, no matched element or only empty ones, into
 /// an empty result.
 ///
-/// The miss is still recorded as a per-field diagnostic so the scrape log explains
-/// why the field is empty, and which of the two misses it was; the page itself keeps
-/// extracting.
+/// Unless `logging` is silent, the miss is still recorded as a per-field diagnostic so
+/// the scrape log explains why the field is empty, and which of the two misses it was;
+/// the page itself keeps extracting.
 fn tolerate_optional_miss(
     field: &str,
     extraction: Result<Vec<String>, ExtractionError>,
     miss_log: OptionalMissLog,
+    logging: ExtractionLogging,
 ) -> Result<Vec<String>, ExtractionError> {
     match extraction {
         Ok(values) => Ok(values),
         Err(
             miss @ (ExtractionError::NoElementMatched { .. } | ExtractionError::EmptyValue { .. }),
         ) => {
-            log_optional_miss(field, &miss, miss_log);
+            if logging == ExtractionLogging::Log {
+                log_optional_miss(field, &miss, miss_log);
+            }
             Ok(Vec::new())
         }
         Err(err) => Err(err),
@@ -497,7 +527,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::scraper::css_selector::product_schema::{
-        ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
+        ApplySchemaError, ExtractionLogging, ProductCssSelectorSchema, RawExtractedProduct,
     };
     use crate::scraper::css_selector::rule::{
         CssSelector, ExtractionCardinality, ExtractionError, ExtractionKind, ExtractionRule,
@@ -742,7 +772,7 @@ mod tests {
             ..required_only_schema()
         };
 
-        let extraction = schema.extract(&html).unwrap();
+        let extraction = schema.extract(&html, ExtractionLogging::Log).unwrap();
 
         assert!(extraction.raw.images.is_empty());
         assert_eq!(extraction.skipped_image_elements, 2);
@@ -1718,7 +1748,7 @@ mod tests {
             ..required_only_schema()
         };
 
-        let extraction = schema.extract(&html).unwrap();
+        let extraction = schema.extract(&html, ExtractionLogging::Log).unwrap();
         let applied = schema.apply(&html).unwrap();
 
         assert_eq!(

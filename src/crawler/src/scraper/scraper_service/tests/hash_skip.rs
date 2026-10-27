@@ -1,19 +1,38 @@
 use super::*;
 use crate::scraper::scraper_service::ScrapedProduct;
 use crate::scraper::scraper_service::util::hash::{
-    EXTRACTOR_VERSION, fingerprint_scraper_context, hash_html, hash_main_fragment,
+    EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
 };
 
+/// [`sample_html`] with the per-request tokens shops render inside `<main>`: a checkout link's
+/// session id (Harrison Antique Furniture), and an enquiry form's anti-spam tokens and honeypot
+/// label, whose words WPForms shuffles per request (Collinge Antiques).
+fn sample_html_with_request_tokens(session_id: &str, form_token: &str, label: &str) -> String {
+    sample_html().replace(
+        "</main>",
+        &format!(
+            r#"<span class="checkout"><a href="/index.asp?function=CHECKOUT&uid={session_id}">Checkout</a></span>
+            <form data-token-time="{form_token}">
+              <label for="wpforms-37-field_4">{label}</label>
+              <input type="text" id="wpforms-37-field_4" name="wpforms[fields][4]">
+              <input type="hidden" name="wpforms[time_token]" value="{form_token}">
+            </form>
+          </main>"#
+        ),
+    )
+}
+
 #[tokio::test]
-async fn should_skip_when_only_non_main_document_content_changes() {
+async fn should_skip_a_page_that_differs_only_in_per_request_tokens() {
     let id = listing_source_id();
     let url = product_url();
-    let stored_html = sample_html();
-    let matching_hash = hash_main_fragment(&stored_html).unwrap_or_else(|| hash_html(&stored_html));
-    let fetched_html = stored_html.replacen(
-        "<body>",
-        r#"<head><meta name="crawler-regression" content="changed"></head><body>"#,
-        1,
+    let stored_html =
+        sample_html_with_request_tokens("3C264776", "1793103358", "Subject Name Message");
+    let fetched_html =
+        sample_html_with_request_tokens("B08072A2", "1793103362", "Address Name Subject");
+    let matching_hash = hash_page(
+        &stored_html,
+        &listing_source_product_schemas(id).product_schemas,
     );
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -106,6 +125,50 @@ async fn should_skip_an_unchanged_page_when_the_extractor_version_is_unchanged()
     assert!(scraped.is_none());
 }
 
+#[tokio::test]
+async fn should_extract_a_page_whose_product_values_changed() {
+    let id = listing_source_id();
+    let sold_html = sample_html().replace("In Stock", "Sold");
+
+    let scraped = scrape_page(
+        id,
+        &sample_html(),
+        sold_html.clone(),
+        scraper_context_fingerprint(EXTRACTOR_VERSION, id),
+        0,
+    )
+    .await
+    .unwrap_or_else(|| panic!("a changed product value must extract the page"));
+
+    assert_eq!(
+        scraped.hash,
+        hash_page(
+            &sold_html,
+            &listing_source_product_schemas(id).product_schemas
+        ),
+        "the scrape records the changed page's hash, so the next scrape skips the page"
+    );
+}
+
+#[tokio::test]
+async fn should_skip_an_unchanged_page_without_a_main_element() {
+    let id = listing_source_id();
+    let html = sample_html()
+        .replace("<main>", "<div>")
+        .replace("</main>", "</div>");
+
+    let scraped = scrape_page(
+        id,
+        &html,
+        html.clone(),
+        scraper_context_fingerprint(EXTRACTOR_VERSION, id),
+        1,
+    )
+    .await;
+
+    assert!(scraped.is_none());
+}
+
 fn scraper_context_fingerprint(
     extractor_version: u32,
     listing_source_id: ListingSourceId,
@@ -129,7 +192,10 @@ async fn scrape_page(
     fast_path_touches: usize,
 ) -> Option<ScrapedProduct> {
     let url = product_url();
-    let stored_hash = hash_main_fragment(stored_html).unwrap_or_else(|| hash_html(stored_html));
+    let stored_hash = hash_page(
+        stored_html,
+        &listing_source_product_schemas(listing_source_id).product_schemas,
+    );
 
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
