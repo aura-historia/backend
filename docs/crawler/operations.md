@@ -138,7 +138,7 @@ Run exactly one instance: no second host and no manual `server` next to the unit
 
 ### Upgrade
 
-Run `systemctl stop crawler-server`, replace the binary and run `systemctl start crawler-server`. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so rolling back to an older binary after a migration requires restoring the database. A binary that raises the [extractor version](extraction-and-review.md#extraction-contract) extracts every page once more at its next scheduled scrape and validates its images again, so expect longer scraper passes until each page has been scraped once.
+Run `systemctl stop crawler-server`, replace the binary and run `systemctl start crawler-server`. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so rolling back to an older binary after a migration requires restoring the database. A binary that raises the [extractor version](extraction-and-review.md#extraction-contract) extracts every page once more at its next scheduled scrape and validates its images again, and one that changes raw extraction does so for every page whose extraction it changes, so expect longer scraper passes until each such page has been scraped once.
 
 ### After start
 

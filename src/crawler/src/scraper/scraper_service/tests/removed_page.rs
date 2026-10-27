@@ -6,6 +6,9 @@ use crate::scraper::css_selector::removed_page_schema::{
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::html_fetcher::FetchError;
+use crate::scraper::scraper_service::util::hash::{
+    EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
+};
 use listing_source_core::ListingSourceId;
 
 const SOFT_404_HTML: &str = r#"<html><head><title>Antiques Boutique</title></head><body>
@@ -158,6 +161,41 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_not_found_
         .scrape(primary_only_request(&id, &url))
         .await
         .unwrap_err();
+
+    assert!(
+        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        "{err:?}"
+    );
+}
+
+/// A template approved after a soft-404 page was captured as a product changes neither the page
+/// hash nor the scraper-context fingerprint, so the removal checks must run before the skip.
+#[tokio::test]
+async fn should_mark_product_removed_although_page_hash_and_fingerprint_are_unchanged() {
+    let id = listing_source_id();
+    let url = product_url();
+    let html = r#"<html><body><main id="mainCatCol">
+        <h1>Sorry, the page you're looking for couldn't be found</h1>
+        <div class="related"><span id="product-id">SKU-9</span>
+        <span id="state">In Stock</span><img src="/images/related.jpg"></div>
+        </main></body></html>"#;
+    let schemas = listing_source_product_schemas(id).product_schemas;
+    let request = ScrapeRequest {
+        last_scraped_hash: Some(hash_page(html, &schemas)),
+        last_scraped_schema_fingerprint: Some(
+            fingerprint_scraper_context(EXTRACTOR_VERSION, &schemas, None)
+                .unwrap_or_else(|error| panic!("test schema must serialize: {error}")),
+        ),
+        ..primary_only_request(&id, &url)
+    };
+
+    let service = service(
+        fetcher_returning(html.to_string()),
+        schema_service_with_cached_schema(id),
+        removed_repo_returning(removed_schema_set(id)),
+    );
+
+    let err = service.scrape(request).await.unwrap_err();
 
     assert!(
         matches!(err, ScraperError::ProductListingRemoved { .. }),

@@ -1231,6 +1231,58 @@ async fn scraper_mark_removed_should_reactivate_sold_url_after_durable_capture()
     );
 }
 
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_scrape() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "scraper-removed-page-hash.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://scraper-removed-page-hash.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    let product_capture = raw_input_hash();
+    service
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            url.clone(),
+            (
+                "p".repeat(64),
+                "schema-fingerprint",
+                product_capture.clone(),
+                "SKU-123",
+                CrawlerDisposition::Active,
+                None,
+            ),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        service
+            .mark_removed(&listing_source_id, &url, &[9; 32], Some(&product_capture))
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    // A page that comes back unchanged after its removal must not match the page hash of the
+    // product scrape before it, or the scraper would skip it and leave the listing removed.
+    let row: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT last_scraped_hash, last_scraped_schema_fingerprint \
+         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row, (None, None));
+}
+
 // ---------------------------------------------------------------------------
 // get_candidates — limit is respected
 // ---------------------------------------------------------------------------
