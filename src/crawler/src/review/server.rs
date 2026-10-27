@@ -6,16 +6,13 @@ use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
-use crate::review::matrix_refresh::{
-    MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes, ReviewLiveEvaluation,
-};
+use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
 use crate::review::model::{
-    ARTIFACT_URL_PATTERN, CrawlerReviewPage, EvaluatedSampleUrl, RawAttributeKey, ReviewActor,
-    ReviewDetail, ReviewSchemaMatrix, SampleUrlOutcome, SchemaMatrix, UrlSampleEvaluation,
+    ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail,
+    ReviewSchemaMatrix, SampleLabelInput, SchemaMatrix,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
-use crate::review::url_sample_evidence::sample_url_outcome;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
@@ -92,6 +89,7 @@ impl ReviewServer {
             agent_approvals = agent_decisions.approvals.as_str(),
             agent_max_decisions_per_hour = agent_decisions.max_decisions_per_hour.get(),
             agent_matrix_max_age_minutes = agent_decisions.max_matrix_age.as_secs() / 60,
+            agent_min_labelled_urls = agent_decisions.min_labelled_urls.get(),
             "Crawler review console listening"
         );
 
@@ -350,12 +348,18 @@ impl ReviewServer {
                 Ok(detail) => detail,
                 Err(err) => return review_error(err),
             };
-            if !refresh && let Some(evaluation) = cached_live_evaluation(&detail) {
-                return HttpResponse::json(200, &evaluation);
+            // Only a product-schema review has pages to evaluate live; a URL-pattern review is
+            // judged on its sample labels.
+            if detail.review.artifact_type != ARTIFACT_PRODUCT_SCHEMA {
+                return review_error(ReviewRepositoryError::UnsupportedArtifact(
+                    review_id,
+                    detail.review.artifact_type,
+                ));
             }
-            return self
-                .refresh_live_evaluation(review_id, &detail.review.artifact_type)
-                .await;
+            if !refresh && let Some(matrix) = cached_schema_matrix(&detail) {
+                return HttpResponse::json(200, &ReviewSchemaMatrix::of(matrix, &detail.pages));
+            }
+            return self.refresh_schema_matrix(review_id).await;
         }
 
         if request.method == "POST"
@@ -558,6 +562,35 @@ impl ReviewServer {
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/sample-labels")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/sample-labels")
+            else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            let payload: SampleLabelsPayload = match serde_json::from_str(request.body) {
+                Ok(value) => value,
+                Err(err) => {
+                    return HttpResponse::json(400, &json!({ "error": err.to_string() }));
+                }
+            };
+            return match self
+                .repository
+                .set_sample_labels(
+                    review_id,
+                    actor,
+                    payload.expected_candidate_version,
+                    payload.labels,
+                )
+                .await
+            {
+                Ok(candidate_version) => candidate_edited(candidate_version),
+                Err(err) => review_error(err),
+            };
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/candidate")
         {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/candidate") else {
@@ -617,30 +650,17 @@ impl ReviewServer {
             .unwrap_or_else(|_| Err(matrix_refresh_timeout(review_id, deadline)))
     }
 
-    /// Starts a background refresh of the review's live evaluation, its schema matrix or, for a
-    /// URL-pattern review, the evaluation of its URL sample, or joins the running one, and answers
-    /// with it when it finishes in time, otherwise with `202` for the console to poll.
-    async fn refresh_live_evaluation(
-        &self,
-        review_id: CrawlerReviewId,
-        artifact_type: &str,
-    ) -> HttpResponse {
-        let server = self.clone();
-        let url_pattern = artifact_type == ARTIFACT_URL_PATTERN;
-        let refresh = async move {
-            if url_pattern {
-                server.evaluate_live_url_sample(review_id).await
-            } else {
-                server.evaluate_live_schema_matrix(review_id).await
-            }
-        };
+    /// Starts a background refresh, or joins the running one, and answers with the matrix
+    /// when it finishes in time, otherwise with `202` for the console to poll.
+    async fn refresh_schema_matrix(&self, review_id: CrawlerReviewId) -> HttpResponse {
+        let refresh = self.clone().evaluate_live_schema_matrix(review_id);
         match self
             .matrix_refreshes
             .start_or_join(review_id, refresh)
             .outcome_within(self.matrix_refresh_wait)
             .await
         {
-            Some(Ok(evaluation)) => HttpResponse::json(200, &evaluation),
+            Some(Ok(matrix)) => HttpResponse::json(200, &matrix),
             Some(Err(response)) => response,
             None => matrix_refreshing(review_id),
         }
@@ -657,58 +677,7 @@ impl ReviewServer {
         self.repository
             .store_schema_matrix_if_current(review_id, evaluated)
             .await
-            .map(ReviewLiveEvaluation::SchemaMatrix)
             .map_err(review_error)
-    }
-
-    /// Fetches the URLs of the URL-pattern review's sample that its current decision is evaluated
-    /// on, one after the other at the shop's pacing and within a deadline sized for it, and stores
-    /// what their pages showed. A URL whose fetch fails shows nothing and fails no evaluation.
-    async fn evaluate_live_url_sample(self, review_id: CrawlerReviewId) -> MatrixRefreshOutcome {
-        let fetched_at = time::OffsetDateTime::now_utc();
-        let to_evaluate = self
-            .repository
-            .url_sample_to_evaluate(review_id)
-            .await
-            .map_err(review_error)?;
-        let deadline = matrix_refresh_deadline(to_evaluate.url_count());
-        let fetch_all = async {
-            let mut evaluated = Vec::with_capacity(to_evaluate.url_count());
-            for (url, decision_matches) in to_evaluate.urls() {
-                let outcome = match Url::parse(url) {
-                    Ok(parsed) => {
-                        sample_url_outcome(&parsed, self.html_fetcher.fetch(&parsed).await)
-                    }
-                    Err(error) => SampleUrlOutcome::FetchFailed {
-                        error: error.to_string(),
-                    },
-                };
-                evaluated.push(EvaluatedSampleUrl {
-                    url: url.to_owned(),
-                    decision_matches,
-                    outcome,
-                });
-            }
-            evaluated
-        };
-        let urls = tokio::time::timeout(deadline, fetch_all)
-            .await
-            .map_err(|_| matrix_refresh_timeout(review_id, deadline))?;
-        let evaluation = self
-            .repository
-            .store_url_sample_evaluation_if_current(
-                review_id,
-                to_evaluate.evaluated(review_id, urls, fetched_at),
-            )
-            .await
-            .map_err(review_error)?;
-        info!(
-            review_id = %review_id,
-            evaluated_urls = evaluation.urls.len(),
-            product_markup_urls = evaluation.product_markup_urls().count(),
-            "URL-pattern review's sample evaluated live"
-        );
-        Ok(ReviewLiveEvaluation::UrlSample(evaluation))
     }
 
     /// Fetches a reviewer-chosen page of the review's ListingSource and stores it as a review
@@ -991,6 +960,14 @@ struct CandidatePayload {
     candidate: serde_json::Map<String, serde_json::Value>,
 }
 
+/// The sample labels of `POST /api/reviews/{id}/sample-labels`, which replace the URL-pattern
+/// candidate's labels as a whole, next to the candidate version they were based on.
+#[derive(Deserialize)]
+struct SampleLabelsPayload {
+    expected_candidate_version: i64,
+    labels: Vec<SampleLabelInput>,
+}
+
 #[derive(Deserialize)]
 struct DomainPayload {
     domain: String,
@@ -1065,24 +1042,15 @@ fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
     })
 }
 
-/// The live evaluation cached on the review, its schema matrix or, for a URL-pattern review, the
-/// evaluation of its URL sample, or `None` when it holds none, or one that no longer decodes, so
-/// the caller refreshes it live.
-fn cached_live_evaluation(detail: &ReviewDetail) -> Option<ReviewLiveEvaluation> {
-    let summary = &detail.review.validation_summary;
-    let cached = if detail.review.artifact_type == ARTIFACT_URL_PATTERN {
-        UrlSampleEvaluation::stored_in(summary)?.map(ReviewLiveEvaluation::UrlSample)
-    } else {
-        SchemaMatrix::stored_in(summary)?.map(|matrix| {
-            ReviewLiveEvaluation::SchemaMatrix(ReviewSchemaMatrix::of(matrix, &detail.pages))
-        })
-    };
-    cached
+/// The schema matrix cached on the review, or `None` when it holds none, or one that no longer
+/// decodes, so the caller refreshes it from the live pages.
+fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
+    SchemaMatrix::stored_in(&detail.review.validation_summary)?
         .inspect_err(|err| {
             warn!(
                 review_id = %detail.review.review_id,
                 error = ?err,
-                "Cached live evaluation is invalid; refreshing it live"
+                "Cached schema matrix is invalid; refreshing from live pages"
             );
         })
         .ok()
@@ -1160,7 +1128,12 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::NotReviewerAddedPage(_)
         | ReviewRepositoryError::RedirectedToNonProductPage(_)
         | ReviewRepositoryError::NoApprovalToRestore(_)
-        | ReviewRepositoryError::ApprovalNotRestorable { .. } => {
+        | ReviewRepositoryError::ApprovalNotRestorable { .. }
+        | ReviewRepositoryError::TooManySampleLabels
+        | ReviewRepositoryError::SampleLabelUrlNotAllowed(_)
+        | ReviewRepositoryError::InvalidSampleLabelReason(_)
+        | ReviewRepositoryError::DuplicateSampleLabel(_)
+        | ReviewRepositoryError::SampleLabelsChangedThroughCandidate => {
             HttpResponse::json(400, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(_) => {
@@ -3093,100 +3066,74 @@ Origin: http://127.0.0.1:7878/x
         }
     }
 
-    /// The live evaluation of a URL-pattern review's sample on pages a fixture shop serves: the
-    /// pages' schema.org `Product` markup is the evidence on which the reviewer agent approves the
-    /// author agent's pattern for a domain the crawler captured no product from.
-    mod url_sample_refresh {
+    /// The sample labels of a URL-pattern review on the console: the author agent labels, the
+    /// reviewer agent approves once the decision follows the labels and labels nothing itself, and
+    /// a URL-pattern review has no live matrix to evaluate.
+    mod sample_labels {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
         use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
-        use crate::CrawlerDomainId;
-        use crate::network::policy::NetworkErrorKind;
         use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
         use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::model::UrlPatternDecision;
         use crate::review::repository::CrawlerReviewRepository;
-        use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
+        use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
+        use crate::{CrawlerDomainId, CrawlerReviewId};
         use listing_source_core::ListingSourceId;
-        use serde_json::json;
-        use std::collections::HashMap;
+        use serde_json::{Value, json};
+        use sqlx::PgPool;
         use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex};
+        use std::sync::Arc;
         use test_api::IntegrationTestService as _;
-        use url::Url;
 
-        /// A product page as WooCommerce with Yoast serves it: one `Product` in the JSON-LD
-        /// `@graph`, next to the site's other nodes.
-        const PRODUCT_PAGE: &str = r#"<!doctype html><html><head>
-<script type="application/ld+json" class="yoast-schema-graph">{"@context":"https://schema.org","@graph":[{"@type":"WebPage","@id":"https://fixture-antiques.example/item/oak-chair/"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home"}]},{"@type":"WebSite","name":"Fixture Shop"}]}</script>
-<script type="application/ld+json">{"@context":"https://schema.org/","@type":"Product","name":"Oak chair","sku":"FS-1","offers":[{"@type":"Offer","price":"120.00","priceCurrency":"GBP"}]}</script>
-</head><body><h1 class="product_title">Oak chair</h1></body></html>"#;
+        const SHOP: &str = "https://antique-shop.example";
+        const PRODUCTS: [&str; 3] = ["/item/oak-chair", "/item/pine-table", "/item/brass-lamp"];
+        const NOT_PRODUCTS: [&str; 3] = ["/shop/chairs", "/about-us", "/impressum"];
 
-        /// A page the decision leaves out: an article without product markup.
-        const JOURNAL_PAGE: &str = r#"<!doctype html><html><head>
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"Restoring oak"}</script>
-</head><body><h1>Restoring oak</h1></body></html>"#;
-
-        /// A shop serving its pages by URL; every other URL fails as a 404 would.
-        struct FixtureShop {
-            pages: HashMap<String, &'static str>,
-            fetched: Mutex<Vec<String>>,
+        fn labels(products: &[&str], not_products: &[&str]) -> Value {
+            let label = |path: &&str, label: &str| json!({ "url": format!("{SHOP}{path}"), "label": label, "reason": "seen on the page" });
+            Value::Array(
+                products
+                    .iter()
+                    .map(|path| label(path, "PRODUCT"))
+                    .chain(not_products.iter().map(|path| label(path, "NOT_PRODUCT")))
+                    .collect(),
+            )
         }
 
-        #[async_trait::async_trait]
-        impl HtmlFetcher for FixtureShop {
-            async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
-                self.fetched
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .push(url.to_string());
-                match self.pages.get(url.as_str()) {
-                    Some(html) => Ok(FetchedHtml::new(
-                        (*html).to_owned(),
-                        url.clone(),
-                        reqwest::StatusCode::OK,
-                    )),
-                    None => Err(FetchError::NetworkWithMetadata {
-                        kind: NetworkErrorKind::HttpStatus(404),
-                        status: Some(404),
-                        retry_after: None,
-                        details: "not found".to_owned(),
-                    }),
-                }
-            }
-        }
-
-        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_approve_a_new_domain_pattern_on_the_product_markup_of_the_live_sample() {
-            let pool = test_api::get_postgres_client().await;
+        /// A review server taking the agents' guarded decisions, and the domain and the pending,
+        /// undecided URL-pattern review of the shop on [`SHOP`], whose ListingSource also holds
+        /// `other_domains`.
+        async fn url_pattern_review_server(
+            pool: &PgPool,
+            other_domains: &[&str],
+        ) -> (ReviewServer, CrawlerDomainId, CrawlerReviewId) {
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
                 "INSERT INTO listing_sources \
                  (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-                 VALUES ($1, 'Fixture antiques', 'fixture-antiques', TRUE, NOW(), NOW())",
+                 VALUES ($1, 'Antique shop', 'antique-shop', TRUE, NOW(), NOW())",
             )
             .bind(listing_source_id.as_uuid())
-            .execute(&pool)
+            .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("insert listing source: {error}"));
             let domain_id = CrawlerDomainId::new();
-            sqlx::query(
-                "INSERT INTO listing_source_domains \
-                 (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-                 VALUES ($1, $2, 'fixture-antiques.example', 'fixture-antiques.example')",
-            )
-            .bind(domain_id.as_uuid())
-            .bind(listing_source_id.as_uuid())
-            .execute(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("insert domain: {error}"));
-            let sample = [
-                "https://fixture-antiques.example/item/oak-chair",
-                "https://fixture-antiques.example/item/pine-table",
-                "https://fixture-antiques.example/item/gone",
-                "https://fixture-antiques.example/journal/restoring-oak",
-                "https://fixture-antiques.example/product-category/chairs",
-                "https://fixture-antiques.example/contact",
-            ];
+            let others = other_domains
+                .iter()
+                .map(|domain| (CrawlerDomainId::new(), *domain));
+            for (id, domain) in std::iter::once((domain_id, "antique-shop.example")).chain(others) {
+                sqlx::query(
+                    "INSERT INTO listing_source_domains \
+                     (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+                     VALUES ($1, $2, $3, $3)",
+                )
+                .bind(id.as_uuid())
+                .bind(listing_source_id.as_uuid())
+                .bind(domain)
+                .execute(pool)
+                .await
+                .unwrap_or_else(|error| panic!("insert domain {domain}: {error}"));
+            }
             let repository = CrawlerReviewRepository::new(pool.clone());
             let review_id = repository
                 .create_url_pattern_review(
@@ -3194,19 +3141,13 @@ Origin: http://127.0.0.1:7878/x
                     &domain_id,
                     "manual_url_pattern_required",
                     UrlPatternDecision::Undecided,
-                    &sample.map(str::to_owned),
+                    &["/item/oak-chair", "/item/pine-table", "/shop/chairs"]
+                        .map(|path| format!("{SHOP}{path}")),
                     None,
                 )
                 .await
                 .unwrap_or_else(|error| panic!("create URL-pattern review: {error}"));
-            let shop = Arc::new(FixtureShop {
-                pages: HashMap::from([
-                    (sample[0].to_owned(), PRODUCT_PAGE),
-                    (sample[1].to_owned(), PRODUCT_PAGE),
-                    (sample[3].to_owned(), JOURNAL_PAGE),
-                ]),
-                fetched: Mutex::new(Vec::new()),
-            });
+            // The fetcher expects no call: labels and approvals fetch nothing.
             let server = ReviewServer::new(
                 repository,
                 Arc::new(RejectingDomainAdministration),
@@ -3220,16 +3161,59 @@ Origin: http://127.0.0.1:7878/x
                     },
                     local_mutations_without_token: false,
                 },
-                shop.clone(),
+                Arc::new(MockHtmlFetcher::new()),
             );
+            (server, domain_id, review_id)
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_take_the_reviewer_approval_once_the_pattern_follows_the_author_labels() {
+            let pool = test_api::get_postgres_client().await;
+            let (server, domain_id, review_id) = url_pattern_review_server(&pool, &[]).await;
+            let sample_labels = format!("POST /api/reviews/{review_id}/sample-labels");
+            let candidate = format!("POST /api/reviews/{review_id}/candidate");
             let approve = format!("POST /api/reviews/{review_id}/approve");
 
+            let (status, by_reviewer) = send_as(
+                &server,
+                REVIEWER_TOKEN,
+                &sample_labels,
+                &json!({ "expected_candidate_version": 1, "labels": labels(&PRODUCTS, &NOT_PRODUCTS) })
+                    .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 403"), "{status} {by_reviewer}");
+            assert_eq!(by_reviewer["reason"], "REVIEWER_CANNOT_CHANGE_CANDIDATES");
+            let (status, unknown_label) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &sample_labels,
+                &json!({
+                    "expected_candidate_version": 1,
+                    "labels": [{ "url": format!("{SHOP}/item/oak-chair"), "label": "CATEGORY", "reason": "a guess" }],
+                })
+                .to_string(),
+            )
+            .await;
+            assert!(
+                status.starts_with("HTTP/1.1 400"),
+                "{status} {unknown_label}"
+            );
+            let (status, too_few) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &sample_labels,
+                &json!({ "expected_candidate_version": 1, "labels": labels(&PRODUCTS, &NOT_PRODUCTS[..2]) })
+                    .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {too_few}");
             let (status, decided) = send_as(
                 &server,
                 AUTHOR_TOKEN,
-                &format!("POST /api/reviews/{review_id}/candidate"),
+                &candidate,
                 &json!({
-                    "expected_candidate_version": 1,
+                    "expected_candidate_version": too_few["candidate_version"],
                     "decision": { "type": "PATTERN", "value": "/item/[^/]+$" },
                     "current_pattern": null,
                 })
@@ -3237,69 +3221,47 @@ Origin: http://127.0.0.1:7878/x
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {decided}");
-            let version = decided["candidate_version"].clone();
             let (status, refused) = send_as(
                 &server,
                 REVIEWER_TOKEN,
                 &approve,
-                &json!({ "expected_candidate_version": version }).to_string(),
+                &json!({ "expected_candidate_version": decided["candidate_version"] }).to_string(),
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
             assert_eq!(
                 refused["failed_checks"],
-                json!([{ "check": "NO_CAPTURED_PRODUCT_URL" }])
+                json!([{ "check": "TOO_FEW_LABELS", "product": 3, "not_product": 2, "minimum": 3 }])
             );
-
-            let (status, evaluation) = send_as(
+            let (status, labelled) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &sample_labels,
+                &json!({
+                    "expected_candidate_version": decided["candidate_version"],
+                    "labels": labels(&PRODUCTS, &NOT_PRODUCTS),
+                })
+                .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {labelled}");
+            let (status, matrix) = send_as(
                 &server,
                 REVIEWER_TOKEN,
                 &format!("GET /api/reviews/{review_id}/matrix?refresh=true"),
                 "",
             )
             .await;
-            assert!(status.starts_with("HTTP/1.1 200"), "{status} {evaluation}");
-            assert_eq!(evaluation["live_evaluation"]["candidate_version"], version);
-            let outcomes: Vec<_> = evaluation["urls"]
-                .as_array()
-                .unwrap_or_else(|| panic!("evaluation without URLs: {evaluation}"))
-                .iter()
-                .map(|url| {
-                    (
-                        url["url"].clone(),
-                        url["decision_matches"].clone(),
-                        url["outcome"].clone(),
-                    )
-                })
-                .collect();
-            // The sample keeps its stored order, by URL within one crawl.
-            assert_eq!(
-                outcomes,
-                vec![
-                    (json!(sample[2]), json!(true), json!("FETCH_FAILED")),
-                    (json!(sample[0]), json!(true), json!("PRODUCT_MARKUP")),
-                    (json!(sample[1]), json!(true), json!("PRODUCT_MARKUP")),
-                    (json!(sample[3]), json!(false), json!("NO_PRODUCT_MARKUP")),
-                ]
-            );
-            assert_eq!(
-                *shop
-                    .fetched
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner),
-                [sample[2], sample[0], sample[1], sample[3]]
-                    .map(str::to_owned)
-                    .to_vec(),
-                "category and info URLs are known already and not fetched"
-            );
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {matrix}");
 
             let (status, approved) = send_as(
                 &server,
                 REVIEWER_TOKEN,
                 &approve,
-                &json!({ "expected_candidate_version": version }).to_string(),
+                &json!({ "expected_candidate_version": labelled["candidate_version"] }).to_string(),
             )
             .await;
+
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
             let decision: (Option<String>, String) = sqlx::query_as(
                 "SELECT url_pattern, url_pattern_state FROM listing_source_domains \
@@ -3315,14 +3277,63 @@ Origin: http://127.0.0.1:7878/x
             );
             let (_, detail) =
                 send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
-            let last = detail["events"]
+            let trail: Vec<(Value, Value)> = detail["events"]
                 .as_array()
-                .and_then(|events| events.last())
-                .unwrap_or_else(|| panic!("review without events: {detail}"));
+                .unwrap_or_else(|| panic!("review without events: {detail}"))
+                .iter()
+                .map(|event| (event["actor"].clone(), event["action"].clone()))
+                .collect();
             assert_eq!(
-                (last["actor"].clone(), last["action"].clone()),
-                (json!("AGENT_REVIEWER"), json!("APPROVED"))
+                trail,
+                [
+                    ("AGENT_AUTHOR", "CANDIDATE_EDITED"),
+                    ("AGENT_AUTHOR", "CANDIDATE_EDITED"),
+                    ("AGENT_AUTHOR", "CANDIDATE_EDITED"),
+                    ("AGENT_REVIEWER", "APPROVED"),
+                ]
+                .map(|(actor, action)| (json!(actor), json!(action)))
             );
+            let relied_on = &detail["events"][3]["details"]["sample_labels"];
+            assert_eq!(relied_on["labels"].as_array().map(Vec::len), Some(6));
+            assert_eq!(relied_on["labels"][0]["label"], "PRODUCT");
+        }
+
+        /// A URL-pattern review decides one domain, so a label of a URL on another domain of its
+        /// ListingSource, which would say nothing about the decision, is refused with 400 and
+        /// changes nothing.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_a_label_on_another_domain_of_the_listing_source() {
+            let pool = test_api::get_postgres_client().await;
+            let (server, _, review_id) =
+                url_pattern_review_server(&pool, &["antique-shop.de"]).await;
+            let other_domain = "https://antique-shop.de/item/oak-chair";
+            let mut off_domain = labels(&PRODUCTS, &NOT_PRODUCTS);
+            off_domain[0]["url"] = json!(other_domain);
+
+            let (status, refused) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/sample-labels"),
+                &json!({ "expected_candidate_version": 1, "labels": off_domain }).to_string(),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
+            assert!(
+                refused["error"]
+                    .as_str()
+                    .is_some_and(|error| error.contains(other_domain)),
+                "{refused}"
+            );
+            let (_, detail) =
+                send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert_eq!(detail["review"]["candidate_version"], 1, "{detail}");
+            assert_eq!(
+                detail["review"]["candidate_payload"].get("sample_labels"),
+                None,
+                "{detail}"
+            );
+            assert_eq!(detail["events"], json!([]), "{detail}");
         }
     }
 

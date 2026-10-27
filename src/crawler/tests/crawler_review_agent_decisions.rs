@@ -5,11 +5,12 @@
 //! server's own live evaluation; the agents' decisions of an hour are capped from the event trail;
 //! and a human restores what an approval replaced while it is still live.
 
+use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
 use crawler::review::model::{
-    EvaluatedSampleUrl, PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_APPROVED,
-    STATUS_PENDING_REVIEW, SampleUrlOutcome, SchemaReviewPageInput, UrlPatternDecision,
+    PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_APPROVED, STATUS_PENDING_REVIEW,
+    SampleLabelInput, SampleUrlLabel, SchemaReviewPageInput, UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
 use crawler::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
@@ -19,6 +20,7 @@ use crawler::scraper::css_selector::product_schema_repository::{
 };
 use crawler::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use crawler::spider::classification::url_classifier::UrlClassifier;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -1072,85 +1074,454 @@ async fn should_restore_the_url_pattern_an_approval_replaced() {
     );
 }
 
-/// The agent approves a URL pattern only when it is decided and classifies the review's sample
-/// as the crawler knows it: every URL it captured a product from as a product, and none of the
-/// category, imprint or info URLs.
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_take_the_agent_url_pattern_approval_only_when_it_fits_the_classified_sample() {
-    let pool = get_postgres_client().await;
-    let repository = guarded(&pool, 20);
-    let (listing_source_id, domain_id) = listing_source(&pool).await;
-    sqlx::query(
-        "INSERT INTO listing_source_urls \
-         (listing_source_id, domain_id, url, url_class, raw_source_record_key, last_source_listing_id) \
-         VALUES ($1, $2, 'https://example.com/product/chair', 'other', 'chair', 'chair')",
-    )
-    .bind(listing_source_id.as_uuid())
-    .bind(domain_id.as_uuid())
-    .execute(&pool)
-    .await
-    .unwrap();
+/// The domain of a shop whose name the keyword heuristic reads as a category.
+const SHOP: &str = "antique-shop.example";
+
+/// The URL of `path` on [`SHOP`].
+fn shop_url(path: &str) -> String {
+    format!("https://{SHOP}{path}")
+}
+
+const ITEM_PATHS: [&str; 3] = ["/item/oak-chair", "/item/pine-table", "/item/brass-lamp"];
+const OTHER_PATHS: [&str; 3] = ["/item-category/chairs", "/shop", "/impressum"];
+
+/// A pending, undecided URL-pattern review of [`SHOP`] whose sample holds its item pages and its
+/// other pages, the crawl that stored them having stored them unclassified.
+async fn shop_url_pattern_review(
+    pool: &PgPool,
+    repository: &CrawlerReviewRepository,
+) -> (CrawlerDomainId, CrawlerReviewId) {
+    let (listing_source_id, domain_id) = listing_source_on(pool, SHOP).await;
+    let sample: Vec<String> = ITEM_PATHS
+        .iter()
+        .chain(&OTHER_PATHS)
+        .map(|path| shop_url(path))
+        .collect();
+    for url in &sample {
+        sqlx::query(
+            "INSERT INTO listing_source_urls \
+             (listing_source_id, domain_id, url, url_class, raw_source_record_key) \
+             VALUES ($1, $2, $3, 'other', $3)",
+        )
+        .bind(listing_source_id.as_uuid())
+        .bind(domain_id.as_uuid())
+        .bind(url)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
             &domain_id,
             "manual_url_pattern_required",
             UrlPatternDecision::Undecided,
-            &[
-                "https://example.com/product/chair".to_owned(),
-                "https://example.com/product/table".to_owned(),
-                "https://example.com/product-category/chairs".to_owned(),
-            ],
+            &sample,
             None,
         )
         .await
         .unwrap();
-    let decide = |pattern: &str, expected_candidate_version: i64| {
+    (domain_id, review_id)
+}
+
+fn label(path: &str, label: SampleUrlLabel) -> SampleLabelInput {
+    SampleLabelInput {
+        url: shop_url(path),
+        label,
+        reason: "seen on the page".to_owned(),
+    }
+}
+
+/// The shop's item pages labelled `PRODUCT` and its other pages `NOT_PRODUCT`.
+fn shop_labels() -> Vec<SampleLabelInput> {
+    ITEM_PATHS
+        .iter()
+        .map(|path| label(path, SampleUrlLabel::Product))
+        .chain(
+            OTHER_PATHS
+                .iter()
+                .map(|path| label(path, SampleUrlLabel::NotProduct)),
+        )
+        .collect()
+}
+
+/// Stages `pattern` as the decision of the review at `expected_candidate_version` as `actor`, and
+/// returns the candidate version after it.
+async fn decide(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+    actor: ReviewActor,
+    expected_candidate_version: i64,
+    pattern: &str,
+) -> i64 {
+    repository
+        .update_candidate_payload(
+            review_id,
+            actor,
+            expected_candidate_version,
+            json!({ "decision": { "type": "PATTERN", "value": pattern }, "current_pattern": null }),
+        )
+        .await
+        .unwrap()
+}
+
+async fn candidate_sample_labels(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+) -> serde_json::Value {
+    repository
+        .get_review(review_id)
+        .await
+        .unwrap()
+        .review
+        .candidate_payload["sample_labels"]
+        .clone()
+}
+
+/// Only the author agent and humans label a pending review's sample, each label change based on
+/// the candidate version it read, bumping it and recorded as the candidate edit of its actor, the
+/// authoring change the four-eyes rule counts. The reviewer agent labels nothing, a label names
+/// only a URL of the review's domain, and a decided review's labels stay.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_let_only_the_author_agent_and_humans_label_the_sample_of_a_pending_review() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let (_, review_id) = shop_url_pattern_review(&pool, &repository).await;
+
+    let by_reviewer = repository
+        .set_sample_labels(review_id, ReviewActor::AgentReviewer, 1, shop_labels())
+        .await;
+    let outside = repository
+        .set_sample_labels(
+            review_id,
+            ReviewActor::AgentAuthor,
+            1,
+            vec![SampleLabelInput {
+                url: "https://elsewhere.example/item/oak-chair".to_owned(),
+                ..label("/item/oak-chair", SampleUrlLabel::Product)
+            }],
+        )
+        .await;
+    let by_author = repository
+        .set_sample_labels(review_id, ReviewActor::AgentAuthor, 1, shop_labels())
+        .await
+        .unwrap();
+    let stale = repository
+        .set_sample_labels(review_id, ReviewActor::AgentAuthor, 1, shop_labels())
+        .await;
+    let mut relabelled = shop_labels();
+    relabelled.pop();
+    let by_human = repository
+        .set_sample_labels(review_id, ReviewActor::Human, by_author, relabelled)
+        .await
+        .unwrap();
+    decide(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        by_human,
+        "/item/[^/]+$",
+    )
+    .await;
+    approve_as_human(&repository, review_id).await;
+    let decided_version = version(&repository, review_id).await;
+    let by_author_after = repository
+        .set_sample_labels(
+            review_id,
+            ReviewActor::AgentAuthor,
+            decided_version,
+            shop_labels(),
+        )
+        .await;
+    let by_human_after = repository
+        .set_sample_labels(
+            review_id,
+            ReviewActor::Human,
+            decided_version,
+            shop_labels(),
+        )
+        .await;
+
+    assert!(
+        matches!(
+            by_reviewer,
+            Err(ReviewRepositoryError::ReviewerMayNotChangeCandidates)
+        ),
+        "{by_reviewer:?}"
+    );
+    assert!(
+        matches!(
+            &outside,
+            Err(ReviewRepositoryError::SampleLabelUrlNotAllowed(url))
+                if url == "https://elsewhere.example/item/oak-chair"
+        ),
+        "{outside:?}"
+    );
+    assert_eq!((by_author, by_human), (2, 3));
+    assert!(
+        matches!(
+            stale,
+            Err(ReviewRepositoryError::StaleCandidateVersion {
+                expected: 1,
+                current: 2,
+                ..
+            })
+        ),
+        "{stale:?}"
+    );
+    assert!(
+        matches!(
+            by_author_after,
+            Err(ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(_))
+        ),
+        "{by_author_after:?}"
+    );
+    assert!(
+        matches!(by_human_after, Err(ReviewRepositoryError::NotPending(_))),
+        "{by_human_after:?}"
+    );
+    let detail = repository.get_review(review_id).await.unwrap();
+    let labels = detail.review.candidate_payload["sample_labels"]["labels"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(labels.len(), 5, "the human's labels are the candidate's");
+    let edits: Vec<_> = detail
+        .events
+        .iter()
+        .map(|event| {
+            (
+                event.actor,
+                event.action,
+                event.candidate_version,
+                event.details["sample_labels"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        edits[..2],
+        [
+            (
+                ReviewActor::AgentAuthor,
+                ReviewEventAction::CandidateEdited,
+                2,
+                json!({ "product": 3, "not_product": 3 }),
+            ),
+            (
+                ReviewActor::Human,
+                ReviewEventAction::CandidateEdited,
+                3,
+                json!({ "product": 3, "not_product": 2 }),
+            ),
+        ]
+    );
+    assert_eq!(
+        trail(&repository, review_id).await[2..],
+        [
+            (ReviewActor::Human, ReviewEventAction::CandidateEdited),
+            (ReviewActor::Human, ReviewEventAction::Approved),
+        ]
+    );
+    assert!(ReviewEventAction::CHANGES_CANDIDATE.contains(&ReviewEventAction::CandidateEdited));
+}
+
+/// The labels change only through the sample labels: a decision edit keeps them, and one that
+/// names other labels is refused rather than losing them.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_the_sample_labels_when_the_decision_changes() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let (_, review_id) = shop_url_pattern_review(&pool, &repository).await;
+    let labelled = repository
+        .set_sample_labels(review_id, ReviewActor::AgentAuthor, 1, shop_labels())
+        .await
+        .unwrap();
+    let labels = candidate_sample_labels(&repository, review_id).await;
+
+    let decided = decide(
+        &repository,
+        review_id,
+        ReviewActor::AgentAuthor,
+        labelled,
+        "/item/[^/]+$",
+    )
+    .await;
+    let with_other_labels = repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            decided,
+            json!({
+                "decision": { "type": "PATTERN", "value": "/item/" },
+                "current_pattern": null,
+                "sample_labels": { "labelled_at": "2026-01-01T00:00:00Z", "labels": [] },
+            }),
+        )
+        .await;
+    let with_the_same_labels = repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            decided,
+            json!({
+                "decision": { "type": "PATTERN", "value": "/item/" },
+                "current_pattern": null,
+                "sample_labels": labels,
+            }),
+        )
+        .await;
+
+    assert_eq!(decided, labelled + 1);
+    assert!(
+        matches!(
+            with_other_labels,
+            Err(ReviewRepositoryError::SampleLabelsChangedThroughCandidate)
+        ),
+        "{with_other_labels:?}"
+    );
+    assert_eq!(with_the_same_labels.ok(), Some(decided + 1));
+    assert_eq!(
+        candidate_sample_labels(&repository, review_id).await,
+        labels
+    );
+}
+
+/// In `agent` mode the reviewer agent approves a URL pattern only once it follows the author's
+/// labels, never on what the crawler guesses: the approval classifies the domain's URLs by the
+/// pattern alone and keeps the labels it was accepted on.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_take_the_agent_url_pattern_approval_only_when_the_decision_follows_the_labels() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20)
+        .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent));
+    let (domain_id, review_id) = shop_url_pattern_review(&pool, &repository).await;
+    let reviewer_approves = |expected_candidate_version: i64| {
         let repository = repository.clone();
-        let pattern = pattern.to_owned();
         async move {
             repository
-                .update_candidate_payload(
+                .approve_review(
                     review_id,
-                    ReviewActor::AgentAuthor,
-                    expected_candidate_version,
-                    json!({ "decision": { "type": "PATTERN", "value": pattern }, "current_pattern": null }),
+                    ReviewActor::AgentReviewer,
+                    approval(expected_candidate_version),
                 )
                 .await
-                .unwrap()
         }
     };
 
-    let undecided = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
-        .await;
-    let too_broad = decide("/product", 1).await;
-    let matches_a_category = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(too_broad))
-        .await;
-    let fitting = decide("/product/[^/]+$", too_broad).await;
-    repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
+    let undecided = reviewer_approves(1).await;
+    let too_broad = decide(&repository, review_id, ReviewActor::AgentAuthor, 1, "/item").await;
+    let unlabelled = reviewer_approves(too_broad).await;
+    let labelled = repository
+        .set_sample_labels(
+            review_id,
+            ReviewActor::AgentAuthor,
+            too_broad,
+            shop_labels(),
+        )
         .await
         .unwrap();
+    let takes_a_category = reviewer_approves(labelled).await;
+    let fitting = decide(
+        &repository,
+        review_id,
+        ReviewActor::AgentAuthor,
+        labelled,
+        "/item/[^/]+$",
+    )
+    .await;
+    let relied_on = candidate_sample_labels(&repository, review_id).await;
+    reviewer_approves(fitting).await.unwrap();
 
     assert_eq!(
         failed_checks(undecided),
         vec![FailedApprovalCheck::CandidateUndecided]
     );
     assert_eq!(
-        failed_checks(matches_a_category),
-        vec![FailedApprovalCheck::NonProductUrlsMatched {
-            urls: vec!["https://example.com/product-category/chairs".to_owned()],
+        failed_checks(unlabelled),
+        vec![FailedApprovalCheck::TooFewLabels {
+            product: 0,
+            not_product: 0,
+            minimum: 3,
         }]
     );
-    let url_class: String =
-        sqlx::query_scalar("SELECT url_class FROM listing_source_urls WHERE url = $1")
-            .bind("https://example.com/product/chair")
-            .fetch_one(&pool)
+    assert_eq!(
+        failed_checks(takes_a_category),
+        vec![FailedApprovalCheck::NotProductLabelMatched {
+            urls: vec![shop_url("/item-category/chairs")],
+        }]
+    );
+    let mut classes: Vec<(String, String)> =
+        sqlx::query_as("SELECT url, url_class FROM listing_source_urls WHERE domain_id = $1")
+            .bind(domain_id.as_uuid())
+            .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(url_class, "product");
+    classes.sort();
+    let mut expected: Vec<(String, String)> = ITEM_PATHS
+        .iter()
+        .map(|path| (shop_url(path), "product".to_owned()))
+        .chain(
+            OTHER_PATHS
+                .iter()
+                .map(|path| (shop_url(path), "other".to_owned())),
+        )
+        .collect();
+    expected.sort();
+    assert_eq!(classes, expected);
+    let events = repository.get_review(review_id).await.unwrap().events;
+    let approved = events.last().unwrap();
+    assert_eq!(
+        (approved.actor, approved.action),
+        (ReviewActor::AgentReviewer, ReviewEventAction::Approved)
+    );
+    assert_eq!(
+        approved.details["sample_labels"], relied_on,
+        "the approval keeps the labels it was accepted on"
+    );
+    assert!(approved.details.get("url_sample_evaluation").is_none());
+}
+
+/// A label change is an authoring change: an agent whose own candidate edit changed the labels of
+/// the version it approves is refused, however consistent the labels. No route lets the reviewer
+/// agent label, so its label change is recorded here as the event the labels record.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_the_approval_of_an_agent_that_changed_the_labels_it_approves() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let (_, review_id) = shop_url_pattern_review(&pool, &repository).await;
+    let labelled = repository
+        .set_sample_labels(review_id, ReviewActor::Human, 1, shop_labels())
+        .await
+        .unwrap();
+    let decided = decide(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        labelled,
+        "/item/[^/]+$",
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO crawler_review_events \
+         (event_id, review_id, actor, action, candidate_version, details) \
+         VALUES ($1, $2, 'AGENT_REVIEWER', 'CANDIDATE_EDITED', $3, \
+                 '{\"sample_labels\": {\"product\": 3, \"not_product\": 3}}')",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(review_id.as_uuid())
+    .bind(labelled)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let own_labels = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(decided))
+        .await;
+
+    assert_eq!(
+        failed_checks(own_labels),
+        vec![FailedApprovalCheck::ApproverIsAuthor]
+    );
 }
 
 /// The reviewer agent only judges: every change of what a review approves, its candidate, a
@@ -1452,177 +1823,5 @@ async fn should_refuse_an_agent_approval_of_a_version_the_approving_agent_change
     assert_eq!(
         live_schemas(&pool, &listing_source_id).await,
         Some(vec![schema("h1")])
-    );
-}
-
-/// Evaluates the URL-pattern review's sample as a refresh does, the page of each URL in
-/// `product_pages` describing one schema.org `Product` and every other page none, fetched
-/// `fetched_ago` before now, and stores it.
-async fn store_url_sample_evaluation(
-    repository: &CrawlerReviewRepository,
-    review_id: CrawlerReviewId,
-    product_pages: &[&str],
-    fetched_ago: Duration,
-) -> Vec<String> {
-    let to_evaluate = repository.url_sample_to_evaluate(review_id).await.unwrap();
-    let urls: Vec<EvaluatedSampleUrl> = to_evaluate
-        .urls()
-        .map(|(url, decision_matches)| EvaluatedSampleUrl {
-            url: url.to_owned(),
-            decision_matches,
-            outcome: if product_pages.contains(&url) {
-                SampleUrlOutcome::ProductMarkup
-            } else {
-                SampleUrlOutcome::NoProductMarkup
-            },
-        })
-        .collect();
-    let fetched = urls.iter().map(|url| url.url.clone()).collect();
-    repository
-        .store_url_sample_evaluation_if_current(
-            review_id,
-            to_evaluate.evaluated(review_id, urls, OffsetDateTime::now_utc() - fetched_ago),
-        )
-        .await
-        .unwrap();
-    fetched
-}
-
-/// On a new domain, which the crawler captured no product from, the reviewer agent approves a
-/// URL pattern on the product markup of the sample's pages that a current live evaluation found,
-/// and only on one of the decision it approves: without it, after the author changed the
-/// decision, or once it expired, it is refused.
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_take_a_new_domain_url_pattern_on_product_markup_of_a_current_sample_evaluation() {
-    let pool = get_postgres_client().await;
-    let repository = guarded(&pool, 20);
-    let (listing_source_id, domain_id) = listing_source(&pool).await;
-    let sample = [
-        "https://example.com/item/chair",
-        "https://example.com/item/table",
-        "https://example.com/journal/restoring-oak",
-        "https://example.com/product-category/chairs",
-    ];
-    let review_id = repository
-        .create_url_pattern_review(
-            &listing_source_id,
-            &domain_id,
-            "manual_url_pattern_required",
-            UrlPatternDecision::Undecided,
-            &sample.map(str::to_owned),
-            None,
-        )
-        .await
-        .unwrap();
-    let decide = |pattern: &'static str, expected_candidate_version: i64| {
-        let repository = repository.clone();
-        async move {
-            repository
-                .update_candidate_payload(
-                    review_id,
-                    ReviewActor::AgentAuthor,
-                    expected_candidate_version,
-                    json!({ "decision": { "type": "PATTERN", "value": pattern }, "current_pattern": null }),
-                )
-                .await
-                .unwrap()
-        }
-    };
-    let products = [
-        "https://example.com/item/chair",
-        "https://example.com/item/table",
-    ];
-
-    let too_narrow = decide("/item/chair$", 1).await;
-    let without_evaluation = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(too_narrow))
-        .await;
-    let fetched =
-        store_url_sample_evaluation(&repository, review_id, &products, Duration::ZERO).await;
-    let misses_a_product = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(too_narrow))
-        .await;
-    let fitting = decide("/item/[^/]+$", too_narrow).await;
-    let evaluation_dropped = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
-        .await;
-    store_url_sample_evaluation(
-        &repository,
-        review_id,
-        &products,
-        Duration::from_secs(2 * 60 * 60),
-    )
-    .await;
-    let expired = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
-        .await;
-    store_url_sample_evaluation(&repository, review_id, &products, Duration::ZERO).await;
-    let relied_on = repository
-        .get_review(review_id)
-        .await
-        .unwrap()
-        .review
-        .validation_summary["url_sample_evaluation"]
-        .clone();
-    repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(fitting))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        fetched,
-        vec![
-            "https://example.com/item/chair".to_owned(),
-            "https://example.com/item/table".to_owned(),
-            "https://example.com/journal/restoring-oak".to_owned(),
-        ],
-        "the category URL is known already, so it is not fetched"
-    );
-    assert_eq!(
-        failed_checks(without_evaluation),
-        vec![FailedApprovalCheck::NoCapturedProductUrl]
-    );
-    assert_eq!(
-        failed_checks(misses_a_product),
-        vec![FailedApprovalCheck::ProductUrlsNotMatched {
-            urls: vec!["https://example.com/item/table".to_owned()],
-        }]
-    );
-    assert_eq!(
-        failed_checks(evaluation_dropped),
-        vec![FailedApprovalCheck::NoCapturedProductUrl],
-        "the author's change dropped the evaluation of the decision it replaced"
-    );
-    assert!(
-        matches!(
-            failed_checks(expired).as_slice(),
-            [FailedApprovalCheck::LiveMatrixExpired { .. }]
-        ),
-        "an evaluation older than the allowed age vouches for nothing"
-    );
-    let decision: (Option<String>, String) = sqlx::query_as(
-        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
-    )
-    .bind(domain_id.as_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        decision,
-        (Some("/item/[^/]+$".to_owned()), "MATCHED".to_owned())
-    );
-    let approved = repository.get_review(review_id).await.unwrap().events;
-    let approved = approved.last().unwrap();
-    assert_eq!(
-        (approved.actor, approved.action),
-        (ReviewActor::AgentReviewer, ReviewEventAction::Approved)
-    );
-    assert_eq!(
-        relied_on["live_evaluation"]["candidate_version"],
-        json!(fitting)
-    );
-    assert_eq!(
-        approved.details["url_sample_evaluation"], relied_on,
-        "the approval keeps the evaluation of the sample it was accepted on"
     );
 }

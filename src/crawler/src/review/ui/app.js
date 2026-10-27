@@ -26,6 +26,9 @@ let collapsedListingSourceGroups = new Set(JSON.parse(
 let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
+// The sample labels being edited on the selected URL-pattern review, or null while the stored
+// labels are shown unedited.
+let sampleLabelDraft = null;
 
 const selectorFields = [
     'source_listing_id', 'title', 'description', 'price', 'price_estimate_min',
@@ -292,6 +295,7 @@ function renderReviewQueueItem(r) {
 async function selectReview(id) {
     selectedId = id;
     dirty = false;
+    sampleLabelDraft = null;
     activeWorkbenchPanel = 'selector';
     await loadReviews();
     await loadSelectedReview(true);
@@ -520,6 +524,7 @@ function reviewEventSummary(event) {
     const live = details.replaced_product_schemas !== undefined ? 'live schemas changed' : '';
     switch (event.action) {
         case 'CANDIDATE_EDITED':
+            if (details.sample_labels) return `sample labels: ${sampleLabelCountsText(details.sample_labels)}`;
             return [details.removed_page_schemas_changed ? 'removed-page templates changed' : '', live].filter(Boolean).join('; ');
         case 'SCHEMA_FIELD_EDITED':
             return [`${schemaLabel(Number(details.schema_index) || 0)}: ${details.field || ''}`, live].filter(Boolean).join('; ');
@@ -529,6 +534,8 @@ function reviewEventSummary(event) {
         case 'APPROVED': {
             const coverage = details.coverage;
             if (coverage) return coverageText({...coverage, notEvaluated: coverage.not_evaluated});
+            if (details.sample_labels) return `on sample labels: ${sampleLabelCountsText(labelCounts(details.sample_labels.labels))}`;
+            // Approvals recorded before sample labels rested on a live evaluation of the sample.
             return details.url_sample_evaluation ? urlSampleEvaluationText(details.url_sample_evaluation) : '';
         }
         case 'RESTORED':
@@ -573,8 +580,8 @@ function renderNonSchemaReview(review, urls) {
     return `<div class="review-card">
       <div class="tab-panel">
         ${renderUrlPatternEditor(review, urls)}
-        ${urls.length ? renderUrls(urls) : ''}
-        ${renderUrlSampleEvaluation(review)}
+        ${urls.length ? renderUrls(review, urls) : ''}
+        ${renderSampleLabels(review)}
         <h3>Candidate Payload</h3>
         <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
         <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
@@ -638,49 +645,181 @@ async function saveNoUrlPattern() {
     await saveUrlPatternDecision({type: 'NO_PATTERN'});
 }
 
-function renderUrls(urls) {
-    return `<h3>URL Pattern Preview</h3><div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Current</th><th>Candidate</th><th>Class</th></tr></thead><tbody>${
-        urls.map(u => `<tr><td>${linkifyText(u.url)}</td><td>${u.current_pattern_match}</td><td>${u.candidate_pattern_match}</td><td>${escapeHtml(u.candidate_class)}</td></tr>`).join('')
+function renderUrls(review, urls) {
+    const editable = sampleLabelsEditable(review);
+    const labels = currentSampleLabels(review);
+    return `<h3>URL Pattern Preview</h3><div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Current</th><th>Candidate</th><th>Class</th><th>Label</th></tr></thead><tbody>${
+        urls.map(u => {
+            const label = labels.find(l => l.url === u.url)?.label || '';
+            const cell = editable
+                ? renderSampleLabelSelect(label, `setSampleLabelOfUrl(${escapeHtmlAttr(JSON.stringify(u.url))}, this.value)`, true)
+                : (label ? statusBadge(label) : '');
+            return `<tr><td>${linkifyText(u.url)}</td><td>${u.current_pattern_match}</td><td>${u.candidate_pattern_match}</td><td>${escapeHtml(u.candidate_class)}</td><td>${cell}</td></tr>`;
+        }).join('')
     }</tbody></table></div>`;
 }
 
+// Labels of a live sample evaluation, which approvals recorded before sample labels rested on.
 function urlSampleEvaluationText(evaluation) {
     const urls = Array.isArray(evaluation?.urls) ? evaluation.urls : [];
     const products = urls.filter(u => u.outcome === 'PRODUCT_MARKUP').length;
     return `${products} of ${urls.length} fetched sample pages show schema.org Product markup`;
 }
 
-// The live evaluation of a URL-pattern review's sample, stored for the decision at one candidate
-// version and dropped when the candidate changes: the evidence an agent approval rests on.
-function renderUrlSampleEvaluation(review) {
-    if (review.artifact_type !== 'URL_PATTERN') return '';
-    const evaluation = review.validation_summary?.url_sample_evaluation;
-    const evaluate = review.status === 'PENDING_REVIEW'
-        ? '<div class="actions"><button onclick="evaluateUrlSample()" title="Fetches sample URLs at the shop\'s Crawl-delay and looks for schema.org Product markup">Evaluate sample live</button></div>'
-        : '';
-    if (!evaluation) {
-        return `<h3>Live Sample Evaluation</h3><div class="muted">No live evaluation of the current decision is stored.</div>${evaluate}`;
-    }
-    const live = evaluation.live_evaluation || {};
-    const urls = Array.isArray(evaluation.urls) ? evaluation.urls : [];
-    return `<h3>Live Sample Evaluation</h3>
-      <div class="hint-card">${escapeHtml(urlSampleEvaluationText(evaluation))} (version ${escapeHtml(live.candidate_version)}) ${timeBadge(live.fetched_at, 'Fetched')}</div>
-      <div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Decision takes it</th><th>Page showed</th></tr></thead><tbody>${
-        urls.map(u => `<tr><td>${linkifyText(u.url)}</td><td>${u.decision_matches ? 'yes' : 'no'}</td><td>${statusBadge(u.outcome)} ${linkifyText(u.final_url || u.error || '')}</td></tr>`).join('')
-      }</tbody></table></div>${evaluate}`;
+const SAMPLE_URL_LABELS = ['PRODUCT', 'NOT_PRODUCT'];
+
+function sampleLabelsEditable(review) {
+    return review?.artifact_type === 'URL_PATTERN' && review.status === 'PENDING_REVIEW';
 }
 
-// A live evaluation fetches the sample at the shop's Crawl-delay, so it is polled like a schema
-// matrix refresh; the review it is stored on is reloaded to show it.
-async function evaluateUrlSample() {
-    if (!selectedId || !confirmDiscardingEdits()) return;
-    const reviewId = selectedId;
+function storedSampleLabels(review) {
+    return review?.candidate_payload?.sample_labels || null;
+}
+
+// The labels shown: the unsaved edit, or else the candidate's stored labels.
+function currentSampleLabels(review) {
+    if (sampleLabelDraft) return sampleLabelDraft;
+    return (storedSampleLabels(review)?.labels || []).map(label => ({...label}));
+}
+
+function labelCounts(labels) {
+    const list = Array.isArray(labels) ? labels : [];
+    return {
+        product: list.filter(l => l.label === 'PRODUCT').length,
+        not_product: list.filter(l => l.label === 'NOT_PRODUCT').length
+    };
+}
+
+function sampleLabelCountsText(counts) {
+    return `${counts?.product ?? 0} PRODUCT, ${counts?.not_product ?? 0} NOT_PRODUCT`;
+}
+
+function renderSampleLabelSelect(selected, onchange, allowNone) {
+    const options = (allowNone ? [''] : []).concat(SAMPLE_URL_LABELS);
+    return `<select onchange="${onchange}">${options.map(value =>
+        `<option value="${escapeHtmlAttr(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value || '-')}</option>`
+    ).join('')}</select>`;
+}
+
+// Whether the decision in the pattern input takes `url`, as the browser previews it; the server
+// matches the crawler's spelling of the URL when it checks an agent approval.
+function decisionPreviewTakes(url) {
+    const pattern = document.getElementById('urlPatternInput')?.value?.trim()
+        || (urlPatternDecision(selectedDetail?.review).type === 'PATTERN' ? urlPatternDecision(selectedDetail.review).value : '');
+    if (!pattern) return null;
     try {
-        await loadSchemaMatrix(reviewId, true);
-    } catch (error) {
-        alert(apiErrorMessage(error));
+        return new RegExp(pattern).test(url);
+    } catch (_) {
+        return null;
     }
-    if (selectedId === reviewId) await refreshSelectedReview();
+}
+
+// The author agent's or a human's labels of URLs of the review's domain, its sample's among
+// them: which are product pages. An agent approval of the pattern rests on them alone; the
+// reviewer agent cannot change them.
+function renderSampleLabels(review) {
+    if (review.artifact_type !== 'URL_PATTERN') return '';
+    const stored = storedSampleLabels(review);
+    const labels = currentSampleLabels(review);
+    const editable = sampleLabelsEditable(review);
+    const counts = labelCounts(labels);
+    const status = sampleLabelDraft
+        ? 'unsaved label edits'
+        : (stored ? `set ${timeBadge(stored.labelled_at, 'Labelled')}` : 'no labels yet');
+    const rows = labels.map((label, index) => {
+        const takes = decisionPreviewTakes(label.url);
+        const takesText = takes === null ? '' : (takes ? 'yes' : 'no');
+        const consistent = takes === null || takes === (label.label === 'PRODUCT');
+        return `<tr>
+          <td>${linkifyText(label.url)}</td>
+          <td>${editable ? renderSampleLabelSelect(label.label, `setSampleLabelKind(${index}, this.value)`, false) : statusBadge(label.label)}</td>
+          <td>${editable
+            ? `<input value="${escapeHtmlAttr(label.reason || '')}" placeholder="Why" oninput="setSampleLabelReason(${index}, this.value)">`
+            : escapeHtml(label.reason || '')}</td>
+          <td>${consistent ? escapeHtml(takesText) : statusBadge(`${takesText}: inconsistent`)}</td>
+          <td>${editable ? `<button onclick="removeSampleLabel(${index})">Remove</button>` : ''}</td>
+        </tr>`;
+    }).join('');
+    const adder = editable ? `<div class="actions">
+        <input id="sampleLabelUrl" placeholder="Another URL of the review's domain">
+        ${renderSampleLabelSelect('PRODUCT', '', false).replace('<select', '<select id="sampleLabelKind"')}
+        <input id="sampleLabelReason" placeholder="Why">
+        <button onclick="addSampleLabel()">Add label</button>
+      </div>
+      <div class="actions"><button class="primary" onclick="saveSampleLabels()">Save labels</button></div>` : '';
+    return `<h3>Sample Labels</h3>
+      <div class="hint-card">${escapeHtml(sampleLabelCountsText(counts))} (${status}). The reviewer agent's approval needs enough labels of each and a decision that takes every PRODUCT URL and no NOT_PRODUCT URL; schema.org Product markup decides nothing.</div>
+      ${labels.length ? `<div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Label</th><th>Reason</th><th>Decision takes it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+      ${adder}`;
+}
+
+function editSampleLabels(edit) {
+    const labels = currentSampleLabels(selectedDetail.review);
+    edit(labels);
+    sampleLabelDraft = labels;
+    markDirty();
+    rerenderWorkbench();
+}
+
+function setSampleLabelOfUrl(url, label) {
+    editSampleLabels(labels => {
+        const index = labels.findIndex(l => l.url === url);
+        if (!label) {
+            if (index >= 0) labels.splice(index, 1);
+        } else if (index >= 0) {
+            labels[index].label = label;
+        } else {
+            labels.push({url, label, reason: ''});
+        }
+    });
+}
+
+function setSampleLabelKind(index, label) {
+    editSampleLabels(labels => {
+        if (labels[index]) labels[index].label = label;
+    });
+}
+
+// Typing a reason keeps the input focused, so it changes the draft without rendering again.
+function setSampleLabelReason(index, reason) {
+    const labels = currentSampleLabels(selectedDetail.review);
+    if (!labels[index]) return;
+    labels[index].reason = reason;
+    sampleLabelDraft = labels;
+    markDirty();
+}
+
+function removeSampleLabel(index) {
+    editSampleLabels(labels => labels.splice(index, 1));
+}
+
+function addSampleLabel() {
+    const url = document.getElementById('sampleLabelUrl')?.value?.trim();
+    if (!url) return;
+    const label = document.getElementById('sampleLabelKind')?.value || 'PRODUCT';
+    const reason = document.getElementById('sampleLabelReason')?.value || '';
+    editSampleLabels(labels => {
+        const index = labels.findIndex(l => l.url === url);
+        if (index >= 0) labels.splice(index, 1);
+        labels.push({url, label, reason});
+    });
+}
+
+// The labels replace the candidate's labels as a whole, based on the candidate version shown; the
+// server checks each URL and reason and refuses the save with a message otherwise.
+async function saveSampleLabels() {
+    const labels = currentSampleLabels(selectedDetail.review)
+        .map(({url, label, reason}) => ({url, label, reason}));
+    await submitEdit(async () => {
+        const saved = await api(`/api/reviews/${selectedId}/sample-labels`, {
+            method: 'POST',
+            body: JSON.stringify({expected_candidate_version: expectedCandidateVersion(), labels})
+        });
+        recordSavedCandidateVersion(saved);
+        sampleLabelDraft = null;
+        await loadSelectedReview(false);
+        await loadReviews();
+    });
 }
 
 function renderSchemaWorkbench(detail, matrix) {
@@ -1661,6 +1800,7 @@ async function reevaluateMatrix() {
 // Loading the current review discards the local edits, and with them a refusal of those edits.
 async function refreshSelectedReview() {
     dirty = false;
+    sampleLabelDraft = null;
     editRefusal = null;
     await loadSelectedReview(false);
     await loadReviews();
@@ -2056,6 +2196,7 @@ async function deleteCurrentSchema() {
 
 async function discardEdits() {
     dirty = false;
+    sampleLabelDraft = null;
     editRefusal = null;
     await loadSelectedReview(false);
 }

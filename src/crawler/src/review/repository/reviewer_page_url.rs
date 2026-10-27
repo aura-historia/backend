@@ -26,7 +26,7 @@ pub(super) fn is_allowed_reviewer_page_url(url: &Url, listing_source_domains: &[
 /// Which shop page a review page URL names: the crawler's URL normalization (trailing slash,
 /// fragment, default port and similar spellings) on the crawler's ownership host, which treats
 /// `www.` and the bare host as one domain, regardless of http or https.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub(super) struct ReviewPageIdentity {
     host: Option<String>,
     path: String,

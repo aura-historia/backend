@@ -9,17 +9,16 @@ use super::review_events::{
     DomainUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
     commit_with_event,
 };
+use super::sample_labels::url_pattern_review_domain;
 use super::schema_payload::ProductSchemaReviewCandidate;
-use super::url_sample::fetch_url_sample;
 use super::{
-    CrawlerReviewRepository, ReviewRepositoryError, classify_with_pattern,
-    crawler_domain_id_from_uuid, fetch_review_pages, listing_source_id_from_uuid,
-    lock_live_product_schemas, persist_product_schemas,
+    CrawlerReviewRepository, ReviewRepositoryError, crawler_domain_id_from_uuid,
+    fetch_review_pages, listing_source_id_from_uuid, lock_live_product_schemas,
+    persist_product_schemas,
 };
 use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crate::review::approval_guard::{
-    CurrentReview, CurrentUrlPatternReview, FailedApprovalCheck, product_schema_approval_checks,
-    url_pattern_approval_checks,
+    CurrentReview, FailedApprovalCheck, product_schema_approval_checks, url_pattern_approval_checks,
 };
 use crate::review::model::*;
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
@@ -29,6 +28,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     lock_stored_removed_page_schemas, store_removed_page_schemas,
 };
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
+use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -81,28 +81,31 @@ impl CrawlerReviewRepository {
 
         let event = match review.artifact_type.as_str() {
             ARTIFACT_URL_PATTERN => {
-                // A stored evaluation that no longer decodes shows nothing.
-                let evaluation =
-                    UrlSampleEvaluation::stored_in(&review.validation_summary).and_then(Result::ok);
+                let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
+                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
                 if guarded {
-                    guard_agent_url_pattern_approval(
-                        &mut transaction,
+                    let domain = url_pattern_review_domain(&mut transaction, review_id).await?;
+                    refuse_failed_checks(
                         review_id,
-                        &review,
-                        evaluation.as_ref(),
-                        self.agent_decisions.max_matrix_age,
-                    )
-                    .await?;
+                        url_pattern_approval_checks(
+                            &candidate,
+                            &domain,
+                            self.agent_decisions.min_labelled_urls,
+                        ),
+                    )?;
                 }
+                let configuration = make_reviewed_url_pattern_live(
+                    &mut transaction,
+                    review_id,
+                    &review,
+                    &candidate,
+                    self.url_classifier,
+                )
+                .await?;
                 ReviewMutation::UrlPatternApproved {
                     notes: approval.notes,
-                    url_sample_evaluation: evaluation,
-                    configuration: make_reviewed_url_pattern_live(
-                        &mut transaction,
-                        review_id,
-                        &review,
-                    )
-                    .await?,
+                    sample_labels: candidate.sample_labels,
+                    configuration,
                 }
             }
             ARTIFACT_PRODUCT_SCHEMA => {
@@ -378,35 +381,6 @@ fn guard_agent_product_schema_approval(
     )
 }
 
-/// Refuses a review agent's approval of a URL-pattern review that fails a check of the
-/// [approval guard](crate::review::approval_guard) on the review's URL sample, each URL with
-/// whether the crawler captured a product from it, and on `evaluation`, the live evaluation of
-/// the sample the review stores.
-async fn guard_agent_url_pattern_approval(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    review_id: CrawlerReviewId,
-    review: &ReviewUnderVerdict,
-    evaluation: Option<&UrlSampleEvaluation>,
-    max_evaluation_age: Duration,
-) -> Result<(), ReviewRepositoryError> {
-    let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
-        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    let sample = fetch_url_sample(&mut **transaction, review_id, &review.listing_source_id).await?;
-    refuse_failed_checks(
-        review_id,
-        url_pattern_approval_checks(
-            &CurrentUrlPatternReview {
-                candidate: &candidate,
-                candidate_version: review.candidate_version,
-                sample: &sample,
-                evaluation,
-            },
-            OffsetDateTime::now_utc(),
-            max_evaluation_age,
-        ),
-    )
-}
-
 fn refuse_failed_checks(
     review_id: CrawlerReviewId,
     failed_checks: Vec<FailedApprovalCheck>,
@@ -457,16 +431,16 @@ async fn close_approved_review(
     Ok(())
 }
 
-/// Makes the reviewed decision of the URL-pattern review the live decision of its domain inside
-/// the approval's transaction, classifies the domain's stored URLs with it, and returns the
-/// decision it replaced and the one it made live.
+/// Makes the reviewed decision of the URL-pattern review, its `candidate`, the live decision of
+/// its domain inside the approval's transaction, classifies the domain's stored URLs with it by
+/// `url_classifier`, and returns the decision it replaced and the one it made live.
 async fn make_reviewed_url_pattern_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     review: &ReviewUnderVerdict,
+    candidate: &UrlPatternReviewCandidate,
+    url_classifier: UrlClassifier,
 ) -> Result<UrlPatternApprovalRecord, ReviewRepositoryError> {
-    let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
-        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let pattern = candidate
         .validated_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
@@ -483,8 +457,14 @@ async fn make_reviewed_url_pattern_live(
         }
         .to_owned(),
     };
-    let reclassified =
-        make_url_pattern_live(transaction, &review.listing_source_id, domain_id, &approved).await?;
+    let reclassified = make_url_pattern_live(
+        transaction,
+        &review.listing_source_id,
+        domain_id,
+        &approved,
+        url_classifier,
+    )
+    .await?;
     info!(
         review_id = %review_id,
         domain_id = %domain_id,
@@ -518,13 +498,14 @@ pub(super) async fn lock_domain_url_pattern(
 }
 
 /// Stores `decision` as the domain's live URL-pattern decision and classifies the domain's
-/// stored URLs with it, as the spider would on its next crawl. Returns how many URLs changed
-/// class. Only a `MATCHED` decision classifies URLs as products.
+/// stored URLs with it by `url_classifier`, as the spider would on its next crawl. Returns how
+/// many URLs changed class. Only a `MATCHED` decision classifies URLs as products.
 pub(super) async fn make_url_pattern_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
     domain_id: CrawlerDomainId,
     decision: &DomainUrlPattern,
+    url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
     sqlx::query(
         "UPDATE listing_source_domains SET url_pattern = $3, url_pattern_state = $4 \
@@ -548,6 +529,7 @@ pub(super) async fn make_url_pattern_live(
         listing_source_id,
         domain_id,
         live_pattern.as_ref(),
+        url_classifier,
     )
     .await
 }
@@ -806,6 +788,7 @@ async fn reclassify_domain_urls(
     listing_source_id: &ListingSourceId,
     domain_id: CrawlerDomainId,
     pattern: Option<&Regex>,
+    url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
     let stored = sqlx::query_as::<_, (String, String)>(
         "SELECT url, url_class FROM listing_source_urls \
@@ -818,7 +801,7 @@ async fn reclassify_domain_urls(
     let (urls, classes): (Vec<String>, Vec<String>) = stored
         .into_iter()
         .filter_map(|(url, current_class)| {
-            let class = classify_with_pattern(&url, pattern);
+            let class = url_classifier.classify(&url, pattern).to_string();
             (class != current_class).then_some((url, class))
         })
         .unzip();

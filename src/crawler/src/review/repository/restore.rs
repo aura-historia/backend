@@ -21,6 +21,7 @@ use crate::review::model::{
 use crate::scraper::css_selector::removed_page_schema_repository::{
     lock_stored_removed_page_schemas, store_removed_page_schemas,
 };
+use crate::spider::classification::url_classifier::UrlClassifier;
 use listing_source_core::ListingSourceId;
 use serde::de::DeserializeOwned;
 use sqlx::Row;
@@ -59,7 +60,15 @@ impl CrawlerReviewRepository {
                 .await?
             }
             ARTIFACT_URL_PATTERN => {
-                restore_url_pattern(&mut transaction, review_id, &review, &approval, notes).await?
+                restore_url_pattern(
+                    &mut transaction,
+                    review_id,
+                    &review,
+                    &approval,
+                    notes,
+                    self.url_classifier,
+                )
+                .await?
             }
             other => {
                 return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -166,13 +175,14 @@ async fn restore_product_schemas<'a>(
 }
 
 /// Stores the URL-pattern decision the approval replaced, while the one it made live is still
-/// live, and classifies the domain's stored URLs with it as approval does.
+/// live, and classifies the domain's stored URLs with it by `url_classifier` as approval does.
 async fn restore_url_pattern<'a>(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     review: &WaitingWork,
     approval: &RecordedApproval,
     notes: Option<&'a str>,
+    url_classifier: UrlClassifier,
 ) -> Result<ReviewMutation<'a>, ReviewRepositoryError> {
     let record: UrlPatternApprovalRecord = approval_record(review_id, approval)?;
     let domain_id = review.domain_id.ok_or(sqlx::Error::RowNotFound)?;
@@ -187,6 +197,7 @@ async fn restore_url_pattern<'a>(
         &review.listing_source_id,
         domain_id,
         &record.replaced_url_pattern,
+        url_classifier,
     )
     .await?;
     info!(

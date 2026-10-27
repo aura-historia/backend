@@ -4,7 +4,8 @@
 
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
-    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, UrlSampleEvaluation,
+    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, SampleLabelCounts,
+    SampleLabels,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -27,6 +28,12 @@ pub(super) enum ReviewMutation<'a> {
         /// replaced.
         #[serde(skip_serializing_if = "Option::is_none")]
         replaced_product_schemas: Option<Vec<ProductCssSelectorSchema>>,
+    },
+    /// `POST /api/reviews/{id}/sample-labels`, recorded as a candidate edit: the labels belong to
+    /// the URL-pattern candidate.
+    SampleLabelsEdited {
+        /// How many URLs the labels set mark as products and as no products.
+        sample_labels: SampleLabelCounts,
     },
     SchemaFieldEdited {
         schema_index: usize,
@@ -62,11 +69,11 @@ pub(super) enum ReviewMutation<'a> {
     UrlPatternApproved {
         #[serde(skip)]
         notes: Option<&'a str>,
-        /// The stored live evaluation of the review's URL sample the approval was accepted
-        /// under, when it has one: the candidate version and decision it evaluated, when the
-        /// sample was fetched and what each fetched page showed.
+        /// The candidate's sample labels the approval was accepted on, when it has any. Approvals
+        /// recorded before the labels existed keep a `url_sample_evaluation` instead, which only
+        /// the console reads.
         #[serde(skip_serializing_if = "Option::is_none")]
-        url_sample_evaluation: Option<UrlSampleEvaluation>,
+        sample_labels: Option<SampleLabels>,
         #[serde(flatten)]
         configuration: UrlPatternApprovalRecord,
     },
@@ -126,7 +133,9 @@ pub(super) struct UrlPatternApprovalRecord {
 impl ReviewMutation<'_> {
     fn action(&self) -> ReviewEventAction {
         match self {
-            Self::CandidateEdited { .. } => ReviewEventAction::CandidateEdited,
+            Self::CandidateEdited { .. } | Self::SampleLabelsEdited { .. } => {
+                ReviewEventAction::CandidateEdited
+            }
             Self::SchemaFieldEdited { .. } => ReviewEventAction::SchemaFieldEdited,
             Self::PageAdded { .. } => ReviewEventAction::PageAdded,
             Self::PageRemoved { .. } => ReviewEventAction::PageRemoved,
@@ -150,6 +159,7 @@ impl ReviewMutation<'_> {
             | Self::ProductSchemasRestored { notes, .. }
             | Self::UrlPatternRestored { notes, .. } => *notes,
             Self::CandidateEdited { .. }
+            | Self::SampleLabelsEdited { .. }
             | Self::SchemaFieldEdited { .. }
             | Self::PageAdded { .. }
             | Self::PageRemoved { .. } => None,
@@ -276,7 +286,7 @@ fn row_to_event(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewEvent, sqlx::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::model::{EvaluatedSampleUrl, SampleUrlOutcome};
+    use crate::review::model::{LabelledSampleUrl, SampleUrlLabel};
     use serde_json::json;
 
     fn details(mutation: &ReviewMutation<'_>) -> serde_json::Value {
@@ -296,18 +306,13 @@ mod tests {
         }
     }
 
-    fn url_sample_evaluation() -> UrlSampleEvaluation {
-        UrlSampleEvaluation {
-            review_id: CrawlerReviewId::new(),
-            live_evaluation: LiveMatrixEvaluation {
-                candidate_version: 3,
-                configuration_sha256: "decision-sha256".to_owned(),
-                fetched_at: time::OffsetDateTime::UNIX_EPOCH,
-            },
-            urls: vec![EvaluatedSampleUrl {
+    fn sample_labels() -> SampleLabels {
+        SampleLabels {
+            labelled_at: time::OffsetDateTime::UNIX_EPOCH,
+            labels: vec![LabelledSampleUrl {
                 url: "https://shop.example/item/1".to_owned(),
-                decision_matches: true,
-                outcome: SampleUrlOutcome::ProductMarkup,
+                label: SampleUrlLabel::Product,
+                reason: "one oak chair with price".to_owned(),
             }],
         }
     }
@@ -323,7 +328,6 @@ mod tests {
             not_evaluated: 1,
         };
         let event_id = CrawlerReviewEventId::new();
-        let sample_evaluation = url_sample_evaluation();
         for (mutation, action, notes, expected) in [
             (
                 ReviewMutation::CandidateEdited {
@@ -333,6 +337,17 @@ mod tests {
                 ReviewEventAction::CandidateEdited,
                 None,
                 json!({ "removed_page_schemas_changed": true }),
+            ),
+            (
+                ReviewMutation::SampleLabelsEdited {
+                    sample_labels: SampleLabelCounts {
+                        product: 3,
+                        not_product: 4,
+                    },
+                },
+                ReviewEventAction::CandidateEdited,
+                None,
+                json!({ "sample_labels": { "product": 3, "not_product": 4 } }),
             ),
             (
                 ReviewMutation::SchemaFieldEdited {
@@ -390,7 +405,7 @@ mod tests {
             (
                 ReviewMutation::UrlPatternApproved {
                     notes: None,
-                    url_sample_evaluation: None,
+                    sample_labels: None,
                     configuration: url_pattern_record(),
                 },
                 ReviewEventAction::Approved,
@@ -403,23 +418,18 @@ mod tests {
             (
                 ReviewMutation::UrlPatternApproved {
                     notes: None,
-                    url_sample_evaluation: Some(sample_evaluation.clone()),
+                    sample_labels: Some(sample_labels()),
                     configuration: url_pattern_record(),
                 },
                 ReviewEventAction::Approved,
                 None,
                 json!({
-                    "url_sample_evaluation": {
-                        "review_id": sample_evaluation.review_id,
-                        "live_evaluation": {
-                            "candidate_version": 3,
-                            "configuration_sha256": "decision-sha256",
-                            "fetched_at": "1970-01-01T00:00:00Z",
-                        },
-                        "urls": [{
+                    "sample_labels": {
+                        "labelled_at": "1970-01-01T00:00:00Z",
+                        "labels": [{
                             "url": "https://shop.example/item/1",
-                            "decision_matches": true,
-                            "outcome": "PRODUCT_MARKUP",
+                            "label": "PRODUCT",
+                            "reason": "one oak chair with price",
                         }],
                     },
                     "replaced_url_pattern": { "url_pattern": null, "url_pattern_state": "UNKNOWN" },
@@ -480,16 +490,32 @@ mod tests {
 
         let url_pattern_approval = ReviewMutation::UrlPatternApproved {
             notes: None,
-            url_sample_evaluation: Some(url_sample_evaluation()),
+            sample_labels: Some(sample_labels()),
             configuration: url_pattern_record(),
         };
+        let mut approved_on_a_sample_evaluation = details(&ReviewMutation::UrlPatternApproved {
+            notes: None,
+            sample_labels: None,
+            configuration: url_pattern_record(),
+        });
+        approved_on_a_sample_evaluation["url_sample_evaluation"] = json!({
+            "live_evaluation": { "candidate_version": 3 },
+            "urls": [{ "url": "https://shop.example/item/1", "outcome": "PRODUCT_MARKUP" }],
+        });
 
         let read = serde_json::from_value::<ProductSchemaApprovalRecord>(details(&approval));
         let read_url_pattern =
             serde_json::from_value::<UrlPatternApprovalRecord>(details(&url_pattern_approval));
+        let read_earlier_url_pattern =
+            serde_json::from_value::<UrlPatternApprovalRecord>(approved_on_a_sample_evaluation);
 
         assert_eq!(read.ok(), Some(configuration));
         assert_eq!(read_url_pattern.ok(), Some(url_pattern_record()));
+        assert_eq!(
+            read_earlier_url_pattern.ok(),
+            Some(url_pattern_record()),
+            "an approval recorded on a live sample evaluation still restores"
+        );
         assert!(
             serde_json::from_value::<ProductSchemaApprovalRecord>(json!({
                 "coverage": { "covered": 1, "removed": 0, "total": 1, "not_evaluated": 0 },
