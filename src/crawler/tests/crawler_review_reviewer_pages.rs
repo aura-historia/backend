@@ -146,7 +146,7 @@ async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_lis
         })
         .collect();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, pages)
+        .evaluate_schema_matrix_for_live_pages(review_id, pages, time::OffsetDateTime::now_utc())
         .await
         .unwrap();
     let evaluated_pages = &evaluated.matrix.candidates[0].pages;
@@ -352,7 +352,11 @@ async fn should_store_the_matrix_of_the_evaluated_pages_when_a_page_was_added_du
     let pages = repository.get_review_pages(review_id).await.unwrap();
     let evaluated_page_id = pages[0].review_page_id;
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            with_html(pages),
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
     let sold_url = url("https://example.com/products/sold");
@@ -368,7 +372,7 @@ async fn should_store_the_matrix_of_the_evaluated_pages_when_a_page_was_added_du
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, &evaluated)
+        .store_schema_matrix_if_current(review_id, evaluated)
         .await
         .unwrap();
 
@@ -403,7 +407,11 @@ async fn should_refuse_to_store_schema_matrix_when_an_evaluated_page_was_removed
         .unwrap();
     let pages = repository.get_review_pages(review_id).await.unwrap();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            with_html(pages),
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
 
@@ -412,7 +420,7 @@ async fn should_refuse_to_store_schema_matrix_when_an_evaluated_page_was_removed
         .await
         .unwrap();
     let stored = repository
-        .store_schema_matrix_if_current(review_id, &evaluated)
+        .store_schema_matrix_if_current(review_id, evaluated)
         .await;
 
     assert!(matches!(
@@ -449,11 +457,15 @@ async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it(
         .unwrap();
     let pages = repository.get_review_pages(review_id).await.unwrap();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            with_html(pages),
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, &evaluated)
+        .store_schema_matrix_if_current(review_id, evaluated)
         .await
         .unwrap();
 

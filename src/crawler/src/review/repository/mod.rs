@@ -1,4 +1,6 @@
 use crate::network::policy::url_matches_configured_domain;
+use crate::review::agent_decisions::{AGENT_APPROVALS_ENV, AgentDecisionPolicy};
+use crate::review::approval_guard::FailedApprovalCheck;
 use crate::review::model::*;
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::{
@@ -21,17 +23,20 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
+use std::time::Duration;
 use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
 
 mod live_matrix;
+mod restore;
 mod review_events;
 mod reviewer_page_url;
 mod schema_payload;
 mod verdicts;
 
 pub use live_matrix::EvaluatedSchemaMatrix;
+pub use verdicts::Approval;
 
 use review_events::{ReviewMutation, commit_with_event, fetch_review_events};
 
@@ -86,7 +91,7 @@ pub enum ReviewRepositoryError {
     )]
     CandidateChangedDuringEvaluation { candidate_version: i64 },
     #[error(
-        "review {review_id} changed since candidate version {expected} and is at candidate version {current}; reload it and apply the edit to its current candidate"
+        "review {review_id} changed since candidate version {expected} and is at candidate version {current}; reload it and base the edit or approval on its current candidate"
     )]
     StaleCandidateVersion {
         review_id: CrawlerReviewId,
@@ -128,6 +133,43 @@ pub enum ReviewRepositoryError {
         coverage: ReviewPageCoverage,
         acknowledged: ReviewPageCoverage,
     },
+    #[error(
+        "the review agent's approvals and rejections are off ({AGENT_APPROVALS_ENV}=off); stage the candidate and leave the decision to a human"
+    )]
+    AgentDecisionsOff,
+    #[error(
+        "the review agent cannot acknowledge incomplete coverage; only a human approves a candidate that does not cover every review page"
+    )]
+    AgentCoverageAcknowledgement,
+    #[error("an agent rejection needs notes saying why the candidate is rejected")]
+    MissingRejectionNote,
+    #[error(
+        "the review agent made its {limit} approvals and rejections of the last hour; retry in {} seconds",
+        retry_after.as_secs()
+    )]
+    AgentDecisionLimitReached { limit: u32, retry_after: Duration },
+    #[error(
+        "the review agent's approval of review {review_id} fails the approval guard: {}",
+        failed_checks.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")
+    )]
+    AgentApprovalRefused {
+        review_id: CrawlerReviewId,
+        failed_checks: Vec<FailedApprovalCheck>,
+    },
+    #[error("only a human restores what an approval replaced")]
+    RestoreNeedsHuman,
+    #[error("review {0} has no approval to restore")]
+    NoApprovalToRestore(CrawlerReviewId),
+    #[error(
+        "the approval of review {0} predates restorable approvals: its event does not keep the configuration it made live"
+    )]
+    ApprovalNotRestorable(CrawlerReviewId),
+    #[error("the approval of review {0} was already restored")]
+    ApprovalAlreadyRestored(CrawlerReviewId),
+    #[error(
+        "the live configuration changed since review {0} was approved; a restore would overwrite that newer change"
+    )]
+    LiveConfigurationChangedSinceApproval(CrawlerReviewId),
 }
 
 /// Upper bound on the pages a reviewer adds to one review. A live schema-matrix refresh refetches
@@ -143,6 +185,9 @@ pub const MAX_WAITING_PAGES: usize = 6;
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
     pool: PgPool,
+    /// What the review agent may decide; agent decisions are off unless the review console
+    /// configures them.
+    agent_decisions: AgentDecisionPolicy,
 }
 
 pub struct SchemaReviewWithStatusInput<'a> {
@@ -157,7 +202,18 @@ pub struct SchemaReviewWithStatusInput<'a> {
 
 impl CrawlerReviewRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            agent_decisions: AgentDecisionPolicy::default(),
+        }
+    }
+
+    /// This repository deciding the review agent's approvals and rejections by `agent_decisions`.
+    pub fn with_agent_decisions(self, agent_decisions: AgentDecisionPolicy) -> Self {
+        Self {
+            agent_decisions,
+            ..self
+        }
     }
 
     pub async fn has_pending_review(
@@ -426,6 +482,18 @@ impl CrawlerReviewRepository {
             urls,
             events,
         })
+    }
+
+    /// The review's current candidate version, the one a verdict or an edit is based on.
+    pub async fn candidate_version(
+        &self,
+        review_id: CrawlerReviewId,
+    ) -> Result<i64, ReviewRepositoryError> {
+        sqlx::query_scalar("SELECT candidate_version FROM crawler_reviews WHERE review_id = $1")
+            .bind(review_id.as_uuid())
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(ReviewRepositoryError::NotFound(review_id))
     }
 
     /// Whether `review` is an approved product-schema review whose candidate is the ListingSource's

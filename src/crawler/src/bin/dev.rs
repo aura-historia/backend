@@ -31,6 +31,9 @@
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
 //! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations | unset |
 //! | `CRAWLER_REVIEW_AGENT_TOKEN` | Optional bearer token of the review agent, which acts as `AGENT`; needs a different `CRAWLER_REVIEW_AUTH_TOKEN` | unset |
+//! | `CRAWLER_REVIEW_AGENT_APPROVALS` | `off` (the agent's approvals and rejections are refused) or `guarded` (taken when the server's approval guard passes); invalid values fail startup | `off` |
+//! | `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` | The agent's approvals plus rejections per rolling hour | `20` |
+//! | `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` | How old the live schema matrix an agent approval rests on may be | `30` |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!

@@ -3,6 +3,7 @@
 //! same-origin mutations without a token. The operator contract is in
 //! `docs/crawler/operations.md` (review service and review console access).
 
+use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::ReviewActor;
 use dashmap::DashMap;
@@ -22,6 +23,14 @@ pub enum ReviewServerConfigError {
     AgentTokenWithoutReviewToken,
     #[error("CRAWLER_REVIEW_AGENT_TOKEN must differ from CRAWLER_REVIEW_AUTH_TOKEN")]
     AgentTokenEqualsReviewToken,
+    #[error("invalid {name} value {value:?}; expected one of: {accepted}")]
+    InvalidValue {
+        name: &'static str,
+        value: String,
+        accepted: String,
+    },
+    #[error("invalid {name} value {value:?}; expected a whole number of at least 1")]
+    InvalidPositiveNumber { name: &'static str, value: String },
 }
 
 #[derive(Clone)]
@@ -33,6 +42,8 @@ pub struct ReviewServerConfig {
     /// so a request never claims the agent without its token, and humans keep their own
     /// credential when it is revoked.
     pub agent_token: Option<String>,
+    /// What the agent may decide on its own; with the default it decides nothing.
+    pub agent_decisions: AgentDecisionPolicy,
     /// Lets same-origin browser requests mutate review state without a token on a
     /// loopback bind. Only the local `dev` binary opts in through
     /// [`ReviewServerConfig::allow_local_mutations_without_token`], which keeps it
@@ -49,6 +60,7 @@ impl ReviewServerConfig {
             bind_addr,
             auth_token: token_from_env("CRAWLER_REVIEW_AUTH_TOKEN"),
             agent_token: token_from_env("CRAWLER_REVIEW_AGENT_TOKEN"),
+            agent_decisions: AgentDecisionPolicy::from_env()?,
             local_mutations_without_token: false,
         }
         .validate()
@@ -116,6 +128,11 @@ impl ReviewAccess {
     /// Whether the review agent can act on the console, which the startup log reports.
     pub(super) fn agent_access(&self) -> bool {
         self.config.agent_token.is_some()
+    }
+
+    /// What the review agent may decide, which the startup log reports.
+    pub(super) fn agent_decisions(&self) -> &AgentDecisionPolicy {
+        &self.config.agent_decisions
     }
 
     /// Authorizes a request and resolves who it acts as, or `None` when it is refused as
@@ -319,6 +336,7 @@ mod tests {
             bind_addr: "127.0.0.1:7878".parse().unwrap(),
             auth_token: Some("review-token".to_string()),
             agent_token: None,
+            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
         }
         .allow_local_mutations_without_token();
@@ -326,6 +344,7 @@ mod tests {
             bind_addr: "0.0.0.0:7878".parse().unwrap(),
             auth_token: None,
             agent_token: None,
+            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
         }
         .allow_local_mutations_without_token();
@@ -333,6 +352,7 @@ mod tests {
             bind_addr: "127.0.0.1:7878".parse().unwrap(),
             auth_token: None,
             agent_token: Some(AGENT_TOKEN.to_string()),
+            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
         }
         .allow_local_mutations_without_token();
@@ -348,6 +368,7 @@ mod tests {
             bind_addr: "0.0.0.0:7878".parse().unwrap(),
             auth_token: None,
             agent_token: None,
+            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
         }
         .validate();
@@ -364,6 +385,7 @@ mod tests {
             bind_addr: "0.0.0.0:7878".parse().unwrap(),
             auth_token: Some("review-token".to_string()),
             agent_token: None,
+            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
         }
         .validate();
@@ -377,6 +399,7 @@ mod tests {
             bind_addr: "127.0.0.1:7878".parse().unwrap(),
             auth_token: None,
             agent_token: None,
+            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
         }
         .validate();
@@ -492,6 +515,7 @@ mod tests {
                 bind_addr: "127.0.0.1:7878".parse().unwrap(),
                 auth_token: Some(REVIEW_TOKEN.to_string()),
                 agent_token: Some(AGENT_TOKEN.to_string()),
+                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             }
             .validate()
@@ -584,6 +608,7 @@ mod tests {
                 bind_addr: "127.0.0.1:7878".parse().unwrap(),
                 auth_token: None,
                 agent_token: None,
+                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             }
             .allow_local_mutations_without_token(),
@@ -690,6 +715,7 @@ mod tests {
                 bind_addr: "127.0.0.1:7878".parse().unwrap(),
                 auth_token: None,
                 agent_token: None,
+                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
             }
             .validate()

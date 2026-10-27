@@ -29,7 +29,7 @@ pub use review_event::{CrawlerReviewEvent, ReviewActor, ReviewEventAction};
 pub use review_page::CrawlerReviewPage;
 pub use review_url::CrawlerReviewUrl;
 pub use schema_candidate_evaluation::SchemaCandidateEvaluation;
-pub use schema_matrix::SchemaMatrix;
+pub use schema_matrix::{LiveMatrixEvaluation, ReviewSchemaMatrix, SchemaMatrix};
 pub use schema_page_evaluation::{SchemaPageEvaluation, SchemaPageReference};
 pub use schema_review_page_input::SchemaReviewPageInput;
 pub use selector_field_evaluation::SelectorFieldEvaluation;

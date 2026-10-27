@@ -1,20 +1,29 @@
 //! The verdicts a pending review takes: approval, which makes its candidate the live
 //! configuration, rejection and the needs-repair verdict. Each locks the review first, so
-//! verdicts, edits and page joins on it apply one after the other.
+//! verdicts, edits and page joins on it apply one after the other. The review agent's
+//! approvals and rejections pass [`AgentDecisionPolicy`] and, for approvals, the
+//! [approval guard](crate::review::approval_guard) here, so no caller decides for the agent
+//! without them.
 
-use super::review_events::{ReplacedUrlPattern, ReviewMutation, commit_with_event};
-use super::schema_payload::{ProductSchemaReviewCandidate, approval_product_schemas};
+use super::review_events::{
+    DomainUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
+    commit_with_event,
+};
+use super::schema_payload::ProductSchemaReviewCandidate;
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, classify_with_pattern,
     crawler_domain_id_from_uuid, fetch_review_pages, listing_source_id_from_uuid,
     lock_live_product_schemas, persist_product_schemas,
 };
+use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+use crate::review::approval_guard::{
+    CurrentReview, FailedApprovalCheck, SampleUrl, product_schema_approval_checks,
+    url_pattern_approval_checks,
+};
 use crate::review::model::*;
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::css_selector::removed_page_schema::{
-    RemovedPageSchema, rebase_reviewed_removed_page_schemas,
-};
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     lock_stored_removed_page_schemas, store_removed_page_schemas,
 };
@@ -24,60 +33,97 @@ use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde::Deserialize;
 use sqlx::Row;
+use std::num::NonZeroU32;
+use std::time::Duration;
+use time::OffsetDateTime;
 use tracing::info;
 
+/// An approval of a pending review as its approver sends it.
+#[derive(Debug, Clone, Copy)]
+pub struct Approval<'a> {
+    /// The candidate version the approver read. An approval of any other version is refused, so
+    /// an edit made since is never approved unseen.
+    pub expected_candidate_version: i64,
+    pub notes: Option<&'a str>,
+    /// Whether a product-schema candidate that does not cover every review page is approved;
+    /// URL patterns have no page coverage and ignore it.
+    pub incomplete_coverage: IncompleteCoverage,
+}
+
 impl CrawlerReviewRepository {
-    /// Makes the pending review's candidate the active configuration. A product-schema candidate
-    /// that does not cover every review page is approved only with
-    /// [`IncompleteCoverage::Acknowledged`] of the review's current coverage; URL patterns have no
-    /// page coverage, so their approval ignores `incomplete_coverage`. The approval's event keeps
-    /// the live configuration it replaced.
+    /// Makes the pending review's candidate, at the approved candidate version, the active
+    /// configuration. A product-schema candidate that does not cover every review page is
+    /// approved only with [`IncompleteCoverage::Acknowledged`] of the review's current coverage,
+    /// which the review agent never sends; the agent's approval also passes the approval guard.
+    /// Approval moves the review past the approved candidate version, so an edit based on the
+    /// pending review no longer applies. The approval's event keeps the live configuration it
+    /// replaced and the one it made live.
     pub async fn approve_review(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
-        notes: Option<&str>,
-        incomplete_coverage: IncompleteCoverage,
+        approval: Approval<'_>,
     ) -> Result<(), ReviewRepositoryError> {
+        admit_approval(&self.agent_decisions, actor, approval.incomplete_coverage)?;
         let mut transaction = self.pool.begin().await?;
         let review = lock_review_for_verdict(&mut transaction, review_id).await?;
-        let listing_source_id = review.listing_source_id;
-        let domain_id = review.domain_id;
+        review.check_candidate_version(review_id, approval.expected_candidate_version)?;
+        let guarded = actor == ReviewActor::Agent;
+        if guarded {
+            check_agent_decision_rate(
+                &mut transaction,
+                self.agent_decisions.max_decisions_per_hour,
+            )
+            .await?;
+        }
 
-        let approval = match review.artifact_type.as_str() {
-            ARTIFACT_URL_PATTERN => ReviewMutation::UrlPatternApproved {
-                notes,
-                replaced_url_pattern: make_reviewed_url_pattern_live(
-                    &mut transaction,
-                    review_id,
-                    &listing_source_id,
-                    domain_id,
-                    &review.candidate_payload,
-                )
-                .await?,
-            },
+        let event = match review.artifact_type.as_str() {
+            ARTIFACT_URL_PATTERN => {
+                if guarded {
+                    guard_agent_url_pattern_approval(&mut transaction, review_id, &review).await?;
+                }
+                ReviewMutation::UrlPatternApproved {
+                    notes: approval.notes,
+                    configuration: make_reviewed_url_pattern_live(
+                        &mut transaction,
+                        review_id,
+                        &review,
+                    )
+                    .await?,
+                }
+            }
             ARTIFACT_PRODUCT_SCHEMA => {
+                let going_live = lock_product_schemas_going_live(&mut transaction, &review).await?;
+                let pages = fetch_review_pages(&mut *transaction, review_id).await?;
+                let matrix =
+                    SchemaMatrix::stored_in(&review.validation_summary).and_then(Result::ok);
+                if guarded {
+                    guard_agent_product_schema_approval(
+                        review_id,
+                        &review,
+                        &pages,
+                        matrix.as_ref(),
+                        &going_live.live,
+                        self.agent_decisions.max_matrix_age,
+                    )?;
+                }
                 let coverage = check_approval_coverage(
-                    &mut transaction,
                     review_id,
-                    &review.validation_summary,
-                    incomplete_coverage,
-                )
-                .await?;
-                let replaced = make_reviewed_product_schemas_live(
-                    &mut transaction,
-                    review_id,
-                    &listing_source_id,
-                    &review.reason,
-                    &review.candidate_payload,
-                    review.removed_page_schemas_base.clone(),
-                )
-                .await?;
+                    matrix.as_ref(),
+                    &pages,
+                    approval.incomplete_coverage,
+                )?;
                 ReviewMutation::ProductSchemasApproved {
-                    notes,
+                    notes: approval.notes,
                     coverage,
-                    replaced_product_schemas: replaced.product_schemas,
-                    replaced_removed_page_schemas: replaced.removed_page_schemas,
+                    live_evaluation: matrix.and_then(|matrix| matrix.live_evaluation),
+                    configuration: make_product_schemas_live(
+                        &mut transaction,
+                        review_id,
+                        &review.listing_source_id,
+                        going_live,
+                    )
+                    .await?,
                 }
             }
             other => {
@@ -88,31 +134,9 @@ impl CrawlerReviewRepository {
             }
         };
 
-        sqlx::query(
-            "UPDATE crawler_reviews \
-             SET status = 'APPROVED', reviewer_notes = COALESCE($2, reviewer_notes), \
-                 reviewed = NOW(), updated = NOW() \
-             WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
-        )
-        .bind(review_id.as_uuid())
-        .bind(notes)
-        .execute(&mut *transaction)
-        .await?;
-        sqlx::query(
-            "UPDATE crawler_reviews \
-             SET status = 'SUPERSEDED', reviewed = NOW(), updated = NOW() \
-             WHERE listing_source_id = $1 AND artifact_type = $2 \
-               AND status = 'PENDING_REVIEW' AND review_id <> $3 \
-               AND ($4::uuid IS NULL OR domain_id = $4)",
-        )
-        .bind(uuid::Uuid::from(listing_source_id))
-        .bind(&review.artifact_type)
-        .bind(review_id.as_uuid())
-        .bind(domain_id.map(CrawlerDomainId::into_uuid))
-        .execute(&mut *transaction)
-        .await?;
-        release_work_waiting_on_decided_review(&mut transaction, &review).await?;
-        commit_with_event(transaction, review_id, actor, approval).await?;
+        close_approved_review(&mut transaction, review_id, &review, approval).await?;
+        release_work_waiting_on(&mut transaction, &review.waiting_work()).await?;
+        commit_with_event(transaction, review_id, actor, event).await?;
         info!(review_id = %review_id, actor = %actor, "Review approved");
         Ok(())
     }
@@ -120,15 +144,23 @@ impl CrawlerReviewRepository {
     /// Closes the review without changing configuration and, as approval does, releases the work
     /// waiting on it: the review is decided, so a page that waited on a product-schema review is
     /// retried at once and the next crawl of a domain that waited on a URL-pattern review may open
-    /// a new one.
+    /// a new one. The review agent's rejection says why in its notes.
     pub async fn reject_review(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
         notes: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
+        admit_rejection(&self.agent_decisions, actor, notes)?;
         let mut transaction = self.pool.begin().await?;
         let review = lock_review_for_verdict(&mut transaction, review_id).await?;
+        if actor == ReviewActor::Agent {
+            check_agent_decision_rate(
+                &mut transaction,
+                self.agent_decisions.max_decisions_per_hour,
+            )
+            .await?;
+        }
         sqlx::query(
             "UPDATE crawler_reviews \
              SET status = 'REJECTED', reviewer_notes = COALESCE($2, reviewer_notes), \
@@ -139,7 +171,7 @@ impl CrawlerReviewRepository {
         .bind(notes)
         .execute(&mut *transaction)
         .await?;
-        release_work_waiting_on_decided_review(&mut transaction, &review).await?;
+        release_work_waiting_on(&mut transaction, &review.waiting_work()).await?;
         commit_with_event(
             transaction,
             review_id,
@@ -188,23 +220,250 @@ impl CrawlerReviewRepository {
     }
 }
 
-/// Makes the reviewed decision of the URL-pattern review `review_id` the live decision of its
-/// domain inside the approval's transaction, classifies the domain's stored URLs with it, and
-/// returns the decision it replaced.
+/// Refuses, before any review is read, a verdict the review agent may not give on any review:
+/// every agent verdict while its approvals are off. Other actors pass.
+fn admit_agent_verdict(
+    policy: &AgentDecisionPolicy,
+    actor: ReviewActor,
+) -> Result<(), ReviewRepositoryError> {
+    if actor == ReviewActor::Agent && policy.approvals == AgentApprovals::Off {
+        return Err(ReviewRepositoryError::AgentDecisionsOff);
+    }
+    Ok(())
+}
+
+/// As [`admit_agent_verdict`], and refuses an agent approval that acknowledges incomplete
+/// coverage: only a human approves a candidate that does not cover every review page.
+fn admit_approval(
+    policy: &AgentDecisionPolicy,
+    actor: ReviewActor,
+    incomplete_coverage: IncompleteCoverage,
+) -> Result<(), ReviewRepositoryError> {
+    admit_agent_verdict(policy, actor)?;
+    if actor == ReviewActor::Agent && incomplete_coverage != IncompleteCoverage::Refuse {
+        return Err(ReviewRepositoryError::AgentCoverageAcknowledgement);
+    }
+    Ok(())
+}
+
+/// As [`admit_agent_verdict`], and refuses an agent rejection without notes saying why.
+fn admit_rejection(
+    policy: &AgentDecisionPolicy,
+    actor: ReviewActor,
+    notes: Option<&str>,
+) -> Result<(), ReviewRepositoryError> {
+    admit_agent_verdict(policy, actor)?;
+    if actor == ReviewActor::Agent && notes.is_none_or(|notes| notes.trim().is_empty()) {
+        return Err(ReviewRepositoryError::MissingRejectionNote);
+    }
+    Ok(())
+}
+
+/// Advisory lock key that serializes the review agent's verdicts for the rest of their
+/// transactions, so two of them never both pass the hourly cap. Only agent verdicts take it, after
+/// their review's row lock.
+const AGENT_DECISION_LOCK: i64 = 0x2533_0001;
+
+/// Refuses the review agent's verdict once it made `limit` approvals and rejections within the
+/// last hour, as the event trail records them, so the cap holds across restarts.
+async fn check_agent_decision_rate(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    limit: NonZeroU32,
+) -> Result<(), ReviewRepositoryError> {
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(AGENT_DECISION_LOCK)
+        .execute(&mut **transaction)
+        .await?;
+    let seconds_left = sqlx::query_scalar::<_, f64>(
+        "SELECT EXTRACT(EPOCH FROM created + INTERVAL '1 hour' - clock_timestamp())::float8 \
+         FROM crawler_review_events \
+         WHERE actor = $1 AND action = ANY($2) \
+           AND created > clock_timestamp() - INTERVAL '1 hour' \
+         ORDER BY created",
+    )
+    .bind(ReviewActor::Agent.as_str())
+    .bind([
+        ReviewEventAction::Approved.as_str(),
+        ReviewEventAction::Rejected.as_str(),
+    ])
+    .fetch_all(&mut **transaction)
+    .await?;
+    match agent_decision_wait(&seconds_left, limit) {
+        None => Ok(()),
+        Some(retry_after) => Err(ReviewRepositoryError::AgentDecisionLimitReached {
+            limit: limit.get(),
+            retry_after,
+        }),
+    }
+}
+
+/// How long the review agent waits before its next verdict is taken, given how many seconds each
+/// of its verdicts of the last hour, oldest first, stays within that hour; `None` while it made
+/// fewer than `limit`. Enough of the oldest must leave the hour to get below `limit`.
+fn agent_decision_wait(seconds_left: &[f64], limit: NonZeroU32) -> Option<Duration> {
+    let limit = usize::try_from(limit.get()).unwrap_or(usize::MAX);
+    let last_to_leave = seconds_left.len().checked_sub(limit)?;
+    Some(Duration::from_secs_f64(
+        seconds_left[last_to_leave].ceil().max(1.0),
+    ))
+}
+
+/// Refuses the review agent's approval of a product-schema review that fails a check of the
+/// [approval guard](crate::review::approval_guard), against what approval would make live now
+/// and the review's current pages.
+fn guard_agent_product_schema_approval(
+    review_id: CrawlerReviewId,
+    review: &ReviewUnderVerdict,
+    pages: &[CrawlerReviewPage],
+    matrix: Option<&SchemaMatrix>,
+    going_live: &ProductSchemaReviewCandidate,
+    max_matrix_age: Duration,
+) -> Result<(), ReviewRepositoryError> {
+    let configuration_sha256 = going_live.fingerprint()?;
+    refuse_failed_checks(
+        review_id,
+        product_schema_approval_checks(
+            matrix,
+            &CurrentReview {
+                candidate_version: review.candidate_version,
+                configuration_sha256: &configuration_sha256,
+                pages,
+            },
+            OffsetDateTime::now_utc(),
+            max_matrix_age,
+        ),
+    )
+}
+
+/// Refuses the review agent's approval of a URL-pattern review that fails a check of the
+/// [approval guard](crate::review::approval_guard) on the review's URL sample, each URL with
+/// whether the crawler captured a product from it.
+async fn guard_agent_url_pattern_approval(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    review: &ReviewUnderVerdict,
+) -> Result<(), ReviewRepositoryError> {
+    let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
+        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+    let sample = sqlx::query_as::<_, (String, bool)>(
+        "SELECT u.url, EXISTS ( \
+             SELECT 1 FROM listing_source_urls s \
+             WHERE s.listing_source_id = $2 AND s.url = u.url \
+               AND s.last_source_listing_id IS NOT NULL \
+         ) \
+         FROM crawler_review_urls u WHERE u.review_id = $1 \
+         ORDER BY u.created, u.url",
+    )
+    .bind(review_id.as_uuid())
+    .bind(uuid::Uuid::from(review.listing_source_id))
+    .fetch_all(&mut **transaction)
+    .await?
+    .into_iter()
+    .map(|(url, captured_product)| SampleUrl {
+        url,
+        captured_product,
+    })
+    .collect::<Vec<_>>();
+    refuse_failed_checks(review_id, url_pattern_approval_checks(&candidate, &sample))
+}
+
+fn refuse_failed_checks(
+    review_id: CrawlerReviewId,
+    failed_checks: Vec<FailedApprovalCheck>,
+) -> Result<(), ReviewRepositoryError> {
+    if failed_checks.is_empty() {
+        return Ok(());
+    }
+    Err(ReviewRepositoryError::AgentApprovalRefused {
+        review_id,
+        failed_checks,
+    })
+}
+
+/// Marks the review approved and moves it past the approved candidate version, so an edit based
+/// on the pending review is refused as stale instead of rewriting the live configuration, and
+/// supersedes other pending reviews of the same artifact.
+async fn close_approved_review(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    review: &ReviewUnderVerdict,
+    approval: Approval<'_>,
+) -> Result<(), ReviewRepositoryError> {
+    // Storing a merged or rebased candidate already moved the version once; it moves once.
+    sqlx::query(
+        "UPDATE crawler_reviews \
+         SET status = 'APPROVED', reviewer_notes = COALESCE($2, reviewer_notes), \
+             candidate_version = $3 + 1, reviewed = NOW(), updated = NOW() \
+         WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
+    )
+    .bind(review_id.as_uuid())
+    .bind(approval.notes)
+    .bind(review.candidate_version)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE crawler_reviews \
+         SET status = 'SUPERSEDED', reviewed = NOW(), updated = NOW() \
+         WHERE listing_source_id = $1 AND artifact_type = $2 \
+           AND status = 'PENDING_REVIEW' AND review_id <> $3 \
+           AND ($4::uuid IS NULL OR domain_id = $4)",
+    )
+    .bind(uuid::Uuid::from(review.listing_source_id))
+    .bind(&review.artifact_type)
+    .bind(review_id.as_uuid())
+    .bind(review.domain_id.map(CrawlerDomainId::into_uuid))
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+/// Makes the reviewed decision of the URL-pattern review the live decision of its domain inside
+/// the approval's transaction, classifies the domain's stored URLs with it, and returns the
+/// decision it replaced and the one it made live.
 async fn make_reviewed_url_pattern_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
-    listing_source_id: &ListingSourceId,
-    domain_id: Option<CrawlerDomainId>,
-    candidate_payload: &serde_json::Value,
-) -> Result<ReplacedUrlPattern, ReviewRepositoryError> {
-    let candidate = UrlPatternReviewCandidate::deserialize(candidate_payload)
+    review: &ReviewUnderVerdict,
+) -> Result<UrlPatternApprovalRecord, ReviewRepositoryError> {
+    let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let pattern = candidate
         .validated_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    let domain_id = domain_id.ok_or(sqlx::Error::RowNotFound)?;
-    let (url_pattern, url_pattern_state) = sqlx::query_as::<_, (Option<String>, String)>(
+    let domain_id = review.domain_id.ok_or(sqlx::Error::RowNotFound)?;
+    let replaced = lock_domain_url_pattern(transaction, &review.listing_source_id, domain_id)
+        .await?
+        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    let approved = DomainUrlPattern {
+        url_pattern: pattern.map(str::to_owned),
+        url_pattern_state: if pattern.is_some() {
+            "MATCHED"
+        } else {
+            "NO_PATTERN"
+        }
+        .to_owned(),
+    };
+    let reclassified =
+        make_url_pattern_live(transaction, &review.listing_source_id, domain_id, &approved).await?;
+    info!(
+        review_id = %review_id,
+        domain_id = %domain_id,
+        reclassified_urls = reclassified,
+        "Approved URL pattern classified the domain's stored URLs"
+    );
+    Ok(UrlPatternApprovalRecord {
+        replaced_url_pattern: replaced,
+        approved_url_pattern: approved,
+    })
+}
+
+/// Locks and reads the domain's live URL-pattern decision, `None` when the domain is gone.
+pub(super) async fn lock_domain_url_pattern(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    domain_id: CrawlerDomainId,
+) -> Result<Option<DomainUrlPattern>, ReviewRepositoryError> {
+    Ok(sqlx::query_as::<_, (Option<String>, String)>(
         "SELECT url_pattern, url_pattern_state FROM listing_source_domains \
          WHERE listing_source_id = $1 AND domain_id = $2 FOR UPDATE",
     )
@@ -212,77 +471,113 @@ async fn make_reviewed_url_pattern_live(
     .bind(domain_id.as_uuid())
     .fetch_optional(&mut **transaction)
     .await?
-    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    .map(|(url_pattern, url_pattern_state)| DomainUrlPattern {
+        url_pattern,
+        url_pattern_state,
+    }))
+}
+
+/// Stores `decision` as the domain's live URL-pattern decision and classifies the domain's
+/// stored URLs with it, as the spider would on its next crawl. Returns how many URLs changed
+/// class. Only a `MATCHED` decision classifies URLs as products.
+pub(super) async fn make_url_pattern_live(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    domain_id: CrawlerDomainId,
+    decision: &DomainUrlPattern,
+) -> Result<u64, ReviewRepositoryError> {
     sqlx::query(
-        "UPDATE listing_source_domains \
-         SET url_pattern = $3, \
-             url_pattern_state = CASE WHEN $3 IS NULL THEN 'NO_PATTERN' ELSE 'MATCHED' END \
+        "UPDATE listing_source_domains SET url_pattern = $3, url_pattern_state = $4 \
          WHERE listing_source_id = $1 AND domain_id = $2",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(domain_id.as_uuid())
-    .bind(pattern)
+    .bind(decision.url_pattern.as_deref())
+    .bind(&decision.url_pattern_state)
     .execute(&mut **transaction)
     .await?;
-    let live_pattern = pattern
+    let live_pattern = decision
+        .url_pattern
+        .as_deref()
+        .filter(|_| decision.url_pattern_state == "MATCHED")
         .map(Regex::new)
         .transpose()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    let reclassified = reclassify_domain_urls(
+    reclassify_domain_urls(
         transaction,
         listing_source_id,
         domain_id,
         live_pattern.as_ref(),
     )
-    .await?;
-    info!(
-        review_id = %review_id,
-        domain_id = %domain_id,
-        reclassified_urls = reclassified,
-        "Approved URL pattern classified the domain's stored URLs"
-    );
-    Ok(ReplacedUrlPattern {
-        url_pattern,
-        url_pattern_state,
+    .await
+}
+
+/// The ListingSource's product-schema configuration an approval replaces and the one it makes
+/// live, read under the locks of the live schema list and the stored removed-page templates,
+/// which the approval holds until it commits.
+struct ProductSchemasGoingLive {
+    reviewed: ProductSchemaReviewCandidate,
+    live: ProductSchemaReviewCandidate,
+    /// The live schema list, `None` when none is live.
+    replaced_product_schemas: Option<Vec<ProductCssSelectorSchema>>,
+    replaced_removed_page_schemas: Vec<RemovedPageSchema>,
+}
+
+/// Locks the ListingSource's live schema list and stored removed-page templates and reads what
+/// approving the review makes live in their place (see
+/// [`ProductSchemaReviewCandidate::going_live`]). A stored list or base that no longer decodes
+/// fails the approval.
+async fn lock_product_schemas_going_live(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review: &ReviewUnderVerdict,
+) -> Result<ProductSchemasGoingLive, ReviewRepositoryError> {
+    let reviewed = ProductSchemaReviewCandidate::parse(&review.candidate_payload)?;
+    let base: Vec<RemovedPageSchema> =
+        serde_json::from_value(review.removed_page_schemas_base.clone())
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+    let existing = lock_live_product_schemas(transaction, &review.listing_source_id).await?;
+    let stored = lock_stored_removed_page_schemas(transaction, &review.listing_source_id)
+        .await?
+        .unwrap_or_default();
+    let live = reviewed.going_live(&review.reason, existing.as_ref(), &base, &stored)?;
+    Ok(ProductSchemasGoingLive {
+        reviewed,
+        live,
+        replaced_product_schemas: existing.map(|existing| existing.product_schemas),
+        replaced_removed_page_schemas: stored,
     })
 }
 
-/// The ListingSource's live product-schema configuration an approval replaced.
-struct ReplacedProductSchemas {
-    /// The live schema list, `None` when none was live.
-    product_schemas: Option<Vec<ProductCssSelectorSchema>>,
-    removed_page_schemas: Vec<RemovedPageSchema>,
-}
-
-/// Makes the reviewed candidate of the product-schema review `review_id` live inside the
-/// approval's transaction: its schemas, and its removed-page templates in place of the stored
-/// ones, rebased onto the stored list's changes since `removed_page_schemas_base`. The review
-/// keeps what went live, so edits through it are not refused as stale. Returns what it
-/// replaced.
-async fn make_reviewed_product_schemas_live(
+/// Makes `going_live` the ListingSource's live schema list and stored removed-page templates
+/// inside the approval's transaction. The review keeps what went live, so edits through it are
+/// not refused as stale. Returns what it replaced and what it made live.
+async fn make_product_schemas_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     listing_source_id: &ListingSourceId,
-    reason: &str,
-    candidate_payload: &serde_json::Value,
-    removed_page_schemas_base: serde_json::Value,
-) -> Result<ReplacedProductSchemas, ReviewRepositoryError> {
-    let reviewed = ProductSchemaReviewCandidate::parse(candidate_payload)?;
-    let existing = lock_live_product_schemas(transaction, listing_source_id).await?;
-    let schemas = approval_product_schemas(reason, existing.as_ref(), reviewed.schemas.clone())?;
-    persist_product_schemas(transaction, listing_source_id, &schemas).await?;
-    let RemovedPageSchemasReplacement { replaced, stored } = replace_stored_removed_page_schemas(
-        transaction,
-        review_id,
-        listing_source_id,
-        removed_page_schemas_base,
-        reviewed.removed_page_schemas.clone(),
-    )
-    .await?;
-    let live = reviewed
-        .clone()
-        .with_schemas(schemas)
-        .with_removed_page_schemas(stored);
+    going_live: ProductSchemasGoingLive,
+) -> Result<ProductSchemaApprovalRecord, ReviewRepositoryError> {
+    let ProductSchemasGoingLive {
+        reviewed,
+        live,
+        replaced_product_schemas,
+        replaced_removed_page_schemas,
+    } = going_live;
+    persist_product_schemas(transaction, listing_source_id, &live.schemas).await?;
+    if live.removed_page_schemas != replaced_removed_page_schemas {
+        store_removed_page_schemas(transaction, listing_source_id, &live.removed_page_schemas)
+            .await?;
+        info!(
+            review_id = %review_id,
+            listing_source_id = %listing_source_id,
+            removed_page_template_count = live.removed_page_schemas.len(),
+            retired_template_count = replaced_removed_page_schemas
+                .iter()
+                .filter(|schema| !live.removed_page_schemas.contains(schema))
+                .count(),
+            "Approved removed-page templates from a product schema review"
+        );
+    }
     if live != reviewed {
         sqlx::query("UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1")
             .bind(review_id.as_uuid())
@@ -290,45 +585,12 @@ async fn make_reviewed_product_schemas_live(
             .execute(&mut **transaction)
             .await?;
     }
-    Ok(ReplacedProductSchemas {
-        product_schemas: existing.map(|existing| existing.product_schemas),
-        removed_page_schemas: replaced,
+    Ok(ProductSchemaApprovalRecord {
+        replaced_product_schemas,
+        replaced_removed_page_schemas,
+        approved_product_schemas: live.schemas,
+        approved_removed_page_schemas: live.removed_page_schemas,
     })
-}
-
-/// The ListingSource's stored removed-page templates before and after an approval replaced them.
-struct RemovedPageSchemasReplacement {
-    replaced: Vec<RemovedPageSchema>,
-    stored: Vec<RemovedPageSchema>,
-}
-
-/// Replaces the ListingSource's stored removed-page templates with the `reviewed` list, rebased
-/// onto the changes other writers made since the review read the stored list as `base`. A
-/// stored list or base that no longer decodes fails the approval.
-async fn replace_stored_removed_page_schemas(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    review_id: CrawlerReviewId,
-    listing_source_id: &ListingSourceId,
-    base: serde_json::Value,
-    reviewed: Vec<RemovedPageSchema>,
-) -> Result<RemovedPageSchemasReplacement, ReviewRepositoryError> {
-    let base: Vec<RemovedPageSchema> =
-        serde_json::from_value(base).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-    let replaced = lock_stored_removed_page_schemas(transaction, listing_source_id)
-        .await?
-        .unwrap_or_default();
-    let stored = rebase_reviewed_removed_page_schemas(&base, reviewed, &replaced);
-    if stored != replaced {
-        store_removed_page_schemas(transaction, listing_source_id, &stored).await?;
-        info!(
-            review_id = %review_id,
-            listing_source_id = %listing_source_id,
-            removed_page_template_count = stored.len(),
-            retired_template_count = replaced.iter().filter(|schema| !stored.contains(schema)).count(),
-            "Approved removed-page templates from a product schema review"
-        );
-    }
-    Ok(RemovedPageSchemasReplacement { replaced, stored })
 }
 
 /// The state of a pending review a verdict decides on, read under the review's row lock.
@@ -338,8 +600,36 @@ struct ReviewUnderVerdict {
     artifact_type: String,
     reason: String,
     candidate_payload: serde_json::Value,
+    candidate_version: i64,
     validation_summary: serde_json::Value,
     removed_page_schemas_base: serde_json::Value,
+}
+
+impl ReviewUnderVerdict {
+    /// Refuses a verdict based on another candidate version than the review's, with the same
+    /// refusal as a stale candidate edit.
+    fn check_candidate_version(
+        &self,
+        review_id: CrawlerReviewId,
+        expected: i64,
+    ) -> Result<(), ReviewRepositoryError> {
+        if self.candidate_version == expected {
+            return Ok(());
+        }
+        Err(ReviewRepositoryError::StaleCandidateVersion {
+            review_id,
+            expected,
+            current: self.candidate_version,
+        })
+    }
+
+    fn waiting_work(&self) -> WaitingWork {
+        WaitingWork {
+            artifact_type: self.artifact_type.clone(),
+            listing_source_id: self.listing_source_id,
+            domain_id: self.domain_id,
+        }
+    }
 }
 
 /// Locks the review for a verdict, so verdicts, edits and page joins on it apply one after the
@@ -351,7 +641,7 @@ async fn lock_review_for_verdict(
 ) -> Result<ReviewUnderVerdict, ReviewRepositoryError> {
     let review = sqlx::query(
         "SELECT status, listing_source_id, domain_id, artifact_type, reason, candidate_payload, \
-                validation_summary, removed_page_schemas_base \
+                candidate_version, validation_summary, removed_page_schemas_base \
          FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
     )
     .bind(review_id.as_uuid())
@@ -372,27 +662,26 @@ async fn lock_review_for_verdict(
         artifact_type: review.try_get("artifact_type")?,
         reason: review.try_get("reason")?,
         candidate_payload: review.try_get("candidate_payload")?,
+        candidate_version: review.try_get("candidate_version")?,
         validation_summary: review.try_get("validation_summary")?,
         removed_page_schemas_base: review.try_get("removed_page_schemas_base")?,
     })
 }
 
-/// Refuses to approve a product-schema candidate whose stored schema matrix does not cover every
-/// review page, unless the approver acknowledged exactly the review's current coverage. The
-/// caller holds the review's row lock, which page joins and removals, candidate edits and matrix
-/// stores take first too, so the coverage checked is the one the approval decides on. A
+/// Refuses to approve a product-schema candidate whose stored schema `matrix` does not cover
+/// every review page, unless the approver acknowledged exactly the review's current coverage.
+/// The caller holds the review's row lock, which page joins and removals, candidate edits and
+/// matrix stores take first too, so the coverage checked is the one the approval decides on. A
 /// candidate change drops the stored matrix, so a stored matrix evaluated the current candidate;
 /// one that no longer decodes vouches for no page. Returns the coverage the approval goes ahead
 /// under.
-async fn check_approval_coverage(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+fn check_approval_coverage(
     review_id: CrawlerReviewId,
-    validation_summary: &serde_json::Value,
+    matrix: Option<&SchemaMatrix>,
+    pages: &[CrawlerReviewPage],
     incomplete_coverage: IncompleteCoverage,
 ) -> Result<ReviewPageCoverage, ReviewRepositoryError> {
-    let pages = fetch_review_pages(&mut **transaction, review_id).await?;
-    let matrix = SchemaMatrix::stored_in(validation_summary).and_then(Result::ok);
-    let coverage = ReviewPageCoverage::of(matrix.as_ref(), &pages);
+    let coverage = ReviewPageCoverage::of(matrix, pages);
     if !coverage.admits(incomplete_coverage) {
         return Err(match incomplete_coverage {
             IncompleteCoverage::Refuse => ReviewRepositoryError::IncompleteCoverage {
@@ -421,14 +710,23 @@ async fn check_approval_coverage(
     Ok(coverage)
 }
 
-/// Releases the work that waited on the decided review for an immediate retry: every page of the
+/// The work that waits on a review: the pages of its ListingSource that wait on its
+/// product-schema review, or the domain whose crawl waits on its URL-pattern review.
+pub(super) struct WaitingWork {
+    pub(super) artifact_type: String,
+    pub(super) listing_source_id: ListingSourceId,
+    pub(super) domain_id: Option<CrawlerDomainId>,
+}
+
+/// Releases the work that waited on a decided review for an immediate retry: every page of the
 /// ListingSource that waits on its product-schema review, or the domain whose crawl waits on its
-/// URL-pattern review. It runs last in the verdict's transaction, after the review row is locked
+/// URL-pattern review. A verdict runs it last in its transaction, after the review row is locked
 /// and closed, so a wait written while the verdict commits waits for it and then finds the review
-/// closed instead of holding back a page the verdict released.
-async fn release_work_waiting_on_decided_review(
+/// closed instead of holding back a page the verdict released; a restore releases the same work
+/// once the configuration it brought back is stored.
+pub(super) async fn release_work_waiting_on(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    review: &ReviewUnderVerdict,
+    review: &WaitingWork,
 ) -> Result<(), ReviewRepositoryError> {
     match review.artifact_type.as_str() {
         ARTIFACT_PRODUCT_SCHEMA => {
@@ -526,4 +824,94 @@ async fn release_domain_waiting_for_url_pattern(
     .execute(&mut **transaction)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::review::page_coverage::ReviewPageCoverage;
+
+    fn policy(approvals: AgentApprovals) -> AgentDecisionPolicy {
+        AgentDecisionPolicy {
+            approvals,
+            ..AgentDecisionPolicy::default()
+        }
+    }
+
+    const ACKNOWLEDGED: IncompleteCoverage = IncompleteCoverage::Acknowledged(ReviewPageCoverage {
+        covered: 1,
+        removed: 0,
+        total: 2,
+        not_evaluated: 0,
+    });
+
+    /// With agent decisions off the agent stages and a human decides; humans and the crawler
+    /// decide as before in both modes.
+    #[test]
+    fn should_refuse_every_agent_verdict_only_while_agent_decisions_are_off() {
+        let off = policy(AgentApprovals::Off);
+        let guarded = policy(AgentApprovals::Guarded);
+
+        assert!(matches!(
+            admit_approval(&off, ReviewActor::Agent, IncompleteCoverage::Refuse),
+            Err(ReviewRepositoryError::AgentDecisionsOff)
+        ));
+        assert!(matches!(
+            admit_rejection(&off, ReviewActor::Agent, Some("not a product page")),
+            Err(ReviewRepositoryError::AgentDecisionsOff)
+        ));
+        assert!(admit_approval(&guarded, ReviewActor::Agent, IncompleteCoverage::Refuse).is_ok());
+        assert!(admit_rejection(&guarded, ReviewActor::Agent, Some("not a product page")).is_ok());
+        for actor in [ReviewActor::Human, ReviewActor::System] {
+            for policy in [&off, &guarded] {
+                assert!(
+                    admit_approval(policy, actor, ACKNOWLEDGED).is_ok(),
+                    "{actor}"
+                );
+                assert!(admit_rejection(policy, actor, None).is_ok(), "{actor}");
+            }
+        }
+    }
+
+    #[test]
+    fn should_refuse_an_agent_approval_that_acknowledges_coverage_and_a_rejection_without_notes() {
+        let guarded = policy(AgentApprovals::Guarded);
+
+        assert!(matches!(
+            admit_approval(&guarded, ReviewActor::Agent, ACKNOWLEDGED),
+            Err(ReviewRepositoryError::AgentCoverageAcknowledgement)
+        ));
+        for notes in [None, Some(""), Some(" \n ")] {
+            assert!(
+                matches!(
+                    admit_rejection(&guarded, ReviewActor::Agent, notes),
+                    Err(ReviewRepositoryError::MissingRejectionNote)
+                ),
+                "{notes:?}"
+            );
+        }
+    }
+
+    /// Below the cap the agent decides at once; at it, it waits until enough of its oldest
+    /// decisions of the hour leave the hour to get below the cap again.
+    #[test]
+    fn should_wait_until_enough_agent_decisions_leave_the_hour() {
+        let cap = NonZeroU32::new(3).unwrap_or(NonZeroU32::MIN);
+
+        assert_eq!(agent_decision_wait(&[], cap), None);
+        assert_eq!(agent_decision_wait(&[10.0, 20.0], cap), None);
+        assert_eq!(
+            agent_decision_wait(&[10.2, 20.0, 30.0], cap),
+            Some(Duration::from_secs(11))
+        );
+        assert_eq!(
+            agent_decision_wait(&[10.0, 20.0, 30.0, 40.0, 50.0], cap),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            agent_decision_wait(&[0.2, 20.0, 30.0], cap),
+            Some(Duration::from_secs(1)),
+            "a decision about to leave the hour still waits a second"
+        );
+    }
 }

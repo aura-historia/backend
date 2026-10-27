@@ -54,6 +54,12 @@ impl ReviewActor {
     pub const fn may_change_decided_reviews(self) -> bool {
         !matches!(self, Self::Agent)
     }
+
+    /// Whether the actor may restore the live configuration an approval replaced: only a human
+    /// undoes a decision.
+    pub const fn may_restore_approvals(self) -> bool {
+        matches!(self, Self::Human)
+    }
 }
 
 /// What a review mutation did.
@@ -70,10 +76,12 @@ pub enum ReviewEventAction {
     RepairRequested,
     Approved,
     Rejected,
+    /// `POST /api/reviews/{id}/restore`: a human brought back what the review's approval replaced.
+    Restored,
 }
 
 impl ReviewEventAction {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::CandidateEdited,
         Self::SchemaFieldEdited,
         Self::PageAdded,
@@ -81,6 +89,7 @@ impl ReviewEventAction {
         Self::RepairRequested,
         Self::Approved,
         Self::Rejected,
+        Self::Restored,
     ];
 
     /// The persisted and serialized name.
@@ -93,6 +102,7 @@ impl ReviewEventAction {
             Self::RepairRequested => "REPAIR_REQUESTED",
             Self::Approved => "APPROVED",
             Self::Rejected => "REJECTED",
+            Self::Restored => "RESTORED",
         }
     }
 
@@ -141,6 +151,13 @@ mod tests {
     }
 
     #[test]
+    fn should_let_only_a_human_restore_an_approval() {
+        assert!(ReviewActor::Human.may_restore_approvals());
+        assert!(!ReviewActor::Agent.may_restore_approvals());
+        assert!(!ReviewActor::System.may_restore_approvals());
+    }
+
+    #[test]
     fn should_let_only_the_agent_change_nothing_but_pending_reviews() {
         assert!(!ReviewActor::Agent.may_change_decided_reviews());
         assert!(ReviewActor::Human.may_change_decided_reviews());
@@ -159,7 +176,7 @@ mod tests {
                 Some(serde_json::Value::from(action.as_str()))
             );
         }
-        for unknown in ["approved", "CandidateEdited", "", "RESTORED"] {
+        for unknown in ["approved", "CandidateEdited", "", "RESTORE"] {
             assert_eq!(
                 ReviewEventAction::from_persisted(unknown),
                 None,

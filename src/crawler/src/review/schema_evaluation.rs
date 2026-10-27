@@ -120,6 +120,7 @@ fn evaluate_matrix(
         review_id,
         candidates,
         removed_page_matches,
+        live_evaluation: None,
     }
 }
 
@@ -277,7 +278,7 @@ pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage<'_
 /// An optional rule of one candidate that matched nothing (primary and additional
 /// selectors) on every page the candidate applied to.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub(crate) struct OptionalRuleTotalMiss {
+pub struct OptionalRuleTotalMiss {
     pub schema_index: usize,
     pub field: String,
     pub selector: String,

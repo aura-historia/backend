@@ -1,4 +1,6 @@
 pub mod access;
+pub mod agent_decisions;
+pub mod approval_guard;
 pub mod assets;
 pub mod http;
 mod matrix_refresh;

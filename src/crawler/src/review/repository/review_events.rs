@@ -3,12 +3,14 @@
 //! `details` of each action are this module's [`ReviewMutation`] serialized.
 
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
-use crate::review::model::{CrawlerReviewEvent, ReviewActor, ReviewEventAction};
+use crate::review::model::{
+    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction,
+};
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
 /// An accepted review mutation as the event trail records it: the action, the verdict's notes and
@@ -50,28 +52,70 @@ pub(super) enum ReviewMutation<'a> {
         notes: Option<&'a str>,
         /// The coverage the approval was accepted under.
         coverage: ReviewPageCoverage,
-        /// The live schema list the approval replaced, `null` when none was live.
-        replaced_product_schemas: Option<Vec<ProductCssSelectorSchema>>,
-        /// The stored removed-page templates the approval replaced.
-        replaced_removed_page_schemas: Vec<RemovedPageSchema>,
+        /// What the stored live matrix the approval was accepted under evaluated, when it has
+        /// one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        live_evaluation: Option<LiveMatrixEvaluation>,
+        #[serde(flatten)]
+        configuration: ProductSchemaApprovalRecord,
     },
     UrlPatternApproved {
         #[serde(skip)]
         notes: Option<&'a str>,
-        /// The domain's URL-pattern decision the approval replaced.
-        replaced_url_pattern: ReplacedUrlPattern,
+        #[serde(flatten)]
+        configuration: UrlPatternApprovalRecord,
     },
     Rejected {
         #[serde(skip)]
         notes: Option<&'a str>,
     },
+    ProductSchemasRestored {
+        #[serde(skip)]
+        notes: Option<&'a str>,
+        /// The approval whose replaced configuration went live again.
+        restored_event_id: CrawlerReviewEventId,
+        /// The live schema list the restore replaced: the one the approval made live.
+        replaced_product_schemas: Vec<ProductCssSelectorSchema>,
+        /// The stored removed-page templates the restore replaced.
+        replaced_removed_page_schemas: Vec<RemovedPageSchema>,
+    },
+    UrlPatternRestored {
+        #[serde(skip)]
+        notes: Option<&'a str>,
+        /// As for [`ReviewMutation::ProductSchemasRestored`].
+        restored_event_id: CrawlerReviewEventId,
+        /// The domain's URL-pattern decision the restore replaced.
+        replaced_url_pattern: DomainUrlPattern,
+    },
 }
 
 /// A domain's URL-pattern decision as `listing_source_domains` stores it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(super) struct ReplacedUrlPattern {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct DomainUrlPattern {
     pub(super) url_pattern: Option<String>,
     pub(super) url_pattern_state: String,
+}
+
+/// The live product-schema configuration an approval replaced and the one it made live, as the
+/// approval's event keeps them, so a restore can bring back the first while the second is still
+/// live.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(super) struct ProductSchemaApprovalRecord {
+    /// The live schema list the approval replaced, `null` when none was live.
+    pub(super) replaced_product_schemas: Option<Vec<ProductCssSelectorSchema>>,
+    /// The stored removed-page templates the approval replaced.
+    pub(super) replaced_removed_page_schemas: Vec<RemovedPageSchema>,
+    /// The schema list the approval made live.
+    pub(super) approved_product_schemas: Vec<ProductCssSelectorSchema>,
+    /// The removed-page templates the approval stored.
+    pub(super) approved_removed_page_schemas: Vec<RemovedPageSchema>,
+}
+
+/// As [`ProductSchemaApprovalRecord`], for a domain's URL-pattern decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct UrlPatternApprovalRecord {
+    pub(super) replaced_url_pattern: DomainUrlPattern,
+    pub(super) approved_url_pattern: DomainUrlPattern,
 }
 
 impl ReviewMutation<'_> {
@@ -86,6 +130,9 @@ impl ReviewMutation<'_> {
                 ReviewEventAction::Approved
             }
             Self::Rejected { .. } => ReviewEventAction::Rejected,
+            Self::ProductSchemasRestored { .. } | Self::UrlPatternRestored { .. } => {
+                ReviewEventAction::Restored
+            }
         }
     }
 
@@ -94,7 +141,9 @@ impl ReviewMutation<'_> {
             Self::RepairRequested { note } => Some(note),
             Self::ProductSchemasApproved { notes, .. }
             | Self::UrlPatternApproved { notes, .. }
-            | Self::Rejected { notes } => *notes,
+            | Self::Rejected { notes }
+            | Self::ProductSchemasRestored { notes, .. }
+            | Self::UrlPatternRestored { notes, .. } => *notes,
             Self::CandidateEdited { .. }
             | Self::SchemaFieldEdited { .. }
             | Self::PageAdded { .. }
@@ -131,6 +180,52 @@ pub(super) async fn commit_with_event(
     }
     transaction.commit().await?;
     Ok(())
+}
+
+/// The approval event of a review, as a restore reads it.
+pub(super) struct RecordedApproval {
+    pub(super) event_id: CrawlerReviewEventId,
+    /// The approval's details, which keep what it replaced and what it made live.
+    pub(super) details: serde_json::Value,
+    /// Whether a restore already brought back what the approval replaced.
+    pub(super) restored: bool,
+}
+
+/// The review's approval event, `None` when the review was never approved. A review is approved
+/// at most once, and restored at most once after that.
+pub(super) async fn fetch_recorded_approval<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    review_id: CrawlerReviewId,
+) -> Result<Option<RecordedApproval>, sqlx::Error> {
+    let events = sqlx::query_as::<_, (uuid::Uuid, String, serde_json::Value)>(
+        "SELECT event_id, action, details FROM crawler_review_events \
+         WHERE review_id = $1 AND action = ANY($2) \
+         ORDER BY created, event_id",
+    )
+    .bind(review_id.as_uuid())
+    .bind([
+        ReviewEventAction::Approved.as_str(),
+        ReviewEventAction::Restored.as_str(),
+    ])
+    .fetch_all(executor)
+    .await?;
+    let restored = events
+        .iter()
+        .any(|(_, action, _)| action == ReviewEventAction::Restored.as_str());
+    events
+        .into_iter()
+        .rev()
+        .find(|(_, action, _)| action == ReviewEventAction::Approved.as_str())
+        .map(|(event_id, _, details)| {
+            Ok(RecordedApproval {
+                event_id: CrawlerReviewEventId::try_from(event_id).map_err(|source| {
+                    super::persisted_object_id_error("CrawlerReviewEventId", event_id, source)
+                })?,
+                details,
+                restored,
+            })
+        })
+        .transpose()
 }
 
 /// The review's events, oldest first. A stored actor or action no event has fails the read.
@@ -192,6 +287,7 @@ mod tests {
             total: 3,
             not_evaluated: 1,
         };
+        let event_id = CrawlerReviewEventId::new();
         for (mutation, action, notes, expected) in [
             (
                 ReviewMutation::CandidateEdited {
@@ -237,8 +333,13 @@ mod tests {
                 ReviewMutation::ProductSchemasApproved {
                     notes: Some("covers the shop"),
                     coverage,
-                    replaced_product_schemas: None,
-                    replaced_removed_page_schemas: vec![],
+                    live_evaluation: None,
+                    configuration: ProductSchemaApprovalRecord {
+                        replaced_product_schemas: None,
+                        replaced_removed_page_schemas: vec![],
+                        approved_product_schemas: vec![],
+                        approved_removed_page_schemas: vec![],
+                    },
                 },
                 ReviewEventAction::Approved,
                 Some("covers the shop"),
@@ -246,19 +347,46 @@ mod tests {
                     "coverage": { "covered": 2, "removed": 1, "total": 3, "not_evaluated": 1 },
                     "replaced_product_schemas": null,
                     "replaced_removed_page_schemas": [],
+                    "approved_product_schemas": [],
+                    "approved_removed_page_schemas": [],
                 }),
             ),
             (
                 ReviewMutation::UrlPatternApproved {
                     notes: None,
-                    replaced_url_pattern: ReplacedUrlPattern {
-                        url_pattern: None,
-                        url_pattern_state: "UNKNOWN".to_owned(),
+                    configuration: UrlPatternApprovalRecord {
+                        replaced_url_pattern: DomainUrlPattern {
+                            url_pattern: None,
+                            url_pattern_state: "UNKNOWN".to_owned(),
+                        },
+                        approved_url_pattern: DomainUrlPattern {
+                            url_pattern: Some("/item/".to_owned()),
+                            url_pattern_state: "MATCHED".to_owned(),
+                        },
                     },
                 },
                 ReviewEventAction::Approved,
                 None,
-                json!({ "replaced_url_pattern": { "url_pattern": null, "url_pattern_state": "UNKNOWN" } }),
+                json!({
+                    "replaced_url_pattern": { "url_pattern": null, "url_pattern_state": "UNKNOWN" },
+                    "approved_url_pattern": { "url_pattern": "/item/", "url_pattern_state": "MATCHED" },
+                }),
+            ),
+            (
+                ReviewMutation::UrlPatternRestored {
+                    notes: Some("agent pattern too broad"),
+                    restored_event_id: event_id,
+                    replaced_url_pattern: DomainUrlPattern {
+                        url_pattern: Some("/item/".to_owned()),
+                        url_pattern_state: "MATCHED".to_owned(),
+                    },
+                },
+                ReviewEventAction::Restored,
+                Some("agent pattern too broad"),
+                json!({
+                    "restored_event_id": event_id,
+                    "replaced_url_pattern": { "url_pattern": "/item/", "url_pattern_state": "MATCHED" },
+                }),
             ),
             (
                 ReviewMutation::Rejected {
@@ -273,5 +401,40 @@ mod tests {
             assert_eq!(mutation.notes(), notes);
             assert_eq!(details(&mutation), expected, "{action:?}");
         }
+    }
+
+    /// A restore reads back what an approval's event keeps, whatever else the event records.
+    #[test]
+    fn should_read_back_the_configuration_an_approval_recorded() {
+        let configuration = ProductSchemaApprovalRecord {
+            replaced_product_schemas: None,
+            replaced_removed_page_schemas: vec![],
+            approved_product_schemas: vec![],
+            approved_removed_page_schemas: vec![],
+        };
+        let approval = ReviewMutation::ProductSchemasApproved {
+            notes: None,
+            coverage: ReviewPageCoverage {
+                covered: 1,
+                removed: 0,
+                total: 1,
+                not_evaluated: 0,
+            },
+            live_evaluation: None,
+            configuration: configuration.clone(),
+        };
+
+        let read = serde_json::from_value::<ProductSchemaApprovalRecord>(details(&approval));
+
+        assert_eq!(read.ok(), Some(configuration));
+        assert!(
+            serde_json::from_value::<ProductSchemaApprovalRecord>(json!({
+                "coverage": { "covered": 1, "removed": 0, "total": 1, "not_evaluated": 0 },
+                "replaced_product_schemas": null,
+                "replaced_removed_page_schemas": [],
+            }))
+            .is_err(),
+            "an approval that kept only what it replaced cannot be restored"
+        );
     }
 }
