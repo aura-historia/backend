@@ -85,6 +85,49 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   and database clocks: provider skew can delay a restore until the next edit, or let an
   update older than the delete by less than the skew restore the listing.
 
+### Shopify channel observations
+
+Catalog intake accepts `product_listings/add`, `product_listings/update` and
+`product_listings/remove`, scoped to the subscribing app's sales channel. Add/update
+snapshots use `product_listing.product_id`, without product `status`; stock exhaustion
+updates availability and does not withdraw the listing. Remove requires only that exact
+positive integer product identity (a canonical decimal string is also accepted for clients
+that cannot preserve 64-bit JSON integers). The mapper retains evidence spelling and emits
+a validated decimal `sourceListingId` in raw values for both upsert and delete. Source identity always includes the `ListingSourceId`.
+A first remove can bind an existing canonical backfill listing by this source/product pair;
+unknown products retain their ordering fence without creating a canonical listing.
+
+`SHOPIFY_PRODUCT` payload schema 2 retains the nested listing snapshot, stripping
+`body_html` inside `product_listing` (and at the outer level). Raw-values schema 1 is
+unchanged. Retained payload schema 1 remains readable for evidence but has no write
+authority: capture completes stale and pending normalization completes ignored.
+Unsupported schemas fail closed. The legacy broad `products/*` topics are acknowledged
+without forwarding, including queue redrives.
+
+`X-Shopify-Triggered-At` orders publication changes independently of product `updated_at`.
+Missing add/update times and malformed times keep upstream retry custody for DLQ recovery;
+do not fill them with receipt time. A timestamp-free remove uses the existing deletion
+barrier. Equal-time deletion wins; a fresh complete snapshot with a later selection start
+can recover an ambiguous timestamp or clear a deletion barrier. Provider receipt and
+command deduplication remain unchanged.
+
+The [Shopify snapshot API](../swagger.yaml) admits complete publication-filtered bulk
+observations through the same command FIFO and raw stream as webhooks. The app records
+`snapshotStartedAt` before starting its authoritative selection and preserves it across
+all upsert/withdrawal batches and retries. `selectionComplete: true` attests that granted
+access, current publication, pagination and bulk completion were verified successfully;
+failed/partial reads must not submit a cleanup. The backend never interprets a partial
+batch as an empty desired catalog. Cleanup uses explicitly enumerated source listing
+identities from the existing partner listing query, including when the complete eligible
+set is empty. Source-time guards run when raw observations are transactionally captured;
+normalization applies accepted revisions in that stream's order. Neither a pre-submit
+membership read nor ordinary canonical async upserts supply this guarantee.
+
+App companion [#370](https://github.com/aura-historia/shopify-app/issues/370) must regenerate
+its client from OpenAPI and replace canonical bulk writes with this endpoint. Publication
+reads and subscription/scope changes remain app-owned. Deployment and retained-work
+retirement requirements are in the [worker runbook](../durable-worker-runbook.md#shopify-channel-cutover-and-reconciliation).
+
 ## Geography dependency invalidation
 
 Party service owns `party_location_changes`; ListingSource service owns

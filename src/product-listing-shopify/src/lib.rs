@@ -14,22 +14,45 @@ use time::OffsetDateTime;
 #[cfg(test)]
 use time::format_description::well_known::Rfc3339;
 
-const PAYLOAD_SCHEMA_VERSION: u16 = 1;
+const PAYLOAD_SCHEMA_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, Deserialize)]
 struct ShopifyProductPayload {
-    pub id: u64,
+    #[serde(deserialize_with = "deserialize_product_id")]
+    pub product_id: u64,
     #[serde(default)]
     pub title: Option<String>,
 
     #[serde(default)]
     pub handle: Option<String>,
     #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
     pub variants: Vec<ShopifyVariantPayload>,
     #[serde(default)]
     pub images: Vec<ShopifyImagePayload>,
+}
+
+fn deserialize_product_id<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Identity {
+        Number(u64),
+        Decimal(String),
+    }
+    let id = match Identity::deserialize(deserializer)? {
+        Identity::Number(id) => id,
+        Identity::Decimal(value) => {
+            if value.starts_with('0') || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(serde::de::Error::custom("invalid Shopify product identity"));
+            }
+            value.parse::<u64>().map_err(serde::de::Error::custom)?
+        }
+    };
+    if id == 0 {
+        return Err(serde::de::Error::custom("invalid Shopify product identity"));
+    }
+    Ok(id)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -55,6 +78,8 @@ enum ShopifyProductEventError {
     InvalidSourcePayload(#[source] NormalizationInputError),
     #[error("Shopify product title is missing")]
     MissingTitle,
+    #[error("Shopify product identity must be a positive integer")]
+    InvalidProductId,
     #[error("Shopify product handle is missing")]
     MissingHandle,
     #[error("Shopify listing source currency is missing for a nonblank product price")]
@@ -76,31 +101,43 @@ fn listing_action_with_source_occurred_at(
     if let Some(object) = sanitized_payload.as_object_mut() {
         object.remove("body_html");
     }
-    let source_payload = SourcePayload::new(sanitized_payload.clone())
-        .map_err(ShopifyProductEventError::InvalidSourcePayload)?;
-    let product = serde_json::from_value::<ShopifyProductPayload>(sanitized_payload)
-        .map_err(ShopifyProductEventError::MalformedPayload)?;
-    let source_record_key = product.id.to_string();
-
-    let operation = if kind == ShopifyProductEventKind::Delete {
-        Some(RawProductListingOperation::Delete)
+    let listing = sanitized_payload
+        .get("product_listing")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let decoded_fields = if kind == ShopifyProductEventKind::Remove {
+        serde_json::json!({"product_id": listing.get("product_id").cloned().unwrap_or(Value::Null)})
     } else {
-        match product.status.as_deref() {
-            Some("active") => Some(RawProductListingOperation::Upsert),
-            Some("archived" | "draft") => Some(RawProductListingOperation::Delete),
-            Some(_) | None => None,
-        }
+        listing
     };
-    let Some(operation) = operation else {
-        return Ok(ShopifyListingAction::Ignore);
+    let product = serde_json::from_value::<ShopifyProductPayload>(decoded_fields)
+        .map_err(ShopifyProductEventError::MalformedPayload)?;
+    if let Some(object) = sanitized_payload
+        .get_mut("product_listing")
+        .and_then(Value::as_object_mut)
+    {
+        object.remove("body_html");
+    }
+    let source_payload = SourcePayload::new(sanitized_payload)
+        .map_err(ShopifyProductEventError::InvalidSourcePayload)?;
+    let source_record_key = product.product_id.to_string();
+
+    if product.product_id == 0 {
+        return Err(ShopifyProductEventError::InvalidProductId);
+    }
+    let operation = match kind {
+        ShopifyProductEventKind::Add | ShopifyProductEventKind::Update => {
+            RawProductListingOperation::Upsert
+        }
+        ShopifyProductEventKind::Remove => RawProductListingOperation::Delete,
     };
 
     let raw_values = match operation {
         RawProductListingOperation::Upsert => active_raw_values(source, &product)?,
-        RawProductListingOperation::Delete => {
-            RawProductListingValues::new(serde_json::json!({}))
-                .map_err(ShopifyProductEventError::InvalidSourcePayload)?
-        }
+        RawProductListingOperation::Delete => RawProductListingValues::new(
+            serde_json::json!({"sourceListingId": product.product_id.to_string()}),
+        )
+        .map_err(ShopifyProductEventError::InvalidSourcePayload)?,
     };
     let context = normalization_context(source)?;
     let input = ProductListingNormalizationInput::new(
@@ -156,7 +193,7 @@ fn active_raw_values(
         return Err(ShopifyProductEventError::MissingListingSourceCurrency);
     }
     let raw_values = ProductListingRawValues {
-        source_listing_id: product.id.to_string(),
+        source_listing_id: product.product_id.to_string(),
         title: ProductListingRawValuesPatch::Set(title.to_owned()),
         description: ProductListingRawValuesPatch::Unchanged,
         price_format: ProductListingRawValuesPriceFormat::MachineDecimal,
@@ -249,7 +286,12 @@ fn listing_action(
     source: &ShopifySource,
     payload: Value,
 ) -> Result<ShopifyListingAction, ShopifyProductEventError> {
-    listing_action_with_source_occurred_at(kind, source, payload, None)
+    listing_action_with_source_occurred_at(
+        kind,
+        source,
+        serde_json::json!({"product_listing": payload}),
+        None,
+    )
 }
 
 #[cfg(test)]
@@ -262,10 +304,10 @@ mod tests {
 
     #[test]
     fn should_map_active_product_to_generic_raw_values_and_context() {
-        let action = listing_action(ShopifyProductEventKind::Create,
+        let action = listing_action(ShopifyProductEventKind::Add,
                 &source(),
                 json!({
-                    "id": 42,
+                    "product_id": 42,
                     "title": "Cabinet",
                     "body_html": "<p>Imported cabinet</p>",
                     "handle": "cabinet",
@@ -285,6 +327,17 @@ mod tests {
             observation.input.operation(),
             RawProductListingOperation::Upsert
         );
+        let values = observation.input.raw_values().value();
+        assert_eq!(json!({"action":"SET","value":"Cabinet"}), values["title"]);
+        assert_eq!(
+            json!({"action":"SET","value":"https://partner.example/products/cabinet"}),
+            values["url"]
+        );
+        assert_eq!(
+            json!({"action":"SET","value":["https://images.example/cabinet.jpg"]}),
+            values["images"]
+        );
+        assert_eq!(json!({"action":"SET","value":"42.00"}), values["price"]);
         assert_eq!(
             product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
             observation.input.raw_values_schema_version()
@@ -306,22 +359,22 @@ mod tests {
             json!("de")
         );
         assert_eq!(
-            observation.input.source_payload().value()["futureShopifyKey"]["nested"],
+            observation.input.source_payload().value()["product_listing"]["futureShopifyKey"]["nested"],
             json!(true)
         );
         assert_eq!(
             None,
-            observation.input.source_payload().value().get("body_html")
+            observation.input.source_payload().value()["product_listing"].get("body_html")
         );
         assert_eq!(
             json!({"action": "UNCHANGED"}),
             observation.input.raw_values().value()["description"]
         );
 
-        let alternative = listing_action(ShopifyProductEventKind::Create,
+        let alternative = listing_action(ShopifyProductEventKind::Add,
                 &source(),
                 json!({
-                    "id": 42,
+                    "product_id": 42,
                     "title": "Cabinet",
                     "body_html": "A different description must be ignored",
                     "handle": "cabinet",
@@ -348,7 +401,7 @@ mod tests {
             ShopifyProductEventKind::Update,
             &source(),
             json!({
-                "id": 42,
+                "product_id": 42,
                 "title": "Cabinet",
                 "body_html": "An update description must also be ignored",
                 "handle": "cabinet",
@@ -365,39 +418,84 @@ mod tests {
             json!({"action": "UNCHANGED"}),
             update.input.raw_values().value()["description"]
         );
-        assert_eq!(None, update.input.source_payload().value().get("body_html"));
+        assert_eq!(
+            None,
+            update.input.source_payload().value()["product_listing"].get("body_html")
+        );
     }
 
     #[test]
-    fn should_map_archived_draft_and_delete_to_raw_delete() {
-        for (kind, status) in [
-            (ShopifyProductEventKind::Delete, Some("active")),
-            (ShopifyProductEventKind::Update, Some("archived")),
-            (ShopifyProductEventKind::Update, Some("draft")),
+    fn should_decode_listing_topics_without_product_status_and_reject_invalid_identity() {
+        for kind in [
+            ShopifyProductEventKind::Add,
+            ShopifyProductEventKind::Update,
         ] {
-            let action = listing_action(kind, &source(), payload(status))
-                .unwrap_or_else(|error| panic!("mapping failed: {error}"));
+            let mut snapshot = payload(None);
+            snapshot.as_object_mut().unwrap().remove("status");
             assert!(matches!(
-                action,
-                ShopifyListingAction::Capture(ShopifyRawObservation { input, .. })
-                    if input.operation() == RawProductListingOperation::Delete
-                        && input.raw_values_schema_version()
-                            == product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION
+                listing_action(kind, &source(), snapshot),
+                Ok(ShopifyListingAction::Capture(_))
             ));
         }
+        assert!(
+            matches!(listing_action(ShopifyProductEventKind::Remove, &source(), json!({"product_id": 42})), Ok(ShopifyListingAction::Capture(o)) if o.input.operation() == RawProductListingOperation::Delete)
+        );
+        for id in [
+            json!(null),
+            json!(0),
+            json!(-1),
+            json!(1.5),
+            json!("invalid"),
+            json!("042"),
+        ] {
+            assert!(
+                listing_action(
+                    ShopifyProductEventKind::Remove,
+                    &source(),
+                    json!({"product_id": id})
+                )
+                .is_err()
+            );
+        }
+        let exact = 9_007_199_254_740_993_u64;
+        let action = listing_action(
+            ShopifyProductEventKind::Remove,
+            &source(),
+            json!({"product_id": exact}),
+        )
+        .unwrap();
+        assert!(
+            matches!(action, ShopifyListingAction::Capture(o) if o.source_record_key == exact.to_string())
+        );
     }
 
     #[test]
-    fn should_ignore_missing_or_unsupported_status_with_invalid_updated_at() {
-        for status in [None, Some("published")] {
-            let mut ignored_payload = payload(status);
-            ignored_payload["updated_at"] = json!("not-a-timestamp");
-
-            assert!(matches!(
-                listing_action(ShopifyProductEventKind::Update, &source(), ignored_payload),
-                Ok(ShopifyListingAction::Ignore)
-            ));
+    fn should_preserve_numeric_and_decimal_string_ids_beyond_javascript_integer_precision() {
+        for id in [9_007_199_254_740_993_u64, u64::MAX] {
+            for value in [json!(id), json!(id.to_string())] {
+                let ShopifyListingAction::Capture(observation) = listing_action(
+                    ShopifyProductEventKind::Remove,
+                    &source(),
+                    json!({"product_id": value}),
+                )
+                .unwrap() else {
+                    panic!("must capture")
+                };
+                assert_eq!(id.to_string(), observation.source_record_key);
+                assert_eq!(
+                    json!(id.to_string()),
+                    observation.input.raw_values().value()["sourceListingId"]
+                );
+            }
         }
+        assert!(
+            listing_action(
+                ShopifyProductEventKind::Remove,
+                &source(),
+                json!({"product_id":"18446744073709551616"})
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -407,7 +505,7 @@ mod tests {
 
         assert!(matches!(
             listing_action(
-                ShopifyProductEventKind::Create,
+                ShopifyProductEventKind::Add,
                 &source_without_currency(),
                 product
             ),
@@ -421,7 +519,7 @@ mod tests {
         product["variants"] = json!([{"price": " \t "}]);
 
         let action = listing_action(
-            ShopifyProductEventKind::Create,
+            ShopifyProductEventKind::Add,
             &source_without_currency(),
             product,
         )
@@ -447,9 +545,9 @@ mod tests {
                 .unwrap_or_else(|error| panic!("trigger timestamp: {error}")),
         );
         assert!(matches!(
-            listing_action_with_source_occurred_at(ShopifyProductEventKind::Delete,
+            listing_action_with_source_occurred_at(ShopifyProductEventKind::Remove,
                     &source(),
-                    json!({"id": 42}),
+                    json!({"product_listing": {"product_id": 42}}),
                     source_occurred_at_from_triggered_at(Some("2026-09-07T10:02:00Z"))
                         .unwrap_or_else(|error| panic!("trigger timestamp: {error}")),
                 ),
@@ -499,7 +597,7 @@ mod tests {
 
     fn payload(status: Option<&str>) -> Value {
         json!({
-            "id": 42,
+            "product_id": 42,
             "title": "Cabinet",
             "handle": "cabinet",
             "status": status,
@@ -513,10 +611,9 @@ mod tests {
         inventory_management: Option<&str>,
     ) -> ShopifyProductPayload {
         ShopifyProductPayload {
-            id: 42,
+            product_id: 42,
             title: Some("Cabinet".to_owned()),
             handle: Some("cabinet".to_owned()),
-            status: Some("active".to_owned()),
             variants: vec![ShopifyVariantPayload {
                 price: None,
                 inventory_quantity,
@@ -526,4 +623,3 @@ mod tests {
         }
     }
 }
-

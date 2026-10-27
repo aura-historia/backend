@@ -20,9 +20,9 @@ use serde_json::Value;
 use std::time::Duration;
 use tracing::{info, warn};
 
-pub const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";
-pub const SHOPIFY_TOPIC_PRODUCTS_UPDATE: &str = "products/update";
-pub const SHOPIFY_TOPIC_PRODUCTS_DELETE: &str = "products/delete";
+pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD: &str = "product_listings/add";
+pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE: &str = "product_listings/update";
+pub const SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE: &str = "product_listings/remove";
 
 const INVOCATION_BUDGET_CAP: Duration = Duration::from_secs(30);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(1);
@@ -79,9 +79,9 @@ async fn process_event(
     span.record("shopify_domain", detail.metadata.shop_domain.as_str());
 
     let kind = match detail.metadata.topic.as_str() {
-        SHOPIFY_TOPIC_PRODUCTS_CREATE => ShopifyProductEventKind::Create,
-        SHOPIFY_TOPIC_PRODUCTS_UPDATE => ShopifyProductEventKind::Update,
-        SHOPIFY_TOPIC_PRODUCTS_DELETE => ShopifyProductEventKind::Delete,
+        SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD => ShopifyProductEventKind::Add,
+        SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE => ShopifyProductEventKind::Update,
+        SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE => ShopifyProductEventKind::Remove,
         _ => return MessageOutcome::Acknowledged,
     };
     let shop_domain = match Domain::try_from(detail.metadata.shop_domain.as_str()) {
@@ -135,7 +135,9 @@ fn should_retry(error: &ShopifyProductListingProcessingError) -> bool {
         ShopifyProductListingProcessingError::ListingSourceLookup(_)
         | ShopifyProductListingProcessingError::Submit(_)
         | ShopifyProductListingProcessingError::ForwardUnconfirmed
-        | ShopifyProductListingProcessingError::InvalidSubmissionIdentity => true,
+        | ShopifyProductListingProcessingError::InvalidSubmissionIdentity
+        | ShopifyProductListingProcessingError::InvalidPublicationTime(_)
+        | ShopifyProductListingProcessingError::MissingPublicationTime => true,
     }
 }
 
@@ -319,6 +321,48 @@ mod tests {
         assert_eq!(0, call_count(&processor));
     }
 
+    #[tokio::test]
+    async fn should_retain_unordered_publication_events_for_recovery_and_allow_missing_time_removal()
+     {
+        for (topic, time, retry) in [
+            (SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, true),
+            (SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE, Some("invalid"), true),
+            (SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE, Some("invalid"), true),
+            (SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE, None, false),
+        ] {
+            let mut body: Value = serde_json::from_str(&body_with_topic(topic)).unwrap();
+            let metadata = body["detail"]["metadata"].as_object_mut().unwrap();
+            metadata.remove("X-Shopify-Triggered-At");
+            if let Some(time) = time {
+                metadata.insert(
+                    "X-Shopify-Triggered-At".to_owned(),
+                    Value::String(time.to_owned()),
+                );
+            }
+            let processor = ProcessShopifyProductListingHandler::new(
+                TestSource,
+                TestIntake(SubmissionReport::Accepted),
+                ShopifyProductPayloadDecoder,
+            );
+            let result = handler(event("timestamp", body.to_string()), &processor)
+                .await
+                .unwrap();
+            assert_eq!(!result.batch_item_failures.is_empty(), retry);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_retire_all_legacy_broad_topics_without_forwarding() {
+        for topic in ["products/create", "products/update", "products/delete"] {
+            let processor = FakeProcessor::success();
+            let result = handler(event("legacy", body_with_topic(topic)), &processor)
+                .await
+                .unwrap();
+            assert!(result.batch_item_failures.is_empty());
+            assert_eq!(0, call_count(&processor));
+        }
+    }
+
     #[derive(Clone, Copy)]
     enum SubmissionReport {
         Accepted,
@@ -478,15 +522,15 @@ mod tests {
         let result = processor
             .execute(
                 &context,
-                ShopifyProductEventKind::Create,
+                ShopifyProductEventKind::Add,
                 Domain::try_from("partner.example").unwrap(),
                 SourcePayload::new(detail.payload).unwrap(),
                 ShopifyEventProvenance {
-                    topic: SHOPIFY_TOPIC_PRODUCTS_CREATE.to_owned(),
+                    topic: SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD.to_owned(),
                     shopify_event_id: None,
                     webhook_id: None,
                     event_bridge_event_id: event.id,
-                    triggered_at: None,
+                    triggered_at: Some("2026-10-27T10:00:00Z".to_owned()),
                 },
                 "upstream-id",
             )
@@ -540,7 +584,7 @@ mod tests {
     }
 
     fn valid_body() -> String {
-        body_with_topic(SHOPIFY_TOPIC_PRODUCTS_CREATE)
+        body_with_topic(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD)
     }
 
     fn body_with_topic(topic: &str) -> String {
@@ -548,16 +592,17 @@ mod tests {
         event.detail_type = "shopifyWebhook".to_owned();
         event.source = "aws.partner/shopify.com/test".to_owned();
         event.detail = serde_json::json!({
-            "payload": {
-                "id": 42,
+            "payload": {"product_listing": {
+                "product_id": 42,
                 "title": "Cabinet",
                 "handle": "cabinet",
                 "status": "active",
                 "variants": [{"price": "42.00", "inventory_quantity": 1}],
                 "images": []
-            },
+            }},
             "metadata": {
                 "X-Shopify-Topic": topic,
+                "X-Shopify-Triggered-At": "2026-10-27T10:00:00Z",
                 "X-Shopify-Shop-Domain": "partner.example"
             }
         });

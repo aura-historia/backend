@@ -36,8 +36,8 @@ use product_service::use_cases::{
     NormalizeProductListingRawRevisionMode, NormalizeProductListingRawRevisionUseCase,
 };
 use shopify_lambda::{
-    SHOPIFY_TOPIC_PRODUCTS_CREATE, SHOPIFY_TOPIC_PRODUCTS_DELETE, SHOPIFY_TOPIC_PRODUCTS_UPDATE,
-    handler,
+    SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
+    SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE, handler,
 };
 use sqlx::types::Json;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -52,7 +52,7 @@ async fn should_capture_shopify_raw_revision_without_direct_canonical_write() {
 
     let response = harness
         .invoke(product_event(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             source.domain.as_str(),
             100,
             5,
@@ -91,9 +91,12 @@ async fn should_capture_shopify_raw_revision_without_direct_canonical_write() {
     );
     assert_eq!(
         serde_json::json!(true),
-        revision.source_payload.0["futureShopifyKey"]["retained"]
+        revision.source_payload.0["product_listing"]["futureShopifyKey"]["retained"]
     );
-    assert_eq!(None, revision.source_payload.0.get("body_html"));
+    assert_eq!(
+        None,
+        revision.source_payload.0["product_listing"].get("body_html")
+    );
     assert_eq!(
         serde_json::json!({"action": "UNCHANGED"}),
         revision.raw_values.0["description"]
@@ -119,7 +122,10 @@ async fn should_capture_shopify_raw_revision_without_direct_canonical_write() {
         revision.provenance.0["eventBridgeEventId"]
     );
     assert_eq!(Some("shopify-event-1".to_owned()), revision.source_event_id);
-    assert_eq!(None, revision.source_occurred_at);
+    assert_eq!(
+        Some(occurred_at("2026-01-01T00:00:00Z")),
+        revision.source_occurred_at
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -129,7 +135,7 @@ async fn should_collapse_equal_shopify_state_with_new_delivery_ids() {
 
     let first = harness
         .invoke_and_process(product_event(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             source.domain.as_str(),
             101,
             5,
@@ -140,7 +146,7 @@ async fn should_collapse_equal_shopify_state_with_new_delivery_ids() {
         .await;
     let second = harness
         .invoke_and_process(product_event(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             source.domain.as_str(),
             101,
             5,
@@ -162,7 +168,7 @@ async fn should_distinguish_upstream_sqs_message_ids_without_duplicating_provide
     let mut harness = ShopifyTestHarness::new().await;
     let event = || {
         product_event(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             source.domain.as_str(),
             116,
             5,
@@ -226,23 +232,23 @@ async fn should_distinguish_shopify_webhook_and_eventbridge_delivery_ids_with_sa
 
     let webhook = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             domain,
             webhook_payload.clone(),
             "shopify-event-webhook",
             Some("same-delivery-id"),
-            None,
+            Some("2026-01-01T00:00:01Z"),
             "eventbridge-with-webhook",
         ))
         .await;
     let eventbridge = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             domain,
             eventbridge_payload.clone(),
             "shopify-event-eventbridge",
             None,
-            None,
+            Some("2026-01-01T00:00:02Z"),
             "same-delivery-id",
         ))
         .await;
@@ -261,12 +267,12 @@ async fn should_distinguish_shopify_webhook_and_eventbridge_delivery_ids_with_sa
     assert_eq!(
         vec![
             ProviderReceiptRow {
-                scope: SHOPIFY_TOPIC_PRODUCTS_UPDATE.to_owned(),
+                scope: SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE.to_owned(),
                 delivery_id: "eventbridge:same-delivery-id".to_owned(),
                 source_payload_sha256: source_payload_digest(&eventbridge_payload),
             },
             ProviderReceiptRow {
-                scope: SHOPIFY_TOPIC_PRODUCTS_UPDATE.to_owned(),
+                scope: SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE.to_owned(),
                 delivery_id: "shopify-webhook:same-delivery-id".to_owned(),
                 source_payload_sha256: source_payload_digest(&webhook_payload),
             },
@@ -295,7 +301,7 @@ async fn should_preserve_e2_b_after_retrying_e1_a_and_capture_e3_a() {
 
     let first = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             domain,
             e1_a.clone(),
             "shopify-event-e1",
@@ -306,7 +312,7 @@ async fn should_preserve_e2_b_after_retrying_e1_a_and_capture_e3_a() {
         .await;
     let second = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             domain,
             e2_b.clone(),
             "shopify-event-e2",
@@ -322,12 +328,12 @@ async fn should_preserve_e2_b_after_retrying_e1_a_and_capture_e3_a() {
     assert_eq!(
         vec![
             ProviderReceiptRow {
-                scope: SHOPIFY_TOPIC_PRODUCTS_CREATE.to_owned(),
+                scope: SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD.to_owned(),
                 delivery_id: "shopify-webhook:webhook-shared".to_owned(),
                 source_payload_sha256: source_payload_digest(&e1_a),
             },
             ProviderReceiptRow {
-                scope: SHOPIFY_TOPIC_PRODUCTS_UPDATE.to_owned(),
+                scope: SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE.to_owned(),
                 delivery_id: "shopify-webhook:webhook-shared".to_owned(),
                 source_payload_sha256: source_payload_digest(&e2_b),
             },
@@ -367,7 +373,7 @@ async fn should_preserve_e2_b_after_retrying_e1_a_and_capture_e3_a() {
 
     let retry = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             domain,
             e1_a.clone(),
             "shopify-event-e1",
@@ -395,7 +401,7 @@ async fn should_preserve_e2_b_after_retrying_e1_a_and_capture_e3_a() {
     );
     let third = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             domain,
             e3_a.clone(),
             "shopify-event-e3",
@@ -416,7 +422,7 @@ async fn should_preserve_e2_b_after_retrying_e1_a_and_capture_e3_a() {
             .await
             .iter()
             .any(|receipt| {
-                receipt.scope == SHOPIFY_TOPIC_PRODUCTS_UPDATE
+                receipt.scope == SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE
                     && receipt.delivery_id == "eventbridge:eventbridge-e3"
                     && receipt.source_payload_sha256 == source_payload_digest(&e3_a)
             })
@@ -443,7 +449,7 @@ async fn should_acknowledge_fifo_admission_but_reject_conflicting_delivery_finge
 
     let first = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             domain,
             e1_a.clone(),
             "shopify-event-e1",
@@ -454,7 +460,7 @@ async fn should_acknowledge_fifo_admission_but_reject_conflicting_delivery_finge
         .await;
     let conflict = harness
         .invoke(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             domain,
             conflicting_b,
             "shopify-event-e1-conflict",
@@ -474,7 +480,7 @@ async fn should_acknowledge_fifo_admission_but_reject_conflicting_delivery_finge
     assert_eq!(1, raw_revision_count(source.id, 108).await);
     assert_eq!(
         vec![ProviderReceiptRow {
-            scope: SHOPIFY_TOPIC_PRODUCTS_CREATE.to_owned(),
+            scope: SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD.to_owned(),
             delivery_id: "shopify-webhook:webhook-e1".to_owned(),
             source_payload_sha256: source_payload_digest(&e1_a),
         }],
@@ -508,7 +514,7 @@ async fn should_apply_shopify_trigger_timestamp_ordering_with_equal_times_in_arr
 
     let newer = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             domain,
             newer_a.clone(),
             "shopify-event-newer",
@@ -519,7 +525,7 @@ async fn should_apply_shopify_trigger_timestamp_ordering_with_equal_times_in_arr
         .await;
     let stale = harness
         .invoke_and_process(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             domain,
             older_b.clone(),
             "shopify-event-older",
@@ -530,7 +536,7 @@ async fn should_apply_shopify_trigger_timestamp_ordering_with_equal_times_in_arr
         .await;
     let same_time = harness
         .invoke(event_with_provider_metadata(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             domain,
             same_time_c.clone(),
             "shopify-event-same-time",
@@ -562,17 +568,17 @@ async fn should_apply_shopify_trigger_timestamp_ordering_with_equal_times_in_arr
     assert_eq!(
         vec![
             ProviderReceiptRow {
-                scope: SHOPIFY_TOPIC_PRODUCTS_CREATE.to_owned(),
+                scope: SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD.to_owned(),
                 delivery_id: "shopify-webhook:webhook-newer".to_owned(),
                 source_payload_sha256: source_payload_digest(&newer_a),
             },
             ProviderReceiptRow {
-                scope: SHOPIFY_TOPIC_PRODUCTS_UPDATE.to_owned(),
+                scope: SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE.to_owned(),
                 delivery_id: "shopify-webhook:webhook-older".to_owned(),
                 source_payload_sha256: source_payload_digest(&older_b),
             },
             ProviderReceiptRow {
-                scope: SHOPIFY_TOPIC_PRODUCTS_UPDATE.to_owned(),
+                scope: SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE.to_owned(),
                 delivery_id: "shopify-webhook:webhook-same-time".to_owned(),
                 source_payload_sha256: source_payload_digest(&same_time_c),
             },
@@ -601,7 +607,7 @@ async fn should_normalize_shopify_machine_decimal_prices_and_preserve_provider_s
 
         let response = harness
             .invoke_and_process(event_with_payload(
-                SHOPIFY_TOPIC_PRODUCTS_CREATE,
+                SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
                 domain,
                 payload,
                 &event_id,
@@ -618,7 +624,7 @@ async fn should_normalize_shopify_machine_decimal_prices_and_preserve_provider_s
         );
         assert_eq!(
             serde_json::json!(price),
-            revision.source_payload.0["variants"][0]["price"]
+            revision.source_payload.0["product_listing"]["variants"][0]["price"]
         );
         let expected_price_patch = if price.is_empty() {
             serde_json::json!({"action": "CLEAR"})
@@ -646,7 +652,7 @@ async fn should_preserve_current_shopify_listing_facts_after_asynchronous_normal
     let mut harness = ShopifyTestHarness::new().await;
     let response = harness
         .invoke_and_process(product_event(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             source.domain.as_str(),
             103,
             5,
@@ -692,7 +698,7 @@ async fn should_preserve_current_shopify_listing_facts_after_asynchronous_normal
     update_payload["variants"][0]["price"] = serde_json::json!("43.00");
     let update_response = harness
         .invoke_and_process(event_with_payload(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             source.domain.as_str(),
             update_payload,
             "shopify-event-2",
@@ -723,7 +729,7 @@ async fn should_capture_delete_without_direct_withdrawal() {
     assert!(
         harness
             .invoke_and_process(product_event(
-                SHOPIFY_TOPIC_PRODUCTS_CREATE,
+                SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
                 domain,
                 103,
                 5,
@@ -738,7 +744,7 @@ async fn should_capture_delete_without_direct_withdrawal() {
     assert!(
         harness
             .invoke_and_process(product_event(
-                SHOPIFY_TOPIC_PRODUCTS_DELETE,
+                SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
                 domain,
                 103,
                 5,
@@ -760,12 +766,11 @@ async fn should_capture_delete_without_direct_withdrawal() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_acknowledge_missing_source_or_ignored_status_with_invalid_updated_at_without_capture()
- {
+async fn should_ignore_missing_source_and_capture_status_free_listing_updates() {
     let mut harness = ShopifyTestHarness::new().await;
     let missing_source = harness
         .invoke_and_process(product_event(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             "missing-source.example",
             104,
             5,
@@ -784,7 +789,7 @@ async fn should_acknowledge_missing_source_or_ignored_status_with_invalid_update
     missing_status_payload["updated_at"] = serde_json::json!("not-a-timestamp");
     let missing_status = harness
         .invoke_and_process(event_with_payload(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             source.domain.as_str(),
             missing_status_payload,
             "shopify-event-2",
@@ -792,14 +797,14 @@ async fn should_acknowledge_missing_source_or_ignored_status_with_invalid_update
         ))
         .await;
     assert!(missing_status.batch_item_failures.is_empty());
-    assert_eq!(0, raw_revision_count(source.id, 105).await);
+    assert_eq!(1, raw_revision_count(source.id, 105).await);
 
     let mut unsupported_status_payload = shopify_payload(106, 5, serde_json::json!({}));
     unsupported_status_payload["status"] = serde_json::json!("published");
     unsupported_status_payload["updated_at"] = serde_json::json!("not-a-timestamp");
     let unsupported_status = harness
         .invoke_and_process(event_with_payload(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             source.domain.as_str(),
             unsupported_status_payload,
             "shopify-event-3",
@@ -807,8 +812,8 @@ async fn should_acknowledge_missing_source_or_ignored_status_with_invalid_update
         ))
         .await;
     assert!(unsupported_status.batch_item_failures.is_empty());
-    assert_eq!(0, raw_revision_count(source.id, 106).await);
-    assert!(harness.published().is_empty());
+    assert_eq!(1, raw_revision_count(source.id, 106).await);
+    assert_eq!(2, harness.published().len());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -816,11 +821,11 @@ async fn should_acknowledge_permanently_malformed_shopify_product_without_captur
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
     let mut payload = shopify_payload(106, 5, serde_json::json!({}));
-    payload["id"] = serde_json::json!("not-a-decimal-id");
+    payload["product_id"] = serde_json::json!("not-a-decimal-id");
 
     let response = harness
         .invoke_and_process(event_with_payload(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             source.domain.as_str(),
             payload,
             "shopify-event-1",
@@ -834,7 +839,7 @@ async fn should_acknowledge_permanently_malformed_shopify_product_without_captur
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_capture_invalid_shopify_updated_at_without_trigger_timestamp() {
+async fn should_use_trigger_time_independently_of_product_updated_at() {
     let source = seed_source().await;
     let mut harness = ShopifyTestHarness::new().await;
     let mut payload = shopify_payload(110, 5, serde_json::json!({}));
@@ -842,7 +847,7 @@ async fn should_capture_invalid_shopify_updated_at_without_trigger_timestamp() {
 
     let response = harness
         .invoke_and_process(event_with_payload(
-            SHOPIFY_TOPIC_PRODUCTS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
             source.domain.as_str(),
             payload,
             "shopify-event-invalid-time",
@@ -853,7 +858,7 @@ async fn should_capture_invalid_shopify_updated_at_without_trigger_timestamp() {
     assert!(response.batch_item_failures.is_empty());
     assert_eq!(1, raw_revision_count(source.id, 110).await);
     assert_eq!(
-        None,
+        Some(occurred_at("2026-01-01T00:00:00Z")),
         raw_revision(source.id, 110, 1).await.source_occurred_at
     );
 }
@@ -869,7 +874,7 @@ async fn should_retry_unconfirmed_publish_with_stable_command_and_one_durable_ca
 
     let event = || {
         product_event(
-            SHOPIFY_TOPIC_PRODUCTS_CREATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
             source.domain.as_str(),
             115,
             5,
@@ -1149,7 +1154,7 @@ fn event_with_payload(
         payload,
         shopify_event_id,
         None,
-        None,
+        Some("2026-01-01T00:00:00Z"),
         event_bridge_event_id,
     )
 }
@@ -1188,7 +1193,7 @@ fn event_with_provider_metadata(
     event.detail_type = "shopifyWebhook".to_owned();
     event.source = "aws.partner/shopify.com/test".to_owned();
     event.detail = serde_json::json!({
-        "payload": payload,
+        "payload": {"product_listing": payload},
         "metadata": metadata,
     });
     let body = serde_json::to_string(&event)
@@ -1214,7 +1219,7 @@ fn shopify_payload(
     extra: serde_json::Value,
 ) -> serde_json::Value {
     let mut payload = serde_json::json!({
-        "id": product_id,
+        "product_id": product_id,
         "title": "Shopify Cabinet",
         "body_html": "<p>Imported cabinet</p>",
         "handle": format!("cabinet-{product_id}"),
@@ -1312,7 +1317,7 @@ fn source_payload_digest(payload: &serde_json::Value) -> Vec<u8> {
     if let Some(object) = sanitized_payload.as_object_mut() {
         object.remove("body_html");
     }
-    SourcePayload::new(sanitized_payload)
+    SourcePayload::new(serde_json::json!({"product_listing": sanitized_payload}))
         .and_then(|source_payload| source_payload.canonical_sha256())
         .map(|sha256| sha256.as_bytes().to_vec())
         .unwrap_or_else(|error| panic!("failed hashing Shopify source payload: {error}"))
@@ -1422,4 +1427,333 @@ async fn product_listing_event_count() -> i64 {
         .fetch_one(&get_postgres_client().await)
         .await
         .unwrap_or_else(|error| panic!("failed counting ProductListing events: {error}"))
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_withdraw_backfill_only_listing_and_preserve_other_source_and_publication_order() {
+    let source = seed_source().await;
+    let other = seed_source().await;
+    seed_canonical_listing(source.id, "42").await;
+    seed_canonical_listing(other.id, "42").await;
+    let mut harness = ShopifyTestHarness::new().await;
+    for (topic, at, delivery, payload) in [
+        (
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
+            "2026-01-01T00:00:02Z",
+            "remove",
+            serde_json::json!({"product_id":42}),
+        ),
+        (
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
+            "2026-01-01T00:00:01Z",
+            "old-add",
+            shopify_payload(42, 1, serde_json::json!({})),
+        ),
+    ] {
+        assert!(
+            harness
+                .invoke_and_process(event_with_provider_metadata(
+                    topic,
+                    source.domain.as_str(),
+                    payload,
+                    delivery,
+                    Some(delivery),
+                    Some(at),
+                    delivery
+                ))
+                .await
+                .batch_item_failures
+                .is_empty()
+        );
+    }
+    assert_eq!(
+        1,
+        normalize_pending_shopify_revisions(harness.pool.clone()).await
+    );
+    assert_eq!("WITHDRAWN", lifecycle(source.id, "42").await);
+    assert_eq!("ACTIVE", lifecycle(other.id, "42").await);
+    assert_eq!(1, raw_revision_count(source.id, 42).await);
+    for (topic, at, delivery) in [
+        (
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
+            "2026-01-01T00:00:03Z",
+            "republish",
+        ),
+        (
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
+            "2026-01-01T00:00:02Z",
+            "delayed-remove",
+        ),
+        (
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
+            "2026-01-01T00:00:02Z",
+            "delayed-remove",
+        ),
+    ] {
+        let payload = if topic == SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE {
+            serde_json::json!({"product_id":42})
+        } else {
+            shopify_payload(
+                42,
+                0,
+                serde_json::json!({"updated_at":"2025-01-01T00:00:00Z"}),
+            )
+        };
+        assert!(
+            harness
+                .invoke_and_process(event_with_provider_metadata(
+                    topic,
+                    source.domain.as_str(),
+                    payload,
+                    delivery,
+                    Some(delivery),
+                    Some(at),
+                    delivery
+                ))
+                .await
+                .batch_item_failures
+                .is_empty()
+        );
+    }
+    normalize_pending_shopify_revisions(harness.pool.clone()).await;
+    assert_eq!("ACTIVE", lifecycle(source.id, "42").await);
+    assert_eq!(
+        Some("OUT_OF_STOCK".to_owned()),
+        listing_facts(source.id, 42).await.0
+    );
+    assert_eq!(1, listing_count(source.id).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_order_bulk_snapshots_and_cleanup_against_live_publication_events_at_application() {
+    use product_listing_service::ports::shopify_product_decoder::ShopifyProductEventKind;
+    use product_listing_service::use_cases::commands::submit_shopify_snapshot::{
+        ShopifySnapshotItem, SubmitShopifySnapshotCommand, SubmitShopifySnapshotHandler,
+        SubmitShopifySnapshotUseCase,
+    };
+    let source = seed_source().await;
+    let mut harness = ShopifyTestHarness::new().await;
+    let snapshots = SubmitShopifySnapshotHandler::new(
+        SqlxListingSourceReaders::new(harness.pool.clone()),
+        harness.publisher.clone(),
+        ShopifyProductPayloadDecoder,
+    );
+    let command = |kind, at, key: &str| {
+        SubmitShopifySnapshotCommand {
+        listing_source_id: source.id, domain: source.domain.clone(),
+        snapshot_started_at: occurred_at(at), selection_complete: true,
+        idempotency_key: product_listing_service::use_cases::ProductListingIngestionIdempotencyKey::new(key).unwrap(),
+        items: vec![ShopifySnapshotItem {kind, payload: SourcePayload::new(serde_json::json!({"product_listing": shopify_payload(42, 1, serde_json::json!({}))})).unwrap()}],
+    }
+    };
+    let system = application::operation_context::OperationContext {
+        principal: application::operation_context::Principal::System,
+        request_id: application::operation_context::RequestId::new("snapshot"),
+        correlation_id: application::operation_context::CorrelationId::new("snapshot"),
+    };
+    let mut incomplete = command(
+        ShopifyProductEventKind::Add,
+        "2026-01-01T00:00:01Z",
+        "incomplete",
+    );
+    incomplete.selection_complete = false;
+    assert!(snapshots.execute(&system, incomplete).await.is_err());
+    assert!(harness.published().is_empty());
+    assert!(
+        harness
+            .invoke_and_process(event_with_provider_metadata(
+                SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
+                source.domain.as_str(),
+                serde_json::json!({"product_id":42}),
+                "remove",
+                Some("remove"),
+                Some("2026-01-01T00:00:02Z"),
+                "remove"
+            ))
+            .await
+            .batch_item_failures
+            .is_empty()
+    );
+    // A snapshot selected before removal is submitted and retried after it.
+    for _ in 0..2 {
+        snapshots
+            .execute(
+                &system,
+                command(
+                    ShopifyProductEventKind::Add,
+                    "2026-01-01T00:00:01Z",
+                    "old-snapshot",
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(harness.process_pending().await.iter().all(Result::is_ok));
+    }
+    normalize_pending_shopify_revisions(harness.pool.clone()).await;
+    assert_eq!(0, listing_count(source.id).await);
+    assert!(
+        harness
+            .invoke_and_process(event_with_provider_metadata(
+                SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
+                source.domain.as_str(),
+                shopify_payload(42, 1, serde_json::json!({})),
+                "republish",
+                Some("republish"),
+                Some("2026-01-01T00:00:04Z"),
+                "republish"
+            ))
+            .await
+            .batch_item_failures
+            .is_empty()
+    );
+    snapshots
+        .execute(
+            &system,
+            command(
+                ShopifyProductEventKind::Remove,
+                "2026-01-01T00:00:03Z",
+                "old-cleanup",
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(harness.process_pending().await.iter().all(Result::is_ok));
+    normalize_pending_shopify_revisions(harness.pool.clone()).await;
+    assert_eq!("ACTIVE", lifecycle(source.id, "42").await);
+}
+
+// Use trusted intake for these SQL/normalization tests; REST tests own partner authentication.
+#[async_trait::async_trait]
+impl product_listing_service::use_cases::SubmitPartnerProductListingIngestionUseCase
+    for CapturingPublisher
+{
+    async fn execute(
+        &self,
+        context: &application::operation_context::OperationContext,
+        submission: product_listing_service::use_cases::ProductListingIngestionSubmission,
+    ) -> Result<
+        product_listing_service::use_cases::ProductListingIngestionSubmissionResult,
+        product_listing_service::use_cases::ProductListingIngestionSubmissionError,
+    > {
+        use product_listing_service::use_cases::SubmitInternalProductListingIngestionUseCase;
+        SubmitInternalProductListingIngestionHandler::new(self.clone())
+            .execute(context, submission)
+            .await
+    }
+}
+
+async fn seed_canonical_listing(source: ListingSourceId, id: &str) {
+    use product_listing_service::use_cases::{
+        CreateProductListingCommand, CreateProductListingHandler, CreateProductListingUseCase,
+    };
+    CreateProductListingHandler::new(
+        SqlxUnitOfWork::new(get_postgres_client().await),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
+        SqlxPartnerProductListingAuthorizerFactory::new(),
+        SqlxAuctionReferenceValidatorFactory::new(),
+    )
+    .execute(
+        &application::operation_context::OperationContext {
+            principal: application::operation_context::Principal::System,
+            request_id: application::operation_context::RequestId::new("backfill"),
+            correlation_id: application::operation_context::CorrelationId::new("backfill"),
+        },
+        CreateProductListingCommand {
+            listing_source_id: source,
+            source_listing_id: id.try_into().unwrap(),
+            title: None,
+            description: None,
+            pricing: Default::default(),
+            availability: None,
+            url: format!("https://example.test/products/{id}")
+                .parse()
+                .unwrap(),
+            images: Default::default(),
+            auction: None,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+async fn lifecycle(source: ListingSourceId, id: &str) -> String {
+    sqlx::query_scalar("SELECT lifecycle FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2")
+        .bind(source.into_uuid()).bind(id).fetch_one(&get_postgres_client().await).await.unwrap()
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_retire_legacy_raw_commands_and_pending_revisions_without_changing_canonical_data() {
+    use product_listing_normalization::ProductListingNormalizationInput;
+    let source = seed_source().await;
+    seed_canonical_listing(source.id, "42").await;
+    let mut harness = ShopifyTestHarness::new().await;
+    // Simulate a broad-topic command retained in the FIFO before the cutover.
+    assert!(
+        harness
+            .invoke(product_event(
+                SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
+                source.domain.as_str(),
+                42,
+                1,
+                "legacy",
+                "legacy",
+                serde_json::json!({})
+            ))
+            .await
+            .batch_item_failures
+            .is_empty()
+    );
+    let mut message = codec::decode(&harness.published()[0])
+        .unwrap()
+        .into_service_envelope()
+        .unwrap()
+        .message;
+    let ProductListingIngestionIntent::CaptureRaw(command) = &mut message.intent else {
+        unreachable!()
+    };
+    command.input = ProductListingNormalizationInput::new(
+        command.input.operation(),
+        command.input.payload_format(),
+        1,
+        command.input.raw_values_schema_version(),
+        command.input.source_payload().clone(),
+        command.input.raw_values().clone(),
+        command.input.normalization_context().clone(),
+    )
+    .unwrap();
+    harness.publisher.wires.lock().unwrap()[0] = codec::encode(&message).unwrap();
+    assert!(harness.process_pending().await.iter().all(Result::is_ok));
+    assert_eq!(0, raw_revision_count(source.id, 42).await);
+    // Simulate a broad-topic revision already admitted before deployment.
+    assert!(
+        harness
+            .invoke_and_process(product_event(
+                SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
+                source.domain.as_str(),
+                42,
+                1,
+                "pending-old",
+                "pending-old",
+                serde_json::json!({})
+            ))
+            .await
+            .batch_item_failures
+            .is_empty()
+    );
+    sqlx::query("UPDATE product_listing_raw_revisions SET payload_schema_version = 1")
+        .execute(&harness.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        1,
+        normalize_pending_shopify_revisions(harness.pool.clone()).await
+    );
+    assert_eq!("ACTIVE", lifecycle(source.id, "42").await);
+    let outcome: String =
+        sqlx::query_scalar("SELECT outcome FROM product_listing_raw_normalizations")
+            .fetch_one(&harness.pool)
+            .await
+            .unwrap();
+    assert_eq!("IGNORED", outcome);
 }

@@ -848,6 +848,7 @@ impl PartnerProductListingsState {
 
 #[derive(Clone)]
 pub struct AsyncPartnerProductListingsState {
+    pub(crate) shopify_snapshots: Option<Arc<dyn product_listing_service::use_cases::commands::submit_shopify_snapshot::SubmitShopifySnapshotUseCase>>,
     pub(crate) submit: Arc<dyn SubmitPartnerProductListingIngestionUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
@@ -858,9 +859,17 @@ impl AsyncPartnerProductListingsState {
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
+            shopify_snapshots: None,
             submit,
             authenticator,
         }
+    }
+    pub fn with_shopify_snapshots(
+        mut self,
+        snapshots: Arc<dyn product_listing_service::use_cases::commands::submit_shopify_snapshot::SubmitShopifySnapshotUseCase>,
+    ) -> Self {
+        self.shopify_snapshots = Some(snapshots);
+        self
     }
 }
 

@@ -61,6 +61,10 @@ pub enum ShopifyProductListingProcessingError {
     ForwardUnconfirmed,
     #[error("Shopify submission identity is invalid")]
     InvalidSubmissionIdentity,
+    #[error("Shopify publication timestamp is missing or malformed")]
+    MissingPublicationTime,
+    #[error("Shopify publication timestamp is malformed")]
+    InvalidPublicationTime(#[source] time::error::Parse),
 }
 
 #[async_trait::async_trait]
@@ -130,9 +134,10 @@ where
                 time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
             })
             .transpose()
-            .map_err(|source| {
-                ShopifyProductListingProcessingError::InvalidPayload(Box::new(source))
-            })?;
+            .map_err(ShopifyProductListingProcessingError::InvalidPublicationTime)?;
+        if observation.source_occurred_at.is_none() && kind != ShopifyProductEventKind::Remove {
+            return Err(ShopifyProductListingProcessingError::MissingPublicationTime);
+        }
         let provider_receipt = shopify_provider_receipt(
             provenance.topic.as_str(),
             provenance.webhook_id.as_deref(),
@@ -301,8 +306,8 @@ fn shopify_submission_key(
 #[cfg(test)]
 mod tests {
     use super::*;
-    const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";
-    const SHOPIFY_TOPIC_PRODUCTS_UPDATE: &str = "products/update";
+    const SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD: &str = "product_listings/add";
+    const SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE: &str = "product_listings/update";
     #[test]
     fn should_namespace_receipt_delivery_identity_by_origin() {
         let webhook_identity =
@@ -340,56 +345,56 @@ mod tests {
         let key = |p: ShopifyEventProvenance, sqs: &str| shopify_submission_key(&p, sqs).unwrap();
         assert_eq!(
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
                 "first"
             ),
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
                 "second"
             )
         );
         assert_ne!(
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
                 "first"
             ),
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_UPDATE, Some("webhook"), None),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE, Some("webhook"), None),
                 "first"
             )
         );
         assert_ne!(
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
                 "first"
             ),
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, Some("webhook")),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, Some("webhook")),
                 "first"
             )
         );
         assert_ne!(
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, None),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, None),
                 "first"
             ),
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, None),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, None),
                 "second"
             )
         );
         assert_ne!(
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, None),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, None),
                 "first"
             ),
             key(
-                provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, None, Some("first")),
+                provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, Some("first")),
                 "first"
             )
         );
         let delivery_key = key(
-            provenance(SHOPIFY_TOPIC_PRODUCTS_CREATE, Some("webhook"), None),
+            provenance(SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, Some("webhook"), None),
             "first",
         );
         let first_source = listing_source_core::ListingSourceId::new();

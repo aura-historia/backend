@@ -353,6 +353,7 @@ dependencies = [
  "product-listing-opensearch",
  "product-listing-postgres",
  "product-listing-service",
+ "product-listing-shopify",
  "product-service",
  "reqwest 0.12.28",
  "rstest",

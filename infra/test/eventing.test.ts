@@ -61,6 +61,9 @@ describe.each(STAGES)("%s native eventing", (stage) => {
       expect(rule).toBeDefined();
       expect(rule?.Properties.State ?? "ENABLED").toBe("ENABLED");
     }
+    const listingRule = rules.find((candidate) => JSON.stringify(candidate.Properties.EventPattern).includes("X-Shopify-Topic"));
+    expect(listingRule?.Properties.EventPattern.detail.metadata["X-Shopify-Topic"])
+      .toEqual(["product_listings/add", "product_listings/update", "product_listings/remove"]);
     expect(resources(compute, "AWS::CloudFormation::CustomResource")).toHaveLength(0);
   });
 

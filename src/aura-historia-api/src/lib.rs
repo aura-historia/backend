@@ -628,6 +628,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                         .put(partner_product_listings::async_upsert_products::upsert_products)
                         .delete(partner_product_listings::async_delete_products::delete_products),
                 )
+                .route(
+                    "/v1/listing-sources/{listingSourceId}/product-listings/shopify-snapshot/async",
+                    post(partner_product_listings::shopify_snapshot::submit_snapshot),
+                )
                 .with_state(async_partner_product_listings),
         );
     }
@@ -1440,7 +1444,13 @@ async fn app_state_from_config_and_runtime(
                 dyn product_listing_service::use_cases::SubmitPartnerProductListingIngestionUseCase,
             >,
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
-    );
+    ).with_shopify_snapshots(Arc::new(
+        product_listing_service::use_cases::commands::submit_shopify_snapshot::SubmitShopifySnapshotHandler::new(
+            SqlxListingSourceReaders::new(pool.clone()),
+            Arc::clone(&submit_product_listing_ingestion),
+            product_listing_shopify::ShopifyProductPayloadDecoder,
+        ),
+    ));
     let partner_product_listings_state = PartnerProductListingsState::new(
         partner_batches.batches.clone(),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,

@@ -453,6 +453,19 @@ where
         shipping_observation: &mut Option<CrawlerShippingObservation>,
     ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
     {
+        if revision.input.payload_format()
+            == product_listing_normalization::RawProductListingPayloadFormat::ShopifyProduct
+            && revision.input.payload_schema_version() == 1
+        {
+            return Ok(completion(
+                &head,
+                &revision,
+                ProductListingRawNormalizationOutcome::Ignored,
+                None,
+                None,
+                None,
+            ));
+        }
         match normalized {
             ProductListingRawValuesNormalizationOutcome::Invalid(error) => Ok(completion(
                 &head,
@@ -1073,7 +1086,11 @@ fn availability_patch(
 fn validate_stored_schema(
     input: &product_listing_normalization::ProductListingNormalizationInput,
 ) -> Result<(), NormalizeProductListingRawRevisionError> {
-    if input.payload_schema_version() != 1
+    let supported_payload = input.payload_schema_version() == 1
+        || (input.payload_format()
+            == product_listing_normalization::RawProductListingPayloadFormat::ShopifyProduct
+            && input.payload_schema_version() == 2);
+    if !supported_payload
         || input.raw_values_schema_version() != PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION
     {
         return Err(NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion);

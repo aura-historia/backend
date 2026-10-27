@@ -113,7 +113,8 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
         request.method(),
         &Method::POST | &Method::PATCH | &Method::PUT | &Method::DELETE
     ) && path.starts_with("/v1/listing-sources/")
-        && path.ends_with("/product-listings/async");
+        && (path.ends_with("/product-listings/async")
+            || path.ends_with("/product-listings/shopify-snapshot/async"));
     let woocommerce_webhook = request.method() == Method::POST
         && path
             .strip_prefix("/v1/webhooks/woocommerce/")

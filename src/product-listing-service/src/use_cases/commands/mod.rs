@@ -26,3 +26,5 @@ pub(crate) mod product_listing_management;
 pub mod change_product_listing_delivery;
 
 pub mod partner_product_listing_batches;
+
+pub mod submit_shopify_snapshot;

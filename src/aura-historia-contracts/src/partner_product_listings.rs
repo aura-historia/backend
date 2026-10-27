@@ -590,3 +590,5 @@ mod tests {
         assert_eq!(error.field, "sourceListingId");
     }
 }
+
+pub mod shopify_snapshot;

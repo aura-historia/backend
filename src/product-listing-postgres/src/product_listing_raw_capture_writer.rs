@@ -149,6 +149,17 @@ impl ProductListingRawCaptureWriter for SqlxProductListingRawCaptureWriter<'_> {
         let latest_revision = u64::try_from(stream.latest_revision)
             .map_err(|_| invalid_capture_state("raw stream revision is invalid"))?;
 
+        // Retained broad-topic commands are readable, but no longer carry write authority.
+        if write.ingestion_method
+            == product_listing_service::ports::ProductListingRawIngestionMethod::Shopify
+            && write.input.payload_schema_version() == 1
+        {
+            return Ok(ProductListingRawCaptureWriteOutcome::Stale {
+                product_listing_raw_stream_id: stream_id,
+                latest_revision,
+            });
+        }
+
         if let Some(provider_receipt) = provider_receipt {
             let canonical_source_evidence_sha256 =
                 canonical_source_evidence_sha256.as_ref().ok_or_else(|| {

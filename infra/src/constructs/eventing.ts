@@ -210,7 +210,7 @@ function createPartnerEventRules(
     eventPattern: {
       detail: {
         metadata: {
-          "X-Shopify-Topic": ["products/create", "products/update", "products/delete"],
+          "X-Shopify-Topic": ["product_listings/add", "product_listings/update", "product_listings/remove"],
         },
       },
     },
