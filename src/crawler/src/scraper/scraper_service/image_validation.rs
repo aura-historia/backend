@@ -1,6 +1,7 @@
 use crate::network::policy::{
     CrawlerClientError, PublicTargetError, RequestTimeouts, classify_reqwest_error,
     error_with_sources, public_http_client, redirect_target, resolve_public_http_target,
+    validate_public_http_url,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use regex::regex;
@@ -128,12 +129,14 @@ pub(crate) async fn filter_valid_image_urls(
     valid
 }
 
-/// Keeps the images [`filter_valid_image_urls`] would keep if its target check
-/// and probe accepted every image, for offline schema ranking, which has no
-/// network access: the first candidate of each ordered image candidate group,
-/// without duplicates. A URL whose own dimensions show a small image is
-/// therefore rejected as at capture, while a URL that gives no size counts,
-/// `thumb`-named or not, because only the capture-time probe can read its size.
+/// Keeps the images [`filter_valid_image_urls`] would keep if DNS resolution and
+/// the probe accepted every image, for offline schema ranking and the schema
+/// matrix, which have no network access: the first candidate of each ordered
+/// image candidate group, without duplicates, that passes the checks a URL alone
+/// decides. A URL that capture's target check rejects (scheme, credentials, IP
+/// literal, port) or whose own dimensions show a small image is therefore
+/// rejected as at capture, while a URL that gives no size counts, `thumb`-named
+/// or not, because only the capture-time probe can read its size.
 pub(crate) fn filter_image_urls_offline(raw_images: &[String], base_url: &Url) -> Vec<String> {
     let mut seen = HashSet::new();
     raw_images
@@ -142,11 +145,18 @@ pub(crate) fn filter_image_urls_offline(raw_images: &[String], base_url: &Url) -
             split_image_candidate_group(raw_image)
                 .into_iter()
                 .filter_map(|raw_candidate| resolve_image_candidate(raw_candidate, base_url))
-                .find(|resolved| !ImageUrlHint::of(resolved).rejects_by_itself())
+                .find(passes_url_checks)
                 .map(String::from)
         })
         .filter(|image_url| seen.insert(image_url.clone()))
         .collect()
+}
+
+/// Whether `url` passes the image checks that need no network access: the
+/// target check that capture runs before resolving the host, and the dimensions
+/// the URL itself gives.
+fn passes_url_checks(url: &Url) -> bool {
+    validate_public_http_url(url).is_ok() && !ImageUrlHint::of(url).rejects_by_itself()
 }
 
 /// Resolves one raw image candidate against the page URL. `None` means the
@@ -639,6 +649,38 @@ mod tests {
             "URL dimensions reject without a probe; a thumbnail name alone does not; a repeated image is kept once"
         );
         assert_eq!(filter_image_urls_offline(&raw_images, &base), captured);
+    }
+
+    /// Capture's target check rejects these URLs before resolving any host, so offline
+    /// ranking rejects them too and falls back to the group's next candidate.
+    #[tokio::test]
+    async fn should_reject_offline_the_targets_capture_rejects_by_their_url() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let unsafe_targets: Vec<String> = [
+            "http://10.0.0.5/image-800x600.jpg",
+            "http://[::1]/image.jpg",
+            "https://user:secret@example.com/image.jpg",
+            "https://example.com:8443/image.jpg",
+            "ftp://example.com/image.jpg",
+        ]
+        .map(String::from)
+        .to_vec();
+
+        let captured =
+            filter_valid_image_urls(unsafe_targets.clone(), &base, &ReqwestImageValidator::new())
+                .await;
+
+        assert!(captured.is_empty());
+        assert_eq!(filter_image_urls_offline(&unsafe_targets, &base), captured);
+        assert_eq!(
+            filter_image_urls_offline(
+                &[format!(
+                    "http://10.0.0.5/image.jpg{IMAGE_CANDIDATE_SEPARATOR}/image.jpg"
+                )],
+                &base
+            ),
+            vec!["https://example.com/image.jpg"]
+        );
     }
 
     #[tokio::test]
