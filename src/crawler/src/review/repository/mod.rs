@@ -1084,9 +1084,10 @@ impl CrawlerReviewRepository {
         Ok(())
     }
 
-    /// Closes the review without changing configuration. A domain whose crawl waits on a
-    /// URL-pattern review is released either way: the review is decided, so the next crawl may
-    /// open a new one.
+    /// Closes the review without changing configuration and, as approval does, releases the work
+    /// waiting on it: the review is decided, so a page that waited on a product-schema review is
+    /// retried at once and the next crawl of a domain that waited on a URL-pattern review may open
+    /// a new one.
     pub async fn reject_review(
         &self,
         review_id: CrawlerReviewId,
@@ -1104,16 +1105,7 @@ impl CrawlerReviewRepository {
         .bind(notes)
         .execute(&mut *transaction)
         .await?;
-        if review.artifact_type == ARTIFACT_URL_PATTERN
-            && let Some(domain_id) = review.domain_id
-        {
-            release_domain_waiting_for_url_pattern(
-                &mut transaction,
-                &review.listing_source_id,
-                domain_id,
-            )
-            .await?;
-        }
+        release_work_waiting_on_decided_review(&mut transaction, &review).await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -1476,7 +1468,8 @@ struct ReviewUnderVerdict {
 }
 
 /// Locks the review for a verdict, so verdicts, edits and page joins on it apply one after the
-/// other, and reads what the verdict decides on. Only a pending review takes a verdict.
+/// other, and reads what the verdict decides on. Only a pending review takes a verdict; an
+/// unknown review is told apart from a closed one.
 async fn lock_review_for_verdict(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -1489,7 +1482,7 @@ async fn lock_review_for_verdict(
     .bind(review_id.as_uuid())
     .fetch_optional(&mut **transaction)
     .await?
-    .ok_or(ReviewRepositoryError::NotPending(review_id))?;
+    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
     if review.try_get::<String, _>("status")? != STATUS_PENDING_REVIEW {
         return Err(ReviewRepositoryError::NotPending(review_id));
     }

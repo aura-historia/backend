@@ -389,7 +389,7 @@ impl ReviewServer {
                 match self.cached_schema_matrix(review_id).await {
                     Ok(Some(matrix)) => return HttpResponse::json(200, &matrix),
                     Ok(None) => {}
-                    Err(err) => return internal_error(err),
+                    Err(err) => return review_error(err),
                 }
             }
             return self.refresh_schema_matrix(review_id).await;
@@ -470,7 +470,7 @@ impl ReviewServer {
             };
             return match self.repository.get_review(review_id).await {
                 Ok(detail) => HttpResponse::json(200, &detail),
-                Err(err) => internal_error(err),
+                Err(err) => review_error(err),
             };
         }
 
@@ -493,13 +493,7 @@ impl ReviewServer {
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err @ ReviewRepositoryError::InvalidUrlPatternCandidate)
-                | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
-                | Err(err @ ReviewRepositoryError::InvalidRemovedPageTemplate { .. })
-                | Err(err @ ReviewRepositoryError::NotPending(_)) => {
-                    HttpResponse::json(400, &json!({ "error": err.to_string() }))
-                }
-                Err(err) => internal_error(err),
+                Err(err) => review_error(err),
             };
         }
 
@@ -522,7 +516,7 @@ impl ReviewServer {
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => internal_error(err),
+                Err(err) => review_error(err),
             };
         }
 
@@ -545,11 +539,7 @@ impl ReviewServer {
                 .await
             {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err @ ReviewRepositoryError::MissingRepairNote)
-                | Err(err @ ReviewRepositoryError::NotPending(_)) => {
-                    HttpResponse::json(400, &json!({ "error": err.to_string() }))
-                }
-                Err(err) => internal_error(err),
+                Err(err) => review_error(err),
             };
         }
 
@@ -684,7 +674,7 @@ impl ReviewServer {
             .repository
             .get_review(review_id)
             .await
-            .map_err(internal_error)?;
+            .map_err(review_error)?;
         let deadline = matrix_refresh_deadline(detail.pages.len());
         let fetch_all = async {
             let mut pages = Vec::with_capacity(detail.pages.len());
@@ -748,11 +738,11 @@ impl ReviewServer {
             .repository
             .evaluate_schema_matrix_for_live_pages(review_id, pages)
             .await
-            .map_err(internal_error)?;
+            .map_err(review_error)?;
         self.repository
             .store_schema_matrix_if_current(review_id, &evaluated)
             .await
-            .map_err(schema_matrix_store_error)?;
+            .map_err(review_error)?;
         Ok(evaluated.matrix)
     }
 
@@ -1138,15 +1128,6 @@ fn matrix_refresh_timeout(review_id: CrawlerReviewId, deadline: Duration) -> Htt
             "details": format!("live review pages did not finish within {}s", deadline.as_secs()),
         }),
     )
-}
-
-fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
-    match error {
-        ReviewRepositoryError::CandidateChangedDuringEvaluation { candidate_version } => {
-            review_changed(&error, candidate_version)
-        }
-        other => internal_error(other),
-    }
 }
 
 /// Answers a request the review changed under with 409 and the review's current candidate
@@ -2518,7 +2499,7 @@ Origin: http://127.0.0.1:7878/x
         use test_api::IntegrationTestService as _;
 
         /// A review server over a pending manual schema review, and that review.
-        async fn pending_review_server() -> (ReviewServer, CrawlerReviewId) {
+        pub(super) async fn pending_review_server() -> (ReviewServer, CrawlerReviewId) {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -2619,29 +2600,6 @@ Origin: http://127.0.0.1:7878/x
                     .is_some_and(|error| error.contains("rawInvented")),
                 "{refused}"
             );
-
-            let unknown_review_id = CrawlerReviewId::new();
-            for (request, body) in [
-                (
-                    format!("POST /api/reviews/{unknown_review_id}/schema-field"),
-                    json!({
-                        "expected_candidate_version": 1,
-                        "schema_index": 0,
-                        "field": "title",
-                        "rule": {"selector": "h1", "type": "text"},
-                    }),
-                ),
-                (
-                    format!("POST /api/reviews/{unknown_review_id}/candidate"),
-                    json!({ "expected_candidate_version": 1, "schemas": [schema("h1")] }),
-                ),
-            ] {
-                let (status, missing) = send(&server, &request, &body.to_string()).await;
-                assert!(
-                    status.starts_with("HTTP/1.1 404"),
-                    "{request}: {status} {missing}"
-                );
-            }
         }
 
         /// Two writers, such as a reviewer and the review agent, edit the candidate version they
@@ -2695,6 +2653,101 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(
                 after["review"]["candidate_payload"]["schemas"][0]["title"]["selector"],
                 applied_title
+            );
+        }
+    }
+
+    /// The answers a client such as the review agent tells an unknown review and a closed
+    /// review by.
+    mod refused_review_requests {
+        use super::matrix_refresh::schema;
+        use super::needs_repair::send;
+        use super::schema_editing::pending_review_server;
+        use crate::CrawlerReviewId;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_404_on_every_review_route_for_an_unknown_review() {
+            let (server, _) = pending_review_server().await;
+            let unknown = CrawlerReviewId::new();
+            let schema_field = json!({
+                "expected_candidate_version": 1,
+                "schema_index": 0,
+                "field": "title",
+                "rule": {"selector": "h1", "type": "text"},
+            });
+            let candidate = json!({ "expected_candidate_version": 1, "schemas": [schema("h1")] });
+
+            for (request, body) in [
+                (format!("GET /api/reviews/{unknown}"), String::new()),
+                (format!("GET /api/reviews/{unknown}/matrix"), String::new()),
+                (
+                    format!("GET /api/reviews/{unknown}/matrix?refresh=true"),
+                    String::new(),
+                ),
+                (
+                    format!("POST /api/reviews/{unknown}/approve"),
+                    String::new(),
+                ),
+                (format!("POST /api/reviews/{unknown}/reject"), String::new()),
+                (
+                    format!("POST /api/reviews/{unknown}/needs-repair"),
+                    json!({ "notes": "fix the title" }).to_string(),
+                ),
+                (
+                    format!("POST /api/reviews/{unknown}/pages"),
+                    json!({ "url": "https://paced.example/products/added" }).to_string(),
+                ),
+                (
+                    format!("POST /api/reviews/{unknown}/schema-field"),
+                    schema_field.to_string(),
+                ),
+                (
+                    format!("POST /api/reviews/{unknown}/candidate"),
+                    candidate.to_string(),
+                ),
+            ] {
+                let (status, answer) = send(&server, &request, &body).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 404"),
+                    "{request}: {status} {answer}"
+                );
+                assert!(answer["error"].is_string(), "{request}: {answer}");
+            }
+        }
+
+        /// Rejecting a review that is no longer pending is a request the review cannot take, as
+        /// a needs-repair verdict on it is, and is answered alike.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_rejecting_a_closed_review_with_400_like_needs_repair() {
+            let (server, review_id) = pending_review_server().await;
+            let reject = format!("POST /api/reviews/{review_id}/reject");
+            let (status, rejected) = send(&server, &reject, "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {rejected}");
+
+            let (reject_status, reject_again) = send(&server, &reject, "").await;
+            let (repair_status, repair) = send(
+                &server,
+                &format!("POST /api/reviews/{review_id}/needs-repair"),
+                &json!({ "notes": "fix the title" }).to_string(),
+            )
+            .await;
+
+            assert!(
+                reject_status.starts_with("HTTP/1.1 400"),
+                "{reject_status} {reject_again}"
+            );
+            assert!(
+                repair_status.starts_with("HTTP/1.1 400"),
+                "{repair_status} {repair}"
+            );
+            assert_eq!(reject_again, repair, "the same refusal in the same shape");
+            assert!(
+                reject_again["error"]
+                    .as_str()
+                    .is_some_and(|error| error.contains("not pending")),
+                "{reject_again}"
             );
         }
     }
