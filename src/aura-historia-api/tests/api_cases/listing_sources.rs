@@ -1094,7 +1094,10 @@ async fn should_create_listing_source_without_ingestion_configuration() {
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
-    assert_eq!(json!("Unconfigured Listing Source"), body["items"][0]["name"]);
+    assert_eq!(
+        json!("Unconfigured Listing Source"),
+        body["items"][0]["name"]
+    );
     assert_eq!(json!([]), body["items"][0]["ingestionMethods"]);
 }
 
