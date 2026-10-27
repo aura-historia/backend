@@ -669,6 +669,57 @@ async fn should_cap_the_agent_decisions_of_an_hour_from_the_event_trail() {
         .unwrap();
 }
 
+/// Concurrent agent decisions count one after the other, so together they never exceed the
+/// cap: each counts the decisions the ones before it committed.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_never_exceed_the_hourly_cap_with_concurrent_agent_decisions() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 2);
+    let mut reviews = Vec::new();
+    for index in 0..5 {
+        let (listing_source_id, _) =
+            listing_source_on(&pool, &format!("concurrent-{index}.example")).await;
+        reviews.push(
+            pending_review(
+                &repository,
+                &listing_source_id,
+                "manual_schema_required",
+                &[schema("h1")],
+                vec![page("chair")],
+            )
+            .await,
+        );
+    }
+
+    let decisions = futures::future::join_all(reviews.iter().map(|review_id| {
+        let repository = repository.clone();
+        let review_id = *review_id;
+        tokio::spawn(async move {
+            repository
+                .reject_review(review_id, ReviewActor::Agent, Some("not a shop page"))
+                .await
+        })
+    }))
+    .await;
+
+    let (mut taken, mut capped) = (0, 0);
+    for decision in decisions {
+        match decision.unwrap_or_else(|error| panic!("decision task: {error}")) {
+            Ok(()) => taken += 1,
+            Err(ReviewRepositoryError::AgentDecisionLimitReached { limit: 2, .. }) => capped += 1,
+            Err(error) => panic!("unexpected refusal: {error}"),
+        }
+    }
+    assert_eq!((taken, capped), (2, 3));
+    let recorded: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM crawler_review_events WHERE actor = 'AGENT' AND action = 'REJECTED'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(recorded, 2);
+}
+
 /// A human restores the schema list and removed-page templates an agent approval replaced,
 /// re-queues the pages waiting on a review as the approval did, and records it; the agent cannot
 /// restore, and an approval is restored once.
@@ -850,6 +901,58 @@ async fn should_refuse_restoring_over_a_newer_live_change_and_restore_no_list_to
         .unwrap();
 
     assert_eq!(live_schemas(&pool, &first_source).await, None);
+}
+
+/// The removed-page templates are part of what an approval made live: once another writer
+/// stored a template after the approval, a restore is refused and leaves both lists alone.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_restoring_once_the_stored_removed_page_templates_changed() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, _) = listing_source(&pool).await;
+    set_live_schemas(&pool, &listing_source_id, &[schema("h1.old")]).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    approve_as_human(&repository, review_id).await;
+    sqlx::query(
+        "INSERT INTO listing_source_removed_page_schemas (listing_source_id, removed_page_schema, created, updated) \
+         VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(json!([notice_template("sold")]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let refused = repository
+        .restore_approval(review_id, ReviewActor::Human, None)
+        .await;
+
+    assert!(
+        matches!(
+            refused,
+            Err(ReviewRepositoryError::LiveConfigurationChangedSinceApproval(id)) if id == review_id
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        live_schemas(&pool, &listing_source_id).await,
+        Some(vec![schema("h1")])
+    );
+    assert_eq!(
+        stored_removed_page_schemas(&pool, &listing_source_id).await,
+        Some(json!([notice_template("sold")]))
+    );
+    assert_eq!(
+        trail(&repository, review_id).await,
+        vec![(ReviewActor::Human, ReviewEventAction::Approved)]
+    );
 }
 
 /// A restore of a URL-pattern approval brings back the domain's decision and classifies the
