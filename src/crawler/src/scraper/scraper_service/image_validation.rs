@@ -128,9 +128,28 @@ pub(crate) async fn filter_valid_image_urls(
     valid
 }
 
+/// Keeps the first candidate of each ordered image candidate group that
+/// [`filter_valid_image_urls`] would keep if its target check and probe
+/// accepted every image, for offline schema ranking, which has no network
+/// access. A URL whose own dimensions show a small image is therefore rejected
+/// as at capture, while a URL that gives no size counts, `thumb`-named or not,
+/// because only the capture-time probe can read its size.
+pub(crate) fn filter_image_urls_offline(raw_images: &[String], base_url: &Url) -> Vec<String> {
+    raw_images
+        .iter()
+        .filter_map(|raw_image| {
+            split_image_candidate_group(raw_image)
+                .into_iter()
+                .filter_map(|raw_candidate| resolve_image_candidate(raw_candidate, base_url))
+                .find(|resolved| !ImageUrlHint::of(resolved).rejects_by_itself())
+                .map(String::from)
+        })
+        .collect()
+}
+
 /// Resolves one raw image candidate against the page URL. `None` means the
 /// candidate is not a usable URL.
-pub(crate) fn resolve_image_candidate(raw_candidate: &str, base_url: &Url) -> Option<Url> {
+fn resolve_image_candidate(raw_candidate: &str, base_url: &Url) -> Option<Url> {
     let trimmed = raw_candidate.trim();
     if trimmed.is_empty() {
         return None;
@@ -175,6 +194,12 @@ impl ImageUrlHint {
             (Self::ThumbnailName, ImageValidation::Unknown) => ImageValidation::Invalid,
             (_, validation) => validation,
         }
+    }
+
+    /// Whether the hint rejects the image even when the validator accepts it,
+    /// so the decision needs no network access.
+    fn rejects_by_itself(self) -> bool {
+        self.settle(ImageValidation::Valid) == ImageValidation::Invalid
     }
 }
 
@@ -582,6 +607,35 @@ mod tests {
             vec!["https://example.com/images/wall-light.jpg"]
         );
         assert!(alone.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_keep_offline_the_images_capture_keeps_when_every_probe_accepts() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let raw_images = vec![
+            format!("/image-100x100.jpg{IMAGE_CANDIDATE_SEPARATOR}/image-800x600.jpg"),
+            "/photo.jpg?width=1000&height=150&mode=max".to_string(),
+            THUMBNAIL_NAMED_UPLOAD.to_string(),
+            "//".to_string(),
+        ];
+        let captured = filter_valid_image_urls(
+            raw_images.clone(),
+            &base,
+            &StaticValidator {
+                validation: ImageValidation::Valid,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            captured,
+            vec![
+                "https://example.com/image-800x600.jpg",
+                THUMBNAIL_NAMED_UPLOAD
+            ],
+            "URL dimensions reject without a probe; a thumbnail name alone does not"
+        );
+        assert_eq!(filter_image_urls_offline(&raw_images, &base), captured);
     }
 
     #[tokio::test]
