@@ -18,14 +18,31 @@ pub(super) fn image_url_candidate_group(element: &scraper::ElementRef<'_>) -> Op
 
 /// Whether `element` is a gallery slot without an image, as galleries render for photos a
 /// product does not have (`<a rel="lightbox" href="#"></a>`): its own attributes name an
-/// image context, and it holds no image URL candidate, no image markup and no visible
-/// text. An element that holds an image the rule cannot read, such as a gallery wrapper
-/// around its `<img>`, is no placeholder, and neither is a control with a label.
+/// image context, and it holds no image URL candidate, no image markup, no attribute that
+/// names an image file and no visible text. An element that holds an image the rule cannot
+/// read, such as a gallery wrapper around its `<img>` or a slot whose `data-largeimg` names
+/// the photo, is no placeholder, and neither is a control with a label or a layout element
+/// such as `<div class="w-full"></div>`.
 pub(super) fn is_gallery_placeholder(element: &scraper::ElementRef<'_>) -> bool {
-    element_attrs_have_image_context(element)
+    element_attrs_name_image_context(element)
         && image_url_candidate_group(element).is_none()
         && !element_has_image_like_evidence(element)
+        && !element_names_image_file(element)
         && !has_visible_text(element)
+}
+
+/// Whether an attribute of `element` or of a descendant names an image file, such as a
+/// lazy loader's `data-bg` that neither the image URL candidates nor the image markup
+/// check read.
+fn element_names_image_file(element: &scraper::ElementRef<'_>) -> bool {
+    element
+        .descendants()
+        .filter_map(scraper::ElementRef::wrap)
+        .any(|node| {
+            node.value()
+                .attrs()
+                .any(|(_, value)| has_known_image_extension(value))
+        })
 }
 
 fn image_url_candidates_for_element(element: &scraper::ElementRef<'_>) -> Vec<String> {
@@ -158,24 +175,39 @@ fn image_link_source_for_element(
     }
 }
 
-fn element_attrs_have_image_context(element: &scraper::ElementRef<'_>) -> bool {
-    const IMAGE_CONTEXT_TERMS: &[&str] = &[
-        "image",
-        "images",
-        "img",
-        "photo",
-        "photos",
-        "gallery",
-        "thumbnail",
-        "thumb",
-        "zoom",
-        "lightbox",
-        "fancybox",
-        "prettyphoto",
-        "full",
-    ];
+/// Terms that name an image context in an element's class, id, `rel` or gallery data
+/// attribute.
+const IMAGE_CONTEXT_TERMS: &[&str] = &[
+    "image",
+    "images",
+    "img",
+    "photo",
+    "photos",
+    "gallery",
+    "thumbnail",
+    "thumb",
+    "zoom",
+    "lightbox",
+    "fancybox",
+    "prettyphoto",
+];
 
-    let attr_text = [
+/// Whether a link's own attributes mark it as an image link: they name an image context or
+/// a full-size image (`full`).
+fn element_attrs_have_image_context(element: &scraper::ElementRef<'_>) -> bool {
+    let attr_text = image_context_attr_text(element);
+    attr_text.contains("full") || names_image_context(&attr_text)
+}
+
+/// Whether `element`'s own attributes name an image context. `full` alone does not: it
+/// also names layout utilities such as `w-full` or `rounded-full`.
+fn element_attrs_name_image_context(element: &scraper::ElementRef<'_>) -> bool {
+    names_image_context(&image_context_attr_text(element))
+}
+
+/// The class, id, `rel` and gallery data attributes of `element`, lowercased.
+fn image_context_attr_text(element: &scraper::ElementRef<'_>) -> String {
+    [
         element.value().attr("class"),
         element.value().attr("id"),
         element.value().attr("rel"),
@@ -187,8 +219,10 @@ fn element_attrs_have_image_context(element: &scraper::ElementRef<'_>) -> bool {
     .flatten()
     .collect::<Vec<_>>()
     .join(" ")
-    .to_ascii_lowercase();
+    .to_ascii_lowercase()
+}
 
+fn names_image_context(attr_text: &str) -> bool {
     IMAGE_CONTEXT_TERMS
         .iter()
         .any(|term| attr_text.contains(term))

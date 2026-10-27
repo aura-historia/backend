@@ -1732,6 +1732,15 @@ mod tests {
             r#"<div class="gallery-item" data-lazy="/uploads/photo.jpg"></div>"#,
             image_url_kind()
         )]
+        #[case::slot_naming_its_image_in_an_unread_attribute(
+            r##"<a href="#" rel="lightbox" data-largeimg="/uploads/photo.jpg"></a>"##,
+            image_url_kind()
+        )]
+        #[case::wrapper_around_an_unread_lazy_image(
+            r#"<div class="gallery-item"><span data-bg="/uploads/photo.jpg"></span></div>"#,
+            image_url_kind()
+        )]
+        #[case::layout_element(r#"<div class="w-full"></div>"#, image_url_kind())]
         #[case::image_link_without_the_attribute(
             r#"<a rel="lightbox" href="/uploads/photo.jpg"></a>"#,
             attr_kind("data-full")
