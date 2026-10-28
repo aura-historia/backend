@@ -99,32 +99,29 @@ unknown products retain their ordering fence without creating a canonical listin
 
 `SHOPIFY_PRODUCT` payload schema 2 retains the nested listing snapshot, stripping
 `body_html` inside `product_listing` (and at the outer level). Raw-values schema 1 is
-unchanged. Retained payload schema 1 remains readable for evidence but has no write
-authority: capture completes stale and pending normalization completes ignored.
-Unsupported schemas fail closed. The legacy broad `products/*` topics are acknowledged
+unchanged. Unsupported schemas fail closed. Broad `products/*` topics are acknowledged
 without forwarding, including queue redrives.
 
 `X-Shopify-Triggered-At` continues to supply webhook source-time ordering independently
 of product `updated_at`, using the existing provider ordering and deletion-barrier rules
 above. Provider receipt and command deduplication remain unchanged.
 
-Initial/manual/recovery imports and source-scoped reconciliation use the existing
-canonical asynchronous upsert and withdrawal endpoints. The app owns publication reads
-and submits explicit withdrawals only after a complete successful eligible selection,
-including a successfully read empty selection. Missing access/publication, failed or
-partial reads must not trigger absence-based cleanup. The backend does not infer an
-absent product from an incomplete batch.
+Initial/manual/recovery imports use the existing canonical asynchronous upsert and
+withdrawal endpoints. The app owns publication reads: imports upsert published products
+and withdraw only drafts, archived products and unpublished products present in the
+export, each by its own ID, never by absence. An empty export submits no withdrawals.
+Missing access/publication and failed or partial reads are recoverable errors.
 
 Bulk writes and webhooks have no shared ordering guarantee. An older import can restore
-a product removed by a later webhook; an older cleanup can withdraw a product republished
-later. This overlap is an accepted limitation, and a fresh complete source-scoped
-reconciliation is the recovery path. Existing idempotency keys prevent duplicate command
-application; they do not establish publication chronology.
+a product removed by a later webhook; an older withdrawal can remove a product republished
+later. This overlap is an accepted limitation, and importing again is the recovery path.
+Existing idempotency keys prevent duplicate command application; they do not establish
+publication chronology.
 
 App companion [#370](https://github.com/aura-historia/shopify-app/issues/370) owns
-publication filtering, subscription/scope changes and reconciliation through the existing
-API. Deployment and retained-work retirement requirements are in the
-[worker runbook](../durable-worker-runbook.md#shopify-channel-cutover-and-reconciliation).
+publication filtering, subscription/scope changes and imports through the existing API.
+Deployment order is in the
+[worker runbook](../durable-worker-runbook.md#shopify-channel-deployment).
 
 ## Geography dependency invalidation
 

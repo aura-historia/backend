@@ -579,45 +579,14 @@ match. Missing initial target evidence requires operator reconciliation under
 and retained completion before closing recovery; API authentication rejection alone is
 not evidence that the Cognito profile was removed.
 
+## Shopify channel deployment
 
-## Shopify channel cutover and reconciliation
+Deploy the backend before the app's Shopify configuration release.
 
-Deploy the backend channel-topic decoder and legacy schema retirement before switching
-the app subscriptions. The app must obtain `read_product_listings`, verify the current
-installation's publication and filter initial/manual/recovery imports by that publication.
-Use the existing canonical asynchronous upsert and withdrawal endpoints, queues and
-acknowledgment boundaries. [Event flow](events/flow.md#shopify-channel-observations) owns
-the synchronization contract and its accepted bulk/webhook ordering limitation.
-
-For each source, stop legacy unfiltered bulk producers and automatic retries. Allow
-in-flight requests to finish, record the final admitted command boundary, and drain the
-command FIFO and pending raw normalization through that boundary. Fence deployments and
-consumers running the old code. Inspect Shopify Standard, command FIFO and normalization
-queues, their DLQs, pending raw revisions and redrive jobs. Broad `products/*` messages are
-acknowledged without forwarding; payload-schema-1 commands complete stale and pending
-schema-1 revisions complete ignored under the new consumers. Quarantine and retire retained
-unfiltered canonical bulk commands and retry manifests; do not redrive them after cleanup.
-Do not purge a shared queue or discard another source's work. Record the retired identities
-and drain evidence before declaring reconciliation complete. Do not roll back to a consumer
-that restores legacy write authority after cleanup; fence producers and recover forward.
-
-After retiring that authority, select the complete eligible catalog for this source from
-the current app publication. Missing scope/publication, GraphQL errors, partial output and
-interrupted pagination are recoverable errors, never an empty catalog. Read this source's
-existing listings through the partner listing query. Submit selected products as canonical
-upserts and existing absent products as explicit withdrawals in batches of at most 100.
-A successful empty eligible selection withdraws all existing products of this source;
-it does not affect another source. Retain the selection, existing-ID enumeration, ordered
-batches, keys and admission reports until every batch is confirmed. Retry uncertain or
-partly admitted batches unchanged. Recompute the selection under new keys when recovering
-stale data. Drain normalization and allow ordinary projection lag before checking storefront
-results; queue acceptance alone is not reconciliation completion.
-
-Publication changes overlapping bulk imports or cleanup can be overwritten by that bulk
-work. A fresh complete source-scoped reconciliation repairs the resulting state; a later
-webhook is not guaranteed. Recheck the current publication when resolving a reported mismatch.
-Verify content/title, image/price and inventory edits, zero stock, and publication-only
-remove/restore on a controlled installation. Record observed webhook identities, source
-times, canonical lifecycle and eventual projection results. Local integration tests cover
-the webhook paths with real PostgreSQL; production Shopify delivery requires coordinated
-app verification.
+[Event flow](events/flow.md#shopify-channel-observations) owns the synchronization contract
+and its accepted bulk/webhook ordering limitation. Recheck the current publication when
+resolving a reported mismatch. Verify content/title, image/price and inventory edits,
+zero stock, and publication-only remove/restore on a controlled installation. Record
+observed webhook identities, source times, canonical lifecycle and eventual projection
+results. Local integration tests cover the webhook paths with real PostgreSQL; production
+Shopify delivery requires coordinated app verification.

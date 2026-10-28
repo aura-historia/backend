@@ -453,19 +453,6 @@ where
         shipping_observation: &mut Option<CrawlerShippingObservation>,
     ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
     {
-        if revision.input.payload_format()
-            == product_listing_normalization::RawProductListingPayloadFormat::ShopifyProduct
-            && revision.input.payload_schema_version() == 1
-        {
-            return Ok(completion(
-                &head,
-                &revision,
-                ProductListingRawNormalizationOutcome::Ignored,
-                None,
-                None,
-                None,
-            ));
-        }
         match normalized {
             ProductListingRawValuesNormalizationOutcome::Invalid(error) => Ok(completion(
                 &head,
