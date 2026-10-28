@@ -1,15 +1,19 @@
 //! The live schema matrix of a product-schema review: what approving the review's candidate
 //! would make live, evaluated on the review's pages as the shop serves them now, and stored as
-//! the review's cached matrix while it still describes the review.
+//! the review's cached matrix while it still describes the review. A candidate proposed for the
+//! review is evaluated the same way, on the review's pages and on further URLs of its
+//! ListingSource, without being stored.
 
+use super::review_source::{MAX_EVALUATED_URLS, listing_source_domains, review_source_url};
 use super::reviewer_page_url::ReviewPageIdentity;
-use super::schema_payload::ProductSchemaReviewCandidate;
+use super::schema_payload::{ProductSchemaCandidateEdit, ProductSchemaReviewCandidate};
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, fetch_review_pages, listing_source_id_from_uuid,
 };
 use crate::CrawlerReviewId;
 use crate::review::model::{
-    CrawlerReviewPage, LiveMatrixEvaluation, ReviewSchemaMatrix, SchemaMatrix,
+    ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, LiveMatrixEvaluation, ReviewSchemaMatrix,
+    SchemaMatrix, SchemaReviewPageInput,
 };
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
 use crate::scraper::css_selector::product_schema_repository::{
@@ -40,6 +44,36 @@ impl EvaluatedSchemaMatrix {
     }
 }
 
+/// A product-schema candidate proposed for a review and not stored, ready to be evaluated on
+/// the review's pages and on URLs of its ListingSource: what approving it, once stored, would make
+/// live.
+pub struct CandidateProposal {
+    review_id: CrawlerReviewId,
+    listing_source_id: uuid::Uuid,
+    going_live: ProductSchemaReviewCandidate,
+    /// The review's pages, to fetch live.
+    pub pages: Vec<CrawlerReviewPage>,
+    /// The URLs of the ListingSource to fetch live and evaluate next to the review's pages.
+    pub urls: Vec<Url>,
+}
+
+impl CandidateProposal {
+    pub fn review_id(&self) -> CrawlerReviewId {
+        self.review_id
+    }
+}
+
+/// A product-schema review as a live evaluation reads it.
+struct ReviewUnderEvaluation {
+    listing_source_id: uuid::Uuid,
+    artifact_type: String,
+    reason: String,
+    candidate_payload: serde_json::Value,
+    candidate_version: i64,
+    candidate_hash: String,
+    removed_page_schemas_base: serde_json::Value,
+}
+
 impl CrawlerReviewRepository {
     /// Evaluates, on the review `pages` fetched from `fetched_at` on, the product-schema
     /// configuration approving the review's current candidate would make live: its schemas,
@@ -52,37 +86,12 @@ impl CrawlerReviewRepository {
         pages: Vec<(CrawlerReviewPage, String)>,
         fetched_at: OffsetDateTime,
     ) -> Result<EvaluatedSchemaMatrix, ReviewRepositoryError> {
-        let review = sqlx::query(
-            "SELECT listing_source_id, reason, candidate_payload, candidate_version,
-                    removed_page_schemas_base,
-                    encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
-             FROM crawler_reviews
-             WHERE review_id = $1",
-        )
-        .bind(review_id.as_uuid())
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
-        let listing_source_uuid: uuid::Uuid = review.try_get("listing_source_id")?;
-        let listing_source_id = listing_source_id_from_uuid(listing_source_uuid)?;
-        let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
-        let candidate = ProductSchemaReviewCandidate::read(&candidate_payload)?;
-        let base: Vec<RemovedPageSchema> =
-            serde_json::from_value(review.try_get("removed_page_schemas_base")?)
-                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-        let live = ListingSourceProductSchemaRepositoryImpl::new(&self.pool)
-            .find_product_schema(&listing_source_id)
-            .await?;
-        let stored = RemovedPageSchemaRepositoryImpl::new(&self.pool)
-            .find_removed_page_schema(&listing_source_id)
-            .await?
-            .map(|stored| stored.removed_page_schemas)
-            .unwrap_or_default();
-        let reason: String = review.try_get("reason")?;
-        let going_live = candidate.going_live(&reason, live.as_ref(), &base, &stored)?;
+        let review = self.review_under_evaluation(review_id).await?;
+        let candidate = ProductSchemaReviewCandidate::read(&review.candidate_payload)?;
+        let going_live = self.going_live(&review, &candidate).await?;
         let page_urls: Vec<&str> = pages.iter().map(|(page, _)| page.url.as_str()).collect();
         let captured_identities = self
-            .captured_identities(listing_source_uuid, &page_urls)
+            .captured_identities(review.listing_source_id, &page_urls)
             .await?;
         let page_ids = pages
             .iter()
@@ -93,18 +102,134 @@ impl CrawlerReviewRepository {
             &going_live.schemas,
             &going_live.removed_page_schemas,
             &pages,
+            &[],
             &captured_identities,
         );
         matrix.live_evaluation = Some(LiveMatrixEvaluation {
-            candidate_version: review.try_get("candidate_version")?,
+            candidate_version: review.candidate_version,
             configuration_sha256: going_live.fingerprint()?,
             fetched_at,
         });
         Ok(EvaluatedSchemaMatrix {
             matrix,
-            candidate_hash: review.try_get("candidate_hash")?,
+            candidate_hash: review.candidate_hash,
             page_ids,
         })
+    }
+
+    /// Checks a product-schema candidate `proposed` for the review, in the shape of a whole
+    /// candidate edit, and the ListingSource `urls` to evaluate it on, before anything is fetched:
+    /// the proposal must be one the review would take as an edit, and every URL a plain http(s)
+    /// URL of the review's ListingSource, at most [`MAX_EVALUATED_URLS`] of them. Nothing is
+    /// stored, so the review's candidate, version and stored matrix stay as they are.
+    pub async fn propose_candidate(
+        &self,
+        review_id: CrawlerReviewId,
+        proposed: &serde_json::Value,
+        urls: &[String],
+    ) -> Result<CandidateProposal, ReviewRepositoryError> {
+        let review = self.review_under_evaluation(review_id).await?;
+        if review.artifact_type != ARTIFACT_PRODUCT_SCHEMA {
+            return Err(ReviewRepositoryError::UnsupportedArtifact(
+                review_id,
+                review.artifact_type,
+            ));
+        }
+        if urls.len() > MAX_EVALUATED_URLS {
+            return Err(ReviewRepositoryError::TooManyEvaluatedUrls);
+        }
+        let current = ProductSchemaReviewCandidate::decode_stored(&review.candidate_payload)
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+        let candidate = ProductSchemaCandidateEdit::parse(proposed)?.apply_to(&current)?;
+        let going_live = self.going_live(&review, &candidate).await?;
+        let domains = listing_source_domains(&self.pool, review.listing_source_id).await?;
+        let urls = urls
+            .iter()
+            .map(|url| review_source_url(url, &domains))
+            .collect::<Result<Vec<_>, _>>()?;
+        let pages = fetch_review_pages(&self.pool, review_id).await?;
+        Ok(CandidateProposal {
+            review_id,
+            listing_source_id: review.listing_source_id,
+            going_live,
+            pages,
+            urls,
+        })
+    }
+
+    /// Evaluates the `proposal` on its review `pages` and its `url_pages` as the shop serves them
+    /// now. The matrix is no live evaluation of the review: it records none and is not stored, so
+    /// it never stands in for the review's own live matrix.
+    pub async fn evaluate_candidate_proposal(
+        &self,
+        proposal: CandidateProposal,
+        pages: Vec<(CrawlerReviewPage, String)>,
+        url_pages: Vec<SchemaReviewPageInput>,
+    ) -> Result<SchemaMatrix, ReviewRepositoryError> {
+        let page_urls: Vec<&str> = pages
+            .iter()
+            .map(|(page, _)| page.url.as_str())
+            .chain(url_pages.iter().map(|page| page.url.as_str()))
+            .collect();
+        let captured_identities = self
+            .captured_identities(proposal.listing_source_id, &page_urls)
+            .await?;
+        Ok(evaluate_schema_matrix_for_live_review_pages(
+            proposal.review_id,
+            &proposal.going_live.schemas,
+            &proposal.going_live.removed_page_schemas,
+            &pages,
+            &url_pages,
+            &captured_identities,
+        ))
+    }
+
+    async fn review_under_evaluation(
+        &self,
+        review_id: CrawlerReviewId,
+    ) -> Result<ReviewUnderEvaluation, ReviewRepositoryError> {
+        let review = sqlx::query(
+            "SELECT listing_source_id, artifact_type, reason, candidate_payload, candidate_version,
+                    removed_page_schemas_base,
+                    encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
+             FROM crawler_reviews
+             WHERE review_id = $1",
+        )
+        .bind(review_id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        Ok(ReviewUnderEvaluation {
+            listing_source_id: review.try_get("listing_source_id")?,
+            artifact_type: review.try_get("artifact_type")?,
+            reason: review.try_get("reason")?,
+            candidate_payload: review.try_get("candidate_payload")?,
+            candidate_version: review.try_get("candidate_version")?,
+            candidate_hash: review.try_get("candidate_hash")?,
+            removed_page_schemas_base: review.try_get("removed_page_schemas_base")?,
+        })
+    }
+
+    /// The product-schema configuration approving `candidate` on the `review` would make live
+    /// now: see [`ProductSchemaReviewCandidate::going_live`].
+    async fn going_live(
+        &self,
+        review: &ReviewUnderEvaluation,
+        candidate: &ProductSchemaReviewCandidate,
+    ) -> Result<ProductSchemaReviewCandidate, ReviewRepositoryError> {
+        let listing_source_id = listing_source_id_from_uuid(review.listing_source_id)?;
+        let base: Vec<RemovedPageSchema> =
+            serde_json::from_value(review.removed_page_schemas_base.clone())
+                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+        let live = ListingSourceProductSchemaRepositoryImpl::new(&self.pool)
+            .find_product_schema(&listing_source_id)
+            .await?;
+        let stored = RemovedPageSchemaRepositoryImpl::new(&self.pool)
+            .find_removed_page_schema(&listing_source_id)
+            .await?
+            .map(|stored| stored.removed_page_schemas)
+            .unwrap_or_default();
+        candidate.going_live(&review.reason, live.as_ref(), &base, &stored)
     }
 
     /// The source listing id each page's listing was captured under, by page URL, for the

@@ -526,6 +526,7 @@ mod tests {
             schemas,
             templates,
             pages,
+            &[],
             captured_identities,
         );
         matrix.live_evaluation = Some(LiveMatrixEvaluation {

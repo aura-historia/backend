@@ -31,12 +31,14 @@ use url::Url;
 mod live_matrix;
 mod restore;
 mod review_events;
+mod review_source;
 mod reviewer_page_url;
 mod sample_labels;
 mod schema_payload;
 mod verdicts;
 
-pub use live_matrix::EvaluatedSchemaMatrix;
+pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
+pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use verdicts::Approval;
 
@@ -133,6 +135,10 @@ pub enum ReviewRepositoryError {
     ReviewPageUrlNotAllowed(String),
     #[error("URL `{0}` is already a page of this review")]
     DuplicateReviewPage(String),
+    #[error(
+        "a candidate evaluation fetches at most {MAX_EVALUATED_URLS} URLs next to the review's pages"
+    )]
+    TooManyEvaluatedUrls,
     #[error(
         "review {0} already has the maximum of {MAX_REVIEWER_ADDED_PAGES} reviewer-added pages"
     )]

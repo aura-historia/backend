@@ -92,7 +92,8 @@ In `agent` mode the crawler does not guess what a product page is; Claude decide
 
 | Request | Author agent | Reviewer agent |
 |---|---|---|
-| Console API reads, including a product-schema review's live matrix (`GET /api/reviews/{id}/matrix?refresh=true`) | Yes | Yes |
+| Console API reads, including a product-schema review's live matrix (`GET /api/reviews/{id}/matrix?refresh=true`), a page's projection (`GET /api/reviews/{id}/page-projection`) and the evaluation of a proposed candidate (`POST /api/reviews/{id}/evaluate`), which store nothing ([review rail](extraction-and-review.md#review-rail)) | Yes | Yes |
+| Live previews of any URL (`GET /api/live-inspect`, `/api/live-html`) | Only with `review` naming a review and `url` on its ListingSource's domains under the review-page rule, otherwise `400` | As the author agent |
 | Candidate and schema-field edits, removed-page declarations, sample labels (`POST /api/reviews/{id}/candidate`, `/schema-field`, `/sample-labels`), review page additions and removals (`POST /api/reviews/{id}/pages`, `DELETE /api/review-pages/{id}`) | Yes | `403` `REVIEWER_CANNOT_CHANGE_CANDIDATES` |
 | Needs repair with its notes (`POST /api/reviews/{id}/needs-repair`) | Yes | Yes |
 | Approve and reject (`POST /api/reviews/{id}/approve`, `/reject`) | `403` `AUTHOR_CANNOT_DECIDE` | Within the approval guard; a rejection needs non-blank `notes` (`400`) |
