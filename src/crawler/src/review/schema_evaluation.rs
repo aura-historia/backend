@@ -284,8 +284,8 @@ pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> 
         && implausible_page_evaluations(matrix).next().is_none()
 }
 
-/// Every candidate's page evaluations that failed a per-page, cross-page or identity agreement
-/// check, each with its candidate's schema index. Deterministic approval refuses a matrix with
+/// Every candidate's page evaluations whose failed per-page, cross-page or identity agreement
+/// checks block approval, each with its candidate's schema index. Deterministic approval refuses a matrix with
 /// any of them, and so does the review agent's [approval
 /// guard](crate::review::approval_guard), so the two refuse the same findings.
 fn implausible_page_evaluations(
@@ -295,7 +295,7 @@ fn implausible_page_evaluations(
         candidate
             .pages
             .iter()
-            .filter(|page| page.fails_plausibility_checks())
+            .filter(|page| page.blocks_approval())
             .map(move |page| (candidate.schema_index, page))
     })
 }
@@ -1552,6 +1552,30 @@ mod tests {
 
             let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
 
+            assert!(implausible_pages(&matrix).is_empty());
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// A gallery that repeats its featured photo: capture keeps each image once, so the
+        /// repeat stays in the matrix without keeping the schema out of approval.
+        #[test]
+        fn should_approve_deterministically_when_an_image_only_repeats_on_a_page() {
+            let pages = vec![
+                product_page("chair", "<img src=\"/images/chair.jpg\">"),
+                product_page("table", ""),
+            ];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+
+            assert_eq!(
+                matrix.candidates[0].pages[0]
+                    .plausibility_findings
+                    .as_slice(),
+                [finding(
+                    PlausibilityField::Images,
+                    PlausibilityCheck::DuplicateValues
+                )]
+            );
             assert!(implausible_pages(&matrix).is_empty());
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
         }
