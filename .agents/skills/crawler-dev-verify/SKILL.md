@@ -38,7 +38,9 @@ it to the user as a ticket or a separate decision.
   `LOCAL_DB_URL` the binary runs `docker compose up -d` itself. Docker Hub may rate-limit pulls
   (HTTP 429): when `postgres:16` is missing, tag a local PostgreSQL 16 image as `postgres:16`
   instead of retrying. `crawler_demo` keeps the state of earlier rounds: listing sources, URLs,
-  live schemas, reviews. That state is the test bed; do not reset it.
+  live schemas, reviews. That state is the test bed; do not reset it, unless startup refuses
+  the database because a migration it applied changed or is missing from the binary: then
+  rebuild it with the `db-reset` script under `src/crawler/scripts/`.
 - `.env` in the binary's working directory for Vertex AI. In a worktree copy it from the repo
   root (`.env` is gitignored). Never print its values. Without `.env` or credentials, run with
   `CRAWLER_AUTHORING_MODE=manual`: no LLM call; author URL patterns and schemas through the
