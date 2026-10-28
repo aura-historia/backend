@@ -31,6 +31,10 @@ const MAX_NOTE_CHARS: usize = 1_000;
 pub(super) const MAX_VALUE_CHARS: usize = 300;
 /// The most characters of a page projection an answer carries.
 pub(super) const MAX_PROJECTION_CHARS: usize = 40_000;
+/// The most bytes those characters take as a JSON string, so a window of non-Latin or
+/// escape-heavy text still fits the answer bound whole, with its marker line and the `offset` to
+/// read on from, instead of being cut by it.
+const MAX_PROJECTION_JSON_BYTES: usize = 48 * 1024;
 
 /// The pending reviews of the console's queue.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -419,21 +423,29 @@ impl EventView {
 }
 
 impl PageProjectionView {
-    /// The projection's window of at most [`MAX_PROJECTION_CHARS`] characters from `offset` on,
-    /// with a marker line where it starts after the beginning or stops before the end.
+    /// The projection's window from `offset` on of at most [`MAX_PROJECTION_CHARS`] characters
+    /// and [`MAX_PROJECTION_JSON_BYTES`] as a JSON string, with a marker line where it starts after
+    /// the beginning or stops before the end.
     pub(super) fn of(projection: wire::PageProjection, offset: usize) -> Self {
         let projection_chars = projection.projection.chars().count();
         let offset = offset.min(projection_chars);
-        let end = offset
-            .saturating_add(MAX_PROJECTION_CHARS)
-            .min(projection_chars);
-        let projection_truncated = offset > 0 || end < projection_chars;
+        let mut json_bytes_left = MAX_PROJECTION_JSON_BYTES;
         let mut text: String = projection
             .projection
             .chars()
             .skip(offset)
-            .take(end - offset)
+            .take(MAX_PROJECTION_CHARS)
+            .take_while(|character| {
+                let bytes = json_string_bytes(*character);
+                let fits = bytes <= json_bytes_left;
+                if fits {
+                    json_bytes_left -= bytes;
+                }
+                fits
+            })
             .collect();
+        let end = offset + text.chars().count();
+        let projection_truncated = offset > 0 || end < projection_chars;
         let mut truncations = Vec::new();
         if projection_truncated {
             truncations.push(format!(
@@ -464,6 +476,16 @@ impl PageProjectionView {
             projection_truncated,
             truncations,
         }
+    }
+}
+
+/// The bytes `character` takes in a JSON string as `serde_json` writes it: escaped quotes,
+/// backslashes and control characters, every other character as UTF-8.
+fn json_string_bytes(character: char) -> usize {
+    match character {
+        '"' | '\\' | '\n' | '\r' | '\t' | '\u{08}' | '\u{0c}' => 2,
+        control if control < ' ' => 6,
+        other => other.len_utf8(),
     }
 }
 
@@ -633,5 +655,55 @@ mod tests {
         );
         assert!(!short.projection_truncated && short.truncations.is_empty());
         assert_eq!(short.projection, "page_dsl: {}\n");
+    }
+
+    #[test]
+    fn should_keep_a_window_of_wide_text_whole_within_the_answer_bound_and_read_on_exactly() {
+        let projection = format!("page_dsl:\n{}", "  - text: \"日本の椅子\"\n".repeat(5_000));
+        let page = |offset| {
+            PageProjectionView::of(
+                wire::PageProjection {
+                    review_id: CrawlerReviewId::new(),
+                    review_page_id: None,
+                    url: "https://antiques.example/item/1".to_owned(),
+                    final_url: "https://antiques.example/item/1".to_owned(),
+                    projection: projection.clone(),
+                    describes_one_product: false,
+                },
+                offset,
+            )
+        };
+
+        let first = page(0);
+        let answer = json!(first);
+        let end: usize = first
+            .projection
+            .rsplit("call inspect_page with offset ")
+            .next()
+            .and_then(|rest| rest.split(' ').next())
+            .and_then(|end| end.parse().ok())
+            .unwrap_or_else(|| panic!("no read-on marker: {}", first.projection));
+
+        assert!(end < MAX_PROJECTION_CHARS, "{end}");
+        assert_eq!(
+            crate::review_mcp::bounds::bound_answer(
+                answer.clone(),
+                crate::review_mcp::bounds::MAX_TOOL_OUTPUT_BYTES
+            ),
+            Ok(answer)
+        );
+        let window: String = projection.chars().take(end).collect();
+        assert!(first.projection.starts_with(&window));
+        let next = page(end);
+        let continued: String = projection.chars().skip(end).take(100).collect();
+        assert!(
+            next.projection
+                .strip_prefix(&format!(
+                    "# [continued: the projection from character {end}]\n"
+                ))
+                .is_some_and(|rest| rest.starts_with(&continued)),
+            "{}",
+            next.projection.chars().take(100).collect::<String>()
+        );
     }
 }
