@@ -1,13 +1,18 @@
 //! Size bounds of the review tools' answers. An agent's context is finite and a tool answer above
-//! the client's limit is dropped, so every answer stays below [`MAX_TOOL_OUTPUT_BYTES`] of JSON and
-//! says what it left out: a shortened text ends in a `[truncated: ...]` marker, and a shortened
-//! list, or anything [`bound_answer`] had to cut, is named in the answer's `truncations`.
+//! the client's limit does not reach it whole, so every answer stays below
+//! [`MAX_TOOL_OUTPUT_BYTES`] of JSON and says what it left out: a shortened text ends in a
+//! `[truncated: ...]` marker, and a shortened list, or anything [`bound_answer`] had to cut, is
+//! named in the answer's `truncations`.
 
 use serde_json::Value;
 
-/// The most bytes of JSON one tool answer holds, well below the default tool-result limit of
-/// Claude Code.
-pub(super) const MAX_TOOL_OUTPUT_BYTES: usize = 60 * 1024;
+/// The most bytes of JSON one tool answer holds. Claude Code (2.1.312) keeps an MCP tool result of
+/// at most 50,000 characters in the agent's context and replaces a longer one with a short preview
+/// of a file that the agents, which have no file tools, cannot read. A character takes at least
+/// one byte, so 48 KiB of JSON stays within those 50,000 characters, and within the default
+/// `MAX_MCP_OUTPUT_TOKENS` of 25,000, whose check Claude Code skips for a result it estimates at
+/// half of that, four characters a token.
+pub(super) const MAX_TOOL_OUTPUT_BYTES: usize = 48 * 1024;
 /// The key of the list in which an answer names what it left out.
 const TRUNCATIONS: &str = "truncations";
 /// How often [`bound_answer`] cuts before it gives up on an answer.

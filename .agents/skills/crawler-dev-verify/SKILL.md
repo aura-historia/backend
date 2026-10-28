@@ -132,7 +132,7 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    (`URL_OUTSIDE_REVIEW_SOURCE` for a URL off the review's ListingSource, before any request;
    `FORBIDDEN` with `reason`; `CONFLICT` with `failed_checks` when the approval guard refuses, for a
    URL pattern `TOO_FEW_LABELS`, `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`), and
-   answers below 60 KiB. The author reads (`get_review`, `inspect_page`), tests
+   answers below 48 KiB. The author reads (`get_review`, `inspect_page`), tests
    (`evaluate_candidate`), stages (`update_candidate`, `update_schema_field`, `add_review_page`) and
    labels (`label_sample_urls`, `PRODUCT` or `NOT_PRODUCT` with a `reason`); the reviewer refreshes a
    product-schema review's live matrix (`refresh_matrix`) and approves with the `candidate_version`
