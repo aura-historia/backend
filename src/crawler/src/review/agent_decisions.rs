@@ -1,21 +1,25 @@
 //! What the review agents may decide on their own: whether the reviewer agent's approvals and
 //! rejections are taken at all, which only `agent` authoring mode turns on, how many of them per
-//! hour, how recent the live matrix a product-schema approval rests on must be, and how many
-//! sample URLs of each label a URL-pattern approval needs. The operator contract is in
+//! hour, how recent the live matrix a product-schema approval rests on must be, how many sample
+//! URLs of each label a URL-pattern approval needs, and how many needs-repair rounds the agents
+//! give one review before it waits for a human. The operator contract is in
 //! `docs/crawler/operations.md` (review agents); the checks a guarded approval passes are in
 //! [`crate::review::approval_guard`].
 
 use crate::review::access::ReviewServerConfigError;
+use crate::review::model::STATUS_PENDING_REVIEW;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
 pub const AGENT_MAX_DECISIONS_PER_HOUR_ENV: &str = "CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR";
 pub const AGENT_MATRIX_MAX_AGE_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES";
 pub const AGENT_MIN_LABELLED_URLS_ENV: &str = "CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS";
+pub const AGENT_MAX_REPAIR_ROUNDS_ENV: &str = "CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS";
 
 const DEFAULT_MAX_DECISIONS_PER_HOUR: NonZeroU32 = NonZeroU32::new(20).unwrap();
 const DEFAULT_MATRIX_MAX_AGE_MINUTES: NonZeroU32 = NonZeroU32::new(30).unwrap();
 pub const DEFAULT_MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
+const DEFAULT_MAX_REPAIR_ROUNDS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 
 /// Whether the review agents' approvals and rejections are taken.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,6 +54,10 @@ pub struct AgentDecisionPolicy {
     /// How many URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many
     /// labelled `NOT_PRODUCT`.
     pub min_labelled_urls: NonZeroU32,
+    /// How many needs-repair verdicts the agents give a pending review, counted since a human last
+    /// changed or judged it, before it waits for a human and the agents may change or decide
+    /// nothing on it.
+    pub max_repair_rounds: NonZeroU32,
 }
 
 impl Default for AgentDecisionPolicy {
@@ -60,6 +68,7 @@ impl Default for AgentDecisionPolicy {
             max_decisions_per_hour: DEFAULT_MAX_DECISIONS_PER_HOUR,
             max_matrix_age: minutes(DEFAULT_MATRIX_MAX_AGE_MINUTES),
             min_labelled_urls: DEFAULT_MIN_LABELLED_URLS,
+            max_repair_rounds: DEFAULT_MAX_REPAIR_ROUNDS,
         }
     }
 }
@@ -77,12 +86,22 @@ impl AgentDecisionPolicy {
             .map_or(defaults.max_matrix_age, minutes);
         let min_labelled_urls =
             positive_number(AGENT_MIN_LABELLED_URLS_ENV)?.unwrap_or(defaults.min_labelled_urls);
+        let max_repair_rounds =
+            positive_number(AGENT_MAX_REPAIR_ROUNDS_ENV)?.unwrap_or(defaults.max_repair_rounds);
         Ok(Self {
             approvals: defaults.approvals,
             max_decisions_per_hour,
             max_matrix_age,
             min_labelled_urls,
+            max_repair_rounds,
         })
+    }
+
+    /// Whether a review in `status` that the agents gave `agent_rounds` needs-repair verdicts
+    /// since a human last changed or judged it waits for a human: it is pending and their
+    /// back-and-forth on it reached the cap.
+    pub fn waits_for_human(&self, status: &str, agent_rounds: u32) -> bool {
+        status == STATUS_PENDING_REVIEW && agent_rounds >= self.max_repair_rounds.get()
     }
 }
 
@@ -114,10 +133,11 @@ fn positive_number(name: &'static str) -> Result<Option<NonZeroU32>, ReviewServe
 mod tests {
     use super::*;
 
-    const SETTINGS: [&str; 3] = [
+    const SETTINGS: [&str; 4] = [
         AGENT_MAX_DECISIONS_PER_HOUR_ENV,
         AGENT_MATRIX_MAX_AGE_MINUTES_ENV,
         AGENT_MIN_LABELLED_URLS_ENV,
+        AGENT_MAX_REPAIR_ROUNDS_ENV,
     ];
 
     // Tests that touch the process environment are serialized, so no test reads the
@@ -149,6 +169,7 @@ mod tests {
                 (AGENT_MAX_DECISIONS_PER_HOUR_ENV, " "),
                 (AGENT_MATRIX_MAX_AGE_MINUTES_ENV, ""),
                 (AGENT_MIN_LABELLED_URLS_ENV, "\t"),
+                (AGENT_MAX_REPAIR_ROUNDS_ENV, "  "),
             ][..],
         ] {
             let policy = policy_from(env).unwrap_or_else(|error| panic!("{env:?}: {error}"));
@@ -158,6 +179,7 @@ mod tests {
             assert_eq!(policy.max_decisions_per_hour.get(), 20);
             assert_eq!(policy.max_matrix_age, Duration::from_secs(30 * 60));
             assert_eq!(policy.min_labelled_urls.get(), 3);
+            assert_eq!(policy.max_repair_rounds.get(), 3);
         }
     }
 
@@ -169,6 +191,7 @@ mod tests {
             (AGENT_MAX_DECISIONS_PER_HOUR_ENV, "5"),
             (AGENT_MATRIX_MAX_AGE_MINUTES_ENV, "10"),
             (AGENT_MIN_LABELLED_URLS_ENV, " 4 "),
+            (AGENT_MAX_REPAIR_ROUNDS_ENV, "2"),
         ])
         .unwrap_or_else(|error| panic!("agent decision limits: {error}"));
 
@@ -179,6 +202,7 @@ mod tests {
                 max_decisions_per_hour: NonZeroU32::new(5).unwrap(),
                 max_matrix_age: Duration::from_secs(10 * 60),
                 min_labelled_urls: NonZeroU32::new(4).unwrap(),
+                max_repair_rounds: NonZeroU32::new(2).unwrap(),
             }
         );
     }
@@ -206,6 +230,16 @@ mod tests {
         "0",
         "invalid CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS value \"0\"; expected a whole number of at least 1"
     )]
+    #[case::no_repair_rounds(
+        AGENT_MAX_REPAIR_ROUNDS_ENV,
+        "0",
+        "invalid CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS value \"0\"; expected a whole number of at least 1"
+    )]
+    #[case::repair_rounds_in_words(
+        AGENT_MAX_REPAIR_ROUNDS_ENV,
+        "three",
+        "invalid CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS value \"three\"; expected a whole number of at least 1"
+    )]
     #[serial_test::serial]
     fn should_refuse_to_start_with_a_value_that_is_not_accepted(
         #[case] name: &'static str,
@@ -217,5 +251,23 @@ mod tests {
             .unwrap_or_else(|| panic!("{name}={value} must fail startup"));
 
         assert_eq!(error.to_string(), message);
+    }
+
+    /// The verdict that reaches the cap is still taken; from then on the pending review waits for a
+    /// human, and a decided review waits for nobody.
+    #[test]
+    fn should_hand_a_review_to_a_human_once_the_agents_reached_the_cap() {
+        let policy = AgentDecisionPolicy {
+            max_repair_rounds: NonZeroU32::new(3).unwrap(),
+            ..AgentDecisionPolicy::default()
+        };
+
+        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, 0));
+        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, 2));
+        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, 3));
+        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, 4));
+        for decided in ["APPROVED", "REJECTED", "SUPERSEDED"] {
+            assert!(!policy.waits_for_human(decided, 3), "{decided}");
+        }
     }
 }

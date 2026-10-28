@@ -106,6 +106,7 @@ impl ReviewServer {
             agent_max_decisions_per_hour = agent_decisions.max_decisions_per_hour.get(),
             agent_matrix_max_age_minutes = agent_decisions.max_matrix_age.as_secs() / 60,
             agent_min_labelled_urls = agent_decisions.min_labelled_urls.get(),
+            agent_max_repair_rounds = agent_decisions.max_repair_rounds.get(),
             "Crawler review console listening"
         );
 
@@ -441,7 +442,10 @@ impl ReviewServer {
             if !refresh && let Some(matrix) = cached_schema_matrix(&detail) {
                 return HttpResponse::json(200, &ReviewSchemaMatrix::of(matrix, &detail.pages));
             }
-            return self.refresh_schema_matrix(review_id).await;
+            if let Err(error) = self.repository.check_matrix_refresh(review_id, actor).await {
+                return review_error(error);
+            }
+            return self.refresh_schema_matrix(review_id, actor).await;
         }
 
         if request.method == "POST"
@@ -737,10 +741,14 @@ impl ReviewServer {
         Ok(fetched)
     }
 
-    /// Starts a background refresh, or joins the running one, and answers with the matrix
+    /// Starts `actor`'s background refresh, or joins the running one, and answers with the matrix
     /// when it finishes in time, otherwise with `202` for the console to poll.
-    async fn refresh_schema_matrix(&self, review_id: CrawlerReviewId) -> HttpResponse {
-        let refresh = self.clone().evaluate_live_schema_matrix(review_id);
+    async fn refresh_schema_matrix(
+        &self,
+        review_id: CrawlerReviewId,
+        actor: ReviewActor,
+    ) -> HttpResponse {
+        let refresh = self.clone().evaluate_live_schema_matrix(review_id, actor);
         match self
             .matrix_refreshes
             .start_or_join(review_id, refresh)
@@ -753,7 +761,11 @@ impl ReviewServer {
         }
     }
 
-    async fn evaluate_live_schema_matrix(self, review_id: CrawlerReviewId) -> MatrixRefreshOutcome {
+    async fn evaluate_live_schema_matrix(
+        self,
+        review_id: CrawlerReviewId,
+        actor: ReviewActor,
+    ) -> MatrixRefreshOutcome {
         let fetched_at = time::OffsetDateTime::now_utc();
         let pages = self.live_review_pages(review_id).await?;
         let evaluated = self
@@ -762,7 +774,7 @@ impl ReviewServer {
             .await
             .map_err(review_error)?;
         self.repository
-            .store_schema_matrix_if_current(review_id, evaluated)
+            .store_schema_matrix_if_current(review_id, actor, evaluated)
             .await
             .map_err(review_error)
     }
@@ -1183,8 +1195,10 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// 429 with `Retry-After` once the review agent made its decisions of the hour, and 500 for a
 /// technical failure. A 409 for a request based on an older candidate carries the review's
 /// current `candidate_version`, one for an approval of incomplete coverage, unacknowledged or
-/// acknowledged at other counts, carries the review's current `coverage`, and one for an agent
-/// approval the approval guard refuses lists its `failed_checks`.
+/// acknowledged at other counts, carries the review's current `coverage`, one for an agent
+/// approval the approval guard refuses lists its `failed_checks`, and one for an agent request on
+/// a review that waits for a human carries `reason` `HUMAN_REQUIRED`, the agents' `agent_rounds`
+/// and the cap as `limit`.
 fn review_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::NotFound(_) | ReviewRepositoryError::ReviewPageNotFound(_) => {
@@ -1246,6 +1260,19 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
                 &json!({ "error": error.to_string(), "coverage": coverage }),
             )
         }
+        ReviewRepositoryError::HumanRequired {
+            agent_rounds,
+            max_repair_rounds,
+            ..
+        } => HttpResponse::json(
+            409,
+            &json!({
+                "error": error.to_string(),
+                "reason": "HUMAN_REQUIRED",
+                "agent_rounds": agent_rounds,
+                "limit": max_repair_rounds,
+            }),
+        ),
         ReviewRepositoryError::AgentApprovalRefused {
             ref failed_checks, ..
         } => HttpResponse::json(
@@ -1892,7 +1919,8 @@ Origin: http://127.0.0.1:7878/x
     }
 
     /// The answers a client such as the review agent acts on: a 403 names its `reason`, a guard
-    /// refusal lists its `failed_checks`, and the hourly cap says when to retry.
+    /// refusal lists its `failed_checks`, the hourly cap says when to retry, and a review that
+    /// waits for a human says so with the agents' rounds and the cap.
     #[test]
     fn should_answer_agent_refusals_with_a_reason_failed_checks_or_a_retry_time() {
         let answer = |error| {
@@ -1954,6 +1982,22 @@ Origin: http://127.0.0.1:7878/x
         assert_eq!(body["reason"], "AGENT_DECISION_LIMIT");
         assert_eq!(body["retry_after_secs"], 754);
         assert_eq!(body["limit"], 20);
+
+        let (head, body) = answer(ReviewRepositoryError::HumanRequired {
+            review_id: CrawlerReviewId::new(),
+            agent_rounds: 3,
+            max_repair_rounds: 3,
+        });
+        assert!(head.starts_with("HTTP/1.1 409 Conflict"), "{head}");
+        assert_eq!(body["reason"], "HUMAN_REQUIRED");
+        assert_eq!(body["agent_rounds"], 3);
+        assert_eq!(body["limit"], 3);
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("waits for a human")),
+            "{body}"
+        );
     }
 
     /// An approval names the candidate version its approver read, like a candidate edit.
@@ -3026,7 +3070,7 @@ Origin: http://127.0.0.1:7878/x
 
     /// The console takes the agents' verdicts by its own settings, and only a human restores.
     mod agent_decisions {
-        use super::needs_repair::{REVIEWER_TOKEN, TOKEN, send_as};
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
         use super::schema_editing::pending_review_server_deciding;
         use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
         use serde_json::json;
@@ -3128,6 +3172,141 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(last["action"], "RESTORED");
             assert_eq!(last["actor"], "HUMAN");
             assert_eq!(last["notes"], "wrong schema");
+        }
+
+        /// Once the agents' needs-repair rounds reached the cap, the review list and the review
+        /// say the review waits for a human, every agent route on it answers 409
+        /// `HUMAN_REQUIRED` before any page is fetched and records nothing, and a human's verdict
+        /// hands it back.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_human_required_on_every_agent_route_once_the_repair_cap_is_reached()
+        {
+            let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
+                approvals: AgentApprovals::Guarded,
+                max_repair_rounds: std::num::NonZeroU32::MIN,
+                ..AgentDecisionPolicy::default()
+            })
+            .await;
+            let review = format!("GET /api/reviews/{review_id}");
+            let needs_repair = format!("POST /api/reviews/{review_id}/needs-repair");
+            let notes = json!({ "notes": "the title takes the shop name" }).to_string();
+            let (status, taken) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {taken}");
+            let (_, list) = send_as(&server, TOKEN, "GET /api/reviews", "").await;
+            let listed = list
+                .as_array()
+                .and_then(|reviews| {
+                    reviews
+                        .iter()
+                        .find(|listed| listed["review_id"] == review_id.to_string())
+                })
+                .unwrap_or_else(|| panic!("review not listed: {list}"));
+            assert_eq!(
+                (&listed["agent_rounds"], &listed["human_required"]),
+                (&json!(1), &json!(true))
+            );
+            let (_, detail) = send_as(&server, TOKEN, &review, "").await;
+            assert_eq!(detail["review"]["human_required"], true);
+            let version = detail["review"]["candidate_version"].clone();
+
+            for (token, request, body) in [
+                (
+                    AUTHOR_TOKEN,
+                    format!("POST /api/reviews/{review_id}/candidate"),
+                    json!({
+                        "expected_candidate_version": version,
+                        "schemas": [super::matrix_refresh::schema("h1.agent")],
+                    }),
+                ),
+                (
+                    AUTHOR_TOKEN,
+                    format!("POST /api/reviews/{review_id}/schema-field"),
+                    json!({
+                        "expected_candidate_version": version,
+                        "schema_index": 0,
+                        "field": "title",
+                        "rule": {"selector": "h1.agent", "type": "text"},
+                    }),
+                ),
+                (
+                    AUTHOR_TOKEN,
+                    format!("POST /api/reviews/{review_id}/pages"),
+                    json!({ "url": "https://edited.example/products/1" }),
+                ),
+                (
+                    AUTHOR_TOKEN,
+                    needs_repair.clone(),
+                    json!({ "notes": "again" }),
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    needs_repair.clone(),
+                    json!({ "notes": "again" }),
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    format!("GET /api/reviews/{review_id}/matrix?refresh=true"),
+                    json!(null),
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    format!("POST /api/reviews/{review_id}/approve"),
+                    json!({ "expected_candidate_version": version }),
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    format!("POST /api/reviews/{review_id}/reject"),
+                    json!({ "notes": "not a product page" }),
+                ),
+            ] {
+                let body = if body.is_null() {
+                    String::new()
+                } else {
+                    body.to_string()
+                };
+                let (status, refused) = send_as(&server, token, &request, &body).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 409 Conflict"),
+                    "{request}: {status} {refused}"
+                );
+                assert_eq!(refused["reason"], "HUMAN_REQUIRED", "{request}: {refused}");
+                assert_eq!(refused["agent_rounds"], 1, "{request}: {refused}");
+                assert_eq!(refused["limit"], 1, "{request}: {refused}");
+            }
+            let (_, unchanged) = send_as(&server, TOKEN, &review, "").await;
+            assert_eq!(unchanged["events"].as_array().map(Vec::len), Some(1));
+            assert_eq!(unchanged["review"]["candidate_version"], version);
+
+            let (status, handed_back) = send_as(
+                &server,
+                TOKEN,
+                &needs_repair,
+                &json!({ "notes": "take the h1 inside the product block" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {handed_back}");
+            let (_, detail) = send_as(&server, TOKEN, &review, "").await;
+            assert_eq!(
+                (
+                    &detail["review"]["agent_rounds"],
+                    &detail["review"]["human_required"]
+                ),
+                (&json!(0), &json!(false))
+            );
+            let (status, edited) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/schema-field"),
+                &json!({
+                    "expected_candidate_version": version,
+                    "schema_index": 0,
+                    "field": "title",
+                    "rule": {"selector": "h1.product", "type": "text"},
+                })
+                .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
         }
     }
 

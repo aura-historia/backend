@@ -29,6 +29,7 @@ use tracing::info;
 use url::Url;
 
 mod live_matrix;
+mod repair_rounds;
 mod restore;
 mod review_events;
 mod review_source;
@@ -47,6 +48,7 @@ use review_events::{
 };
 
 use crate::review::source_url::is_review_source_url;
+use repair_rounds::{agent_repair_rounds, refuse_agent_while_human_required};
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, approval_product_schemas,
@@ -188,6 +190,14 @@ pub enum ReviewRepositoryError {
     AgentApprovalRefused {
         review_id: CrawlerReviewId,
         failed_checks: Vec<FailedApprovalCheck>,
+    },
+    #[error(
+        "review {review_id} waits for a human: the review agents gave it {agent_rounds} needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is {max_repair_rounds}; leave it until a human changes or judges it"
+    )]
+    HumanRequired {
+        review_id: CrawlerReviewId,
+        agent_rounds: u32,
+        max_repair_rounds: u32,
     },
     #[error("only a human restores what an approval replaced")]
     RestoreNeedsHuman,
@@ -384,7 +394,14 @@ impl CrawlerReviewRepository {
             .fetch_all(&self.pool)
             .await?;
 
-        rows.into_iter().map(row_to_review).collect()
+        let review_ids = rows
+            .iter()
+            .map(|row| crawler_review_id_from_uuid(row.try_get("review_id")?))
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        let agent_rounds = agent_repair_rounds(&self.pool, &review_ids).await?;
+        rows.into_iter()
+            .map(|row| row_to_review(row, &agent_rounds, &self.agent_decisions))
+            .collect()
     }
 
     /// The events of all reviews created at or after `since`, oldest first, at most `limit`, and
@@ -527,7 +544,8 @@ impl CrawlerReviewRepository {
             .await?
             .ok_or(ReviewRepositoryError::NotFound(review_id))?;
 
-        let mut review = row_to_review(row)?;
+        let agent_rounds = agent_repair_rounds(&self.pool, &[review_id]).await?;
+        let mut review = row_to_review(row, &agent_rounds, &self.agent_decisions)?;
         let candidate_is_live = self.approved_candidate_is_live(&review).await?;
         self.backfill_legacy_schema_review_payload(&mut review)
             .await?;
@@ -872,7 +890,14 @@ impl CrawlerReviewRepository {
     ) -> Result<(), ReviewRepositoryError> {
         let url = reviewer_page_url(url);
         let mut transaction = self.pool.begin().await?;
-        lock_reviewer_page_target(&mut transaction, review_id, actor, &url).await?;
+        lock_reviewer_page_target(
+            &mut transaction,
+            review_id,
+            actor,
+            &self.agent_decisions,
+            &url,
+        )
+        .await?;
         transaction.rollback().await?;
         Ok(())
     }
@@ -891,8 +916,14 @@ impl CrawlerReviewRepository {
     ) -> Result<CrawlerReviewPage, ReviewRepositoryError> {
         let url = reviewer_page_url(fetched_url);
         let mut transaction = self.pool.begin().await?;
-        let product_url_pattern =
-            lock_reviewer_page_target(&mut transaction, review_id, actor, &url).await?;
+        let product_url_pattern = lock_reviewer_page_target(
+            &mut transaction,
+            review_id,
+            actor,
+            &self.agent_decisions,
+            &url,
+        )
+        .await?;
         if is_redirect_to_non_product_page(requested_url, &url, product_url_pattern.as_deref()) {
             return Err(ReviewRepositoryError::RedirectedToNonProductPage(
                 url.to_string(),
@@ -953,7 +984,14 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::ReviewPageNotFound(review_page_id))?;
         let review_id = crawler_review_id_from_uuid(page.try_get("review_id")?)?;
         let status: String = page.try_get("status")?;
-        check_actor_may_change(actor, review_id, &status)?;
+        check_actor_may_change(
+            &mut transaction,
+            review_id,
+            actor,
+            &status,
+            &self.agent_decisions,
+        )
+        .await?;
         let role: String = page.try_get("role")?;
         if !matches!(
             role.as_str(),
@@ -1014,6 +1052,7 @@ impl CrawlerReviewRepository {
             &mut transaction,
             review_id,
             actor,
+            &self.agent_decisions,
             expected_candidate_version,
         )
         .await?;
@@ -1120,6 +1159,7 @@ impl CrawlerReviewRepository {
             &mut transaction,
             review_id,
             actor,
+            &self.agent_decisions,
             expected_candidate_version,
         )
         .await?;
@@ -1289,14 +1329,15 @@ struct ReviewUnderEdit {
 }
 
 /// Locks the review for `actor`'s candidate edit based on `expected_candidate_version`, so
-/// concurrent edits of it apply one after the other, and reads what the edit decides on. The
-/// review agent's edit of a decided review is refused whatever its version. An edit based on
-/// another version than the review's is refused: it would silently overwrite every edit made
-/// since its writer read the candidate.
+/// concurrent edits of it apply one after the other, and reads what the edit decides on. A review
+/// agent's edit the review refuses by `agent_decisions` (see [`check_actor_may_change`]) is refused
+/// whatever its version. An edit based on another version than the review's is refused: it would
+/// silently overwrite every edit made since its writer read the candidate.
 async fn lock_review_for_edit(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     actor: ReviewActor,
+    agent_decisions: &AgentDecisionPolicy,
     expected_candidate_version: i64,
 ) -> Result<ReviewUnderEdit, ReviewRepositoryError> {
     let review = sqlx::query(
@@ -1309,7 +1350,7 @@ async fn lock_review_for_edit(
     .await?
     .ok_or(ReviewRepositoryError::NotFound(review_id))?;
     let status: String = review.try_get("status")?;
-    check_actor_may_change(actor, review_id, &status)?;
+    check_actor_may_change(transaction, review_id, actor, &status, agent_decisions).await?;
     let candidate_version: i64 = review.try_get("candidate_version")?;
     if candidate_version != expected_candidate_version {
         return Err(ReviewRepositoryError::StaleCandidateVersion {
@@ -1331,24 +1372,27 @@ async fn lock_review_for_edit(
 }
 
 /// Refuses `actor`'s change of the candidate or pages of the review `review_id` in `status`
-/// unless the actor may change candidates at all (see [`ReviewActor::may_change_candidates`]) and
-/// the review is pending or the actor may change decided reviews (see
-/// [`ReviewActor::may_change_decided_reviews`]). The caller holds the review's row lock, so the
-/// status is the one the change would apply to.
-fn check_actor_may_change(
-    actor: ReviewActor,
+/// unless the actor may change candidates at all (see [`ReviewActor::may_change_candidates`]), the
+/// review is pending or the actor may change decided reviews (see
+/// [`ReviewActor::may_change_decided_reviews`]), and a review agent's review does not wait for a
+/// human by `agent_decisions`. The caller holds the review's row lock, so the status and the
+/// agents' needs-repair rounds are the ones the change would apply to.
+async fn check_actor_may_change(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
+    actor: ReviewActor,
     status: &str,
+    agent_decisions: &AgentDecisionPolicy,
 ) -> Result<(), ReviewRepositoryError> {
     if !actor.may_change_candidates() {
         return Err(ReviewRepositoryError::ReviewerMayNotChangeCandidates);
     }
-    if status == STATUS_PENDING_REVIEW || actor.may_change_decided_reviews() {
-        return Ok(());
+    if status != STATUS_PENDING_REVIEW && !actor.may_change_decided_reviews() {
+        return Err(ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(
+            review_id,
+        ));
     }
-    Err(ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(
-        review_id,
-    ))
+    refuse_agent_while_human_required(transaction, review_id, actor, status, agent_decisions).await
 }
 
 /// Stores the edited candidate of a pending review and returns its candidate version.
@@ -1537,14 +1581,16 @@ async fn drop_cached_schema_matrix(
 }
 
 /// Locks the review and checks that `actor` may make `url` a reviewer page of it: the review is a
-/// pending product schema review, or an approved one and `actor` is not the review agent, `url`
-/// is an http(s) URL on a domain of the review's ListingSource, it is not a page of the review
-/// yet, and the reviewer page limit is not reached. Returns the product URL pattern of the domain
-/// `url` is on, once one is decided.
+/// pending product schema review, or an approved one and `actor` is not a review agent, a review
+/// agent's review does not wait for a human by `agent_decisions`, `url` is an http(s) URL on a
+/// domain of the review's ListingSource, it is not a page of the review yet, and the reviewer page
+/// limit is not reached. Returns the product URL pattern of the domain `url` is on, once one is
+/// decided.
 async fn lock_reviewer_page_target(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     actor: ReviewActor,
+    agent_decisions: &AgentDecisionPolicy,
     url: &Url,
 ) -> Result<Option<String>, ReviewRepositoryError> {
     let review = sqlx::query(
@@ -1556,7 +1602,7 @@ async fn lock_reviewer_page_target(
     .await?
     .ok_or(ReviewRepositoryError::NotFound(review_id))?;
     let status: String = review.try_get("status")?;
-    check_actor_may_change(actor, review_id, &status)?;
+    check_actor_may_change(transaction, review_id, actor, &status, agent_decisions).await?;
     let artifact_type: String = review.try_get("artifact_type")?;
     if artifact_type != ARTIFACT_PRODUCT_SCHEMA {
         return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -1654,9 +1700,18 @@ fn parse_product_schema_payload(
     }
 }
 
-fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Error> {
+/// The review of `row`, with the agents' needs-repair rounds of it from `agent_rounds` (see
+/// [`agent_repair_rounds`]) and whether it waits for a human by `agent_decisions`.
+fn row_to_review(
+    row: sqlx::postgres::PgRow,
+    agent_rounds: &HashMap<CrawlerReviewId, u32>,
+    agent_decisions: &AgentDecisionPolicy,
+) -> Result<CrawlerReview, sqlx::Error> {
+    let review_id = crawler_review_id_from_uuid(row.try_get("review_id")?)?;
+    let status: String = row.try_get("status")?;
+    let agent_rounds = agent_rounds.get(&review_id).copied().unwrap_or(0);
     Ok(CrawlerReview {
-        review_id: crawler_review_id_from_uuid(row.try_get("review_id")?)?,
+        review_id,
         listing_source_id: listing_source_id_from_uuid(
             row.try_get::<uuid::Uuid, _>("listing_source_id")?,
         )?,
@@ -1667,13 +1722,15 @@ fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Erro
             .map(crawler_domain_id_from_uuid)
             .transpose()?,
         artifact_type: row.try_get("artifact_type")?,
-        status: row.try_get("status")?,
+        human_required: agent_decisions.waits_for_human(&status, agent_rounds),
+        status,
         reason: row.try_get("reason")?,
         candidate_payload: row.try_get("candidate_payload")?,
         candidate_version: row.try_get("candidate_version")?,
         validation_summary: row.try_get("validation_summary")?,
         reviewer_notes: row.try_get("reviewer_notes")?,
         repair_request: row_to_repair_request(&row)?,
+        agent_rounds,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
         reviewed: row.try_get("reviewed")?,

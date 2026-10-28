@@ -3,7 +3,8 @@
 //! never; the reviewer agent changes no candidate; every approval names the candidate version it
 //! was based on; an agent approval passes the four-eyes rule and the approval guard on the
 //! server's own live evaluation; the agents' decisions of an hour are capped from the event trail;
-//! and a human restores what an approval replaced while it is still live.
+//! a review the agents sent back and forth through needs-repair up to the cap waits for a human,
+//! who hands it back; and a human restores what an approval replaced while it is still live.
 
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
@@ -258,7 +259,7 @@ async fn store_live_matrix(
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await
         .unwrap();
 }
@@ -1824,4 +1825,485 @@ async fn should_refuse_an_agent_approval_of_a_version_the_approving_agent_change
         live_schemas(&pool, &listing_source_id).await,
         Some(vec![schema("h1")])
     );
+}
+
+/// A repository taking the agents' guarded decisions that hands a review to a human after
+/// `max_repair_rounds` agent needs-repair verdicts.
+fn capped(pool: &PgPool, max_repair_rounds: u32) -> CrawlerReviewRepository {
+    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy {
+        max_repair_rounds: NonZeroU32::new(max_repair_rounds).unwrap_or(NonZeroU32::MIN),
+        ..guarded_policy(20)
+    })
+}
+
+/// The review's agent rounds and whether it waits for a human, as its detail and the review list
+/// report them; both must agree.
+async fn agent_rounds(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+) -> (u32, bool) {
+    let detail = repository.get_review(review_id).await.unwrap().review;
+    let listed = repository
+        .list_reviews(200)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|review| review.review_id == review_id)
+        .unwrap_or_else(|| panic!("review {review_id} is not listed"));
+    assert_eq!(
+        (listed.agent_rounds, listed.human_required),
+        (detail.agent_rounds, detail.human_required),
+        "the list and the detail disagree"
+    );
+    (detail.agent_rounds, detail.human_required)
+}
+
+fn assert_human_required(
+    refusal: &Result<(), ReviewRepositoryError>,
+    review_id: CrawlerReviewId,
+    rounds: u32,
+) {
+    assert!(
+        matches!(
+            refusal,
+            Err(ReviewRepositoryError::HumanRequired {
+                review_id: id,
+                agent_rounds,
+                max_repair_rounds,
+            }) if *id == review_id && *agent_rounds == rounds && *max_repair_rounds == rounds
+        ),
+        "{refusal:?}"
+    );
+}
+
+/// Every needs-repair verdict of either agent is a round; the one that reaches the cap is taken,
+/// and from then on every change and verdict of an agent on the review, of either role and on any
+/// route, is refused before anything else is checked, records no event and changes nothing.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_every_agent_change_and_verdict_once_the_agents_reached_the_repair_cap() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 2);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    let table = url::Url::parse("https://example.com/products/table").unwrap();
+    let added = repository
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &table,
+            &table,
+            &shop_page(table.as_str()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (0, false));
+
+    repository
+        .request_repair(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("the title misses the table"),
+        )
+        .await
+        .unwrap();
+    repository
+        .update_schema_field(
+            review_id,
+            ReviewActor::AgentAuthor,
+            version(&repository, review_id).await,
+            0,
+            "title",
+            Some(rule("h1, h2")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (1, false));
+    repository
+        .request_repair(
+            review_id,
+            ReviewActor::AgentAuthor,
+            Some("the table page needs its own schema"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (2, true));
+
+    let before = repository.get_review(review_id).await.unwrap();
+    let candidate_version = before.review.candidate_version;
+    let lamp = url::Url::parse("https://example.com/products/lamp").unwrap();
+    let live_pages = before
+        .pages
+        .iter()
+        .map(|page| (page.clone(), shop_page(&page.url)))
+        .collect();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, live_pages, OffsetDateTime::now_utc())
+        .await
+        .unwrap();
+    let refusals = [
+        repository
+            .update_candidate_payload(
+                review_id,
+                ReviewActor::AgentAuthor,
+                candidate_version,
+                json!({ "schemas": [schema("h1.agent")] }),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .update_candidate_payload(
+                review_id,
+                ReviewActor::AgentAuthor,
+                candidate_version,
+                json!({
+                    "schemas": [schema("h1")],
+                    "removed_page_schemas": [notice_template("sold")],
+                }),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .update_schema_field(
+                review_id,
+                ReviewActor::AgentAuthor,
+                candidate_version - 1,
+                0,
+                "title",
+                Some(rule("h1.agent")),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .check_reviewer_page_target(review_id, ReviewActor::AgentAuthor, &lamp)
+            .await,
+        repository
+            .add_reviewer_page(
+                review_id,
+                ReviewActor::AgentAuthor,
+                &lamp,
+                &lamp,
+                &shop_page(lamp.as_str()),
+            )
+            .await
+            .map(|_| ()),
+        repository
+            .remove_reviewer_page(added.review_page_id, ReviewActor::AgentAuthor)
+            .await,
+        repository
+            .check_matrix_refresh(review_id, ReviewActor::AgentReviewer)
+            .await,
+        repository
+            .store_schema_matrix_if_current(review_id, ReviewActor::AgentReviewer, evaluated)
+            .await
+            .map(|_| ()),
+        repository
+            .request_repair(review_id, ReviewActor::AgentReviewer, Some("still wrong"))
+            .await,
+        repository
+            .request_repair(review_id, ReviewActor::AgentAuthor, Some("still wrong"))
+            .await,
+        repository
+            .approve_review(
+                review_id,
+                ReviewActor::AgentReviewer,
+                approval(candidate_version),
+            )
+            .await,
+        repository
+            .reject_review(
+                review_id,
+                ReviewActor::AgentReviewer,
+                Some("not a product page"),
+            )
+            .await,
+    ];
+
+    for refusal in &refusals {
+        assert_human_required(refusal, review_id, 2);
+    }
+    let after = repository.get_review(review_id).await.unwrap();
+    assert_eq!(after.review.status, STATUS_PENDING_REVIEW);
+    assert_eq!(after.review.candidate_version, candidate_version);
+    assert_eq!(
+        after.review.candidate_payload,
+        before.review.candidate_payload
+    );
+    assert_eq!(after.review.repair_request, before.review.repair_request);
+    assert!(
+        after
+            .review
+            .validation_summary
+            .get("schema_matrix")
+            .is_none(),
+        "the agent's refresh stored no matrix"
+    );
+    assert_eq!(after.pages.len(), before.pages.len());
+    assert_eq!(after.events.len(), before.events.len());
+
+    let (_, url_pattern_review) = shop_url_pattern_review(&pool, &repository).await;
+    for note in ["label the category pages", "the pattern takes /shop"] {
+        repository
+            .request_repair(url_pattern_review, ReviewActor::AgentReviewer, Some(note))
+            .await
+            .unwrap();
+    }
+    let labels = repository
+        .set_sample_labels(
+            url_pattern_review,
+            ReviewActor::AgentAuthor,
+            version(&repository, url_pattern_review).await,
+            shop_labels(),
+        )
+        .await
+        .map(|_| ());
+    assert_human_required(&labels, url_pattern_review, 2);
+    assert_eq!(
+        trail(&repository, url_pattern_review).await,
+        vec![
+            (
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested
+            ),
+            (
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested
+            ),
+        ]
+    );
+}
+
+/// A human hands a review that waits for them back to the agents with any change or verdict of
+/// their own, and the agents' rounds count again from it; a decided review waits for nobody.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_hand_the_review_back_to_the_agents_with_a_human_change_or_verdict() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 1);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    let agent_repair = || {
+        repository.request_repair(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("the title misses the chair"),
+        )
+    };
+
+    agent_repair().await.unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (1, true));
+    repository
+        .request_repair(
+            review_id,
+            ReviewActor::Human,
+            Some("take the h1 inside the product block"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (0, false));
+    repository
+        .update_schema_field(
+            review_id,
+            ReviewActor::AgentAuthor,
+            version(&repository, review_id).await,
+            0,
+            "title",
+            Some(rule("h1.product")),
+        )
+        .await
+        .unwrap();
+    agent_repair().await.unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (1, true));
+
+    repository
+        .update_schema_field(
+            review_id,
+            ReviewActor::Human,
+            version(&repository, review_id).await,
+            0,
+            "title",
+            Some(rule("h1")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (0, false));
+    agent_repair().await.unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (1, true));
+
+    approve_as_human(&repository, review_id).await;
+    let approved = repository.get_review(review_id).await.unwrap().review;
+    assert_eq!(approved.status, STATUS_APPROVED);
+    assert!(!approved.human_required);
+    assert_eq!(
+        trail(&repository, review_id).await,
+        vec![
+            (
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested
+            ),
+            (ReviewActor::Human, ReviewEventAction::RepairRequested),
+            (
+                ReviewActor::AgentAuthor,
+                ReviewEventAction::SchemaFieldEdited
+            ),
+            (
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested
+            ),
+            (ReviewActor::Human, ReviewEventAction::SchemaFieldEdited),
+            (
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested
+            ),
+            (ReviewActor::Human, ReviewEventAction::Approved),
+        ]
+    );
+}
+
+/// Concurrent agent needs-repair verdicts count one after the other under the review's row lock,
+/// so exactly the one that reaches the cap is taken and the rest are refused without an event.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_take_exactly_the_verdict_that_reaches_the_repair_cap_when_agents_race() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 2);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    repository
+        .request_repair(review_id, ReviewActor::AgentReviewer, Some("first round"))
+        .await
+        .unwrap();
+    // Another writer holds the review until every racer waits on it, so the racers run together.
+    let mut holder = pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM crawler_reviews WHERE review_id = $1 FOR UPDATE")
+        .bind(review_id.as_uuid())
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+
+    let racers: Vec<_> = (0..5)
+        .map(|_| {
+            let repository = repository.clone();
+            tokio::spawn(async move {
+                repository
+                    .request_repair(review_id, ReviewActor::AgentReviewer, Some("racing round"))
+                    .await
+            })
+        })
+        .collect();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_stat_activity \
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if waiting >= 5 {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the racers never all waited on the review: {waiting}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    holder.rollback().await.unwrap();
+    let verdicts = futures::future::join_all(racers).await;
+
+    let (mut taken, mut refused) = (0, 0);
+    for verdict in verdicts {
+        match verdict.unwrap_or_else(|error| panic!("verdict task: {error}")) {
+            Ok(()) => taken += 1,
+            Err(ReviewRepositoryError::HumanRequired {
+                agent_rounds: 2, ..
+            }) => refused += 1,
+            Err(error) => panic!("unexpected refusal: {error}"),
+        }
+    }
+    assert_eq!((taken, refused), (1, 4));
+    assert_eq!(agent_rounds(&repository, review_id).await, (2, true));
+    assert_eq!(
+        trail(&repository, review_id).await,
+        vec![
+            (
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested
+            ),
+            (
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested
+            ),
+        ]
+    );
+}
+
+/// The rounds count every agent actor's needs-repair verdicts, the single review agent's of the
+/// trail before the two roles among them, and only a human's event restarts them: a needs-repair
+/// verdict of anyone else, such as the crawler's own, neither counts nor hands the review back.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_every_agent_actors_rounds_since_the_latest_human_event() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 3);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    // A trail as stored, oldest first: each insert is its own transaction, so its time is later.
+    for (actor, action) in [
+        ("AGENT", "REPAIR_REQUESTED"),
+        ("HUMAN", "PAGE_ADDED"),
+        ("AGENT", "REPAIR_REQUESTED"),
+        ("SYSTEM", "REPAIR_REQUESTED"),
+        ("AGENT_AUTHOR", "SCHEMA_FIELD_EDITED"),
+    ] {
+        sqlx::query(
+            "INSERT INTO crawler_review_events \
+             (event_id, review_id, actor, action, candidate_version, details) \
+             VALUES ($1, $2, $3, $4, 1, '{}')",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(review_id.as_uuid())
+        .bind(actor)
+        .bind(action)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    assert_eq!(agent_rounds(&repository, review_id).await, (1, false));
+
+    repository
+        .request_repair(review_id, ReviewActor::AgentAuthor, Some("second round"))
+        .await
+        .unwrap();
+    repository
+        .request_repair(review_id, ReviewActor::AgentReviewer, Some("third round"))
+        .await
+        .unwrap();
+
+    assert_eq!(agent_rounds(&repository, review_id).await, (3, true));
 }

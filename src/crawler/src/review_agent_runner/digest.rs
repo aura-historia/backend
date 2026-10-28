@@ -1,12 +1,13 @@
-//! The daily digest of the agents' work, for humans who oversee after the fact: what the event
-//! trail of all reviews recorded in the window (approvals, rejections and needs-repair verdicts
-//! by actor, and restores), what the agents reported (the server's refusals by failed check, each
-//! process's outcome), and each review's tokens and cost. It is written to a Markdown file in the
-//! state directory's `digests/` and summarised in one log line.
+//! The daily digest of the agents' work, for humans who oversee after the fact: the reviews that
+//! wait for a human because the agents' needs-repair rounds on them reached the cap, what the
+//! event trail of all reviews recorded in the window (approvals, rejections and needs-repair
+//! verdicts by actor, and restores), what the agents reported (the server's refusals by failed
+//! check, each process's outcome), and each review's tokens and cost. It is written to a Markdown
+//! file in the state directory's `digests/` and summarised in one log line.
 
 use super::envelope::TokenUsage;
 use super::ledger::{ProcessEnd, ProcessRecord, ProcessRole};
-use super::queue::{ReviewEventEntry, ReviewEventsSince};
+use super::queue::{HumanRequiredReview, ReviewEventEntry, ReviewEventsSince};
 use super::reports::{AgentReport, ServerOutcome};
 use super::wire_name;
 use crate::CrawlerReviewId;
@@ -54,6 +55,8 @@ pub struct Digest {
     pub rejected: DecisionCount,
     pub needs_repair: DecisionCount,
     pub restored: usize,
+    /// The pending reviews that wait for a human at the digest's time.
+    pub needs_a_human: Vec<HumanRequiredReview>,
     decisions: Vec<ReviewEventEntry>,
     events_truncated: bool,
     /// The server's refusals of the reviewer's decisions by failed check, as the reports name them.
@@ -69,13 +72,14 @@ pub struct Digest {
 }
 
 impl Digest {
-    /// The digest of `[from, to]` from the console's `events` since `from` and the ledger's
-    /// `records` of the window.
+    /// The digest of `[from, to]` from the console's `events` since `from`, the ledger's
+    /// `records` of the window and the reviews `needs_a_human` that wait for a human at `to`.
     pub fn of(
         from: OffsetDateTime,
         to: OffsetDateTime,
         events: ReviewEventsSince,
         records: Vec<ProcessRecord>,
+        needs_a_human: Vec<HumanRequiredReview>,
         budget: BudgetState,
     ) -> Self {
         let decisions: Vec<ReviewEventEntry> = events
@@ -112,6 +116,7 @@ impl Digest {
                 .iter()
                 .filter(|event| event.action == "RESTORED")
                 .count(),
+            needs_a_human,
             decisions,
             events_truncated: events.truncated,
             refusals_by_check: BTreeMap::new(),
@@ -173,12 +178,48 @@ impl Digest {
             timestamp(self.from),
             timestamp(self.to)
         );
+        self.write_needs_a_human(&mut out);
         self.write_decisions(&mut out);
         self.write_refusals(&mut out);
         self.write_processes(&mut out);
         self.write_reports(&mut out);
         self.write_budget(&mut out);
         out
+    }
+
+    fn write_needs_a_human(&self, out: &mut String) {
+        let _ = writeln!(out, "## Needs a human\n");
+        if self.needs_a_human.is_empty() {
+            let _ = writeln!(out, "None.\n");
+            return;
+        }
+        let _ = writeln!(
+            out,
+            "The agents' needs-repair rounds on these pending reviews reached the cap, so no agent works them. Change or judge each in the review console to hand it back to the agents, or approve or reject it.\n"
+        );
+        for review in &self.needs_a_human {
+            let _ = writeln!(
+                out,
+                "- {} {} · {} · {} agent rounds{}",
+                review.review_id,
+                review.artifact_type,
+                review
+                    .listing_source_name
+                    .as_deref()
+                    .unwrap_or("(unnamed source)"),
+                review.agent_rounds,
+                review
+                    .repair_request
+                    .as_ref()
+                    .map(|repair| format!(
+                        " · last needs-repair at {}: {}",
+                        timestamp(repair.requested),
+                        short(&repair.note)
+                    ))
+                    .unwrap_or_default()
+            );
+        }
+        out.push('\n');
     }
 
     fn write_decisions(&self, out: &mut String) {
@@ -424,7 +465,9 @@ pub(super) fn timestamp(at: OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::review::model::RepairRequest;
     use crate::review_agent_runner::ledger::tests::record;
+    use crate::review_agent_runner::queue::ReviewArtifact;
     use crate::review_agent_runner::reports::{
         AuthorAction, AuthorReport, Confidence, ReviewerDecision, ReviewerReport, ServerAnswer,
     };
@@ -499,7 +542,7 @@ mod tests {
             truncated: false,
         };
 
-        let digest = Digest::of(FROM, TO, events, vec![], budget());
+        let digest = Digest::of(FROM, TO, events, vec![], vec![], budget());
 
         assert_eq!(
             digest.approved,
@@ -566,6 +609,7 @@ mod tests {
                 truncated: true,
             },
             vec![author, refused, limited, outside],
+            vec![],
             budget(),
         );
 
@@ -597,6 +641,61 @@ mod tests {
     }
 
     #[test]
+    fn should_list_the_reviews_that_need_a_human_with_their_last_needs_repair_note() {
+        let review_id = CrawlerReviewId::new();
+        let waiting = HumanRequiredReview {
+            review_id,
+            artifact_type: ReviewArtifact::ProductSchema,
+            listing_source_name: Some("Antiques".to_owned()),
+            agent_rounds: 3,
+            repair_request: Some(RepairRequest {
+                note: "price | still empty on\n/item/2".to_owned(),
+                requested: TO - Duration::hours(1),
+            }),
+        };
+        let none = Digest::of(
+            FROM,
+            TO,
+            ReviewEventsSince {
+                events: vec![],
+                truncated: false,
+            },
+            vec![],
+            vec![],
+            budget(),
+        );
+
+        let digest = Digest::of(
+            FROM,
+            TO,
+            ReviewEventsSince {
+                events: vec![],
+                truncated: false,
+            },
+            vec![],
+            vec![waiting],
+            budget(),
+        );
+
+        assert!(
+            none.markdown().contains("## Needs a human\n\nNone.\n"),
+            "{}",
+            none.markdown()
+        );
+        let markdown = digest.markdown();
+        assert!(
+            markdown.contains(&format!(
+                "- {review_id} PRODUCT_SCHEMA · Antiques · 3 agent rounds · last needs-repair at 2026-10-28T05:00:00Z: price / still empty on /item/2\n"
+            )),
+            "{markdown}"
+        );
+        assert!(
+            markdown.find("## Needs a human") < markdown.find("## Decisions in the event trail"),
+            "{markdown}"
+        );
+    }
+
+    #[test]
     fn should_write_the_digest_to_a_file_named_by_its_end() {
         let directory = crate::review_agent_runner::ledger::tests::StateDirectory::new();
         let digest = Digest::of(
@@ -606,6 +705,7 @@ mod tests {
                 events: vec![],
                 truncated: false,
             },
+            vec![],
             vec![],
             budget(),
         );

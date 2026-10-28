@@ -372,7 +372,7 @@ async fn should_store_the_matrix_of_the_evaluated_pages_when_a_page_was_added_du
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await
         .unwrap();
 
@@ -420,7 +420,7 @@ async fn should_refuse_to_store_schema_matrix_when_an_evaluated_page_was_removed
         .await
         .unwrap();
     let stored = repository
-        .store_schema_matrix_if_current(review_id, evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await;
 
     assert!(matches!(
@@ -465,7 +465,7 @@ async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it(
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await
         .unwrap();
 

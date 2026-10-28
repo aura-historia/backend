@@ -960,6 +960,16 @@ tr.failed {
     color: var(--danger);
 }
 
+.human-required-card {
+    border-color: var(--danger-border);
+}
+
+.badge-human {
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-weight: 600;
+}
+
 .badge-repair,
 .badge-superseded {
     background: var(--control-disabled-bg);

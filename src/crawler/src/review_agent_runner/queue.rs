@@ -1,10 +1,11 @@
 //! What the runner reads from the review console with the author agent's token: the pending
-//! reviews the agents work, in the console's queue order, and the event trail of all reviews since
-//! a time, for the digest. The console decides what is pending; the runner only picks which
-//! reviews this pass works.
+//! reviews the agents work, in the console's queue order, those that wait for a human, and the
+//! event trail of all reviews since a time, for the digest. The console decides what is pending
+//! and what waits for a human; the runner only picks which reviews this pass works.
 
 use crate::review::model::{
-    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, STATUS_PENDING_REVIEW,
+    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, RepairRequest,
+    STATUS_PENDING_REVIEW,
 };
 use crate::review_mcp::{ConsoleClient, ConsoleError};
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
@@ -50,23 +51,62 @@ pub struct QueuedReview {
     pub listing_source_name: Option<String>,
 }
 
-/// The pending reviews of the console's queue the agents can work: product-schema and URL-pattern
-/// reviews of crawl-enabled ListingSources, in the console's order. A review of a disabled
-/// ListingSource holds nothing back, so it waits until the source is crawled again.
-pub async fn pending_reviews(console: &ConsoleClient) -> Result<Vec<QueuedReview>, ConsoleError> {
-    let queue: Vec<CrawlerReview> = console.get("/api/reviews").await?.decode()?;
-    Ok(queue
-        .into_iter()
-        .filter(|review| review.status == STATUS_PENDING_REVIEW)
-        .filter(|review| review.listing_source_crawl_enabled)
-        .filter_map(|review| {
-            Some(QueuedReview {
-                review_id: review.review_id,
-                artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
-                listing_source_name: review.listing_source_name,
-            })
-        })
-        .collect())
+/// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
+/// console's cap, so no agent process works it until a human hands it back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HumanRequiredReview {
+    pub review_id: CrawlerReviewId,
+    pub artifact_type: ReviewArtifact,
+    pub listing_source_name: Option<String>,
+    /// The agents' needs-repair verdicts since a human last changed or judged the review.
+    pub agent_rounds: u32,
+    /// The latest needs-repair verdict, the one that reached the cap.
+    pub repair_request: Option<RepairRequest>,
+}
+
+/// The pending product-schema and URL-pattern reviews of crawl-enabled ListingSources, in the
+/// console's order: those the agents can work and those that wait for a human. A review of a
+/// disabled ListingSource holds nothing back, so it waits until the source is crawled again.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReviewQueue {
+    pub workable: Vec<QueuedReview>,
+    pub waiting_for_human: Vec<HumanRequiredReview>,
+}
+
+/// The console's review queue as the agents see it.
+pub async fn review_queue(console: &ConsoleClient) -> Result<ReviewQueue, ConsoleError> {
+    let reviews: Vec<CrawlerReview> = console.get("/api/reviews").await?.decode()?;
+    Ok(ReviewQueue::of(reviews))
+}
+
+impl ReviewQueue {
+    fn of(reviews: Vec<CrawlerReview>) -> Self {
+        let mut queue = Self::default();
+        for review in reviews {
+            if review.status != STATUS_PENDING_REVIEW || !review.listing_source_crawl_enabled {
+                continue;
+            }
+            let Some(artifact_type) = ReviewArtifact::parse(&review.artifact_type) else {
+                continue;
+            };
+            if review.human_required {
+                queue.waiting_for_human.push(HumanRequiredReview {
+                    review_id: review.review_id,
+                    artifact_type,
+                    listing_source_name: review.listing_source_name,
+                    agent_rounds: review.agent_rounds,
+                    repair_request: review.repair_request,
+                });
+            } else {
+                queue.workable.push(QueuedReview {
+                    review_id: review.review_id,
+                    artifact_type,
+                    listing_source_name: review.listing_source_name,
+                });
+            }
+        }
+        queue
+    }
 }
 
 /// The `max` reviews of `queue` this pass works, and how many of the others are cooling down.

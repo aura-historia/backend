@@ -2,14 +2,16 @@
 //! the author staged or kept a candidate, a fresh reviewer process, with at most the configured
 //! number of processes at once. Each process's outcome is recorded in the ledger and logged.
 //! A process that ends without a decision cools its review down; a usage limit pauses the runner
-//! until its reset, and a soft budget that is spent starts no further process.
+//! until its reset, and a soft budget that is spent starts no further process. A review that waits
+//! for a human is no agent work: the pass starts no process for it, so it neither fails nor cools
+//! down.
 
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
 use super::invocation::{agent_command, role_contract};
 use super::ledger::{FIVE_HOURS, ONE_WEEK, ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, run_agent};
-use super::queue::{QueuedReview, pending_reviews, select_reviews};
+use super::queue::{QueuedReview, review_queue, select_reviews};
 use super::reports::{AgentReport, AuthorAction};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, RunnerState, save_state};
@@ -25,6 +27,8 @@ use tracing::{info, warn};
 pub struct PassSummary {
     /// Pending reviews the agents could work.
     pub pending: usize,
+    /// Pending reviews that wait for a human, which no process works.
+    pub waiting_for_human: usize,
     /// Of those, reviews still cooling down.
     pub cooling_down: usize,
     /// Reviews this pass started to work.
@@ -117,12 +121,13 @@ impl Pass<'_> {
             self.with(|shared| shared.summary.stopped = Some(stop));
             return Ok(());
         }
-        let queue = pending_reviews(console).await.map_err(PassError::Console)?;
-        let pending = queue.len();
+        let queue = review_queue(console).await.map_err(PassError::Console)?;
+        let pending = queue.workable.len();
+        let waiting_for_human = queue.waiting_for_human.len();
         let (cooldowns, last_worked) =
             self.with(|shared| (shared.state.cooldown_ends(), shared.ledger.last_worked()));
         let (selected, cooling_down) = select_reviews(
-            queue,
+            queue.workable,
             &cooldowns,
             &last_worked,
             OffsetDateTime::now_utc(),
@@ -130,10 +135,12 @@ impl Pass<'_> {
         );
         self.with(|shared| {
             shared.summary.pending = pending;
+            shared.summary.waiting_for_human = waiting_for_human;
             shared.summary.cooling_down = cooling_down;
         });
         info!(
             pending,
+            waiting_for_human,
             cooling_down,
             selected = selected.len(),
             max_reviews_per_run = self.settings.max_reviews_per_run.get(),
