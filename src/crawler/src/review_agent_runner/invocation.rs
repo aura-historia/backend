@@ -44,6 +44,13 @@ pub(super) const PASSED_ENV: [&str; 20] = [
     "NODE_EXTRA_CA_CERTS",
 ];
 
+/// The platform's own variables a CLI child cannot do without, passed like [`PASSED_ENV`]: on
+/// Windows the CLI's runtime makes no network request without `SystemRoot`.
+#[cfg(windows)]
+const PASSED_PLATFORM_ENV: &[&str] = &["SystemRoot"];
+#[cfg(not(windows))]
+const PASSED_PLATFORM_ENV: &[&str] = &[];
+
 /// Variables every CLI child is started with: no self-update and no non-essential traffic of a
 /// pinned CLI, no `CLAUDE.md` instructions and no auto memory from the host, and UTC, so a usage
 /// limit's reset time reads in a zone the runner can parse.
@@ -55,21 +62,24 @@ pub(super) const SET_ENV: [(&str, &str); 5] = [
     ("TZ", "UTC"),
 ];
 
-/// The whole environment of a CLI child: the [`PASSED_ENV`] variables the runner has, then
-/// [`SET_ENV`]. A child starts from an empty environment with these only. Its `Debug` names the
-/// variables, never their values, as one can be a credential.
+/// The whole environment of a CLI child: the [`PASSED_ENV`] and [`PASSED_PLATFORM_ENV`] variables
+/// the runner has, then [`SET_ENV`]. A child starts from an empty environment with these only. Its
+/// `Debug` names the variables, never their values, as one can be a credential.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct ChildEnvironment(Vec<(String, String)>);
 
 impl ChildEnvironment {
-    /// Reads the [`PASSED_ENV`] variables through `env`; an empty or whitespace-only one counts as
-    /// unset.
+    /// Reads the [`PASSED_ENV`] and [`PASSED_PLATFORM_ENV`] variables through `env`; an empty or
+    /// whitespace-only one counts as unset.
     pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Self {
-        let passed = PASSED_ENV.iter().filter_map(|name| {
-            env(name)
-                .filter(|value| !value.trim().is_empty())
-                .map(|value| ((*name).to_owned(), value))
-        });
+        let passed = PASSED_ENV
+            .iter()
+            .chain(PASSED_PLATFORM_ENV)
+            .filter_map(|name| {
+                env(name)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| ((*name).to_owned(), value))
+            });
         let set = SET_ENV
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()));
@@ -371,6 +381,18 @@ mod tests {
             assert!(!name.starts_with("ANTHROPIC_"), "{name}");
             assert!(!name.starts_with("CRAWLER_"), "{name}");
         }
+    }
+
+    #[test]
+    fn should_pass_system_root_only_on_windows() {
+        let env = ChildEnvironment::from_env(|name| {
+            (name == "SystemRoot").then(|| r"C:\Windows".to_owned())
+        });
+
+        assert_eq!(
+            env.vars().any(|var| var == ("SystemRoot", r"C:\Windows")),
+            cfg!(windows)
+        );
     }
 
     #[test]
