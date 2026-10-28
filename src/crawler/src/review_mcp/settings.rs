@@ -46,10 +46,11 @@ impl fmt::Display for AgentRole {
 pub enum ReviewMcpSettingsError {
     #[error("usage: review-mcp --role author|reviewer; {0}")]
     Usage(String),
+    /// The value itself is not repeated: a refused one may carry credentials or a token.
     #[error(
-        "invalid {REVIEW_CONSOLE_URL_ENV} value {value:?}: {reason}; expected the review console's base URL, such as {DEFAULT_REVIEW_CONSOLE_URL}"
+        "invalid {REVIEW_CONSOLE_URL_ENV}: {reason}; expected the review console's base URL, such as {DEFAULT_REVIEW_CONSOLE_URL}"
     )]
-    InvalidConsoleUrl { value: String, reason: &'static str },
+    InvalidConsoleUrl { reason: &'static str },
 }
 
 /// The settings of one `review-mcp` process.
@@ -121,10 +122,7 @@ fn role_from_args(
 /// accepted for a loopback host only, and a URL that carries credentials, a query or a fragment
 /// is refused.
 fn console_url(value: &str) -> Result<Url, ReviewMcpSettingsError> {
-    let invalid = |reason| ReviewMcpSettingsError::InvalidConsoleUrl {
-        value: value.to_owned(),
-        reason,
-    };
+    let invalid = |reason| ReviewMcpSettingsError::InvalidConsoleUrl { reason };
     let url = Url::parse(value.trim()).map_err(|_| invalid("not a URL"))?;
     if !url.username().is_empty() || url.password().is_some() {
         return Err(invalid("credentials are not accepted in the URL"));
@@ -241,12 +239,21 @@ mod tests {
             "ftp://127.0.0.1",
             "127.0.0.1:7878",
         ] {
+            let refused = settings(&["--role", "author"], &[(REVIEW_CONSOLE_URL_ENV, url)]);
             assert!(
                 matches!(
-                    settings(&["--role", "author"], &[(REVIEW_CONSOLE_URL_ENV, url)]),
+                    refused,
                     Err(ReviewMcpSettingsError::InvalidConsoleUrl { .. })
                 ),
                 "{url}"
+            );
+            let shown = refused
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_default();
+            assert!(
+                !shown.contains("secret") && !shown.contains("token="),
+                "{shown}"
             );
         }
         for url in [

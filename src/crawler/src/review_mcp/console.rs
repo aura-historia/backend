@@ -113,7 +113,12 @@ impl ConsoleClient {
             Sent::Unauthorized => {
                 let rotated = self.token_file.read().map_err(ConsoleError::TokenFile)?;
                 if rotated == token {
-                    warn!(path, "The review console refused the agent's current token");
+                    // The query may carry a tool's arguments, such as a shop URL; the route is enough.
+                    let route = path.split_once('?').map_or(path, |(route, _)| route);
+                    warn!(
+                        route,
+                        "The review console refused the agent's current token"
+                    );
                     return Err(ConsoleError::Unauthorized);
                 }
                 info!(
@@ -143,7 +148,7 @@ impl ConsoleClient {
         if let Some(body) = body {
             request = request.json(body);
         }
-        let mut response = request.send().await.map_err(ConsoleError::Unreachable)?;
+        let mut response = request.send().await.map_err(unreachable)?;
         let status = response.status();
         if status == StatusCode::UNAUTHORIZED {
             return Ok(Sent::Unauthorized);
@@ -173,9 +178,15 @@ enum Sent {
     Unauthorized,
 }
 
+/// A failed exchange with the console, without its URL: the query may carry a tool's arguments,
+/// which the log never names.
+fn unreachable(error: reqwest::Error) -> ConsoleError {
+    ConsoleError::Unreachable(error.without_url())
+}
+
 async fn read_bounded(response: &mut reqwest::Response) -> Result<Vec<u8>, ConsoleError> {
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(ConsoleError::Unreachable)? {
+    while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
         if bytes.len() + chunk.len() > MAX_CONSOLE_RESPONSE_BYTES {
             return Err(ConsoleError::AnswerTooLarge);
         }
