@@ -163,7 +163,6 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
         if head.product_listing_id.is_none()
             && let Some(revision) = &revision
             && revision.input.payload_format() == RawProductListingPayloadFormat::ShopifyProduct
-            && revision.input.payload_schema_version() == 2
         {
             let identity = revision.input.raw_values().value()["sourceListingId"]
                 .as_str()

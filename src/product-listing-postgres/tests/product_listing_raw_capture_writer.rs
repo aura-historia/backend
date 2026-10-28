@@ -1764,11 +1764,7 @@ fn write_for(
     let input = ProductListingNormalizationInput::new(
         RawProductListingOperation::Upsert,
         payload_format,
-        if payload_format == RawProductListingPayloadFormat::ShopifyProduct {
-            2
-        } else {
-            1
-        },
+        1,
         1,
         SourcePayload::new(source_payload)
             .unwrap_or_else(|error| panic!("source payload: {error}")),

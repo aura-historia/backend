@@ -14,7 +14,7 @@ use time::OffsetDateTime;
 #[cfg(test)]
 use time::format_description::well_known::Rfc3339;
 
-const PAYLOAD_SCHEMA_VERSION: u16 = 2;
+const PAYLOAD_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Deserialize)]
 struct ShopifyProductPayload {

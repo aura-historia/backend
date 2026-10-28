@@ -1073,11 +1073,7 @@ fn availability_patch(
 fn validate_stored_schema(
     input: &product_listing_normalization::ProductListingNormalizationInput,
 ) -> Result<(), NormalizeProductListingRawRevisionError> {
-    let expected_payload_schema_version = match input.payload_format() {
-        product_listing_normalization::RawProductListingPayloadFormat::ShopifyProduct => 2,
-        _ => 1,
-    };
-    if input.payload_schema_version() != expected_payload_schema_version
+    if input.payload_schema_version() != 1
         || input.raw_values_schema_version() != PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION
     {
         return Err(NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion);
@@ -1693,25 +1689,6 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(2, state.commits);
-        Ok(())
-    }
-
-    #[test]
-    fn should_reject_obsolete_shopify_payload_schema() -> Result<(), NormalizationInputError> {
-        let input = ProductListingNormalizationInput::new(
-            RawProductListingOperation::Delete,
-            RawProductListingPayloadFormat::ShopifyProduct,
-            1,
-            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
-            SourcePayload::new(serde_json::json!({}))?,
-            RawProductListingValues::new(serde_json::json!({}))?,
-            NormalizationContext::new(serde_json::json!({}))?,
-        )?;
-
-        assert!(matches!(
-            validate_stored_schema(&input),
-            Err(NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion)
-        ));
         Ok(())
     }
 
