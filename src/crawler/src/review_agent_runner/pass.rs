@@ -2,7 +2,8 @@
 //! the author staged or kept a candidate, a fresh reviewer process, with at most the configured
 //! number of processes at once. Each process's outcome is recorded in the ledger and logged.
 //! A process that ends without a decision cools its review down, and a usage limit pauses the
-//! runner until its reset. A review that waits for a human is no agent work: the pass starts no
+//! runner until its reset. Whether a reviewer decided is what the review's event trail records,
+//! not what its report says the console answered. A review that waits for a human is no agent work: the pass starts no
 //! process for it, so it neither fails nor cools down.
 
 use super::digest::timestamp;
@@ -10,11 +11,12 @@ use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKin
 use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, run_agent};
-use super::queue::{QueuedReview, review_queue, select_reviews};
+use super::queue::{QueuedReview, review_events_since, review_queue, select_reviews};
 use super::reports::{AgentReport, AuthorAction};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, RunnerState, save_state};
 use super::wire_name as name;
+use crate::review::model::{ReviewActor, ReviewEventAction};
 use crate::review_mcp::{AgentRole, ConsoleClient, ConsoleError};
 use futures::StreamExt;
 use std::sync::{Mutex, PoisonError};
@@ -48,6 +50,7 @@ pub enum PassStop {
 /// What a pass works with and changes: the runner's state and ledger.
 struct Pass<'a> {
     settings: &'a RunnerSettings,
+    console: &'a ConsoleClient,
     shared: Mutex<Shared>,
 }
 
@@ -79,6 +82,7 @@ pub async fn work_pending_reviews(
 ) -> (Result<PassSummary, PassError>, RunnerState, ProcessLedger) {
     let pass = Pass {
         settings,
+        console,
         shared: Mutex::new(Shared {
             state,
             ledger,
@@ -86,7 +90,7 @@ pub async fn work_pending_reviews(
             ledger_error: None,
         }),
     };
-    let ran = pass.run(console).await;
+    let ran = pass.run().await;
     let Shared {
         state,
         ledger,
@@ -113,12 +117,14 @@ pub enum PassError {
 }
 
 impl Pass<'_> {
-    async fn run(&self, console: &ConsoleClient) -> Result<(), PassError> {
+    async fn run(&self) -> Result<(), PassError> {
         if let Some(stop) = self.stop(OffsetDateTime::now_utc()) {
             self.with(|shared| shared.summary.stopped = Some(stop));
             return Ok(());
         }
-        let queue = review_queue(console).await.map_err(PassError::Console)?;
+        let queue = review_queue(self.console)
+            .await
+            .map_err(PassError::Console)?;
         let pending = queue.workable.len();
         let waiting_for_human = queue.waiting_for_human.len();
         let (cooldowns, last_worked) =
@@ -169,12 +175,46 @@ impl Pass<'_> {
             }
             Step::Reported(_) => {}
         }
+        let reviewer_started = OffsetDateTime::now_utc();
         match self.run_process(AgentRole::Reviewer, &review).await {
             Step::NotStarted | Step::UsageLimit => {}
-            Step::Reported(AgentReport::Reviewer(report)) if report.decided() => {
-                self.with(|shared| shared.summary.decided += 1);
+            Step::Reported(_) | Step::NoDecision => {
+                if self.reviewer_decided(&review, reviewer_started).await {
+                    self.with(|shared| shared.summary.decided += 1);
+                } else {
+                    self.cool_down(&review);
+                }
             }
-            Step::Reported(_) | Step::NoDecision => self.cool_down(&review),
+        }
+    }
+
+    /// Whether the event trail records a reviewer agent's decision on `review` since `since`.
+    /// The trail, not the report, says what the console took: a reviewer may report a refused
+    /// approval although its needs-repair verdict after it was accepted, or end before it reports.
+    /// A trail the runner cannot read counts as no decision, so the review cools down.
+    async fn reviewer_decided(&self, review: &QueuedReview, since: OffsetDateTime) -> bool {
+        const DECISIONS: [ReviewEventAction; 3] = [
+            ReviewEventAction::Approved,
+            ReviewEventAction::Rejected,
+            ReviewEventAction::RepairRequested,
+        ];
+        match review_events_since(self.console, since).await {
+            Ok(trail) => trail.events.iter().any(|event| {
+                event.review_id == review.review_id
+                    && event.actor == ReviewActor::AgentReviewer.as_str()
+                    && DECISIONS
+                        .iter()
+                        .any(|decision| event.action == decision.as_str())
+            }),
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot read the event trail for the reviewer's decision; the review cools down"
+                );
+                false
+            }
         }
     }
 

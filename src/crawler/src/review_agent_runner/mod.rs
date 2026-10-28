@@ -293,12 +293,14 @@ mod tests {
     ];
 
     /// A review console that answers the review queue and the event list to the author's token.
+    /// The event list holds `events` and, as `AGENT_REVIEWER` events, the decisions the fake
+    /// `claude` logged to `decided_log`, as the review MCP server would have recorded them.
     struct FakeConsole {
         url: String,
     }
 
     impl FakeConsole {
-        async fn start(reviews: Vec<CrawlerReview>, events: Value) -> Self {
+        async fn start(reviews: Vec<CrawlerReview>, events: Value, decided_log: PathBuf) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0")
                 .await
                 .unwrap_or_else(|error| panic!("bind: {error}"));
@@ -309,7 +311,8 @@ mod tests {
                     .unwrap_or_else(|error| panic!("{error}"))
             );
             let reviews = Arc::new(serde_json::to_string(&reviews).unwrap_or_default());
-            let events = Arc::new(events.to_string());
+            let events = Arc::new(events);
+            let decided_log = Arc::new(decided_log);
             tokio::spawn(async move {
                 while let Ok((mut stream, _)) = listener.accept().await {
                     let mut request = Vec::new();
@@ -330,7 +333,7 @@ mod tests {
                     } else if path == "/api/reviews" {
                         (200, reviews.to_string())
                     } else if path.starts_with("/api/review-events?since=") {
-                        (200, events.to_string())
+                        (200, with_decisions(&events, &decided_log).to_string())
                     } else {
                         (404, "{\"error\":\"not found\"}".to_owned())
                     };
@@ -344,6 +347,27 @@ mod tests {
             });
             Self { url }
         }
+    }
+
+    /// `events` with an `AGENT_REVIEWER` event for each `<review id> <action>` line of `decided_log`.
+    fn with_decisions(events: &Value, decided_log: &Path) -> Value {
+        let mut events = events.clone();
+        let decisions = std::fs::read_to_string(decided_log).unwrap_or_default();
+        for (review_id, action) in decisions.lines().filter_map(|line| line.split_once(' ')) {
+            if let Some(list) = events["events"].as_array_mut() {
+                list.push(json!({
+                    "event_id": crate::CrawlerReviewEventId::new().to_string(),
+                    "review_id": review_id, "artifact_type": "PRODUCT_SCHEMA",
+                    "listing_source_id": "ls_x", "listing_source_name": "Antiques",
+                    "actor": "AGENT_REVIEWER", "action": action, "candidate_version": 2,
+                    "notes": null,
+                    "created": OffsetDateTime::now_utc()
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_default(),
+                }));
+            }
+        }
+        events
     }
 
     fn review(status: &str, crawl_enabled: bool) -> CrawlerReview {
@@ -384,7 +408,8 @@ mod tests {
     }
 
     /// A `claude` executable that records each call's arguments, input and environment and
-    /// answers the canned envelope of its role, or of its review and role.
+    /// answers the canned envelope of its role, or of its review and role. A reviewer process
+    /// logs the decision of its review, or of the role, to `decided.log`, as the console records it.
     struct FakeClaude {
         directory: StateDirectory,
     }
@@ -402,6 +427,11 @@ printf '%s\n' "$@" > "$call/argv"
 printf '%s' "$prompt" > "$call/stdin"
 env > "$call/env"
 echo "start $role $review" >> "$dir/order.log"
+if [ "$role" = reviewer ]; then
+  decision="$dir/decisions/$review"
+  [ -f "$decision" ] || decision="$dir/decisions/reviewer"
+  if [ -s "$decision" ]; then echo "$review $(cat "$decision")" >> "$dir/decided.log"; fi
+fi
 sleep 0.2
 envelope="$dir/envelopes/$review-$role.json"
 [ -f "$envelope" ] || envelope="$dir/envelopes/$role.json"
@@ -417,10 +447,12 @@ echo "end $role $review" >> "$dir/order.log"
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
                 .unwrap_or_else(|error| panic!("{error}"));
             std::fs::create_dir(directory.path().join("envelopes")).unwrap_or_default();
+            std::fs::create_dir(directory.path().join("decisions")).unwrap_or_default();
             let fake = Self { directory };
             fake.login(json!({ "loggedIn": true, "authMethod": "claude.ai", "orgName": "Aura" }));
             fake.answer("author", author_envelope("STAGED", 0.5));
             fake.answer("reviewer", reviewer_envelope("APPROVE", "ACCEPTED", 0.25));
+            fake.decide("reviewer", "APPROVED");
             fake
         }
 
@@ -440,6 +472,17 @@ echo "end $role $review" >> "$dir/order.log"
                 envelope.to_string(),
             )
             .unwrap_or_default();
+        }
+
+        /// Has the reviewer of the review `name`, or every reviewer for `reviewer`, take `action`;
+        /// an empty action takes none.
+        fn decide(&self, name: &str, action: &str) {
+            std::fs::write(self.directory.path().join("decisions").join(name), action)
+                .unwrap_or_default();
+        }
+
+        fn decided_log(&self) -> PathBuf {
+            self.directory.path().join("decided.log")
         }
 
         fn order(&self) -> Vec<String> {
@@ -538,9 +581,10 @@ echo "end $role $review" >> "$dir/order.log"
                 json!({ "author": AUTHOR_TOKEN, "reviewer": REVIEWER_TOKEN }).to_string(),
             )
             .unwrap_or_default();
+            let claude = FakeClaude::new();
             Self {
-                console: FakeConsole::start(reviews, events).await,
-                claude: FakeClaude::new(),
+                console: FakeConsole::start(reviews, events, claude.decided_log()).await,
+                claude,
                 state: StateDirectory::new(),
                 tokens,
             }
@@ -859,6 +903,31 @@ echo "end $role $review" >> "$dir/order.log"
         assert_eq!(second_run.processes, 0);
         assert_eq!(second_run.stopped, Some(PassStop::Paused(pause.until)));
         assert_eq!(fixture.ledger()[0]["usage_limit"], "WEEKLY");
+    }
+
+    /// The event trail, not the reviewer's report, says whether the console took a decision: a
+    /// reviewer that reports its refused approval although its needs-repair verdict was accepted
+    /// decided, and one that reports an acceptance the trail lacks did not.
+    #[tokio::test]
+    async fn should_judge_the_reviewer_s_decision_by_the_event_trail_not_its_report() {
+        let repaired = review("PENDING_REVIEW", true);
+        let unrecorded = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![repaired.clone(), unrecorded.clone()]).await;
+        fixture.claude.answer(
+            &format!("{}-reviewer", repaired.review_id),
+            reviewer_envelope("NEEDS_REPAIR", "REFUSED", 0.25),
+        );
+        fixture
+            .claude
+            .decide(&repaired.review_id.to_string(), "REPAIR_REQUESTED");
+        fixture.claude.decide(&unrecorded.review_id.to_string(), "");
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.processes, run.decided), (4, 1));
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!state.cooldowns.contains_key(&repaired.review_id));
+        assert!(state.cooldowns.contains_key(&unrecorded.review_id));
     }
 
     /// The agents run on the login's subscription: only its usage limits stop a pass, never the

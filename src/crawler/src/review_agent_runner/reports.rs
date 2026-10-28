@@ -90,20 +90,6 @@ pub struct ReviewerReport {
     pub server_answer: ServerAnswer,
 }
 
-impl ReviewerReport {
-    /// Whether the console took a decision that closes the review or hands it back to the author
-    /// with notes: anything else leaves the review where it was.
-    pub fn decided(&self) -> bool {
-        self.server_answer.outcome == ServerOutcome::Accepted
-            && matches!(
-                self.decision,
-                ReviewerDecision::Approve
-                    | ReviewerDecision::Reject
-                    | ReviewerDecision::NeedsRepair
-            )
-    }
-}
-
 /// A role's report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "lowercase")]
@@ -242,7 +228,6 @@ mod tests {
         match reviewer {
             Ok(AgentReport::Reviewer(report)) => {
                 assert_eq!(report.decision, ReviewerDecision::NeedsRepair);
-                assert!(report.decided());
                 assert_eq!(report.field_findings.len(), 1);
             }
             other => panic!("{other:?}"),
@@ -279,23 +264,6 @@ mod tests {
             AgentReport::reviewer(extra, review_id),
             Err(ReportError::Malformed(_))
         ));
-    }
-
-    #[test]
-    fn should_count_only_a_decision_the_server_took() {
-        let review_id = CrawlerReviewId::new();
-        let decided = |decision: &str, outcome: &str| match AgentReport::reviewer(
-            reviewer_output(&review_id.to_string(), decision, outcome),
-            review_id,
-        ) {
-            Ok(AgentReport::Reviewer(report)) => report.decided(),
-            other => panic!("{other:?}"),
-        };
-
-        assert!(decided("APPROVE", "ACCEPTED"));
-        assert!(decided("REJECT", "ACCEPTED"));
-        assert!(!decided("APPROVE", "REFUSED"));
-        assert!(!decided("SKIP", "NOT_SENT"));
     }
 
     #[test]
