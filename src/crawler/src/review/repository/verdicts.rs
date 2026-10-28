@@ -923,27 +923,19 @@ mod tests {
         }
     }
 
-    /// The author agent stages and never decides, whatever the policy, and the retired single
-    /// agent decides nothing either.
+    /// The author agent stages and never decides, whatever the policy.
     #[test]
     fn should_refuse_every_verdict_of_an_agent_that_does_not_decide() {
+        let actor = ReviewActor::AgentAuthor;
         for policy in [policy(AgentApprovals::Off), policy(AgentApprovals::Guarded)] {
-            for actor in [ReviewActor::AgentAuthor, ReviewActor::LegacyAgent] {
-                assert!(
-                    matches!(
-                        admit_approval(&policy, actor, IncompleteCoverage::Refuse),
-                        Err(ReviewRepositoryError::AuthorMayNotDecide)
-                    ),
-                    "{actor}"
-                );
-                assert!(
-                    matches!(
-                        admit_rejection(&policy, actor, Some("not a product page")),
-                        Err(ReviewRepositoryError::AuthorMayNotDecide)
-                    ),
-                    "{actor}"
-                );
-            }
+            assert!(matches!(
+                admit_approval(&policy, actor, IncompleteCoverage::Refuse),
+                Err(ReviewRepositoryError::AuthorMayNotDecide)
+            ));
+            assert!(matches!(
+                admit_rejection(&policy, actor, Some("not a product page")),
+                Err(ReviewRepositoryError::AuthorMayNotDecide)
+            ));
         }
     }
 

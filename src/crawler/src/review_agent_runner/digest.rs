@@ -20,7 +20,7 @@ use time::format_description::well_known::Rfc3339;
 pub const DIGEST_DIR: &str = "digests";
 /// The longest note or summary the digest shows, in characters.
 const MAX_NOTE_CHARS: usize = 300;
-const AGENT_ACTORS: [&str; 3] = ["AGENT_AUTHOR", "AGENT_REVIEWER", "AGENT"];
+const AGENT_ACTORS: [&str; 2] = ["AGENT_AUTHOR", "AGENT_REVIEWER"];
 
 /// The decisions of one action in the window, by agents and by everyone else.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

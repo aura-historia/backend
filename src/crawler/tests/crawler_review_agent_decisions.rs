@@ -2256,9 +2256,9 @@ async fn should_take_exactly_the_verdict_that_reaches_the_repair_cap_when_agents
     );
 }
 
-/// The rounds count every agent actor's needs-repair verdicts, the single review agent's of the
-/// trail before the two roles among them, and only a human's event restarts them: a needs-repair
-/// verdict of anyone else, such as the crawler's own, neither counts nor hands the review back.
+/// The rounds count every agent actor's needs-repair verdicts, and only a human's event restarts
+/// them: a needs-repair verdict of anyone else, such as the crawler's own, neither counts nor hands
+/// the review back.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_count_every_agent_actors_rounds_since_the_latest_human_event() {
     let pool = get_postgres_client().await;
@@ -2274,9 +2274,9 @@ async fn should_count_every_agent_actors_rounds_since_the_latest_human_event() {
     .await;
     // A trail as stored, oldest first: each insert is its own transaction, so its time is later.
     for (actor, action) in [
-        ("AGENT", "REPAIR_REQUESTED"),
+        ("AGENT_REVIEWER", "REPAIR_REQUESTED"),
         ("HUMAN", "PAGE_ADDED"),
-        ("AGENT", "REPAIR_REQUESTED"),
+        ("AGENT_REVIEWER", "REPAIR_REQUESTED"),
         ("SYSTEM", "REPAIR_REQUESTED"),
         ("AGENT_AUTHOR", "SCHEMA_FIELD_EDITED"),
     ] {

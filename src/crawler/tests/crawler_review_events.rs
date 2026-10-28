@@ -790,18 +790,9 @@ async fn should_keep_the_trail_append_only_with_known_actors_and_actions() {
     ] {
         assert!(refused.is_err());
     }
-    // The single review agent's events from before the author and reviewer roles keep `AGENT`.
-    insert("AGENT", "CANDIDATE_EDITED").await.unwrap();
     assert_eq!(
         trail(&events(&repository, review_id).await),
-        vec![
-            (ReviewActor::AgentReviewer, ReviewEventAction::Rejected, 1),
-            (
-                ReviewActor::LegacyAgent,
-                ReviewEventAction::CandidateEdited,
-                1
-            ),
-        ]
+        vec![(ReviewActor::AgentReviewer, ReviewEventAction::Rejected, 1)]
     );
 
     // An event goes with its review, here with the ListingSource the review belongs to.

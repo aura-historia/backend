@@ -43,22 +43,18 @@ pub struct ReviewEventSummary {
 /// in `agent` authoring mode the author agent's generated token acts as `AgentAuthor` and the
 /// reviewer agent's as `AgentReviewer`; the review token, a browser session and the `dev` binary's
 /// local same-origin requests act as `Human`. `System` is the crawler itself, which approves an
-/// inferred URL pattern directly in `auto` authoring mode; no request acts as it. `LegacyAgent`,
-/// persisted as `AGENT`, is the single review agent that changed reviews before the author and
-/// reviewer roles existed: the event trail keeps it, and no request acts as it any more.
+/// inferred URL pattern directly in `auto` authoring mode; no request acts as it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewActor {
     Human,
-    LegacyAgent,
     AgentAuthor,
     AgentReviewer,
     System,
 }
 
 impl ReviewActor {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 4] = [
         Self::Human,
-        Self::LegacyAgent,
         Self::AgentAuthor,
         Self::AgentReviewer,
         Self::System,
@@ -66,13 +62,12 @@ impl ReviewActor {
 
     /// The actors that are review agents, whose decisions the approval guard, the hourly cap and
     /// the four-eyes rule govern.
-    pub const AGENTS: [Self; 3] = [Self::LegacyAgent, Self::AgentAuthor, Self::AgentReviewer];
+    pub const AGENTS: [Self; 2] = [Self::AgentAuthor, Self::AgentReviewer];
 
     /// The persisted and serialized name.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Human => "HUMAN",
-            Self::LegacyAgent => "AGENT",
             Self::AgentAuthor => "AGENT_AUTHOR",
             Self::AgentReviewer => "AGENT_REVIEWER",
             Self::System => "SYSTEM",
@@ -85,23 +80,20 @@ impl ReviewActor {
     }
 
     pub const fn is_agent(self) -> bool {
-        matches!(
-            self,
-            Self::LegacyAgent | Self::AgentAuthor | Self::AgentReviewer
-        )
+        matches!(self, Self::AgentAuthor | Self::AgentReviewer)
     }
 
     /// Whether the actor may change what a review approves: its candidate, schema fields,
     /// removed-page declarations and pages. The reviewer agent only judges what the author agent or
-    /// a human staged, and the retired single agent acts no more.
+    /// a human staged.
     pub const fn may_change_candidates(self) -> bool {
-        !matches!(self, Self::LegacyAgent | Self::AgentReviewer)
+        !matches!(self, Self::AgentReviewer)
     }
 
     /// Whether the actor may approve or reject a review. The author agent stages candidates for
-    /// the reviewer agent or a human to decide, and the retired single agent acts no more.
+    /// the reviewer agent or a human to decide.
     pub const fn may_decide(self) -> bool {
-        !matches!(self, Self::LegacyAgent | Self::AgentAuthor)
+        !matches!(self, Self::AgentAuthor)
     }
 
     /// Whether the actor may change a review that is no longer pending, such as the approved
@@ -211,7 +203,7 @@ mod tests {
                 Some(serde_json::Value::from(actor.as_str()))
             );
         }
-        for unknown in ["human", "Agent", "", "ROBOT", "AGENT_OBSERVER"] {
+        for unknown in ["human", "Agent", "AGENT", "", "ROBOT", "AGENT_OBSERVER"] {
             assert_eq!(ReviewActor::from_persisted(unknown), None, "{unknown}");
         }
     }
@@ -239,12 +231,11 @@ mod tests {
     }
 
     /// The author agent stages and the reviewer agent decides, so neither does the other's part;
-    /// the retired single agent does neither, and humans and the crawler both.
+    /// humans and the crawler do both.
     #[rstest::rstest]
     #[case::human(ReviewActor::Human, true, true)]
     #[case::author(ReviewActor::AgentAuthor, true, false)]
     #[case::reviewer(ReviewActor::AgentReviewer, false, true)]
-    #[case::retired_agent(ReviewActor::LegacyAgent, false, false)]
     #[case::system(ReviewActor::System, true, true)]
     fn should_split_staging_and_deciding_between_the_agent_roles(
         #[case] actor: ReviewActor,

@@ -567,7 +567,7 @@ function reviewEventSummary(event) {
 }
 
 function actorBadge(actor) {
-    const kind = {AGENT: 'agent', AGENT_AUTHOR: 'agent', AGENT_REVIEWER: 'agent', SYSTEM: 'system'}[actor] || 'human';
+    const kind = {AGENT_AUTHOR: 'agent', AGENT_REVIEWER: 'agent', SYSTEM: 'system'}[actor] || 'human';
     return `<span class="badge badge-actor-${kind}">${escapeHtml(displayName(actor))}</span>`;
 }
 
