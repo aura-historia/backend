@@ -1,6 +1,7 @@
-//! How `review-agent-runner` is started: whether this is the timer's run or a development run
+//! How `review-agent-runner` is started: whether it runs every interval until stopped or once
 //! (`--once`), and from its environment the review console, the CLI and `review-mcp` it starts, its
-//! state directory, each agent role's model, effort, turn and budget caps, and the run's limits.
+//! state directory, each agent role's model, effort, turn and budget caps, the run's limits and the
+//! interval between runs.
 //! An empty or whitespace-only setting counts as unset; any other value that is not accepted fails
 //! startup with the variable's name, so a mistyped limit never silently widens what the agents
 //! may spend.
@@ -22,6 +23,7 @@ pub const COOLDOWN_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MIN
 pub const PROCESS_TIMEOUT_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_PROCESS_TIMEOUT_MINUTES";
 pub const FIVE_HOUR_BUDGET_USD_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_BUDGET_USD";
 pub const WEEKLY_BUDGET_USD_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_BUDGET_USD";
+pub const INTERVAL_SECONDS_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS";
 
 /// The model both agents run on unless their role's setting names another.
 const DEFAULT_MODEL: &str = "claude-opus-5-5";
@@ -36,16 +38,17 @@ const DEFAULT_COOLDOWN_MINUTES: NonZeroU32 = NonZeroU32::new(180).unwrap();
 const DEFAULT_PROCESS_TIMEOUT_MINUTES: NonZeroU32 = NonZeroU32::new(60).unwrap();
 const DEFAULT_FIVE_HOUR_BUDGET_USD: f64 = 20.0;
 const DEFAULT_WEEKLY_BUDGET_USD: f64 = 100.0;
+const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(300).unwrap();
 /// The largest dollar amount a cap or soft budget accepts; anything larger is a typo.
 const MAX_USD: f64 = 10_000.0;
 
 /// What one start of the runner does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunMode {
-    /// The systemd timer's run: one author and one reviewer pass over the pending reviews, and the
-    /// daily digest once a day has passed since the last one.
-    Scheduled,
-    /// A development run (`--once`): the same pass, then a digest of the last day right away.
+    /// The service: a run every interval until it is stopped, each a pass over the pending reviews
+    /// and the daily digest once a day has passed since the last one.
+    Loop,
+    /// A manual run (`--once`): one pass, then a digest of the last day right away.
     Once,
 }
 
@@ -86,6 +89,8 @@ pub struct RunnerSettings {
     pub process_timeout: Duration,
     pub five_hour_budget_usd: f64,
     pub weekly_budget_usd: f64,
+    /// How long the service rests after a run ends before it starts the next; `--once` ignores it.
+    pub interval: Duration,
     /// How many URLs of each label the author agent sets on a URL-pattern review: the console's
     /// `CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS`, which the runner reads to say so in the prompt.
     pub min_labelled_urls: NonZeroU32,
@@ -203,6 +208,11 @@ impl RunnerSettings {
             weekly_budget_usd: read
                 .usd(WEEKLY_BUDGET_USD_ENV)?
                 .unwrap_or(DEFAULT_WEEKLY_BUDGET_USD),
+            interval: Duration::from_secs(u64::from(
+                read.positive(INTERVAL_SECONDS_ENV)?
+                    .unwrap_or(DEFAULT_INTERVAL_SECONDS)
+                    .get(),
+            )),
             min_labelled_urls: read
                 .positive(AGENT_MIN_LABELLED_URLS_ENV)?
                 .unwrap_or(DEFAULT_MIN_LABELLED_URLS),
@@ -293,10 +303,10 @@ fn invalid(name: String, value: String, expected: &'static str) -> RunnerSetting
 }
 
 fn mode_from_args(args: impl IntoIterator<Item = String>) -> Result<RunMode, RunnerSettingsError> {
-    let mut mode = RunMode::Scheduled;
+    let mut mode = RunMode::Loop;
     for arg in args {
         match arg.as_str() {
-            "--once" if mode == RunMode::Scheduled => mode = RunMode::Once,
+            "--once" if mode == RunMode::Loop => mode = RunMode::Once,
             "--once" => {
                 return Err(RunnerSettingsError::Usage(
                     "--once is given more than once".to_owned(),
@@ -411,10 +421,11 @@ mod tests {
     }
 
     #[test]
-    fn should_run_the_timer_s_pass_with_the_defaults_when_nothing_is_set() {
+    fn should_run_every_five_minutes_with_the_defaults_when_nothing_is_set() {
         let read = settings(&[], &[]).unwrap_or_else(|error| panic!("{error}"));
 
-        assert_eq!(read.mode, RunMode::Scheduled);
+        assert_eq!(read.mode, RunMode::Loop);
+        assert_eq!(read.interval, Duration::from_secs(300));
         assert_eq!(read.console.console_url.as_str(), "http://127.0.0.1:7878/");
         assert_eq!(
             read.console.token_file,
@@ -471,6 +482,7 @@ mod tests {
                 (PROCESS_TIMEOUT_MINUTES_ENV, "2"),
                 (FIVE_HOUR_BUDGET_USD_ENV, "7.5"),
                 (WEEKLY_BUDGET_USD_ENV, "40"),
+                (INTERVAL_SECONDS_ENV, "30"),
                 (AGENT_MIN_LABELLED_URLS_ENV, "4"),
             ],
         )
@@ -504,6 +516,7 @@ mod tests {
             (read.five_hour_budget_usd, read.weekly_budget_usd),
             (7.5, 40.0)
         );
+        assert_eq!(read.interval, Duration::from_secs(30));
         assert_eq!(read.min_labelled_urls.get(), 4);
     }
 
@@ -534,6 +547,7 @@ mod tests {
             ("CRAWLER_REVIEW_AGENT_REVIEWER_MAX_BUDGET_USD", "NaN"),
             (MAX_PROCESSES_ENV, "two"),
             (WEEKLY_BUDGET_USD_ENV, "1e9"),
+            (INTERVAL_SECONDS_ENV, "0"),
         ] {
             match settings(&[], &[(name, value)]) {
                 Err(RunnerSettingsError::Invalid { name: named, .. }) => assert_eq!(named, name),

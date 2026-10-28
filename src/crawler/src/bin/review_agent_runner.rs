@@ -1,19 +1,22 @@
-//! `review-agent-runner`: one pass of the review agents of `agent` authoring mode over the review
-//! console's pending reviews, each review worked by a fresh author and then a fresh reviewer
-//! `claude -p` process of the Claude Code CLI that is logged in on the machine.
+//! `review-agent-runner`: the review agents of `agent` authoring mode, working the review console's
+//! pending reviews in passes, each review by a fresh author and then a fresh reviewer `claude -p`
+//! process of the Claude Code CLI that is logged in on the machine.
 //!
 //! ```text
-//! review-agent-runner          # a run of the systemd timer: the pass, and the daily digest when due
-//! review-agent-runner --once   # a development run: the pass, then a digest of the last day
+//! review-agent-runner          # the service: a pass every interval until stopped, the daily digest when due
+//! review-agent-runner --once   # a manual run: one pass, then a digest of the last day
 //! ```
 //!
 //! Its settings are environment variables, listed with their defaults in
 //! `docs/crawler/operations.md#review-agent-runner`; it exits with 2 on a setting it does not
-//! accept and with 1 when it refuses to run or a pass fails. SIGTERM or SIGINT stops the run at
-//! once with its agent processes (exit code 143 or 130); the cooldowns and pauses it set are
-//! already written. The JSON log goes to stdout.
+//! accept. The service logs a failed pass and tries again after the interval; `--once` exits with
+//! 1 when it refuses to run or its pass fails. SIGTERM or SIGINT stops it at once with its agent
+//! processes (exit code 143 or 130); the cooldowns and pauses it set are already written. The JSON
+//! log goes to stdout.
 
-use crawler::review_agent_runner::{RunnerSettings, current_location, run};
+use crawler::review_agent_runner::{
+    RunMode, RunnerSettings, current_location, run, run_every_interval,
+};
 use std::process::ExitCode;
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
@@ -39,8 +42,17 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let work = async {
+        match settings.mode {
+            RunMode::Once => run(&settings).await.map(drop),
+            RunMode::Loop => {
+                run_every_interval(&settings).await;
+                Ok(())
+            }
+        }
+    };
     tokio::select! {
-        outcome = run(&settings) => match outcome {
+        outcome = work => match outcome {
             Ok(_) => ExitCode::SUCCESS,
             Err(run_error) => {
                 error!(

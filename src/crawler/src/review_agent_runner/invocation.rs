@@ -44,12 +44,13 @@ pub(super) const PASSED_ENV: [&str; 20] = [
     "NODE_EXTRA_CA_CERTS",
 ];
 
-/// The platform's own variables a CLI child cannot do without, passed like [`PASSED_ENV`]: on
-/// Windows the CLI's runtime makes no network request without `SystemRoot`.
+/// The platform's own variables a child cannot do without, passed like [`PASSED_ENV`]: on Windows
+/// no network request works without `SystemRoot`, and without `TEMP` and `TMP` the temporary
+/// directory falls back to the unwritable Windows directory.
 #[cfg(windows)]
-const PASSED_PLATFORM_ENV: &[&str] = &["SystemRoot"];
+pub(super) const PASSED_PLATFORM_ENV: &[&str] = &["SystemRoot", "TEMP", "TMP"];
 #[cfg(not(windows))]
-const PASSED_PLATFORM_ENV: &[&str] = &[];
+pub(super) const PASSED_PLATFORM_ENV: &[&str] = &[];
 
 /// Variables every CLI child is started with: no self-update and no non-essential traffic of a
 /// pinned CLI, no `CLAUDE.md` instructions and no auto memory from the host, and UTC, so a usage
@@ -384,15 +385,26 @@ mod tests {
     }
 
     #[test]
-    fn should_pass_system_root_only_on_windows() {
+    fn should_pass_the_windows_system_variables_only_on_windows() {
+        let windows = [
+            ("SystemRoot", r"C:\Windows"),
+            ("TEMP", r"C:\Users\dev\AppData\Local\Temp"),
+            ("TMP", r"C:\Users\dev\AppData\Local\Temp"),
+        ];
         let env = ChildEnvironment::from_env(|name| {
-            (name == "SystemRoot").then(|| r"C:\Windows".to_owned())
+            windows
+                .iter()
+                .find(|(windows_name, _)| *windows_name == name)
+                .map(|(_, value)| (*value).to_owned())
         });
 
-        assert_eq!(
-            env.vars().any(|var| var == ("SystemRoot", r"C:\Windows")),
-            cfg!(windows)
-        );
+        for var in windows {
+            assert_eq!(
+                env.vars().any(|passed| passed == var),
+                cfg!(windows),
+                "{var:?}"
+            );
+        }
     }
 
     #[test]

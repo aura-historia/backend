@@ -146,9 +146,11 @@ it to the user as a ticket or a separate decision.
 Verify review-agent behaviour (#2565) with `dev` in `CRAWLER_AUTHORING_MODE=agent`. It is opt-in:
 the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI setting.
 
-1. **Start.** Run `dev` as in step 4 with `CRAWLER_AUTHORING_MODE=agent` and without
+1. **Start.** Run `dev` as in step 4 with `CRAWLER_AUTHORING_MODE=agent`, without
    `CRAWLER_REVIEW_AUTH_TOKEN`, so the browser console at the `CRAWLER_REVIEW_BIND_ADDR` address
-   stays the human's tokenless loopback console. Keep the scheduler quiet as in step 3 unless the change is a
+   stays the human's tokenless loopback console, and with
+   `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER=false`: otherwise `dev` starts the review agent runner
+   as its child, whose agents spend the login's budget (step 5 starts it with a fake `claude`). Keep the scheduler quiet as in step 3 unless the change is a
    pipeline change.
 2. **Token file.** The start writes `review-agent-tokens.json` to the working directory (mode
    `0600`, `{"author": "...", "reviewer": "..."}`, git-ignored) and logs `Generated the review
@@ -189,7 +191,10 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
 5. **The runner with a fake `claude`.** Check the review agent runner
    (`docs/crawler/operations.md#review-agent-runner`) with `review-agent-runner --once` against
    this `dev`, never with the real CLI unless the task asks for the documented real run: it spends
-   the login's budget. Write a fake `claude` in the scratchpad, a shell script that answers
+   the login's budget. To check `dev`'s own runner child instead, start `dev` with
+   `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER` unset and `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN=<fake>`:
+   expect `Started the review agent runner as a child of dev`, a pass every 30 seconds in the same
+   log, and no runner process left after `dev` stops. Write a fake `claude` in the scratchpad, a shell script that answers
    `auth status --json` with `{"loggedIn": true, "authMethod": "claude.ai"}` and every other call
    with a canned result envelope per role (`--mcp-config` names `--role author` or `reviewer`; the
    prompt on stdin names the review id), and records each call's argv, stdin and environment.

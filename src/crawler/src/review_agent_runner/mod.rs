@@ -7,10 +7,12 @@
 //! console's role refusals and approval guard apply to everything the agents do. Everything
 //! specific to Claude Code lives here, outside the crawler's services.
 //!
-//! One run is one pass over the pending reviews, under a lock so one runner works at a time; a
-//! systemd timer starts the runs in production, `--once` starts one for development. The contract
-//! is in `docs/crawler/operations.md` (review agent runner).
+//! One run is one pass over the pending reviews, under a lock so one runner works at a time. The
+//! runner starts a run every interval until it is stopped, as a systemd service in production and
+//! as a child of `dev` in development; `--once` starts a single run by hand. The contract is in
+//! `docs/crawler/operations.md` (review agent runner).
 
+mod child;
 mod digest;
 mod envelope;
 mod invocation;
@@ -23,6 +25,7 @@ mod reports;
 mod settings;
 mod state;
 
+pub use child::{RunnerChild, runner_env, runner_executable_next_to};
 pub use pass::{PassStop, PassSummary};
 pub use settings::{
     AgentProcessSettings, RunMode, RunnerLocation, RunnerSettings, RunnerSettingsError,
@@ -41,7 +44,7 @@ use crate::review_mcp::{
 };
 use std::path::PathBuf;
 use time::{Duration, OffsetDateTime};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// The name `value` is serialized under, such as `LIMIT_REACHED`, for a log field or the digest;
 /// empty for none.
@@ -52,13 +55,13 @@ fn wire_name<T: serde::Serialize>(value: Option<T>) -> String {
         .unwrap_or_default()
 }
 
-/// How often the timer's runs write a digest.
+/// How often the service's runs write a digest.
 const DIGEST_INTERVAL: Duration = Duration::days(1);
 
-/// What one start of the runner did.
+/// What one run did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RunOutcome {
-    /// Another runner held the lock, so this start did nothing.
+    /// Another runner held the lock, so this run did nothing.
     Locked,
     Ran {
         summary: PassSummary,
@@ -89,9 +92,28 @@ pub enum RunnerError {
     Pass(#[from] PassError),
 }
 
+/// The service: a run, then `settings.interval` of rest after it ends, until the process is
+/// stopped. A run that fails is logged and the next one follows after the interval, so a console
+/// that is not up yet or an expired login never ends the service; a state or ledger it cannot read
+/// keeps failing each run, so nothing runs on a forgotten pause or budget. The lock is held only
+/// during a run, so a `--once` between two runs works.
+pub async fn run_every_interval(settings: &RunnerSettings) {
+    loop {
+        if let Err(run_error) = run(settings).await {
+            error!(
+                error = %run_error,
+                cause = ?std::error::Error::source(&run_error),
+                interval_seconds = settings.interval.as_secs(),
+                "Review agent run failed; the next run follows after the interval"
+            );
+        }
+        tokio::time::sleep(settings.interval).await;
+    }
+}
+
 /// One run: takes the lock, checks that the crawler is in `agent` mode and that the CLI is
 /// logged in with a Claude subscription, works the pending reviews, and writes the digest when it
-/// is due (a timer run) or right away (`--once`).
+/// is due (the service) or right away (`--once`).
 pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
     std::fs::create_dir_all(&settings.state_dir).map_err(|source| RunnerError::StateDirectory {
         path: settings.state_dir.clone(),
@@ -148,7 +170,7 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
     Ok(RunOutcome::Ran { summary, digest })
 }
 
-/// Writes the digest a run owes: a timer run once a day has passed since the last one, a `--once`
+/// Writes the digest a run owes: the service's once a day has passed since the last one, a `--once`
 /// run of the last day right away, with the reviews that wait for a human after this run's pass. A
 /// digest that cannot be written is logged and owed again.
 async fn write_digest(
@@ -160,7 +182,7 @@ async fn write_digest(
 ) -> Option<PathBuf> {
     let from = match settings.mode {
         RunMode::Once => now - DIGEST_INTERVAL,
-        RunMode::Scheduled => match state.last_digest {
+        RunMode::Loop => match state.last_digest {
             Some(last) if now - last < DIGEST_INTERVAL => return None,
             Some(last) => last.max(now - LEDGER_RETENTION),
             None => now - DIGEST_INTERVAL,
@@ -219,7 +241,7 @@ async fn write_digest(
                 reviews = digest.reviews.len(),
                 "Review agents digest"
             );
-            if settings.mode == RunMode::Scheduled {
+            if settings.mode == RunMode::Loop {
                 state.last_digest = Some(now);
             }
             Some(path)
@@ -912,7 +934,37 @@ echo "end $role $review" >> "$dir/order.log"
     }
 
     #[tokio::test]
-    async fn should_write_the_timer_s_digest_once_a_day() {
+    async fn should_run_again_after_the_interval_when_a_run_fails() {
+        let fixture = Fixture::new(vec![]).await;
+        let settings = fixture.settings(
+            &[],
+            &[("CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS", "1")],
+        );
+        let token_file = settings.console.token_file.clone();
+        let moved_away = token_file.with_extension("moved");
+        std::fs::rename(&token_file, &moved_away).unwrap_or_else(|e| panic!("{e}"));
+
+        let (service, ()) = tokio::join!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(2500),
+                run_every_interval(&settings)
+            ),
+            async {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                std::fs::rename(&moved_away, &token_file).unwrap_or_else(|e| panic!("{e}"));
+            }
+        );
+
+        assert!(service.is_err(), "the service ended");
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            state.last_digest.is_some(),
+            "the run after the failed one worked and wrote the daily digest"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_write_the_service_s_digest_once_a_day() {
         let fixture = Fixture::new(vec![]).await;
         let settings = fixture.settings(&[], &[]);
 
