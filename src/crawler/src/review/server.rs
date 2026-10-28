@@ -14,7 +14,7 @@ use crate::review::model::{
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
-use crate::review::schema_evaluation::evaluate_cross_page_findings;
+use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
@@ -1136,7 +1136,7 @@ fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
 /// or `None` when it holds none, or one that no longer decodes, so the caller refreshes it from
 /// the live pages.
 fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
-    let mut matrix = SchemaMatrix::stored_in(&detail.review.validation_summary)?
+    stored_schema_matrix(&detail.review.validation_summary)?
         .inspect_err(|err| {
             warn!(
                 review_id = %detail.review.review_id,
@@ -1144,9 +1144,7 @@ fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
                 "Cached schema matrix is invalid; refreshing from live pages"
             );
         })
-        .ok()?;
-    evaluate_cross_page_findings(&mut matrix);
-    Some(matrix)
+        .ok()
 }
 
 fn matrix_refresh_deadline(page_count: usize) -> Duration {

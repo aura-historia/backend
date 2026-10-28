@@ -136,12 +136,28 @@ fn evaluate_matrix(
     matrix
 }
 
+/// The schema matrix a review's `validation_summary` stores, with the cross-page findings of
+/// this crawler's checks: `None` when it stores none, or the decoding error of one that no longer
+/// decodes, such as a matrix stored before a later per-page check. Every reader of a stored
+/// matrix, the console, the approval guard and the review tools, reads it through this, so a
+/// cross-page check added after the matrix was stored applies to it everywhere alike.
+pub(crate) fn stored_schema_matrix(
+    validation_summary: &serde_json::Value,
+) -> Option<Result<SchemaMatrix, serde_json::Error>> {
+    Some(
+        SchemaMatrix::stored_in(validation_summary)?.map(|mut matrix| {
+            evaluate_cross_page_findings(&mut matrix);
+            matrix
+        }),
+    )
+}
+
 /// Sets every candidate's cross-page findings from its extractions of the review pages,
 /// replacing the ones a cached matrix was stored with. They depend on the extractions
 /// alone, so a cached matrix is read through this and shows every cross-page check of
 /// this crawler, including one added after it was cached, without fetching the pages
 /// again.
-pub(crate) fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
+fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
     for candidate in &mut matrix.candidates {
         add_cross_page_findings(&mut candidate.pages);
     }
@@ -1901,7 +1917,8 @@ mod tests {
             }
         }
 
-        /// The review console reads a matrix cached before a later cross-page check.
+        /// The console, the approval guard and the review tools read a matrix cached before a
+        /// later cross-page check.
         mod cached_matrix {
             use super::*;
 
@@ -1926,10 +1943,10 @@ mod tests {
                     "values": ["Product chair"]
                 }]);
                 cached["candidates"][0]["pages"][1]["cross_page_findings"] = serde_json::json!([]);
-                let mut matrix = serde_json::from_value::<SchemaMatrix>(cached)
-                    .unwrap_or_else(|error| panic!("a cached matrix must load: {error}"));
 
-                evaluate_cross_page_findings(&mut matrix);
+                let matrix = stored_schema_matrix(&serde_json::json!({ "schema_matrix": cached }))
+                    .unwrap_or_else(|| panic!("the review stores a matrix"))
+                    .unwrap_or_else(|error| panic!("a cached matrix must load: {error}"));
 
                 assert_eq!(
                     cross_page_findings_of(&matrix, 0),

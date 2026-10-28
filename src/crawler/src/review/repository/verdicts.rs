@@ -23,6 +23,7 @@ use crate::review::approval_guard::{
 };
 use crate::review::model::*;
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
+use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
@@ -114,8 +115,7 @@ impl CrawlerReviewRepository {
             ARTIFACT_PRODUCT_SCHEMA => {
                 let going_live = lock_product_schemas_going_live(&mut transaction, &review).await?;
                 let pages = fetch_review_pages(&mut *transaction, review_id).await?;
-                let matrix =
-                    SchemaMatrix::stored_in(&review.validation_summary).and_then(Result::ok);
+                let matrix = stored_schema_matrix(&review.validation_summary).and_then(Result::ok);
                 if guarded {
                     guard_agent_product_schema_approval(
                         review_id,

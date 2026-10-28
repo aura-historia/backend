@@ -10,8 +10,9 @@ use super::bounds::{keep_first, keep_last, truncated_text};
 use super::wire;
 use crate::review::model::{
     CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, RepairRequest, ReviewSchemaMatrix,
-    SampleLabels, SampleUrlLabel, SchemaMatrix, UrlPatternDecision, UrlPatternReviewCandidate,
+    SampleLabels, SampleUrlLabel, UrlPatternDecision, UrlPatternReviewCandidate,
 };
+use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use schemars::JsonSchema;
@@ -348,7 +349,7 @@ impl ReviewView {
 /// The matrix the review stores, with the pages it did not evaluate as the matrix API answers
 /// them; `None` without one or with one that no longer decodes, which the console refreshes.
 fn stored_matrix(review: &CrawlerReview, pages: &[CrawlerReviewPage]) -> Option<MatrixView> {
-    let matrix = SchemaMatrix::stored_in(&review.validation_summary)?.ok()?;
+    let matrix = stored_schema_matrix(&review.validation_summary)?.ok()?;
     let ReviewSchemaMatrix {
         matrix,
         not_evaluated_pages,
