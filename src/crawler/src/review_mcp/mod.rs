@@ -20,7 +20,7 @@ pub use console::{ConsoleClient, ConsoleClientError};
 pub use server::ReviewMcpServer;
 pub use settings::{
     AgentRole, DEFAULT_REVIEW_CONSOLE_URL, REVIEW_AGENT_TOKEN_FILE_ENV, REVIEW_CONSOLE_URL_ENV,
-    ReviewMcpSettings, ReviewMcpSettingsError,
+    ReviewConsoleAccess, ReviewMcpSettings, ReviewMcpSettingsError,
 };
 pub use token_file::{RoleTokenFile, TokenFileError};
 pub use tools::{Polling, ToolContext, ToolSchemaError, tools_for};
