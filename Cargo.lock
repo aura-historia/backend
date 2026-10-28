@@ -2176,6 +2176,7 @@ dependencies = [
  "public-network-policy",
  "regex",
  "reqwest 0.12.28",
+ "rmcp",
  "rstest",
  "rustls 0.23.46",
  "rustls-platform-verifier",
