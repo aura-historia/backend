@@ -67,6 +67,10 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   and commits terminal progress with any canonical change. Invalid candidate data
   may be terminally rejected; dependency/configuration failures leave work pending.
   Capped or unfinished drains are not complete. There is no scheduled raw-backlog reconciler.
+- Normalized withdrawals may supply a validated `sourceListingId`. The service resolves
+  the listing by source and product identity in the canonical write transaction, checking
+  any existing stream binding. Without an explicit identity, a withdrawal uses that binding.
+  Unknown products complete without creating a listing; ordering fences remain effective.
 - Optional [crawler shipping assertions](../shipping.md#deterministic-crawler-item-assertions)
   apply through the existing delivery use case after catalog normalization commits.
   Their failures do not undo terminal raw progress. Existing shipping change and validity
@@ -84,6 +88,44 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   complete as stale and a timestamp-free upsert is rejected. The barrier compares provider
   and database clocks: provider skew can delay a restore until the next edit, or let an
   update older than the delete by less than the skew restore the listing.
+
+### Shopify channel observations
+
+Catalog intake accepts `product_listings/add`, `product_listings/update` and
+`product_listings/remove`, scoped to the subscribing app's sales channel. Add/update
+snapshots use `product_listing.product_id`, without product `status`; stock exhaustion
+updates availability and does not withdraw the listing. Remove requires only that exact
+positive unsigned 64-bit product identity. The mapper preserves it exactly and emits a
+validated decimal `sourceListingId` in raw values for both upsert and delete. Source
+identity always includes the `ListingSourceId`.
+A first remove resolves an initially imported listing through the service's source/product lookup;
+unknown products retain their ordering fence without creating a canonical listing.
+
+`SHOPIFY_PRODUCT` payload schema 1 retains the nested listing snapshot, stripping
+`body_html` inside `product_listing` (and at the outer level). Raw values use schema 1.
+Unsupported schemas fail closed. Broad `products/*` topics are acknowledged
+without forwarding, including queue redrives.
+
+`X-Shopify-Triggered-At` continues to supply webhook source-time ordering independently
+of product `updated_at`, using the existing provider ordering and deletion-barrier rules
+above. Provider receipt and command deduplication remain unchanged.
+
+Initial/manual/recovery imports use the existing canonical asynchronous upsert and
+withdrawal endpoints. The app owns publication reads: imports upsert published products
+and withdraw only drafts, archived products and unpublished products present in the
+export, each by its own ID, never by absence. An empty export submits no withdrawals.
+Missing access/publication and failed or partial reads are recoverable errors.
+
+Bulk writes and webhooks have no shared ordering guarantee. An older import can restore
+a product removed by a later webhook; an older withdrawal can remove a product republished
+later. This overlap is an accepted limitation, and importing again is the recovery path.
+Existing idempotency keys prevent duplicate command application; they do not establish
+publication chronology.
+
+App companion [#370](https://github.com/aura-historia/shopify-app/issues/370) owns
+publication filtering, subscription/scope changes and imports through the existing API.
+Deployment order is in the
+[worker runbook](../durable-worker-runbook.md#shopify-channel-deployment).
 
 ## Geography dependency invalidation
 

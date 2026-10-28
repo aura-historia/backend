@@ -137,10 +137,12 @@ pub struct ProductListingRawValuesResolved {
 pub enum ProductListingRawValuesNormalizationOutcome {
     Resolved(Box<ProductListingRawValuesResolved>),
     Invalid(ProductListingRawValuesNormalizationError),
-    Delete,
+    Delete {
+        source_listing_id: Option<SourceListingId>,
+    },
 }
 
-/// Typed reason why an UPSERT raw-values input could not normalize.
+/// Typed reason why a raw-values input could not normalize.
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingRawValuesNormalizationError {
     #[error("raw values schema version is unsupported")]
@@ -254,8 +256,8 @@ pub struct ProductListingRawValuesEvaluation {
 
 /// Pure raw-values normalizer for the current schema.
 ///
-/// DELETE inputs deliberately bypass raw-values decoding and field normalization. Their source
-/// record identity belongs to the capture input, not an UPSERT field projection.
+/// DELETE inputs decode only an optional canonical identity and bypass UPSERT field normalization.
+/// Without an explicit identity, deletion targets the stream's existing canonical binding.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ProductListingRawValuesNormalizer;
 
@@ -278,10 +280,23 @@ impl ProductListingRawValuesNormalizer {
     ) -> ProductListingRawValuesEvaluation {
         let mut report = NormalizationReport::new();
         if input.operation() == RawProductListingOperation::Delete {
-            return ProductListingRawValuesEvaluation {
-                outcome: ProductListingRawValuesNormalizationOutcome::Delete,
-                report,
+            let outcome = match input
+                .raw_values()
+                .value()
+                .get("sourceListingId")
+                .map(|value| serde_json::from_value::<SourceListingId>(value.clone()))
+                .transpose()
+            {
+                Ok(source_listing_id) => {
+                    ProductListingRawValuesNormalizationOutcome::Delete { source_listing_id }
+                }
+                Err(source) => {
+                    let error = ProductListingRawValuesNormalizationError::InvalidRawValues(source);
+                    report.push(error.issue(NormalizationField::SourceListingId));
+                    ProductListingRawValuesNormalizationOutcome::Invalid(error)
+                }
             };
+            return ProductListingRawValuesEvaluation { outcome, report };
         }
 
         let outcome = match self.normalize_upsert(input, &mut report) {
@@ -724,6 +739,61 @@ mod tests {
         RawProductListingValues, SourcePayload,
     };
     use serde_json::json;
+
+    fn delete_input(raw_values: serde_json::Value) -> ProductListingNormalizationInput {
+        ProductListingNormalizationInput::new(
+            RawProductListingOperation::Delete,
+            RawProductListingPayloadFormat::WoocommerceProduct,
+            1,
+            PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
+            SourcePayload::new(json!({})).unwrap(),
+            RawProductListingValues::new(raw_values).unwrap(),
+            NormalizationContext::new(json!({"baseUrl": false})).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn should_validate_delete_identity_without_normalizing_unrelated_fields() {
+        let evaluation = ProductListingRawValuesNormalizer::new().evaluate(&delete_input(json!({
+            "sourceListingId": "  source-123  ",
+            "price": false,
+            "images": "invalid"
+        })));
+
+        assert!(matches!(
+            evaluation.outcome,
+            ProductListingRawValuesNormalizationOutcome::Delete { source_listing_id: Some(id) }
+                if id.as_ref() == "source-123"
+        ));
+        assert!(evaluation.report.into_issues().is_empty());
+    }
+
+    #[test]
+    fn should_leave_delete_identity_unasserted_when_not_provided() {
+        assert!(matches!(
+            ProductListingRawValuesNormalizer::new().normalize(&delete_input(json!({}))),
+            ProductListingRawValuesNormalizationOutcome::Delete {
+                source_listing_id: None
+            }
+        ));
+    }
+
+    #[test]
+    fn should_reject_invalid_delete_identity_instead_of_using_a_stream_binding() {
+        for identity in [json!(null), json!(42), json!(" "), json!("x".repeat(513))] {
+            let evaluation = ProductListingRawValuesNormalizer::new()
+                .evaluate(&delete_input(json!({"sourceListingId": identity})));
+
+            assert!(matches!(
+                evaluation.outcome,
+                ProductListingRawValuesNormalizationOutcome::Invalid(
+                    ProductListingRawValuesNormalizationError::InvalidRawValues(_)
+                )
+            ));
+            assert_eq!(1, evaluation.report.into_issues().len());
+        }
+    }
 
     fn input(raw_values: serde_json::Value) -> ProductListingNormalizationInput {
         ProductListingNormalizationInput::new(

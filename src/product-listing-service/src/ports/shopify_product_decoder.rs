@@ -5,9 +5,9 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShopifyProductEventKind {
-    Create,
+    Add,
     Update,
-    Delete,
+    Remove,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -16,6 +16,9 @@ use application::patch_field::PatchField;
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
 use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
+use product_listing_core::{
+    product_listing_id::ProductListingKey, source_listing_id::SourceListingId,
+};
 use product_listing_normalization::error::NormalizationFailureScope;
 use product_listing_normalization::shipping::ShippingQuickCheck;
 use product_listing_normalization::{
@@ -453,6 +456,27 @@ where
         shipping_observation: &mut Option<CrawlerShippingObservation>,
     ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
     {
+        let observed_source_listing_id = match normalized {
+            ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => {
+                Some(&resolved.source_listing_id)
+            }
+            ProductListingRawValuesNormalizationOutcome::Delete { source_listing_id } => {
+                source_listing_id.as_ref()
+            }
+            ProductListingRawValuesNormalizationOutcome::Invalid(_) => None,
+        };
+        if let (Some(bound), Some(observed)) = (&head.source_listing_id, observed_source_listing_id)
+            && bound != observed
+        {
+            return Ok(completion(
+                &head,
+                &revision,
+                ProductListingRawNormalizationOutcome::Rejected,
+                None,
+                None,
+                Some(SOURCE_LISTING_ID_MISMATCH),
+            ));
+        }
         match normalized {
             ProductListingRawValuesNormalizationOutcome::Invalid(error) => Ok(completion(
                 &head,
@@ -462,129 +486,148 @@ where
                 None,
                 Some(normalization_error_code(error)),
             )),
-            ProductListingRawValuesNormalizationOutcome::Delete => {
-                let Some(product_listing_id) = head.product_listing_id else {
-                    return Ok(completion(
-                        &head,
-                        &revision,
-                        ProductListingRawNormalizationOutcome::Ignored,
-                        None,
-                        None,
-                        None,
-                    ));
-                };
-                let write = match CanonicalProductListingWriter::withdraw_in_transaction(
-                    tx,
-                    &self.products,
-                    &self.events,
-                    product_listing_id,
-                )
-                .await
-                {
-                    Ok(write) => write,
-                    Err(CanonicalProductListingWriteError::InvalidInput { .. }) => {
-                        return Ok(completion(
-                            &head,
-                            &revision,
-                            ProductListingRawNormalizationOutcome::Rejected,
-                            None,
-                            None,
-                            Some(CANONICAL_PRODUCT_LISTING_INVALID),
-                        ));
-                    }
-                    Err(source) => {
-                        return Err(
-                            NormalizeProductListingRawRevisionError::CanonicalWriteFailed {
-                                source,
-                            },
-                        );
-                    }
-                };
-                Ok(completion(
-                    &head,
-                    &revision,
-                    if write.outcome == ChangeOutcome::Changed {
-                        ProductListingRawNormalizationOutcome::Applied
-                    } else {
-                        ProductListingRawNormalizationOutcome::NoChange
-                    },
-                    Some(write.product_listing_id),
-                    write.product_listing_event_id,
-                    None,
-                ))
+            ProductListingRawValuesNormalizationOutcome::Delete { source_listing_id } => {
+                self.complete_delete(tx, &head, &revision, source_listing_id.as_ref())
+                    .await
             }
             ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => {
-                if let Some(bound_source_listing_id) = &head.source_listing_id
-                    && bound_source_listing_id != &resolved.source_listing_id
-                {
-                    return Ok(completion(
-                        &head,
-                        &revision,
-                        ProductListingRawNormalizationOutcome::Rejected,
-                        None,
-                        None,
-                        Some(SOURCE_LISTING_ID_MISMATCH),
-                    ));
-                }
-                let command = canonical_upsert(head.listing_source_id, resolved.as_ref());
-                let write = match CanonicalProductListingWriter::upsert_non_auction_in_transaction(
-                    tx,
-                    &self.products,
-                    &self.events,
-                    head.product_listing_id,
-                    command,
-                )
-                .await
-                {
-                    Ok(write) => write,
-                    Err(CanonicalProductListingWriteError::InvalidInput { .. }) => {
-                        return Ok(completion(
-                            &head,
-                            &revision,
-                            ProductListingRawNormalizationOutcome::Rejected,
-                            None,
-                            None,
-                            Some(CANONICAL_PRODUCT_LISTING_INVALID),
-                        ));
-                    }
-                    Err(source) => {
-                        return Err(
-                            NormalizeProductListingRawRevisionError::CanonicalWriteFailed {
-                                source,
-                            },
-                        );
-                    }
-                };
-                let mut completion = completion(
-                    &head,
-                    &revision,
-                    if write.outcome == ChangeOutcome::Changed {
-                        ProductListingRawNormalizationOutcome::Applied
-                    } else {
-                        ProductListingRawNormalizationOutcome::NoChange
-                    },
-                    Some(write.product_listing_id),
-                    write.product_listing_event_id,
-                    None,
-                );
-                completion.next_product_listing_id = Some(write.product_listing_id);
-                completion.next_source_listing_id = Some(resolved.source_listing_id.clone());
-                if let ShippingQuickCheck::Resolved(assertions) = &resolved.shipping {
-                    *shipping_observation = Some(CrawlerShippingObservation {
-                        raw_revision_id: revision.product_listing_raw_revision_id,
-                        product_key:
-                            product_listing_core::product_listing_id::ProductListingKey::new(
-                                head.listing_source_id,
-                                resolved.source_listing_id.clone(),
-                            ),
-                        expected_version: write.version,
-                        acquired_at: revision.acquired_at,
-                        assertions: assertions.clone(),
-                    });
-                }
-                Ok(completion)
+                self.complete_upsert(tx, &head, &revision, resolved, shipping_observation)
+                    .await
             }
         }
+    }
+
+    async fn complete_upsert(
+        &self,
+        tx: &mut U::Tx,
+        head: &ProductListingRawNormalizationHead,
+        revision: &crate::ports::ProductListingRawRevision,
+        resolved: &ProductListingRawValuesResolved,
+        shipping_observation: &mut Option<CrawlerShippingObservation>,
+    ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
+    {
+        let command = canonical_upsert(head.listing_source_id, resolved);
+        let write = match CanonicalProductListingWriter::upsert_non_auction_in_transaction(
+            tx,
+            &self.products,
+            &self.events,
+            head.product_listing_id,
+            command,
+        )
+        .await
+        {
+            Ok(write) => write,
+            Err(CanonicalProductListingWriteError::InvalidInput { .. }) => {
+                return Ok(completion(
+                    head,
+                    revision,
+                    ProductListingRawNormalizationOutcome::Rejected,
+                    None,
+                    None,
+                    Some(CANONICAL_PRODUCT_LISTING_INVALID),
+                ));
+            }
+            Err(source) => {
+                return Err(
+                    NormalizeProductListingRawRevisionError::CanonicalWriteFailed { source },
+                );
+            }
+        };
+        let mut completion = completion(
+            head,
+            revision,
+            if write.outcome == ChangeOutcome::Changed {
+                ProductListingRawNormalizationOutcome::Applied
+            } else {
+                ProductListingRawNormalizationOutcome::NoChange
+            },
+            Some(write.product_listing_id),
+            write.product_listing_event_id,
+            None,
+        );
+        completion.next_product_listing_id = Some(write.product_listing_id);
+        completion.next_source_listing_id = Some(resolved.source_listing_id.clone());
+        if let ShippingQuickCheck::Resolved(assertions) = &resolved.shipping {
+            *shipping_observation = Some(CrawlerShippingObservation {
+                raw_revision_id: revision.product_listing_raw_revision_id,
+                product_key: ProductListingKey::new(
+                    head.listing_source_id,
+                    resolved.source_listing_id.clone(),
+                ),
+                expected_version: write.version,
+                acquired_at: revision.acquired_at,
+                assertions: assertions.clone(),
+            });
+        }
+        Ok(completion)
+    }
+
+    async fn complete_delete(
+        &self,
+        tx: &mut U::Tx,
+        head: &ProductListingRawNormalizationHead,
+        revision: &crate::ports::ProductListingRawRevision,
+        source_listing_id: Option<&SourceListingId>,
+    ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
+    {
+        let ignored = || {
+            completion(
+                head,
+                revision,
+                ProductListingRawNormalizationOutcome::Ignored,
+                None,
+                None,
+                None,
+            )
+        };
+        let Some(source_listing_id) = source_listing_id.or(head.source_listing_id.as_ref()) else {
+            return Ok(ignored());
+        };
+        let key = ProductListingKey::new(head.listing_source_id, source_listing_id.clone());
+        let write = match CanonicalProductListingWriter::withdraw_in_transaction(
+            tx,
+            &self.products,
+            &self.events,
+            head.product_listing_id,
+            &key,
+        )
+        .await
+        {
+            Ok(write) => write,
+            Err(CanonicalProductListingWriteError::InvalidInput { .. }) => {
+                return Ok(completion(
+                    head,
+                    revision,
+                    ProductListingRawNormalizationOutcome::Rejected,
+                    None,
+                    None,
+                    Some(CANONICAL_PRODUCT_LISTING_INVALID),
+                ));
+            }
+            Err(source) => {
+                return Err(
+                    NormalizeProductListingRawRevisionError::CanonicalWriteFailed { source },
+                );
+            }
+        };
+        let Some(write) = write else {
+            return Ok(ignored());
+        };
+        let mut completion = completion(
+            head,
+            revision,
+            if write.outcome == ChangeOutcome::Changed {
+                ProductListingRawNormalizationOutcome::Applied
+            } else {
+                ProductListingRawNormalizationOutcome::NoChange
+            },
+            Some(write.product_listing_id),
+            write.product_listing_event_id,
+            None,
+        );
+        completion.next_product_listing_id = Some(write.product_listing_id);
+        completion.next_source_listing_id = Some(source_listing_id.clone());
+        Ok(completion)
     }
 }
 
@@ -1228,6 +1271,9 @@ mod tests {
         commits: usize,
         rollbacks: usize,
         existing_product: Option<VersionedProductListing>,
+        key_lookups: Vec<ProductListingKey>,
+        id_lookups: Vec<ProductListingId>,
+        key_lookup_error: Option<ProductListingRepositoryError>,
         updated_products: Vec<ProductListing>,
         update_results: VecDeque<Result<(), ProductListingRepositoryError>>,
         diagnostic_cases: Vec<NormalizationDiagnosticCase>,
@@ -1330,14 +1376,20 @@ mod tests {
         }
     }
 
-    fn delete_input() -> Result<ProductListingNormalizationInput, NormalizationInputError> {
+    fn delete_input(
+        source_listing_id: Option<&str>,
+    ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
+        let raw_values = source_listing_id.map_or_else(
+            || serde_json::json!({}),
+            |id| serde_json::json!({"sourceListingId": id}),
+        );
         ProductListingNormalizationInput::new(
             RawProductListingOperation::Delete,
             RawProductListingPayloadFormat::CrawlerExtractedProduct,
             1,
             PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION,
             SourcePayload::new(serde_json::json!({}))?,
-            RawProductListingValues::new(serde_json::json!({}))?,
+            RawProductListingValues::new(raw_values)?,
             NormalizationContext::new(serde_json::json!({}))?,
         )
     }
@@ -1566,7 +1618,9 @@ mod tests {
             &mut self,
             product_listing_id: ProductListingId,
         ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
-            Ok(lock(&self.0)
+            let mut state = lock(&self.0);
+            state.id_lookups.push(product_listing_id);
+            Ok(state
                 .existing_product
                 .as_ref()
                 .filter(|product| product.value.id() == product_listing_id)
@@ -1585,7 +1639,12 @@ mod tests {
             &mut self,
             key: &ProductListingKey,
         ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
-            Ok(lock(&self.0)
+            let mut state = lock(&self.0);
+            state.key_lookups.push(key.clone());
+            if let Some(error) = state.key_lookup_error.take() {
+                return Err(error);
+            }
+            Ok(state
                 .existing_product
                 .as_ref()
                 .filter(|product| {
@@ -1652,7 +1711,7 @@ mod tests {
         let state = Arc::new(Mutex::new(TestState::default()));
         lock(&state).streams.push(TestStream {
             head: raw_head(stream_id, listing_source_id, None, None),
-            revisions: VecDeque::from([rejected, revision(stream_id, 2, delete_input()?)]),
+            revisions: VecDeque::from([rejected, revision(stream_id, 2, delete_input(None)?)]),
         });
 
         let result = handler(&state)
@@ -1698,7 +1757,7 @@ mod tests {
         let stream_id = ProductListingRawStreamId::new();
         let mut revisions = VecDeque::new();
         for revision_number in 1..=3 {
-            revisions.push_back(revision(stream_id, revision_number, delete_input()?));
+            revisions.push_back(revision(stream_id, revision_number, delete_input(None)?));
         }
         let state = Arc::new(Mutex::new(TestState::default()));
         lock(&state).streams.push(TestStream {
@@ -1761,7 +1820,7 @@ mod tests {
             healthy_revisions.push_back(revision(
                 healthy_stream_id,
                 revision_number,
-                delete_input()?,
+                delete_input(None)?,
             ));
         }
         let state = Arc::new(Mutex::new(TestState::default()));
@@ -1857,6 +1916,220 @@ mod tests {
         assert_eq!(None, state.pending_requests[0].cursor);
         assert_eq!(3, state.completions.len());
         assert_eq!(3, state.commits);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_withdraw_by_source_identity_without_a_stream_binding()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let stream_id = ProductListingRawStreamId::new();
+        let source_id = ListingSourceId::new();
+        let listing_id = ProductListingId::new();
+        let source_listing_id = SourceListingId::try_from("source-123")?;
+        let (listing, _) = existing_listing(listing_id, source_id, source_listing_id.clone())?;
+        let state = Arc::new(Mutex::new(TestState {
+            existing_product: Some(Versioned::new(
+                listing,
+                ProductListingStorageVersion::INITIAL,
+            )),
+            streams: vec![TestStream {
+                head: raw_head(stream_id, source_id, None, None),
+                revisions: VecDeque::from([revision(
+                    stream_id,
+                    1,
+                    delete_input(Some("source-123"))?,
+                )]),
+            }],
+            ..Default::default()
+        }));
+
+        handler(&state)
+            .execute(NormalizeProductListingRawRevisionCommand {
+                mode: NormalizeProductListingRawRevisionMode::ReconcileContinuation {
+                    product_listing_raw_stream_id: stream_id,
+                },
+                max_revisions_per_stream: 1,
+                pending_stream_limit: 1,
+            })
+            .await?;
+
+        let state = lock(&state);
+        assert_eq!(
+            vec![ProductListingKey::new(source_id, source_listing_id.clone())],
+            state.key_lookups
+        );
+        assert!(state.id_lookups.is_empty());
+        assert_eq!(
+            ListingLifecycle::Withdrawn,
+            state.updated_products[0].lifecycle()
+        );
+        let completed = &state.completions[0];
+        assert_eq!(
+            ProductListingRawNormalizationOutcome::Applied,
+            completed.outcome
+        );
+        assert_eq!(Some(listing_id), completed.next_product_listing_id);
+        assert_eq!(Some(source_listing_id), completed.next_source_listing_id);
+        assert_eq!(1, state.commits);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_ignore_identified_delete_when_listing_belongs_to_another_source()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let stream_id = ProductListingRawStreamId::new();
+        let (listing, _) = existing_listing(
+            ProductListingId::new(),
+            ListingSourceId::new(),
+            "source-123".try_into()?,
+        )?;
+        let state = Arc::new(Mutex::new(TestState {
+            existing_product: Some(Versioned::new(
+                listing,
+                ProductListingStorageVersion::INITIAL,
+            )),
+            streams: vec![TestStream {
+                head: raw_head(stream_id, ListingSourceId::new(), None, None),
+                revisions: VecDeque::from([revision(
+                    stream_id,
+                    1,
+                    delete_input(Some("source-123"))?,
+                )]),
+            }],
+            ..Default::default()
+        }));
+
+        handler(&state)
+            .execute(NormalizeProductListingRawRevisionCommand {
+                mode: NormalizeProductListingRawRevisionMode::ReconcileContinuation {
+                    product_listing_raw_stream_id: stream_id,
+                },
+                max_revisions_per_stream: 1,
+                pending_stream_limit: 1,
+            })
+            .await?;
+
+        let state = lock(&state);
+        assert!(state.updated_products.is_empty());
+        assert_eq!(
+            ProductListingRawNormalizationOutcome::Ignored,
+            state.completions[0].outcome
+        );
+        assert_eq!(None, state.completions[0].next_product_listing_id);
+        assert_eq!(None, state.completions[0].next_source_listing_id);
+        assert!(state.streams[0].revisions.is_empty());
+        assert_eq!(1, state.commits);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_delete_identity_that_differs_from_the_stream_binding()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let stream_id = ProductListingRawStreamId::new();
+        let source_listing_id = SourceListingId::try_from("bound-identity")?;
+        let listing_id = ProductListingId::new();
+        let state = Arc::new(Mutex::new(TestState {
+            streams: vec![TestStream {
+                head: raw_head(
+                    stream_id,
+                    ListingSourceId::new(),
+                    Some(listing_id),
+                    Some(source_listing_id.clone()),
+                ),
+                revisions: VecDeque::from([revision(
+                    stream_id,
+                    1,
+                    delete_input(Some("different-identity"))?,
+                )]),
+            }],
+            ..Default::default()
+        }));
+
+        handler(&state)
+            .execute(NormalizeProductListingRawRevisionCommand {
+                mode: NormalizeProductListingRawRevisionMode::ReconcileContinuation {
+                    product_listing_raw_stream_id: stream_id,
+                },
+                max_revisions_per_stream: 1,
+                pending_stream_limit: 1,
+            })
+            .await?;
+
+        let state = lock(&state);
+        assert!(state.key_lookups.is_empty());
+        assert!(state.id_lookups.is_empty());
+        assert_eq!(
+            ProductListingRawNormalizationOutcome::Rejected,
+            state.completions[0].outcome
+        );
+        assert_eq!(
+            Some(SOURCE_LISTING_ID_MISMATCH),
+            state.completions[0].error_code
+        );
+        assert_eq!(
+            Some(listing_id),
+            state.completions[0].next_product_listing_id
+        );
+        assert_eq!(
+            Some(source_listing_id),
+            state.completions[0].next_source_listing_id
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_leave_delete_pending_when_identity_lookup_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let stream_id = ProductListingRawStreamId::new();
+        let pending = revision(stream_id, 1, delete_input(Some("source-123"))?);
+        let revision_id = pending.product_listing_raw_revision_id;
+        let state = Arc::new(Mutex::new(TestState {
+            key_lookup_error: Some(
+                ProductListingRepositoryError::ProductListingLookupByKeyFailed {
+                    source: application::error::box_error(std::io::Error::other(
+                        "identity lookup failed",
+                    )),
+                },
+            ),
+            streams: vec![TestStream {
+                head: raw_head(stream_id, ListingSourceId::new(), None, None),
+                revisions: VecDeque::from([pending]),
+            }],
+            ..Default::default()
+        }));
+
+        let result = handler(&state)
+            .execute(NormalizeProductListingRawRevisionCommand {
+                mode: NormalizeProductListingRawRevisionMode::RawRevision {
+                    product_listing_raw_stream_id: stream_id,
+                    product_listing_raw_revision_id: revision_id,
+                    revision: 1,
+                },
+                max_revisions_per_stream: 1,
+                pending_stream_limit: 1,
+            })
+            .await;
+
+        let Err(NormalizeProductListingRawRevisionError::CanonicalWriteFailed {
+            source: CanonicalProductListingWriteError::Persistence { source },
+        }) = result
+        else {
+            panic!("lookup failure must preserve its cause");
+        };
+        let ProductListingRepositoryError::ProductListingLookupByKeyFailed { source: cause } =
+            source
+                .downcast_ref::<ProductListingRepositoryError>()
+                .unwrap()
+        else {
+            panic!("repository failure must preserve its cause");
+        };
+        assert_eq!("identity lookup failed", cause.to_string());
+        let state = lock(&state);
+        assert!(state.completions.is_empty());
+        assert!(state.updated_products.is_empty());
+        assert_eq!(1, state.streams[0].revisions.len());
+        assert_eq!(0, state.commits);
+        assert_eq!(1, state.rollbacks);
         Ok(())
     }
 

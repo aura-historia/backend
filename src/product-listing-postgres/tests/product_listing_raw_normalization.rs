@@ -1524,7 +1524,7 @@ fn raw_write(
 ) -> ProductListingRawCaptureWrite {
     let input = ProductListingNormalizationInput::new(
         operation,
-        RawProductListingPayloadFormat::ShopifyProduct,
+        RawProductListingPayloadFormat::WoocommerceProduct,
         1,
         1,
         SourcePayload::new(json!({"retainedUnknown": source_event_id}))
@@ -1540,7 +1540,7 @@ fn raw_write(
         .unwrap_or_else(|error| panic!("normalization input hash: {error}"));
     ProductListingRawCaptureWrite {
         listing_source_id,
-        ingestion_method: ProductListingRawIngestionMethod::Shopify,
+        ingestion_method: ProductListingRawIngestionMethod::Woocommerce,
         source_record_key: "123".to_owned(),
         source_record_key_sha256: SourceRecordKeySha256::new([8; 32]),
         input,
@@ -1574,7 +1574,7 @@ fn long_incompressible_url() -> String {
 fn unsupported_schema_write(listing_source_id: ListingSourceId) -> ProductListingRawCaptureWrite {
     let input = ProductListingNormalizationInput::new(
         RawProductListingOperation::Upsert,
-        RawProductListingPayloadFormat::ShopifyProduct,
+        RawProductListingPayloadFormat::WoocommerceProduct,
         2,
         1,
         SourcePayload::new(json!({})).unwrap_or_else(|error| panic!("source payload: {error}")),
@@ -1589,7 +1589,7 @@ fn unsupported_schema_write(listing_source_id: ListingSourceId) -> ProductListin
         .unwrap_or_else(|error| panic!("normalization input hash: {error}"));
     ProductListingRawCaptureWrite {
         listing_source_id,
-        ingestion_method: ProductListingRawIngestionMethod::Shopify,
+        ingestion_method: ProductListingRawIngestionMethod::Woocommerce,
         source_record_key: "unsupported-schema".to_owned(),
         source_record_key_sha256: SourceRecordKeySha256::new([9; 32]),
         input,

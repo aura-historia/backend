@@ -578,3 +578,15 @@ match. Missing initial target evidence requires operator reconciliation under
 [account lifecycle](account-lifecycle.md#operations-and-recovery). Verify provider removal
 and retained completion before closing recovery; API authentication rejection alone is
 not evidence that the Cognito profile was removed.
+
+## Shopify channel deployment
+
+Deploy the backend before the app's Shopify configuration release.
+
+[Event flow](events/flow.md#shopify-channel-observations) owns the synchronization contract
+and its accepted bulk/webhook ordering limitation. Recheck the current publication when
+resolving a reported mismatch. Verify content/title, image/price and inventory edits,
+zero stock, and publication-only remove/restore on a controlled installation. Record
+observed webhook identities, source times, canonical lifecycle and eventual projection
+results. Local integration tests cover the webhook paths with real PostgreSQL; production
+Shopify delivery requires coordinated app verification.

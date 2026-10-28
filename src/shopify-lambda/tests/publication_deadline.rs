@@ -156,15 +156,16 @@ fn event(message_id: &str, remaining: Duration) -> LambdaEvent<SqsEvent> {
         "source": "aws.partner/shopify.com/test", "account": "123456789012",
         "time": "2026-01-01T00:00:00Z", "region": "us-east-1", "resources": [],
         "detail": {
-            "payload": {
-                "id": 42, "title": "Cabinet", "handle": "cabinet", "status": "active",
+            "payload": {"product_listing": {
+                "product_id": 42, "title": "Cabinet", "handle": "cabinet", "status": "active",
                 "variants": [{"price": "42.00", "inventory_quantity": 1}], "images": [],
                 "futureShopifyKey": {"retained": true}
-            },
+            }},
             "metadata": {
-                "X-Shopify-Topic": "products/create",
+                "X-Shopify-Topic": "product_listings/add",
                 "X-Shopify-Shop-Domain": "partner.example",
-                "X-Shopify-Event-Id": "shopify-event"
+                "X-Shopify-Event-Id": "shopify-event",
+                "X-Shopify-Triggered-At": "2026-01-01T00:00:00Z"
             }
         }
     });
@@ -198,7 +199,8 @@ fn one_capture(request: Value) {
     assert_eq!(wire["payload"]["operation"], "CAPTURE_RAW");
     assert_eq!(wire["payload"]["command"]["sourceRecordKey"], "42");
     assert_eq!(
-        wire["payload"]["command"]["input"]["sourcePayload"]["futureShopifyKey"]["retained"],
+        wire["payload"]["command"]["input"]["sourcePayload"]["product_listing"]["futureShopifyKey"]
+            ["retained"],
         true
     );
 }

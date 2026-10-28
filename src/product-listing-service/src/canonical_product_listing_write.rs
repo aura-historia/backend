@@ -2,7 +2,7 @@ use crate::{
     ports::{
         ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
         ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
-        stamp_product_listing_event,
+        VersionedProductListing, stamp_product_listing_event,
     },
     product_listing_title_slug_creation::{
         ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
@@ -21,7 +21,7 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{NewProductListing, ProductListing, ProductListingPricing},
-    product_listing_id::ProductListingId,
+    product_listing_id::{ProductListingId, ProductListingKey},
     product_listing_image::ProductListingImage,
     product_listing_price::ProductListingPrice,
     source_listing_id::SourceListingId,
@@ -86,39 +86,12 @@ impl CanonicalProductListingWriter {
         R: ProductListingRepositoryFactory<Tx>,
         E: ProductListingEventAppenderFactory<Tx>,
     {
-        let existing = match bound_product_listing_id {
-            Some(id) => {
-                let found = {
-                    let mut repository = products.in_transaction(tx);
-                    repository
-                        .find_by_id(id)
-                        .await
-                        .map_err(map_repository_error)?
-                };
-                found.ok_or(CanonicalProductListingWriteError::BoundProductListingNotFound)?
-            }
-            None => {
-                let key = product_listing_core::product_listing_id::ProductListingKey::new(
-                    command.listing_source_id,
-                    command.source_listing_id.clone(),
-                );
-                let found = {
-                    let mut repository = products.in_transaction(tx);
-                    repository
-                        .find_by_key(&key)
-                        .await
-                        .map_err(map_repository_error)?
-                };
-                match found {
-                    Some(value) => value,
-                    None => return Self::create(tx, products, events, command).await,
-                }
-            }
-        };
-        if existing.value.listing_source_id() != command.listing_source_id
-            || existing.value.source_listing_id() != &command.source_listing_id
-        {
-            return Err(CanonicalProductListingWriteError::BoundProductListingIdentityMismatch);
+        let key =
+            ProductListingKey::new(command.listing_source_id, command.source_listing_id.clone());
+        let Some(existing) =
+            Self::find_product(tx, products, bound_product_listing_id, &key).await?
+        else {
+            return Self::create(tx, products, events, command).await;
         };
         let mut product = existing.value;
         product
@@ -163,20 +136,17 @@ impl CanonicalProductListingWriter {
         tx: &mut Tx,
         products: &R,
         events: &E,
-        product_listing_id: ProductListingId,
-    ) -> Result<CanonicalProductListingWriteResult, CanonicalProductListingWriteError>
+        bound_product_listing_id: Option<ProductListingId>,
+        key: &ProductListingKey,
+    ) -> Result<Option<CanonicalProductListingWriteResult>, CanonicalProductListingWriteError>
     where
         R: ProductListingRepositoryFactory<Tx>,
         E: ProductListingEventAppenderFactory<Tx>,
     {
-        let stored = {
-            let mut repository = products.in_transaction(tx);
-            repository
-                .find_by_id(product_listing_id)
-                .await
-                .map_err(map_repository_error)?
-        }
-        .ok_or(CanonicalProductListingWriteError::BoundProductListingNotFound)?;
+        let Some(stored) = Self::find_product(tx, products, bound_product_listing_id, key).await?
+        else {
+            return Ok(None);
+        };
         let mut product = stored.value;
         let outcome = product.withdraw().map_err(|error| {
             CanonicalProductListingWriteError::InvalidInput {
@@ -204,12 +174,45 @@ impl CanonicalProductListingWriter {
                     source: box_error(error),
                 })?;
         }
-        Ok(CanonicalProductListingWriteResult {
+        Ok(Some(CanonicalProductListingWriteResult {
             product_listing_id: product.id(),
             version,
             product_listing_event_id: event_id,
             outcome,
-        })
+        }))
+    }
+
+    async fn find_product<Tx, R>(
+        tx: &mut Tx,
+        products: &R,
+        bound_product_listing_id: Option<ProductListingId>,
+        key: &ProductListingKey,
+    ) -> Result<Option<VersionedProductListing>, CanonicalProductListingWriteError>
+    where
+        R: ProductListingRepositoryFactory<Tx>,
+    {
+        let existing = match bound_product_listing_id {
+            Some(id) => Some(
+                products
+                    .in_transaction(tx)
+                    .find_by_id(id)
+                    .await
+                    .map_err(map_repository_error)?
+                    .ok_or(CanonicalProductListingWriteError::BoundProductListingNotFound)?,
+            ),
+            None => products
+                .in_transaction(tx)
+                .find_by_key(key)
+                .await
+                .map_err(map_repository_error)?,
+        };
+        if let Some(existing) = &existing
+            && (existing.value.listing_source_id() != key.listing_source_id
+                || existing.value.source_listing_id() != &key.source_listing_id)
+        {
+            return Err(CanonicalProductListingWriteError::BoundProductListingIdentityMismatch);
+        }
+        Ok(existing)
     }
 
     async fn create<Tx, R, E>(

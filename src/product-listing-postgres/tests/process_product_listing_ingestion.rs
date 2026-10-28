@@ -359,7 +359,7 @@ fn raw_capture(
     let input = ProductListingNormalizationInput::new(
         RawProductListingOperation::Upsert,
         RawProductListingPayloadFormat::ShopifyProduct,
-        1,
+        2,
         1,
         source_payload,
         RawProductListingValues::new(json!({})).unwrap(),
