@@ -214,6 +214,8 @@ FIFO orders per-group shared-queue admission, not upstream chronology, cross-gro
 
 Execution verifies semantic integrity and serializes by `commandId`. Canonical state/event or raw capture and an `APPLIED` receipt commit together. Matching committed receipts replay without effects; conflicting reuse fails closed. Rejection or rollback creates no success receipt. After an ambiguous commit, retry checks the receipt; acknowledge only confirmed application or matching replay.
 
+A valid command that current state or its own content deterministically rejects (missing or withdrawn target, existing listing, missing source or grant, invalid content, an ambiguous provider order) completes as a logged rejection without a receipt instead of being retried, so it never holds later commands of its FIFO group. Resubmit corrected input under a new key. Invalid jobs, identity conflicts and invalid persisted state cannot apply as delivered either: when SQS delivers them again, the consumer moves them unchanged to the command DLQ for investigation, and later commands of their group continue without them. A later command that depended on a parked one is rejected or fails on its own terms. Technical or temporary failures keep queue retry custody and block only their own group.
+
 Receipts survive listing/source deletion and have no TTL. They deduplicate successful command application, not admission, rejection or an entire batch. Raw capture completion still does not mean canonical normalization or projection completion. [Storage](storage.md) owns persistence guardrails; [event flow](events/flow.md) owns worker acknowledgment.
 
 ## Content assessment and image visibility

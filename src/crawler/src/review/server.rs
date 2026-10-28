@@ -14,6 +14,7 @@ use crate::review::model::{
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
+use crate::review::schema_evaluation::evaluate_cross_page_findings;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
@@ -1131,10 +1132,11 @@ fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
     })
 }
 
-/// The schema matrix cached on the review, or `None` when it holds none, or one that no longer
-/// decodes, so the caller refreshes it from the live pages.
+/// The schema matrix cached on the review with the cross-page findings of the current checks,
+/// or `None` when it holds none, or one that no longer decodes, so the caller refreshes it from
+/// the live pages.
 fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
-    SchemaMatrix::stored_in(&detail.review.validation_summary)?
+    let mut matrix = SchemaMatrix::stored_in(&detail.review.validation_summary)?
         .inspect_err(|err| {
             warn!(
                 review_id = %detail.review.review_id,
@@ -1142,7 +1144,9 @@ fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
                 "Cached schema matrix is invalid; refreshing from live pages"
             );
         })
-        .ok()
+        .ok()?;
+    evaluate_cross_page_findings(&mut matrix);
+    Some(matrix)
 }
 
 fn matrix_refresh_deadline(page_count: usize) -> Duration {
@@ -2030,6 +2034,7 @@ Origin: http://127.0.0.1:7878/x
         use crate::review::matrix_refresh::MatrixRefreshStatus;
         use crate::review::model::{PAGE_ROLE_PRIMARY, ReviewActor, SchemaReviewPageInput};
         use crate::review::repository::CrawlerReviewRepository;
+        use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
         use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
         use crate::scraper::css_selector::rule::{
             ExtractionCardinality, ExtractionKind, ExtractionRule,
@@ -2043,6 +2048,7 @@ Origin: http://127.0.0.1:7878/x
         use listing_source_core::{Domain, ListingSourceId};
         use serde_json::json;
         use sqlx::PgPool;
+        use std::collections::HashMap;
         use std::net::SocketAddr;
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2360,6 +2366,66 @@ Origin: http://127.0.0.1:7878/x
                     .await
                     .is_none()
             );
+        }
+
+        /// A matrix cached before `NO_IMAGE_ON_ANY_PAGE` existed, of pages whose `images`
+        /// rule yields only thumbnails capture rejects, shows the finding without fetching
+        /// the pages again.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_show_a_cross_page_check_added_after_the_matrix_was_cached() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture(fetcher.clone()).await;
+            let thumbnail_page = PAGE_HTML.replace("src=\"a.jpg\"", "src=\"a-100x100.jpg\"");
+            let pages: Vec<_> = CrawlerReviewRepository::new(fixture.pool.clone())
+                .get_review(fixture.review_id)
+                .await
+                .unwrap_or_else(|error| panic!("read review: {error}"))
+                .pages
+                .into_iter()
+                .map(|page| (page, thumbnail_page.clone()))
+                .collect();
+            let evaluated = evaluate_schema_matrix_for_live_review_pages(
+                fixture.review_id,
+                &[schema("h1")],
+                &[],
+                &pages,
+                &[],
+                &HashMap::new(),
+            );
+            let mut cached = serde_json::to_value(&evaluated)
+                .unwrap_or_else(|error| panic!("a matrix must serialize: {error}"));
+            let mut stripped = 0;
+            for page in cached["candidates"][0]["pages"]
+                .as_array_mut()
+                .unwrap_or_else(|| panic!("the matrix has no pages"))
+            {
+                let findings = page["cross_page_findings"]
+                    .as_array_mut()
+                    .unwrap_or_else(|| panic!("a page has no cross-page findings"));
+                let evaluated_findings = findings.len();
+                findings.retain(|finding| finding["check"] != "NO_IMAGE_ON_ANY_PAGE");
+                stripped += evaluated_findings - findings.len();
+            }
+            assert_eq!(
+                stripped, PAGE_COUNT,
+                "evaluated afresh, every page has the finding"
+            );
+            sqlx::query(
+                "UPDATE crawler_reviews \
+                 SET validation_summary = jsonb_set(validation_summary, '{schema_matrix}', $2::jsonb, true) \
+                 WHERE review_id = $1",
+            )
+            .bind(fixture.review_id.as_uuid())
+            .bind(cached)
+            .execute(&fixture.pool)
+            .await
+            .unwrap_or_else(|error| panic!("cache the matrix: {error}"));
+
+            let response = get_matrix(&fixture.server, fixture.review_id, false).await;
+
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            assert!(response.contains("NO_IMAGE_ON_ANY_PAGE"), "{response}");
+            assert_eq!(fetcher.fetched.load(Ordering::SeqCst), 0);
         }
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]

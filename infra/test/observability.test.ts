@@ -21,7 +21,7 @@ test("production alarms the CDC router's Kinesis lag, archive transfer, drops, d
 
   expect(topicIds).toHaveLength(1);
   const routerAlarms = alarms.filter((alarm) =>
-    JSON.stringify(alarm.Properties.Dimensions).includes(ROUTER_FUNCTION_NAME));
+    JSON.stringify(alarm.Properties.Dimensions ?? []).includes(ROUTER_FUNCTION_NAME));
   expect(routerAlarms).toHaveLength(4);
 
   for (const [suffix, metricName, statistic, threshold] of [

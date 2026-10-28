@@ -24,9 +24,11 @@ pub struct SchemaPageEvaluation {
     /// Every per-page plausibility check the extraction failed. A cached matrix
     /// without them predates the checks and is refreshed from the live pages.
     pub plausibility_findings: PlausibilityFindings,
-    /// The values the extraction shares with the candidate's extraction of another
-    /// review page. A cached matrix without them predates the cross-page checks and is
-    /// refreshed from the live pages.
+    /// The cross-page checks the extraction failed against the candidate's extractions of
+    /// the other review pages. They derive from the extractions alone, so reading a cached
+    /// matrix evaluates them again (`evaluate_cross_page_findings`), and a check added
+    /// after the matrix was cached shows on it. A cached matrix without them predates the
+    /// cross-page checks and is refreshed from the live pages.
     pub cross_page_findings: CrossPageFindings,
     /// The identities of this page that contradict the one this extraction derives: other
     /// schemas' and the captured one. A cached matrix without them predates the check and

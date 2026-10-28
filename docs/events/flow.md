@@ -75,6 +75,15 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   ProductListing FIFO. The consumer commits canonical state/event or raw capture
   together with its successful command receipt. [Admission, execution and retry identity](../product-listing.md#asynchronous-ingestion-submission)
   are independent of downstream normalization and projection.
+- Provider observations of one source record are ordered by provider source time. An
+  older observation completes as stale. Provider clocks are often second-precise, so
+  distinct observations with an equal source time keep FIFO admission order, except that
+  an upsert never overtakes a delete with the same source time. A delete without a source
+  time sets a barrier at the later of its capture time and every source time already known
+  for the record; only an observation with a later source time moves past it, earlier ones
+  complete as stale and a timestamp-free upsert is rejected. The barrier compares provider
+  and database clocks: provider skew can delay a restore until the next edit, or let an
+  update older than the delete by less than the skew restore the listing.
 
 ## Geography dependency invalidation
 
@@ -180,17 +189,21 @@ Exact route and wire definitions live in [CDC routing](../../src/aura-historia-c
 Workers invoke service use cases and acknowledge only confirmed completed outcomes.
 Duplicates, authoritative stale skips and deliberately ignored inputs may complete;
 missing required source, active leases, malformed jobs, dependency failure or uncertain
-commit/effect do not. SQS transport IDs are not business idempotency keys.
+commit/effect do not. A FIFO consumer moves a job that can never succeed as delivered into
+its own DLQ on redelivery and acknowledges it only once the transfer is confirmed
+([failure custody](../durable-worker-runbook.md#failure-custody-and-controlled-redrive)).
+SQS transport IDs are not business idempotency keys.
 
 | Consumer | Authority and completion rule |
 | --- | --- |
+| ProductListing commands | Apply with the command receipt. Deterministic [business rejections](../product-listing.md#downstream-command-execution) complete without a receipt; invalid commands, identity conflicts and invalid persisted state move to the DLQ on redelivery; other failures retain only their own FIFO message group. |
 | Product projection | Reread complete current PostgreSQL state; reject superseded event triggers; write at the projection version. |
 | Content assessment | Commit against the evaluated content-source revision; do not manufacture a domain event or write search directly. An effective apply/clear appends `ENRICHMENT_CONTENT_ASSESSED` (exactly `{}`) and advances listing freshness and the projection fence; duplicates, stale results and empty clears do not. |
 | Embedding / translation | Evaluate outside a transaction, then recheck the corresponding source marker and commit guarded enrichment. First committed completion wins; its journal entry drives projection. |
 | Match notification | Read the exact persisted match and its historical origin, not a newer match or current-event substitute; commit in-app notification and digest membership (or legacy delivery intent) together. |
 | Watchlist notification | Use immutable event time and current active/notification-enabled intervals; later activation cannot earn an older notification. Suppress currently withdrawn listings. |
 | Notification delivery | Commit a fenced claim before sending; finalize the same claim/result and acknowledge only confirmed terminal completion. |
-| Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; see [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
+| Marketing consent | Claim the exact intent, revalidate permission and reconcile provider outcomes; an undecodable job or missing intent moves to the DLQ on redelivery. See [consent synchronization](../marketing-consent.md#synchronization-and-provider-eligibility). |
 | Geographic resolution | Reserve a bounded, database-budgeted claim; call the provider outside transactions; commit permitted evidence and its signal under the same unexpired claim/generation. Negative outcomes have reconsideration deadlines; provider/configuration failures retain failure custody. |
 
 ProductListing projections use externally versioned, content-free
@@ -206,7 +219,7 @@ freshness or widen the scheduled matching interval.
 
 | Intake | Boundary and acknowledgment |
 | --- | --- |
-| WooCommerce | Signed HTTP intake plus partner authorization → command FIFO. A mapped webhook acknowledges confirmed admission, not raw capture; authorized ignored inputs create no command/receipt. |
+| WooCommerce | Signed HTTP intake plus partner authorization → command FIFO. A mapped webhook acknowledges confirmed admission, not raw capture; authorized ignored inputs create no command/receipt. Delivery IDs are unique only per webhook and second, so command and provider-receipt identity also bind the product and the sanitized evidence digest; the randomly sampled `related_ids` is not evidence. |
 | Shopify | Partner EventBridge → retained provider Standard queue → Shopify Lambda → command FIFO. Forwarding and command application are separate acknowledgments and failure locations. |
 | Stripe | Partner EventBridge → dedicated Lambda → User-service reconciliation. Provider reads occur between short PostgreSQL transactions; receipts, tier changes and entitlement reconciliation commit together. |
 | Cognito pre-sign-up | Federated collision checks fail closed. Linking requires the explicit provider trust policy and verified persisted identity; email alone is insufficient. |

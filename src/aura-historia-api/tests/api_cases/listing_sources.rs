@@ -53,6 +53,13 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         Some(json!({"partnerize": {"campaign": "private"}})),
     )
     .await;
+    sqlx::query(
+        "UPDATE listing_sources SET platform_technology = 'SHOPIFY' WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .execute(&get_postgres_client().await)
+    .await
+    .unwrap_or_else(|error| panic!("set private platform metadata: {error}"));
     let client = reqwest::Client::new();
 
     let collection_response = client
@@ -84,6 +91,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
     assert_eq!(Some("Public Operator"), item["operator"]["name"].as_str());
     assert!(item.get("referralConfiguration").is_none());
     assert!(item.get("ingestionMethods").is_none());
+    assert!(item.get("platformTechnology").is_none());
     assert!(item.get("operatorPartyId").is_none());
 
     let detail_response = client
@@ -564,6 +572,7 @@ async fn should_return_safe_listing_source_summary_for_admin_with_no_store_cache
         body["items"][0]["operator"]["name"]
     );
     assert_eq!(json!(["WOOCOMMERCE"]), body["items"][0]["ingestionMethods"]);
+    assert!(body["items"][0].get("platformTechnology").is_none());
     assert_eq!(
         json!("https://listing-source-search.example/"),
         body["items"][0]["presentation"]["url"]
@@ -600,6 +609,17 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
         None,
     )
     .await;
+    let pool = get_postgres_client().await;
+    for (source_id, platform) in [(matching_id, "BIGCOMMERCE"), (other_id, "BIGCOMMERCE_2")] {
+        sqlx::query(
+            "UPDATE listing_sources SET platform_technology = $1 WHERE listing_source_id = $2",
+        )
+        .bind(platform)
+        .bind(source_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("set platform search fixture: {error}"));
+    }
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
@@ -610,6 +630,7 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
         ("name", "Filtered Listing".to_owned()),
         ("operatorPartyId", matching_operator_id.to_string()),
         ("ingestionMethod", "SHOPIFY".to_owned()),
+        ("platformTechnology", "BIGCOMMERCE".to_owned()),
         ("listingSourceId", matching_id.to_string()),
         ("listingSourceSlugId", matching_slug.clone()),
     ] {
@@ -633,6 +654,22 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
             body["items"][0]["listingSourceId"],
             "filter {field}"
         );
+    }
+
+    for (method, expected_size) in [("SHOPIFY", 1), ("PARTNER_API", 0)] {
+        let response = client
+            .get(&url)
+            .bearer_auth(token.clone())
+            .query(&[
+                ("platformTechnology", "BIGCOMMERCE"),
+                ("ingestionMethod", method),
+            ])
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("combine platform and ingestion filters: {error}"));
+        let (status, body) = json_response(response).await;
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(Some(expected_size), body["items"].as_array().map(Vec::len));
     }
 
     let response = client
@@ -1006,6 +1043,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
         .bearer_auth(token.clone())
         .json(&json!({
             "name": "Created Listing Source",
+            "platformTechnology": "BIGCOMMERCE",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{"type": "PARTNER_API"}],
             "url": "https://created-listing-source.example/",
@@ -1053,9 +1091,57 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
     );
     assert_eq!(json!("Created Listing Source"), body["items"][0]["name"]);
     assert_eq!(json!(["PARTNER_API"]), body["items"][0]["ingestionMethods"]);
+    assert_eq!(json!("BIGCOMMERCE"), body["items"][0]["platformTechnology"]);
     assert_eq!(
         json!({"type": "PARTNERIZE", "camref": "campaign123"}),
         body["items"][0]["referralConfiguration"]
+    );
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_create_listing_source_without_ingestion_configuration() {
+    let party_id = seed_party("Unconfigured Listing Source Operator", None, None).await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = String::from(listing_sources_token(admin_id).await);
+    let client = reqwest::Client::new();
+    let url = format!("{}/v1/admin/listing-sources", AURA_API.base_url());
+
+    let response = client
+        .post(&url)
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "name": "Unconfigured Listing Source",
+            "platformTechnology": "CUSTOM_PLATFORM_2",
+            "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
+            "ingestionConfiguration": []
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create unconfigured listing source: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::CREATED, status);
+    let source_id = body["listingSourceId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("created response has no listing source ID"));
+
+    let response = client
+        .get(&url)
+        .bearer_auth(token)
+        .query(&[("listingSourceId", source_id)])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to read unconfigured listing source: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
+    assert_eq!(
+        json!("Unconfigured Listing Source"),
+        body["items"][0]["name"]
+    );
+    assert_eq!(json!([]), body["items"][0]["ingestionMethods"]);
+    assert_eq!(
+        json!("CUSTOM_PLATFORM_2"),
+        body["items"][0]["platformTechnology"]
     );
 }
 
@@ -1305,6 +1391,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
         .bearer_auth(token.clone())
         .json(&json!({
             "name": "  Renamed Listing Source  ",
+            "platformTechnology": "BIGCOMMERCE",
             "ingestionConfiguration": [{
                 "type": "WOOCOMMERCE",
                 "webhookSecret": "provider-secret",
@@ -1339,6 +1426,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     assert_eq!(json!("Renamed Listing Source"), detail_body["name"]);
     assert_eq!(json!(original_slug), detail_body["listingSourceSlugId"]);
     assert_eq!(json!(["WOOCOMMERCE"]), detail_body["ingestionMethods"]);
+    assert_eq!(json!("BIGCOMMERCE"), detail_body["platformTechnology"]);
     assert_eq!(
         json!("https://updated-listing-source.example/"),
         detail_body["url"]
@@ -1382,10 +1470,20 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
         stored
     );
 
+    let preserved_platform = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT platform_technology FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("read preserved platform: {error}"));
+    assert_eq!(Some("BIGCOMMERCE"), preserved_platform.as_deref());
+
     let rotation = client
         .patch(&path)
         .bearer_auth(token.clone())
         .json(&json!({
+            "platformTechnology": "SHOPIFY",
             "ingestionConfiguration": [{
                 "type": "WOOCOMMERCE",
                 "webhookSecret": "rotated-provider-secret",
@@ -1437,6 +1535,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
         });
     let (after_rotation_status, after_rotation_body) = json_response(after_rotation).await;
     assert_eq!(reqwest::StatusCode::OK, after_rotation_status);
+    assert_eq!(json!("SHOPIFY"), after_rotation_body["platformTechnology"]);
     assert!(
         !after_rotation_body
             .to_string()
@@ -1463,7 +1562,8 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
         .json(&json!({
             "url": null,
             "image": null,
-            "referralConfiguration": null
+            "referralConfiguration": null,
+            "platformTechnology": null
         }))
         .send()
         .await
@@ -1492,6 +1592,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     );
     assert!(cleared_detail_body.get("url").is_none());
     assert!(cleared_detail_body.get("image").is_none());
+    assert!(cleared_detail_body.get("platformTechnology").is_none());
     assert!(!cleared_detail_body.to_string().contains("provider-secret"));
     let preserved_after_unrelated_patch = sqlx::query_scalar::<_, String>(
         "SELECT webhook_secret FROM listing_source_woocommerce_ingestion_configurations WHERE listing_source_id = $1",

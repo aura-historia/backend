@@ -2,6 +2,22 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-27 — ListingSource platform technology (#2567)
+
+- Admin ListingSource create, PATCH, details, and search support optional `platformTechnology` metadata and an exact search filter. Codes are open ASCII SCREAMING_SNAKE_CASE strings of 1–64 characters; reuse codes such as `SHOPIFY`, `WOOCOMMERCE`, `BIGCOMMERCE`, and `SHOPWARE`.
+- Creation omission or null records no platform; PATCH omission preserves it, null clears it, and a code replaces it. Reads omit absent values. Existing sources remain unset. Platform metadata is independent of ingestion configuration and is excluded from public and partner representations.
+
+## 2026-10-27 — Unprocessable queued listing commands no longer stall their listing (#2548)
+
+- A queued listing command that can never apply as delivered (an unreadable command, a command or WooCommerce delivery identity reused for different content, or invalid stored state) is now set aside for operator review when it is delivered again, about 4.5 minutes later, instead of being retried for about 22 minutes. Later commands for the same listing or WooCommerce product wait behind it for at most that long, and are no longer set aside unapplied when they were queued together with it. A later command that depends on a set-aside one, such as an update after a set-aside create, is rejected as for a missing listing. Admission responses are unchanged.
+
+## 2026-10-27 — Prompt WooCommerce and async ingestion application (#2522)
+
+- A queued listing command that current state deterministically rejects (for example a missing or withdrawn target, an existing listing, a revoked grant or invalid content) is now dropped after one attempt instead of being retried for about 22 minutes. Later commands for the same listing or WooCommerce product no longer wait behind it, and commands for other listings never do. Admission responses are unchanged; resubmit corrected input under a new `Idempotency-Key`.
+- WooCommerce `related_ids` remains an accepted provider field but is omitted from persisted raw source evidence, like `description`. WooCommerce sends a random sample of related products, so repeated deliveries of an unchanged product are now recognized as unchanged.
+- Distinct WooCommerce deliveries with the same `date_modified_gmt` second, including the `product.created` and `product.updated` pair of one save, are now applied in arrival order instead of failing. Deliveries of different products, or with different content, that share a WooCommerce delivery ID (WooCommerce derives it from the webhook and the current second) no longer collide.
+- After a `product.deleted` (Trash), a later `product.updated` with status `publish` restores the listing when its `date_modified_gmt` is after both Aura's receipt of the deletion and every modification time already known for the product. Updates that may predate the deletion are ignored instead of blocking the product permanently, and a publish with the same `date_modified_gmt` as a trash or draft update never restores the listing. Signed-request, HMAC and `204` admission semantics are unchanged.
+
 ## 2026-10-26 — WooCommerce variation webhooks (#2523)
 
 - `POST /v1/webhooks/woocommerce/{listingSourceId}` treats `product.created` and `product.updated` payloads with `type: variation` as authorized ignored events whatever their `status` (bodyless `204`, no queue send, receipt or listing). They previously created a second listing keyed by the variation ID. The parent's own `product.updated`, which WooCommerce delivers after saving or deleting a variation, refreshes the parent's listing. `product.deleted` is unchanged and never withdraws a variation's parent.

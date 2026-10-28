@@ -149,9 +149,21 @@ Archive-destination failure also needs investigation—an error does not prove a
 
 Workers use partial batch responses. Only confirmed complete records acknowledge; setup,
 wire, timeout/panic, dependency, active-claim and uncertain-effect failures retain custody.
-FIFO processing stops at the first incomplete record and reports every unprocessed
-successor, even across groups. Partial failures need not increment Lambda `Errors`;
+An incomplete FIFO record retains every later record of its message group unstarted;
+other groups in the batch continue. Records without a group ID, and records after an
+exhausted invocation budget, are all retained. Partial failures need not increment Lambda `Errors`;
 monitor outcome counts, age/backlog, DLQs and provider failures too.
+
+FIFO consumers park a record that can never succeed as delivered on its first redelivery
+instead of retaining it for the whole retry budget: they send the unchanged body to the
+source queue's own DLQ under the original message group, deduplicated by the original SQS
+message ID, and acknowledge it only after SQS confirms the send. The consumer logs
+`FIFO record moved to failure custody` with both message IDs; the DLQ alarm fires as for
+any dead letter. A first delivery, an unconfirmed transfer and a record without a group ID or
+with message attributes are retained and reach the DLQ only through the native redrive. The
+parked copy has a new message ID and receive count, and a lost acknowledgment can leave a
+duplicate copy. Later records of the group run without the parked one, so check what they
+did before redriving it.
 
 For recovery:
 
@@ -175,6 +187,17 @@ requires the unchanged original ordered batch, actor, source and effective key; 
 known-invalid items separately with a new key. Consumer success requires atomic application
 and its matching `APPLIED` receipt. Those receipts survive business-row deletion.
 
+Deterministic business rejections are acknowledged without a receipt and logged as
+`Ingestion command rejected without retry` with command identity and error code; the
+`rejected-records` alarm reports them. They never reach the DLQ: have the producer resubmit
+corrected input. Invalid commands, identity conflicts and invalid persisted state are logged
+as `Ingestion command cannot apply as delivered` and parked in the DLQ on their first
+redelivery. Later commands of their group then run, so a dependent update or withdraw may
+have been rejected and need resubmission once the cause is repaired. Technical failures reach
+the DLQ only after the retry budget and delay only later records of their own message group.
+A consumer rolled back behind a producer that already sends a newer command version parks
+those commands on their next delivery; redrive them once a compatible consumer runs.
+
 A completed old command replays as a no-op; an old **unfinished** command can still apply
 against newer state or fail guards. Before redrive, inspect source-order barriers, current
 partnership/source grants and raw/provider/command receipts. FIFO does not order synchronous
@@ -182,9 +205,13 @@ writes, normalization or manually reintroduced work. Pause producers/consumption
 an explicit backlog and retention plan; do not discard messages to stop traffic.
 
 Deploy the receipt schema, retained queue pair and compatible consumer before enabling
-producers. Verify actual IAM/private SQS and database access, published mapping, partial
-failure behavior, retry/DLQ transfer and bounded concurrency. Keep acceptance fixtures
-isolated and record admissions, committed receipts and normalization separately.
+producers. Deploy the consumer that reads the provider delete-barrier column immediately
+after its migration: an older consumer cannot record a timestamp-free delete once the
+migration ran, so such deletes stay retained until the new consumer runs and reach the DLQ
+if that takes longer than the retry budget. Verify actual IAM/private SQS and database access, published
+mapping, partial failure behavior, retry/DLQ transfer and bounded concurrency. Keep
+acceptance fixtures isolated and record admissions, committed receipts and normalization
+separately.
 
 ## Shopify forwarding handoff
 
@@ -203,7 +230,9 @@ pausing shared consumption requires a separate retention plan.
 Verify the API's stage-local FIFO URL/send grant and compatible consumer before forwarding.
 Use isolated exact-byte signed probes with valid partner/source authorization. Authorized
 ignored inputs produce no command/receipt; a mapped `204` means confirmed admission only.
-Later receipt/order/capture conflicts can reach the FIFO DLQ without a provider retry.
+Deterministic source-order rejections are logged and alarmed instead of retried; receipt
+identity conflicts and technical capture failures can still reach the FIFO DLQ without a
+provider retry.
 
 After an uncertain HTTP reply, preserve signed bytes, source, topic, caller and delivery ID.
 Without a provider delivery ID, the original command identity may not be recoverable. Inspect

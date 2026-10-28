@@ -1,9 +1,8 @@
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
-use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::plausibility::PlausibilityFindings;
-use crate::scraper::scraper_service::image_validation::resolve_image_candidate;
+use crate::scraper::scraper_service::image_validation::filter_image_urls_offline;
 use scraper::Html;
 
 // ---------------------------------------------------------------------------
@@ -194,7 +193,10 @@ pub struct RankedSchemaCandidate {
 ///
 /// This is the shared ranking seam for fixture tests. It applies every schema
 /// to one parsed document, drops candidates that fail a rejecting plausibility
-/// check, and performs no network or LLM work.
+/// check, and performs no network or LLM work. A candidate's images count as
+/// capture would count them if DNS resolution and the probe accepted every image:
+/// an image URL that capture's target check rejects, or whose own dimensions show
+/// a small image, does not count; one that gives no size does.
 pub fn rank_applicable_schemas(
     schemas: &[ProductCssSelectorSchema],
     html: &str,
@@ -208,23 +210,7 @@ pub fn rank_applicable_schemas(
         if findings.rejects_candidate() {
             continue;
         }
-        // Network image probing is unavailable here, so every parseable URL
-        // counts as an image candidate and the capture-time probe decides.
-        // Preserve ordered candidate-group semantics by choosing the first
-        // parseable candidate from each group.
-        let validated_image_urls = candidate
-            .raw
-            .images
-            .iter()
-            .filter_map(|raw_image| {
-                split_image_candidate_group(raw_image)
-                    .into_iter()
-                    .find_map(|raw_candidate| {
-                        resolve_image_candidate(raw_candidate, &base_url)
-                            .map(|_| raw_candidate.trim().to_owned())
-                    })
-            })
-            .collect();
+        let validated_image_urls = filter_image_urls_offline(&candidate.raw.images, &base_url);
         checked_candidates.push(CheckedSchemaCandidate::new(
             candidate,
             findings,
@@ -455,6 +441,15 @@ mod tests {
     #[test]
     fn should_not_count_unparseable_image_candidate() {
         assert_eq!(first_ranked_schema_with_first_image("//"), 1);
+    }
+
+    #[test]
+    fn should_not_count_image_whose_url_dimensions_show_a_small_image() {
+        assert_eq!(
+            first_ranked_schema_with_first_image("/uploads/chair-100x100.jpg"),
+            1,
+            "capture rejects the thumbnail without a probe, so it must not outrank a full-size image"
+        );
     }
 
     /// Ranks two schemas that differ only in their image: schema 0 extracts

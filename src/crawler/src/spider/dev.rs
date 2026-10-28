@@ -1,18 +1,13 @@
 //! Local development binary - showcases end-to-end usage of [`SpiderService`].
 //!
-//! Uses a hardcoded local Postgres database (`crawler_demo_spider`). Bootstrap with:
-//!
-//! ```powershell
-//! # from src/crawler/
-//! .\db-up.ps1
-//! .\db-migrate.ps1
-//! ```
+//! Unless `LOCAL_DB_URL` names another database, it runs `docker compose up -d` (using the
+//! `docker-compose.yml` inside the `crawler` crate) and creates `crawler_demo_spider` itself.
 //!
 //! # Configuration
 //!
 //! | Env var          | Purpose                 | Default                         |
 //! |------------------|-----------------------  |---------------------------------|
-//! | `LOCAL_DB_URL`   | Hardcoded local DB URL | `.../crawler_demo_spider`      |
+//! | `LOCAL_DB_URL`   | Database to run against instead of `crawler_demo_spider`. The run then neither starts Docker nor creates the database; a value that is not a connection URL fails startup | `postgres://postgres:postgres@localhost:5432/crawler_demo_spider` |
 //! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
 //! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
@@ -41,9 +36,8 @@ use std::sync::Arc;
 
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{
-    DEMO_SPIDER_DB_NAME, bootstrap_local_database,
+    DEMO_SPIDER_DB_NAME, DevDatabase,
     crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
-    demo_spider_db_url,
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::service::crawler_domain_configuration::{
@@ -101,8 +95,17 @@ async fn main() {
     init_logging();
 
     let crawl_root_url = read_crawl_root_url();
+    let database = DevDatabase::from_env(DEMO_SPIDER_DB_NAME)
+        .unwrap_or_else(|error| panic!("invalid crawler-local database configuration: {error}"));
+    let span = tracing::info_span!(
+        "crawler_spider_dev",
+        entrypoint = "dev-spider",
+        database = database.name(),
+        crawl_root_url = %crawl_root_url,
+        classify_threshold = DEFAULT_CLASSIFY_THRESHOLD
+    );
 
-    async {
+    async move {
         let vertex_ai_config = match CrawlerVertexAiConfig::from_env() {
             Ok(config) => config,
             Err(error) => {
@@ -112,7 +115,7 @@ async fn main() {
         };
         let vertex_ai_models = CrawlerVertexAiModels::from_env();
 
-        let pool = match connect_and_migrate().await {
+        let pool = match connect_and_migrate(&database).await {
             Ok(p) => p,
             Err(error) => {
                 error!(error = ?error, "Failed to connect to Postgres");
@@ -206,12 +209,7 @@ async fn main() {
             }
         }
     }
-    .instrument(tracing::info_span!(
-        "crawler_spider_dev",
-        entrypoint = "dev-spider",
-        crawl_root_url = %crawl_root_url,
-        classify_threshold = DEFAULT_CLASSIFY_THRESHOLD
-    ))
+    .instrument(span)
     .await;
 }
 
@@ -234,13 +232,10 @@ fn build_url_repository(pool: PgPool) -> Arc<UrlMetadataRepositoryImpl> {
     Arc::new(UrlMetadataRepositoryImpl::new(pool))
 }
 
-/// Connects to local Postgres and applies pending migrations.
-#[tracing::instrument]
-async fn connect_and_migrate() -> Result<PgPool, DemoError> {
-    bootstrap_local_database(DEMO_SPIDER_DB_NAME)
-        .await
-        .map_err(DemoError::Demo)?;
-    let db_url = demo_spider_db_url();
+/// Connects to the crawler-local Postgres database and applies pending migrations.
+#[tracing::instrument(skip_all)]
+async fn connect_and_migrate(database: &DevDatabase) -> Result<PgPool, DemoError> {
+    let db_url = database.prepare().await.map_err(DemoError::Demo)?;
 
     let pool = PgPoolOptions::new()
         .max_connections(DEMO_POOL_MAX_CONNECTIONS)

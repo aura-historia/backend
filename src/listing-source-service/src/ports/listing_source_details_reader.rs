@@ -1,6 +1,7 @@
 use application::error::BoxError;
 use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceSlugId,
+    PlatformTechnology,
 };
 use party_core::{party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId};
 use time::OffsetDateTime;
@@ -13,6 +14,7 @@ pub struct ListingSourceDetails {
     pub operator_party_id: PartyId,
     pub operator_slug_id: PartySlugId,
     pub operator_name: PartyName,
+    pub platform_technology: Option<PlatformTechnology>,
     pub ingestion_methods: std::collections::HashSet<ListingIngestionMethod>,
     pub url: Option<url::Url>,
     pub image: Option<url::Url>,

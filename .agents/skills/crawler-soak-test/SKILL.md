@@ -46,8 +46,7 @@ each check must answer.
    `demo_listing_sources()` and the domain list zipped in `main()` in
    [`src/crawler/src/bin/dev.rs`](../../../src/crawler/src/bin/dev.rs) with the round's shops.
    Use a start index above every index used so far in this database: the ID suffix is
-   `...639f{index:02x}`, and the committed code only formats one hex digit (`7{index}`), so change
-   the format string to `{index:02x}` too. These edits are temporary test state: never commit them;
+   `...639f{index:02x}`. These edits are temporary test state: never commit them;
    revert with `git checkout -- src/crawler/src/bin/dev.rs` at the end. Make sure the checkout is
    on an up-to-date `develop` first (`git fetch` and compare with `origin/develop`), so the
    findings describe current code.

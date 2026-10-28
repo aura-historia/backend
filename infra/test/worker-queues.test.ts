@@ -275,9 +275,12 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(data.toJSON().Outputs.ProductListingIngestionDeadLetterQueueUrl).toEqual({ Value: dlq.url });
   });
 
-  test("limits command ingress IAM to two publishers and one source-only consumer", () => {
+  test("limits command ingress IAM to two publishers and one consumer that parks only into its DLQ", () => {
     const sourceName = `product-listing-ingestion-queue-${stage}.fifo`;
     const sourceArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: sourceName }));
+    const dlqName = `product-listing-ingestion-dlq-${stage}.fifo`;
+    const dlqArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: dlqName }));
+    const custodyGrant = { Action: "sqs:SendMessage", Effect: "Allow", Resource: dlqArn };
     const producerNames = [`aura-historia-api-${stage}`, `shopify-lambda-${stage}`];
     const consumer = ingressFunction(compute, `product-listing-ingestion-lambda-${stage}`);
     const expectedQueueUrl = { "Fn::Sub": [
@@ -298,8 +301,15 @@ describe.each(STAGES)("%s worker queues", (stage) => {
           : [{ Action: "sqs:SendMessage", Effect: "Allow", Resource: sourceArn }]);
     }
     expect(consumer.resource.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toBeUndefined();
+    expect(consumer.resource.Properties.Environment.Variables.DEAD_LETTER_QUEUE_URL).toEqual({ "Fn::Sub": [
+      "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
+      { QueueName: dlqName },
+    ] });
     expect(consumer.statements.filter((statement) => JSON.stringify(statement.Action).includes("sqs:")))
-      .toEqual([{ Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn }]);
+      .toEqual([
+        { Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn },
+        custodyGrant,
+      ]);
     const ingressGrants = Object.entries(compute.findResources("AWS::IAM::Policy"))
       .flatMap(([id, policy]) => policy.Properties.PolicyDocument.Statement
         .filter((statement: { Resource: unknown }) => JSON.stringify(statement.Resource) === JSON.stringify(sourceArn))
@@ -315,11 +325,12 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         Resource: consumer.resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN,
       },
       { Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn },
+      custodyGrant,
     ]);
     expect(stacks.compute.dependencies).toEqual(expect.arrayContaining([stacks.data, stacks.migration]));
     expect(consumer.resource.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
     expect(Object.keys(consumer.resource.Properties.Environment.Variables).sort()).toEqual(
-      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["DEAD_LETTER_QUEUE_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
   });
 
@@ -439,7 +450,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(projectionFunctions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(projectionFunctions[0].Properties.Environment.Variables).sort()).toEqual(
       ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
     );
@@ -486,7 +496,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
@@ -555,7 +564,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"],
     );
@@ -598,7 +606,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       ["ANTHROPIC_API_KEY", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
@@ -643,7 +650,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Handler: "lib.handler",
     });
-    expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
       ["COMMIT_SHA", "MAIL_TEMPLATE_PREFIX", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_FRONTEND_ORIGIN", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
     );
@@ -701,7 +707,6 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         Runtime: "provided.al2023",
         Handler: "lib.handler",
       });
-      expect(functions[0].Properties.ReservedConcurrentExecutions).toBeUndefined();
       expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
         ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
       );
@@ -712,6 +717,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
   test("deploys the real consent consumer against its FIFO source with scoped access and Loops settings", () => {
     const sourceName = workerQueueName("marketing-consent-sync", stage);
     const sourceArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: sourceName }));
+    const dlqName = workerQueueName("marketing-consent-sync", stage, true);
+    const dlqArn = stacks.compute.resolve(stacks.compute.formatArn({ service: "sqs", resource: dlqName }));
     const consumer = ingressFunction(compute, `marketing-consent-sync-lambda-${stage}`);
     const environment = consumer.resource.Properties.Environment.Variables;
     expect(consumer.resource.Properties).toMatchObject({
@@ -724,10 +731,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Runtime: "provided.al2023",
       Timeout: 45,
     });
-    expect(consumer.resource.Properties.ReservedConcurrentExecutions).toBeUndefined();
     expect(Object.keys(environment).sort()).toEqual(
-      ["LOOPS_API_BASE_URL", "LOOPS_API_KEY", "LOOPS_NEWSLETTER_LIST_ID", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["DEAD_LETTER_QUEUE_URL", "LOOPS_API_BASE_URL", "LOOPS_API_KEY", "LOOPS_NEWSLETTER_LIST_ID", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
     );
+    expect(environment.DEAD_LETTER_QUEUE_URL).toEqual({ "Fn::Sub": [
+      "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
+      { QueueName: dlqName },
+    ] });
     expect(environment.POSTGRES_MAX_CONNECTIONS).toBe("1");
     expect(environment.LOOPS_API_BASE_URL).toBe("https://app.loops.so/api");
     expect(JSON.stringify(environment)).not.toMatch(/SES|OPENSEARCH|COGNITO|S3_BUCKET/);
@@ -749,6 +759,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       EventSourceArn: sourceArn,
       FunctionName: { Ref: versionId },
       FunctionResponseTypes: ["ReportBatchItemFailures"],
+      ...(stage === "prod" ? { ScalingConfig: { MaximumConcurrency: 2 } } : {}),
     });
     expect(mappings[0][1].DependsOn).toContain(consumer.policyId);
     const queueStatements = consumer.statements.filter((statement) =>
@@ -758,10 +769,10 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"],
       Effect: "Allow",
       Resource: sourceArn,
-    }]);
+    }, { Action: "sqs:SendMessage", Effect: "Allow", Resource: dlqArn }]);
     expect(consumer.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
       .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow", Resource: environment.POSTGRES_SECRET_ARN }]);
-    expect(JSON.stringify(consumer.statements)).not.toMatch(/sqs:SendMessage|sqs:PurgeQueue|ses:|s3:|es:|cognito-idp:/);
+    expect(JSON.stringify(consumer.statements)).not.toMatch(/sqs:PurgeQueue|ses:|s3:|es:|cognito-idp:/);
   });
 
   test("publishes prod-only command ingress alarms and per-record outcome filters", () => {
@@ -774,7 +785,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(topicIds).toHaveLength(1);
     const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
       .filter((resource) => String(resource.Properties.AlarmName).includes("product-listing-ingestion"));
-    expect(alarms).toHaveLength(5);
+    expect(alarms).toHaveLength(6);
     for (const [suffix, metric, queue, threshold] of [
       ["source-age", "ApproximateAgeOfOldestMessage", "queue", 900],
       ["source-backlog", "ApproximateNumberOfMessagesVisible", "queue", 100],
@@ -801,9 +812,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     }
     const filters = Object.values(template.findResources("AWS::Logs::MetricFilter"))
       .filter((resource) => String(resource.Properties.LogGroupName).includes("product-listing-ingestion-lambda"));
-    expect(filters).toHaveLength(3);
+    expect(filters).toHaveLength(5);
     for (const [outcome, metric] of [
-      ["completed", "CompletedRecords"], ["failed", "FailedRecords"], ["unprocessed", "UnprocessedRecords"],
+      ["completed", "CompletedRecords"], ["rejected", "RejectedRecords"],
+      ["unprocessable", "UnprocessableRecords"], ["failed", "FailedRecords"],
+      ["unprocessed", "UnprocessedRecords"],
     ] as const) {
       expect(filters).toContainEqual(expect.objectContaining({ Properties: {
         LogGroupName: "/aws/lambda/product-listing-ingestion-lambda-prod",
@@ -811,6 +824,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         MetricTransformations: [{ MetricName: metric, MetricNamespace: "AuraHistoria/ProductListingIngestion/prod", MetricValue: "1" }],
       } }));
     }
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: "prod-product-listing-ingestion-rejected-records",
+      Namespace: "AuraHistoria/ProductListingIngestion/prod", MetricName: "RejectedRecords",
+      Statistic: "Sum", Period: 300, Threshold: 1, EvaluationPeriods: 1,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold", TreatMissingData: "notBreaching",
+      AlarmActions: [{ Ref: topicIds[0] }],
+    });
   });
 
   test("uses prod-only age and DLQ backlog alarms on the existing SNS topic", () => {

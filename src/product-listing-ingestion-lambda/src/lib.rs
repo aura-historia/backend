@@ -2,7 +2,10 @@ use auction_postgres::SqlxAuctionReferenceValidatorFactory;
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::LambdaInvocationBudget;
-use platform_lambda_sqs::{RecordOutcome, handle_fifo_sqs_invocation, process_fifo_batch};
+use platform_lambda_sqs::{
+    FailureCustody, FifoDisposition, RecordOutcome, handle_fifo_sqs_invocation, process_fifo_batch,
+    safe_message_id,
+};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_ingestion_sqs::codec;
 use product_listing_postgres::{
@@ -12,7 +15,7 @@ use product_listing_postgres::{
 };
 use product_listing_service::use_cases::{
     ProcessProductListingIngestionHandler, ProcessProductListingIngestionUseCase,
-    ProductListingIngestionCompletion,
+    ProductListingIngestionCompletion, ProductListingIngestionFailureClass,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -53,8 +56,10 @@ pub fn invocation_budget(context: &lambda_runtime::Context) -> LambdaInvocationB
 
 /// Validate all SQS IDs before bounded credential refresh and composition. An incomplete setup
 /// leaves every record for native retry; no transport receipt is used as command identity.
+/// `custody` holds commands that can never apply, normally the queue's own dead-letter queue.
 pub async fn handle_invocation<F, Fut>(
     event: LambdaEvent<SqsEvent>,
+    custody: &impl FailureCustody,
     setup: F,
 ) -> Result<SqsBatchResponse, Error>
 where
@@ -73,7 +78,9 @@ where
         setup,
         |event, use_case, budget| {
             setup_ready.set(true);
-            async move { handler_with_invocation_budget(event, use_case.as_ref(), &budget).await }
+            async move {
+                handler_with_invocation_budget(event, use_case.as_ref(), custody, &budget).await
+            }
         },
     )
     .await;
@@ -90,19 +97,22 @@ where
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn ProcessProductListingIngestionUseCase + Send + Sync),
+    custody: &impl FailureCustody,
 ) -> Result<SqsBatchResponse, Error> {
     let budget = invocation_budget(&event.context);
-    handler_with_invocation_budget(event, use_case, &budget).await
+    handler_with_invocation_budget(event, use_case, custody, &budget).await
 }
 
 pub async fn handler_with_invocation_budget(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn ProcessProductListingIngestionUseCase + Send + Sync),
+    custody: &impl FailureCustody,
     budget: &LambdaInvocationBudget,
 ) -> Result<SqsBatchResponse, Error> {
     handler_with_budget(
         event,
         use_case,
+        custody,
         budget.remaining(),
         MAX_RECORD_PROCESSING_BUDGET,
     )
@@ -112,112 +122,153 @@ pub async fn handler_with_invocation_budget(
 async fn handler_with_budget(
     event: LambdaEvent<SqsEvent>,
     use_case: &(dyn ProcessProductListingIngestionUseCase + Send + Sync),
+    custody: &impl FailureCustody,
     remaining: Duration,
     per_record_cap: Duration,
 ) -> Result<SqsBatchResponse, Error> {
     let record_count = event.payload.records.len();
-    let mut attempted = 0;
     let correlation = RefCell::new(None);
-    let response = process_fifo_batch(
+    let outcome = process_fifo_batch(
         event,
         remaining,
         per_record_cap,
+        custody,
         |body| {
             let correlation = &correlation;
             async move { process_ingestion_job(&body, use_case, correlation).await }
         },
         |attempt| {
-            attempted += 1;
-            let (complete, category) = match &attempt.outcome {
-                RecordOutcome::Completed(JobDisposition::Complete(category)) => (true, *category),
-                RecordOutcome::Completed(JobDisposition::Failed(category)) => (false, *category),
-                RecordOutcome::MissingBody => (false, "missing_message_body"),
-                RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-                RecordOutcome::TimedOut => (false, "execution_timeout"),
-                RecordOutcome::Panicked => (false, "handler_panicked"),
+            let (disposition, category) = match &attempt.outcome {
+                RecordOutcome::Completed(JobDisposition::Complete(category)) => {
+                    (AttemptDisposition::Completed, *category)
+                }
+                RecordOutcome::Completed(JobDisposition::Rejected(category)) => {
+                    (AttemptDisposition::Rejected, *category)
+                }
+                RecordOutcome::Completed(JobDisposition::Unprocessable(category)) => {
+                    (AttemptDisposition::Unprocessable, *category)
+                }
+                RecordOutcome::Completed(JobDisposition::Failed(category)) => {
+                    (AttemptDisposition::Retained, *category)
+                }
+                RecordOutcome::MissingBody => {
+                    (AttemptDisposition::Retained, "missing_message_body")
+                }
+                RecordOutcome::InsufficientBudget => (
+                    AttemptDisposition::Retained,
+                    "insufficient_invocation_budget",
+                ),
+                RecordOutcome::TimedOut => (AttemptDisposition::Retained, "execution_timeout"),
+                RecordOutcome::Panicked => (AttemptDisposition::Retained, "handler_panicked"),
             };
             let command = correlation.borrow_mut().take();
-            let sqs_message_id = safe_sqs_message_id(&attempt.message_id).unwrap_or("invalid");
-            let duration_ms = attempt.duration.as_millis();
-            match (complete, command.as_ref()) {
-                (true, Some(command)) => {
-                    IngestionMetricOutcome::Completed.emit();
-                    info!(
-                        outcome = category,
-                        sqs_message_id,
-                        duration_ms,
-                        command_id = %command.command_id,
-                        submission_id = %command.submission_id,
-                        listing_source_id = %command.listing_source_id,
-                        request_id = command.request_id.as_deref().unwrap_or(""),
-                        correlation_id = command.correlation_id.as_deref().unwrap_or(""),
-                        operation = command.operation,
-                        item_index = command.index,
-                        "Ingestion command completed"
-                    );
-                }
-                (true, None) => {
-                    IngestionMetricOutcome::Completed.emit();
-                    info!(
-                        outcome = category,
-                        sqs_message_id, duration_ms, "Ingestion command completed"
-                    );
-                }
-                (false, Some(command)) => {
-                    IngestionMetricOutcome::Failed.emit();
-                    warn!(
-                        error_code = category,
-                        sqs_message_id,
-                        duration_ms,
-                        command_id = %command.command_id,
-                        submission_id = %command.submission_id,
-                        listing_source_id = %command.listing_source_id,
-                        request_id = command.request_id.as_deref().unwrap_or(""),
-                        correlation_id = command.correlation_id.as_deref().unwrap_or(""),
-                        operation = command.operation,
-                        item_index = command.index,
-                        "Ingestion command retained for retry"
-                    );
-                }
-                (false, None) => {
-                    IngestionMetricOutcome::Failed.emit();
-                    warn!(
-                        error_code = category,
-                        sqs_message_id, duration_ms, "Ingestion command retained for retry"
-                    );
-                }
-            }
-            complete
+            log_attempt(
+                disposition,
+                category,
+                command.as_ref(),
+                safe_message_id(&attempt.message_id).unwrap_or("invalid"),
+                attempt.duration.as_millis(),
+            );
+            disposition.fifo_disposition()
         },
     )
     .await?;
-    let unprocessed_count = record_count - attempted;
-    let suffix_start = response.batch_item_failures.len() - unprocessed_count;
-    for failure in response.batch_item_failures.iter().skip(suffix_start) {
-        log_unprocessed(&failure.item_identifier);
+    for message_id in &outcome.unprocessed_message_ids {
+        log_unprocessed(message_id);
     }
     info!(
         sqs_message_count = record_count,
-        failed_sqs_message_count = response.batch_item_failures.len(),
+        failed_sqs_message_count = outcome.response.batch_item_failures.len(),
         "Finished ProductListing ingestion batch"
     );
-    Ok(response)
+    Ok(outcome.response)
 }
 
-// SQS supplies UUID message IDs; don't interpolate arbitrary event strings into diagnostics.
-// The original ID is still returned unchanged in the partial-batch response.
-fn safe_sqs_message_id(id: &str) -> Option<&str> {
-    (!id.is_empty()
-        && id.len() <= 128
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
-    .then_some(id)
+/// How one attempted record leaves the queue.
+#[derive(Clone, Copy)]
+enum AttemptDisposition {
+    Completed,
+    /// A deterministic business rejection: acknowledged without a receipt so it cannot hold
+    /// its FIFO group. The producer must resubmit corrected input.
+    Rejected,
+    /// An invalid job, identity conflict or invalid persisted state: parked in failure custody
+    /// on redelivery so later commands of its group can continue.
+    Unprocessable,
+    Retained,
+}
+
+impl AttemptDisposition {
+    const fn fifo_disposition(self) -> FifoDisposition {
+        match self {
+            Self::Completed | Self::Rejected => FifoDisposition::Complete,
+            Self::Unprocessable => FifoDisposition::Park,
+            Self::Retained => FifoDisposition::Retain,
+        }
+    }
+
+    const fn metric(self) -> IngestionMetricOutcome {
+        match self {
+            Self::Completed => IngestionMetricOutcome::Completed,
+            Self::Rejected => IngestionMetricOutcome::Rejected,
+            Self::Unprocessable => IngestionMetricOutcome::Unprocessable,
+            Self::Retained => IngestionMetricOutcome::Failed,
+        }
+    }
+}
+
+fn log_attempt(
+    disposition: AttemptDisposition,
+    category: &'static str,
+    command: Option<&CommandCorrelation>,
+    sqs_message_id: &str,
+    duration_ms: u128,
+) {
+    // tracing needs a literal level and message per call site; this writes the shared
+    // correlation fields once for every disposition.
+    macro_rules! log_with_command {
+        ($level:ident, $category:ident, $message:literal) => {
+            match command {
+                Some(command) => $level!(
+                    $category = category,
+                    sqs_message_id,
+                    duration_ms,
+                    command_id = %command.command_id,
+                    submission_id = %command.submission_id,
+                    listing_source_id = %command.listing_source_id,
+                    request_id = command.request_id.as_deref().unwrap_or(""),
+                    correlation_id = command.correlation_id.as_deref().unwrap_or(""),
+                    operation = command.operation,
+                    item_index = command.index,
+                    $message
+                ),
+                None => $level!($category = category, sqs_message_id, duration_ms, $message),
+            }
+        };
+    }
+    disposition.metric().emit();
+    match disposition {
+        AttemptDisposition::Completed => {
+            log_with_command!(info, outcome, "Ingestion command completed")
+        }
+        AttemptDisposition::Rejected => {
+            log_with_command!(warn, error_code, "Ingestion command rejected without retry")
+        }
+        AttemptDisposition::Unprocessable => {
+            log_with_command!(
+                warn,
+                error_code,
+                "Ingestion command cannot apply as delivered"
+            )
+        }
+        AttemptDisposition::Retained => {
+            log_with_command!(warn, error_code, "Ingestion command retained for retry")
+        }
+    }
 }
 
 fn log_unprocessed(message_id: &str) {
     IngestionMetricOutcome::Unprocessed.emit();
-    let sqs_message_id = safe_sqs_message_id(message_id).unwrap_or("invalid");
+    let sqs_message_id = safe_message_id(message_id).unwrap_or("invalid");
     info!(
         outcome = "unprocessed",
         sqs_message_id,
@@ -250,6 +301,8 @@ struct CommandCorrelation {
 #[derive(Clone, Copy)]
 enum IngestionMetricOutcome {
     Completed,
+    Rejected,
+    Unprocessable,
     Failed,
     Unprocessed,
 }
@@ -260,6 +313,8 @@ impl IngestionMetricOutcome {
     const fn json(self) -> &'static str {
         match self {
             Self::Completed => r#"{"ingestion_outcome":"completed"}"#,
+            Self::Rejected => r#"{"ingestion_outcome":"rejected"}"#,
+            Self::Unprocessable => r#"{"ingestion_outcome":"unprocessable"}"#,
             Self::Failed => r#"{"ingestion_outcome":"failed"}"#,
             Self::Unprocessed => r#"{"ingestion_outcome":"unprocessed"}"#,
         }
@@ -273,6 +328,8 @@ impl IngestionMetricOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JobDisposition {
     Complete(&'static str),
+    Rejected(&'static str),
+    Unprocessable(&'static str),
     Failed(&'static str),
 }
 
@@ -284,7 +341,7 @@ async fn process_ingestion_job(
     let envelope =
         match codec::decode(body).and_then(codec::IngestionEnvelopeV1::into_service_envelope) {
             Ok(envelope) => envelope,
-            Err(_) => return JobDisposition::Failed("invalid_wire_command"),
+            Err(_) => return JobDisposition::Unprocessable("invalid_wire_command"),
         };
     let metadata = &envelope.message.metadata;
     correlation.replace(Some(CommandCorrelation {
@@ -301,7 +358,17 @@ async fn process_ingestion_job(
         Ok(ProductListingIngestionCompletion::AlreadyCompleted) => {
             JobDisposition::Complete("already_completed")
         }
-        Err(error) => JobDisposition::Failed(error.diagnostic_code()),
+        Err(error) => match error.failure_class() {
+            ProductListingIngestionFailureClass::BusinessRejection => {
+                JobDisposition::Rejected(error.diagnostic_code())
+            }
+            ProductListingIngestionFailureClass::Unprocessable => {
+                JobDisposition::Unprocessable(error.diagnostic_code())
+            }
+            ProductListingIngestionFailureClass::Retryable => {
+                JobDisposition::Failed(error.diagnostic_code())
+            }
+        },
     }
 }
 
@@ -310,6 +377,7 @@ mod tests {
     use super::*;
     use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
+    use platform_lambda_sqs::{FailureCustodyError, ParkedRecord};
     use product_listing_service::{
         ports::{ProductListingCommandReceiptError, ProductListingRawStreamId},
         use_cases::{
@@ -449,6 +517,45 @@ mod tests {
         LambdaEvent::new(payload, context)
     }
 
+    /// Records as `(message ID, group ID, body)`, all delivered `receive_count` times.
+    fn delivered_event(
+        records: &[(&str, &str, &str)],
+        receive_count: u32,
+    ) -> LambdaEvent<SqsEvent> {
+        let mut delivered = event(
+            &records
+                .iter()
+                .map(|(id, _, body)| (Some(*id), Some(*body)))
+                .collect::<Vec<_>>(),
+        );
+        for (record, (_, group_id, _)) in delivered.payload.records.iter_mut().zip(records) {
+            record
+                .attributes
+                .insert("MessageGroupId".to_owned(), (*group_id).to_owned());
+            record.attributes.insert(
+                "ApproximateReceiveCount".to_owned(),
+                receive_count.to_string(),
+            );
+        }
+        delivered
+    }
+
+    #[derive(Default)]
+    struct RecordingCustody(Mutex<Vec<ParkedRecord>>);
+
+    impl RecordingCustody {
+        fn parked(&self) -> Vec<ParkedRecord> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    impl FailureCustody for RecordingCustody {
+        async fn park(&self, record: &ParkedRecord) -> Result<String, FailureCustodyError> {
+            self.0.lock().unwrap().push(record.clone());
+            Ok("custody-message".to_owned())
+        }
+    }
+
     fn failure_ids(response: SqsBatchResponse) -> Vec<String> {
         response
             .batch_item_failures
@@ -503,6 +610,8 @@ mod tests {
     fn metric_lines_have_only_the_root_level_cdk_outcome_field() {
         for (outcome, value) in [
             (IngestionMetricOutcome::Completed, "completed"),
+            (IngestionMetricOutcome::Rejected, "rejected"),
+            (IngestionMetricOutcome::Unprocessable, "unprocessable"),
             (IngestionMetricOutcome::Failed, "failed"),
             (IngestionMetricOutcome::Unprocessed, "unprocessed"),
         ] {
@@ -510,17 +619,6 @@ mod tests {
             assert_eq!(object.as_object().unwrap().len(), 1);
             assert_eq!(object["ingestion_outcome"].as_str(), Some(value));
         }
-    }
-
-    #[test]
-    fn only_bounded_sqs_identifiers_are_written_to_diagnostics() {
-        for id in ["sqs-1", "123e4567-e89b-12d3-a456-426614174000"] {
-            assert_eq!(safe_sqs_message_id(id), Some(id));
-        }
-        for id in ["", "a\nsecret", "arn:secret", "with space"] {
-            assert_eq!(safe_sqs_message_id(id), None);
-        }
-        assert_eq!(safe_sqs_message_id(&"x".repeat(129)), None);
     }
 
     #[test]
@@ -547,7 +645,7 @@ mod tests {
         let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
         let create = golden_body(0);
         let update = golden_body(1);
-        let use_case = FakeUseCase::new([Mode::Applied, Mode::Complete, Mode::MissingTarget]);
+        let use_case = FakeUseCase::new([Mode::Applied, Mode::Complete, Mode::ReceiptFailure]);
         let response = handler(
             event(&[
                 (Some("sqs-1"), Some(&create)),
@@ -556,6 +654,7 @@ mod tests {
                 (Some("sqs-4"), Some(&create)),
             ]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .unwrap();
@@ -575,7 +674,7 @@ mod tests {
         let expected = [
             ("sqs-1", "applied", None),
             ("sqs-2", "already_completed", None),
-            ("sqs-3", "", Some("UPDATE_NOT_FOUND")),
+            ("sqs-3", "", Some("RECEIPT_OPERATION_FAILED")),
         ];
         for (fields, (sqs_id, outcome, error_code)) in attempted.iter().zip(expected) {
             assert_eq!(
@@ -635,20 +734,124 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn captured_logs_distinguish_forbidden_receipt_and_unconfirmed_commit_without_causes() {
-        let body = golden_body(1);
+    async fn should_acknowledge_business_rejections_without_blocking_successors() {
+        let update = golden_body(1);
+        let create = golden_body(0);
         for (mode, expected) in [
             (Mode::MissingTarget, "UPDATE_NOT_FOUND"),
             (Mode::Forbidden, "UPDATE_FORBIDDEN"),
+        ] {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
+            let use_case = FakeUseCase::new([mode, Mode::Applied]);
+            let response = handler(
+                event(&[
+                    (Some("rejected"), Some(&update)),
+                    (Some("next"), Some(&create)),
+                ]),
+                &use_case,
+                &RecordingCustody::default(),
+            )
+            .await
+            .unwrap();
+            drop(guard);
+            assert!(failure_ids(response).is_empty(), "{expected}");
+            assert_eq!(use_case.calls(), 2);
+            let records = events.lock().unwrap();
+            let rejection = records
+                .iter()
+                .find(|fields| fields.get("error_code").is_some_and(|v| v == expected))
+                .unwrap();
+            assert_eq!(
+                rejection.get("message").map(String::as_str),
+                Some("Ingestion command rejected without retry")
+            );
+            assert_eq!(
+                rejection.get("command_id").map(String::as_str),
+                Some(codec::decode(&update).unwrap().command_id())
+            );
+            assert!(!format!("{records:?}").contains("SENTINEL_ERROR_TEXT"));
+        }
+    }
+
+    #[tokio::test]
+    async fn should_park_an_unprocessable_redelivery_and_run_the_rest_of_its_group() {
+        let body = valid_body();
+        let records = [
+            ("conflict", "listing", body.as_str()),
+            ("next", "listing", body.as_str()),
+            ("unreadable", "other", "not-json"),
+        ];
+        let custody = RecordingCustody::default();
+        let use_case = FakeUseCase::new([Mode::Conflict]);
+        let response = handler(delivered_event(&records, 1), &use_case, &custody)
+            .await
+            .unwrap();
+        assert_eq!(failure_ids(response), ["conflict", "next", "unreadable"]);
+        assert_eq!(use_case.calls(), 1);
+        assert!(custody.parked().is_empty());
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
+        let use_case = FakeUseCase::new([Mode::Conflict, Mode::Applied]);
+        let response = handler(delivered_event(&records, 2), &use_case, &custody)
+            .await
+            .unwrap();
+        drop(guard);
+        assert!(failure_ids(response).is_empty());
+        assert_eq!(use_case.calls(), 2);
+        assert_eq!(
+            custody.parked(),
+            [
+                ParkedRecord {
+                    message_id: "conflict".to_owned(),
+                    message_group_id: "listing".to_owned(),
+                    body: body.clone(),
+                },
+                ParkedRecord {
+                    message_id: "unreadable".to_owned(),
+                    message_group_id: "other".to_owned(),
+                    body: "not-json".to_owned(),
+                },
+            ]
+        );
+        let records = events.lock().unwrap();
+        let conflict = records
+            .iter()
+            .find(|fields| {
+                fields
+                    .get("error_code")
+                    .is_some_and(|v| v == "FINGERPRINT_CONFLICT")
+            })
+            .unwrap();
+        assert_eq!(
+            conflict.get("message").map(String::as_str),
+            Some("Ingestion command cannot apply as delivered")
+        );
+        assert_eq!(
+            conflict.get("command_id").map(String::as_str),
+            Some(codec::decode(&body).unwrap().command_id())
+        );
+        assert!(!format!("{records:?}").contains("not-json"));
+    }
+
+    #[tokio::test]
+    async fn captured_logs_distinguish_receipt_and_unconfirmed_commit_without_causes() {
+        let body = golden_body(1);
+        for (mode, expected) in [
             (Mode::ReceiptFailure, "RECEIPT_OPERATION_FAILED"),
             (Mode::CommitUnknown, "COMMIT_UNCONFIRMED"),
         ] {
             let events = Arc::new(Mutex::new(Vec::new()));
             let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
             let use_case = FakeUseCase::new([mode]);
-            let response = handler(event(&[(Some("failed"), Some(&body))]), &use_case)
-                .await
-                .unwrap();
+            let response = handler(
+                event(&[(Some("failed"), Some(&body))]),
+                &use_case,
+                &RecordingCustody::default(),
+            )
+            .await
+            .unwrap();
             drop(guard);
             assert_eq!(failure_ids(response), ["failed"]);
             let records = events.lock().unwrap();
@@ -680,9 +883,13 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
         let use_case = FakeUseCase::new([Mode::Complete]);
-        let response = handler(event(&[(Some("sqs-ok"), Some(&unsafe_trace))]), &use_case)
-            .await
-            .unwrap();
+        let response = handler(
+            event(&[(Some("sqs-ok"), Some(&unsafe_trace))]),
+            &use_case,
+            &RecordingCustody::default(),
+        )
+        .await
+        .unwrap();
         drop(guard);
         assert!(failure_ids(response).is_empty());
         {
@@ -716,6 +923,7 @@ mod tests {
                 (Some("later"), Some(&unsafe_trace)),
             ]),
             &no_calls,
+            &RecordingCustody::default(),
         )
         .await
         .unwrap();
@@ -775,6 +983,7 @@ mod tests {
             let response = handler_with_budget(
                 event(&[(Some("bad"), invalid), (Some("later"), Some(&body))]),
                 &no_calls,
+                &RecordingCustody::default(),
                 budget,
                 Duration::from_millis(10),
             )
@@ -830,6 +1039,7 @@ mod tests {
             let response = handler_with_budget(
                 event(&[(Some("failed"), Some(&body)), (Some("suffix"), Some(&body))]),
                 &use_case,
+                &RecordingCustody::default(),
                 Duration::from_millis(15),
                 Duration::from_millis(10),
             )
@@ -873,14 +1083,14 @@ mod tests {
         let invalid = FakeUseCase::new([]);
         assert_eq!(
             process_ingestion_job("not-json", &invalid, &correlation).await,
-            JobDisposition::Failed("invalid_wire_command")
+            JobDisposition::Unprocessable("invalid_wire_command")
         );
         assert!(correlation.borrow().is_none());
         let mut tampered: serde_json::Value = serde_json::from_str(&valid_body()).unwrap();
         tampered["semanticFingerprint"] = serde_json::json!("0".repeat(64));
         assert_eq!(
             process_ingestion_job(&tampered.to_string(), &invalid, &correlation).await,
-            JobDisposition::Failed("invalid_wire_command")
+            JobDisposition::Unprocessable("invalid_wire_command")
         );
         assert!(correlation.borrow().is_none());
 
@@ -889,7 +1099,7 @@ mod tests {
         let use_case = FakeUseCase::new([Mode::MissingTarget]);
         assert_eq!(
             process_ingestion_job(&body, &use_case, &correlation).await,
-            JobDisposition::Failed("UPDATE_NOT_FOUND")
+            JobDisposition::Rejected("UPDATE_NOT_FOUND")
         );
         let command = correlation.borrow_mut().take().unwrap();
         assert_eq!(command.command_id, decoded.command_id());
@@ -900,7 +1110,7 @@ mod tests {
         let use_case = FakeUseCase::new([Mode::Conflict]);
         assert_eq!(
             process_ingestion_job(&body, &use_case, &correlation).await,
-            JobDisposition::Failed("FINGERPRINT_CONFLICT")
+            JobDisposition::Unprocessable("FINGERPRINT_CONFLICT")
         );
         correlation.borrow_mut().take();
 
@@ -926,6 +1136,7 @@ mod tests {
         let response = handler(
             event(&[(Some("sqs-1"), Some(&body)), (Some("sqs-2"), Some(&body))]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .unwrap();
@@ -954,6 +1165,7 @@ mod tests {
                 (Some("three"), Some(&other_group)),
             ]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .unwrap();
@@ -971,14 +1183,26 @@ mod tests {
         ];
         let first_failure = FakeUseCase::new([Mode::Failure]);
         assert_eq!(
-            failure_ids(handler(event(&records), &first_failure).await.unwrap()),
+            failure_ids(
+                handler(
+                    event(&records),
+                    &first_failure,
+                    &RecordingCustody::default()
+                )
+                .await
+                .unwrap()
+            ),
             ["first", "middle", "last"]
         );
         assert_eq!(first_failure.calls(), 1);
 
         let last_failure = FakeUseCase::new([Mode::Applied, Mode::Complete, Mode::Failure]);
         assert_eq!(
-            failure_ids(handler(event(&records), &last_failure).await.unwrap()),
+            failure_ids(
+                handler(event(&records), &last_failure, &RecordingCustody::default())
+                    .await
+                    .unwrap()
+            ),
             ["last"]
         );
         assert_eq!(last_failure.calls(), 3);
@@ -998,6 +1222,7 @@ mod tests {
         let response = handler(
             event(&[(Some("redelivered"), Some(&old)), (Some("new"), Some(&new))]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .unwrap();
@@ -1019,6 +1244,7 @@ mod tests {
         let response = handler(
             event(&[(Some("unknown"), Some(&body)), (Some("later"), Some(&body))]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .unwrap();
@@ -1034,6 +1260,7 @@ mod tests {
             let response = handler(
                 event(&[(Some("bad"), invalid), (Some("later"), Some(&body))]),
                 &use_case,
+                &RecordingCustody::default(),
             )
             .await
             .unwrap();
@@ -1046,6 +1273,7 @@ mod tests {
         let response = handler(
             event(&[(Some("bad"), Some(&tampered.to_string()))]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .unwrap();
@@ -1064,6 +1292,7 @@ mod tests {
                 (Some("unprocessed"), Some(&body)),
             ]),
             &use_case,
+            &RecordingCustody::default(),
         )
         .await
         .unwrap();
@@ -1080,7 +1309,9 @@ mod tests {
             .map(|id| (Some(id.as_str()), Some(body.as_str())))
             .collect();
         let use_case = FakeUseCase::new([Mode::Complete; 10]);
-        let response = handler(event(&records), &use_case).await.unwrap();
+        let response = handler(event(&records), &use_case, &RecordingCustody::default())
+            .await
+            .unwrap();
         assert!(failure_ids(response).is_empty());
         assert_eq!(use_case.calls(), 10);
     }
@@ -1093,6 +1324,7 @@ mod tests {
             let response = handler_with_budget(
                 event(&[(Some("bad"), Some(&body)), (Some("later"), Some(&body))]),
                 &use_case,
+                &RecordingCustody::default(),
                 Duration::from_millis(15),
                 Duration::from_millis(10),
             )
@@ -1105,6 +1337,7 @@ mod tests {
         let response = handler_with_budget(
             event(&[(Some("bad"), Some(&body)), (Some("later"), Some(&body))]),
             &use_case,
+            &RecordingCustody::default(),
             Duration::ZERO,
             Duration::from_secs(1),
         )
@@ -1133,7 +1366,7 @@ mod tests {
         ] {
             let calls = AtomicUsize::new(0);
             assert!(
-                handle_invocation(event(&records), || {
+                handle_invocation(event(&records), &RecordingCustody::default(), || {
                     calls.fetch_add(1, Ordering::SeqCst);
                     async { Err(Error::from("should not be called")) }
                 })
@@ -1147,7 +1380,7 @@ mod tests {
     #[tokio::test]
     async fn empty_and_expired_invocations_do_not_start_setup() {
         let calls = AtomicUsize::new(0);
-        let empty = handle_invocation(event(&[]), || {
+        let empty = handle_invocation(event(&[]), &RecordingCustody::default(), || {
             calls.fetch_add(1, Ordering::SeqCst);
             async { Err(Error::from("must not run")) }
         })
@@ -1158,7 +1391,7 @@ mod tests {
         let body = valid_body();
         let mut expired = event(&[(Some("first"), Some(&body))]);
         expired.context.deadline = 0;
-        let response = handle_invocation(expired, || {
+        let response = handle_invocation(expired, &RecordingCustody::default(), || {
             calls.fetch_add(1, Ordering::SeqCst);
             async { Err(Error::from("must not run")) }
         })
@@ -1178,7 +1411,7 @@ mod tests {
                 .unwrap()
                 .as_millis() as u64
                 + 5_030;
-            let response = handle_invocation(input, move || {
+            let response = handle_invocation(input, &RecordingCustody::default(), move || {
                 if mode == "construction_panic" {
                     panic!("private setup construction detail");
                 }
@@ -1202,6 +1435,7 @@ mod tests {
         let use_case = Arc::new(FakeUseCase::new([Mode::Complete, Mode::Complete]));
         let response = handle_invocation(
             event(&[(Some("first"), Some(&body)), (Some("second"), Some(&body))]),
+            &RecordingCustody::default(),
             || async {
                 let use_case: Arc<dyn ProcessProductListingIngestionUseCase> = use_case.clone();
                 Ok(use_case)

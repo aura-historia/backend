@@ -46,10 +46,12 @@ cannot run later; revokes must not expire into permission to send.
 
 The worker claims the **specific** queued intent in a short transaction, rechecks the
 latest decision/address ownership before provider I/O, and rechecks/finalizes under the
-same lease afterward. Active claims, missing intents and uncertain commits do not
-acknowledge. If a grant races withdrawal, the coordinator must durably confirm or schedule
-corrective revoke work before acknowledging—even when retry finds the original grant
-already `BLOCKED`. Compensation must not overwrite a newer grant or a reassigned address.
+same lease afterward. Active claims and uncertain commits do not acknowledge. A missing
+intent or undecodable job can never complete, because a job never recreates its intent: when
+it is delivered again it moves to the queue's DLQ and later intents of the recipient continue.
+If a grant races withdrawal, the coordinator must durably confirm or schedule corrective
+revoke work before acknowledging—even when retry finds the original grant already
+`BLOCKED`. Compensation must not overwrite a newer grant or a reassigned address.
 
 Loops contacts are addressed by exact email, without plus-tag/dot folding or provider
 `userId` lookup. Aura metadata is not identity. Use the same configured single-purpose

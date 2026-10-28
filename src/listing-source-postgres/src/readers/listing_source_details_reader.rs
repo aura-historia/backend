@@ -1,7 +1,9 @@
 use super::{SqlxListingSourceReaders, invalid_read, read_error};
 use application::error::box_error;
 use domain_primitives::object_id::ObjectIdError;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{
+    ListingSourceId, ListingSourceName, ListingSourceSlugId, PlatformTechnology,
+};
 use listing_source_service::ports::{
     ListingSourceDetails, ListingSourceDetailsReader, ListingSourceReadError,
 };
@@ -18,6 +20,7 @@ struct DetailRow {
     party_slug_id: String,
     operator_name: String,
     methods: Vec<String>,
+    platform_technology: Option<String>,
     url: Option<String>,
     image: Option<String>,
     created: OffsetDateTime,
@@ -52,6 +55,11 @@ fn detail(row: DetailRow) -> Result<ListingSourceDetails, ListingSourceReadError
                 source: box_error(error),
             }
         })?,
+        platform_technology: row
+            .platform_technology
+            .map(PlatformTechnology::try_from)
+            .transpose()
+            .map_err(invalid_read)?,
         ingestion_methods: row
             .methods
             .into_iter()
@@ -87,8 +95,8 @@ enum InvalidDetailObjectId {
     OperatorParty(#[source] ObjectIdError),
 }
 
-const DETAIL_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_id=$1 GROUP BY s.listing_source_id,p.party_id";
-const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_slug_id=$1 GROUP BY s.listing_source_id,p.party_id";
+const DETAIL_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_id=$1 GROUP BY s.listing_source_id,p.party_id";
+const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_slug_id=$1 GROUP BY s.listing_source_id,p.party_id";
 
 #[async_trait::async_trait]
 impl ListingSourceDetailsReader for SqlxListingSourceReaders {
@@ -133,6 +141,7 @@ mod tests {
             party_slug_id: "operator".to_owned(),
             operator_name: "Operator".to_owned(),
             methods: Vec::new(),
+            platform_technology: None,
             url: None,
             image: None,
             created: datetime!(2026-01-01 00:00 UTC),
@@ -148,5 +157,12 @@ mod tests {
     #[test]
     fn should_reject_wrong_version_operator_party_id() {
         assert!(detail(row(uuid::Uuid::now_v7(), uuid::Uuid::new_v4())).is_err());
+    }
+
+    #[test]
+    fn should_reject_noncanonical_persisted_platform_technology() {
+        let mut invalid = row(uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+        invalid.platform_technology = Some("shopify".to_owned());
+        assert!(detail(invalid).is_err());
     }
 }

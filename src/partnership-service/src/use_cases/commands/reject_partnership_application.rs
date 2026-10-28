@@ -1029,6 +1029,7 @@ mod tests {
                 url: None,
                 image: None,
             },
+            platform_technology: None,
             referral_configuration: None,
         });
         let party_version = PartyStorageVersion::try_from(1_i64)

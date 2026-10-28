@@ -4,7 +4,7 @@ use platform_lambda_bootstrap::{
     LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease, log_cold_start,
     log_invocation_start, logging_config_from_env,
 };
-use platform_lambda_sqs::handle_fifo_sqs_invocation;
+use platform_lambda_sqs::{SqsDeadLetterCustody, handle_fifo_sqs_invocation};
 use platform_observability::init;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use std::{future::Future, sync::Arc, time::Instant};
@@ -25,6 +25,7 @@ async fn main() -> Result<(), Error> {
     let credentials = postgres_credentials_provider_from_env()
         .await
         .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
+    let custody = SqsDeadLetterCustody::from_env().await?;
     let use_cases = Arc::new(VersionedCompositionCache::new());
 
     log_cold_start("marketing-consent-sync-lambda", initialization_started_at);
@@ -33,9 +34,10 @@ async fn main() -> Result<(), Error> {
         let loops = loops.clone();
         let credentials = Arc::clone(&credentials);
         let use_cases = Arc::clone(&use_cases);
+        let custody = custody.clone();
         async move {
             log_invocation_start("marketing-consent-sync-lambda", &event.context);
-            handle_invocation(event, move || async move {
+            handle_invocation(event, &custody, move || async move {
                 let credentials = credentials
                     .current()
                     .await
@@ -63,6 +65,7 @@ type SyncUseCaseLease = VersionedCompositionLease<SyncUseCase>;
 
 async fn handle_invocation<F, Fut>(
     event: LambdaEvent<SqsEvent>,
+    custody: &SqsDeadLetterCustody,
     setup: F,
 ) -> Result<aws_lambda_events::sqs::SqsBatchResponse, Error>
 where
@@ -75,7 +78,7 @@ where
         invocation_budget,
         setup,
         |event, use_case, budget| async move {
-            handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
+            handler_with_invocation_budget(event, use_case.value().as_ref(), custody, &budget).await
         },
     )
     .await

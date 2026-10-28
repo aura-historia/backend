@@ -2,6 +2,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
 use lambda_runtime::{Context, LambdaEvent};
 use listing_source_core::ListingSourceId;
+use platform_lambda_sqs::{FailureCustody, FailureCustodyError, ParkedRecord};
 use product_listing_core::{
     product_listing_id::ProductListingKey, source_listing_id::SourceListingId,
 };
@@ -51,6 +52,15 @@ impl ProcessProductListingIngestionUseCase for RecordingProcessor {
     }
 }
 
+/// Every record here is a first delivery, which is never parked.
+struct NoCustody;
+
+impl FailureCustody for NoCustody {
+    async fn park(&self, _: &ParkedRecord) -> Result<String, FailureCustodyError> {
+        panic!("a first delivery must not move to failure custody")
+    }
+}
+
 #[derive(Clone, Default)]
 struct CapturingPublisher(Arc<Mutex<Vec<ProductListingIngestionMessage>>>);
 
@@ -90,6 +100,14 @@ fn event(bodies: &[String]) -> LambdaEvent<SqsEvent> {
             let mut record = SqsMessage::default();
             record.message_id = Some(format!("sqs-{index}"));
             record.body = Some(body.clone());
+            // SQS supplies the group the publisher assigned; undecodable bodies have none.
+            if let Ok(group_id) =
+                codec::decode(body).and_then(|envelope| codec::fifo_group_id(&envelope))
+            {
+                record
+                    .attributes
+                    .insert("MessageGroupId".to_owned(), group_id);
+            }
             record
         })
         .collect();
@@ -103,18 +121,17 @@ fn event(bodies: &[String]) -> LambdaEvent<SqsEvent> {
 }
 
 #[tokio::test]
-async fn confirmed_prefix_is_not_retried_and_failed_suffix_never_starts() {
+async fn failed_record_retains_only_its_group_and_never_starts_its_successors() {
     let bodies = fixture_bodies();
     let command_ids: Vec<_> = bodies
         .iter()
         .map(|body| codec::decode(body).unwrap().command_id().to_owned())
         .collect();
-    // The unprocessed suffix includes a different FIFO group: a batch-level stop
-    // must not start its work just because its group is independent.
-    assert_ne!(
-        codec::fifo_group_id(&codec::decode(&bodies[0]).unwrap()).unwrap(),
-        codec::fifo_group_id(&codec::decode(&bodies[4]).unwrap()).unwrap()
-    );
+    // Fixtures 0-3 address one listing; the raw capture 4 is an independent FIFO group.
+    let group =
+        |index: usize| codec::fifo_group_id(&codec::decode(&bodies[index]).unwrap()).unwrap();
+    assert!((1..4).all(|index| group(index) == group(0)));
+    assert_ne!(group(0), group(4));
     let ten: Vec<_> = (0..10)
         .map(|index| bodies[index % bodies.len()].clone())
         .collect();
@@ -122,33 +139,46 @@ async fn confirmed_prefix_is_not_retried_and_failed_suffix_never_starts() {
         seen: Mutex::new(Vec::new()),
         fail_command: Some(command_ids[1].clone()),
     };
-    let response = handler(event(&ten), &processor).await.unwrap();
+    let response = handler(event(&ten), &processor, &NoCustody).await.unwrap();
     let failures: Vec<_> = response
         .batch_item_failures
         .into_iter()
         .map(|failure| failure.item_identifier)
         .collect();
+    let retained = [1, 2, 3, 5, 6, 7, 8];
     assert_eq!(
         failures,
-        (1..10)
+        retained
+            .iter()
             .map(|index| format!("sqs-{index}"))
             .collect::<Vec<_>>()
     );
-    assert_eq!(*processor.seen.lock().unwrap(), command_ids[..2]);
+    assert_eq!(
+        *processor.seen.lock().unwrap(),
+        [
+            command_ids[0].clone(),
+            command_ids[1].clone(),
+            command_ids[4].clone(),
+            command_ids[4].clone()
+        ]
+    );
 
-    // Simulate redelivery of the suffix only. A post-hoc failure filter over a batch
-    // which had already run records 2-9 would fail the assertion above.
+    // Simulate redelivery of the retained records only. A post-hoc failure filter over a
+    // batch which had already run records of the failed group would fail the assertion above.
     let replay = RecordingProcessor {
         seen: Mutex::new(Vec::new()),
         fail_command: None,
     };
-    let response = handler(event(&ten[1..]), &replay).await.unwrap();
+    let redelivered: Vec<_> = retained.iter().map(|index| ten[*index].clone()).collect();
+    let response = handler(event(&redelivered), &replay, &NoCustody)
+        .await
+        .unwrap();
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(replay.seen.lock().unwrap().len(), 9);
+    assert_eq!(replay.seen.lock().unwrap().len(), retained.len());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn real_processor_commits_prefix_and_never_executes_failed_fifo_suffix() {
+async fn real_processor_acknowledges_a_rejected_update_without_blocking_its_group() {
     let pool = get_postgres_client().await;
     let party = uuid::Uuid::now_v7();
     let source = ListingSourceId::new();
@@ -245,15 +275,10 @@ async fn real_processor_commits_prefix_and_never_executes_failed_fifo_suffix() {
         .collect();
 
     let processor = compose_ingestion_use_case(pool.clone());
-    let response = handler(event(&bodies), processor.as_ref()).await.unwrap();
-    assert_eq!(
-        response
-            .batch_item_failures
-            .into_iter()
-            .map(|failure| failure.item_identifier)
-            .collect::<Vec<_>>(),
-        ["sqs-1", "sqs-2", "sqs-3", "sqs-4"]
-    );
+    let response = handler(event(&bodies), processor.as_ref(), &NoCustody)
+        .await
+        .unwrap();
+    assert!(response.batch_item_failures.is_empty());
 
     let listings: Vec<String> = sqlx::query_scalar(
         "SELECT source_listing_id FROM product_listings WHERE listing_source_id = $1 ORDER BY source_listing_id",
@@ -262,7 +287,7 @@ async fn real_processor_commits_prefix_and_never_executes_failed_fifo_suffix() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(listings, ["one"]);
+    assert_eq!(listings, ["four", "missing", "one", "three"]);
     let events: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM product_listing_events WHERE product_listing_id IN (SELECT product_listing_id FROM product_listings WHERE listing_source_id = $1)",
     )
@@ -270,15 +295,22 @@ async fn real_processor_commits_prefix_and_never_executes_failed_fifo_suffix() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(events, 1);
-    let receipts: Vec<String> = sqlx::query_scalar(
+    assert_eq!(events, 4);
+    let mut receipts: Vec<String> = sqlx::query_scalar(
         "SELECT command_id FROM product_listing_command_receipts WHERE listing_source_id = $1",
     )
     .bind(source.as_uuid())
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(receipts, command_ids[..1]);
+    receipts.sort();
+    let mut applied: Vec<_> = [0, 2, 3, 4]
+        .into_iter()
+        .map(|index| command_ids[index].clone())
+        .collect();
+    applied.sort();
+    // The rejected update leaves no receipt, so a corrected resubmission can still apply.
+    assert_eq!(receipts, applied);
 }
 
 #[tokio::test]
@@ -289,14 +321,14 @@ async fn empty_single_and_malformed_first_record_have_exact_failure_boundaries()
         fail_command: None,
     };
     assert!(
-        handler(event(&[]), &processor)
+        handler(event(&[]), &processor, &NoCustody)
             .await
             .unwrap()
             .batch_item_failures
             .is_empty()
     );
     assert!(
-        handler(event(&bodies[..1]), &processor)
+        handler(event(&bodies[..1]), &processor, &NoCustody)
             .await
             .unwrap()
             .batch_item_failures
@@ -306,6 +338,7 @@ async fn empty_single_and_malformed_first_record_have_exact_failure_boundaries()
     let response = handler(
         event(&["not-json".to_owned(), bodies[0].clone()]),
         &processor,
+        &NoCustody,
     )
     .await
     .unwrap();

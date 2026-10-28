@@ -6,6 +6,7 @@ pub mod listing_source_name;
 pub mod listing_source_search;
 pub mod listing_source_slug_id;
 pub mod location_default;
+pub mod platform_technology;
 pub mod referral_configuration;
 pub mod sort_listing_source_field;
 pub mod woocommerce_webhook_secret;
@@ -20,6 +21,7 @@ pub use listing_source_id::ListingSourceId;
 pub use listing_source_name::{ListingSourceName, ListingSourceNameError};
 pub use listing_source_search::ListingSourceSearch;
 pub use listing_source_slug_id::{InvalidListingSourceSlug, ListingSourceSlugId};
+pub use platform_technology::{PlatformTechnology, PlatformTechnologyError};
 pub use referral_configuration::{
     PartnerizeCamref, PartnerizeCamrefError, ReferralConfiguration, ReferralUrlError, outbound_url,
 };

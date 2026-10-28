@@ -85,8 +85,6 @@ pub enum CaptureProductListingRawObservationError {
     SourceRecordKeyHashCollision,
     #[error("provider receipt conflicts with existing source evidence")]
     ProviderReceiptDigestConflict,
-    #[error("provider source order conflicts with existing source evidence")]
-    ProviderSourceOrderConflict,
     #[error("provider source order cannot safely restore a withdrawn listing")]
     ProviderSourceOrderAmbiguous,
     #[error("failed to begin raw product listing capture transaction")]
@@ -485,9 +483,6 @@ fn capture_error_code(error: &CaptureProductListingRawObservationError) -> &'sta
         CaptureProductListingRawObservationError::ProviderReceiptDigestConflict => {
             "PROVIDER_RECEIPT_DIGEST_CONFLICT"
         }
-        CaptureProductListingRawObservationError::ProviderSourceOrderConflict => {
-            "PROVIDER_SOURCE_ORDER_CONFLICT"
-        }
         CaptureProductListingRawObservationError::ProviderSourceOrderAmbiguous => {
             "PROVIDER_SOURCE_ORDER_AMBIGUOUS"
         }
@@ -556,9 +551,6 @@ impl From<ProductListingRawCaptureWriteError> for CaptureProductListingRawObserv
             }
             ProductListingRawCaptureWriteError::ProviderReceiptDigestConflict => {
                 Self::ProviderReceiptDigestConflict
-            }
-            ProductListingRawCaptureWriteError::ProviderSourceOrderConflict => {
-                Self::ProviderSourceOrderConflict
             }
             ProductListingRawCaptureWriteError::ProviderSourceOrderAmbiguous => {
                 Self::ProviderSourceOrderAmbiguous
@@ -630,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn should_map_provider_receipt_conflicts_to_stable_capture_errors() {
+    fn should_map_provider_receipt_conflict_to_stable_capture_error() {
         let digest_conflict = CaptureProductListingRawObservationError::from(
             ProductListingRawCaptureWriteError::ProviderReceiptDigestConflict,
         );
@@ -641,18 +633,6 @@ mod tests {
         assert!(matches!(
             digest_conflict,
             CaptureProductListingRawObservationError::ProviderReceiptDigestConflict
-        ));
-
-        let source_order_conflict = CaptureProductListingRawObservationError::from(
-            ProductListingRawCaptureWriteError::ProviderSourceOrderConflict,
-        );
-        assert_eq!(
-            "PROVIDER_SOURCE_ORDER_CONFLICT",
-            capture_error_code(&source_order_conflict)
-        );
-        assert!(matches!(
-            source_order_conflict,
-            CaptureProductListingRawObservationError::ProviderSourceOrderConflict
         ));
     }
 

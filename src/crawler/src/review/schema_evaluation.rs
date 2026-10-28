@@ -5,18 +5,21 @@ use crate::review::model::{
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
 use crate::scraper::css_selector::product_schema::{
-    ApplySchemaError, ProductCssSelectorSchema, SchemaExtraction,
+    ApplySchemaError, ExtractionLogging, ProductCssSelectorSchema, RawExtractedProduct,
+    SchemaExtraction,
 };
 use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{
     CrossPageFindings, IdentityAgreementFindings, PageExtraction, PlausibilityFindings,
 };
+use crate::scraper::scraper_service::image_validation::filter_image_urls_offline;
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     RemovedPageVerdict, removed_page_verdict_in,
 };
 use scraper::{Html, Selector};
 use std::collections::HashMap;
+use url::Url;
 
 /// A review page as the matrix evaluates it: how the matrix refers to it, its HTML and
 /// the identity its listing was captured under, if known.
@@ -123,14 +126,24 @@ fn evaluate_matrix(
             &html,
         ));
     }
-    for candidate in &mut candidates {
-        add_cross_page_findings(&mut candidate.pages);
-    }
-    SchemaMatrix {
+    let mut matrix = SchemaMatrix {
         review_id,
         candidates,
         removed_page_matches,
         live_evaluation: None,
+    };
+    evaluate_cross_page_findings(&mut matrix);
+    matrix
+}
+
+/// Sets every candidate's cross-page findings from its extractions of the review pages,
+/// replacing the ones a cached matrix was stored with. They depend on the extractions
+/// alone, so a cached matrix is read through this and shows every cross-page check of
+/// this crawler, including one added after it was cached, without fetching the pages
+/// again.
+pub(crate) fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
+    for candidate in &mut matrix.candidates {
+        add_cross_page_findings(&mut candidate.pages);
     }
 }
 
@@ -198,6 +211,7 @@ fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
                 PageExtraction {
                     url: &page.url,
                     raw,
+                    has_capturable_image: has_capturable_image(&page.url, raw),
                 },
             ))
         })
@@ -206,6 +220,14 @@ fn add_cross_page_findings(pages: &mut [SchemaPageEvaluation]) {
     for (index, findings) in page_indices.into_iter().zip(findings) {
         pages[index].cross_page_findings = findings;
     }
+}
+
+/// Whether capture keeps any image `raw` extracted from the page at `page_url`. The matrix
+/// has no network access, so it applies the checks capture's image validation decides from
+/// the URL alone; a page URL that does not parse resolves no image.
+fn has_capturable_image(page_url: &str, raw: &RawExtractedProduct) -> bool {
+    Url::parse(page_url)
+        .is_ok_and(|base_url| !filter_image_urls_offline(&raw.images, &base_url).is_empty())
 }
 
 /// Compares the identities the candidates that apply to one page derive from it, with
@@ -341,8 +363,8 @@ pub(crate) fn optional_rules_missing_on_every_page(
 }
 
 /// A rule whose miss leaves the field empty instead of failing the page. `images`
-/// is excluded because its soft case (an existing but empty container) is decided by
-/// the page-level apply result, not by match counts.
+/// is excluded because its soft case (an empty gallery) is decided by the page-level
+/// apply result, not by match counts.
 pub(crate) fn selector_field_is_soft(field: &SelectorFieldEvaluation) -> bool {
     !field.required && field.error.is_none() && field.field != "images"
 }
@@ -400,7 +422,7 @@ fn evaluate_schema_page(
     page: &MatrixPage<'_>,
     html: &Html,
 ) -> SchemaPageEvaluation {
-    let extraction = schema.extract(html);
+    let extraction = schema.extract(html, ExtractionLogging::Log);
     let fields = evaluate_schema_fields(
         schema,
         html,
@@ -1687,6 +1709,234 @@ mod tests {
             assert!(schema_matrix_has_required_coverage(&matrix));
             assert!(!schema_matrix_deterministic_approval_ok(&matrix));
         }
+
+        fn schema_with_images(selector: &str) -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                images: image_rule(selector),
+                ..schema("h1")
+            }
+        }
+
+        fn no_image_on_any_page() -> Vec<CrossPageFinding> {
+            vec![CrossPageFinding {
+                field: PlausibilityField::Images,
+                check: CrossPageCheck::NoImageOnAnyPage,
+                values: Vec::new(),
+            }]
+        }
+
+        /// Antik und Stil's WooCommerce thumbnails name their size in the path; a gallery
+        /// served from a private address would fail capture's target check as well.
+        #[test]
+        fn should_block_deterministic_approval_when_capture_keeps_no_image_of_any_page() {
+            let pages = vec![
+                product_page(
+                    "chair",
+                    "<div class=\"thumbs\"><img src=\"/images/chair-100x100.jpg\"><img src=\"/images/chair-2-100x100.jpg\"></div>",
+                ),
+                product_page(
+                    "table",
+                    "<div class=\"thumbs\"><img src=\"http://10.0.0.5/images/table.jpg\"></div>",
+                ),
+            ];
+
+            let matrix =
+                evaluate_schema_matrix_for_inputs(&[schema_with_images(".thumbs img")], &pages);
+
+            assert!(matrix.candidates[0].pages.iter().all(|page| {
+                page.apply_ok
+                    && page
+                        .extracted
+                        .as_ref()
+                        .is_some_and(|raw| !raw.images.is_empty())
+            }));
+            assert_eq!(
+                cross_page_findings_of(&matrix, 0),
+                vec![no_image_on_any_page(), no_image_on_any_page()]
+            );
+            assert!(schema_matrix_has_required_coverage(&matrix));
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// Harrison's customer review box is an empty image container on every product
+        /// page, so its rule applies as an empty gallery although each product has photos.
+        #[test]
+        fn should_block_deterministic_approval_when_no_page_yields_an_image() {
+            let reviews = "<div class=\"all-review-images\"></div>";
+            let pages = vec![
+                product_page("chair", reviews),
+                product_page("table", reviews),
+            ];
+
+            let matrix = evaluate_schema_matrix_for_inputs(
+                &[schema_with_images(".all-review-images img")],
+                &pages,
+            );
+
+            assert!(matrix.candidates[0].pages.iter().all(|page| {
+                page.apply_ok
+                    && page
+                        .extracted
+                        .as_ref()
+                        .is_some_and(|raw| raw.images.is_empty())
+            }));
+            assert_eq!(
+                cross_page_findings_of(&matrix, 0),
+                vec![no_image_on_any_page(), no_image_on_any_page()]
+            );
+            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        #[test]
+        fn should_approve_deterministically_when_only_some_products_have_no_photos() {
+            let pages = vec![
+                product_page(
+                    "chair",
+                    "<div id=\"gallery\"><img src=\"/images/chair-800x600.jpg\"></div>",
+                ),
+                product_page("table", "<div id=\"gallery\"></div>"),
+            ];
+
+            let matrix =
+                evaluate_schema_matrix_for_inputs(&[schema_with_images("#gallery img")], &pages);
+
+            assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
+        /// Harrison Antique Furniture's lightbox gallery: an image link per photo, then
+        /// empty `href="#"` slots, each holding a hidden image without a host, up to twenty.
+        mod placeholder_gallery {
+            use super::*;
+
+            const SLOTS: &str = r#"div.product-image-grid a[rel^="lightbox"]"#;
+
+            fn photo_url(path: &str, index: usize) -> String {
+                format!("https://files.ekmcdn.com/shop/images/{path}-({index})-5702-p.jpg")
+            }
+
+            fn gallery(path: &str, photos: usize) -> String {
+                let image_links = (1..=photos).map(|index| {
+                    format!(
+                        r#"<div><a href="{}" rel="lightbox[1] mousezoom[1]" target="_blank"></a></div>"#,
+                        photo_url(path, index)
+                    )
+                });
+                let placeholders = (photos + 1..=20).map(|index| {
+                    format!(
+                        r##"<div><a href="#" id="_EKM_PRODUCTIMAGE_LINK_{index}_2" rel="lightbox[1] mousezoom[1]" data-thumbnailimg="" data-largeimg="" data-video="" target="_blank"/>
+<img itemprop="image" src="//:0" alt="variant attributes" width="200" height="200" id="_EKM_PRODUCTIMAGE_{index}_2" border="0" style="display:none;" /></a></div>"##
+                    )
+                });
+                format!(
+                    r#"<div class="product-image-grid">{}</div>"#,
+                    image_links.chain(placeholders).collect::<String>()
+                )
+            }
+
+            fn page(path: &str, photos: usize) -> SchemaReviewPageInput {
+                product_page(path, &gallery(path, photos))
+            }
+
+            fn schema_with_image_urls(selector: &str) -> ProductCssSelectorSchema {
+                ProductCssSelectorSchema {
+                    images: ExtractionRule {
+                        selector: CssSelector::from(selector),
+                        additional_selectors: Vec::new(),
+                        extract: ExtractionKind::ImageUrl,
+                        cardinality: ExtractionCardinality::All,
+                    },
+                    ..schema("h1")
+                }
+            }
+
+            fn extracted_images(matrix: &SchemaMatrix) -> Vec<Option<Vec<String>>> {
+                matrix.candidates[0]
+                    .pages
+                    .iter()
+                    .map(|page| page.extracted.as_ref().map(|raw| raw.images.clone()))
+                    .collect()
+            }
+
+            /// The `images` rule drops the host-less hidden images, so a page of a product
+            /// without photos applies as an empty gallery and the matrix never sees `//:0`.
+            /// With no photo on any review page it cannot tell such products from a wrong
+            /// selector.
+            #[rstest::rstest]
+            #[case::slots(SLOTS)]
+            #[case::hidden_images_of_the_slots("div.product-image-grid img")]
+            fn should_block_deterministic_approval_when_every_page_has_only_placeholders(
+                #[case] selector: &str,
+            ) {
+                let pages = vec![page("chair", 0), page("table", 0)];
+
+                let matrix =
+                    evaluate_schema_matrix_for_inputs(&[schema_with_image_urls(selector)], &pages);
+
+                assert!(matrix.candidates[0].pages.iter().all(|page| page.apply_ok));
+                assert_eq!(extracted_images(&matrix), vec![Some(vec![]), Some(vec![])]);
+                assert_eq!(
+                    cross_page_findings_of(&matrix, 0),
+                    vec![no_image_on_any_page(), no_image_on_any_page()]
+                );
+                assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+            }
+
+            #[test]
+            fn should_approve_deterministically_when_another_page_has_photos() {
+                let pages = vec![page("chair", 2), page("table", 0)];
+
+                let matrix =
+                    evaluate_schema_matrix_for_inputs(&[schema_with_image_urls(SLOTS)], &pages);
+
+                assert_eq!(
+                    extracted_images(&matrix),
+                    vec![
+                        Some(vec![photo_url("chair", 1), photo_url("chair", 2)]),
+                        Some(vec![])
+                    ]
+                );
+                assert_eq!(cross_page_findings_of(&matrix, 0), vec![vec![], vec![]]);
+                assert!(schema_matrix_deterministic_approval_ok(&matrix));
+            }
+        }
+
+        /// The review console reads a matrix cached before a later cross-page check.
+        mod cached_matrix {
+            use super::*;
+
+            /// A matrix cached before `NO_IMAGE_ON_ANY_PAGE` existed holds the extractions
+            /// but only the findings of the checks of its time, here a stale repeated title.
+            #[test]
+            fn should_replace_the_cross_page_findings_a_matrix_was_cached_with() {
+                let reviews = "<div class=\"all-review-images\"></div>";
+                let pages = vec![
+                    product_page("chair", reviews),
+                    product_page("table", reviews),
+                ];
+                let evaluated = evaluate_schema_matrix_for_inputs(
+                    &[schema_with_images(".all-review-images img")],
+                    &pages,
+                );
+                let mut cached = serde_json::to_value(&evaluated)
+                    .unwrap_or_else(|error| panic!("a matrix must serialize: {error}"));
+                cached["candidates"][0]["pages"][0]["cross_page_findings"] = serde_json::json!([{
+                    "field": "title",
+                    "check": "REPEATED_ACROSS_PAGES",
+                    "values": ["Product chair"]
+                }]);
+                cached["candidates"][0]["pages"][1]["cross_page_findings"] = serde_json::json!([]);
+                let mut matrix = serde_json::from_value::<SchemaMatrix>(cached)
+                    .unwrap_or_else(|error| panic!("a cached matrix must load: {error}"));
+
+                evaluate_cross_page_findings(&mut matrix);
+
+                assert_eq!(
+                    cross_page_findings_of(&matrix, 0),
+                    vec![no_image_on_any_page(), no_image_on_any_page()]
+                );
+            }
+        }
     }
 
     #[test]
@@ -2062,7 +2312,7 @@ mod tests {
                 ..gallery_schema()
             };
 
-            let applied = applies.extract(&two_skipped);
+            let applied = applies.extract(&two_skipped, ExtractionLogging::Log);
             assert!(applied.is_ok());
             assert_eq!(
                 skipped_image_elements(&applies, &none_skipped, &applied),
@@ -2070,7 +2320,7 @@ mod tests {
                 "an applied page reports its extraction's count"
             );
 
-            let title_failed = fails_on_title.extract(&two_skipped);
+            let title_failed = fails_on_title.extract(&two_skipped, ExtractionLogging::Log);
             assert!(matches!(title_failed, Err(ApplySchemaError::Title(_))));
             assert_eq!(
                 skipped_image_elements(&fails_on_title, &none_skipped, &title_failed),
@@ -2078,7 +2328,7 @@ mod tests {
                 "a page another rule failed applies the images rule again"
             );
 
-            let images_failed = applies.extract(&all_skipped);
+            let images_failed = applies.extract(&all_skipped, ExtractionLogging::Log);
             assert!(matches!(images_failed, Err(ApplySchemaError::Images(_))));
             assert_eq!(
                 skipped_image_elements(&applies, &two_skipped, &images_failed),

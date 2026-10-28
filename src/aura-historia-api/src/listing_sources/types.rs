@@ -1,3 +1,9 @@
+mod responses;
+
+pub(crate) use responses::{
+    ListingSourceData, ListingSourceReferenceData, ListingSourceSearchCollectionData,
+};
+
 use crate::patch_value::{PatchValue, clearable};
 use crate::{
     error::{ApiError, BAD_BODY_VALUE},
@@ -5,18 +11,16 @@ use crate::{
 };
 use application::patch_field::PatchField;
 use listing_source_core::{
-    Domain, ListingIngestionMethod, ListingSourceId, ListingSourceName, PartnerizeCamref,
+    Domain, ListingSourceName, ListingSourcePresentation, PartnerizeCamref, PlatformTechnology,
     ReferralConfiguration,
 };
 use listing_source_service::ports::{
-    ListingIngestionConfiguration, ListingIngestionConfigurationUpdate, ListingSourceDetails,
+    ListingIngestionConfiguration, ListingIngestionConfigurationUpdate,
     UpdateListingSourceIngestionConfigurations,
 };
 use listing_source_service::use_cases::commands::{
-    create_listing_source::ListingSourceOperator, update_listing_source::RequiredPatch,
-};
-use listing_source_service::use_cases::queries::search_listing_sources::{
-    ListingSourceSearchSummary, SearchListingSourcesResult,
+    create_listing_source::{CreateListingSourceCommand, ListingSourceOperator},
+    update_listing_source::RequiredPatch,
 };
 use party_core::{
     party::{NewParty, PartyContact},
@@ -24,7 +28,6 @@ use party_core::{
     party_name::PartyName,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 use url::Url;
 
@@ -40,7 +43,47 @@ pub(crate) struct CreateListingSourceData {
     #[serde(default)]
     pub(crate) image: Option<Url>,
     #[serde(default)]
+    pub(crate) platform_technology: Option<String>,
+    #[serde(default)]
     pub(crate) referral_configuration: Option<ReferralConfigurationData>,
+}
+
+impl TryFrom<CreateListingSourceData> for CreateListingSourceCommand {
+    type Error = ApiError;
+
+    fn try_from(data: CreateListingSourceData) -> Result<Self, Self::Error> {
+        let ingestion_configuration = data
+            .ingestion_configuration
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, ApiError>>()?;
+        let operator = data.operator.try_into()?;
+        let name = ListingSourceName::try_from(data.name).map_err(|_| {
+            ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail("name must be nonblank and at most 255 UTF-8 bytes.")
+        })?;
+
+        Ok(Self {
+            name,
+            operator,
+            ingestion_configuration:
+                listing_source_service::ports::ListingSourceIngestionConfigurations(
+                    ingestion_configuration,
+                ),
+            presentation: ListingSourcePresentation {
+                url: data.url,
+                image: data.image,
+            },
+            platform_technology: data
+                .platform_technology
+                .map(parse_platform_technology)
+                .transpose()?,
+            referral_configuration: data
+                .referral_configuration
+                .map(TryInto::try_into)
+                .transpose()?,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,6 +135,8 @@ pub(crate) struct UpdateListingSourceData {
     #[serde(default)]
     pub(crate) image: PatchValue<Url>,
     #[serde(default)]
+    pub(crate) platform_technology: PatchValue<String>,
+    #[serde(default)]
     pub(crate) referral_configuration: PatchValue<ReferralConfigurationData>,
 }
 
@@ -112,6 +157,10 @@ impl UpdateListingSourceData {
             )?,
             url: clearable(self.url),
             image: clearable(self.image),
+            platform_technology: map_patch_result(
+                clearable(self.platform_technology),
+                parse_platform_technology,
+            )?,
             referral_configuration: map_patch_result(
                 clearable(self.referral_configuration),
                 TryInto::try_into,
@@ -126,6 +175,7 @@ pub(crate) struct UpdateListingSourceDataParts {
     pub(crate) ingestion_configuration: RequiredPatch<UpdateListingSourceIngestionConfigurations>,
     pub(crate) url: PatchField<Url>,
     pub(crate) image: PatchField<Url>,
+    pub(crate) platform_technology: PatchField<PlatformTechnology>,
     pub(crate) referral_configuration: PatchField<ReferralConfiguration>,
 }
 
@@ -301,171 +351,6 @@ pub(crate) use aura_historia_contracts::listing_sources::{
     PublicListingSourceData, PublicListingSourceSearchCollectionData,
 };
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ListingSourceData {
-    listing_source_id: ListingSourceId,
-    listing_source_slug_id: String,
-    name: String,
-    operator: OperatorPartyData,
-    ingestion_methods: Vec<ListingIngestionMethodData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<Url>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image: Option<Url>,
-    #[serde(with = "time::serde::rfc3339")]
-    created: time::OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    updated: time::OffsetDateTime,
-}
-
-impl From<ListingSourceDetails> for ListingSourceData {
-    fn from(value: ListingSourceDetails) -> Self {
-        Self {
-            listing_source_id: value.listing_source_id,
-            listing_source_slug_id: value.slug_id.to_string(),
-            name: value.name.to_string(),
-            operator: OperatorPartyData {
-                party_id: value.operator_party_id,
-                party_slug_id: value.operator_slug_id.to_string(),
-                name: value.operator_name.to_string(),
-            },
-            ingestion_methods: methods_data(value.ingestion_methods),
-            url: value.url,
-            image: value.image,
-            created: value.created,
-            updated: value.updated,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ListingSourceSearchCollectionData {
-    pub(crate) items: Vec<ListingSourceSearchSummaryData>,
-    pub(crate) size: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) search_after: Option<ListingSourceId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) total: Option<u64>,
-}
-
-impl From<SearchListingSourcesResult> for ListingSourceSearchCollectionData {
-    fn from(value: SearchListingSourcesResult) -> Self {
-        let items = value
-            .items
-            .into_iter()
-            .map(ListingSourceSearchSummaryData::from)
-            .collect::<Vec<_>>();
-        Self {
-            size: items.len() as u64,
-            items,
-            search_after: value.cursor.search_after,
-            total: value.total,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ListingSourceSearchSummaryData {
-    pub(crate) listing_source_id: ListingSourceId,
-    pub(crate) listing_source_slug_id: String,
-    pub(crate) name: String,
-    operator: OperatorPartyData,
-    pub(crate) ingestion_methods: Vec<ListingIngestionMethodData>,
-    pub(crate) presentation: ListingSourcePresentationData,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) referral_configuration: Option<ReferralConfigurationData>,
-    #[serde(with = "time::serde::rfc3339")]
-    pub(crate) created: time::OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    pub(crate) updated: time::OffsetDateTime,
-}
-
-impl From<ListingSourceSearchSummary> for ListingSourceSearchSummaryData {
-    fn from(value: ListingSourceSearchSummary) -> Self {
-        Self {
-            listing_source_id: value.listing_source_id,
-            listing_source_slug_id: value.listing_source_slug_id.to_string(),
-            name: value.name.to_string(),
-            operator: OperatorPartyData {
-                party_id: value.operator.party_id,
-                party_slug_id: value.operator.party_slug_id.to_string(),
-                name: value.operator.name.to_string(),
-            },
-            ingestion_methods: methods_data(value.ingestion_methods),
-            presentation: ListingSourcePresentationData {
-                url: value.presentation.url,
-                image: value.presentation.image,
-            },
-            referral_configuration: value.referral_configuration.map(Into::into),
-            created: value.created,
-            updated: value.updated,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ListingSourcePresentationData {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) url: Option<Url>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) image: Option<Url>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OperatorPartyData {
-    party_id: PartyId,
-    party_slug_id: String,
-    name: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ListingSourceReferenceData {
-    listing_source_id: ListingSourceId,
-    listing_source_slug_id: String,
-}
-
-impl From<(ListingSourceId, listing_source_core::ListingSourceSlugId)>
-    for ListingSourceReferenceData
-{
-    fn from(
-        (listing_source_id, slug_id): (ListingSourceId, listing_source_core::ListingSourceSlugId),
-    ) -> Self {
-        Self {
-            listing_source_id,
-            listing_source_slug_id: slug_id.to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) enum ListingIngestionMethodData {
-    #[serde(rename = "WEB_CRAWL")]
-    WebCrawl,
-    #[serde(rename = "SHOPIFY")]
-    Shopify,
-    #[serde(rename = "WOOCOMMERCE")]
-    Woocommerce,
-    #[serde(rename = "PARTNER_API")]
-    PartnerApi,
-}
-
-impl From<ListingIngestionMethod> for ListingIngestionMethodData {
-    fn from(value: ListingIngestionMethod) -> Self {
-        match value {
-            ListingIngestionMethod::WebCrawl => Self::WebCrawl,
-            ListingIngestionMethod::Shopify => Self::Shopify,
-            ListingIngestionMethod::Woocommerce => Self::Woocommerce,
-            ListingIngestionMethod::PartnerApi => Self::PartnerApi,
-        }
-    }
-}
-
 fn map_required_patch<T, U>(
     value: PatchValue<T>,
     field: &'static str,
@@ -500,10 +385,8 @@ fn update_configurations(
         .map(UpdateListingSourceIngestionConfigurations)
 }
 
-fn methods_data(values: HashSet<ListingIngestionMethod>) -> Vec<ListingIngestionMethodData> {
-    let mut values = values.into_iter().collect::<Vec<_>>();
-    values.sort_by_key(|value| value.as_str());
-    values.into_iter().map(Into::into).collect()
+fn parse_platform_technology(value: String) -> Result<PlatformTechnology, ApiError> {
+    PlatformTechnology::try_from(value).map_err(|_| invalid_body("platformTechnology"))
 }
 
 fn parse_currency(value: Option<String>) -> Result<Option<money::Currency>, ApiError> {
@@ -638,5 +521,65 @@ mod tests {
             configuration,
             Ok(ReferralConfiguration::Partnerize { camref }) if camref.as_ref() == "1101l3AbC"
         ));
+    }
+
+    fn create_data() -> serde_json::Value {
+        serde_json::json!({
+            "name": "Source",
+            "operator": {"type": "NEW", "name": "Operator"},
+            "ingestionConfiguration": []
+        })
+    }
+
+    #[test]
+    fn should_map_optional_platform_technology_on_create() {
+        for platform in [
+            None,
+            Some(serde_json::Value::Null),
+            Some(serde_json::json!("CUSTOM_PLATFORM_2")),
+        ] {
+            let mut body = create_data();
+            if let Some(value) = platform {
+                body["platformTechnology"] = value;
+            }
+            let data: CreateListingSourceData = serde_json::from_value(body.clone()).unwrap();
+            let command = CreateListingSourceCommand::try_from(data).unwrap();
+            assert_eq!(
+                body["platformTechnology"].as_str(),
+                command.platform_technology.as_ref().map(AsRef::as_ref)
+            );
+            assert!(command.ingestion_configuration.0.is_empty());
+        }
+    }
+
+    #[test]
+    fn should_map_platform_technology_patch_omission_null_and_value() {
+        for (body, expected) in [
+            (serde_json::json!({}), PatchField::Unchanged),
+            (
+                serde_json::json!({"platformTechnology": null}),
+                PatchField::Clear,
+            ),
+            (
+                serde_json::json!({"platformTechnology": "BIGCOMMERCE"}),
+                PatchField::Set(PlatformTechnology::try_from("BIGCOMMERCE").unwrap()),
+            ),
+        ] {
+            let data: UpdateListingSourceData = serde_json::from_value(body).unwrap();
+            assert_eq!(expected, data.into_parts().unwrap().platform_technology);
+        }
+    }
+
+    #[test]
+    fn should_reject_invalid_platform_technology_when_mapping_body() {
+        let mut body = create_data();
+        body["platformTechnology"] = serde_json::json!("shopify");
+        let create: CreateListingSourceData = serde_json::from_value(body).unwrap();
+        assert!(
+            matches!(CreateListingSourceCommand::try_from(create), Err(error) if error.code() == BAD_BODY_VALUE)
+        );
+        let update: UpdateListingSourceData =
+            serde_json::from_value(serde_json::json!({"platformTechnology": "shopify"})).unwrap();
+        assert!(matches!(update.into_parts(), Err(error) if error.code() == BAD_BODY_VALUE));
     }
 }

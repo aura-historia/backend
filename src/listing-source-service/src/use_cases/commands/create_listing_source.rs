@@ -28,6 +28,7 @@ pub struct CreateListingSourceCommand {
 
     pub ingestion_configuration: ListingSourceIngestionConfigurations,
     pub presentation: ListingSourcePresentation,
+    pub platform_technology: Option<PlatformTechnology>,
     pub referral_configuration: Option<ReferralConfiguration>,
 }
 
@@ -172,6 +173,7 @@ where
             operator_party_id,
             ingestion_methods,
             presentation: command.presentation,
+            platform_technology: command.platform_technology,
             referral_configuration: command.referral_configuration,
         });
         command
@@ -520,6 +522,7 @@ mod tests {
                 },
             ]),
             presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
             referral_configuration: None,
         }
     }
