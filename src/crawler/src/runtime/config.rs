@@ -70,8 +70,8 @@ pub enum CrawlerRuntimeConfigError {
 }
 
 impl CrawlerRuntimeConfig {
-    /// Reads the authoring mode and, unless it is `manual`, the Vertex AI selection and LLM
-    /// rate limits, then logs the effective configuration that [`build`](super::build) applies.
+    /// Reads the authoring mode and, unless it is `manual` or `agent`, the Vertex AI selection and
+    /// LLM rate limits, then logs the effective configuration that [`build`](super::build) applies.
     /// The shutdown grace period is no environment setting; it starts at
     /// [`DEFAULT_SHUTDOWN_GRACE_PERIOD`].
     pub fn from_env() -> Result<Self, CrawlerRuntimeConfigError> {
