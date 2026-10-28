@@ -69,9 +69,7 @@ pub(super) enum ReviewMutation<'a> {
     UrlPatternApproved {
         #[serde(skip)]
         notes: Option<&'a str>,
-        /// The candidate's sample labels the approval was accepted on, when it has any. Approvals
-        /// recorded before the labels existed keep a `url_sample_evaluation` instead, which only
-        /// the console reads.
+        /// The candidate's sample labels the approval was accepted on, when it has any.
         #[serde(skip_serializing_if = "Option::is_none")]
         sample_labels: Option<SampleLabels>,
         #[serde(flatten)]
@@ -552,29 +550,13 @@ mod tests {
             sample_labels: Some(sample_labels()),
             configuration: url_pattern_record(),
         };
-        let mut approved_on_a_sample_evaluation = details(&ReviewMutation::UrlPatternApproved {
-            notes: None,
-            sample_labels: None,
-            configuration: url_pattern_record(),
-        });
-        approved_on_a_sample_evaluation["url_sample_evaluation"] = json!({
-            "live_evaluation": { "candidate_version": 3 },
-            "urls": [{ "url": "https://shop.example/item/1", "outcome": "PRODUCT_MARKUP" }],
-        });
 
         let read = serde_json::from_value::<ProductSchemaApprovalRecord>(details(&approval));
         let read_url_pattern =
             serde_json::from_value::<UrlPatternApprovalRecord>(details(&url_pattern_approval));
-        let read_earlier_url_pattern =
-            serde_json::from_value::<UrlPatternApprovalRecord>(approved_on_a_sample_evaluation);
 
         assert_eq!(read.ok(), Some(configuration));
         assert_eq!(read_url_pattern.ok(), Some(url_pattern_record()));
-        assert_eq!(
-            read_earlier_url_pattern.ok(),
-            Some(url_pattern_record()),
-            "an approval recorded on a live sample evaluation still restores"
-        );
         assert!(
             serde_json::from_value::<ProductSchemaApprovalRecord>(json!({
                 "coverage": { "covered": 1, "removed": 0, "total": 1, "not_evaluated": 0 },

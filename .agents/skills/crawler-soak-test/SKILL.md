@@ -31,7 +31,7 @@ each check must answer.
   `--target-dir target/scratch` from PowerShell.
 - Check `CRAWLER_AUTHORING_MODE` in `.env` before the round (`auto`, `review` (default),
   `manual` or `agent`; an invalid value or any of the removed `CRAWLER_REVIEW_*`/`CRAWLER_SCHEMA_LLM_REVIEW_MODE`
-  variables fails startup, #2126, #2565). Note the effective mode in the findings; do not fix it mid-round.
+  variables fails startup, #2126). Note the effective mode in the findings; do not fix it mid-round.
 
 ## Procedure
 

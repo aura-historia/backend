@@ -1479,7 +1479,6 @@ async fn should_take_the_agent_url_pattern_approval_only_when_the_decision_follo
         approved.details["sample_labels"], relied_on,
         "the approval keeps the labels it was accepted on"
     );
-    assert!(approved.details.get("url_sample_evaluation").is_none());
 }
 
 /// A label change is an authoring change: an agent whose own candidate edit changed the labels of

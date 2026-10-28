@@ -9,27 +9,12 @@ use tracing::info;
 
 const AUTHORING_MODE_ENV: &str = "CRAWLER_AUTHORING_MODE";
 
-/// What replaced the review settings `CRAWLER_AUTHORING_MODE` took over.
-const SET_AUTHORING_MODE_INSTEAD: &str =
-    "set CRAWLER_AUTHORING_MODE (auto, review, manual or agent) instead";
-
-/// Removed settings and what replaced each. A value in one of them fails startup, so an
-/// environment cannot keep a dead setting and believe it still applies.
-const REMOVED_ENV: [(&str, &str); 5] = [
-    ("CRAWLER_REVIEW_REQUIRED", SET_AUTHORING_MODE_INSTEAD),
-    (
-        "CRAWLER_REVIEW_URL_PATTERN_REQUIRED",
-        SET_AUTHORING_MODE_INSTEAD,
-    ),
-    ("CRAWLER_SCHEMA_LLM_REVIEW_MODE", SET_AUTHORING_MODE_INSTEAD),
-    (
-        "CRAWLER_REVIEW_AGENT_APPROVALS",
-        "set CRAWLER_AUTHORING_MODE=agent to let the reviewer agent approve and reject within the approval guard, or manual to leave every decision to a human",
-    ),
-    (
-        "CRAWLER_REVIEW_AGENT_TOKEN",
-        "nobody configures agent tokens: CRAWLER_AUTHORING_MODE=agent generates the author and reviewer tokens at every start and writes them to review-agent-tokens.json in the crawler's working directory",
-    ),
+/// Settings `CRAWLER_AUTHORING_MODE` replaced. A value in one of them fails startup, so an
+/// environment cannot keep a dead review setting and believe it still applies.
+const REMOVED_ENV: [&str; 3] = [
+    "CRAWLER_REVIEW_REQUIRED",
+    "CRAWLER_REVIEW_URL_PATTERN_REQUIRED",
+    "CRAWLER_SCHEMA_LLM_REVIEW_MODE",
 ];
 
 /// Environment settings shared by every crawler entry point.
@@ -78,11 +63,8 @@ pub enum CrawlerRuntimeConfigError {
         value: String,
         accepted: String,
     },
-    #[error("{name} was removed; {replacement}")]
-    RemovedSetting {
-        name: &'static str,
-        replacement: &'static str,
-    },
+    #[error("{name} was removed; set {AUTHORING_MODE_ENV} (auto, review, manual or agent) instead")]
+    RemovedSetting { name: &'static str },
     #[error(transparent)]
     VertexAi(#[from] CrawlerVertexAiConfigError),
 }
@@ -93,10 +75,10 @@ impl CrawlerRuntimeConfig {
     /// The shutdown grace period is no environment setting; it starts at
     /// [`DEFAULT_SHUTDOWN_GRACE_PERIOD`].
     pub fn from_env() -> Result<Self, CrawlerRuntimeConfigError> {
-        for (name, replacement) in REMOVED_ENV {
+        for name in REMOVED_ENV {
             // A non-UTF-8 value is still a value: it must fail like any other.
             if !matches!(env_value(name), Ok(None)) {
-                return Err(CrawlerRuntimeConfigError::RemovedSetting { name, replacement });
+                return Err(CrawlerRuntimeConfigError::RemovedSetting { name });
             }
         }
         let (authoring, source) = enum_from_env(
@@ -209,13 +191,11 @@ mod tests {
         }
     }
 
-    const RUNTIME_ENV: [&str; 8] = [
+    const RUNTIME_ENV: [&str; 6] = [
         AUTHORING_MODE_ENV,
         "CRAWLER_REVIEW_REQUIRED",
         "CRAWLER_REVIEW_URL_PATTERN_REQUIRED",
         "CRAWLER_SCHEMA_LLM_REVIEW_MODE",
-        "CRAWLER_REVIEW_AGENT_APPROVALS",
-        "CRAWLER_REVIEW_AGENT_TOKEN",
         "VERTEX_AI_PROJECT_ID",
         "VERTEX_AI_LOCATION",
     ];
@@ -351,48 +331,6 @@ mod tests {
         );
     }
 
-    /// The agent settings of the single review agent never shipped: a value in either fails
-    /// startup, in `agent` mode too, with what replaced it and never the value.
-    #[rstest]
-    #[case::agent_approvals(
-        "CRAWLER_REVIEW_AGENT_APPROVALS",
-        "guarded",
-        "set CRAWLER_AUTHORING_MODE=agent"
-    )]
-    #[case::agent_token(
-        "CRAWLER_REVIEW_AGENT_TOKEN",
-        "agent-token-value",
-        "CRAWLER_AUTHORING_MODE=agent generates the author and reviewer tokens at every start and writes them to review-agent-tokens.json"
-    )]
-    #[serial]
-    fn should_reject_the_removed_single_agent_settings(
-        #[case] name: &'static str,
-        #[case] value: &'static str,
-        #[case] replacement: &'static str,
-    ) {
-        let error = runtime_config_from(&[(AUTHORING_MODE_ENV, "agent"), (name, value)])
-            .err()
-            .unwrap_or_else(|| panic!("removed setting {name} must fail startup"));
-
-        let message = error.to_string();
-        assert!(
-            message.starts_with(&format!("{name} was removed; ")),
-            "{message}"
-        );
-        assert!(message.contains(replacement), "{message}");
-        assert!(!message.contains(value), "{message}");
-    }
-
-    #[test]
-    fn should_name_the_token_file_the_crawler_writes_where_the_agent_token_was() {
-        let (_, replacement) = REMOVED_ENV
-            .into_iter()
-            .find(|(name, _)| *name == "CRAWLER_REVIEW_AGENT_TOKEN")
-            .unwrap_or_else(|| panic!("CRAWLER_REVIEW_AGENT_TOKEN is a removed setting"));
-
-        assert!(replacement.contains(crate::review::agent_tokens::REVIEW_AGENT_TOKEN_FILE));
-    }
-
     /// A value that is not valid Unicode on the current platform.
     fn non_unicode_value() -> std::ffi::OsString {
         #[cfg(unix)]
@@ -426,8 +364,7 @@ mod tests {
         assert!(matches!(
             config,
             Err(CrawlerRuntimeConfigError::RemovedSetting {
-                name: "CRAWLER_REVIEW_REQUIRED",
-                ..
+                name: "CRAWLER_REVIEW_REQUIRED"
             })
         ));
     }

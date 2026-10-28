@@ -555,9 +555,7 @@ function reviewEventSummary(event) {
         case 'APPROVED': {
             const coverage = details.coverage;
             if (coverage) return coverageText({...coverage, notEvaluated: coverage.not_evaluated});
-            if (details.sample_labels) return `on sample labels: ${sampleLabelCountsText(labelCounts(details.sample_labels.labels))}`;
-            // Approvals recorded before sample labels rested on a live evaluation of the sample.
-            return details.url_sample_evaluation ? urlSampleEvaluationText(details.url_sample_evaluation) : '';
+            return details.sample_labels ? `on sample labels: ${sampleLabelCountsText(labelCounts(details.sample_labels.labels))}` : '';
         }
         case 'RESTORED':
             return details.replaced_url_pattern !== undefined
@@ -678,13 +676,6 @@ function renderUrls(review, urls) {
             return `<tr><td>${linkifyText(u.url)}</td><td>${u.current_pattern_match}</td><td>${u.candidate_pattern_match}</td><td>${escapeHtml(u.candidate_class)}</td><td>${cell}</td></tr>`;
         }).join('')
     }</tbody></table></div>`;
-}
-
-// Labels of a live sample evaluation, which approvals recorded before sample labels rested on.
-function urlSampleEvaluationText(evaluation) {
-    const urls = Array.isArray(evaluation?.urls) ? evaluation.urls : [];
-    const products = urls.filter(u => u.outcome === 'PRODUCT_MARKUP').length;
-    return `${products} of ${urls.length} fetched sample pages show schema.org Product markup`;
 }
 
 const SAMPLE_URL_LABELS = ['PRODUCT', 'NOT_PRODUCT'];
