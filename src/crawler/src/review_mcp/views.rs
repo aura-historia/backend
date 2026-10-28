@@ -30,11 +30,11 @@ const MAX_NOTE_CHARS: usize = 1_000;
 /// The longest extracted value a matrix answer carries, in characters.
 pub(super) const MAX_VALUE_CHARS: usize = 300;
 /// The most characters of a page projection an answer carries.
-pub(super) const MAX_PROJECTION_CHARS: usize = 40_000;
+pub(super) const MAX_PROJECTION_CHARS: usize = 36_000;
 /// The most bytes those characters take as a JSON string, so a window of non-Latin or
 /// escape-heavy text still fits the answer bound whole, with its marker line and the `offset` to
 /// read on from, instead of being cut by it.
-const MAX_PROJECTION_JSON_BYTES: usize = 48 * 1024;
+const MAX_PROJECTION_JSON_BYTES: usize = 40 * 1024;
 
 /// The pending reviews of the console's queue.
 #[derive(Debug, Serialize, JsonSchema)]

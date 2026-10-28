@@ -1,6 +1,7 @@
 //! How `review-mcp` is started: the one agent role it serves, from `--role`, and from its
 //! environment the review console it calls and the token file it reads its role's token from.
-//! Tokens are never settings: they come from the token file only.
+//! Tokens are never settings: they come from the token file only. The review agent runner reaches
+//! the console the same way and reads the same two settings through [`ReviewConsoleAccess`].
 
 use crate::review::agent_tokens::REVIEW_AGENT_TOKEN_FILE;
 use std::fmt;
@@ -74,6 +75,35 @@ impl ReviewMcpSettings {
         state_directory: impl FnOnce() -> PathBuf,
     ) -> Result<Self, ReviewMcpSettingsError> {
         let role = role_from_args(args)?;
+        let ReviewConsoleAccess {
+            console_url,
+            token_file,
+        } = ReviewConsoleAccess::from_env(env, state_directory)?;
+        Ok(Self {
+            role,
+            console_url,
+            token_file,
+        })
+    }
+}
+
+/// How a client of `agent` authoring mode reaches the review console: the console's base URL and
+/// the token file the crawler writes the agents' tokens to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewConsoleAccess {
+    /// The console's base URL, without a trailing slash.
+    pub console_url: Url,
+    pub token_file: PathBuf,
+}
+
+impl ReviewConsoleAccess {
+    /// Reads `CRAWLER_REVIEW_CONSOLE_URL` and `CRAWLER_REVIEW_AGENT_TOKEN_FILE` through `env`; the
+    /// token file defaults to the crawler's in the `state_directory`, the crawler's working
+    /// directory. An empty or whitespace-only setting counts as unset.
+    pub fn from_env(
+        env: impl Fn(&str) -> Option<String>,
+        state_directory: impl FnOnce() -> PathBuf,
+    ) -> Result<Self, ReviewMcpSettingsError> {
         let setting = |name: &str| env(name).filter(|value| !value.trim().is_empty());
         let console_url = console_url(
             setting(REVIEW_CONSOLE_URL_ENV)
@@ -85,7 +115,6 @@ impl ReviewMcpSettings {
             |path| PathBuf::from(path.trim()),
         );
         Ok(Self {
-            role,
             console_url,
             token_file,
         })

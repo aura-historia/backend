@@ -26,7 +26,7 @@ pub use removed_page_template_match::{
 };
 pub use review::{CrawlerReview, RepairRequest};
 pub use review_detail::ReviewDetail;
-pub use review_event::{CrawlerReviewEvent, ReviewActor, ReviewEventAction};
+pub use review_event::{CrawlerReviewEvent, ReviewActor, ReviewEventAction, ReviewEventSummary};
 pub use review_page::CrawlerReviewPage;
 pub use review_url::CrawlerReviewUrl;
 pub use sample_labels::{

@@ -42,7 +42,9 @@ pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use verdicts::Approval;
 
-use review_events::{ReviewMutation, commit_with_event, fetch_review_events};
+use review_events::{
+    ReviewMutation, commit_with_event, fetch_review_events, fetch_review_events_since,
+};
 
 use crate::review::source_url::is_review_source_url;
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
@@ -383,6 +385,16 @@ impl CrawlerReviewRepository {
             .await?;
 
         rows.into_iter().map(row_to_review).collect()
+    }
+
+    /// The events of all reviews created at or after `since`, oldest first, at most `limit`, and
+    /// whether later events were left out.
+    pub async fn list_review_events_since(
+        &self,
+        since: OffsetDateTime,
+        limit: usize,
+    ) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
+        fetch_review_events_since(&self.pool, since, limit).await
     }
 
     /// Enabled ListingSources with a domain waiting for an operator come first: nothing else

@@ -1,4 +1,5 @@
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
+use listing_source_core::ListingSourceId;
 use serde::{Serialize, Serializer};
 use time::OffsetDateTime;
 
@@ -16,6 +17,24 @@ pub struct CrawlerReviewEvent {
     /// What the action keeps, such as the edited field, the page, or what an approval replaced
     /// in the ListingSource's live configuration.
     pub details: serde_json::Value,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created: OffsetDateTime,
+}
+
+/// An event of the trail as `GET /api/review-events` lists the events of all reviews: what
+/// happened to which review and by whom, without the action's details, with the review's artifact
+/// type and ListingSource.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewEventSummary {
+    pub event_id: CrawlerReviewEventId,
+    pub review_id: CrawlerReviewId,
+    pub artifact_type: String,
+    pub listing_source_id: ListingSourceId,
+    pub listing_source_name: Option<String>,
+    pub actor: ReviewActor,
+    pub action: ReviewEventAction,
+    pub candidate_version: i64,
+    pub notes: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }
