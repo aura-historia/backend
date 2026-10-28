@@ -463,55 +463,7 @@ where
                 Some(normalization_error_code(error)),
             )),
             ProductListingRawValuesNormalizationOutcome::Delete => {
-                let Some(product_listing_id) = head.product_listing_id else {
-                    return Ok(completion(
-                        &head,
-                        &revision,
-                        ProductListingRawNormalizationOutcome::Ignored,
-                        None,
-                        None,
-                        None,
-                    ));
-                };
-                let write = match CanonicalProductListingWriter::withdraw_in_transaction(
-                    tx,
-                    &self.products,
-                    &self.events,
-                    product_listing_id,
-                )
-                .await
-                {
-                    Ok(write) => write,
-                    Err(CanonicalProductListingWriteError::InvalidInput { .. }) => {
-                        return Ok(completion(
-                            &head,
-                            &revision,
-                            ProductListingRawNormalizationOutcome::Rejected,
-                            None,
-                            None,
-                            Some(CANONICAL_PRODUCT_LISTING_INVALID),
-                        ));
-                    }
-                    Err(source) => {
-                        return Err(
-                            NormalizeProductListingRawRevisionError::CanonicalWriteFailed {
-                                source,
-                            },
-                        );
-                    }
-                };
-                Ok(completion(
-                    &head,
-                    &revision,
-                    if write.outcome == ChangeOutcome::Changed {
-                        ProductListingRawNormalizationOutcome::Applied
-                    } else {
-                        ProductListingRawNormalizationOutcome::NoChange
-                    },
-                    Some(write.product_listing_id),
-                    write.product_listing_event_id,
-                    None,
-                ))
+                self.complete_delete(tx, &head, &revision).await
             }
             ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => {
                 if let Some(bound_source_listing_id) = &head.source_listing_id
@@ -585,6 +537,61 @@ where
                 Ok(completion)
             }
         }
+    }
+    async fn complete_delete(
+        &self,
+        tx: &mut U::Tx,
+        head: &ProductListingRawNormalizationHead,
+        revision: &crate::ports::ProductListingRawRevision,
+    ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
+    {
+        let Some(product_listing_id) = head.product_listing_id else {
+            return Ok(completion(
+                head,
+                revision,
+                ProductListingRawNormalizationOutcome::Ignored,
+                None,
+                None,
+                None,
+            ));
+        };
+        let write = match CanonicalProductListingWriter::withdraw_in_transaction(
+            tx,
+            &self.products,
+            &self.events,
+            product_listing_id,
+        )
+        .await
+        {
+            Ok(write) => write,
+            Err(CanonicalProductListingWriteError::InvalidInput { .. }) => {
+                return Ok(completion(
+                    head,
+                    revision,
+                    ProductListingRawNormalizationOutcome::Rejected,
+                    None,
+                    None,
+                    Some(CANONICAL_PRODUCT_LISTING_INVALID),
+                ));
+            }
+            Err(source) => {
+                return Err(
+                    NormalizeProductListingRawRevisionError::CanonicalWriteFailed { source },
+                );
+            }
+        };
+        Ok(completion(
+            head,
+            revision,
+            if write.outcome == ChangeOutcome::Changed {
+                ProductListingRawNormalizationOutcome::Applied
+            } else {
+                ProductListingRawNormalizationOutcome::NoChange
+            },
+            Some(write.product_listing_id),
+            write.product_listing_event_id,
+            None,
+        ))
     }
 }
 
