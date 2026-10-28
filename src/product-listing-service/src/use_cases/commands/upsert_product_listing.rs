@@ -3,7 +3,7 @@ use crate::{
         PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
         PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
         ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-        ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
+        ProductListingRepositoryError, ProductListingRepositoryFactory,
         stamp_product_listing_event,
     },
     product_listing_auction_patch::{
@@ -27,7 +27,6 @@ use application::{
 use auction_service::ports::{
     AuctionReferenceValidationError, AuctionReferenceValidator, AuctionReferenceValidatorFactory,
 };
-use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
@@ -239,33 +238,25 @@ where
                     }
                 };
                 apply_update(&mut product, command, auction).map_err(AttemptError::Failed)?;
-                let event = product.take_pending_event_payload().map(|payload| {
-                    stamp_product_listing_event(
-                        product.id(),
-                        time::OffsetDateTime::now_utc(),
-                        payload,
-                    )
-                });
-                let outcome = if let Some(event) = event {
-                    let effects = ProductListingWriteEffects::from(&event.payload);
-                    self.products
-                        .in_transaction(tx)
-                        .update(&product, loaded.version, event.event_id, effects)
-                        .await
-                        .map_err(|e| AttemptError::Failed(e.into()))?;
-                    self.events
-                        .in_transaction(tx)
-                        .append(&event)
-                        .await
-                        .map_err(|e| AttemptError::Failed(e.into()))?;
-                    ChangeOutcome::Changed
-                } else {
-                    ChangeOutcome::Unchanged
-                };
+                let persisted = super::product_listing_change::persist_product_listing_change(
+                    tx,
+                    &self.products,
+                    &self.events,
+                    &mut product,
+                    loaded.version,
+                )
+                .await
+                .map_err(|error| {
+                    use super::product_listing_change::PersistProductListingChangeError;
+                    AttemptError::Failed(match error {
+                        PersistProductListingChangeError::Repository(error) => error.into(),
+                        PersistProductListingChangeError::Event(error) => error.into(),
+                    })
+                })?;
                 Ok(UpsertProductListingResult::Updated(
                     UpdateProductListingResult {
                         product_listing_id: product.id(),
-                        outcome,
+                        outcome: persisted.outcome,
                     },
                 ))
             }
@@ -578,11 +569,13 @@ impl From<ProductListingEventAppendError> for UpsertProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::ProductListingWriteEffects;
     use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
     use crate::product_listing_title_slug_creation::MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS;
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
     use auction_core::AuctionId;
+    use domain_primitives::change_outcome::ChangeOutcome;
     use domain_primitives::{event_id::EventId, versioned::Versioned};
     use listing_source_core::ListingSourceId;
     use product_listing_core::{
