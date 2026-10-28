@@ -1,8 +1,8 @@
 //! A review tool's failure as the agent sees it: a tool error whose text is one JSON object with a
 //! `kind`, the `error` message and, when the console refused the request, its `status` and the
 //! console's own `reason`, `failed_checks`, `candidate_version`, `coverage`, `retry_after_secs`,
-//! `limit` and `details`, passed through as the console answered them. Nothing in it comes from a
-//! request or response header, so no token or cookie can reach the agent.
+//! `limit`, `agent_rounds` and `details`, passed through as the console answered them. Nothing in
+//! it comes from a request or response header, so no token or cookie can reach the agent.
 
 use super::bounds::{MAX_TOOL_OUTPUT_BYTES, truncated_text};
 use super::console::{ConsoleError, ConsoleRefusal};
@@ -11,13 +11,14 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 /// The console keys of a refusal an agent acts on, passed through as the console answered them.
-const PASSED_THROUGH: [&str; 7] = [
+const PASSED_THROUGH: [&str; 8] = [
     "reason",
     "failed_checks",
     "candidate_version",
     "coverage",
     "retry_after_secs",
     "limit",
+    "agent_rounds",
     "details",
 ];
 /// The longest message a tool error carries, in characters.
@@ -207,6 +208,10 @@ mod tests {
             429,
             json!({ "error": "cap", "reason": "AGENT_DECISION_LIMIT", "limit": 20, "retry_after_secs": 600 }),
         ));
+        let waiting = reported(refused(
+            409,
+            json!({ "error": "waits for a human", "reason": "HUMAN_REQUIRED", "agent_rounds": 3, "limit": 3 }),
+        ));
         let invalid = reported(refused(400, json!({ "error": "invalid review page url" })));
 
         assert_eq!(
@@ -228,6 +233,17 @@ mod tests {
                 cap["retry_after_secs"].clone()
             ),
             (json!("RATE_LIMITED"), json!(20), json!(600))
+        );
+        assert_eq!(
+            waiting,
+            json!({
+                "kind": "CONFLICT",
+                "error": "waits for a human",
+                "status": 409,
+                "reason": "HUMAN_REQUIRED",
+                "agent_rounds": 3,
+                "limit": 3,
+            })
         );
         assert_eq!(invalid["kind"], "INVALID_REQUEST");
         assert_eq!(invalid["status"], 400);
