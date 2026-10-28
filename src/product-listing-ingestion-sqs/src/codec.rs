@@ -307,8 +307,8 @@ impl WirePayload {
             Self::Create(c) => ProductListingIngestionIntent::Create(CreateProductListingCommand {
                 listing_source_id: parse_source(&c.key.listing_source_id)?,
                 source_listing_id: parse_listing(&c.key.source_listing_id)?,
-                title: localized_title(c.title)?,
-                description: localized_description(c.description)?,
+                title: c.title.map(localized_title).transpose()?,
+                description: c.description.map(localized_description).transpose()?,
                 pricing: ProductListingPricing {
                     price: c.pricing.price.map(price_assertion).transpose()?,
                     price_estimate_min: c.pricing.price_estimate_min.map(price).transpose()?,
@@ -327,7 +327,7 @@ impl WirePayload {
                     product_key: key(c.key)?,
                     command: UpdateProductListingCommand {
                         title: map_patch(c.title, patch_title)?,
-                        description: map_patch(c.description, patch_description)?,
+                        description: map_patch(c.description, localized_description)?,
                         price: map_patch(c.price, price_assertion)?,
                         price_estimate_min: map_patch(c.price_estimate_min, price)?,
                         price_estimate_max: map_patch(c.price_estimate_max, price)?,
@@ -342,7 +342,7 @@ impl WirePayload {
                 listing_source_id: parse_source(&c.key.listing_source_id)?,
                 source_listing_id: parse_listing(&c.key.source_listing_id)?,
                 title: map_patch(c.title, patch_title)?,
-                description: map_patch(c.description, patch_description)?,
+                description: map_patch(c.description, localized_description)?,
                 price: map_patch(c.price, price_assertion)?,
                 price_estimate_min: map_patch(c.price_estimate_min, price)?,
                 price_estimate_max: map_patch(c.price_estimate_max, price)?,
@@ -581,33 +581,25 @@ fn price_assertion(p: WirePriceAssertion) -> Result<ProductListingPrice> {
         WirePriceAssertion::OnRequest => Ok(ProductListingPrice::OnRequest),
     }
 }
-fn localized_title(l: Option<WireLocalized>) -> Result<Option<Localized<Language, Title>>> {
-    l.map(|l| {
-        // Envelopes encoded before typography normalization carry the earlier canonical title.
-        if !Title::has_canonical_structure(&l.value) {
-            return Err(CodecError::Invalid);
-        }
-        Ok(Localized::new(
-            Language::from_code(&l.language).ok_or(CodecError::Invalid)?,
-            Title::from(l.value),
-        ))
-    })
-    .transpose()
+fn localized_title(value: WireLocalized) -> Result<Localized<Language, Title>> {
+    // Envelopes encoded before typography normalization carry the earlier canonical title.
+    if !Title::has_canonical_structure(&value.value) {
+        return Err(CodecError::Invalid);
+    }
+    Ok(Localized::new(
+        Language::from_code(&value.language).ok_or(CodecError::Invalid)?,
+        Title::from(value.value),
+    ))
 }
-fn localized_description(
-    l: Option<WireLocalized>,
-) -> Result<Option<Localized<Language, Description>>> {
-    l.map(|l| {
-        let description = Description::from(l.value.as_str());
-        if description.as_ref() != l.value {
-            return Err(CodecError::Invalid);
-        }
-        Ok(Localized::new(
-            Language::from_code(&l.language).ok_or(CodecError::Invalid)?,
-            description,
-        ))
-    })
-    .transpose()
+fn localized_description(value: WireLocalized) -> Result<Localized<Language, Description>> {
+    let description = Description::from(value.value.as_str());
+    if description.as_ref() != value.value {
+        return Err(CodecError::Invalid);
+    }
+    Ok(Localized::new(
+        Language::from_code(&value.language).ok_or(CodecError::Invalid)?,
+        description,
+    ))
 }
 fn images(values: Vec<String>) -> Result<IndexSet<ProductListingImage>> {
     let count = values.len();
@@ -733,34 +725,25 @@ fn wire_key(source: ListingSourceId, listing: &SourceListingId) -> WireKey {
 fn wire_images(images: &IndexSet<ProductListingImage>) -> Vec<String> {
     images.iter().map(|i| i.url().to_string()).collect()
 }
-fn wire_text<T: AsRef<str>>(value: &Localized<Language, T>) -> WireLocalized {
+fn wire_localized<T: AsRef<str>>(value: &Localized<Language, T>) -> WireLocalized {
     WireLocalized {
         language: value.localization.as_str().into(),
         value: value.payload.as_ref().into(),
     }
 }
 fn patch_title(value: WireLocalized) -> Result<Localized<Language, Title>> {
-    let title = localized_title(Some(value))?.ok_or(CodecError::Invalid)?;
+    let title = localized_title(value)?;
     if title.payload.as_ref().is_empty() {
         return Err(CodecError::Invalid);
     }
     Ok(title)
 }
-fn patch_description(value: WireLocalized) -> Result<Localized<Language, Description>> {
-    localized_description(Some(value))?.ok_or(CodecError::Invalid)
-}
-fn wire_localized<T: AsRef<str>>(value: &Option<Localized<Language, T>>) -> Option<WireLocalized> {
-    value.as_ref().map(|v| WireLocalized {
-        language: v.localization.as_str().into(),
-        value: v.payload.as_ref().into(),
-    })
-}
 fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
     Ok(match intent {
         ProductListingIngestionIntent::Create(c) => WirePayload::Create(WireCreate {
             key: wire_key(c.listing_source_id, &c.source_listing_id),
-            title: wire_localized(&c.title),
-            description: wire_localized(&c.description),
+            title: c.title.as_ref().map(wire_localized),
+            description: c.description.as_ref().map(wire_localized),
             pricing: WirePricing {
                 price: c.pricing.price.map(wire_assertion),
                 price_estimate_min: c.pricing.price_estimate_min.map(wire_price),
@@ -779,8 +762,8 @@ fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
                 product_key.listing_source_id,
                 &product_key.source_listing_id,
             ),
-            title: wire_patch(&c.title, wire_text),
-            description: wire_patch(&c.description, wire_text),
+            title: wire_patch(&c.title, wire_localized),
+            description: wire_patch(&c.description, wire_localized),
             price: wire_patch(&c.price, |v| wire_assertion(*v)),
             price_estimate_min: wire_patch(&c.price_estimate_min, |v| wire_price(*v)),
             price_estimate_max: wire_patch(&c.price_estimate_max, |v| wire_price(*v)),
@@ -795,8 +778,8 @@ fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
         }),
         ProductListingIngestionIntent::Upsert(c) => WirePayload::Upsert(WireUpsert {
             key: wire_key(c.listing_source_id, &c.source_listing_id),
-            title: wire_patch(&c.title, wire_text),
-            description: wire_patch(&c.description, wire_text),
+            title: wire_patch(&c.title, wire_localized),
+            description: wire_patch(&c.description, wire_localized),
             price: wire_patch(&c.price, |v| wire_assertion(*v)),
             price_estimate_min: wire_patch(&c.price_estimate_min, |v| wire_price(*v)),
             price_estimate_max: wire_patch(&c.price_estimate_max, |v| wire_price(*v)),
