@@ -284,7 +284,7 @@ function renderReviewQueueItem(r) {
       <div class="queue-row">
         <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
         ${statusBadge(r.status)}
-        ${isWaitingForRepair(r) ? statusBadge('Waiting for repair') : ''}
+        ${repairBadge(r)}
       </div>
       <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
       ${evaluation ? `<div class="queue-meta">${statusBadge(evaluation.approved_by_llm ? 'LLM approved' : 'LLM not approved')} ${statusBadge(evaluation.confidence || 'unknown confidence')}</div>` : ''}
@@ -370,7 +370,7 @@ function renderDetail(detail, matrix) {
           <div class="review-title">
             <strong>${escapeHtml(review.listing_source_name || review.listing_source_id)}</strong>
             ${statusBadge(review.status)}
-            ${isWaitingForRepair(review) ? statusBadge('Waiting for repair') : ''}
+            ${repairBadge(review)}
             ${statusBadge(review.artifact_type)}
             ${review.listing_source_crawl_enabled === false ? statusBadge('Source disabled') : ''}
           </div>
@@ -382,6 +382,7 @@ function renderDetail(detail, matrix) {
         </div>
         ${renderApprovalPanel(detail)}
       </div>
+      ${renderHumanRequired(review)}
       ${renderRepairRequest(review)}
       ${renderReviewEvents(detail)}
       ${renderEditRefusal()}
@@ -454,6 +455,26 @@ function reviewPageLabel(page) {
 
 function isWaitingForRepair(review) {
     return review?.status === 'PENDING_REVIEW' && Boolean(review.repair_request);
+}
+
+// A review whose agent needs-repair rounds reached the cap waits for a human, which outranks
+// waiting for the repair the agents asked each other for.
+function repairBadge(review) {
+    if (review?.human_required) return statusBadge('Needs a human');
+    return isWaitingForRepair(review) ? statusBadge('Waiting for repair') : '';
+}
+
+function renderHumanRequired(review) {
+    if (!review?.human_required) return '';
+    const rounds = Number(review.agent_rounds) || 0;
+    return `<div class="review-card human-required-card">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>Needs a human</strong>
+          <span class="muted">The review agents gave ${escapeHtml(rounds)} needs-repair verdict${rounds === 1 ? '' : 's'} since a human last changed or judged this review and stopped working it. Edit it, change its pages or labels, or give needs-repair with what to do to hand it back to them; or approve or reject it.</span>
+        </div>
+      </div>
+    </div>`;
 }
 
 function renderRepairRequest(review) {
@@ -2311,6 +2332,7 @@ function statusBadge(status) {
     else if (normalized.includes('changed')) cls += ' badge-changed';
     else if (normalized.includes('missing')) cls += ' badge-missing';
     else if (normalized.includes('reject') || normalized.includes('failed')) cls += ' badge-rejected';
+    else if (normalized.includes('human')) cls += ' badge-human';
     else if (normalized.includes('repair') || normalized.includes('superseded')) cls += ' badge-repair';
     return `<span class="${cls}">${escapeHtml(displayName(status))}</span>`;
 }

@@ -735,7 +735,7 @@ async fn approve_removed_page_template_for_notice_page(
         .await
         .unwrap_or_else(|error| panic!("evaluate the declaration: {error}"));
     repository
-        .store_schema_matrix_if_current(review_id, evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await
         .unwrap_or_else(|error| panic!("store the matrix: {error}"));
     approve(

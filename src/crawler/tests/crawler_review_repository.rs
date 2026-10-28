@@ -1339,7 +1339,7 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
     assert_eq!(candidate_version, 2);
 
     let stale_store = repository
-        .store_schema_matrix_if_current(review_id, matrix)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, matrix)
         .await;
     assert!(matches!(
         stale_store,
@@ -1380,7 +1380,7 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, fresh_matrix)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, fresh_matrix)
         .await
         .unwrap();
 
@@ -1469,7 +1469,7 @@ async fn schema_matrix_write_drops_the_generated_matrix_summary() {
         .unwrap();
 
     let stored = repository
-        .store_schema_matrix_if_current(review_id, evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await
         .unwrap();
 
@@ -1596,7 +1596,7 @@ async fn store_schema_matrix(
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await
         .unwrap();
 }

@@ -2,9 +2,10 @@
 //! configuration, rejection and the needs-repair verdict. Each locks the review first, so
 //! verdicts, edits and page joins on it apply one after the other. The review agents' approvals
 //! and rejections pass the actor's role, [`AgentDecisionPolicy`] and, for approvals, the four-eyes
-//! rule and the [approval guard](crate::review::approval_guard) here, so no caller decides for an
-//! agent without them.
+//! rule and the [approval guard](crate::review::approval_guard) here, and no agent verdict is
+//! taken on a review that waits for a human, so no caller decides for an agent without them.
 
+use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_events::{
     DomainUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
     commit_with_event,
@@ -67,7 +68,9 @@ impl CrawlerReviewRepository {
     ) -> Result<(), ReviewRepositoryError> {
         admit_approval(&self.agent_decisions, actor, approval.incomplete_coverage)?;
         let mut transaction = self.pool.begin().await?;
-        let review = lock_review_for_verdict(&mut transaction, review_id).await?;
+        let review =
+            lock_review_for_verdict(&mut transaction, review_id, actor, &self.agent_decisions)
+                .await?;
         review.check_candidate_version(review_id, approval.expected_candidate_version)?;
         let guarded = actor.is_agent();
         if guarded {
@@ -169,7 +172,9 @@ impl CrawlerReviewRepository {
     ) -> Result<(), ReviewRepositoryError> {
         admit_rejection(&self.agent_decisions, actor, notes)?;
         let mut transaction = self.pool.begin().await?;
-        let review = lock_review_for_verdict(&mut transaction, review_id).await?;
+        let review =
+            lock_review_for_verdict(&mut transaction, review_id, actor, &self.agent_decisions)
+                .await?;
         if actor.is_agent() {
             check_agent_decision_rate(
                 &mut transaction,
@@ -202,7 +207,9 @@ impl CrawlerReviewRepository {
     /// Records the needs-repair verdict on a pending review. The review stays pending, so its
     /// candidate stays editable, its pages and the pages waiting on it stay attached, and no
     /// second review opens for the same artifact; the reviewer later approves or rejects it. A
-    /// repeated verdict replaces the note.
+    /// repeated verdict replaces the note. A review agent's verdict is one round of the agents'
+    /// back-and-forth; the one that reaches the cap is taken and leaves the review waiting for a
+    /// human.
     pub async fn request_repair(
         &self,
         review_id: CrawlerReviewId,
@@ -214,7 +221,7 @@ impl CrawlerReviewRepository {
             .filter(|note| !note.is_empty())
             .ok_or(ReviewRepositoryError::MissingRepairNote)?;
         let mut transaction = self.pool.begin().await?;
-        lock_review_for_verdict(&mut transaction, review_id).await?;
+        lock_review_for_verdict(&mut transaction, review_id, actor, &self.agent_decisions).await?;
         sqlx::query(
             "UPDATE crawler_reviews \
              SET repair_requested = NOW(), repair_note = $2, updated = NOW() \
@@ -654,12 +661,15 @@ impl ReviewUnderVerdict {
     }
 }
 
-/// Locks the review for a verdict, so verdicts, edits and page joins on it apply one after the
-/// other, and reads what the verdict decides on. Only a pending review takes a verdict; an
-/// unknown review is told apart from a closed one.
+/// Locks the review for `actor`'s verdict, so verdicts, edits and page joins on it apply one after
+/// the other, and reads what the verdict decides on. Only a pending review takes a verdict; an
+/// unknown review is told apart from a closed one. A review agent's verdict on a review that waits
+/// for a human by `agent_decisions` is refused.
 async fn lock_review_for_verdict(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
+    actor: ReviewActor,
+    agent_decisions: &AgentDecisionPolicy,
 ) -> Result<ReviewUnderVerdict, ReviewRepositoryError> {
     let review = sqlx::query(
         "SELECT status, listing_source_id, domain_id, artifact_type, reason, candidate_payload, \
@@ -670,9 +680,12 @@ async fn lock_review_for_verdict(
     .fetch_optional(&mut **transaction)
     .await?
     .ok_or(ReviewRepositoryError::NotFound(review_id))?;
-    if review.try_get::<String, _>("status")? != STATUS_PENDING_REVIEW {
+    let status: String = review.try_get("status")?;
+    if status != STATUS_PENDING_REVIEW {
         return Err(ReviewRepositoryError::NotPending(review_id));
     }
+    refuse_agent_while_human_required(transaction, review_id, actor, &status, agent_decisions)
+        .await?;
     Ok(ReviewUnderVerdict {
         listing_source_id: listing_source_id_from_uuid(
             review.try_get::<uuid::Uuid, _>("listing_source_id")?,

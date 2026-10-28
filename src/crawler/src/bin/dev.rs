@@ -34,6 +34,7 @@
 //! | `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` | The review agents' approvals plus rejections per rolling hour in `agent` mode | `20` |
 //! | `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` | How old the live matrix an agent approval of product schemas rests on may be | `30` |
 //! | `CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS` | How many sample URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many `NOT_PRODUCT` | `3` |
+//! | `CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS` | How many needs-repair verdicts the review agents give one review, counted since a human last changed or judged it, before it waits for a human in `agent` mode | `3` |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!

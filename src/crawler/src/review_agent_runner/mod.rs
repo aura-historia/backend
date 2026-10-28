@@ -33,10 +33,12 @@ use digest::{BudgetState, Digest};
 use ledger::{FIVE_HOURS, LEDGER_RETENTION, ONE_WEEK, ProcessLedger};
 use login::{LoginError, probe_login};
 use pass::{PassError, usage_limit_name, work_pending_reviews};
-use queue::review_events_since;
+use queue::{HumanRequiredReview, ReviewEventsSince, review_events_since, review_queue};
 use state::{RunnerLock, RunnerState, StateError, load_state, save_state};
 
-use crate::review_mcp::{AgentRole, ConsoleClient, ConsoleClientError, RoleTokenFile};
+use crate::review_mcp::{
+    AgentRole, ConsoleClient, ConsoleClientError, ConsoleError, RoleTokenFile,
+};
 use std::path::PathBuf;
 use time::{Duration, OffsetDateTime};
 use tracing::{info, warn};
@@ -129,6 +131,7 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
     let now = OffsetDateTime::now_utc();
     info!(
         pending = summary.pending,
+        waiting_for_human = summary.waiting_for_human,
         cooling_down = summary.cooling_down,
         worked = summary.worked,
         processes = summary.processes,
@@ -146,7 +149,8 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
 }
 
 /// Writes the digest a run owes: a timer run once a day has passed since the last one, a `--once`
-/// run of the last day right away. A digest that cannot be written is logged and owed again.
+/// run of the last day right away, with the reviews that wait for a human after this run's pass. A
+/// digest that cannot be written is logged and owed again.
 async fn write_digest(
     settings: &RunnerSettings,
     console: &ConsoleClient,
@@ -162,13 +166,13 @@ async fn write_digest(
             None => now - DIGEST_INTERVAL,
         },
     };
-    let events = match review_events_since(console, from).await {
-        Ok(events) => events,
+    let (events, waiting_for_human) = match digest_reads(console, from).await {
+        Ok(read) => read,
         Err(error) => {
             warn!(
                 error = %error,
                 cause = ?std::error::Error::source(&error),
-                "Cannot read the review events for the digest; the next run writes it"
+                "Cannot read the review events or queue for the digest; the next run writes it"
             );
             return None;
         }
@@ -187,6 +191,7 @@ async fn write_digest(
         now,
         events,
         ledger.since(from).cloned().collect(),
+        waiting_for_human,
         budget,
     );
     match digest.write(&settings.state_dir) {
@@ -202,6 +207,7 @@ async fn write_digest(
                 needs_repair_by_agents = digest.needs_repair.agents,
                 needs_repair_by_others = digest.needs_repair.others,
                 restored = digest.restored,
+                needs_a_human = digest.needs_a_human.len(),
                 refusals_by_failed_check = ?digest.refusals_by_check,
                 refusals_by_kind = ?digest.refusals_by_kind,
                 processes = ?digest.processes_by_end,
@@ -223,6 +229,18 @@ async fn write_digest(
             None
         }
     }
+}
+
+/// What the digest reads from the console: the events of every review since `from`, and the
+/// pending reviews that wait for a human now.
+async fn digest_reads(
+    console: &ConsoleClient,
+    from: OffsetDateTime,
+) -> Result<(ReviewEventsSince, Vec<HumanRequiredReview>), ConsoleError> {
+    Ok((
+        review_events_since(console, from).await?,
+        review_queue(console).await?.waiting_for_human,
+    ))
 }
 
 #[cfg(all(test, unix))]
@@ -324,9 +342,24 @@ mod tests {
             validation_summary: json!({}),
             reviewer_notes: None,
             repair_request: None,
+            agent_rounds: 0,
+            human_required: false,
             created: now,
             updated: now,
             reviewed: None,
+        }
+    }
+
+    /// A pending review the agents gave three needs-repair rounds, which waits for a human.
+    fn waiting_for_human() -> CrawlerReview {
+        CrawlerReview {
+            agent_rounds: 3,
+            human_required: true,
+            repair_request: Some(crate::review::model::RepairRequest {
+                note: "title still takes the shop name".to_owned(),
+                requested: OffsetDateTime::now_utc(),
+            }),
+            ..review("PENDING_REVIEW", true)
         }
     }
 
@@ -666,6 +699,59 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(digest.contains("| Restored | – | 1 |"), "{digest}");
         assert!(digest.contains(&first_id.to_string()), "{digest}");
         assert!(digest.contains("4 processes (4 reported)"), "{digest}");
+    }
+
+    /// A review that waits for a human is no agent work: no process starts for it, it does not cool
+    /// down, and the digest lists it with its last needs-repair note.
+    #[tokio::test]
+    async fn should_skip_a_review_that_waits_for_a_human_and_list_it_in_the_digest() {
+        let waiting = waiting_for_human();
+        let workable = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![waiting.clone(), workable.clone()]).await;
+
+        let outcome = run_with(&fixture.settings(&["--once"], &[])).await;
+
+        let summary = summary(&outcome);
+        assert_eq!(
+            (
+                summary.pending,
+                summary.waiting_for_human,
+                summary.worked,
+                summary.processes,
+                summary.cooling_down
+            ),
+            (1, 1, 1, 2, 0)
+        );
+        assert!(
+            fixture
+                .claude
+                .order()
+                .iter()
+                .all(|line| line.ends_with(&workable.review_id.to_string())),
+            "{:?}",
+            fixture.claude.order()
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.is_empty(), "{state:?}");
+        let RunOutcome::Ran {
+            digest: Some(digest),
+            ..
+        } = outcome
+        else {
+            panic!("--once wrote no digest");
+        };
+        let digest = std::fs::read_to_string(digest).unwrap_or_default();
+        assert!(
+            digest.contains(&format!(
+                "- {} PRODUCT_SCHEMA · Antiques · 3 agent rounds · last needs-repair at",
+                waiting.review_id
+            )),
+            "{digest}"
+        );
+        assert!(
+            digest.contains(": title still takes the shop name"),
+            "{digest}"
+        );
     }
 
     #[tokio::test]

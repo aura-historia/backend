@@ -51,6 +51,7 @@ impl CrawlerReviewRepository {
             &mut transaction,
             review_id,
             actor,
+            &self.agent_decisions,
             expected_candidate_version,
         )
         .await?;

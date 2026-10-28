@@ -64,6 +64,13 @@ pub struct PendingReview {
     pub candidate_version: i64,
     /// The latest needs-repair request the review waits for, if any.
     pub repair_request: Option<RepairRequestView>,
+    /// The needs-repair verdicts the agents gave the review since a human last changed or judged
+    /// it.
+    pub agent_rounds: u32,
+    /// Whether the review waits for a human: the agents' needs-repair rounds reached the cap, and
+    /// every change and verdict of an agent on it is refused with `HUMAN_REQUIRED` until a human
+    /// changes or judges it. Leave such a review alone.
+    pub human_required: bool,
     pub updated: String,
 }
 
@@ -92,6 +99,13 @@ pub struct ReviewView {
     pub candidate_is_live: bool,
     pub reviewer_notes: Option<String>,
     pub repair_request: Option<RepairRequestView>,
+    /// The needs-repair verdicts the agents gave the review since a human last changed or judged
+    /// it.
+    pub agent_rounds: u32,
+    /// Whether the review waits for a human: the agents' needs-repair rounds reached the cap, and
+    /// every change and verdict of an agent on it is refused with `HUMAN_REQUIRED` until a human
+    /// changes or judges it. Leave such a review alone.
+    pub human_required: bool,
     pub candidate: CandidateView,
     /// The pages a product-schema candidate is evaluated on.
     pub pages: Vec<ReviewPageView>,
@@ -270,6 +284,8 @@ impl PendingReviews {
                     listing_source_crawl_enabled: review.listing_source_crawl_enabled,
                     candidate_version: review.candidate_version,
                     repair_request: review.repair_request.map(RepairRequestView::of),
+                    agent_rounds: review.agent_rounds,
+                    human_required: review.human_required,
                     updated: timestamp(review.updated),
                 })
                 .collect(),
@@ -315,6 +331,8 @@ impl ReviewView {
             candidate_is_live,
             reviewer_notes: review.reviewer_notes.as_deref().map(note),
             repair_request: review.repair_request.map(RepairRequestView::of),
+            agent_rounds: review.agent_rounds,
+            human_required: review.human_required,
             candidate: CandidateView::of(candidate),
             pages: pages.into_iter().map(ReviewPageView::of).collect(),
             sample_urls: sample_urls.into_iter().map(SampleUrlView::of).collect(),
@@ -514,6 +532,8 @@ mod tests {
             "validation_summary": {},
             "reviewer_notes": null,
             "repair_request": null,
+            "agent_rounds": 0,
+            "human_required": false,
             "created": "2026-10-27T10:00:00Z",
             "updated": "2026-10-27T11:00:00Z",
             "reviewed": null,
@@ -538,6 +558,53 @@ mod tests {
         assert_eq!(pending.reviews.len(), MAX_PENDING_REVIEWS);
         assert_eq!(json!(pending.reviews[0].review_id), first);
         assert_eq!(pending.truncations, ["reviews: the first 50 of 60"]);
+    }
+
+    #[test]
+    fn should_show_the_agents_rounds_and_whether_a_review_waits_for_a_human() {
+        let mut waiting = review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({}));
+        waiting["agent_rounds"] = json!(3);
+        waiting["human_required"] = json!(true);
+        let mut worked = review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({}));
+        worked["agent_rounds"] = json!(1);
+
+        let pending = json!(PendingReviews::of(decoded(json!([
+            waiting.clone(),
+            worked
+        ]))));
+        let view = json!(ReviewView::of(
+            decoded(json!({
+                "review": waiting,
+                "candidate_is_live": false,
+                "pages": [],
+                "urls": [],
+                "events": [],
+            })),
+            wire::Candidate::ProductSchema(wire::ProductSchemaCandidate {
+                schemas: vec![],
+                removed_page_schemas: vec![],
+            }),
+        ));
+
+        assert_eq!(
+            (
+                &pending["reviews"][0]["agent_rounds"],
+                &pending["reviews"][0]["human_required"]
+            ),
+            (&json!(3), &json!(true))
+        );
+        assert_eq!(
+            (
+                &pending["reviews"][1]["agent_rounds"],
+                &pending["reviews"][1]["human_required"]
+            ),
+            (&json!(1), &json!(false))
+        );
+        assert_eq!(pending["total_pending"], 2);
+        assert_eq!(
+            (&view["agent_rounds"], &view["human_required"]),
+            (&json!(3), &json!(true))
+        );
     }
 
     #[test]

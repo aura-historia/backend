@@ -4,6 +4,7 @@
 //! review is evaluated the same way, on the review's pages and on further URLs of its
 //! ListingSource, without being stored.
 
+use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_source::{MAX_EVALUATED_URLS, listing_source_domains, review_source_url};
 use super::reviewer_page_url::ReviewPageIdentity;
 use super::schema_payload::{ProductSchemaCandidateEdit, ProductSchemaReviewCandidate};
@@ -12,8 +13,8 @@ use super::{
 };
 use crate::CrawlerReviewId;
 use crate::review::model::{
-    ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, LiveMatrixEvaluation, ReviewSchemaMatrix,
-    SchemaMatrix, SchemaReviewPageInput,
+    ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, LiveMatrixEvaluation, ReviewActor,
+    ReviewSchemaMatrix, SchemaMatrix, SchemaReviewPageInput,
 };
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
 use crate::scraper::css_selector::product_schema_repository::{
@@ -282,27 +283,63 @@ impl CrawlerReviewRepository {
             .collect())
     }
 
-    /// Stores the matrix as the review's cached matrix while the review still holds the
-    /// candidate it evaluated and every page it evaluated, and returns it with the review's pages
-    /// it did not evaluate. Pages that joined the review while it was evaluated are not in it
-    /// until the next evaluation: they must not keep a refresh from ever storing its matrix while
-    /// waiting pages keep joining.
+    /// Refuses, before `actor`'s live refresh of the review's matrix fetches anything, a review
+    /// agent's refresh of a review that waits for a human; storing the matrix checks it again.
+    pub async fn check_matrix_refresh(
+        &self,
+        review_id: CrawlerReviewId,
+        actor: ReviewActor,
+    ) -> Result<(), ReviewRepositoryError> {
+        if !actor.is_agent() {
+            return Ok(());
+        }
+        let mut transaction = self.pool.begin().await?;
+        let status = lock_review_status(&mut transaction, review_id).await?;
+        refuse_agent_while_human_required(
+            &mut transaction,
+            review_id,
+            actor,
+            &status,
+            &self.agent_decisions,
+        )
+        .await?;
+        transaction.rollback().await?;
+        Ok(())
+    }
+
+    /// Stores the matrix of `actor`'s refresh as the review's cached matrix while the review still
+    /// holds the candidate it evaluated and every page it evaluated, and returns it with the
+    /// review's pages it did not evaluate. Pages that joined the review while it was evaluated are
+    /// not in it until the next evaluation: they must not keep a refresh from ever storing its
+    /// matrix while waiting pages keep joining. A review agent's refresh of a review that came to
+    /// wait for a human while it ran stores nothing.
     pub async fn store_schema_matrix_if_current(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         evaluated: EvaluatedSchemaMatrix,
     ) -> Result<ReviewSchemaMatrix, ReviewRepositoryError> {
         let matrix = serde_json::to_value(&evaluated.matrix)?;
         let mut transaction = self.pool.begin().await?;
         // The row lock waits for page joins and edits in flight, which lock the review first.
-        let (candidate_version, candidate_hash) = sqlx::query_as::<_, (i64, String)>(
-            "SELECT candidate_version, encode(digest(candidate_payload::text, 'sha256'), 'hex') \
-             FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+        let (status, candidate_version, candidate_hash) =
+            sqlx::query_as::<_, (String, i64, String)>(
+                "SELECT status, candidate_version, \
+                        encode(digest(candidate_payload::text, 'sha256'), 'hex') \
+                 FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+            )
+            .bind(review_id.as_uuid())
+            .fetch_optional(&mut *transaction)
+            .await?
+            .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        refuse_agent_while_human_required(
+            &mut transaction,
+            review_id,
+            actor,
+            &status,
+            &self.agent_decisions,
         )
-        .bind(review_id.as_uuid())
-        .fetch_optional(&mut *transaction)
-        .await?
-        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        .await?;
         let pages = fetch_review_pages(&mut *transaction, review_id).await?;
         if evaluated.candidate_version() != Some(candidate_version)
             || candidate_hash != evaluated.candidate_hash
@@ -338,4 +375,16 @@ impl CrawlerReviewRepository {
         transaction.commit().await?;
         Ok(ReviewSchemaMatrix::of(evaluated.matrix, &pages))
     }
+}
+
+/// Locks the review for the rest of the transaction and reads its status.
+async fn lock_review_status(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+) -> Result<String, ReviewRepositoryError> {
+    sqlx::query_scalar("SELECT status FROM crawler_reviews WHERE review_id = $1 FOR UPDATE")
+        .bind(review_id.as_uuid())
+        .fetch_optional(&mut **transaction)
+        .await?
+        .ok_or(ReviewRepositoryError::NotFound(review_id))
 }
