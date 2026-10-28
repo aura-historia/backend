@@ -91,9 +91,9 @@ Catalog intake accepts `product_listings/add`, `product_listings/update` and
 `product_listings/remove`, scoped to the subscribing app's sales channel. Add/update
 snapshots use `product_listing.product_id`, without product `status`; stock exhaustion
 updates availability and does not withdraw the listing. Remove requires only that exact
-positive integer product identity (a canonical decimal string is also accepted for clients
-that cannot preserve 64-bit JSON integers). The mapper retains evidence spelling and emits
-a validated decimal `sourceListingId` in raw values for both upsert and delete. Source identity always includes the `ListingSourceId`.
+positive unsigned 64-bit product identity. The mapper preserves it exactly and emits a
+validated decimal `sourceListingId` in raw values for both upsert and delete. Source
+identity always includes the `ListingSourceId`.
 A first remove can bind an existing canonical backfill listing by this source/product pair;
 unknown products retain their ordering fence without creating a canonical listing.
 
@@ -104,29 +104,27 @@ authority: capture completes stale and pending normalization completes ignored.
 Unsupported schemas fail closed. The legacy broad `products/*` topics are acknowledged
 without forwarding, including queue redrives.
 
-`X-Shopify-Triggered-At` orders publication changes independently of product `updated_at`.
-Missing add/update times and malformed times keep upstream retry custody for DLQ recovery;
-do not fill them with receipt time. A timestamp-free remove uses the existing deletion
-barrier. Equal-time deletion wins; a fresh complete snapshot with a later selection start
-can recover an ambiguous timestamp or clear a deletion barrier. Provider receipt and
-command deduplication remain unchanged.
+`X-Shopify-Triggered-At` continues to supply webhook source-time ordering independently
+of product `updated_at`, using the existing provider ordering and deletion-barrier rules
+above. Provider receipt and command deduplication remain unchanged.
 
-The [Shopify snapshot API](../swagger.yaml) admits complete publication-filtered bulk
-observations through the same command FIFO and raw stream as webhooks. The app records
-`snapshotStartedAt` before starting its authoritative selection and preserves it across
-all upsert/withdrawal batches and retries. `selectionComplete: true` attests that granted
-access, current publication, pagination and bulk completion were verified successfully;
-failed/partial reads must not submit a cleanup. The backend never interprets a partial
-batch as an empty desired catalog. Cleanup uses explicitly enumerated source listing
-identities from the existing partner listing query, including when the complete eligible
-set is empty. Source-time guards run when raw observations are transactionally captured;
-normalization applies accepted revisions in that stream's order. Neither a pre-submit
-membership read nor ordinary canonical async upserts supply this guarantee.
+Initial/manual/recovery imports and source-scoped reconciliation use the existing
+canonical asynchronous upsert and withdrawal endpoints. The app owns publication reads
+and submits explicit withdrawals only after a complete successful eligible selection,
+including a successfully read empty selection. Missing access/publication, failed or
+partial reads must not trigger absence-based cleanup. The backend does not infer an
+absent product from an incomplete batch.
 
-App companion [#370](https://github.com/aura-historia/shopify-app/issues/370) must regenerate
-its client from OpenAPI and replace canonical bulk writes with this endpoint. Publication
-reads and subscription/scope changes remain app-owned. Deployment and retained-work
-retirement requirements are in the [worker runbook](../durable-worker-runbook.md#shopify-channel-cutover-and-reconciliation).
+Bulk writes and webhooks have no shared ordering guarantee. An older import can restore
+a product removed by a later webhook; an older cleanup can withdraw a product republished
+later. This overlap is an accepted limitation, and a fresh complete source-scoped
+reconciliation is the recovery path. Existing idempotency keys prevent duplicate command
+application; they do not establish publication chronology.
+
+App companion [#370](https://github.com/aura-historia/shopify-app/issues/370) owns
+publication filtering, subscription/scope changes and reconciliation through the existing
+API. Deployment and retained-work retirement requirements are in the
+[worker runbook](../durable-worker-runbook.md#shopify-channel-cutover-and-reconciliation).
 
 ## Geography dependency invalidation
 

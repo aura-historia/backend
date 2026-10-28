@@ -14,5 +14,3 @@ mod types;
 pub mod management;
 
 pub mod delivery;
-
-pub mod shopify_snapshot;

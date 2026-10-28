@@ -127,8 +127,3 @@ pub use commands::change_product_listing_delivery::*;
 pub use queries::get_product_listing_delivery::{
     GetProductListingDeliveryHandler, GetProductListingDeliveryUseCase, ProductListingDeliveryView,
 };
-
-pub use commands::submit_shopify_snapshot::{
-    ShopifySnapshotItem, SubmitShopifySnapshotCommand, SubmitShopifySnapshotError,
-    SubmitShopifySnapshotHandler, SubmitShopifySnapshotUseCase,
-};

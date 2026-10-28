@@ -34,21 +34,7 @@ struct ShopifyProductPayload {
 fn deserialize_product_id<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<u64, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Identity {
-        Number(u64),
-        Decimal(String),
-    }
-    let id = match Identity::deserialize(deserializer)? {
-        Identity::Number(id) => id,
-        Identity::Decimal(value) => {
-            if value.starts_with('0') || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(serde::de::Error::custom("invalid Shopify product identity"));
-            }
-            value.parse::<u64>().map_err(serde::de::Error::custom)?
-        }
-    };
+    let id = u64::deserialize(deserializer)?;
     if id == 0 {
         return Err(serde::de::Error::custom("invalid Shopify product identity"));
     }
@@ -440,6 +426,7 @@ mod tests {
             json!(0),
             json!(-1),
             json!(1.5),
+            json!("42"),
             json!("invalid"),
             json!("042"),
         ] {
@@ -465,32 +452,22 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_numeric_and_decimal_string_ids_beyond_javascript_integer_precision() {
+    fn should_preserve_exact_unsigned_64_bit_product_ids() {
         for id in [9_007_199_254_740_993_u64, u64::MAX] {
-            for value in [json!(id), json!(id.to_string())] {
-                let ShopifyListingAction::Capture(observation) = listing_action(
-                    ShopifyProductEventKind::Remove,
-                    &source(),
-                    json!({"product_id": value}),
-                )
-                .unwrap() else {
-                    panic!("must capture")
-                };
-                assert_eq!(id.to_string(), observation.source_record_key);
-                assert_eq!(
-                    json!(id.to_string()),
-                    observation.input.raw_values().value()["sourceListingId"]
-                );
-            }
-        }
-        assert!(
-            listing_action(
+            let ShopifyListingAction::Capture(observation) = listing_action(
                 ShopifyProductEventKind::Remove,
                 &source(),
-                json!({"product_id":"18446744073709551616"})
+                json!({"product_id": id}),
             )
-            .is_err()
-        );
+            .unwrap() else {
+                panic!("must capture")
+            };
+            assert_eq!(id.to_string(), observation.source_record_key);
+            assert_eq!(
+                json!(id.to_string()),
+                observation.input.raw_values().value()["sourceListingId"]
+            );
+        }
     }
 
     #[test]

@@ -76,8 +76,6 @@ product-listing-ingestion-sqs = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }
-product-listing-shopify = { workspace = true }
-product-listing-normalization = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }

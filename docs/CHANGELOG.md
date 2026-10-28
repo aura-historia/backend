@@ -4,8 +4,6 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-27 — ListingSource platform technology (#2567)
 
-- Added `POST /v1/listing-sources/{listingSourceId}/product-listings/shopify-snapshot/async` for complete publication-filtered Shopify selections. Required fixed selection time and idempotency key order bulk upserts and explicit source-scoped withdrawals with channel webhooks; queue acceptance remains distinct from normalization/projection. Shopify EventBridge ingestion now uses `product_listings/add`, `product_listings/update` and `product_listings/remove`, with legacy broad-topic write authority retired. See [event flow](events/flow.md#shopify-channel-observations) and the [cutover runbook](durable-worker-runbook.md#shopify-channel-cutover-and-reconciliation).
-
 - Admin ListingSource create, PATCH, details, and search support optional `platformTechnology` metadata and an exact search filter. Codes are open ASCII SCREAMING_SNAKE_CASE strings of 1–64 characters; reuse codes such as `SHOPIFY`, `WOOCOMMERCE`, `BIGCOMMERCE`, and `SHOPWARE`.
 - Creation omission or null records no platform; PATCH omission preserves it, null clears it, and a code replaces it. Reads omit absent values. Existing sources remain unset. Platform metadata is independent of ingestion configuration and is excluded from public and partner representations.
 

@@ -61,10 +61,6 @@ pub enum ShopifyProductListingProcessingError {
     ForwardUnconfirmed,
     #[error("Shopify submission identity is invalid")]
     InvalidSubmissionIdentity,
-    #[error("Shopify publication timestamp is missing or malformed")]
-    MissingPublicationTime,
-    #[error("Shopify publication timestamp is malformed")]
-    InvalidPublicationTime(#[source] time::error::Parse),
 }
 
 #[async_trait::async_trait]
@@ -134,10 +130,9 @@ where
                 time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
             })
             .transpose()
-            .map_err(ShopifyProductListingProcessingError::InvalidPublicationTime)?;
-        if observation.source_occurred_at.is_none() && kind != ShopifyProductEventKind::Remove {
-            return Err(ShopifyProductListingProcessingError::MissingPublicationTime);
-        }
+            .map_err(|source| {
+                ShopifyProductListingProcessingError::InvalidPayload(Box::new(source))
+            })?;
         let provider_receipt = shopify_provider_receipt(
             provenance.topic.as_str(),
             provenance.webhook_id.as_deref(),

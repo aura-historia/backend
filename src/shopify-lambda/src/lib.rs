@@ -135,9 +135,7 @@ fn should_retry(error: &ShopifyProductListingProcessingError) -> bool {
         ShopifyProductListingProcessingError::ListingSourceLookup(_)
         | ShopifyProductListingProcessingError::Submit(_)
         | ShopifyProductListingProcessingError::ForwardUnconfirmed
-        | ShopifyProductListingProcessingError::InvalidSubmissionIdentity
-        | ShopifyProductListingProcessingError::InvalidPublicationTime(_)
-        | ShopifyProductListingProcessingError::MissingPublicationTime => true,
+        | ShopifyProductListingProcessingError::InvalidSubmissionIdentity => true,
     }
 }
 
@@ -322,32 +320,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_retain_unordered_publication_events_for_recovery_and_allow_missing_time_removal()
-     {
-        for (topic, time, retry) in [
-            (SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD, None, true),
-            (SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE, Some("invalid"), true),
-            (SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE, Some("invalid"), true),
-            (SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE, None, false),
+    async fn should_forward_listing_events_without_requiring_trigger_time() {
+        for topic in [
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_ADD,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_UPDATE,
+            SHOPIFY_TOPIC_PRODUCT_LISTINGS_REMOVE,
         ] {
             let mut body: Value = serde_json::from_str(&body_with_topic(topic)).unwrap();
-            let metadata = body["detail"]["metadata"].as_object_mut().unwrap();
-            metadata.remove("X-Shopify-Triggered-At");
-            if let Some(time) = time {
-                metadata.insert(
-                    "X-Shopify-Triggered-At".to_owned(),
-                    Value::String(time.to_owned()),
-                );
-            }
+            body["detail"]["metadata"]
+                .as_object_mut()
+                .unwrap()
+                .remove("X-Shopify-Triggered-At");
             let processor = ProcessShopifyProductListingHandler::new(
                 TestSource,
                 TestIntake(SubmissionReport::Accepted),
                 ShopifyProductPayloadDecoder,
             );
-            let result = handler(event("timestamp", body.to_string()), &processor)
+            let result = handler(event("optional-trigger-time", body.to_string()), &processor)
                 .await
                 .unwrap();
-            assert_eq!(!result.batch_item_failures.is_empty(), retry);
+            assert!(result.batch_item_failures.is_empty());
         }
     }
 
