@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["review_id", "action", "candidate_version", "summary", "risks"],
+  "properties": {
+    "review_id": {
+      "type": "string",
+      "description": "The id of the review you worked, such as cr_01..."
+    },
+    "action": {
+      "type": "string",
+      "enum": ["STAGED", "NOTHING_TO_STAGE", "SKIPPED"],
+      "description": "STAGED: you staged a candidate for the reviewer. NOTHING_TO_STAGE: the current candidate already holds, or no candidate can work. SKIPPED: you could not work the review."
+    },
+    "candidate_version": {
+      "type": "integer",
+      "description": "The review's candidate version after your last change, or the one you read."
+    },
+    "summary": {
+      "type": "string",
+      "description": "What you staged and how you tested it, naming the page URLs."
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What may still be wrong, one entry each."
+    }
+  }
+}

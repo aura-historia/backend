@@ -99,6 +99,10 @@ path = "src/bin/fetch_fixture.rs"
 name = "review-mcp"
 path = "src/bin/review_mcp.rs"
 
+[[bin]]
+name = "review-agent-runner"
+path = "src/bin/review_agent_runner.rs"
+
 [features]
 default = []
 test-data = [

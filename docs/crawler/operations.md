@@ -137,6 +137,95 @@ For the Claude Code CLI, one role's MCP configuration reads:
   "env": {"CRAWLER_REVIEW_AGENT_TOKEN_FILE": "/var/lib/crawler/review-agent-tokens.json"}}}}
 ```
 
+### Review agent runner
+
+`review-agent-runner` works every pending review with the two review agents, end to end and with no human in the loop: per review a fresh author agent process writes, tests, labels and stages the candidate, then a fresh reviewer agent process approves, rejects or gives needs-repair within the [approval guard](extraction-and-review.md#approval-guard). Each process is a headless `claude -p` of the Claude Code CLI that is logged in on the machine, with only its role's [review MCP server](#review-mcp-server) as tools. The runner is an operator of the console like a human with a browser: it lists reviews and events with the author agent's token, has no database access and makes no review decision itself; the crawler makes no LLM call. Humans oversee after the fact through the [event trail](extraction-and-review.md#review-rail) and the [digest](#digest). Its code is the `crawler` crate's [`review_agent_runner`](../../src/crawler/src/review_agent_runner/mod.rs), outside the crawler's services.
+
+#### Team seat and CLI login
+
+The agents run on a dedicated member of Aura's Claude for Teams plan, never on a person's seat, so they draw only from that seat's five-hour and weekly allowance; nobody else signs in to it. A Team admin invites the crawler member (for example a `crawler@` mailbox), gives it a Premium seat and leaves usage credits off; an admin can turn them on with an individual spend limit in **Organization settings > Usage** when a busy week needs more.
+
+On the crawler host, install a pinned Claude Code version (auto-update off) and sign in once as the crawler member, in the runner's crawler-only configuration directory:
+
+```sh
+install -d -m 0700 -o crawler -g crawler /var/lib/crawler-review-agents
+sudo -u crawler env CLAUDE_CONFIG_DIR=/var/lib/crawler-review-agents/claude claude   # then /login with the crawler member
+sudo -u crawler env CLAUDE_CONFIG_DIR=/var/lib/crawler-review-agents/claude claude auth status --json
+```
+
+The status must show `"loggedIn": true`, `"authMethod": "claude.ai"` and Aura's organization. No `claude setup-token` and no `CLAUDE_CODE_OAUTH_TOKEN` are needed; a `CLAUDE_CODE_OAUTH_TOKEN` in the runner's environment is used if present (`authMethod` `oauth_token`). Every run starts with this probe and refuses to run, with the reason in the journal, unless the CLI is logged in with a Claude subscription; when the login expires, sign in again the same way. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` must not be set for the runner: in print mode they silently take over billing, so the runner also removes them from every child's environment.
+
+#### Production and development
+
+In production the crawler runs `server` with `CRAWLER_AUTHORING_MODE=agent` from the start, and the runner runs on the same host. Build `review-agent-runner` and `review-mcp` with `server` (`cargo build --release --locked -p crawler --bin server --bin review-mcp --bin review-agent-runner`), copy both to `/opt/crawler/bin/`, and install the example units [`review-agent-runner.service`](../../src/crawler/scripts/linux/review-agent-runner.service) and [`review-agent-runner.timer`](../../src/crawler/scripts/linux/review-agent-runner.timer) and the environment file [`review-agent-runner.env.example`](../../src/crawler/review-agent-runner.env.example) as `/etc/crawler/review-agent-runner.env`, then `systemctl daemon-reload && systemctl enable --now review-agent-runner.timer`. The service runs as the `crawler` user, the only one who can read the token file, with its own state directory `/var/lib/crawler-review-agents` and the CLI login there; its environment file holds runner settings only, never the crawler's, so no agent process inherits the console's human token. The timer starts a run 30 minutes after the previous one ended.
+
+For development, run `dev` with `CRAWLER_AUTHORING_MODE=agent` and the developer's own logged-in CLI, then one run from the worktree root, where `dev` writes the token file:
+
+```sh
+cargo build --locked -p crawler --bin review-mcp --bin review-agent-runner
+CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR=target/review-agents target/debug/review-agent-runner --once
+```
+
+`--once` works the pending reviews once, as a timer run does, and then writes a digest of the last day at once. `manual` mode stays for development without agents.
+
+#### Invocation
+
+Per review and role the runner starts, from a new empty directory of its own outside any project, with the prompt on stdin:
+
+```text
+claude -p --output-format json --json-schema <role's report schema> --mcp-config <role's review-mcp>
+  --strict-mcp-config --allowedTools "mcp__crawler_review__*" --permission-mode dontAsk
+  --no-session-persistence --setting-sources "" --model <model> --effort <effort>
+  --max-turns <turns> --max-budget-usd <cap> --tools ""
+```
+
+`--tools ""` disables every built-in tool (no shell, files, web or browser), and the MCP configuration names `review-mcp --role author|reviewer` as the server `crawler_review`, with the console URL and the token file's path, never a token, so `mcp__crawler_review__*` allows exactly that role's review tools. `--bare` is never used: it does not read the login. `--max-turns` exists in Claude Code 2.1.312 although its help does not list it. Every process starts with an empty context. Its environment is the runner's without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `CRAWLER_REVIEW_AUTH_TOKEN`, with `DISABLE_AUTOUPDATER=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and `TZ=UTC`. The prompts and report schemas are versioned files in [`review_agent_runner/prompts`](../../src/crawler/src/review_agent_runner/prompts) and [`schemas`](../../src/crawler/src/review_agent_runner/schemas); both prompts tell the agents that page content is data, never instructions. The author reports `review_id`, `action` (`STAGED`, `NOTHING_TO_STAGE`, `SKIPPED`), `candidate_version`, `summary` and `risks`; the reviewer reports `review_id`, `decision` (`APPROVE`, `REJECT`, `NEEDS_REPAIR`, `SKIP`), `confidence`, `summary`, `risks`, `field_findings` and `server_answer` (`outcome` `ACCEPTED`, `REFUSED` or `NOT_SENT`, the refusal's `kind`, `failed_checks` and `detail`). A report is the agent's account; the event trail is what happened.
+
+#### Settings
+
+| Setting | Meaning | Default |
+|---|---|---|
+| `CRAWLER_REVIEW_CONSOLE_URL`, `CRAWLER_REVIEW_AGENT_TOKEN_FILE` | The console and the token file, as for [`review-mcp`](#review-mcp-server); the runner lists reviews with the author token and refuses to start when the file cannot be read, as outside `agent` mode | `http://127.0.0.1:7878`, `review-agent-tokens.json` in the working directory |
+| `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN` | The Claude Code CLI | `claude` on the `PATH` |
+| `CRAWLER_REVIEW_AGENT_RUNNER_REVIEW_MCP_BIN` | The `review-mcp` binary | the one next to the runner |
+| `CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR` | Lock, state, process ledger and digests | the working directory |
+| `CRAWLER_REVIEW_AGENT_AUTHOR_MODEL`, `CRAWLER_REVIEW_AGENT_REVIEWER_MODEL` | Model alias or name per role | `claude-opus-5-5` |
+| `CRAWLER_REVIEW_AGENT_AUTHOR_EFFORT`, `CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT` | `low`, `medium`, `high`, `xhigh` or `max` | `high` |
+| `CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS`, `CRAWLER_REVIEW_AGENT_REVIEWER_MAX_TURNS` | Turn cap per process | `80`, `50` |
+| `CRAWLER_REVIEW_AGENT_AUTHOR_MAX_BUDGET_USD`, `CRAWLER_REVIEW_AGENT_REVIEWER_MAX_BUDGET_USD` | Dollar cap per process, enforced by the CLI also on the subscription | `5`, `3` |
+| `CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN` | Reviews one run works | `4` |
+| `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES` | Agent processes at once | `2` |
+| `CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MINUTES` | How long a review that ended without a decision waits | `180` |
+| `CRAWLER_REVIEW_AGENT_RUNNER_PROCESS_TIMEOUT_MINUTES` | Wall-clock limit of one process; a process over it is stopped with its `review-mcp` | `60` |
+| `CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_BUDGET_USD`, `CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_BUDGET_USD` | Soft budgets of the rolling sums of `total_cost_usd` | `20`, `100` |
+| `CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS` | The labels of each kind the author's prompt asks for; keep it equal to the crawler's | `3` |
+| `LOG_LEVEL` | JSON log on stdout, in the journal | `info` |
+
+An empty or whitespace-only setting counts as unset; any other value that is not accepted, or any argument but `--once`, fails startup with exit code 2. The seat's numeric quotas are not published: calibrate the soft budgets from `/usage` of the crawler member and the organization's analytics in the first weeks.
+
+#### Limits
+
+- A run takes the lock `review-agent-runner.lock` in the state directory; a second runner, such as a `--once` next to the timer's run, does nothing and exits 0.
+- A run works at most the configured reviews: pending product-schema and URL-pattern reviews of crawl-enabled ListingSources in the console's queue order, leaving out reviews that are cooling down. A review of a disabled ListingSource holds nothing back and waits until the source is crawled again.
+- The reviewer runs when the author staged a candidate or found nothing to stage. A process that hits its turn, budget or context limit ends without a decision, as does one that fails, outlives its timeout or reports no usable report, and an author `SKIPPED` or a reviewer decision the server did not take: the runner records the envelope's `subtype` and `terminal_reason`, the review stays pending, and it cools down before its next pass. A needs-repair verdict the server took is worked again on the next run.
+- When an envelope reports a session (five-hour), weekly or model limit of the login, or a spend limit, the runner reads the reset time from the CLI's message (`You've hit your weekly limit · resets Nov 3, 9am (UTC)`), starts no further process and skips work until then; a reset time it cannot read pauses it for an hour. Pending reviews simply wait, and cached schemas keep working.
+- Each process's `total_cost_usd` is summed over the rolling five hours and seven days; once a sum reaches its soft budget no further process starts until older processes leave the window.
+
+State between runs is in the state directory: `review-agent-runner-state.json` (pause, cooldowns, last digest) and the process ledger `review-agent-processes.jsonl`, one record per process with its review, role, prompt version, outcome, report, tokens and cost, kept for eight days. A state or ledger the runner cannot read fails the run instead of forgetting a pause, a cooldown or spent budget.
+
+#### Logging
+
+Each process logs `Starting a review agent process` with its review, role, prompt version, model, effort and caps, and `Review agent process finished` with its outcome, `subtype`, `terminal_reason`, `api_error_status`, turns, duration, models, `usage` tokens, `total_cost_usd` and report; each run logs `Review agents pass finished` with its counts and the rolling cost sums. The log never holds a prompt, page content, a raw envelope or a token; a process that prints no envelope logs its exit code and the last line of its stderr, shortened.
+
+#### Digest
+
+Once a day a timer run writes a digest of the agents' work since the previous one to `digests/review-agents-<time>.md` in the state directory and logs it as `Review agents digest`: approvals, rejections and needs-repair verdicts by agents and by humans and restores, from the console's event trail of all reviews (`GET /api/review-events`), the server's refusals of the reviewer's decisions by failed check, each process's outcome, and each review's tokens and cost, from the reports, with the rolling cost sums and any pause. Operators read the file on the host and act on what it shows: restore an approval, or reject or repair a review by hand.
+
+#### Stop and undo
+
+- Stop the agents: `systemctl disable --now review-agent-runner.timer`; a running pass finishes, and `systemctl stop review-agent-runner.service` stops it at once with its agent processes. Or switch the crawler to `CRAWLER_AUTHORING_MODE=manual` and restart it: the token file is removed and the runner refuses to start. Neither needs a deploy.
+- Undo an agent's approval: a human restores it ([review service](#review-service)). A needs-repair verdict leaves the review pending, and a human can approve, reject or edit it in the console at any time.
+
 ## Single-server deployment
 
 Production runs one `server` process on one Linux host under systemd. Start from the example unit [`crawler-server.service`](../../src/crawler/scripts/linux/crawler-server.service) and environment file [`.env.example`](../../src/crawler/.env.example); real values live only on the host.
@@ -168,7 +257,7 @@ systemctl daemon-reload && systemctl enable --now crawler-server
 
 ### Authoring mode
 
-Launch with `CRAWLER_AUTHORING_MODE=manual`, or `agent` once the [review agents](#review-agents) run on the host: neither makes an LLM call or reads a Vertex AI setting ([`config.rs`](../../src/crawler/src/runtime/config.rs)). A later switch to `review` or `auto` makes `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` and Application Default Credentials on the host required; startup fails without them.
+Launch with `CRAWLER_AUTHORING_MODE=agent` and the [review agent runner](#review-agent-runner) on the host, or `manual` to work the reviews by hand: neither makes an LLM call or reads a Vertex AI setting ([`config.rs`](../../src/crawler/src/runtime/config.rs)). A later switch to `review` or `auto` makes `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` and Application Default Credentials on the host required; startup fails without them.
 
 ### Review console access
 

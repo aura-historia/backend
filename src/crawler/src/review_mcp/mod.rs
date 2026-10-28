@@ -16,7 +16,7 @@ mod tools;
 mod views;
 mod wire;
 
-pub use console::{ConsoleClient, ConsoleClientError};
+pub use console::{ConsoleClient, ConsoleClientError, ConsoleError};
 pub use server::ReviewMcpServer;
 pub use settings::{
     AgentRole, DEFAULT_REVIEW_CONSOLE_URL, REVIEW_AGENT_TOKEN_FILE_ENV, REVIEW_CONSOLE_URL_ENV,

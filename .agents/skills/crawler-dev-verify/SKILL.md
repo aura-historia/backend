@@ -146,6 +146,28 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    running `review-mcp` reads the new token on that `401` and retries once, so its next tool call
    succeeds without a restart. A restart with `CRAWLER_AUTHORING_MODE=manual` removes the file, and
    `review-mcp` answers `UNAUTHORIZED`. Delete nothing else by hand.
+5. **The runner with a fake `claude`.** Check the review agent runner
+   (`docs/crawler/operations.md#review-agent-runner`) with `review-agent-runner --once` against
+   this `dev`, never with the real CLI unless the task asks for the documented real run: it spends
+   the login's budget. Write a fake `claude` in the scratchpad, a shell script that answers
+   `auth status --json` with `{"loggedIn": true, "authMethod": "claude.ai"}` and every other call
+   with a canned result envelope per role (`--mcp-config` names `--role author` or `reviewer`; the
+   prompt on stdin names the review id), and records each call's argv, stdin and environment.
+   Pass it by path, never through `PATH`: build with
+   `cargo build --locked -p crawler --bin review-mcp --bin review-agent-runner` and run
+   `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN=<fake> CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR=<scratchpad dir> target/debug/review-agent-runner --once`
+   from the worktree root, with a stand-in `ANTHROPIC_API_KEY` set to see it stripped. Expect one
+   author and then one reviewer process per pending review of a crawl-enabled ListingSource, at
+   most `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES` at once; children started from empty
+   directories with the flags of the runbook, without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
+   and `CRAWLER_REVIEW_AUTH_TOKEN`, and with neither token in argv, stdin or environment (only the
+   token file's path in `--mcp-config`). A canned `error_max_turns` envelope leaves its review
+   pending with a cooldown in `review-agent-runner-state.json`; a canned
+   `You've hit your weekly limit · resets <date>, 9am (UTC)` pauses the runner until then. Each
+   process is a line in `review-agent-processes.jsonl` and a `Review agent process finished` log
+   line with report, tokens and cost, and `--once` writes `digests/review-agents-<time>.md` with
+   the event trail's decisions and restores. The fake never starts `review-mcp`, so this checks
+   the orchestration only; the tools are checked in step 3.
 
 ## Rules
 

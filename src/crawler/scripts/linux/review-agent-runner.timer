@@ -1,0 +1,16 @@
+# Example systemd timer that starts review-agent-runner.service: a run 30 minutes after the
+# previous one ended, so runs never overlap. Install as /etc/systemd/system/review-agent-runner.timer.
+# Stop the agents with `systemctl disable --now review-agent-runner.timer`.
+# Contract: docs/crawler/operations.md#review-agent-runner
+
+[Unit]
+Description=Start the crawler's review agents periodically
+Documentation=https://github.com/aura-historia/backend/blob/main/docs/crawler/operations.md#review-agent-runner
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=30min
+Unit=review-agent-runner.service
+
+[Install]
+WantedBy=timers.target
