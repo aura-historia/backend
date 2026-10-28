@@ -34,9 +34,10 @@ commit bodies. Unchanged templates and schemas use verified digests; applied SQL
 unchanged implementation files are omitted. The full inventory remains immutable
 evidence. Admission recomputes the focused context and verifies both its digest and
 its binding to that inventory. Release notes cannot override native facts or hard
-policy. The retained source inventory has a separate 8 MiB bound; full before/after
+policy. The retained source inventory has a separate 16 MiB bound; full before/after
 file contents in that inventory do not consume the model's focused input budget.
-Oversized relevant context still holds delivery; evidence is never truncated.
+Focused model input is bounded to 3 MiB by default. Oversized inventory or relevant
+context still holds delivery; evidence is never truncated.
 Planning and admission read the same native property-level change-set view, resolving
 available references instead of treating every possible dependent update as a change.
 

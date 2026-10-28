@@ -69,13 +69,16 @@ function binding() {
 }
 test("full source inventory does not consume or relax the focused model input budget", () => {
   const evidence = inventory();
-  evidence.source.context = [{ path: "src/example.rs", before: "x".repeat(1600000), after: "changed" }];
+  evidence.source.context = [{ path: "src/example.rs", before: "x".repeat(4 * 1024 * 1024), after: "changed" }];
   evidence.source.diff = "diff --git a/src/example.rs b/src/example.rs\n+changed\n";
   const context = reviewContext(evidence);
   assert.equal(context.inventoryDigest, digest(evidence));
   assert.equal(context.source.changedSourceAndContractDiff, evidence.source.diff);
   assert.ok(Buffer.byteLength(serializeContext(context, {})) < 10000);
-  context.source.changedSourceAndContractDiff = "x".repeat(1500001);
+  context.source.changedSourceAndContractDiff = "x".repeat(1600000);
+  assert.ok(Buffer.byteLength(serializeContext(context, {})) > 1500000);
+  assert.throws(() => serializeContext(context, { maxInputBytes: 1500000 }), /context exceeds reviewer budget/);
+  context.source.changedSourceAndContractDiff = "x".repeat(3 * 1024 * 1024 + 1);
   assert.throws(() => serializeContext(context, {}), /context exceeds reviewer budget/);
 });
 test("malformed/truncated/uncertain model output is held and hard policy is monotonic", async () => {
