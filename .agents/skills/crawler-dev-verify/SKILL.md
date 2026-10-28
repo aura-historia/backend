@@ -167,7 +167,9 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    `-32602` for the other role's tool, `isError` results whose text is a JSON object with `kind`
    (`URL_OUTSIDE_REVIEW_SOURCE` for a URL off the review's ListingSource, before any request;
    `FORBIDDEN` with `reason`; `CONFLICT` with `failed_checks` when the approval guard refuses, for a
-   URL pattern `TOO_FEW_LABELS`, `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`), and
+   URL pattern `TOO_FEW_LABELS`, `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`;
+   `CONFLICT` with `reason` `HUMAN_REQUIRED` once the agents' needs-repair verdicts on a review
+   reach `CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS`, until a human changes or judges it), and
    answers below 48 KiB. The author reads (`get_review`, `inspect_page`), tests
    (`evaluate_candidate`), stages (`update_candidate`, `update_schema_field`, `add_review_page`) and
    labels (`label_sample_urls`, `PRODUCT` or `NOT_PRODUCT` with a `reason`); the reviewer refreshes a
@@ -194,7 +196,8 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN=<fake> CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR=<scratchpad dir> target/debug/review-agent-runner --once`
    from the worktree root, with stand-in values of `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` and
    `CRAWLER_REVIEW_AUTH_TOKEN` set to see that they never reach a child. Expect one author and
-   then one reviewer process per pending review of a crawl-enabled ListingSource, at most
+   then one reviewer process per pending review of a crawl-enabled ListingSource that does not
+   wait for a human (`human_required`), at most
    `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES` at once; children started from empty directories
    with the flags of the runbook and an environment of only the runbook's allowlisted variables,
    with neither token in argv, stdin or environment (only the token file's path in
@@ -203,8 +206,9 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    `You've hit your weekly limit · resets <date>, 9am (UTC)` pauses the runner until then. Each
    process is a line in `review-agent-processes.jsonl` and a `Review agent process finished` log
    line with report, tokens and cost, and `--once` writes `digests/review-agents-<time>.md` with
-   the event trail's decisions and restores. The fake never starts `review-mcp`, so this checks
-   the orchestration only; the tools are checked in step 3.
+   the reviews that wait for a human and the event trail's decisions and restores. The fake
+   never starts `review-mcp`, so this checks the orchestration only; the tools are checked in
+   step 3.
 
 ## Rules
 
