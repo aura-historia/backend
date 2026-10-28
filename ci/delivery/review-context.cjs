@@ -130,7 +130,7 @@ function reviewContext(inventory) {
 
 function serializeContext(evidence, config) {
   const serialized = JSON.stringify(evidence);
-  if (Buffer.byteLength(serialized) > (config.maxInputBytes || 1500000))
+  if (Buffer.byteLength(serialized) > (config.maxInputBytes || 3 * 1024 * 1024))
     throw new Error(
       "Complete context exceeds reviewer budget; explicit human review required",
     );

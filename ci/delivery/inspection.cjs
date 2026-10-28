@@ -23,7 +23,7 @@ function run(program, args, options = {}) {
     ...options,
   });
 }
-function cumulativeSource(repo, baseline, candidate, maxInventoryBytes = 8 * 1024 * 1024) {
+function cumulativeSource(repo, baseline, candidate, maxInventoryBytes = 16 * 1024 * 1024) {
   for (const sha of [baseline, candidate])
     if (!/^[a-f0-9]{40}$/.test(sha || ""))
       throw new Error("Known full baseline/candidate SHA required");

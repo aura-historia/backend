@@ -26,7 +26,7 @@ test("source inventory retains full file versions under its separate bounded bud
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   git("init", "--quiet");
   fs.mkdirSync(path.join(repo, "src"));
-  const before = "unchanged context\n".repeat(50000), after = before + "candidate change\n";
+  const before = "unchanged context\n".repeat(250000), after = before + "candidate change\n";
   fs.writeFileSync(path.join(repo, "src/example.rs"), before);
   git("add", ".");
   git("commit", "--quiet", "-m", "Baseline");
@@ -35,11 +35,16 @@ test("source inventory retains full file versions under its separate bounded bud
   git("commit", "--quiet", "-am", "Candidate");
   const candidate = git("rev-parse", "HEAD");
   const source = cumulativeSource(repo, baseline, candidate);
-  assert.ok(Buffer.byteLength(JSON.stringify(source)) > 1500000);
+  assert.ok(Buffer.byteLength(JSON.stringify(source)) > 8 * 1024 * 1024);
   assert.deepEqual(source.context.find((item) => item.path === "src/example.rs"),
     { path: "src/example.rs", before, after });
   assert.match(source.diff, /\+candidate change/);
   assert.throws(() => cumulativeSource(repo, baseline, candidate, 1500000),
+    /source inventory exceeds bounded budget/);
+  fs.writeFileSync(path.join(repo, "src/extra.rs"), "additional context\n".repeat(200000));
+  git("add", ".");
+  git("commit", "--quiet", "-m", "Oversized candidate");
+  assert.throws(() => cumulativeSource(repo, baseline, git("rev-parse", "HEAD")),
     /source inventory exceeds bounded budget/);
 });
 
