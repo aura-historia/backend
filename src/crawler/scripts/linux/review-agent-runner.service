@@ -31,6 +31,17 @@ ExecStart=/opt/crawler/bin/review-agent-runner
 # bounded by CRAWLER_REVIEW_AGENT_RUNNER_PROCESS_TIMEOUT_MINUTES; this is a backstop above both.
 TimeoutStartSec=6h
 KillMode=control-group
+# `systemctl stop` ends a run with exit code 143 after stopping its agent processes.
+SuccessExitStatus=143
+# The agent processes read untrusted shop pages: keep them away from the rest of the host.
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true

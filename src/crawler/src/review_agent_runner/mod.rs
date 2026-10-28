@@ -107,7 +107,7 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
         RoleTokenFile::new(settings.console.token_file.clone(), AgentRole::Author),
     )
     .map_err(RunnerError::NotAgentMode)?;
-    let login = probe_login(&settings.claude_bin).await?;
+    let login = probe_login(&settings.claude_bin, &settings.child_env).await?;
     info!(
         mode = ?settings.mode,
         auth_method = %login.method,
@@ -244,6 +244,15 @@ mod tests {
 
     const AUTHOR_TOKEN: &str = "authortokenfortheconsole";
     const REVIEWER_TOKEN: &str = "reviewertokenfortheconsole";
+    /// Variables of the runner's environment that no agent process may see.
+    const DECOY_ENV: [(&str, &str); 6] = [
+        ("ANTHROPIC_API_KEY", "decoy-api-key"),
+        ("ANTHROPIC_BASE_URL", "https://decoy.example"),
+        ("CLAUDE_CODE_USE_BEDROCK", "1"),
+        ("AWS_SECRET_ACCESS_KEY", "decoy-aws-secret"),
+        ("CRAWLER_REVIEW_AUTH_TOKEN", "decoy-human-token"),
+        ("NODE_OPTIONS", "--require /tmp/decoy.js"),
+    ];
 
     /// A review console that answers the review queue and the event list to the author's token.
     struct FakeConsole {
@@ -459,7 +468,8 @@ echo "end $role $review" >> "$dir/order.log"
         async fn new(reviews: Vec<CrawlerReview>) -> Self {
             let events = json!({
                 "events": [{
-                    "event_id": "cre_x", "review_id": CrawlerReviewId::new().to_string(),
+                    "event_id": crate::CrawlerReviewEventId::new().to_string(),
+                    "review_id": CrawlerReviewId::new().to_string(),
                     "artifact_type": "URL_PATTERN", "listing_source_id": "ls_x",
                     "listing_source_name": "Antiques", "actor": "HUMAN", "action": "RESTORED",
                     "candidate_version": 4, "notes": "pattern took categories",
@@ -505,7 +515,14 @@ echo "end $role $review" >> "$dir/order.log"
                     "CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES".to_owned(),
                     "1".to_owned(),
                 ),
+                ("PATH".to_owned(), std::env::var("PATH").unwrap_or_default()),
+                ("HOME".to_owned(), self.state.path().display().to_string()),
             ]);
+            values.extend(
+                DECOY_ENV
+                    .iter()
+                    .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+            );
             values.extend(
                 env.iter()
                     .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
@@ -594,11 +611,35 @@ echo "end $role $review" >> "$dir/order.log"
                     assert!(!text.contains(token), "a token in the child's {file}");
                 }
             }
-            assert!(
+            let mut names: Vec<&str> = call["env"]
+                .lines()
+                .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+                .filter(|name| !["PWD", "SHLVL", "_", "OLDPWD"].contains(name))
+                .collect();
+            names.sort_unstable();
+            assert_eq!(
+                names,
+                [
+                    "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                    "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                    "DISABLE_AUTOUPDATER",
+                    "HOME",
+                    "PATH",
+                    "TZ",
+                ],
+                "only the allowlisted variables reach the child: {}",
                 call["env"]
-                    .lines()
-                    .any(|line| line == "DISABLE_AUTOUPDATER=1")
             );
+            for (name, _) in DECOY_ENV {
+                assert!(
+                    !call["env"]
+                        .lines()
+                        .any(|line| line.starts_with(&format!("{name}="))),
+                    "{name}: {}",
+                    call["env"]
+                );
+            }
             assert!(!call["stdin"].is_empty());
         }
         let ledger = fixture.ledger();

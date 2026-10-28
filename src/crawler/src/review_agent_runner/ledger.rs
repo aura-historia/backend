@@ -9,8 +9,9 @@ use super::reports::AgentReport;
 use crate::CrawlerReviewId;
 use crate::review_mcp::AgentRole;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use time::{Duration, OffsetDateTime};
 
@@ -114,7 +115,8 @@ pub struct ProcessLedger {
 
 impl ProcessLedger {
     /// Reads the ledger in `state_dir`; a missing file is an empty ledger. A last line without its
-    /// newline is a record an interrupted run did not finish writing and is left out; any other
+    /// newline is a record an interrupted run did not finish writing: kept and given its newline
+    /// when it is whole, cut off otherwise, so the next record starts a line of its own. Any other
     /// line that is no record fails the read, so cost sums never silently lose records.
     pub fn open(state_dir: &Path) -> Result<Self, LedgerError> {
         let path = state_dir.join(LEDGER_FILE);
@@ -127,16 +129,21 @@ impl ProcessLedger {
             Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
             Err(error) => return Err(io_error(error)),
         };
-        let complete = text.ends_with('\n');
+        let complete = text.is_empty() || text.ends_with('\n');
         let lines: Vec<&str> = text.lines().collect();
         let mut records = Vec::with_capacity(lines.len());
+        let mut unfinished_whole = false;
         for (index, line) in lines.iter().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
+            let last_unfinished = !complete && index + 1 == lines.len();
             match serde_json::from_str(line) {
-                Ok(record) => records.push(record),
-                Err(_) if !complete && index + 1 == lines.len() => {}
+                Ok(record) => {
+                    records.push(record);
+                    unfinished_whole = last_unfinished;
+                }
+                Err(_) if last_unfinished => {}
                 Err(source) => {
                     return Err(LedgerError::Malformed {
                         path,
@@ -145,6 +152,9 @@ impl ProcessLedger {
                     });
                 }
             }
+        }
+        if !complete {
+            finish_last_line(&path, &text, unfinished_whole).map_err(io_error)?;
         }
         Ok(Self { path, records })
     }
@@ -203,12 +213,39 @@ impl ProcessLedger {
             .filter(move |record| record.finished >= since)
     }
 
+    /// When the last process of each review in the ledger finished.
+    pub fn last_worked(&self) -> BTreeMap<CrawlerReviewId, OffsetDateTime> {
+        let mut last = BTreeMap::new();
+        for record in &self.records {
+            last.entry(record.review_id)
+                .and_modify(|finished: &mut OffsetDateTime| {
+                    *finished = (*finished).max(record.finished);
+                })
+                .or_insert(record.finished);
+        }
+        last
+    }
+
     /// The `total_cost_usd` of the processes that finished within `window` before `now`.
     pub fn cost_within(&self, window: Duration, now: OffsetDateTime) -> f64 {
         self.since(now - window)
             .map(|record| record.total_cost_usd)
             .sum()
     }
+}
+
+/// Ends the ledger `text` at `path` with a newline: after its unfinished last line when that line
+/// is a whole record, else in place of that line.
+fn finish_last_line(path: &Path, text: &str, keep_last_line: bool) -> io::Result<()> {
+    let mut file = OpenOptions::new().write(true).open(path)?;
+    if keep_last_line {
+        file.seek(SeekFrom::End(0))?;
+        file.write_all(b"\n")?;
+    } else {
+        let kept = text.rfind('\n').map_or(0, |newline| newline + 1);
+        file.set_len(u64::try_from(kept).unwrap_or(u64::MAX))?;
+    }
+    file.sync_all()
 }
 
 #[cfg(test)]
@@ -327,5 +364,29 @@ pub(super) mod tests {
             corrupted,
             Err(LedgerError::Malformed { line: 1, .. })
         ));
+    }
+
+    /// The run after an interrupted one appends to the ledger, and the run after that still reads
+    /// it: the unfinished line never merges with the next record into a line that is no record.
+    #[test]
+    fn should_keep_the_ledger_readable_after_appending_to_an_interrupted_one() {
+        let line = serde_json::to_string(&record(NOW, 1.0)).unwrap_or_default();
+        for interrupted in [format!("{line}\n{{\"finished\":\"20"), line.clone()] {
+            let directory = StateDirectory::new();
+            std::fs::write(directory.path().join(LEDGER_FILE), &interrupted).unwrap_or_default();
+
+            let mut ledger =
+                ProcessLedger::open(directory.path()).unwrap_or_else(|e| panic!("{e}"));
+            ledger
+                .append(record(NOW, 4.0))
+                .unwrap_or_else(|e| panic!("{e}"));
+            let reopened = ProcessLedger::open(directory.path()).unwrap_or_else(|e| panic!("{e}"));
+
+            assert_eq!(
+                reopened.cost_within(ONE_WEEK, NOW + Duration::minutes(1)),
+                5.0,
+                "{interrupted}"
+            );
+        }
     }
 }

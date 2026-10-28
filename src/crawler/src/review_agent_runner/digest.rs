@@ -196,7 +196,7 @@ impl Digest {
         if self.events_truncated {
             let _ = writeln!(
                 out,
-                "The console listed only its first events of the window; later ones are missing.\n"
+                "Only the first events of the window were read; later ones are missing.\n"
             );
         }
         for event in &self.decisions {
@@ -436,6 +436,7 @@ mod tests {
 
     fn event(actor: &str, action: &str, hours_before: i64) -> ReviewEventEntry {
         ReviewEventEntry {
+            event_id: crate::CrawlerReviewEventId::new(),
             review_id: CrawlerReviewId::new(),
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
             listing_source_name: Some("Antiques".to_owned()),

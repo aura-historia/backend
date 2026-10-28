@@ -5,6 +5,7 @@
 //! startup with the variable's name, so a mistyped limit never silently widens what the agents
 //! may spend.
 
+use super::invocation::ChildEnvironment;
 use crate::review::agent_decisions::{AGENT_MIN_LABELLED_URLS_ENV, DEFAULT_MIN_LABELLED_URLS};
 use crate::review_mcp::{AgentRole, ReviewConsoleAccess, ReviewMcpSettingsError};
 use large_language_model::ClaudeEffort;
@@ -68,6 +69,8 @@ pub struct RunnerSettings {
     pub console: ReviewConsoleAccess,
     /// The Claude Code CLI, `claude` on the `PATH` unless set.
     pub claude_bin: PathBuf,
+    /// The environment the CLI and the agent processes start with, taken from the runner's.
+    pub child_env: ChildEnvironment,
     /// The `review-mcp` binary each agent process starts, by default the one next to the runner.
     pub review_mcp_bin: PathBuf,
     /// Where the runner keeps its lock, state, process ledger and digests.
@@ -161,11 +164,13 @@ impl RunnerSettings {
                 }
             },
         );
+        let child_env = ChildEnvironment::from_env(&env);
         let read = Reader { setting: &setting };
         Ok(Self {
             mode,
             console,
             claude_bin,
+            child_env,
             review_mcp_bin,
             state_dir,
             author: read.agent(
@@ -231,7 +236,7 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
                 return Err(invalid(
                     model_name,
                     model,
-                    "a model alias or name of letters, digits, '.', '-', '_', '[' and ']'",
+                    "a model alias or name of letters, digits, '.', '-', '_', '[' and ']' that starts with a letter or digit",
                 ));
             }
             None => DEFAULT_MODEL.to_owned(),
@@ -332,9 +337,13 @@ pub const fn effort_flag(effort: ClaudeEffort) -> &'static str {
 }
 
 /// A model name goes into the CLI's argument list as is, so it may hold only the characters model
-/// aliases and names use.
+/// aliases and names use, and starts with a letter or digit, so the CLI never reads it as a flag.
 fn is_model_name(value: &str) -> bool {
     value.len() <= 128
+        && value
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric())
         && value
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || ".-_[]".contains(character))
@@ -514,6 +523,10 @@ mod tests {
             (
                 "CRAWLER_REVIEW_AGENT_AUTHOR_MODEL",
                 "opus --dangerously-skip-permissions",
+            ),
+            (
+                "CRAWLER_REVIEW_AGENT_REVIEWER_MODEL",
+                "--dangerously-skip-permissions",
             ),
             ("CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT", "extreme"),
             ("CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS", "0"),

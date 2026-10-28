@@ -3,6 +3,7 @@
 //! stops the runner before any review instead of failing every process. The probe logs how the
 //! CLI is logged in, never the account's email or a credential.
 
+use super::invocation::ChildEnvironment;
 use super::process::{ChildError, ChildOutput, run_cli};
 use serde_json::Value;
 use std::path::Path;
@@ -38,9 +39,9 @@ pub enum LoginError {
     NotSubscription { method: String },
 }
 
-/// Probes the login of the CLI at `claude`.
-pub async fn probe_login(claude: &Path) -> Result<CliLogin, LoginError> {
-    let output = run_cli(claude, &["auth", "status", "--json"], PROBE_TIMEOUT)
+/// Probes the login of the CLI at `claude`, started with `env` as the agent processes are.
+pub async fn probe_login(claude: &Path, env: &ChildEnvironment) -> Result<CliLogin, LoginError> {
+    let output = run_cli(claude, &["auth", "status", "--json"], env, PROBE_TIMEOUT)
         .await
         .map_err(LoginError::Probe)?;
     read_login(&output)

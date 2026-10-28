@@ -8,26 +8,89 @@ use super::queue::QueuedReview;
 use super::settings::{RunnerSettings, effort_flag};
 use crate::review_mcp::{AgentRole, REVIEW_AGENT_TOKEN_FILE_ENV, REVIEW_CONSOLE_URL_ENV};
 use serde_json::{Value, json};
+use std::fmt;
 use std::path::PathBuf;
 
 /// The name the agent process knows `review-mcp` by, so its tools are `mcp__crawler_review__*`.
 pub(super) const MCP_SERVER_NAME: &str = "crawler_review";
 
-/// Variables the agent process never inherits: an API key or auth token silently takes over
-/// billing from the CLI's login, and the console's human token is no agent's credential.
-pub(super) const REMOVED_ENV: [&str; 3] = [
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "CRAWLER_REVIEW_AUTH_TOKEN",
+/// The only variables a CLI child takes over from the runner's environment, when they are set:
+/// what the CLI needs to start, find its login (the crawler-only `CLAUDE_CONFIG_DIR`, or a
+/// `CLAUDE_CODE_OAUTH_TOKEN` configured for the runner) and reach Anthropic through the host's
+/// proxy. Nothing else reaches a child: no API key, auth token, base URL or provider switch that
+/// would take over billing from the login, no cloud credential and no crawler setting. The
+/// `review-mcp` a child starts gets the console's URL and the token file's path from its MCP
+/// configuration instead.
+pub(super) const PASSED_ENV: [&str; 20] = [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "CLAUDE_CONFIG_DIR",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LC_COLLATE",
+    "LC_MESSAGES",
+    "LC_MONETARY",
+    "LC_NUMERIC",
+    "LC_TIME",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
 ];
 
-/// Variables the agent process is started with: no self-update and no non-essential traffic of
-/// a pinned CLI, and UTC, so a usage limit's reset time reads in a zone the runner can parse.
-pub(super) const SET_ENV: [(&str, &str); 3] = [
+/// Variables every CLI child is started with: no self-update and no non-essential traffic of a
+/// pinned CLI, no `CLAUDE.md` instructions and no auto memory from the host, and UTC, so a usage
+/// limit's reset time reads in a zone the runner can parse.
+pub(super) const SET_ENV: [(&str, &str); 5] = [
     ("DISABLE_AUTOUPDATER", "1"),
     ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
+    ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
+    ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
     ("TZ", "UTC"),
 ];
+
+/// The whole environment of a CLI child: the [`PASSED_ENV`] variables the runner has, then
+/// [`SET_ENV`]. A child starts from an empty environment with these only. Its `Debug` names the
+/// variables, never their values, as one can be a credential.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ChildEnvironment(Vec<(String, String)>);
+
+impl ChildEnvironment {
+    /// Reads the [`PASSED_ENV`] variables through `env`; an empty or whitespace-only one counts as
+    /// unset.
+    pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Self {
+        let passed = PASSED_ENV.iter().filter_map(|name| {
+            env(name)
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| ((*name).to_owned(), value))
+        });
+        let set = SET_ENV
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()));
+        Self(passed.chain(set).collect())
+    }
+
+    pub fn vars(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.0
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+    }
+}
+
+impl fmt::Debug for ChildEnvironment {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_list()
+            .entries(self.0.iter().map(|(name, _)| name))
+            .finish()
+    }
+}
 
 /// A role's prompt and report schema, which change together.
 pub(super) struct RoleContract {
@@ -73,6 +136,7 @@ impl RoleContract {
 pub(super) struct AgentCommand {
     pub(super) program: PathBuf,
     pub(super) args: Vec<String>,
+    pub(super) env: ChildEnvironment,
     /// The prompt, written to the process's stdin so it never shows in a process list.
     pub(super) prompt: String,
 }
@@ -129,6 +193,7 @@ pub(super) fn agent_command(
     Ok(AgentCommand {
         program: settings.claude_bin.clone(),
         args,
+        env: settings.child_env.clone(),
         prompt: contract.prompt(review, settings.min_labelled_urls.get()),
     })
 }
@@ -242,6 +307,70 @@ mod tests {
         assert!(command.prompt.contains(&review.review_id.to_string()));
         assert!(command.prompt.contains("URL_PATTERN"));
         assert!(!command.prompt.contains('{'), "{}", command.prompt);
+    }
+
+    /// A child gets the CLI's own variables from the runner and nothing that could take over
+    /// billing, point the CLI elsewhere, or hand an agent a cloud or crawler credential.
+    #[test]
+    fn should_pass_a_child_only_the_cli_s_variables_and_the_pinned_ones() {
+        let parent: HashMap<&str, &str> = HashMap::from([
+            ("PATH", "/usr/bin:/bin"),
+            ("HOME", "/var/lib/crawler-review-agents"),
+            ("CLAUDE_CONFIG_DIR", "/var/lib/crawler-review-agents/claude"),
+            ("CLAUDE_CODE_OAUTH_TOKEN", "oauth-token-of-the-seat"),
+            ("LC_ALL", "C.UTF-8"),
+            ("HTTPS_PROXY", "http://proxy.internal:3128"),
+            ("TMPDIR", " "),
+            ("TZ", "Europe/Berlin"),
+            ("DISABLE_AUTOUPDATER", "0"),
+            ("ANTHROPIC_API_KEY", "api-key"),
+            ("ANTHROPIC_AUTH_TOKEN", "auth-token"),
+            ("ANTHROPIC_BASE_URL", "https://gateway.example"),
+            ("ANTHROPIC_MODEL", "other-model"),
+            ("CLAUDE_CODE_USE_BEDROCK", "1"),
+            ("CLAUDE_CODE_USE_VERTEX", "1"),
+            ("AWS_SECRET_ACCESS_KEY", "aws-secret"),
+            ("GOOGLE_APPLICATION_CREDENTIALS", "/etc/gcp.json"),
+            ("CRAWLER_REVIEW_AUTH_TOKEN", "human-token"),
+            (
+                REVIEW_AGENT_TOKEN_FILE_ENV,
+                "/var/lib/crawler/review-agent-tokens.json",
+            ),
+            (
+                "LOCAL_DB_URL",
+                "postgres://crawler:password@localhost/crawler",
+            ),
+            ("NODE_OPTIONS", "--require /tmp/hook.js"),
+            ("HTTP_PROXY", "http://proxy.internal:3128"),
+        ]);
+
+        let env =
+            ChildEnvironment::from_env(|name| parent.get(name).map(|value| (*value).to_owned()));
+
+        assert_eq!(
+            env.vars().collect::<Vec<_>>(),
+            [
+                ("PATH", "/usr/bin:/bin"),
+                ("HOME", "/var/lib/crawler-review-agents"),
+                ("CLAUDE_CONFIG_DIR", "/var/lib/crawler-review-agents/claude"),
+                ("CLAUDE_CODE_OAUTH_TOKEN", "oauth-token-of-the-seat"),
+                ("LC_ALL", "C.UTF-8"),
+                ("HTTPS_PROXY", "http://proxy.internal:3128"),
+                ("DISABLE_AUTOUPDATER", "1"),
+                ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
+                ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
+                ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
+                ("TZ", "UTC"),
+            ]
+        );
+        let debug = format!("{env:?}");
+        assert!(debug.contains("CLAUDE_CODE_OAUTH_TOKEN"), "{debug}");
+        assert!(!debug.contains("oauth-token-of-the-seat"), "{debug}");
+        for name in PASSED_ENV {
+            assert!(SET_ENV.iter().all(|(set, _)| *set != name), "{name}");
+            assert!(!name.starts_with("ANTHROPIC_"), "{name}");
+            assert!(!name.starts_with("CRAWLER_"), "{name}");
+        }
     }
 
     #[test]

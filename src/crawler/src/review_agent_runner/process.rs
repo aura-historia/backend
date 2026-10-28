@@ -1,11 +1,11 @@
 //! Running a CLI child: an agent process from its [`AgentCommand`], in a fresh empty working
-//! directory of its own that is removed afterwards, or the login probe. The child's environment
-//! is the runner's without the variables that would take over billing or carry a credential, plus
-//! the variables a pinned CLI runs with. Its stdout is read up to a bound and its stderr is kept
-//! only as a short tail for a failure's log line. A child that outlives its timeout is stopped
-//! with everything it started, such as its `review-mcp`.
+//! directory of its own that is removed afterwards, or the login probe. The child starts from an
+//! empty environment with only its [`ChildEnvironment`]: the few variables the CLI needs, taken
+//! from the runner's, plus the variables a pinned CLI runs with. Its stdout is read up to a bound
+//! and its stderr is kept only as a short tail for a failure's log line. A child that outlives its
+//! timeout is stopped with everything it started, such as its `review-mcp`.
 
-use super::invocation::{AgentCommand, REMOVED_ENV, SET_ENV};
+use super::invocation::{AgentCommand, ChildEnvironment};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -55,7 +55,7 @@ pub async fn run_agent(
     timeout: Duration,
 ) -> Result<ChildOutput, ChildError> {
     let working_dir = EmptyDirectory::create()?;
-    let mut child = cli_command(&command.program, working_dir.path());
+    let mut child = cli_command(&command.program, working_dir.path(), &command.env);
     child.args(&command.args);
     run(
         child,
@@ -66,27 +66,26 @@ pub async fn run_agent(
     .await
 }
 
-/// Runs the CLI with `args` and no input, in a new empty directory, for at most `timeout`.
+/// Runs the CLI with `args` and no input, in a new empty directory with `env`, for at most
+/// `timeout`.
 pub async fn run_cli(
     program: &Path,
     args: &[&str],
+    env: &ChildEnvironment,
     timeout: Duration,
 ) -> Result<ChildOutput, ChildError> {
     let working_dir = EmptyDirectory::create()?;
-    let mut child = cli_command(program, working_dir.path());
+    let mut child = cli_command(program, working_dir.path(), env);
     child.args(args);
     run(child, None, program, timeout).await
 }
 
-fn cli_command(program: &Path, working_dir: &Path) -> Command {
+fn cli_command(program: &Path, working_dir: &Path, env: &ChildEnvironment) -> Command {
     let mut command = Command::new(program);
-    command.current_dir(working_dir);
-    for name in REMOVED_ENV {
-        command.env_remove(name);
-    }
-    for (name, value) in SET_ENV {
-        command.env(name, value);
-    }
+    command
+        .current_dir(working_dir)
+        .env_clear()
+        .envs(env.vars());
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -111,6 +110,8 @@ async fn run(
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let process_group = child.id();
+    // Declared after `child`, so it is dropped first, while the group's leader is not yet reaped.
+    let mut group_guard = ProcessGroupGuard(process_group);
     let exchange = async {
         if let (Some(stdin), Some(input)) = (stdin.as_mut(), input) {
             // A child that exits without reading its input closes the pipe; its output says why.
@@ -122,16 +123,20 @@ async fn run(
         Ok::<_, std::io::Error>((stdout?, stderr?, status?))
     };
     match tokio::time::timeout(timeout, exchange).await {
-        Ok(Ok((stdout, stderr, status))) => Ok(ChildOutput {
-            exit_code: status.code(),
-            stdout,
-            stderr_tail: stderr_tail(&stderr),
-            timed_out: false,
-        }),
+        Ok(Ok((stdout, stderr, status))) => {
+            group_guard.disarm();
+            Ok(ChildOutput {
+                exit_code: status.code(),
+                stdout,
+                stderr_tail: stderr_tail(&stderr),
+                timed_out: false,
+            })
+        }
         Ok(Err(error)) => Err(ChildError::Io(error)),
         Err(_) => {
             stop_process_group(process_group).await;
             let _ = child.kill().await;
+            group_guard.disarm();
             Ok(ChildOutput {
                 exit_code: None,
                 stdout: Vec::new(),
@@ -142,15 +147,43 @@ async fn run(
     }
 }
 
+/// The process group of a child that has not ended yet. Dropping it kills the whole group: a run
+/// that is cancelled, such as by the runner's stop signal, or fails while its child runs, leaves
+/// nothing the child started, such as its `review-mcp`.
+struct ProcessGroupGuard(Option<u32>);
+
+impl ProcessGroupGuard {
+    /// The child ended or its group was stopped: nothing is left to kill.
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(group) = self.0.and_then(|id| libc::pid_t::try_from(id).ok()) {
+            // SAFETY: killpg only sends a signal to the group the runner created for this child,
+            // whose leader it has not reaped yet, so the group id cannot have been reused.
+            unsafe {
+                libc::killpg(group, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+/// Reads `stream` to its end and keeps its first [`MAX_STDOUT_BYTES`]; the rest is read and
+/// dropped, so a child that writes more is never blocked on a full pipe until its timeout.
 async fn read_bounded(stream: Option<impl AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    let Some(stream) = stream else {
+    let Some(mut stream) = stream else {
         return Ok(bytes);
     };
-    stream
+    (&mut stream)
         .take(u64::try_from(MAX_STDOUT_BYTES).unwrap_or(u64::MAX))
         .read_to_end(&mut bytes)
         .await?;
+    tokio::io::copy(&mut stream, &mut tokio::io::sink()).await?;
     Ok(bytes)
 }
 
@@ -227,16 +260,30 @@ mod tests {
         path
     }
 
+    /// The environment the runner hands a child: the test process's `PATH`, so the script finds
+    /// its tools, and one passed variable.
+    fn child_env() -> ChildEnvironment {
+        let path = std::env::var("PATH").unwrap_or_default();
+        ChildEnvironment::from_env(|name| match name {
+            "PATH" => Some(path.clone()),
+            "LANG" => Some("C.UTF-8".to_owned()),
+            _ => None,
+        })
+    }
+
     fn command(program: PathBuf) -> AgentCommand {
         AgentCommand {
             program,
             args: vec!["-p".to_owned(), "--tools".to_owned(), String::new()],
+            env: child_env(),
             prompt: "Work review cr_1.".to_owned(),
         }
     }
 
+    /// The child sees only its [`ChildEnvironment`]: none of the test process's own variables, such
+    /// as Cargo's, reach it.
     #[tokio::test]
-    async fn should_start_the_child_in_an_empty_directory_with_the_cleaned_environment() {
+    async fn should_start_the_child_in_an_empty_directory_with_only_its_environment() {
         let directory = StateDirectory::new();
         let record = directory.path().join("record");
         let program = script(
@@ -246,6 +293,8 @@ mod tests {
                 record.display()
             ),
         );
+        assert!(std::env::var_os("CARGO_PKG_NAME").is_some());
+
         let output = run_agent(&command(program), Duration::from_secs(30))
             .await
             .unwrap_or_else(|error| panic!("{error}"));
@@ -260,49 +309,74 @@ mod tests {
         assert_eq!(lines[1].trim(), "0");
         assert_eq!(lines[2], "-p|--tools||");
         assert_eq!(lines[3], "Work review cr_1.");
-        assert!(recorded.contains("DISABLE_AUTOUPDATER=1"));
-        assert!(recorded.contains("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"));
-        assert!(recorded.contains("TZ=UTC"));
+        let mut names: Vec<&str> = lines[4..]
+            .iter()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+            .filter(|name| !["PWD", "SHLVL", "_", "OLDPWD"].contains(name))
+            .collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            [
+                "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                "DISABLE_AUTOUPDATER",
+                "LANG",
+                "PATH",
+                "TZ",
+            ],
+            "{recorded}"
+        );
+        assert!(recorded.contains("\nTZ=UTC\n"), "{recorded}");
+        assert!(recorded.contains("\nLANG=C.UTF-8\n"), "{recorded}");
         assert_eq!(output.exit_code, Some(0));
         assert_eq!(output.stdout, b"{\"type\":\"result\"}\n");
         assert_eq!(output.stderr_tail, "last words");
         assert!(!output.timed_out);
     }
 
-    /// The process environment is shared by every test, so the removal is checked on the command
-    /// rather than by setting the variables.
-    #[test]
-    fn should_remove_the_billing_and_console_credentials_from_the_child_s_environment() {
-        let command = cli_command(Path::new("claude"), Path::new("/tmp"));
+    /// A run that is dropped before its child ended, as the runner's stop signal drops it, stops
+    /// the child together with what the child started.
+    #[tokio::test]
+    async fn should_stop_what_the_child_started_when_the_run_is_cancelled() {
+        let directory = StateDirectory::new();
+        let marker = directory.path().join("grandchild-alive");
+        let program = script(
+            &directory,
+            &format!("(sleep 3; touch '{}') & sleep 30", marker.display()),
+        );
 
-        let envs: Vec<(String, Option<String>)> = command
-            .as_std()
-            .get_envs()
-            .map(|(name, value)| {
-                (
-                    name.to_string_lossy().into_owned(),
-                    value.map(|value| value.to_string_lossy().into_owned()),
-                )
-            })
-            .collect();
+        let cancelled = tokio::time::timeout(
+            Duration::from_millis(500),
+            run_agent(&command(program), Duration::from_secs(60)),
+        )
+        .await;
+        tokio::time::sleep(Duration::from_secs(4)).await;
 
-        for name in [
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_AUTH_TOKEN",
-            "CRAWLER_REVIEW_AUTH_TOKEN",
-        ] {
-            assert!(envs.contains(&(name.to_owned(), None)), "{name}: {envs:?}");
-        }
-        for (name, value) in [
-            ("DISABLE_AUTOUPDATER", "1"),
-            ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
-            ("TZ", "UTC"),
-        ] {
-            assert!(
-                envs.contains(&(name.to_owned(), Some(value.to_owned()))),
-                "{name}: {envs:?}"
-            );
-        }
+        assert!(
+            cancelled.is_err(),
+            "the run was still waiting for its child"
+        );
+        assert!(!marker.exists(), "the child's own child was stopped too");
+    }
+
+    #[tokio::test]
+    async fn should_read_on_past_its_bound_so_a_chatty_child_finishes() {
+        let directory = StateDirectory::new();
+        let program = script(
+            &directory,
+            &format!("head -c {} /dev/zero; echo done >&2", MAX_STDOUT_BYTES * 2),
+        );
+
+        let output = run_agent(&command(program), Duration::from_secs(30))
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        assert!(!output.timed_out);
+        assert_eq!(output.exit_code, Some(0));
+        assert_eq!(output.stdout.len(), MAX_STDOUT_BYTES);
+        assert_eq!(output.stderr_tail, "done");
     }
 
     #[tokio::test]

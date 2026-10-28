@@ -12,7 +12,7 @@ use super::process::{ChildError, ChildOutput, run_agent};
 use super::queue::{QueuedReview, pending_reviews, select_reviews};
 use super::reports::{AgentReport, AuthorAction};
 use super::settings::{RunnerSettings, effort_flag};
-use super::state::{Cooldown, Pause, RunnerState};
+use super::state::{Cooldown, Pause, RunnerState, save_state};
 use super::wire_name as name;
 use crate::review_mcp::{AgentRole, ConsoleClient, ConsoleError};
 use futures::StreamExt;
@@ -119,10 +119,12 @@ impl Pass<'_> {
         }
         let queue = pending_reviews(console).await.map_err(PassError::Console)?;
         let pending = queue.len();
-        let cooldowns = self.with(|shared| shared.state.cooldown_ends());
+        let (cooldowns, last_worked) =
+            self.with(|shared| (shared.state.cooldown_ends(), shared.ledger.last_worked()));
         let (selected, cooling_down) = select_reviews(
             queue,
             &cooldowns,
+            &last_worked,
             OffsetDateTime::now_utc(),
             usize::try_from(self.settings.max_reviews_per_run.get()).unwrap_or(usize::MAX),
         );
@@ -349,7 +351,20 @@ impl Pass<'_> {
                 .state
                 .cooldowns
                 .insert(review.review_id, Cooldown { until });
+            self.keep_state(&shared.state);
         });
+    }
+
+    /// Writes `state` right away, so a cooldown or pause outlives a run that is stopped before
+    /// its end; the run writes it again when it ends and fails then if it still cannot.
+    fn keep_state(&self, state: &RunnerState) {
+        if let Err(error) = save_state(&self.settings.state_dir, state) {
+            warn!(
+                error = %error,
+                cause = ?std::error::Error::source(&error),
+                "Cannot write the runner's state yet; the run writes it when it ends"
+            );
+        }
     }
 
     fn pause(&self, limit: UsageLimit, now: OffsetDateTime) {
@@ -368,6 +383,7 @@ impl Pass<'_> {
                     limit: limit.kind,
                     reported_reset: limit.resets_at.is_some(),
                 });
+                self.keep_state(&shared.state);
             }
         });
     }

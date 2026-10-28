@@ -156,12 +156,13 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    Pass it by path, never through `PATH`: build with
    `cargo build --locked -p crawler --bin review-mcp --bin review-agent-runner` and run
    `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN=<fake> CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR=<scratchpad dir> target/debug/review-agent-runner --once`
-   from the worktree root, with a stand-in `ANTHROPIC_API_KEY` set to see it stripped. Expect one
-   author and then one reviewer process per pending review of a crawl-enabled ListingSource, at
-   most `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES` at once; children started from empty
-   directories with the flags of the runbook, without `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
-   and `CRAWLER_REVIEW_AUTH_TOKEN`, and with neither token in argv, stdin or environment (only the
-   token file's path in `--mcp-config`). A canned `error_max_turns` envelope leaves its review
+   from the worktree root, with stand-in values of `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` and
+   `CRAWLER_REVIEW_AUTH_TOKEN` set to see that they never reach a child. Expect one author and
+   then one reviewer process per pending review of a crawl-enabled ListingSource, at most
+   `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES` at once; children started from empty directories
+   with the flags of the runbook and an environment of only the runbook's allowlisted variables,
+   with neither token in argv, stdin or environment (only the token file's path in
+   `--mcp-config`). A canned `error_max_turns` envelope leaves its review
    pending with a cooldown in `review-agent-runner-state.json`; a canned
    `You've hit your weekly limit · resets <date>, 9am (UTC)` pauses the runner until then. Each
    process is a line in `review-agent-processes.jsonl` and a `Review agent process finished` log

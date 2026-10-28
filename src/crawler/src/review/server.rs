@@ -49,7 +49,8 @@ const MATRIX_REFRESH_PAGE_BUDGET: Duration =
 /// refreshing, leaving room within [`REQUEST_DEADLINE`].
 const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
-/// The most events `GET /api/review-events` answers; the review agents' daily digest reads a day.
+/// The most events one answer of `GET /api/review-events` holds; a client reads on from the last
+/// event's time, as the review agents' daily digest does.
 const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 
 mod source_pages;
@@ -217,7 +218,6 @@ impl ReviewServer {
         }
     }
 
-    /// Routes a request with a path parameter. Review mutations are recorded as `actor`'s.
     /// `GET /api/review-events?since=<RFC 3339 time>`: the events of all reviews since then,
     /// oldest first and without their details, and whether later ones were left out.
     async fn review_events_since(&self, request: &ParsedRequest<'_>) -> HttpResponse {
@@ -241,6 +241,7 @@ impl ReviewServer {
         }
     }
 
+    /// Routes a request with a path parameter. Review mutations are recorded as `actor`'s.
     async fn route_dynamic(&self, request: ParsedRequest<'_>, actor: ReviewActor) -> HttpResponse {
         if request.method == "GET"
             && request.path.starts_with("/api/listing-sources/")
