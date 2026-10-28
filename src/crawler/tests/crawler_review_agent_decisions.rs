@@ -2256,3 +2256,54 @@ async fn should_take_exactly_the_verdict_that_reaches_the_repair_cap_when_agents
         ]
     );
 }
+
+/// The rounds count every agent actor's needs-repair verdicts, the single review agent's of the
+/// trail before the two roles among them, and only a human's event restarts them: a needs-repair
+/// verdict of anyone else, such as the crawler's own, neither counts nor hands the review back.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_every_agent_actors_rounds_since_the_latest_human_event() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 3);
+    let (listing_source_id, _) = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    // A trail as stored, oldest first: each insert is its own transaction, so its time is later.
+    for (actor, action) in [
+        ("AGENT", "REPAIR_REQUESTED"),
+        ("HUMAN", "PAGE_ADDED"),
+        ("AGENT", "REPAIR_REQUESTED"),
+        ("SYSTEM", "REPAIR_REQUESTED"),
+        ("AGENT_AUTHOR", "SCHEMA_FIELD_EDITED"),
+    ] {
+        sqlx::query(
+            "INSERT INTO crawler_review_events \
+             (event_id, review_id, actor, action, candidate_version, details) \
+             VALUES ($1, $2, $3, $4, 1, '{}')",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(review_id.as_uuid())
+        .bind(actor)
+        .bind(action)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    assert_eq!(agent_rounds(&repository, review_id).await, (1, false));
+
+    repository
+        .request_repair(review_id, ReviewActor::AgentAuthor, Some("second round"))
+        .await
+        .unwrap();
+    repository
+        .request_repair(review_id, ReviewActor::AgentReviewer, Some("third round"))
+        .await
+        .unwrap();
+
+    assert_eq!(agent_rounds(&repository, review_id).await, (3, true));
+}
