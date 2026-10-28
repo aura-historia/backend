@@ -39,11 +39,9 @@ pub struct ReviewWork {
 
 /// The rolling cost sums and the pause at the digest's time.
 #[derive(Debug, Clone, PartialEq)]
-pub struct BudgetState {
+pub struct RollingCost {
     pub five_hour_cost_usd: f64,
-    pub five_hour_budget_usd: f64,
     pub weekly_cost_usd: f64,
-    pub weekly_budget_usd: f64,
     pub paused_until: Option<(OffsetDateTime, String)>,
 }
 
@@ -68,7 +66,7 @@ pub struct Digest {
     pub cost_usd: f64,
     pub reviews: BTreeMap<CrawlerReviewId, ReviewWork>,
     reports: Vec<ProcessRecord>,
-    budget: BudgetState,
+    rolling: RollingCost,
 }
 
 impl Digest {
@@ -80,7 +78,7 @@ impl Digest {
         events: ReviewEventsSince,
         records: Vec<ProcessRecord>,
         needs_a_human: Vec<HumanRequiredReview>,
-        budget: BudgetState,
+        rolling: RollingCost,
     ) -> Self {
         let decisions: Vec<ReviewEventEntry> = events
             .events
@@ -126,7 +124,7 @@ impl Digest {
             cost_usd: 0.0,
             reviews: BTreeMap::new(),
             reports: Vec::new(),
-            budget,
+            rolling,
         };
         for record in records
             .into_iter()
@@ -183,7 +181,7 @@ impl Digest {
         self.write_refusals(&mut out);
         self.write_processes(&mut out);
         self.write_reports(&mut out);
-        self.write_budget(&mut out);
+        self.write_rolling_cost(&mut out);
         out
     }
 
@@ -364,18 +362,15 @@ impl Digest {
         out.push('\n');
     }
 
-    fn write_budget(&self, out: &mut String) {
-        let budget = &self.budget;
-        let _ = writeln!(out, "## Budget\n");
+    fn write_rolling_cost(&self, out: &mut String) {
+        let rolling = &self.rolling;
+        let _ = writeln!(out, "## Usage\n");
         let _ = writeln!(
             out,
-            "Rolling five hours: ${:.2} of the soft budget ${:.2}. Rolling week: ${:.2} of ${:.2}.",
-            budget.five_hour_cost_usd,
-            budget.five_hour_budget_usd,
-            budget.weekly_cost_usd,
-            budget.weekly_budget_usd
+            "Rolling five hours: ${:.2}. Rolling week: ${:.2}.",
+            rolling.five_hour_cost_usd, rolling.weekly_cost_usd
         );
-        match &budget.paused_until {
+        match &rolling.paused_until {
             Some((until, limit)) => {
                 let _ = writeln!(out, "Paused until {} ({limit}).", timestamp(*until));
             }
@@ -516,12 +511,10 @@ mod tests {
         })
     }
 
-    fn budget() -> BudgetState {
-        BudgetState {
+    fn rolling_cost() -> RollingCost {
+        RollingCost {
             five_hour_cost_usd: 1.5,
-            five_hour_budget_usd: 20.0,
             weekly_cost_usd: 9.0,
-            weekly_budget_usd: 100.0,
             paused_until: None,
         }
     }
@@ -542,7 +535,7 @@ mod tests {
             truncated: false,
         };
 
-        let digest = Digest::of(FROM, TO, events, vec![], vec![], budget());
+        let digest = Digest::of(FROM, TO, events, vec![], vec![], rolling_cost());
 
         assert_eq!(
             digest.approved,
@@ -610,7 +603,7 @@ mod tests {
             },
             vec![author, refused, limited, outside],
             vec![],
-            budget(),
+            rolling_cost(),
         );
 
         assert_eq!(digest.cost_usd, 3.75);
@@ -637,7 +630,7 @@ mod tests {
         assert!(markdown.contains(
             "author STAGED at version 4: Staged the pattern /item/. Risks: two labels only"
         ));
-        assert!(markdown.contains("Rolling five hours: $1.50 of the soft budget $20.00."));
+        assert!(markdown.contains("Rolling five hours: $1.50. Rolling week: $9.00."));
     }
 
     #[test]
@@ -662,7 +655,7 @@ mod tests {
             },
             vec![],
             vec![],
-            budget(),
+            rolling_cost(),
         );
 
         let digest = Digest::of(
@@ -674,7 +667,7 @@ mod tests {
             },
             vec![],
             vec![waiting],
-            budget(),
+            rolling_cost(),
         );
 
         assert!(
@@ -707,7 +700,7 @@ mod tests {
             },
             vec![],
             vec![],
-            budget(),
+            rolling_cost(),
         );
 
         let path = digest

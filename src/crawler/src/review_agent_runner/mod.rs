@@ -32,7 +32,7 @@ pub use settings::{
     current_location,
 };
 
-use digest::{BudgetState, Digest};
+use digest::{Digest, RollingCost};
 use ledger::{FIVE_HOURS, LEDGER_RETENTION, ONE_WEEK, ProcessLedger};
 use login::{LoginError, probe_login};
 use pass::{PassError, usage_limit_name, work_pending_reviews};
@@ -95,7 +95,7 @@ pub enum RunnerError {
 /// The service: a run, then `settings.interval` of rest after it ends, until the process is
 /// stopped. A run that fails is logged and the next one follows after the interval, so a console
 /// that is not up yet or an expired login never ends the service; a state or ledger it cannot read
-/// keeps failing each run, so nothing runs on a forgotten pause or budget. The lock is held only
+/// keeps failing each run, so nothing runs on a forgotten pause. The lock is held only
 /// during a run, so a `--once` between two runs works.
 pub async fn run_every_interval(settings: &RunnerSettings) {
     loop {
@@ -199,11 +199,9 @@ async fn write_digest(
             return None;
         }
     };
-    let budget = BudgetState {
+    let rolling = RollingCost {
         five_hour_cost_usd: ledger.cost_within(FIVE_HOURS, now),
-        five_hour_budget_usd: settings.five_hour_budget_usd,
         weekly_cost_usd: ledger.cost_within(ONE_WEEK, now),
-        weekly_budget_usd: settings.weekly_budget_usd,
         paused_until: state
             .pause_at(now)
             .map(|pause| (pause.until, usage_limit_name(pause.limit).to_owned())),
@@ -214,7 +212,7 @@ async fn write_digest(
         events,
         ledger.since(from).cloned().collect(),
         waiting_for_human,
-        budget,
+        rolling,
     );
     match digest.write(&settings.state_dir) {
         Ok(path) => {
@@ -863,22 +861,25 @@ echo "end $role $review" >> "$dir/order.log"
         assert_eq!(fixture.ledger()[0]["usage_limit"], "WEEKLY");
     }
 
+    /// The agents run on the login's subscription: only its usage limits stop a pass, never the
+    /// dollar cost the processes report.
     #[tokio::test]
-    async fn should_start_no_process_once_a_soft_budget_is_spent() {
+    async fn should_keep_starting_processes_whatever_dollar_cost_they_report() {
         let fixture = Fixture::new(vec![
             review("PENDING_REVIEW", true),
             review("PENDING_REVIEW", true),
         ])
         .await;
-        let settings = fixture.settings(
-            &[],
-            &[("CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_BUDGET_USD", "0.6")],
-        );
+        fixture
+            .claude
+            .answer("author", author_envelope("STAGED", 500.0));
+        fixture
+            .claude
+            .answer("reviewer", reviewer_envelope("APPROVE", "ACCEPTED", 500.0));
 
-        let run = summary(&run_with(&settings).await);
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
 
-        assert_eq!((run.worked, run.processes), (1, 2));
-        assert_eq!(run.stopped, Some(PassStop::BudgetSpent));
+        assert_eq!((run.worked, run.processes, run.stopped), (2, 4, None));
     }
 
     #[tokio::test]

@@ -1,10 +1,10 @@
 //! How `review-agent-runner` is started: whether it runs every interval until stopped or once
 //! (`--once`), and from its environment the review console, the CLI and `review-mcp` it starts, its
-//! state directory, each agent role's model, effort, turn and budget caps, the run's limits and the
+//! state directory, each agent role's model, effort and turn cap, the run's limits and the
 //! interval between runs.
 //! An empty or whitespace-only setting counts as unset; any other value that is not accepted fails
 //! startup with the variable's name, so a mistyped limit never silently widens what the agents
-//! may spend.
+//! may do.
 
 use super::invocation::ChildEnvironment;
 use crate::review::agent_decisions::{AGENT_MIN_LABELLED_URLS_ENV, DEFAULT_MIN_LABELLED_URLS};
@@ -21,8 +21,6 @@ pub const MAX_REVIEWS_PER_RUN_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIE
 pub const MAX_PROCESSES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES";
 pub const COOLDOWN_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MINUTES";
 pub const PROCESS_TIMEOUT_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_PROCESS_TIMEOUT_MINUTES";
-pub const FIVE_HOUR_BUDGET_USD_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_BUDGET_USD";
-pub const WEEKLY_BUDGET_USD_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_BUDGET_USD";
 pub const INTERVAL_SECONDS_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS";
 
 /// The model both agents run on unless their role's setting names another.
@@ -30,17 +28,11 @@ const DEFAULT_MODEL: &str = "claude-opus-5-5";
 const DEFAULT_EFFORT: ClaudeEffort = ClaudeEffort::High;
 const DEFAULT_AUTHOR_MAX_TURNS: NonZeroU32 = NonZeroU32::new(80).unwrap();
 const DEFAULT_REVIEWER_MAX_TURNS: NonZeroU32 = NonZeroU32::new(50).unwrap();
-const DEFAULT_AUTHOR_MAX_BUDGET_USD: f64 = 5.0;
-const DEFAULT_REVIEWER_MAX_BUDGET_USD: f64 = 3.0;
 const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(4).unwrap();
 const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(2).unwrap();
 const DEFAULT_COOLDOWN_MINUTES: NonZeroU32 = NonZeroU32::new(180).unwrap();
 const DEFAULT_PROCESS_TIMEOUT_MINUTES: NonZeroU32 = NonZeroU32::new(60).unwrap();
-const DEFAULT_FIVE_HOUR_BUDGET_USD: f64 = 20.0;
-const DEFAULT_WEEKLY_BUDGET_USD: f64 = 100.0;
 const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(300).unwrap();
-/// The largest dollar amount a cap or soft budget accepts; anything larger is a typo.
-const MAX_USD: f64 = 10_000.0;
 
 /// What one start of the runner does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,8 +51,6 @@ pub struct AgentProcessSettings {
     pub model: String,
     pub effort: ClaudeEffort,
     pub max_turns: NonZeroU32,
-    /// The process's spend cap, `claude --max-budget-usd`.
-    pub max_budget_usd: f64,
 }
 
 /// The settings of one runner start.
@@ -87,8 +77,6 @@ pub struct RunnerSettings {
     pub cooldown: Duration,
     /// How long one agent process may run before it is stopped.
     pub process_timeout: Duration,
-    pub five_hour_budget_usd: f64,
-    pub weekly_budget_usd: f64,
     /// How long the service rests after a run ends before it starts the next; `--once` ignores it.
     pub interval: Duration,
     /// How many URLs of each label the author agent sets on a URL-pattern review: the console's
@@ -178,16 +166,8 @@ impl RunnerSettings {
             child_env,
             review_mcp_bin,
             state_dir,
-            author: read.agent(
-                AgentRole::Author,
-                DEFAULT_AUTHOR_MAX_TURNS,
-                DEFAULT_AUTHOR_MAX_BUDGET_USD,
-            )?,
-            reviewer: read.agent(
-                AgentRole::Reviewer,
-                DEFAULT_REVIEWER_MAX_TURNS,
-                DEFAULT_REVIEWER_MAX_BUDGET_USD,
-            )?,
+            author: read.agent(AgentRole::Author, DEFAULT_AUTHOR_MAX_TURNS)?,
+            reviewer: read.agent(AgentRole::Reviewer, DEFAULT_REVIEWER_MAX_TURNS)?,
             max_reviews_per_run: read
                 .positive(MAX_REVIEWS_PER_RUN_ENV)?
                 .unwrap_or(DEFAULT_MAX_REVIEWS_PER_RUN),
@@ -202,12 +182,6 @@ impl RunnerSettings {
                 read.positive(PROCESS_TIMEOUT_MINUTES_ENV)?
                     .unwrap_or(DEFAULT_PROCESS_TIMEOUT_MINUTES),
             ),
-            five_hour_budget_usd: read
-                .usd(FIVE_HOUR_BUDGET_USD_ENV)?
-                .unwrap_or(DEFAULT_FIVE_HOUR_BUDGET_USD),
-            weekly_budget_usd: read
-                .usd(WEEKLY_BUDGET_USD_ENV)?
-                .unwrap_or(DEFAULT_WEEKLY_BUDGET_USD),
             interval: Duration::from_secs(u64::from(
                 read.positive(INTERVAL_SECONDS_ENV)?
                     .unwrap_or(DEFAULT_INTERVAL_SECONDS)
@@ -237,7 +211,6 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
         &self,
         role: AgentRole,
         default_max_turns: NonZeroU32,
-        default_max_budget_usd: f64,
     ) -> Result<AgentProcessSettings, RunnerSettingsError> {
         let model_name = role_setting(role, "MODEL");
         let model = match (self.setting)(&model_name) {
@@ -264,9 +237,6 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
             max_turns: self
                 .positive(&role_setting(role, "MAX_TURNS"))?
                 .unwrap_or(default_max_turns),
-            max_budget_usd: self
-                .usd(&role_setting(role, "MAX_BUDGET_USD"))?
-                .unwrap_or(default_max_budget_usd),
         })
     }
 
@@ -276,19 +246,6 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
                 value
                     .parse::<NonZeroU32>()
                     .map_err(|_| invalid(name.to_owned(), value, "a whole number of at least 1"))
-            })
-            .transpose()
-    }
-
-    fn usd(&self, name: &str) -> Result<Option<f64>, RunnerSettingsError> {
-        (self.setting)(name)
-            .map(|value| match value.parse::<f64>() {
-                Ok(amount) if amount.is_finite() && amount > 0.0 && amount <= MAX_USD => Ok(amount),
-                _ => Err(invalid(
-                    name.to_owned(),
-                    value,
-                    "a dollar amount above 0 and at most 10000, such as 2.50",
-                )),
             })
             .transpose()
     }
@@ -446,24 +403,18 @@ mod tests {
                 model: "claude-opus-5-5".to_owned(),
                 effort: ClaudeEffort::High,
                 max_turns: NonZeroU32::new(80).unwrap_or(NonZeroU32::MIN),
-                max_budget_usd: 5.0,
             }
         );
         assert_eq!(read.reviewer.max_turns.get(), 50);
-        assert_eq!(read.reviewer.max_budget_usd, 3.0);
         assert_eq!(read.max_reviews_per_run.get(), 4);
         assert_eq!(read.max_processes.get(), 2);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
         assert_eq!(read.process_timeout, Duration::from_secs(60 * 60));
-        assert_eq!(
-            (read.five_hour_budget_usd, read.weekly_budget_usd),
-            (20.0, 100.0)
-        );
         assert_eq!(read.min_labelled_urls.get(), 3);
     }
 
     #[test]
-    fn should_read_each_role_s_caps_and_the_run_s_limits_from_the_environment() {
+    fn should_read_each_role_s_settings_and_the_run_s_limits_from_the_environment() {
         let read = settings(
             &["--once"],
             &[
@@ -475,13 +426,10 @@ mod tests {
                 ("CRAWLER_REVIEW_AGENT_AUTHOR_MODEL", "claude-sonnet-5-5"),
                 ("CRAWLER_REVIEW_AGENT_AUTHOR_EFFORT", "xhigh"),
                 ("CRAWLER_REVIEW_AGENT_REVIEWER_MAX_TURNS", "12"),
-                ("CRAWLER_REVIEW_AGENT_REVIEWER_MAX_BUDGET_USD", "0.75"),
                 (MAX_REVIEWS_PER_RUN_ENV, "9"),
                 (MAX_PROCESSES_ENV, "1"),
                 (COOLDOWN_MINUTES_ENV, "5"),
                 (PROCESS_TIMEOUT_MINUTES_ENV, "2"),
-                (FIVE_HOUR_BUDGET_USD_ENV, "7.5"),
-                (WEEKLY_BUDGET_USD_ENV, "40"),
                 (INTERVAL_SECONDS_ENV, "30"),
                 (AGENT_MIN_LABELLED_URLS_ENV, "4"),
             ],
@@ -507,15 +455,10 @@ mod tests {
         assert_eq!(read.author.effort, ClaudeEffort::XHigh);
         assert_eq!(read.reviewer.model, "claude-opus-5-5");
         assert_eq!(read.reviewer.max_turns.get(), 12);
-        assert_eq!(read.reviewer.max_budget_usd, 0.75);
         assert_eq!(read.max_reviews_per_run.get(), 9);
         assert_eq!(read.max_processes.get(), 1);
         assert_eq!(read.cooldown, Duration::from_secs(300));
         assert_eq!(read.process_timeout, Duration::from_secs(120));
-        assert_eq!(
-            (read.five_hour_budget_usd, read.weekly_budget_usd),
-            (7.5, 40.0)
-        );
         assert_eq!(read.interval, Duration::from_secs(30));
         assert_eq!(read.min_labelled_urls.get(), 4);
     }
@@ -543,10 +486,7 @@ mod tests {
             ),
             ("CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT", "extreme"),
             ("CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS", "0"),
-            ("CRAWLER_REVIEW_AGENT_AUTHOR_MAX_BUDGET_USD", "-1"),
-            ("CRAWLER_REVIEW_AGENT_REVIEWER_MAX_BUDGET_USD", "NaN"),
             (MAX_PROCESSES_ENV, "two"),
-            (WEEKLY_BUDGET_USD_ENV, "1e9"),
             (INTERVAL_SECONDS_ENV, "0"),
         ] {
             match settings(&[], &[(name, value)]) {

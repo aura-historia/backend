@@ -153,7 +153,7 @@ fn bounded_reason(value: &str) -> String {
 pub enum ProcessLimit {
     /// `--max-turns`.
     Turns,
-    /// `--max-budget-usd`.
+    /// `--max-budget-usd`. The runner does not set it; the CLI's answer stays readable.
     Budget,
     /// The model's context window.
     Context,

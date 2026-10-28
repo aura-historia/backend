@@ -1,15 +1,14 @@
 //! One pass of the agents over the pending reviews: per review a fresh author process, then, when
 //! the author staged or kept a candidate, a fresh reviewer process, with at most the configured
 //! number of processes at once. Each process's outcome is recorded in the ledger and logged.
-//! A process that ends without a decision cools its review down; a usage limit pauses the runner
-//! until its reset, and a soft budget that is spent starts no further process. A review that waits
-//! for a human is no agent work: the pass starts no process for it, so it neither fails nor cools
-//! down.
+//! A process that ends without a decision cools its review down, and a usage limit pauses the
+//! runner until its reset. A review that waits for a human is no agent work: the pass starts no
+//! process for it, so it neither fails nor cools down.
 
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
 use super::invocation::{agent_command, role_contract};
-use super::ledger::{FIVE_HOURS, ONE_WEEK, ProcessEnd, ProcessLedger, ProcessRecord};
+use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, run_agent};
 use super::queue::{QueuedReview, review_queue, select_reviews};
 use super::reports::{AgentReport, AuthorAction};
@@ -44,8 +43,6 @@ pub struct PassSummary {
 pub enum PassStop {
     /// A usage limit of the CLI's login pauses the runner until then.
     Paused(OffsetDateTime),
-    /// A rolling cost sum reached its soft budget.
-    BudgetSpent,
 }
 
 /// What a pass works with and changes: the runner's state and ledger.
@@ -63,7 +60,7 @@ struct Shared {
 
 /// How one agent process of a review ended, for the review's next step.
 enum Step {
-    /// The pass started no process: it is paused or its budget is spent.
+    /// The pass started no process: it is paused.
     NotStarted,
     Reported(AgentReport),
     /// It ended without a decision; its review cools down.
@@ -200,7 +197,6 @@ impl Pass<'_> {
             model = %process.model,
             effort = effort_flag(process.effort),
             max_turns = process.max_turns.get(),
-            max_budget_usd = process.max_budget_usd,
             "Starting a review agent process"
         );
         let mut record = ProcessRecord::started(review, role, contract.version);
@@ -398,24 +394,10 @@ impl Pass<'_> {
     /// Why no further process may start at `now`, if any.
     fn stop(&self, now: OffsetDateTime) -> Option<PassStop> {
         self.with(|shared| {
-            if let Some(pause) = shared.state.pause_at(now) {
-                return Some(PassStop::Paused(pause.until));
-            }
-            let five_hours = shared.ledger.cost_within(FIVE_HOURS, now);
-            let week = shared.ledger.cost_within(ONE_WEEK, now);
-            if five_hours >= self.settings.five_hour_budget_usd
-                || week >= self.settings.weekly_budget_usd
-            {
-                warn!(
-                    five_hour_cost_usd = five_hours,
-                    five_hour_budget_usd = self.settings.five_hour_budget_usd,
-                    weekly_cost_usd = week,
-                    weekly_budget_usd = self.settings.weekly_budget_usd,
-                    "A rolling cost sum reached its soft budget; no further agent process starts"
-                );
-                return Some(PassStop::BudgetSpent);
-            }
-            None
+            shared
+                .state
+                .pause_at(now)
+                .map(|pause| PassStop::Paused(pause.until))
         })
     }
 
@@ -459,7 +441,6 @@ impl PassStop {
     pub fn describe(stop: Option<Self>) -> String {
         match stop {
             Some(Self::Paused(until)) => format!("paused until {}", timestamp(until)),
-            Some(Self::BudgetSpent) => "soft budget spent".to_owned(),
             None => String::new(),
         }
     }

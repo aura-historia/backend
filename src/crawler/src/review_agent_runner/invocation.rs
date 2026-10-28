@@ -193,8 +193,6 @@ pub(super) fn agent_command(
         effort_flag(process.effort),
         "--max-turns",
         &process.max_turns.to_string(),
-        "--max-budget-usd",
-        &process.max_budget_usd.to_string(),
         // No built-in tool: no shell, files, web or browser.
         "--tools",
         "",
@@ -244,7 +242,6 @@ mod tests {
             ),
             ("CRAWLER_REVIEW_AGENT_REVIEWER_MODEL", "claude-sonnet-5-5"),
             ("CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT", "medium"),
-            ("CRAWLER_REVIEW_AGENT_REVIEWER_MAX_BUDGET_USD", "2.5"),
         ]);
         RunnerSettings::from_args_and_env(
             Vec::new(),
@@ -306,8 +303,6 @@ mod tests {
             "medium",
             "--max-turns",
             "50",
-            "--max-budget-usd",
-            "2.5",
             "--tools",
             "",
         ]
