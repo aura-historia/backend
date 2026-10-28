@@ -9,8 +9,8 @@ pub use matrix::{MatrixAnswer, MatrixView};
 use super::bounds::{keep_first, keep_last, truncated_text};
 use super::wire;
 use crate::review::model::{
-    CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, ReviewSchemaMatrix, SampleLabels,
-    SampleUrlLabel, SchemaMatrix, UrlPatternDecision, UrlPatternReviewCandidate,
+    CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, RepairRequest, ReviewSchemaMatrix,
+    SampleLabels, SampleUrlLabel, SchemaMatrix, UrlPatternDecision, UrlPatternReviewCandidate,
 };
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -269,15 +269,21 @@ impl PendingReviews {
                     listing_source_name: review.listing_source_name,
                     listing_source_crawl_enabled: review.listing_source_crawl_enabled,
                     candidate_version: review.candidate_version,
-                    repair_request: review.repair_request.map(|repair| RepairRequestView {
-                        note: note(&repair.note),
-                        requested: timestamp(repair.requested),
-                    }),
+                    repair_request: review.repair_request.map(RepairRequestView::of),
                     updated: timestamp(review.updated),
                 })
                 .collect(),
             total_pending,
             truncations,
+        }
+    }
+}
+
+impl RepairRequestView {
+    fn of(repair: RepairRequest) -> Self {
+        Self {
+            note: note(&repair.note),
+            requested: timestamp(repair.requested),
         }
     }
 }
@@ -308,10 +314,7 @@ impl ReviewView {
             candidate_version: review.candidate_version,
             candidate_is_live,
             reviewer_notes: review.reviewer_notes.as_deref().map(note),
-            repair_request: review.repair_request.map(|repair| RepairRequestView {
-                note: note(&repair.note),
-                requested: timestamp(repair.requested),
-            }),
+            repair_request: review.repair_request.map(RepairRequestView::of),
             candidate: CandidateView::of(candidate),
             pages: pages.into_iter().map(ReviewPageView::of).collect(),
             sample_urls: sample_urls.into_iter().map(SampleUrlView::of).collect(),
