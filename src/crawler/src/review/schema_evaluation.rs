@@ -34,28 +34,38 @@ fn parse_page(raw_html: &str) -> Html {
     Html::parse_document(raw_html)
 }
 
-/// Evaluates the schemas and removed-page templates on the live review pages.
-/// `captured_identities` maps a page URL to the source listing id its listing was captured
-/// under.
+/// Evaluates the schemas and removed-page templates on the live review pages and on the live
+/// `url_pages` of the review's ListingSource that are no review pages, which the matrix refers to
+/// as inputs by their position. `captured_identities` maps a page URL to the source listing id its
+/// listing was captured under.
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
     schemas: &[ProductCssSelectorSchema],
     removed_page_schemas: &[RemovedPageSchema],
     pages: &[(CrawlerReviewPage, String)],
+    url_pages: &[SchemaReviewPageInput],
     captured_identities: &HashMap<String, String>,
 ) -> SchemaMatrix {
-    let pages: Vec<MatrixPage<'_>> = pages
+    let review_pages = pages.iter().map(|(page, raw_html)| MatrixPage {
+        page_reference: SchemaPageReference::Persisted {
+            review_page_id: page.review_page_id,
+        },
+        url: &page.url,
+        role: &page.role,
+        raw_html,
+        captured_identity: captured_identities.get(&page.url).map(String::as_str),
+    });
+    let url_pages = url_pages
         .iter()
-        .map(|(page, raw_html)| MatrixPage {
-            page_reference: SchemaPageReference::Persisted {
-                review_page_id: page.review_page_id,
-            },
+        .enumerate()
+        .map(|(page_index, page)| MatrixPage {
+            page_reference: SchemaPageReference::Input { page_index },
             url: &page.url,
             role: &page.role,
-            raw_html,
+            raw_html: &page.raw_html,
             captured_identity: captured_identities.get(&page.url).map(String::as_str),
-        })
-        .collect();
+        });
+    let pages: Vec<MatrixPage<'_>> = review_pages.chain(url_pages).collect();
     evaluate_matrix(Some(review_id), schemas, removed_page_schemas, &pages)
 }
 
@@ -702,6 +712,7 @@ mod tests {
                 &schemas,
                 &removed_page_templates,
                 &live_pages,
+                &[],
                 &captured,
             )
         });
@@ -1849,6 +1860,7 @@ mod tests {
                 &schemas,
                 &[],
                 &[(sold_page, product_html(53036, true))],
+                &[],
                 &captured,
             );
 

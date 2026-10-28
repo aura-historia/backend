@@ -261,6 +261,7 @@ mod tests {
             schemas,
             templates,
             &pages,
+            &[],
             &HashMap::new(),
         )
     }

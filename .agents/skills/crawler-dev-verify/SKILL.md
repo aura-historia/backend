@@ -119,19 +119,33 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    neither token occurs in the JSON log or stderr (`grep -cF` with each token). Never print the
    tokens: read them into shell variables, for example
    `AUTHOR=$(python3 -c 'import json; print(json.load(open("review-agent-tokens.json"))["author"])')`.
-3. **Act as an agent.** Send `Authorization: Bearer $AUTHOR` or `$REVIEWER`; no `Origin` header
-   is needed. The author stages candidates (`/candidate`, `/schema-field`, `/pages`) and labels a
-   URL-pattern review's sample (`/sample-labels`, `PRODUCT` or `NOT_PRODUCT` with a `reason`, with
-   the `expected_candidate_version`); the reviewer refreshes a product-schema review's live matrix
-   (`GET /api/reviews/{id}/matrix?refresh=true`, polled without `refresh` until it answers 200) and
-   approves with the `expected_candidate_version` it read, or rejects with `notes`. Expect `403`
-   `AUTHOR_CANNOT_DECIDE` and `REVIEWER_CANNOT_CHANGE_CANDIDATES` for the other role's routes, and
-   `409` with `failed_checks` when the approval guard refuses (for a URL pattern `TOO_FEW_LABELS`,
-   `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`). Until a pattern is approved the
-   spider stores every crawled URL as `other`; check `listing_source_urls.url_class`. The event
-   trail (`GET /api/reviews/{id}`, `events`) records `AGENT_AUTHOR` and `AGENT_REVIEWER`.
+3. **Act as an agent through `review-mcp`.** The agents reach the console only through the review
+   MCP server (`docs/crawler/operations.md#review-mcp-server`), so drive it as their MCP client
+   does. Build it with `cargo build --locked -p crawler --bin review-mcp` and start one process per
+   role from the worktree root, `target/debug/review-mcp --role author` and `--role reviewer`, with
+   `CRAWLER_REVIEW_CONSOLE_URL` unset (the dev console) and `CRAWLER_REVIEW_AGENT_TOKEN_FILE` unset or
+   pointing at the token file above; stderr to a file of its own. Drive each over stdio with a
+   small scripted client in the scratchpad (newline-delimited JSON-RPC: `initialize`,
+   `notifications/initialized`, `tools/list`, `tools/call`), never with the `claude` CLI, so the run
+   spends no LLM budget and no login. Expect 12 author and 7 reviewer tools, JSON-RPC error
+   `-32602` for the other role's tool, `isError` results whose text is a JSON object with `kind`
+   (`URL_OUTSIDE_REVIEW_SOURCE` for a URL off the review's ListingSource, before any request;
+   `FORBIDDEN` with `reason`; `CONFLICT` with `failed_checks` when the approval guard refuses, for a
+   URL pattern `TOO_FEW_LABELS`, `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`), and
+   answers below 60 KiB. The author reads (`get_review`, `inspect_page`), tests
+   (`evaluate_candidate`), stages (`update_candidate`, `update_schema_field`, `add_review_page`) and
+   labels (`label_sample_urls`, `PRODUCT` or `NOT_PRODUCT` with a `reason`); the reviewer refreshes a
+   product-schema review's live matrix (`refresh_matrix`) and approves with the `candidate_version`
+   it read, or rejects with `notes`. Until a pattern is approved the spider stores every crawled
+   URL as `other`; check `listing_source_urls.url_class`. The event trail (`get_review`, `events`)
+   records `AGENT_AUTHOR` and `AGENT_REVIEWER`. Neither token may occur in `review-mcp`'s stderr or
+   in any tool answer. For a console route no tool covers, send `Authorization: Bearer $AUTHOR` or
+   `$REVIEWER` with curl; no `Origin` header is needed, and the other role's routes answer `403`
+   `AUTHOR_CANNOT_DECIDE` or `REVIEWER_CANNOT_CHANGE_CANDIDATES`.
 4. **Rotation and kill switch.** A restart writes new tokens and the old ones answer `401`; a
-   restart with `CRAWLER_AUTHORING_MODE=manual` removes the file. Delete nothing else by hand.
+   running `review-mcp` reads the new token on that `401` and retries once, so its next tool call
+   succeeds without a restart. A restart with `CRAWLER_AUTHORING_MODE=manual` removes the file, and
+   `review-mcp` answers `UNAUTHORIZED`. Delete nothing else by hand.
 
 ## Rules
 

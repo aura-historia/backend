@@ -92,20 +92,50 @@ In `agent` mode the crawler does not guess what a product page is; Claude decide
 
 | Request | Author agent | Reviewer agent |
 |---|---|---|
-| Console API reads, including a product-schema review's live matrix (`GET /api/reviews/{id}/matrix?refresh=true`) | Yes | Yes |
+| Console API reads, including a product-schema review's live matrix (`GET /api/reviews/{id}/matrix?refresh=true`), a page's projection (`GET /api/reviews/{id}/page-projection`) and the evaluation of a proposed candidate (`POST /api/reviews/{id}/evaluate`), which store nothing ([review rail](extraction-and-review.md#review-rail)) | Yes | Yes |
+| Live previews of any URL (`GET /api/live-inspect`, `/api/live-html`) | Only with `review` naming a review and `url` on its ListingSource's domains under the review-page rule, otherwise `400` | As the author agent |
 | Candidate and schema-field edits, removed-page declarations, sample labels (`POST /api/reviews/{id}/candidate`, `/schema-field`, `/sample-labels`), review page additions and removals (`POST /api/reviews/{id}/pages`, `DELETE /api/review-pages/{id}`) | Yes | `403` `REVIEWER_CANNOT_CHANGE_CANDIDATES` |
 | Needs repair with its notes (`POST /api/reviews/{id}/needs-repair`) | Yes | Yes |
 | Approve and reject (`POST /api/reviews/{id}/approve`, `/reject`) | `403` `AUTHOR_CANNOT_DECIDE` | Within the approval guard; a rejection needs non-blank `notes` (`400`) |
 | Restore (`POST /api/reviews/{id}/restore`) | `403` `RESTORE_NEEDS_HUMAN` | `403` `RESTORE_NEEDS_HUMAN` |
 | Browser sessions (`POST /api/session`, `/api/session/logout`), domain registration and removal | `401` | `401` |
 
-Nobody configures the agents' tokens. At every start in `agent` mode, `server` and `dev` generate a fresh 256-bit token per role from the operating system's CSPRNG and write both to `review-agent-tokens.json` in the crawler's working directory, its state directory (`/var/lib/crawler` under the [systemd unit](#systemd-unit)): `{"author": "<64 hex characters>", "reviewer": "<64 hex characters>"}`. The file is written under a temporary name with mode `0600` and renamed into place, so a reader never sees a partial file and only the crawler's user can read it; the review-console MCP server runs as that user and reads its role's token from it. A start that cannot write the file fails. The console compares a bearer with every token in constant time. Tokens are never logged or printed: the startup log names the file's path, and `Crawler review console listening` logs `agent_access`. A restart replaces both tokens and so revokes the old ones. In every other mode no agent acts: the crawler writes no token file and removes one an earlier start left. `CRAWLER_REVIEW_AGENT_TOKEN` and `CRAWLER_REVIEW_AGENT_APPROVALS` are no settings; a value in either fails startup.
+Nobody configures the agents' tokens. At every start in `agent` mode, `server` and `dev` generate a fresh 256-bit token per role from the operating system's CSPRNG and write both to `review-agent-tokens.json` in the crawler's working directory, its state directory (`/var/lib/crawler` under the [systemd unit](#systemd-unit)): `{"author": "<64 hex characters>", "reviewer": "<64 hex characters>"}`. The file is written under a temporary name with mode `0600` and renamed into place, so a reader never sees a partial file and only the crawler's user can read it; the [review MCP server](#review-mcp-server) runs as that user and reads its role's token from it. A start that cannot write the file fails. The console compares a bearer with every token in constant time. Tokens are never logged or printed: the startup log names the file's path, and `Crawler review console listening` logs `agent_access`. A restart replaces both tokens and so revokes the old ones. In every other mode no agent acts: the crawler writes no token file and removes one an earlier start left. `CRAWLER_REVIEW_AGENT_TOKEN` and `CRAWLER_REVIEW_AGENT_APPROVALS` are no settings; a value in either fails startup.
 
 The agents always work next to a human. `server` in `agent` mode fails startup without `CRAWLER_REVIEW_AUTH_TOKEN`, so a human can reject, restore and override what the agents do. In `dev` the tokenless loopback console stands in for it: same-origin requests without a token keep acting as `HUMAN` while the agents send their tokens. A request without an agent's token never acts as an agent.
 
 Agents change pending reviews only: their candidate and field edits, removed-page declarations, sample labels and page additions and removals on any other review, including the approved review whose candidate is live, answer `403` `AGENT_CHANGES_ONLY_PENDING_REVIEWS` and record nothing, so they change the live configuration only through an approval. The reviewer agent's approval is taken only when the [approval guard](extraction-and-review.md#approval-guard) passes, and one that carries `acknowledged_coverage` answers `403` `AGENT_COVERAGE_ACKNOWLEDGEMENT`. No agent approves its own work: an agent's approval is refused with `409` and `failed_checks` `[{"check": "APPROVER_IS_AUTHOR"}]` when the event trail shows that the approving agent changed the candidate version it approves or the review's pages; humans approve as before. `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` (default 20) caps the agents' approvals plus rejections within any rolling hour, counted from the event trail so a restart does not reset it; above it the API answers `429` with a `Retry-After` header and `retry_after_secs`. `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` (default 30) bounds how long ago the live matrix an agent approval of product schemas rests on fetched its pages; sample labels do not expire. `CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS` (default 3) is how many URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many `NOT_PRODUCT`. Empty or whitespace-only values count as unset; any other value that is not a whole number of at least 1 fails startup with the variable and the value. `Crawler review console listening` logs `agent_access`, `agent_approvals` (`guarded` in `agent` mode, `off` otherwise), `agent_max_decisions_per_hour`, `agent_matrix_max_age_minutes` and `agent_min_labelled_urls`.
 
 The kill switch needs no deploy: set `CRAWLER_AUTHORING_MODE=manual` and restart. The restart removes the token file, the agents' tokens answer `401`, and humans work the reviews as in [manual authoring](#manual-authoring); a human [restores](#review-service) any agent approval that should not stay live.
+
+### Review MCP server
+
+The agents reach the console only through `review-mcp`, an MCP server over stdio that the agents' MCP client starts once per agent process, in exactly one role: `review-mcp --role author` or `review-mcp --role reviewer`. Build it with `cargo build --release --locked -p crawler --bin review-mcp` next to `server` and run it as the crawler's user, the only one who can read the token file. It is a thin client of the console API: it has no database access and no review rule of its own, so the console's role refusals, [approval guard](extraction-and-review.md#approval-guard), decision cap and URL rules apply to every tool call.
+
+| Setting | Meaning |
+|---|---|
+| `CRAWLER_REVIEW_CONSOLE_URL` | The console's base URL, default `http://127.0.0.1:7878`. Plain http is accepted for a loopback host only; credentials, a query or a fragment fail startup. |
+| `CRAWLER_REVIEW_AGENT_TOKEN_FILE` | The token file, default `review-agent-tokens.json` in the working directory. Point it at the crawler's state directory, `/var/lib/crawler/review-agent-tokens.json` under the [systemd unit](#systemd-unit). |
+| `LOG_LEVEL` | Level of its JSON log on stderr, default `info`. |
+
+An empty or whitespace-only setting counts as unset. A missing or unknown `--role`, or any other argument, fails startup with exit code 2. The role's token comes from the token file only, never from a setting, an argument or a tool call: `review-mcp` reads it at startup, and fails when it cannot, as outside `agent` mode, and reads it again when the console answers `401`, retrying the request once when a crawler restart has rotated the token. It connects to the console directly, ignoring proxy settings, and follows no redirect, so the token reaches only the configured console. stdout carries the MCP session only; the log names each tool call with its outcome and duration, never its arguments, its answer, a page or a token.
+
+A role's server lists and runs only its own tools; the tool descriptions in [`review_mcp/tools`](../../src/crawler/src/review_mcp/tools) are the agents' contract.
+
+| Role | Tools |
+|---|---|
+| Both | `list_pending_reviews`, `get_review`, `inspect_page`, `refresh_matrix`, `mark_needs_repair` |
+| Author | `evaluate_candidate`, `update_candidate`, `update_schema_field`, `add_review_page`, `remove_review_page`, `declare_removed_page`, `label_sample_urls` |
+| Reviewer | `approve`, `reject` |
+
+A console refusal comes back as a tool error whose text is a JSON object with `kind`, `error`, `status` and the console's own `reason`, `failed_checks`, `candidate_version`, `coverage`, `retry_after_secs`, `limit` and `details`. A tool taking a URL refuses one that is not a plain http(s) URL on a domain of the review's ListingSource (`URL_OUTSIDE_REVIEW_SOURCE`) before any request, and the console refuses it again. No answer carries a token, cookie or header. Every answer stays below 60 KiB of JSON: long texts end in a `[truncated: ...]` marker, `inspect_page` answers at most 40,000 characters of a page's projection (fewer for text in non-Latin scripts), with a marker line where it stops and an `offset` to read on from there, and each shortened list is named in the answer's `truncations`. `refresh_matrix` and `evaluate_candidate` wait for the console's background work for up to 15 minutes, then answer `STILL_RUNNING`.
+
+For the Claude Code CLI, one role's MCP configuration reads:
+
+```json
+{"mcpServers": {"crawler_review": {"command": "/opt/crawler/bin/review-mcp", "args": ["--role", "author"],
+  "env": {"CRAWLER_REVIEW_AGENT_TOKEN_FILE": "/var/lib/crawler/review-agent-tokens.json"}}}}
+```
 
 ## Single-server deployment
 

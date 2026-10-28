@@ -31,20 +31,21 @@ use url::Url;
 mod live_matrix;
 mod restore;
 mod review_events;
+mod review_source;
 mod reviewer_page_url;
 mod sample_labels;
 mod schema_payload;
 mod verdicts;
 
-pub use live_matrix::EvaluatedSchemaMatrix;
+pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
+pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use verdicts::Approval;
 
 use review_events::{ReviewMutation, commit_with_event, fetch_review_events};
 
-use reviewer_page_url::{
-    ReviewPageIdentity, is_allowed_reviewer_page_url, reviewer_page_url, without_credentials,
-};
+use crate::review::source_url::is_review_source_url;
+use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, approval_product_schemas,
     holds_live_schemas, update_schema_field_payload, validate_product_schemas,
@@ -134,6 +135,10 @@ pub enum ReviewRepositoryError {
     ReviewPageUrlNotAllowed(String),
     #[error("URL `{0}` is already a page of this review")]
     DuplicateReviewPage(String),
+    #[error(
+        "a candidate evaluation fetches at most {MAX_EVALUATED_URLS} URLs next to the review's pages"
+    )]
+    TooManyEvaluatedUrls,
     #[error(
         "review {0} already has the maximum of {MAX_REVIEWER_ADDED_PAGES} reviewer-added pages"
     )]
@@ -1561,7 +1566,7 @@ async fn lock_reviewer_page_target(
     .await?;
     let (domain_names, product_url_patterns): (Vec<String>, Vec<Option<String>>) =
         domains.into_iter().unzip();
-    if !is_allowed_reviewer_page_url(url, &domain_names) {
+    if !is_review_source_url(url, &domain_names) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(url).to_string(),
         ));

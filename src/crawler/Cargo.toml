@@ -32,6 +32,8 @@ tracing = { workspace = true }
 tracing-cloudwatch = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 schemars = { workspace = true }
+# The review MCP server (`review-mcp`) speaks MCP over stdio.
+rmcp = { workspace = true, features = ["transport-io"] }
 async-trait = { workspace = true }
 google-cloud-auth = { workspace = true }
 html-escape = { workspace = true }
@@ -92,6 +94,10 @@ path = "src/bin/dev.rs"
 [[bin]]
 name = "fetch-fixture"
 path = "src/bin/fetch_fixture.rs"
+
+[[bin]]
+name = "review-mcp"
+path = "src/bin/review_mcp.rs"
 
 [features]
 default = []

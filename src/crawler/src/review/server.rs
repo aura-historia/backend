@@ -5,6 +5,7 @@ pub use crate::review::access::{ReviewServerConfig, ReviewServerConfigError};
 use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
+use crate::review::candidate_evaluations::CandidateEvaluations;
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
 use crate::review::model::{
@@ -49,6 +50,10 @@ const MATRIX_REFRESH_PAGE_BUDGET: Duration =
 const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 
+mod source_pages;
+
+use source_pages::{EvaluationPayload, parse_review_evaluation_id};
+
 #[derive(Clone)]
 pub struct ReviewServer {
     repository: CrawlerReviewRepository,
@@ -57,6 +62,7 @@ pub struct ReviewServer {
     html_fetcher: Arc<dyn HtmlFetcher>,
     matrix_refreshes: MatrixRefreshes,
     matrix_refresh_wait: Duration,
+    candidate_evaluations: CandidateEvaluations,
 }
 
 impl ReviewServer {
@@ -76,12 +82,19 @@ impl ReviewServer {
             html_fetcher,
             matrix_refreshes: MatrixRefreshes::default(),
             matrix_refresh_wait: MATRIX_REFRESH_RESPONSE_WAIT,
+            candidate_evaluations: CandidateEvaluations::default(),
         }
     }
 
+    /// Serves the console on its configured bind address.
     pub async fn run(self) -> std::io::Result<()> {
-        let bind_addr = self.access.bind_addr();
-        let listener = TcpListener::bind(bind_addr).await?;
+        let listener = TcpListener::bind(self.access.bind_addr()).await?;
+        self.serve(listener).await
+    }
+
+    /// Serves the console on `listener`, such as one bound to an ephemeral port in a test.
+    pub async fn serve(self, listener: TcpListener) -> std::io::Result<()> {
+        let bind_addr = listener.local_addr()?;
         let agent_decisions = self.access.agent_decisions();
         info!(
             bind_addr = %bind_addr,
@@ -303,25 +316,67 @@ impl ReviewServer {
 
         // Preview responses, including their errors, are framed by the console.
         if request.method == "GET" && request.path == "/api/live-inspect" {
-            let Some(url) = request.query.get("url") else {
-                return HttpResponse::json(400, &json!({ "error": "missing url" }))
-                    .into_review_preview();
-            };
-            return match self.fetch_live_url(url).await {
-                Ok(html) => HttpResponse::html(200, &instrument_live_html(url, &html)),
+            return match self.live_preview_url(&request, actor).await {
+                Ok(url) => match self.fetch_live_url(&url).await {
+                    Ok(html) => HttpResponse::html(200, &instrument_live_html(url.as_str(), &html)),
+                    Err(response) => response,
+                },
                 Err(response) => response,
             }
             .into_review_preview();
         }
 
         if request.method == "GET" && request.path == "/api/live-html" {
-            let Some(url) = request.query.get("url") else {
-                return HttpResponse::json(400, &json!({ "error": "missing url" }));
-            };
-            return match self.fetch_live_url(url).await {
-                Ok(html) => HttpResponse::text(200, &html),
+            return match self.live_preview_url(&request, actor).await {
+                Ok(url) => match self.fetch_live_url(&url).await {
+                    Ok(html) => HttpResponse::text(200, &html),
+                    Err(response) => response,
+                },
                 Err(response) => response,
             };
+        }
+
+        if request.method == "GET"
+            && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/page-projection")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/page-projection")
+            else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            return match self.project_review_source_page(review_id, &request).await {
+                Ok(projection) => HttpResponse::json(200, &projection),
+                Err(response) => response,
+            };
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/evaluate")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/evaluate") else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            let payload: EvaluationPayload = match serde_json::from_str(request.body) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
+                }
+            };
+            return self.evaluate_candidate(review_id, payload).await;
+        }
+
+        if request.method == "GET"
+            && request.path.starts_with("/api/reviews/")
+            && request.path.contains("/evaluations/")
+        {
+            let Some((review_id, evaluation_id)) = parse_review_evaluation_id(request.path) else {
+                return HttpResponse::json(
+                    400,
+                    &json!({ "error": "invalid review or evaluation id" }),
+                );
+            };
+            return self.candidate_evaluation(review_id, evaluation_id).await;
         }
 
         if request.method == "GET"
@@ -631,23 +686,28 @@ impl ReviewServer {
             .await
             .map_err(review_error)?;
         let deadline = matrix_refresh_deadline(detail.pages.len());
-        let fetch_all = async {
-            let mut pages = Vec::with_capacity(detail.pages.len());
-            for page in detail.pages {
-                let url = review_page_url(&page)?;
-                let html = self
-                    .html_fetcher
-                    .fetch(&url)
-                    .await
-                    .map(|fetched| fetched.html)
-                    .map_err(|err| live_fetch_error(&page, &err))?;
-                pages.push((page, html));
-            }
-            Ok(pages)
-        };
-        tokio::time::timeout(deadline, fetch_all)
+        tokio::time::timeout(deadline, self.fetch_review_pages(detail.pages))
             .await
             .unwrap_or_else(|_| Err(matrix_refresh_timeout(review_id, deadline)))
+    }
+
+    /// Fetches each of `pages` live, one after the other at the shop's pacing.
+    async fn fetch_review_pages(
+        &self,
+        pages: Vec<CrawlerReviewPage>,
+    ) -> Result<Vec<(CrawlerReviewPage, String)>, HttpResponse> {
+        let mut fetched = Vec::with_capacity(pages.len());
+        for page in pages {
+            let url = review_page_url(&page)?;
+            let html = self
+                .html_fetcher
+                .fetch(&url)
+                .await
+                .map(|fetched| fetched.html)
+                .map_err(|err| live_fetch_error(&page, &err))?;
+            fetched.push((page, html));
+        }
+        Ok(fetched)
     }
 
     /// Starts a background refresh, or joins the running one, and answers with the matrix
@@ -728,21 +788,11 @@ impl ReviewServer {
             .map_err(|err| live_fetch_error(page, &err))
     }
 
-    async fn fetch_live_url(&self, raw_url: &str) -> Result<String, HttpResponse> {
-        let url = Url::parse(raw_url).map_err(|err| {
-            HttpResponse::json(
-                400,
-                &json!({
-                    "error": "invalid live preview url",
-                    "url": raw_url,
-                    "details": err.to_string(),
-                }),
-            )
-        })?;
-        self.fetch_live(&url)
+    async fn fetch_live_url(&self, url: &Url) -> Result<String, HttpResponse> {
+        self.fetch_live(url)
             .await
             .map(|fetched| fetched.html)
-            .map_err(|err| live_url_fetch_error(raw_url, &err))
+            .map_err(|err| live_url_fetch_error(url.as_str(), &err))
     }
 
     async fn fetch_live(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
@@ -1124,6 +1174,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::InvalidProductSchemaCandidate
         | ReviewRepositoryError::InvalidRemovedPageTemplate { .. }
         | ReviewRepositoryError::ReviewPageUrlNotAllowed(_)
+        | ReviewRepositoryError::TooManyEvaluatedUrls
         | ReviewRepositoryError::ReviewPageLimitReached(_)
         | ReviewRepositoryError::NotReviewerAddedPage(_)
         | ReviewRepositoryError::RedirectedToNonProductPage(_)
@@ -3558,6 +3609,467 @@ Origin: http://127.0.0.1:7878/x
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
             let (_, decided) = send(&server, &review, "").await;
             assert_eq!(decided["review"]["status"], "APPROVED");
+        }
+    }
+
+    /// The console's page fetches for a review: a review agent's live previews stay on the
+    /// review's ListingSource, a page is projected as the schema prompt sees it, and a proposed
+    /// candidate is evaluated on the review's pages and on URLs of its ListingSource without being
+    /// stored.
+    mod review_source_pages {
+        use super::matrix_refresh::schema;
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
+        use super::{
+            AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
+        };
+        use crate::CrawlerReviewId;
+        use crate::network::policy::NetworkErrorKind;
+        use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput};
+        use crate::review::repository::CrawlerReviewRepository;
+        use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
+        use listing_source_core::ListingSourceId;
+        use serde_json::{Value, json};
+        use sqlx::PgPool;
+        use std::net::SocketAddr;
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+        use test_api::IntegrationTestService as _;
+        use tokio::sync::Semaphore;
+        use url::Url;
+
+        const SHOP: &str = "https://antiques.example";
+
+        /// A product page with JSON-LD product markup, titled by its slug.
+        fn product_page(slug: &str) -> String {
+            format!(
+                r#"<html><head><script type="application/ld+json">{{"@type":"Product","name":"{slug}"}}</script></head><body><span class="id">{slug}</span><h1>{slug}</h1><span class="state">In stock</span><img class="product" src="{slug}.jpg"></body></html>"#
+            )
+        }
+
+        /// The shop: every page is a product page named after its last path segment. With a gate,
+        /// a page is served only once the test releases it, like a request queued behind a
+        /// robots.txt `Crawl-delay`.
+        #[derive(Default)]
+        struct Shop {
+            fetched: Mutex<Vec<String>>,
+            gate: Option<Semaphore>,
+        }
+
+        impl Shop {
+            fn fetched(&self) -> Vec<String> {
+                self.fetched
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone()
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl HtmlFetcher for Shop {
+            async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+                if let Some(gate) = &self.gate {
+                    gate.acquire()
+                        .await
+                        .map_err(|error| FetchError::Network {
+                            kind: NetworkErrorKind::Connect,
+                            details: error.to_string(),
+                        })?
+                        .forget();
+                }
+                self.fetched
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(url.to_string());
+                let slug = url
+                    .path_segments()
+                    .and_then(Iterator::last)
+                    .unwrap_or("page");
+                Ok(FetchedHtml {
+                    html: product_page(slug),
+                    final_url: url.clone(),
+                    status: reqwest::StatusCode::OK,
+                })
+            }
+        }
+
+        struct Fixture {
+            pool: PgPool,
+            server: ReviewServer,
+            shop: Arc<Shop>,
+            review_id: CrawlerReviewId,
+        }
+
+        /// A console of `agent` mode over a pending product-schema review of the ListingSource on
+        /// `antiques.example`, whose one page is `/item/chair`.
+        async fn fixture(shop: Shop, response_wait: Duration) -> Fixture {
+            let pool = test_api::get_postgres_client().await;
+            let listing_source_id = ListingSourceId::new();
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                 (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+                 VALUES ($1, 'Antiques', 'antiques', TRUE, NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert listing source: {error}"));
+            sqlx::query(
+                "INSERT INTO listing_source_domains \
+                 (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+                 VALUES ($1, $2, 'antiques.example', 'antiques.example')",
+            )
+            .bind(crate::CrawlerDomainId::new().as_uuid())
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert domain: {error}"));
+            let repository = CrawlerReviewRepository::new(pool.clone());
+            let review_id = repository
+                .create_schema_review(
+                    &listing_source_id,
+                    "manual_schema_required",
+                    &[schema("h2")],
+                    vec![SchemaReviewPageInput {
+                        url: format!("{SHOP}/item/chair"),
+                        role: PAGE_ROLE_PRIMARY.to_owned(),
+                        raw_html: product_page("chair"),
+                    }],
+                    json!({}),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("create schema review: {error}"));
+            let shop = Arc::new(shop);
+            let server = ReviewServer {
+                matrix_refresh_wait: response_wait,
+                ..ReviewServer::new(
+                    repository,
+                    Arc::new(RejectingDomainAdministration),
+                    ReviewServerConfig {
+                        bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                        auth_token: Some(TOKEN.to_owned()),
+                        agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                        agent_decisions: AgentDecisionPolicy::default(),
+                        local_mutations_without_token: false,
+                    },
+                    shop.clone(),
+                )
+            };
+            Fixture {
+                pool,
+                server,
+                shop,
+                review_id,
+            }
+        }
+
+        /// Sends a request with `token` as its bearer and returns its status line and body.
+        async fn send_raw(server: &ReviewServer, token: &str, request: &str) -> (String, String) {
+            let response = server
+                .route(&format!(
+                    "{request} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\n\r\n"
+                ))
+                .await
+                .to_string();
+            let (head, body) = response.split_once("\r\n\r\n").unwrap_or((&response, ""));
+            (
+                head.lines().next().unwrap_or_default().to_owned(),
+                body.to_owned(),
+            )
+        }
+
+        fn encoded(url: &str) -> String {
+            url::form_urlencoded::byte_serialize(url.as_bytes()).collect()
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_fetch_an_agent_live_preview_only_of_the_named_review_source() {
+            let Fixture {
+                server,
+                shop,
+                review_id,
+                ..
+            } = fixture(Shop::default(), Duration::from_secs(5)).await;
+            let foreign = encoded("https://elsewhere.example/item/chair");
+            let own = encoded(&format!("{SHOP}/item/table"));
+
+            for route in ["/api/live-html", "/api/live-inspect"] {
+                let fetched_before = shop.fetched().len();
+                for (token, query, status) in [
+                    (AUTHOR_TOKEN, format!("url={own}"), "HTTP/1.1 400"),
+                    (
+                        REVIEWER_TOKEN,
+                        format!("url={foreign}&review={review_id}"),
+                        "HTTP/1.1 400",
+                    ),
+                    (
+                        AUTHOR_TOKEN,
+                        format!("url={own}&review={}", CrawlerReviewId::new()),
+                        "HTTP/1.1 404",
+                    ),
+                ] {
+                    let (line, body) =
+                        send_raw(&server, token, &format!("GET {route}?{query}")).await;
+                    assert!(line.starts_with(status), "{route}?{query}: {line} {body}");
+                }
+                assert_eq!(
+                    shop.fetched().len(),
+                    fetched_before,
+                    "{route}: {:?}",
+                    shop.fetched()
+                );
+
+                let (line, body) = send_raw(
+                    &server,
+                    REVIEWER_TOKEN,
+                    &format!("GET {route}?url={own}&review={review_id}"),
+                )
+                .await;
+                assert!(line.starts_with("HTTP/1.1 200"), "{route}: {line} {body}");
+                let (line, body) =
+                    send_raw(&server, TOKEN, &format!("GET {route}?url={foreign}")).await;
+                assert!(line.starts_with("HTTP/1.1 200"), "{route}: {line} {body}");
+            }
+            assert_eq!(
+                shop.fetched(),
+                [
+                    format!("{SHOP}/item/table"),
+                    "https://elsewhere.example/item/chair".to_owned(),
+                    format!("{SHOP}/item/table"),
+                    "https://elsewhere.example/item/chair".to_owned(),
+                ]
+            );
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_project_a_review_page_or_a_source_url_and_report_its_product_markup() {
+            let Fixture {
+                pool,
+                server,
+                shop,
+                review_id,
+            } = fixture(Shop::default(), Duration::from_secs(5)).await;
+            let page_id: uuid::Uuid = sqlx::query_scalar(
+                "SELECT review_page_id FROM crawler_review_pages WHERE review_id = $1",
+            )
+            .bind(review_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("review page: {error}"));
+            let page_id = crate::CrawlerReviewPageId::try_from(page_id)
+                .unwrap_or_else(|error| panic!("{error}"));
+            let route = format!("GET /api/reviews/{review_id}/page-projection");
+
+            let (status, page) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("{route}?page={page_id}"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {page}");
+            assert_eq!(page["review_page_id"], json!(page_id));
+            assert_eq!(page["url"], format!("{SHOP}/item/chair"));
+            assert_eq!(page["describes_one_product"], true);
+            let projection = page["projection"].as_str().unwrap_or_default();
+            assert_eq!(
+                projection,
+                crate::scraper::css_selector::product_schema_service::html_to_schema_prompt_dsl(
+                    &product_page("chair")
+                )
+            );
+
+            let table = encoded(&format!("{SHOP}/item/table#gallery"));
+            let (status, url) =
+                send_as(&server, REVIEWER_TOKEN, &format!("{route}?url={table}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {url}");
+            assert_eq!(url["review_page_id"], Value::Null);
+            assert_eq!(url["url"], format!("{SHOP}/item/table"));
+            assert_eq!(url["final_url"], format!("{SHOP}/item/table"));
+
+            let foreign = encoded("https://elsewhere.example/item/1");
+            for (query, expected) in [
+                (format!("url={foreign}"), "HTTP/1.1 400"),
+                (String::new(), "HTTP/1.1 400"),
+                (format!("page={page_id}&url={table}"), "HTTP/1.1 400"),
+                (
+                    format!("page={}", crate::CrawlerReviewPageId::new()),
+                    "HTTP/1.1 404",
+                ),
+            ] {
+                let (status, refused) =
+                    send_as(&server, AUTHOR_TOKEN, &format!("{route}?{query}"), "").await;
+                assert!(status.starts_with(expected), "{query}: {status} {refused}");
+                assert!(refused["error"].is_string(), "{query}: {refused}");
+            }
+            assert_eq!(
+                shop.fetched(),
+                [format!("{SHOP}/item/chair"), format!("{SHOP}/item/table")]
+            );
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_evaluate_a_proposed_candidate_on_the_review_pages_and_urls_without_storing_it()
+         {
+            let Fixture {
+                pool,
+                server,
+                shop,
+                review_id,
+            } = fixture(Shop::default(), Duration::from_secs(5)).await;
+            let evaluate = format!("POST /api/reviews/{review_id}/evaluate");
+            let proposal =
+                |urls: Vec<String>| json!({ "schemas": [schema("h1")], "urls": urls }).to_string();
+
+            let (status, matrix) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &evaluate,
+                &proposal(vec![format!("{SHOP}/item/table")]),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {matrix}");
+            let pages = matrix["candidates"][0]["pages"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            assert_eq!(
+                pages
+                    .iter()
+                    .map(|page| (
+                        page["page_reference"]["kind"].clone(),
+                        page["url"].clone(),
+                        page["apply_ok"].clone(),
+                        page["extracted"]["title"].clone(),
+                    ))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (
+                        json!("persisted"),
+                        json!(format!("{SHOP}/item/chair")),
+                        json!(true),
+                        json!("chair")
+                    ),
+                    (
+                        json!("input"),
+                        json!(format!("{SHOP}/item/table")),
+                        json!(true),
+                        json!("table")
+                    ),
+                ]
+            );
+            assert_eq!(pages[1]["role"], "EVALUATED_URL");
+            assert_eq!(matrix.get("live_evaluation"), None);
+            let (version, summary, events): (i64, Value, i64) = sqlx::query_as(
+                "SELECT candidate_version, validation_summary, \
+                        (SELECT COUNT(*) FROM crawler_review_events e WHERE e.review_id = r.review_id) \
+                 FROM crawler_reviews r WHERE review_id = $1",
+            )
+            .bind(review_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("review: {error}"));
+            assert_eq!((version, summary, events), (1, json!({}), 0));
+
+            let fetched_before = shop.fetched().len();
+            for (body, refusal) in [
+                (
+                    proposal(vec!["https://elsewhere.example/item/1".to_owned()]),
+                    "is not an http(s) URL",
+                ),
+                (
+                    proposal(
+                        (1..=5)
+                            .map(|index| format!("{SHOP}/item/{index}"))
+                            .collect(),
+                    ),
+                    "at most 4 URLs",
+                ),
+                (
+                    json!({ "schemas": [] }).to_string(),
+                    "invalid ProductSchema review candidate",
+                ),
+            ] {
+                let (status, refused) = send_as(&server, AUTHOR_TOKEN, &evaluate, &body).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{body}: {status} {refused}"
+                );
+                assert!(
+                    refused["error"]
+                        .as_str()
+                        .is_some_and(|error| error.contains(refusal)),
+                    "{body}: {refused}"
+                );
+            }
+            assert_eq!(shop.fetched().len(), fetched_before);
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_a_paced_evaluation_with_accepted_and_its_matrix_on_poll() {
+            let Fixture {
+                server,
+                shop,
+                review_id,
+                ..
+            } = fixture(
+                Shop {
+                    gate: Some(Semaphore::new(0)),
+                    ..Shop::default()
+                },
+                Duration::from_millis(50),
+            )
+            .await;
+
+            let (status, accepted) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/evaluate"),
+                &json!({ "schemas": [schema("h1")] }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 202"), "{status} {accepted}");
+            let evaluation_id = accepted["evaluation_id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            let poll = format!("GET /api/reviews/{review_id}/evaluations/{evaluation_id}");
+            let (status, running) = send_as(&server, REVIEWER_TOKEN, &poll, "").await;
+            assert!(status.starts_with("HTTP/1.1 202"), "{status} {running}");
+
+            if let Some(gate) = &shop.gate {
+                gate.add_permits(1);
+            }
+            let mut answer = (String::new(), Value::Null);
+            for _ in 0..200 {
+                answer = send_as(&server, AUTHOR_TOKEN, &poll, "").await;
+                if !answer.0.starts_with("HTTP/1.1 202") {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let (status, matrix) = answer;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {matrix}");
+            assert_eq!(matrix["candidates"][0]["pages"][0]["apply_ok"], true);
+
+            for path in [
+                format!(
+                    "/api/reviews/{}/evaluations/{evaluation_id}",
+                    CrawlerReviewId::new()
+                ),
+                format!(
+                    "/api/reviews/{review_id}/evaluations/{}",
+                    uuid::Uuid::new_v4()
+                ),
+            ] {
+                let (status, unknown) =
+                    send_as(&server, AUTHOR_TOKEN, &format!("GET {path}"), "").await;
+                assert!(
+                    status.starts_with("HTTP/1.1 404"),
+                    "{path}: {status} {unknown}"
+                );
+            }
         }
     }
 }

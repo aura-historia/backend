@@ -6,6 +6,7 @@ pub mod logging;
 pub mod metrics;
 pub mod network;
 pub mod review;
+pub mod review_mcp;
 pub mod runtime;
 pub mod scraper;
 pub mod service;
