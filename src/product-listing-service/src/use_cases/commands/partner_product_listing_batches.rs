@@ -170,6 +170,7 @@ async fn execute_batch<C, T, E, F: Future<Output = Result<T, E>>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::patch_field::PatchField;
     use application::{
         error::static_error,
         operation_context::{CorrelationId, Principal, RequestId},
@@ -360,8 +361,8 @@ mod tests {
         let upsert = UpsertProductListingCommand {
             listing_source_id: key.listing_source_id,
             source_listing_id: key.source_listing_id.clone(),
-            title: None,
-            description: None,
+            title: PatchField::Unchanged,
+            description: PatchField::Unchanged,
             price: Default::default(),
             price_estimate_min: Default::default(),
             price_estimate_max: Default::default(),

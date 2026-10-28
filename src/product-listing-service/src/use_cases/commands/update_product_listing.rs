@@ -23,19 +23,24 @@ use auction_service::ports::{
 };
 use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
+use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::{
+    description::Description,
     listing_availability::ListingAvailability,
     product_listing::{ChangeListingAvailabilityError, ChangeProductListingError, ProductListing},
     product_listing_id::{ProductListingId, ProductListingKey},
     product_listing_image::ProductListingImage,
     product_listing_price::ProductListingPrice,
+    title::Title,
 };
 use url::Url;
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateProductListingCommand {
+    pub title: PatchField<Localized<Language, Title>>,
+    pub description: PatchField<Localized<Language, Description>>,
     pub price: PatchField<ProductListingPrice>,
     pub price_estimate_min: PatchField<Price>,
     pub price_estimate_max: PatchField<Price>,
@@ -322,6 +327,12 @@ fn apply_command(
     command: UpdateProductListingCommand,
     auction: Option<Option<product_listing_core::product_listing::ProductListingAuction>>,
 ) -> Result<(), UpdateProductListingError> {
+    let mut title = product.title().cloned();
+    apply_optional_patch(&mut title, command.title);
+    product.replace_title(title)?;
+    let mut description = product.description().cloned();
+    apply_optional_patch(&mut description, command.description);
+    product.replace_description(description)?;
     let mut pricing = product.pricing();
     apply_optional_patch(&mut pricing.price, command.price);
     apply_optional_patch(&mut pricing.price_estimate_min, command.price_estimate_min);

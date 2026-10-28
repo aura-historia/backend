@@ -87,7 +87,7 @@ mod tests {
         assert!(decode_command(invalid, c.product_key).is_err());
     }
     #[test]
-    fn version_one_delivery_preserves_retry_and_fifo_identity() {
+    fn version_two_delivery_preserves_retry_and_fifo_identity() {
         let c = command();
         let intent = ProductListingIngestionIntent::ChangeDelivery(c.clone());
         let message = ProductListingIngestionMessage {
@@ -115,7 +115,7 @@ mod tests {
         let first = crate::codec::envelope(&message).unwrap();
         let body = crate::codec::encode(&message).unwrap();
         assert_eq!(
-            serde_json::json!(1),
+            serde_json::json!(2),
             serde_json::from_str::<Value>(&body).unwrap()["schemaVersion"]
         );
         assert_eq!(
@@ -138,7 +138,7 @@ mod tests {
             crate::codec::fifo_group_id(&second).unwrap()
         );
         let mut wrong: Value = serde_json::from_str(&body).unwrap();
-        wrong["schemaVersion"] = serde_json::json!(2);
+        wrong["schemaVersion"] = serde_json::json!(1);
         assert!(crate::codec::decode(&wrong.to_string()).is_err());
         wrong["schemaVersion"] = serde_json::json!(3);
         assert!(crate::codec::decode(&wrong.to_string()).is_err());

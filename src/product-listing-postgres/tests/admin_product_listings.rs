@@ -794,8 +794,8 @@ async fn withdrawal_and_restore_preserve_sale_observations_watchlist_and_later_i
     let ingest = || UpsertProductListingCommand {
         listing_source_id: before.summary.source.listing_source_id,
         source_listing_id: before.summary.source_listing_id.clone(),
-        title: None,
-        description: None,
+        title: PatchField::Unchanged,
+        description: PatchField::Unchanged,
         price: PatchField::Set(money::Price::new(555_u64.into(), money::Currency::Eur).into()),
         price_estimate_min: PatchField::Unchanged,
         price_estimate_max: PatchField::Unchanged,
@@ -834,4 +834,265 @@ async fn withdrawal_and_restore_preserve_sale_observations_watchlist_and_later_i
     .await
     .unwrap();
     assert_eq!(1, count);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
+    use product_listing_core::content_policy::ContentPolicyDecision;
+    use product_listing_postgres::{
+        SqlxProductListingContentAssessmentReader, SqlxProductListingContentAssessmentSourceReader,
+        SqlxProductListingContentAssessmentWriterFactory, SqlxProductListingEmbeddingSourceReader,
+        SqlxProductListingEmbeddingWriterFactory, SqlxProductListingTranslationSourceReader,
+        SqlxProductListingTranslationWriterFactory,
+    };
+    let pool = get_postgres_client().await;
+    let id = seed(&pool, None, "mutable-text").await;
+    let before = detail(&pool, id).await;
+    let initial: uuid::Uuid = sqlx::query_scalar(
+        "SELECT content_source_event_id FROM product_listings WHERE product_listing_id=$1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let initial = EventId::try_from(initial).unwrap();
+    let translations = |event| ProductListingTranslationWrite {
+        product_listing_id: id,
+        source_event_id: event,
+        enrichment_event_id: EventId::new(),
+        source_language: Language::En,
+        titles: indexmap::IndexMap::from([(Language::Fr, Title::from("Titre traduit"))]),
+    };
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxProductListingTranslationWriterFactory::new()
+        .in_transaction(&mut tx)
+        .apply(&translations(initial))
+        .await
+        .unwrap();
+    SqlxProductListingContentAssessmentWriterFactory::new()
+        .in_transaction(&mut tx)
+        .apply(&ProductListingContentAssessmentWrite {
+            product_listing_id: id,
+            source_event_id: initial,
+            decision: Some(ContentPolicyDecision::Allowed),
+        })
+        .await
+        .unwrap();
+    SqlxProductListingEmbeddingWriterFactory::new()
+        .in_transaction(&mut tx)
+        .apply(&ProductListingEmbeddingWrite {
+            product_listing_id: id,
+            source_event_id: initial,
+            enrichment_event_id: EventId::new(),
+            embedding: vec![0.1; 768],
+        })
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    // A description revision must also recover title translation under the shared content guard.
+    let description = Localized::new(
+        Language::Fr,
+        Description::from("Nouveau texte\n\nDeuxième paragraphe"),
+    );
+    let changed = UpdateAdminProductListingUseCase::execute(
+        &handler(&pool),
+        &context(),
+        update(
+            id,
+            before.summary.version,
+            UpdateProductListingCommand {
+                description: PatchField::Set(description.clone()),
+                ..Default::default()
+            },
+        ),
+    )
+    .await
+    .unwrap();
+    let (content, embedding, vector): (uuid::Uuid,uuid::Uuid,Option<Vec<f32>>) = sqlx::query_as("SELECT content_source_event_id,embedding_source_event_id,embedding FROM product_listings WHERE product_listing_id=$1").bind(id.as_uuid()).fetch_one(&pool).await.unwrap();
+    assert_eq!(content, embedding);
+    assert_ne!(content, initial.into_uuid());
+    assert!(vector.is_none());
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_translations WHERE product_listing_id=$1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+    assert!(
+        SqlxProductListingContentAssessmentReader::new(pool.clone())
+            .find_current_assessments(&[id])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let revision = EventId::try_from(content).unwrap();
+    let translation_source = SqlxProductListingTranslationSourceReader::new(pool.clone())
+        .find_source(revision, id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        translation_source.event,
+        ProductListingTranslationSourceEvent::ChangedText
+    );
+    assert_eq!(
+        translation_source.title,
+        before.summary.title.as_ref().map(|v| v.payload.clone())
+    );
+    let assessment_source = SqlxProductListingContentAssessmentSourceReader::new(pool.clone())
+        .find_source(revision, id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        assessment_source.event,
+        ProductListingContentAssessmentSourceEvent::ChangedText
+    );
+    assert_eq!(
+        assessment_source.description,
+        Some(description.payload.clone())
+    );
+    let embedding_source = SqlxProductListingEmbeddingSourceReader::new(pool.clone())
+        .find_source(revision, id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        embedding_source.event,
+        ProductListingEmbeddingSourceEvent::ChangedContent
+    );
+    assert_eq!(embedding_source.description, Some(description.clone()));
+    let payload: serde_json::Value =
+        sqlx::query_scalar("SELECT payload FROM product_listing_events WHERE event_id=$1")
+            .bind(content)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        payload,
+        serde_json::json!({"description":{"previous":{"text":"Original description","language":"en"},"current":{"text":description.payload.as_ref(),"language":"fr"}}})
+    );
+
+    // Whitespace-equivalent updates must leave the revision, version and freshness untouched.
+    let stored = detail(&pool, id).await;
+    let noop = UpdateAdminProductListingUseCase::execute(
+        &handler(&pool),
+        &context(),
+        update(
+            id,
+            changed.expected_version,
+            UpdateProductListingCommand {
+                description: PatchField::Set(Localized::new(
+                    Language::Fr,
+                    Description::from("Nouveau  texte Deuxième paragraphe"),
+                )),
+                ..Default::default()
+            },
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(noop.outcome, ChangeOutcome::Unchanged);
+    assert_eq!(detail(&pool, id).await, stored);
+
+    // Completion for the current description revision is accepted, then a source-language edit invalidates it.
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    assert_eq!(
+        SqlxProductListingTranslationWriterFactory::new()
+            .in_transaction(&mut tx)
+            .apply(&translations(revision))
+            .await
+            .unwrap(),
+        ProductListingTranslationWriteOutcome::Applied
+    );
+    tx.commit().await.unwrap();
+    let changed = UpdateAdminProductListingUseCase::execute(
+        &handler(&pool),
+        &context(),
+        update(
+            id,
+            changed.expected_version,
+            UpdateProductListingCommand {
+                title: PatchField::Set(Localized::new(Language::De, Title::from("Original title"))),
+                ..Default::default()
+            },
+        ),
+    )
+    .await
+    .unwrap();
+    let pending: uuid::Uuid = sqlx::query_scalar(
+        "SELECT content_source_event_id FROM product_listings WHERE product_listing_id=$1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let pending = EventId::try_from(pending).unwrap();
+    UpdateAdminProductListingUseCase::execute(
+        &handler(&pool),
+        &context(),
+        update(
+            id,
+            changed.expected_version,
+            UpdateProductListingCommand {
+                title: PatchField::Clear,
+                ..Default::default()
+            },
+        ),
+    )
+    .await
+    .unwrap();
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    assert_eq!(
+        SqlxProductListingTranslationWriterFactory::new()
+            .in_transaction(&mut tx)
+            .apply(&translations(pending))
+            .await
+            .unwrap(),
+        ProductListingTranslationWriteOutcome::Stale
+    );
+    assert_eq!(
+        SqlxProductListingContentAssessmentWriterFactory::new()
+            .in_transaction(&mut tx)
+            .apply(&ProductListingContentAssessmentWrite {
+                product_listing_id: id,
+                source_event_id: pending,
+                decision: Some(ContentPolicyDecision::Allowed)
+            })
+            .await
+            .unwrap(),
+        ProductListingContentAssessmentWriteOutcome::Stale
+    );
+    assert_eq!(
+        SqlxProductListingEmbeddingWriterFactory::new()
+            .in_transaction(&mut tx)
+            .apply(&ProductListingEmbeddingWrite {
+                product_listing_id: id,
+                source_event_id: pending,
+                enrichment_event_id: EventId::new(),
+                embedding: vec![0.2; 768]
+            })
+            .await
+            .unwrap(),
+        ProductListingEmbeddingWriteOutcome::Stale
+    );
+    tx.commit().await.unwrap();
+    let after = detail(&pool, id).await;
+    assert!(after.summary.title.is_none());
+    assert_eq!(after.description, Some(description));
+    assert_eq!(
+        after.summary.product_listing_title_slug_id,
+        before.summary.product_listing_title_slug_id
+    );
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_translations WHERE product_listing_id=$1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
 }

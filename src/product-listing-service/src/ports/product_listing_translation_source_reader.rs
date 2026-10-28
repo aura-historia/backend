@@ -6,6 +6,7 @@ use product_listing_core::{product_listing_id::ProductListingId, title::Title};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductListingTranslationSourceEvent {
     Discovered,
+    ChangedText,
     Other,
 }
 

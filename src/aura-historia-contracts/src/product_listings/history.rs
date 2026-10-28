@@ -83,6 +83,14 @@ struct ProductListingChangedHistoryData {
     rename_all_fields = "camelCase"
 )]
 enum ProductListingHistoryChangeData {
+    TitleChanged {
+        previous: Option<LocalizedTextData>,
+        current: Option<LocalizedTextData>,
+    },
+    DescriptionChanged {
+        previous: Option<LocalizedTextData>,
+        current: Option<LocalizedTextData>,
+    },
     DeliveryChanged,
     MainPriceChanged {
         previous: Option<ProductListingHistoryPriceData<ProductListingPriceData>>,
@@ -240,6 +248,16 @@ impl From<ProductListingDiscoveryHistory> for ProductListingDiscoveryHistoryData
 impl From<ProductListingHistoryChange> for ProductListingHistoryChangeData {
     fn from(value: ProductListingHistoryChange) -> Self {
         match value {
+            ProductListingHistoryChange::TitleChanged { previous, current } => Self::TitleChanged {
+                previous: previous.map(Into::into),
+                current: current.map(Into::into),
+            },
+            ProductListingHistoryChange::DescriptionChanged { previous, current } => {
+                Self::DescriptionChanged {
+                    previous: previous.map(Into::into),
+                    current: current.map(Into::into),
+                }
+            }
             ProductListingHistoryChange::DeliveryChanged => Self::DeliveryChanged,
             ProductListingHistoryChange::MainPriceChanged { previous, current } => {
                 Self::MainPriceChanged {
@@ -679,6 +697,41 @@ mod tests {
                 jsonschema::is_valid(&schema, &input),
                 "schema {input}"
             );
+        }
+    }
+    #[test]
+    fn should_expose_original_localized_text_and_explicit_absence_in_history() {
+        use localization::{Language, Localized};
+        use product_listing_core::{description::Description, title::Title};
+        let title = Localized::new(Language::Fr, Title::from("Nouveau titre"));
+        let description = Localized::new(
+            Language::De,
+            Description::from("Erster Absatz\n\nZweiter Absatz"),
+        );
+        for (change, expected) in [
+            (
+                ProductListingHistoryChange::TitleChanged {
+                    previous: None,
+                    current: Some(title),
+                },
+                serde_json::json!({"type":"TITLE_CHANGED","previous":null,"current":{"text":"Nouveau titre","language":"fr"}}),
+            ),
+            (
+                ProductListingHistoryChange::DescriptionChanged {
+                    previous: Some(description),
+                    current: None,
+                },
+                serde_json::json!({"type":"DESCRIPTION_CHANGED","previous":{"text":"Erster Absatz\n\nZweiter Absatz","language":"de"},"current":null}),
+            ),
+        ] {
+            let entry = ProductListingHistoryEntry {
+                product_listing_id: ProductListingId::new(),
+                event_id: EventId::new(),
+                occurred_at: OffsetDateTime::UNIX_EPOCH,
+                kind: ProductListingHistoryEntryKind::Changed(vec![change].try_into().unwrap()),
+            };
+            let output = checked_output(ProductListingHistoryEntryData::from(entry)).unwrap();
+            assert_eq!(output["payload"]["changes"][0], expected);
         }
     }
 }

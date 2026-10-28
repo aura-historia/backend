@@ -52,8 +52,8 @@ const MISSING_PRODUCT_URL: &str = "https://not-provided.invalid";
 pub struct UpsertProductListingCommand {
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
-    pub title: Option<Localized<Language, Title>>,
-    pub description: Option<Localized<Language, Description>>,
+    pub title: PatchField<Localized<Language, Title>>,
+    pub description: PatchField<Localized<Language, Description>>,
     pub price: PatchField<ProductListingPrice>,
     pub price_estimate_min: PatchField<Price>,
     pub price_estimate_max: PatchField<Price>,
@@ -184,6 +184,13 @@ where
             .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<UpsertProductListingError>()
             .map_err(UpsertProductListingApplyError::Failed)?;
+        if let PatchField::Set(title) = &command.title
+            && title.payload.as_ref().is_empty()
+        {
+            return Err(AttemptError::Failed(
+                product_listing_core::product_listing::ChangeProductListingError::EmptyTitle.into(),
+            ));
+        }
         if let Some(actor) = partner_actor(&context.principal) {
             self.authorizer
                 .in_transaction(tx)
@@ -263,7 +270,10 @@ where
             None => {
                 let title_slug_id = self
                     .title_slug_generator
-                    .generate(command.title.as_ref().map_or("", |v| v.payload.as_ref()))
+                    .generate(match &command.title {
+                        PatchField::Set(value) => value.payload.as_ref(),
+                        PatchField::Clear | PatchField::Unchanged => "",
+                    })
                     .map_err(|_| {
                         AttemptError::Failed(UpsertProductListingError::InvalidProductListing {
                             source: box_error(std::io::Error::other(
@@ -310,8 +320,8 @@ where
                     title_slug_id,
                     listing_source_id: command.listing_source_id,
                     source_listing_id: command.source_listing_id.clone(),
-                    title: command.title.clone(),
-                    description: command.description.clone(),
+                    title: into_option(command.title.clone()),
+                    description: into_option(command.description.clone()),
                     pricing: ProductListingPricing {
                         price: into_option(command.price.clone()),
                         price_estimate_min: into_option(command.price_estimate_min.clone()),
@@ -423,6 +433,12 @@ fn apply_update(
     command: &UpsertProductListingCommand,
     auction: Option<Option<product_listing_core::product_listing::ProductListingAuction>>,
 ) -> Result<(), UpsertProductListingError> {
+    let mut title = product.title().cloned();
+    apply_option(&mut title, command.title.clone());
+    product.replace_title(title)?;
+    let mut description = product.description().cloned();
+    apply_option(&mut description, command.description.clone());
+    product.replace_description(description)?;
     let mut pricing = product.pricing();
     apply_option(&mut pricing.price, command.price.clone());
     apply_option(
@@ -824,8 +840,8 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("source-listing")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            title: None,
-            description: None,
+            title: PatchField::Unchanged,
+            description: PatchField::Unchanged,
             price: PatchField::Unchanged,
             price_estimate_min: PatchField::Unchanged,
             price_estimate_max: PatchField::Unchanged,
@@ -1240,17 +1256,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_preserve_existing_text_and_url_when_upserting_active_listing() {
+    async fn should_replace_existing_text_and_preserve_omitted_url_when_upserting_active_listing() {
         let state = Arc::new(Mutex::new(State {
             finds: VecDeque::from([Some(loaded_listing())]),
             ..Default::default()
         }));
         let command = UpsertProductListingCommand {
-            title: Some(Localized::new(
+            title: PatchField::Set(Localized::new(
                 Language::En,
                 Title::from("Replacement title"),
             )),
-            description: Some(Localized::new(
+            description: PatchField::Set(Localized::new(
                 Language::En,
                 Description::from("Replacement description"),
             )),
@@ -1351,17 +1367,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_restore_withdrawn_listing_without_replacing_text_or_absent_url() {
+    async fn should_restore_withdrawn_listing_with_supplied_text_and_preserve_omitted_url() {
         let state = Arc::new(Mutex::new(State {
             finds: VecDeque::from([Some(withdrawn_listing())]),
             ..Default::default()
         }));
         let command = UpsertProductListingCommand {
-            title: Some(Localized::new(
+            title: PatchField::Set(Localized::new(
                 Language::En,
                 Title::from("Replacement title"),
             )),
-            description: Some(Localized::new(
+            description: PatchField::Set(Localized::new(
                 Language::En,
                 Description::from("Replacement description"),
             )),
@@ -1390,13 +1406,16 @@ mod tests {
         );
         assert_eq!(
             persisted.title(),
-            Some(&Localized::new(Language::En, Title::from("Original title")))
+            Some(&Localized::new(
+                Language::En,
+                Title::from("Replacement title")
+            ))
         );
         assert_eq!(
             persisted.description(),
             Some(&Localized::new(
                 Language::En,
-                Description::from("Original description")
+                Description::from("Replacement description")
             ))
         );
         assert_eq!(persisted.url().as_str(), "https://example.com/listing");

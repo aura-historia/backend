@@ -148,6 +148,8 @@ pub enum ChangeListingAvailabilityError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ChangeProductListingError {
+    #[error("title must contain text")]
+    EmptyTitle,
     #[error("listing is withdrawn")]
     ListingWithdrawn,
     #[error("product listing image count exceeds u64")]
@@ -348,6 +350,52 @@ impl ProductListing {
         self.coalesce_pending_change(|changed| {
             changed.change_sale_observation(Some(observation), None);
         })?;
+        Ok(ChangeOutcome::Changed)
+    }
+
+    pub fn replace_title(
+        &mut self,
+        title: Option<Localized<Language, Title>>,
+    ) -> Result<ChangeOutcome, ChangeProductListingError> {
+        self.ensure_active_mutation()?;
+        if title
+            .as_ref()
+            .is_some_and(|v| v.payload.as_ref().is_empty())
+        {
+            return Err(ChangeProductListingError::EmptyTitle);
+        }
+        if equivalent_localized_text(self.title.as_ref(), title.as_ref()) {
+            return Ok(ChangeOutcome::Unchanged);
+        }
+        let title = match &self.pending_event_payload {
+            Some(ProductListingEventPayload::Changed(changed)) => changed
+                .title()
+                .filter(|v| equivalent_localized_text(v.previous().as_ref(), title.as_ref()))
+                .map_or(title.clone(), |v| v.previous().clone()),
+            _ => title,
+        };
+        let previous = std::mem::replace(&mut self.title, title.clone());
+        self.coalesce_pending_change(|changed| changed.change_title(previous, title))?;
+        Ok(ChangeOutcome::Changed)
+    }
+
+    pub fn replace_description(
+        &mut self,
+        description: Option<Localized<Language, Description>>,
+    ) -> Result<ChangeOutcome, ChangeProductListingError> {
+        self.ensure_active_mutation()?;
+        if equivalent_localized_text(self.description.as_ref(), description.as_ref()) {
+            return Ok(ChangeOutcome::Unchanged);
+        }
+        let description = match &self.pending_event_payload {
+            Some(ProductListingEventPayload::Changed(changed)) => changed
+                .description()
+                .filter(|v| equivalent_localized_text(v.previous().as_ref(), description.as_ref()))
+                .map_or(description.clone(), |v| v.previous().clone()),
+            _ => description,
+        };
+        let previous = std::mem::replace(&mut self.description, description.clone());
+        self.coalesce_pending_change(|changed| changed.change_description(previous, description))?;
         Ok(ChangeOutcome::Changed)
     }
 
@@ -620,6 +668,24 @@ impl ProductListing {
         self.pending_event_payload =
             (!changed.is_empty()).then_some(ProductListingEventPayload::Changed(changed));
         Ok(())
+    }
+}
+
+pub(crate) fn equivalent_localized_text<T: AsRef<str>>(
+    previous: Option<&Localized<Language, T>>,
+    current: Option<&Localized<Language, T>>,
+) -> bool {
+    match (previous, current) {
+        (None, None) => true,
+        (Some(previous), Some(current)) => {
+            previous.localization == current.localization
+                && previous
+                    .payload
+                    .as_ref()
+                    .split_whitespace()
+                    .eq(current.payload.as_ref().split_whitespace())
+        }
+        _ => false,
     }
 }
 
@@ -1362,5 +1428,191 @@ mod tests {
             active.replace_delivery(Some(foreign))
         );
         assert!(active.delivery().is_none());
+    }
+    #[test]
+    fn should_record_full_original_text_for_set_replace_language_change_and_clear() {
+        let mut listing = rehydrated();
+        let slug = listing.title_slug_id().clone();
+        let id = listing.id();
+        let titles = [
+            Some(Localized::new(Language::En, Title::from("Old vase"))),
+            Some(Localized::new(Language::En, Title::from("Blue vase"))),
+            Some(Localized::new(Language::De, Title::from("Blue vase"))),
+            None,
+        ];
+        let descriptions = [
+            Some(Localized::new(
+                Language::Fr,
+                Description::from("Premier paragraphe\n\nDeuxième paragraphe"),
+            )),
+            Some(Localized::new(
+                Language::Fr,
+                Description::from("Nouvelle description"),
+            )),
+            Some(Localized::new(
+                Language::En,
+                Description::from("Nouvelle description"),
+            )),
+            None,
+        ];
+        let mut previous_title = None;
+        let mut previous_description = None;
+        for (title, description) in titles.into_iter().zip(descriptions) {
+            assert!(listing.replace_title(title.clone()).unwrap().changed());
+            assert!(
+                listing
+                    .replace_description(description.clone())
+                    .unwrap()
+                    .changed()
+            );
+            let Some(ProductListingEventPayload::Changed(changes)) =
+                listing.take_pending_event_payload()
+            else {
+                panic!("one changed event")
+            };
+            assert_eq!(
+                changes.title().unwrap(),
+                &ValueChange::new(previous_title, title.clone())
+            );
+            assert_eq!(
+                changes.description().unwrap(),
+                &ValueChange::new(previous_description, description.clone())
+            );
+            assert_eq!(listing.title(), title.as_ref());
+            assert_eq!(listing.description(), description.as_ref());
+            previous_title = title;
+            previous_description = description;
+        }
+        assert_eq!(listing.id(), id);
+        assert_eq!(listing.title_slug_id(), &slug);
+    }
+
+    #[test]
+    fn should_preserve_stored_formatting_for_whitespace_noops_even_with_price_edits() {
+        let mut listing = rehydrated();
+        let title = Localized::new(Language::En, Title::from("Old vase"));
+        let description = Localized::new(
+            Language::En,
+            Description::from("Old  vase\n\nTwo paragraphs"),
+        );
+        listing.replace_title(Some(title.clone())).unwrap();
+        listing
+            .replace_description(Some(description.clone()))
+            .unwrap();
+        listing.take_pending_event_payload();
+        assert!(
+            !listing
+                .replace_title(Some(Localized::new(
+                    Language::En,
+                    Title::from("  Old  vase  ")
+                )))
+                .unwrap()
+                .changed()
+        );
+        assert!(
+            !listing
+                .replace_description(Some(Localized::new(
+                    Language::En,
+                    Description::from("Old vase \t Two   paragraphs")
+                )))
+                .unwrap()
+                .changed()
+        );
+        assert!(listing.take_pending_event_payload().is_none());
+        listing.set_price_on_request().unwrap();
+        listing
+            .replace_description(Some(Localized::new(
+                Language::En,
+                Description::from("Old vase Two paragraphs"),
+            )))
+            .unwrap();
+        let Some(ProductListingEventPayload::Changed(changes)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("price event")
+        };
+        assert!(changes.price().is_some());
+        assert!(!changes.has_text_change());
+        assert_eq!(listing.description(), Some(&description));
+        assert_eq!(listing.title(), Some(&title));
+    }
+
+    #[test]
+    fn should_coalesce_text_to_first_previous_and_final_current_and_remove_net_zero() {
+        let mut listing = rehydrated();
+        let original = Localized::new(
+            Language::En,
+            Description::from("Old  vase\n\nOriginal paragraph"),
+        );
+        listing.replace_description(Some(original.clone())).unwrap();
+        listing.take_pending_event_payload();
+        listing
+            .replace_description(Some(Localized::new(
+                Language::En,
+                Description::from("Intermediate"),
+            )))
+            .unwrap();
+        let final_description = Localized::new(
+            Language::Fr,
+            Description::from("Final text\n\nNew paragraph"),
+        );
+        listing
+            .replace_description(Some(final_description.clone()))
+            .unwrap();
+        let Some(ProductListingEventPayload::Changed(changes)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("text event")
+        };
+        assert_eq!(
+            changes.description().unwrap(),
+            &ValueChange::new(Some(original), Some(final_description.clone()))
+        );
+        listing.replace_description(None).unwrap();
+        listing
+            .replace_description(Some(Localized::new(
+                Language::Fr,
+                Description::from("Final text New paragraph"),
+            )))
+            .unwrap();
+        assert_eq!(listing.description(), Some(&final_description));
+        assert!(listing.take_pending_event_payload().is_none());
+        listing
+            .replace_title(Some(Localized::new(Language::En, Title::from("Oldvase"))))
+            .unwrap();
+        listing.replace_title(None).unwrap();
+        assert!(listing.take_pending_event_payload().is_none());
+    }
+
+    #[test]
+    fn should_preserve_word_boundaries_and_reject_invalid_or_withdrawn_text_writes() {
+        let mut listing = rehydrated();
+        listing
+            .replace_title(Some(Localized::new(Language::En, Title::from("Old vase"))))
+            .unwrap();
+        listing.take_pending_event_payload();
+        assert!(
+            listing
+                .replace_title(Some(Localized::new(Language::En, Title::from("Oldvase"))))
+                .unwrap()
+                .changed()
+        );
+        assert_eq!(
+            listing.replace_title(Some(Localized::new(Language::En, Title::from("🌿✨")))),
+            Err(ChangeProductListingError::EmptyTitle)
+        );
+        assert_eq!(listing.title().unwrap().payload.as_ref(), "Oldvase");
+        listing.take_pending_event_payload();
+        listing.withdraw().unwrap();
+        listing.take_pending_event_payload();
+        assert_eq!(
+            listing.replace_title(None),
+            Err(ChangeProductListingError::ListingWithdrawn)
+        );
+        assert_eq!(
+            listing.replace_description(None),
+            Err(ChangeProductListingError::ListingWithdrawn)
+        );
+        assert!(listing.take_pending_event_payload().is_none());
     }
 }

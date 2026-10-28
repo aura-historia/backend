@@ -1,6 +1,6 @@
 [
   {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "commandId": "plic1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "index": 0,
@@ -37,7 +37,7 @@
     }
   },
   {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "commandId": "plic1_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "index": 1,
@@ -47,11 +47,13 @@
     "requestId": "fixture-request",
     "correlationId": "fixture-correlation",
     "preparedAt": "2026-01-01T00:00:00Z",
-    "semanticFingerprint": "43f4b0fef5c8ee468bd2e40cacfe9b6e300e9fdfda22c728c1008ebe300280c3",
+    "semanticFingerprint": "a2401738821cb77aa331db4f647b4387cc5e879f1192f9961dddab285283e7bc",
     "payload": {
       "operation": "UPDATE",
       "command": {
         "key": { "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn", "sourceListingId": "陶器 🏺 / SKU-42" },
+        "title": { "state": "UNCHANGED" },
+        "description": { "state": "UNCHANGED" },
         "price": { "state": "SET", "value": { "kind": "MONETARY", "currency": "USD", "amount": 2525 } },
         "priceEstimateMin": { "state": "CLEAR" },
         "priceEstimateMax": { "state": "UNCHANGED" },
@@ -70,7 +72,7 @@
     }
   },
   {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "commandId": "plic1_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "index": 2,
@@ -80,13 +82,13 @@
     "requestId": "fixture-request",
     "correlationId": "fixture-correlation",
     "preparedAt": "2026-01-01T00:00:00Z",
-    "semanticFingerprint": "cb07b03b03033b527fc2c25d8c3913352fdb7ea2ee0b80040c48637ea1214d3b",
+    "semanticFingerprint": "d0e755be6871ac7bf90271c947a3966084b4d5d8fe2de5ba61608f936eb69615",
     "payload": {
       "operation": "UPSERT",
       "command": {
         "key": { "listingSourceId": "ls_01h455vb4pex5vy7enb1p677vn", "sourceListingId": "陶器 🏺 / SKU-42" },
-        "title": null,
-        "description": null,
+        "title": { "state": "UNCHANGED" },
+        "description": { "state": "UNCHANGED" },
         "price": { "state": "UNCHANGED" },
         "priceEstimateMin": { "state": "SET", "value": { "currency": "JPY", "amount": 1200 } },
         "priceEstimateMax": { "state": "CLEAR" },
@@ -98,7 +100,7 @@
     }
   },
   {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "commandId": "plic1_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "index": 3,
@@ -115,7 +117,7 @@
     }
   },
   {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "submissionId": "plis1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "commandId": "plic1_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "index": 4,

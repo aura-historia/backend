@@ -146,7 +146,7 @@ where
         if !matches!(
             source.event,
             ProductListingEmbeddingSourceEvent::Discovered
-                | ProductListingEmbeddingSourceEvent::ChangedImages
+                | ProductListingEmbeddingSourceEvent::ChangedContent
         ) {
             return Ok(result(EmbedProductListingEventOutcome::IgnoredEvent));
         }
@@ -161,6 +161,7 @@ where
         })?;
         let additional_text = source
             .description
+            .filter(|description| !description.payload.as_ref().is_empty())
             .map(|description| EmbeddingText::new(description.payload.as_ref()))
             .transpose()
             .map_err(|source| EmbedProductListingEventError::InvalidInput {
@@ -423,23 +424,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_generate_product_listing_discovered_content_with_first_image_then_commit() {
+    async fn should_generate_current_discovered_or_changed_content_with_first_image_then_commit() {
+        for event in [
+            ProductListingEmbeddingSourceEvent::Discovered,
+            ProductListingEmbeddingSourceEvent::ChangedContent,
+        ] {
+            let state = state();
+            lock(&state).source.as_mut().unwrap().event = event;
+            let result = handler(&state)
+                .execute(&context(Principal::System), command(&state))
+                .await;
+            assert!(matches!(
+                result,
+                Ok(EmbedProductListingEventResult {
+                    outcome: EmbedProductListingEventOutcome::Applied
+                })
+            ));
+            let state = lock(&state);
+            assert_eq!(1, state.begins);
+            assert_eq!(1, state.commits);
+            assert!(
+                matches!(state.generated_products.as_slice(), [(title, Some(additional_text), Some(image_url))] if title == "Ancient vase" && additional_text == "Painted clay" && image_url.as_str() == "https://example.test/vase.jpg")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_embed_changed_text_without_additional_text_when_description_is_empty() {
         let state = state();
+        {
+            let mut state = lock(&state);
+            let source = state.source.as_mut().unwrap();
+            source.event = ProductListingEmbeddingSourceEvent::ChangedContent;
+            source.description = Some(Localized::new(Language::En, Description::from("   ")));
+        }
         let result = handler(&state)
             .execute(&context(Principal::System), command(&state))
-            .await;
+            .await
+            .unwrap();
+        assert_eq!(result.outcome, EmbedProductListingEventOutcome::Applied);
         assert!(matches!(
-            result,
-            Ok(EmbedProductListingEventResult {
-                outcome: EmbedProductListingEventOutcome::Applied
-            })
+            lock(&state).generated_products.as_slice(),
+            [(_, None, _)]
         ));
-        let state = lock(&state);
-        assert_eq!(1, state.begins);
-        assert_eq!(1, state.commits);
-        assert!(
-            matches!(state.generated_products.as_slice(), [(title, Some(additional_text), Some(image_url))] if title == "Ancient vase" && additional_text == "Painted clay" && image_url.as_str() == "https://example.test/vase.jpg")
-        );
+        assert_eq!(lock(&state).commits, 1);
     }
 
     #[tokio::test]

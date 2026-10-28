@@ -134,8 +134,10 @@ fn embedding_event(
                 ProductListingEventPayload::Discovered(_) => {
                     ProductListingEmbeddingSourceEvent::Discovered
                 }
-                ProductListingEventPayload::Changed(changed) if changed.image_count().is_some() => {
-                    ProductListingEmbeddingSourceEvent::ChangedImages
+                ProductListingEventPayload::Changed(changed)
+                    if changed.has_text_change() || changed.image_count().is_some() =>
+                {
+                    ProductListingEmbeddingSourceEvent::ChangedContent
                 }
                 ProductListingEventPayload::Changed(_) => ProductListingEmbeddingSourceEvent::Other,
             }
@@ -175,7 +177,7 @@ fn localized_description(
     match (text, language) {
         (Some(raw_text), Some(raw_language)) => {
             let description = Description::from(raw_text.as_str());
-            if description.as_ref().is_empty() || description.as_ref() != raw_text {
+            if description.as_ref() != raw_text {
                 return Err(mapping_error(
                     "persisted product embedding description is invalid",
                 ));

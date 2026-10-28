@@ -286,6 +286,7 @@ struct ProductListingEventRoutingFacts {
     has_main_price_change: bool,
     has_availability_change: bool,
     has_image_change: bool,
+    has_text_change: bool,
 }
 
 fn product_event_routing_facts(
@@ -339,9 +340,9 @@ fn product_event_routing_facts(
             ProductListingRoutingEventKind::Discovered
         }
         ("PRODUCT_LISTING_CHANGED", "DOMAIN") => {
-            let (has_main_price_change, has_availability_change, has_image_change) =
+            let (has_main_price_change, has_availability_change, has_image_change, has_text_change) =
                 if delivery_changed && payload.as_object().is_some_and(|o| o.is_empty()) {
-                    (false, false, false)
+                    (false, false, false, false)
                 } else {
                     validate_changed_payload(payload)?
                 };
@@ -352,6 +353,7 @@ fn product_event_routing_facts(
                 has_main_price_change,
                 has_availability_change,
                 has_image_change,
+                has_text_change,
             });
         }
         ("ENRICHMENT_GEOGRAPHY_UPDATED", "ENRICHMENT") => {
@@ -408,6 +410,7 @@ fn product_event_routing_facts(
         has_main_price_change: false,
         has_availability_change: false,
         has_image_change: false,
+        has_text_change: false,
     })
 }
 
@@ -451,7 +454,20 @@ pub fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRoute
                     DomainJobPayload::ProductListingEvent(base_job.clone()),
                 ));
             }
-            if facts.has_image_change {
+            if facts.has_text_change {
+                for target_queue in [
+                    WorkerQueue::ProductListingContentAssessment,
+                    WorkerQueue::ProductListingTranslate,
+                ] {
+                    jobs.push(domain_job(
+                        target_queue,
+                        idempotency_key.clone(),
+                        ordering_key.clone(),
+                        DomainJobPayload::ProductListingEvent(base_job.clone()),
+                    ));
+                }
+            }
+            if facts.has_image_change || facts.has_text_change {
                 jobs.push(domain_job(
                     WorkerQueue::ProductListingEmbed,
                     idempotency_key,
@@ -527,7 +543,7 @@ fn validate_discovered_payload(value: &Value) -> Result<(), CdcRouteError> {
     Ok(())
 }
 
-fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRouteError> {
+fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool, bool), CdcRouteError> {
     let object = required_payload_object(value)?;
     if object.is_empty() {
         return Err(CdcRouteError::InvalidProductListingEventPayload);
@@ -535,6 +551,8 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRout
     require_known_keys(
         object,
         &[
+            "title",
+            "description",
             "pricing",
             "availability",
             "url",
@@ -549,10 +567,15 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRout
     let mut has_main_price_change = false;
     let mut has_availability_change = false;
     let mut has_image_change = false;
+    let mut has_text_change = false;
     let mut availability_change = None;
     let mut lifecycle_change = None;
     for (field, value) in object {
         match field.as_str() {
+            "title" | "description" => {
+                validate_text_change(value, field)?;
+                has_text_change = true;
+            }
             "pricing" => {
                 let pricing = required_object(value)?;
                 if pricing.is_empty() {
@@ -613,7 +636,49 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRout
         has_main_price_change,
         has_availability_change,
         has_image_change,
+        has_text_change,
     ))
+}
+
+fn validate_text_change(value: &Value, field: &str) -> Result<(), CdcRouteError> {
+    let change = required_object(value)?;
+    require_exact_keys(change, &["previous", "current"], "text change")?;
+    let canonical = if field == "title" {
+        is_canonical_title
+    } else {
+        is_canonical_description
+    };
+    require_nullable_localized(change, "previous", canonical)?;
+    require_nullable_localized(change, "current", canonical)?;
+    let text = |value: &Value| -> Result<Option<String>, CdcRouteError> {
+        if value.is_null() {
+            return Ok(None);
+        }
+        let raw = require_string(required_object(value)?, "text")?;
+        if field == "title" {
+            let title = Title::from(raw);
+            if title.as_ref().is_empty() {
+                return Err(CdcRouteError::InvalidProductListingEventPayload);
+            }
+            Ok(Some(title.to_string()))
+        } else {
+            Ok(Some(raw))
+        }
+    };
+    let previous = text(&change["previous"])?;
+    let current = text(&change["current"])?;
+    let equal = match (&previous, &current) {
+        (None, None) => true,
+        (Some(previous), Some(current)) => {
+            change["previous"]["language"] == change["current"]["language"]
+                && previous.split_whitespace().eq(current.split_whitespace())
+        }
+        _ => false,
+    };
+    if equal {
+        return Err(CdcRouteError::InvalidProductListingEventPayload);
+    }
+    Ok(())
 }
 
 fn validate_product_listing_price_change(value: &Value) -> Result<(), CdcRouteError> {
@@ -1514,6 +1579,47 @@ mod tests {
                 Err(CdcRouteError::NonCanonicalProductListingEventField { field })
                     if field == "title.text"
             ));
+        }
+    }
+
+    #[test]
+    fn text_changes_route_to_each_enrichment_consumer_once_without_text_only_notifications() {
+        let text = json!({"previous":null,"current":{"text":"New text","language":"en"}});
+        for payload in [
+            json!({"title":text}),
+            json!({"description":text}),
+            json!({"title":text,"description":text}),
+            json!({"title":text,"description":text,"images":{"previousCount":1,"currentCount":1},"pricing":{"price":{"previous":null,"current":{"type":"ON_REQUEST"}}}}),
+        ] {
+            let row = json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":payload});
+            let jobs = route_change(&change("product_listing_events", "insert", row)).unwrap();
+            let queues = jobs.iter().map(|job| job.target_queue).collect::<Vec<_>>();
+            for queue in [
+                WorkerQueue::ProductListingOpenSearch,
+                WorkerQueue::ProductListingContentAssessment,
+                WorkerQueue::ProductListingEmbed,
+                WorkerQueue::ProductListingTranslate,
+            ] {
+                assert_eq!(queues.iter().filter(|q| **q == queue).count(), 1);
+            }
+            assert_eq!(
+                queues.contains(&WorkerQueue::WatchlistNotification),
+                payload.get("pricing").is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn text_change_cdc_rejects_incomplete_unknown_or_noncanonical_values() {
+        for delta in [
+            json!(null),
+            json!({"current":null}),
+            json!({"previous":null,"current":null}),
+            json!({"previous":null,"current":{"text":"Title","language":"EN"}}),
+            json!({"previous":null,"current":{"text":"Title","language":"en","extra":true}}),
+        ] {
+            let row = json!({"event_id":"01900000-0000-7000-8000-000000000004","product_listing_id":"01900000-0000-7000-8000-000000000003","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"title":delta}});
+            assert!(route_change(&change("product_listing_events", "insert", row)).is_err());
         }
     }
 

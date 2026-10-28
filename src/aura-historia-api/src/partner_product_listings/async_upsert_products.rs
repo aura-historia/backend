@@ -248,7 +248,10 @@ mod tests {
         assert_eq!(command.source_listing_id.as_ref(), "SKU-2");
         assert_eq!(
             Some("Vase"),
-            command.title.as_ref().map(|title| title.payload.as_ref())
+            match &command.title {
+                application::patch_field::PatchField::Set(title) => Some(title.payload.as_ref()),
+                _ => None,
+            }
         );
     }
 
@@ -296,7 +299,15 @@ mod tests {
         };
         assert_eq!(command.listing_source_id, id);
         assert_eq!(command.source_listing_id.as_ref(), "SKU-1");
-        assert!(command.title.is_none() && command.description.is_none());
+        assert!(
+            matches!(
+                command.title,
+                application::patch_field::PatchField::Unchanged
+            ) && matches!(
+                command.description,
+                application::patch_field::PatchField::Unchanged
+            )
+        );
         assert_eq!(
             calls[0][0].metadata.command_id,
             calls[1][0].metadata.command_id

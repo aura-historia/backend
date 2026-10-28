@@ -10,7 +10,7 @@ use url::Url;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductListingEmbeddingSourceEvent {
     Discovered,
-    ChangedImages,
+    ChangedContent,
     Other,
 }
 

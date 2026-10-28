@@ -315,6 +315,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 current_event_id = $1,
                 embedding_source_event_id = CASE WHEN $2 THEN $1 ELSE embedding_source_event_id END,
                 embedding = CASE WHEN $2 THEN NULL ELSE embedding END,
+                content_source_event_id = CASE WHEN $29 THEN $1 ELSE content_source_event_id END,
                 title_text = $3,
                 title_language = $4,
                 description_text = $5,
@@ -394,10 +395,19 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                     |source| ProductListingRepositoryError::InvalidDeliveryPersisted { source },
                 )?,
         )
+        .bind(effects.advance_content_source)
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingUpdateSqlxError)?
         .ok_or(ProductListingRepositoryError::ConcurrencyConflict)?;
+
+        if effects.advance_content_source {
+            sqlx::query("DELETE FROM product_listing_translations WHERE product_listing_id = $1")
+                .bind(product.id().as_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(ProductListingUpdateSqlxError)?;
+        }
 
         let version = ProductListingStorageVersion::try_from(version)
             .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;

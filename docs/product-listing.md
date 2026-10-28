@@ -88,7 +88,7 @@ resolve their current dependencies independently.
 Creation emits `PRODUCT_LISTING_DISCOVERED`. A later committed semantic revision emits at most one non-empty `PRODUCT_LISTING_CHANGED`; no-ops emit nothing. The service supplies event identity/time and commits state and event atomically. Rehydration emits no events.
 
 - Discovery records immutable source identity, initial title/description, pricing, availability, URL, image count and Auction/lot facts. It omits the public slug, image URLs, lifecycle and sale observation. Initial discovery cannot include a lifecycle transition or sale observation.
-- Changes keep price, each estimate, availability, URL, image replacement, Auction/lot facts, lifecycle and sale observation separate.
+- Changes keep title, description, price, each estimate, availability, URL, image replacement, Auction/lot facts, lifecycle and sale observation separate. Text changes retain the full previous/current original text and language; absence is null.
 - Ordinary changes coalesce first `previous` and final `current`; net-zero changes disappear. Image identity/order changes remain meaningful even with equal counts; durable counts use `u64`.
 - Withdrawal records the lifecycle transition and previous availability. Sale observations transition only absent → present or present → absent, never directly between different observations.
 
@@ -98,7 +98,7 @@ read model; it never copies authoritative source addresses into the aggregate. P
 
 ## Application, API, and search contracts
 
-Title and description are optional creation-only inputs. Upsert of an existing listing preserves them. Availability, main price and estimates use tri-state patches: omitted preserves, `null` clears, a value sets. Absent response availability is explicit `null`.
+Title, description, availability, main price and estimates use tri-state update/upsert patches: omitted preserves, `null` clears, a value sets. Text values include their source language. Both text fields remain optional; omission or null on creation records absence. Absent response availability is explicit `null`.
 
 Title normalization is idempotent and runs wherever a title is constructed, including
 translated titles. Typography comes first: styled letters and digits (mathematical,
@@ -117,6 +117,18 @@ trailing whitespace of the old constructor and shortened ellipses from prior reh
 Readers present the current canonical value without rewriting immutable history; a later
 aggregate write stores it. Leading whitespace, case/punctuation changes and overlength
 titles still fail validation. This compatibility does not regenerate public IDs or slugs.
+
+After construction, text comparisons trim and collapse Unicode whitespace runs while retaining
+word boundaries, language and presence. Equivalent text preserves stored formatting and is a
+field no-op, even alongside other edits. Net-zero text edits disappear from the coalesced event.
+Meaningful descriptions retain their paragraphs. Identity, source key and public slug never change.
+
+Meaningful title or description changes advance the shared content revision and the embedding
+revision, invalidate obsolete title translations and embeddings atomically, and refresh title
+translation, content assessment and embedding asynchronously. Reads fall back to current original
+text until translations arrive; assessments of older revisions are no longer current. Translation
+remains titles-only. Description-only changes also schedule title translation because it shares
+the content revision guard with assessment; pending older translation results are stale.
 
 Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts normalize to absence. A supplied Auction ID must resolve to an existing Auction for the same ListingSource. Lot labels are opaque; catalogue positions are positive and one-based. Timing facts require exact instants, not guessed date-only or timezone-ambiguous values. Partner listing writes do not create or mutate Auctions; raw normalization preserves stored Auction/lot facts.
 
@@ -145,9 +157,9 @@ The complementary `/v1/listing-sources/{listingSourceId}/product-listings` manag
 
 Collection POST/PATCH/PUT/DELETE and their async variants remain the source-keyed integration API. They require the same Partnership source grant for every entry, checked synchronously or when the async command is applied; administrator role alone is insufficient. Their batch semantics remain independent of versioned management; PUT can still upsert or restore without a management version.
 
-Detail exposes original localized title/description, source-currency prices, immutable identity/slug, original URL and ordered canonical image URLs, Auction/lot facts, read-only sale observation, timestamps and `expectedVersion`. These image URLs are privileged inspection data: previews must respect sensitivity/unassessed status and must not automatically render every source image. Public image redaction and discovery visibility are unchanged. Title/description, assessment and enrichment remain read-only.
+Detail exposes original localized title/description, source-currency prices, immutable identity/slug, original URL and ordered canonical image URLs, Auction/lot facts, read-only sale observation, timestamps and `expectedVersion`. These image URLs are privileged inspection data: previews must respect sensitivity/unassessed status and must not automatically render every source image. Public image redaction and discovery visibility are unchanged. Assessment and enrichment remain read-only.
 
-PATCH accepts only price, monetary estimates, availability, URL, images and nested Auction/lot patches. Omission preserves; null clears optional scalar facts. URL, images and the whole Auction object cannot be null. An empty image array empties the ordered collection. `auctionId: null` detaches membership while omitted lot/timing facts remain; an omitted or null timing container preserves timings. All-empty lot facts normalize to absence. References must identify an existing Auction for the immutable ListingSource, validated in the mutation transaction.
+PATCH accepts only localized title/description, price, monetary estimates, availability, URL, images and nested Auction/lot patches. Omission preserves; null clears optional scalar facts. URL, images and the whole Auction object cannot be null. An empty image array empties the ordered collection. `auctionId: null` detaches membership while omitted lot/timing facts remain; an omitted or null timing container preserves timings. All-empty lot facts normalize to absence. References must identify an existing Auction for the immutable ListingSource, validated in the mutation transaction.
 
 PATCH/restore bodies and DELETE query parameters require the positive PostgreSQL-representable `expectedVersion` returned by reads. Stale versions and racing compare-and-set writes return `409 PRODUCT_LISTING_CONCURRENCY_CONFLICT`; there is no automatic retry. PATCH on a withdrawn listing returns `409 PRODUCT_LISTING_WITHDRAWN`, even for an empty patch. DELETE withdraws rather than purges; explicit restore returns to `ACTIVE` with unknown availability. Matching-version withdrawal/restoration of the current target state is a no-op. Missing targets are never created. PATCH and restore return identity, resulting version and `CHANGED`/`UNCHANGED` from the transaction result. No-ops preserve version/timestamps and emit no event.
 

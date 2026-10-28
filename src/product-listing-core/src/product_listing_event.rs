@@ -75,12 +75,41 @@ impl ProductListingEventPayload {
     pub fn rehydrate_changed(
         state: RehydratedProductListingChanged,
     ) -> Result<Self, RehydrateProductListingEventError> {
+        if state.title.as_ref().is_some_and(|(previous, current)| {
+            previous
+                .iter()
+                .chain(current.iter())
+                .any(|v| v.payload.as_ref().is_empty())
+        }) {
+            return Err(RehydrateProductListingEventError::EmptyTitle);
+        }
+        if state.title.as_ref().is_some_and(|(previous, current)| {
+            crate::product_listing::equivalent_localized_text(previous.as_ref(), current.as_ref())
+        }) {
+            return Err(RehydrateProductListingEventError::EqualValues { field: "title" });
+        }
+        if state
+            .description
+            .as_ref()
+            .is_some_and(|(previous, current)| {
+                crate::product_listing::equivalent_localized_text(
+                    previous.as_ref(),
+                    current.as_ref(),
+                )
+            })
+        {
+            return Err(RehydrateProductListingEventError::EqualValues {
+                field: "description",
+            });
+        }
         if let Some((Some(previous), Some(current))) = &state.delivery
             && previous.source_id() != current.source_id()
         {
             return Err(RehydrateProductListingEventError::DeliverySourceMismatch);
         }
         let changed = ProductListingChanged {
+            title: value_change(state.title, "title")?.map(Box::new),
+            description: value_change(state.description, "description")?.map(Box::new),
             delivery: value_change(state.delivery, "delivery")?.map(Box::new),
             price: value_change(state.price, "price")?,
             price_estimate_min: value_change(state.price_estimate_min, "price estimate minimum")?,
@@ -148,10 +177,19 @@ pub struct RehydratedProductListingDiscovered {
     pub delivery: Option<ListingDelivery>,
 }
 
+/// Original localized text retained in a semantic event transition.
+pub type ProductListingTextTransition<T> = (
+    Option<Localized<Language, T>>,
+    Option<Localized<Language, T>>,
+);
+type TextChange<T> = Option<Box<ValueChange<Option<Localized<Language, T>>>>>;
+
 /// Adapter inputs for rebuilding an immutable changed payload.
 #[doc(hidden)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct RehydratedProductListingChanged {
+    pub title: Option<ProductListingTextTransition<Title>>,
+    pub description: Option<ProductListingTextTransition<Description>>,
     pub price: Option<(Option<ProductListingPrice>, Option<ProductListingPrice>)>,
     pub price_estimate_min: Option<(Option<Price>, Option<Price>)>,
     pub price_estimate_max: Option<(Option<Price>, Option<Price>)>,
@@ -199,6 +237,8 @@ impl TryFrom<usize> for ProductListingImageCount {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RehydrateProductListingEventError {
+    #[error("changed title must contain text")]
+    EmptyTitle,
     #[error("changed ProductListing event payload is empty")]
     EmptyChanged,
     #[error("event delivery source mismatch")]
@@ -343,6 +383,8 @@ pub enum ProductListingLifecycleChange {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingChanged {
+    title: TextChange<Title>,
+    description: TextChange<Description>,
     price: Option<ValueChange<Option<ProductListingPrice>>>,
     price_estimate_min: Option<ValueChange<Option<Price>>>,
     price_estimate_max: Option<ValueChange<Option<Price>>>,
@@ -358,6 +400,8 @@ pub struct ProductListingChanged {
 impl ProductListingChanged {
     pub(crate) const fn empty() -> Self {
         Self {
+            title: None,
+            description: None,
             delivery: None,
             price: None,
             price_estimate_min: None,
@@ -373,6 +417,33 @@ impl ProductListingChanged {
 
     pub fn delivery(&self) -> Option<&ValueChange<Option<ListingDelivery>>> {
         self.delivery.as_deref()
+    }
+    pub fn title(&self) -> Option<&ValueChange<Option<Localized<Language, Title>>>> {
+        self.title.as_deref()
+    }
+    pub fn description(&self) -> Option<&ValueChange<Option<Localized<Language, Description>>>> {
+        self.description.as_deref()
+    }
+    pub fn has_text_change(&self) -> bool {
+        self.title.is_some() || self.description.is_some()
+    }
+    pub(crate) fn change_title(
+        &mut self,
+        previous: Option<Localized<Language, Title>>,
+        current: Option<Localized<Language, Title>>,
+    ) {
+        let mut change = self.title.take().map(|v| *v);
+        coalesce_value_change(&mut change, previous, current);
+        self.title = change.map(Box::new);
+    }
+    pub(crate) fn change_description(
+        &mut self,
+        previous: Option<Localized<Language, Description>>,
+        current: Option<Localized<Language, Description>>,
+    ) {
+        let mut change = self.description.take().map(|v| *v);
+        coalesce_value_change(&mut change, previous, current);
+        self.description = change.map(Box::new);
     }
     pub(crate) fn change_delivery(
         &mut self,
@@ -489,7 +560,9 @@ impl ProductListingChanged {
     }
 
     pub(crate) const fn is_empty(&self) -> bool {
-        self.delivery.is_none()
+        self.title.is_none()
+            && self.description.is_none()
+            && self.delivery.is_none()
             && self.price.is_none()
             && self.price_estimate_min.is_none()
             && self.price_estimate_max.is_none()
@@ -667,6 +740,8 @@ mod tests {
         assert_eq!(
             Err(RehydrateProductListingEventError::SaleObservationCorrectionUnsupported),
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                title: None,
+                description: None,
                 delivery: None,
                 price: None,
                 price_estimate_min: None,
@@ -688,6 +763,8 @@ mod tests {
         assert_eq!(
             Err(RehydrateProductListingEventError::EqualValues { field: "price" }),
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                title: None,
+                description: None,
                 delivery: None,
                 price: Some((
                     Some(ProductListingPrice::from(price)),
@@ -709,6 +786,8 @@ mod tests {
     fn should_rehydrate_on_request_price_change() {
         let payload =
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                title: None,
+                description: None,
                 delivery: None,
                 price: Some((Some(ProductListingPrice::OnRequest), None)),
                 price_estimate_min: None,
@@ -735,6 +814,8 @@ mod tests {
     fn should_reject_lifecycle_availability_composites_that_violate_final_state() {
         let withdrawn =
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                title: None,
+                description: None,
                 delivery: None,
                 price: None,
                 price_estimate_min: None,
@@ -755,6 +836,8 @@ mod tests {
 
         let restored =
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                title: None,
+                description: None,
                 delivery: None,
                 price: None,
                 price_estimate_min: None,
@@ -788,6 +871,8 @@ mod tests {
         ] {
             assert!(
                 ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                    title: None,
+                    description: None,
                     delivery: None,
                     price: None,
                     price_estimate_min: None,
@@ -808,6 +893,8 @@ mod tests {
     fn should_reject_empty_rehydrated_changed_payload() {
         let result =
             ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                title: None,
+                description: None,
                 delivery: None,
                 price: None,
                 price_estimate_min: None,

@@ -601,8 +601,8 @@ mod tests {
         ProductListingIngestionIntent::Upsert(UpsertProductListingCommand {
             listing_source_id: source_id,
             source_listing_id: source_listing_id(source_listing_key),
-            title: None,
-            description: None,
+            title: PatchField::Unchanged,
+            description: PatchField::Unchanged,
             price: PatchField::Unchanged,
             price_estimate_min: PatchField::Unchanged,
             price_estimate_max: PatchField::Unchanged,

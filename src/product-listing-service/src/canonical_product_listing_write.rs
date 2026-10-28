@@ -301,6 +301,20 @@ fn apply_update(
     product: &mut ProductListing,
     command: &CanonicalProductListingNonAuctionUpsert,
 ) -> Result<(), CanonicalProductListingWriteError> {
+    let mut title = product.title().cloned();
+    apply_option(&mut title, command.title.clone());
+    product.replace_title(title).map_err(|source| {
+        CanonicalProductListingWriteError::InvalidInput {
+            source: box_error(source),
+        }
+    })?;
+    let mut description = product.description().cloned();
+    apply_option(&mut description, command.description.clone());
+    product.replace_description(description).map_err(|source| {
+        CanonicalProductListingWriteError::InvalidInput {
+            source: box_error(source),
+        }
+    })?;
     let mut pricing = product.pricing();
     apply_option(&mut pricing.price, command.price.clone());
     apply_option(

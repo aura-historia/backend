@@ -42,6 +42,8 @@ pub(crate) async fn persist_product_listing_change<
     let mut changed_fields = Vec::new();
     if let ProductListingEventPayload::Changed(changes) = &payload {
         for (field, changed) in [
+            ("title", changes.title().is_some()),
+            ("description", changes.description().is_some()),
             ("price", changes.price().is_some()),
             ("priceEstimateMin", changes.price_estimate_min().is_some()),
             ("priceEstimateMax", changes.price_estimate_max().is_some()),

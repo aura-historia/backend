@@ -428,6 +428,10 @@ impl TryFrom<DiscoveredDto> for ProductListingEventPayload {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ChangedDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    title: Option<ValueChangeDto<Option<LocalizedTextDto>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<ValueChangeDto<Option<LocalizedTextDto>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pricing: Option<PricingChangesDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     availability: Option<ValueChangeDto<Option<String>>>,
@@ -464,6 +468,14 @@ impl TryFrom<&ProductListingChanged> for ChangedDto {
                 .transpose()?,
         };
         let changed = Self {
+            title: value.title().map(|change| ValueChangeDto {
+                previous: change.previous().as_ref().map(LocalizedTextDto::from),
+                current: change.current().as_ref().map(LocalizedTextDto::from),
+            }),
+            description: value.description().map(|change| ValueChangeDto {
+                previous: change.previous().as_ref().map(LocalizedTextDto::from),
+                current: change.current().as_ref().map(LocalizedTextDto::from),
+            }),
             delivery: value
                 .delivery()
                 .map(|v| {
@@ -559,6 +571,36 @@ impl ChangedDto {
             .transpose()?;
 
         ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+            title: self
+                .title
+                .map(|change| {
+                    Ok::<_, ProductListingEventCodecError>((
+                        change
+                            .previous
+                            .map(LocalizedTextDto::into_title)
+                            .transpose()?,
+                        change
+                            .current
+                            .map(LocalizedTextDto::into_title)
+                            .transpose()?,
+                    ))
+                })
+                .transpose()?,
+            description: self
+                .description
+                .map(|change| {
+                    Ok::<_, ProductListingEventCodecError>((
+                        change
+                            .previous
+                            .map(LocalizedTextDto::into_description)
+                            .transpose()?,
+                        change
+                            .current
+                            .map(LocalizedTextDto::into_description)
+                            .transpose()?,
+                    ))
+                })
+                .transpose()?,
             delivery: self
                 .delivery
                 .map(|v| {
@@ -594,7 +636,9 @@ impl ChangedDto {
     }
 
     fn is_empty(&self) -> bool {
-        self.delivery.is_none()
+        self.title.is_none()
+            && self.description.is_none()
+            && self.delivery.is_none()
             && self.pricing.is_none()
             && self.availability.is_none()
             && self.url.is_none()
@@ -1263,6 +1307,12 @@ fn validate_changed_shape(value: &Value) -> Result<(), ProductListingEventCodecE
 
     for (field, raw) in object {
         match field.as_str() {
+            "title" | "description" => {
+                validate_value_change_shape(raw, "text change")?;
+                for side in ["previous", "current"] {
+                    validate_localized_shape(&raw[side], "text change")?;
+                }
+            }
             "pricing" => {
                 let pricing = required_object(raw, "pricing")?;
                 if pricing.is_empty() {
@@ -1672,6 +1722,8 @@ mod tests {
         let observation =
             ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fxrate_core::FxRateId::new());
         let payload = changed_payload(RehydratedProductListingChanged {
+            title: None,
+            description: None,
             delivery: None,
             price: None,
             price_estimate_min: None,
@@ -1693,6 +1745,39 @@ mod tests {
                 &encoded,
             )
             .unwrap_or_else(|error| panic!("decode: {error}")),
+        );
+    }
+
+    #[test]
+    fn should_reject_invalid_text_transitions_and_retain_localized_values() {
+        for field in ["title", "description"] {
+            for delta in [
+                json!({"previous":null,"current":{"text":"New text","language":"fr"}}),
+                json!({"previous":{"text":"Old text","language":"de"},"current":null}),
+                json!({"previous":{"text":"Same text","language":"en"},"current":{"text":"Same text","language":"fr"}}),
+            ] {
+                let value = json!({field:delta});
+                let payload = decode("PRODUCT_LISTING_CHANGED", 1, &value).unwrap();
+                assert_eq!(encode(&payload).unwrap(), value);
+            }
+            for delta in [
+                json!(null),
+                json!({"current":null}),
+                json!({"previous":null,"current":null}),
+                json!({"previous":null,"current":{"text":"New text","language":"EN"}}),
+                json!({"previous":{"text":"Same text","language":"en"},"current":{"text":"Same text","language":"en"}}),
+            ] {
+                assert!(decode("PRODUCT_LISTING_CHANGED", 1, &json!({field:delta})).is_err());
+            }
+        }
+        assert!(decode("PRODUCT_LISTING_CHANGED",1,&json!({"description":{"previous":{"text":"Old  text\n\nParagraph","language":"en"},"current":{"text":"Old text Paragraph","language":"en"}}})).is_err());
+        assert!(
+            decode(
+                "PRODUCT_LISTING_CHANGED",
+                1,
+                &json!({"title":{"previous":null,"current":{"text":"","language":"en"}}})
+            )
+            .is_err()
         );
     }
 
@@ -2142,6 +2227,17 @@ mod tests {
                 .unwrap_or_else(|error| panic!("FX rate ID: {error}"));
         let observation = ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fx_rate_id);
         changed_payload(RehydratedProductListingChanged {
+            title: Some((
+                None,
+                Some(Localized::new(Language::En, Title::from("Changed title"))),
+            )),
+            description: Some((
+                Some(Localized::new(
+                    Language::Fr,
+                    Description::from("Ancien texte"),
+                )),
+                None,
+            )),
             delivery: None,
             price: Some((None, Some(ProductListingPrice::from(price(20))))),
             price_estimate_min: Some((None, Some(price(15)))),
@@ -2182,6 +2278,8 @@ mod tests {
 
     fn withdrawal_payload() -> ProductListingEventPayload {
         changed_payload(RehydratedProductListingChanged {
+            title: None,
+            description: None,
             delivery: None,
             price: None,
             price_estimate_min: None,
@@ -2215,6 +2313,8 @@ mod tests {
         use product_listing_core::delivery::ListingDelivery;
         let delivery = ListingDelivery::inherited(ListingSourceId::new());
         let payload = changed_payload(RehydratedProductListingChanged {
+            title: None,
+            description: None,
             delivery: Some((None, Some(delivery))),
             price: None,
             price_estimate_min: None,

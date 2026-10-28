@@ -350,7 +350,7 @@ paths:
       operationId: getAdminProductListing
       description: >-
         Administrator authority is required; delegated Aura tokens additionally require `product-listings:read`. Cognito administrators need no delegated scope or Partnership grant. Success and all errors use `private, no-store`. Original source values include retained withdrawn listings and do not depend on OpenSearch or enrichment readiness.
-        Original title/description, slug, sale observation and enrichment are read-only. Canonical image URLs are privileged inspection data; previews must respect sensitive/unassessed content rather than automatically rendering them. Public redaction is unchanged.
+        Original title/description are mutable; slug, sale observation and enrichment are read-only. Canonical image URLs are privileged inspection data; previews must respect sensitive/unassessed content rather than automatically rendering them. Public redaction is unchanged.
       tags: [ProductListings]
       security:
         - BearerAuth: []
@@ -1345,8 +1345,7 @@ paths:
         per entry, so an authenticated empty array returns `[]` without them.\n\nThe request body is an array of `UpsertProductListingData`\
         \ objects. Each entry is upserted\nsynchronously in its own PostgreSQL transaction. For each entry:\n- **New listing**\
         \ — omitted or `null` availability, price, and estimates create no value; `auction` is omitted or an asserted nested Auction/lot-facts patch (not `null`).\n- **Existing listing** — availability, price, and each price estimate\n  are tri-state: omitted preserves, `null` clears, and a concrete value replaces. Omit `auction` to preserve it; `auction: null` is invalid. Within an asserted Auction/lot-facts patch, each lot/timing leaf is tri-state: omit to preserve, `null` to clear clearable leaves, or provide a value to set. `auctionId` must name an existing Auction for this ListingSource; omit it to preserve membership, send `null` to clear it, or send an ID to set it. A withdrawn\n  listing is restored before current facts\
-        \ apply.\n- `title` and `description` apply only on creation. For an\n  existing\
-        \ listing they preserve current state and emit no current-state history event.\n- `images` is separate: omit to preserve,\
+        \ apply.\n- `title` and `description` are tri-state: omit to preserve, `null` to clear, or provide localized text to replace it. Whitespace-equivalent text is unchanged; meaningful changes retain full original text history and refresh asynchronous enrichment.\n- `images` is separate: omit to preserve,\
         \ send `[]` to clear, or send an array to replace.\n  `null` is invalid. `url` is non-clearable: omit or send `null`\
         \ to preserve it; send a URL\n  value to replace it.\n\nThe response returns HTTP 200 with failures as `{ listingSourceId,\
         \ sourceListingId, error }` objects when\none or more entries succeed. `error` is the stable API error key for that\
@@ -1668,7 +1667,7 @@ paths:
       operationId: getPartnerProductListing
       description: >-
         An authenticated partner with an active Partnership grant for the path ListingSource is required; delegated Aura tokens additionally require `product-listings:read`. Cognito partners need no delegated scope. Administrator role alone does not grant access. Source authorization precedes reads or mutations; a listing outside the authorized source returns the same not-found result as a missing listing. Success and all errors use `private, no-store`. Original source values include retained withdrawn listings and do not depend on OpenSearch or enrichment readiness.
-        Original title/description, slug, sale observation and enrichment are read-only. Canonical image URLs are privileged inspection data; previews must respect sensitive/unassessed content rather than automatically rendering them. Public redaction is unchanged.
+        Original title/description are mutable; slug, sale observation and enrichment are read-only. Canonical image URLs are privileged inspection data; previews must respect sensitive/unassessed content rather than automatically rendering them. Public redaction is unchanged.
       tags: [ProductListings]
       security:
         - BearerAuth: []
@@ -2221,7 +2220,7 @@ paths:
         null clears clearable values and nested auction leaves. `auction.auctionId` may be omitted
         to preserve membership, null to clear it or an ID to set it. `images: []` clears images,
         while `images: null` and `auction: null` are invalid. An omitted or null `url` preserves
-        an existing URL; a URL value replaces it. Title and description apply on creation only.
+        an existing URL; a URL value replaces it. Title and description use tri-state patches on both creation and update: omission preserves, null clears, and a localized value sets.
         Auction existence, listing state, partnership/source authority, lifecycle and other
         business conflicts are decided downstream, not as an
         immediate item failure or synchronous `404`.
@@ -19799,9 +19798,17 @@ components:
       type: object
       additionalProperties: false
       required: [expectedVersion]
-      description: Omission preserves. Monetary amounts are nonnegative minor units, at most 9223372036854775807. Null clears price, each estimate and availability. URL/images/whole auction cannot be null. Title/description and every field outside this whitelist are read-only.
+      description: Omission preserves. Monetary amounts are nonnegative minor units, at most 9223372036854775807. Null clears title, description, price, each estimate and availability. URL/images/whole auction cannot be null. Every field outside this whitelist is read-only.
       properties:
         expectedVersion: { type: integer, format: int64, minimum: 1, maximum: 9223372036854775807 }
+        title:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+          description: Omit to preserve; null clears; a localized value sets. Normalized empty titles are invalid. Whitespace-equivalent text preserves current formatting and causes no text change. Language changes are meaningful.
+        description:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+          description: Omit to preserve; null clears; a localized value sets. Whitespace-equivalent text is unchanged; meaningful replacements preserve paragraphs.
         price:
           nullable: true
           allOf: [{ $ref: "#/components/schemas/AdminProductListingPrice" }]
@@ -21211,11 +21218,13 @@ components:
         changes:
           type: array
           minItems: 1
-          description: "Deterministic semantic-change order: main price, minimum estimate, maximum estimate, availability, URL, images, auction, lifecycle, sale observation, delivery."
+          description: "Deterministic semantic-change order: title, description, main price, minimum estimate, maximum estimate, availability, URL, images, auction, lifecycle, sale observation, delivery."
           items:
             $ref: "#/components/schemas/ProductListingHistoryChangeData"
     ProductListingHistoryChangeData:
       oneOf:
+        - $ref: "#/components/schemas/ProductListingTitleHistoryChangeData"
+        - $ref: "#/components/schemas/ProductListingDescriptionHistoryChangeData"
         - $ref: "#/components/schemas/ProductListingDeliveryHistoryChangeData"
         - $ref: "#/components/schemas/ProductListingMainPriceHistoryChangeData"
         - $ref: "#/components/schemas/ProductListingPriceHistoryChangeData"
@@ -21227,6 +21236,30 @@ components:
         - $ref: "#/components/schemas/ProductListingRestorationHistoryChangeData"
         - $ref: "#/components/schemas/ProductListingSaleObservationHistoryChangeData"
       description: Typed semantic change.
+    ProductListingTitleHistoryChangeData:
+      type: object
+      additionalProperties: false
+      required: [type, previous, current]
+      properties:
+        type: { type: string, enum: [TITLE_CHANGED] }
+        previous:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+        current:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+    ProductListingDescriptionHistoryChangeData:
+      type: object
+      additionalProperties: false
+      required: [type, previous, current]
+      properties:
+        type: { type: string, enum: [DESCRIPTION_CHANGED] }
+        previous:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+        current:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
     ProductListingMainPriceHistoryChangeData:
       type: object
       required:
@@ -23696,6 +23729,14 @@ components:
           type: string
           description: The listing source's own identifier for the product to update. Product existence is evaluated synchronously on the synchronous route and downstream on the async route.
           example: baroque-violin-001
+        title:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+          description: Omit to preserve; null clears; a localized value sets. Normalized empty titles are invalid. Whitespace-equivalent text preserves current formatting and causes no text change. Language changes are meaningful.
+        description:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+          description: Omit to preserve; null clears; a localized value sets. Whitespace-equivalent text is unchanged; meaningful replacements preserve paragraphs.
         price:
           allOf:
             - $ref: "#/components/schemas/ProductListingPriceData"
@@ -23739,7 +23780,7 @@ components:
       description:
         "Data for synchronously upserting one ProductListing. Only `sourceListingId` is required.
 
-        Availability, price, and each price estimate are tri-state: omitted preserves an existing
+        Title, description, availability, price, and each price estimate are tri-state: omitted preserves an existing
 
         value, `null` clears it, and a concrete value replaces it. The nested Auction/lot-facts patch is omitted
 
@@ -23761,12 +23802,12 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: "Optional localized title for the product. Used only when creating a new product. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure."
+          description: "Localized title patch. Omit to preserve; null clears; a value sets text and source language. The title is normalized; styled letters and digits become ordinary text and emoji and ornamental symbols are removed. A title without remaining text, such as a blank or emoji-only title, is rejected with `BAD_BODY_VALUE`: synchronous batches fail with `400`, asynchronous batches report that item as a failure."
         description:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-          description: Optional localized description of the product. Used only when creating a new product.
+          description: Localized description patch. Omit to preserve; null clears; a value sets text and source language.
         price:
           allOf:
             - $ref: "#/components/schemas/ProductListingPriceData"

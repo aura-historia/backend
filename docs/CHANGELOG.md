@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-28 — Mutable listing title and description (#2597)
+
+- Ordinary updates, existing/restoring upserts, admin and partner management PATCH, and synchronous/asynchronous partner batches accept localized `title` and `description`: omit to preserve, send `null` to clear, or send `{text, language}` to set. Invalid submitted titles remain errors. Identity and public slug stay stable. Shopify/WooCommerce descriptions remain ignored.
+- History adds `TITLE_CHANGED` and `DESCRIPTION_CHANGED` with full previous/current original localized values, including null for absence. Meaningful edits refresh guarded title translation, content assessment and embeddings asynchronously; obsolete translations stop overriding current text immediately. Whitespace-equivalent text preserves stored formatting and produces no text delta or enrichment work.
+
 ## 2026-10-27 — ListingSource platform technology (#2567)
 
 - Admin ListingSource create, PATCH, details, and search support optional `platformTechnology` metadata and an exact search filter. Codes are open ASCII SCREAMING_SNAKE_CASE strings of 1–64 characters; reuse codes such as `SHOPIFY`, `WOOCOMMERCE`, `BIGCOMMERCE`, and `SHOPWARE`.

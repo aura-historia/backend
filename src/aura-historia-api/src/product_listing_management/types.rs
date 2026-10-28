@@ -28,7 +28,7 @@ mod tests {
             json!({"expectedVersion":0}),
             json!({"expectedVersion":u64::MAX}),
             json!({"expectedVersion":null}),
-            json!({"expectedVersion":1,"title":null}),
+            json!({"expectedVersion":1,"title":{"text":"🌿✨","language":"en"}}),
             json!({"expectedVersion":1,"lifecycle":"ACTIVE"}),
             json!({"expectedVersion":1,"productListingId":"x"}),
             json!({"expectedVersion":1,"saleObservation":null}),
