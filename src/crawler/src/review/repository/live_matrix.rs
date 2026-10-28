@@ -80,8 +80,9 @@ impl CrawlerReviewRepository {
             .unwrap_or_default();
         let reason: String = review.try_get("reason")?;
         let going_live = candidate.going_live(&reason, live.as_ref(), &base, &stored)?;
+        let page_urls: Vec<&str> = pages.iter().map(|(page, _)| page.url.as_str()).collect();
         let captured_identities = self
-            .captured_identities(listing_source_uuid, &pages)
+            .captured_identities(listing_source_uuid, &page_urls)
             .await?;
         let page_ids = pages
             .iter()
@@ -106,19 +107,19 @@ impl CrawlerReviewRepository {
         })
     }
 
-    /// The source listing id each review page's listing was captured under, by page URL,
-    /// for the pages whose listing has been captured. A page is matched with the crawler URL
+    /// The source listing id each page's listing was captured under, by page URL, for the
+    /// `page_urls` whose listing has been captured. A page is matched with the crawler URL
     /// that names it, however the two spell it: a reviewer page is stored as fetched, often
     /// with the trailing slash the crawler URL's normalization drops. The exact spelling
     /// wins over another one.
     async fn captured_identities(
         &self,
         listing_source_id: uuid::Uuid,
-        pages: &[(CrawlerReviewPage, String)],
+        page_urls: &[&str],
     ) -> Result<HashMap<String, String>, ReviewRepositoryError> {
-        let pages: Vec<(&str, Option<ReviewPageIdentity>)> = pages
+        let pages: Vec<(&str, Option<ReviewPageIdentity>)> = page_urls
             .iter()
-            .map(|(page, _)| (page.url.as_str(), ReviewPageIdentity::of_stored(&page.url)))
+            .map(|url| (*url, ReviewPageIdentity::of_stored(url)))
             .collect();
         let spellings: Vec<String> = pages
             .iter()

@@ -6,9 +6,7 @@
 //! (approval guard).
 
 use super::review_events::{ReviewMutation, commit_with_event};
-use super::reviewer_page_url::{
-    ReviewPageIdentity, is_allowed_reviewer_page_url, without_credentials,
-};
+use super::reviewer_page_url::{ReviewPageIdentity, without_credentials};
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, ReviewUnderEdit, lock_review_for_edit,
     store_pending_candidate,
@@ -19,6 +17,7 @@ use crate::review::model::{
     ARTIFACT_URL_PATTERN, LabelledSampleUrl, ReviewActor, STATUS_PENDING_REVIEW, SampleLabelInput,
     SampleLabels, UrlPatternReviewCandidate,
 };
+use crate::review::source_url::is_review_source_url;
 use crate::spider::utils::url::CrawledUrl;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
@@ -187,7 +186,7 @@ fn labelled_url(
     if let Some(sample_url) = sample_spellings.get(&spelling) {
         return Ok((*sample_url).clone());
     }
-    if is_allowed_reviewer_page_url(&url, &[domain.to_owned()]) {
+    if is_review_source_url(&url, &[domain.to_owned()]) {
         return Ok(spelling);
     }
     not_allowed(url.to_string())

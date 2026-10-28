@@ -79,9 +79,15 @@ impl ReviewServer {
         }
     }
 
+    /// Serves the console on its configured bind address.
     pub async fn run(self) -> std::io::Result<()> {
-        let bind_addr = self.access.bind_addr();
-        let listener = TcpListener::bind(bind_addr).await?;
+        let listener = TcpListener::bind(self.access.bind_addr()).await?;
+        self.serve(listener).await
+    }
+
+    /// Serves the console on `listener`, such as one bound to an ephemeral port in a test.
+    pub async fn serve(self, listener: TcpListener) -> std::io::Result<()> {
+        let bind_addr = listener.local_addr()?;
         let agent_decisions = self.access.agent_decisions();
         info!(
             bind_addr = %bind_addr,

@@ -42,9 +42,8 @@ pub use verdicts::Approval;
 
 use review_events::{ReviewMutation, commit_with_event, fetch_review_events};
 
-use reviewer_page_url::{
-    ReviewPageIdentity, is_allowed_reviewer_page_url, reviewer_page_url, without_credentials,
-};
+use crate::review::source_url::is_review_source_url;
+use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, approval_product_schemas,
     holds_live_schemas, update_schema_field_payload, validate_product_schemas,
@@ -1561,7 +1560,7 @@ async fn lock_reviewer_page_target(
     .await?;
     let (domain_names, product_url_patterns): (Vec<String>, Vec<Option<String>>) =
         domains.into_iter().unzip();
-    if !is_allowed_reviewer_page_url(url, &domain_names) {
+    if !is_review_source_url(url, &domain_names) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(url).to_string(),
         ));
