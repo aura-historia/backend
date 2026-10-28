@@ -491,66 +491,77 @@ where
                     .await
             }
             ProductListingRawValuesNormalizationOutcome::Resolved(resolved) => {
-                let command = canonical_upsert(head.listing_source_id, resolved.as_ref());
-                let write = match CanonicalProductListingWriter::upsert_non_auction_in_transaction(
-                    tx,
-                    &self.products,
-                    &self.events,
-                    head.product_listing_id,
-                    command,
-                )
-                .await
-                {
-                    Ok(write) => write,
-                    Err(CanonicalProductListingWriteError::InvalidInput { .. }) => {
-                        return Ok(completion(
-                            &head,
-                            &revision,
-                            ProductListingRawNormalizationOutcome::Rejected,
-                            None,
-                            None,
-                            Some(CANONICAL_PRODUCT_LISTING_INVALID),
-                        ));
-                    }
-                    Err(source) => {
-                        return Err(
-                            NormalizeProductListingRawRevisionError::CanonicalWriteFailed {
-                                source,
-                            },
-                        );
-                    }
-                };
-                let mut completion = completion(
-                    &head,
-                    &revision,
-                    if write.outcome == ChangeOutcome::Changed {
-                        ProductListingRawNormalizationOutcome::Applied
-                    } else {
-                        ProductListingRawNormalizationOutcome::NoChange
-                    },
-                    Some(write.product_listing_id),
-                    write.product_listing_event_id,
-                    None,
-                );
-                completion.next_product_listing_id = Some(write.product_listing_id);
-                completion.next_source_listing_id = Some(resolved.source_listing_id.clone());
-                if let ShippingQuickCheck::Resolved(assertions) = &resolved.shipping {
-                    *shipping_observation = Some(CrawlerShippingObservation {
-                        raw_revision_id: revision.product_listing_raw_revision_id,
-                        product_key:
-                            product_listing_core::product_listing_id::ProductListingKey::new(
-                                head.listing_source_id,
-                                resolved.source_listing_id.clone(),
-                            ),
-                        expected_version: write.version,
-                        acquired_at: revision.acquired_at,
-                        assertions: assertions.clone(),
-                    });
-                }
-                Ok(completion)
+                self.complete_upsert(tx, &head, &revision, resolved, shipping_observation)
+                    .await
             }
         }
     }
+
+    async fn complete_upsert(
+        &self,
+        tx: &mut U::Tx,
+        head: &ProductListingRawNormalizationHead,
+        revision: &crate::ports::ProductListingRawRevision,
+        resolved: &ProductListingRawValuesResolved,
+        shipping_observation: &mut Option<CrawlerShippingObservation>,
+    ) -> Result<ProductListingRawNormalizationCompletion, NormalizeProductListingRawRevisionError>
+    {
+        let command = canonical_upsert(head.listing_source_id, resolved);
+        let write = match CanonicalProductListingWriter::upsert_non_auction_in_transaction(
+            tx,
+            &self.products,
+            &self.events,
+            head.product_listing_id,
+            command,
+        )
+        .await
+        {
+            Ok(write) => write,
+            Err(CanonicalProductListingWriteError::InvalidInput { .. }) => {
+                return Ok(completion(
+                    head,
+                    revision,
+                    ProductListingRawNormalizationOutcome::Rejected,
+                    None,
+                    None,
+                    Some(CANONICAL_PRODUCT_LISTING_INVALID),
+                ));
+            }
+            Err(source) => {
+                return Err(
+                    NormalizeProductListingRawRevisionError::CanonicalWriteFailed { source },
+                );
+            }
+        };
+        let mut completion = completion(
+            head,
+            revision,
+            if write.outcome == ChangeOutcome::Changed {
+                ProductListingRawNormalizationOutcome::Applied
+            } else {
+                ProductListingRawNormalizationOutcome::NoChange
+            },
+            Some(write.product_listing_id),
+            write.product_listing_event_id,
+            None,
+        );
+        completion.next_product_listing_id = Some(write.product_listing_id);
+        completion.next_source_listing_id = Some(resolved.source_listing_id.clone());
+        if let ShippingQuickCheck::Resolved(assertions) = &resolved.shipping {
+            *shipping_observation = Some(CrawlerShippingObservation {
+                raw_revision_id: revision.product_listing_raw_revision_id,
+                product_key: ProductListingKey::new(
+                    head.listing_source_id,
+                    resolved.source_listing_id.clone(),
+                ),
+                expected_version: write.version,
+                acquired_at: revision.acquired_at,
+                assertions: assertions.clone(),
+            });
+        }
+        Ok(completion)
+    }
+
     async fn complete_delete(
         &self,
         tx: &mut U::Tx,
