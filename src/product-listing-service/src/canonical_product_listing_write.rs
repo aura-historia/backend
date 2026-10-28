@@ -136,20 +136,17 @@ impl CanonicalProductListingWriter {
         tx: &mut Tx,
         products: &R,
         events: &E,
-        product_listing_id: ProductListingId,
-    ) -> Result<CanonicalProductListingWriteResult, CanonicalProductListingWriteError>
+        bound_product_listing_id: Option<ProductListingId>,
+        key: &ProductListingKey,
+    ) -> Result<Option<CanonicalProductListingWriteResult>, CanonicalProductListingWriteError>
     where
         R: ProductListingRepositoryFactory<Tx>,
         E: ProductListingEventAppenderFactory<Tx>,
     {
-        let stored = {
-            let mut repository = products.in_transaction(tx);
-            repository
-                .find_by_id(product_listing_id)
-                .await
-                .map_err(map_repository_error)?
-        }
-        .ok_or(CanonicalProductListingWriteError::BoundProductListingNotFound)?;
+        let Some(stored) = Self::find_product(tx, products, bound_product_listing_id, key).await?
+        else {
+            return Ok(None);
+        };
         let mut product = stored.value;
         let outcome = product.withdraw().map_err(|error| {
             CanonicalProductListingWriteError::InvalidInput {
@@ -177,12 +174,12 @@ impl CanonicalProductListingWriter {
                     source: box_error(error),
                 })?;
         }
-        Ok(CanonicalProductListingWriteResult {
+        Ok(Some(CanonicalProductListingWriteResult {
             product_listing_id: product.id(),
             version,
             product_listing_event_id: event_id,
             outcome,
-        })
+        }))
     }
 
     async fn find_product<Tx, R>(

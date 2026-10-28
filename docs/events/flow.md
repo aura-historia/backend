@@ -67,6 +67,10 @@ Workers reread current committed dependencies and checkpoint bounded pages. See 
   and commits terminal progress with any canonical change. Invalid candidate data
   may be terminally rejected; dependency/configuration failures leave work pending.
   Capped or unfinished drains are not complete. There is no scheduled raw-backlog reconciler.
+- Normalized withdrawals may supply a validated `sourceListingId`. The service resolves
+  the listing by source and product identity in the canonical write transaction, checking
+  any existing stream binding. Without an explicit identity, a withdrawal uses that binding.
+  Unknown products complete without creating a listing; ordering fences remain effective.
 - Optional [crawler shipping assertions](../shipping.md#deterministic-crawler-item-assertions)
   apply through the existing delivery use case after catalog normalization commits.
   Their failures do not undo terminal raw progress. Existing shipping change and validity
@@ -94,7 +98,7 @@ updates availability and does not withdraw the listing. Remove requires only tha
 positive unsigned 64-bit product identity. The mapper preserves it exactly and emits a
 validated decimal `sourceListingId` in raw values for both upsert and delete. Source
 identity always includes the `ListingSourceId`.
-A first remove can bind an existing canonical backfill listing by this source/product pair;
+A first remove resolves an initially imported listing through the service's source/product lookup;
 unknown products retain their ordering fence without creating a canonical listing.
 
 `SHOPIFY_PRODUCT` payload schema 1 retains the nested listing snapshot, stripping

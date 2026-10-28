@@ -277,7 +277,9 @@ fn evaluate_raw_values(
             json!({"error": error.to_string(), "scope": format!("{:?}", error.failure_scope())}),
             issues,
         ),
-        ProductListingRawValuesNormalizationOutcome::Delete => ("DELETE", Value::Null, issues),
+        ProductListingRawValuesNormalizationOutcome::Delete { .. } => {
+            ("DELETE", Value::Null, issues)
+        }
     }
 }
 

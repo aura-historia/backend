@@ -33,8 +33,6 @@ pub struct SqlxPendingProductListingRawStreamReader {
 struct RawNormalizationHeadRow {
     product_listing_raw_stream_id: uuid::Uuid,
     listing_source_id: uuid::Uuid,
-    ingestion_method: String,
-    source_record_key: String,
     last_processed_revision: i64,
     product_listing_id: Option<uuid::Uuid>,
     source_listing_id: Option<String>,
@@ -110,8 +108,6 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
             SELECT
                 head.product_listing_raw_stream_id,
                 stream.listing_source_id,
-                stream.ingestion_method,
-                stream.source_record_key,
                 head.last_processed_revision,
                 head.product_listing_id,
                 head.source_listing_id
@@ -126,8 +122,7 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
         .fetch_one(&mut *self.connection)
         .await
         .map_err(persistence)?;
-        let stream_identity = (row.ingestion_method.clone(), row.source_record_key.clone());
-        let mut head = head_from_row(row)?;
+        let head = head_from_row(row)?;
         let next_revision = head
             .last_processed_revision
             .checked_add(1)
@@ -160,40 +155,6 @@ impl ProductListingRawNormalizationWriter for SqlxProductListingRawNormalization
         .map_err(persistence)?
         .map(revision_from_row)
         .transpose()?;
-        if head.product_listing_id.is_none()
-            && let Some(revision) = &revision
-            && revision.input.payload_format() == RawProductListingPayloadFormat::ShopifyProduct
-        {
-            let identity = revision.input.raw_values().value()["sourceListingId"]
-                .as_str()
-                .ok_or_else(|| invalid_state("Shopify normalized identity is missing"))?;
-            let numeric = identity
-                .parse::<u64>()
-                .ok()
-                .filter(|id| *id > 0 && id.to_string() == identity)
-                .ok_or_else(|| invalid_state("Shopify normalized identity is invalid"))?;
-            let source_listing_id =
-                SourceListingId::try_from(numeric.to_string()).map_err(invalid_state_error)?;
-            if stream_identity.0 != "SHOPIFY" || stream_identity.1 != identity {
-                return Err(invalid_state(
-                    "Shopify stream identity does not match its observation",
-                ));
-            }
-            let binding = sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT listing.product_listing_id FROM product_listings listing \
-                 JOIN product_listing_raw_streams stream ON stream.listing_source_id = listing.listing_source_id \
-                 AND stream.source_record_key = listing.source_listing_id \
-                 WHERE stream.product_listing_raw_stream_id = $1 AND stream.ingestion_method = 'SHOPIFY' \
-                 AND stream.source_record_key = $2",
-            )
-            .bind(stream_id).bind(source_listing_id.as_ref())
-            .fetch_optional(&mut *self.connection).await.map_err(persistence)?;
-            if let Some(binding) = binding {
-                head.product_listing_id =
-                    Some(try_from_uuid(binding, "ProductListing ID").map_err(invalid_state_error)?);
-                head.source_listing_id = Some(source_listing_id);
-            }
-        }
         Ok(ProductListingRawNormalizationWork {
             head,
             next_revision: revision,

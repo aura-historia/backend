@@ -111,7 +111,7 @@ fn assert_worker_image_projection(
         ProductListingRawValuesNormalizationOutcome::Invalid(_) => {
             panic!("crawler raw image projection must normalize")
         }
-        ProductListingRawValuesNormalizationOutcome::Delete => {
+        ProductListingRawValuesNormalizationOutcome::Delete { .. } => {
             panic!("crawler UPSERT image projection must not normalize as DELETE")
         }
     };
