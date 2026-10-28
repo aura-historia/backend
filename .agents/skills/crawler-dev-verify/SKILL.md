@@ -68,7 +68,7 @@ it to the user as a ticket or a separate decision.
    schema a page uses, and therefore needs an `EXTRACTOR_VERSION` raise under the rule in the
    [extraction contract](../../../docs/crawler/extraction-and-review.md#extraction-contract);
    a change to raw extraction alone changes the page hash and needs none.
-2. **Register the shops.** The committed `dev.rs` registers three demo shops. To run others,
+2. **Register the shops.** The committed `dev.rs` registers five demo shops. To run others,
    replace them temporarily: edit the `(index, name, slug)` tuple array and the domain list
    zipped in `main()`. IDs are `01890a5d-ac96-774b-af1d-d5586c639f{index:02x}`, so reuse the
    index of a shop already in `listing_sources` (the last two hex digits of its ID, e.g. `0x0b`)

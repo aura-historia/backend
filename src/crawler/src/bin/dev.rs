@@ -103,13 +103,11 @@ impl ListingSourceRegistrationSource for DemoListingSourceSource {
 /// crawler-dev-verify and crawler-soak-test skills use to reuse a shop's state in `crawler_demo`.
 fn demo_listing_sources() -> Vec<RegisteredListingSource> {
     [
-        (0x71, "Hingstons Antiques", "hingstons-antiques"),
-        (
-            0x72,
-            "Harrison Antique Furniture",
-            "harrison-antique-furniture",
-        ),
-        (0x73, "Collinge Antiques", "collinge-antiques"),
+        (0x74, "Holt Antique Furniture", "holt-antique-furniture"),
+        (0x75, "Martlesham Antiques", "martlesham-antiques"),
+        (0x76, "Loveday Antiques", "loveday-antiques"),
+        (0x77, "Freshfords", "freshfords"),
+        (0x78, "Antique Furniture Direct", "antique-furniture-direct"),
     ]
     .into_iter()
     .map(
@@ -207,9 +205,11 @@ async fn main() {
         let domain_configuration =
             Arc::new(CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()));
         for (listing_source, domain) in demo_listing_sources().into_iter().zip([
-            "hingstons-antiques.co.uk",
-            "harrisonantiquefurniture.co.uk",
-            "collingeantiques.com",
+            "holtantiquefurniture.com",
+            "martleshamantiques.com",
+            "lovedayantiques.co.uk",
+            "freshfords.com",
+            "antiquefurnituredirect.co.uk",
         ]) {
             if let Err(error) = domain_configuration
                 .register(
@@ -385,9 +385,11 @@ mod tests {
         assert_eq!(
             ids,
             [
-                "01890a5d-ac96-774b-af1d-d5586c639f71",
-                "01890a5d-ac96-774b-af1d-d5586c639f72",
-                "01890a5d-ac96-774b-af1d-d5586c639f73",
+                "01890a5d-ac96-774b-af1d-d5586c639f74",
+                "01890a5d-ac96-774b-af1d-d5586c639f75",
+                "01890a5d-ac96-774b-af1d-d5586c639f76",
+                "01890a5d-ac96-774b-af1d-d5586c639f77",
+                "01890a5d-ac96-774b-af1d-d5586c639f78",
             ]
         );
     }
