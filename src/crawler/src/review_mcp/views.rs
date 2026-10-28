@@ -42,7 +42,8 @@ pub struct PendingReviews {
     /// Pending reviews in the console's queue order: those of crawl-enabled ListingSources first,
     /// newest first within each group.
     pub reviews: Vec<PendingReview>,
-    /// How many reviews are pending in the console's queue.
+    /// How many of the first 200 reviews the console lists are pending. It lists pending reviews
+    /// first, so 200 means at least 200.
     pub total_pending: usize,
     /// What this answer leaves out, if anything.
     pub truncations: Vec<String>,
