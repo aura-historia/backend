@@ -97,8 +97,8 @@ identity always includes the `ListingSourceId`.
 A first remove can bind an existing canonical backfill listing by this source/product pair;
 unknown products retain their ordering fence without creating a canonical listing.
 
-`SHOPIFY_PRODUCT` payload schema 2 retains the nested listing snapshot, stripping
-`body_html` inside `product_listing` (and at the outer level). Raw-values schema 1 is
+`SHOPIFY_PRODUCT` accepts only payload schema 2. It retains the nested listing snapshot,
+stripping `body_html` inside `product_listing` (and at the outer level). Raw-values schema 1 is
 unchanged. Unsupported schemas fail closed. Broad `products/*` topics are acknowledged
 without forwarding, including queue redrives.
 
