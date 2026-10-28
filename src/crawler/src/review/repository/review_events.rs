@@ -4,8 +4,8 @@
 
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
-    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, SampleLabelCounts,
-    SampleLabels,
+    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, ReviewEventSummary,
+    SampleLabelCounts, SampleLabels,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -261,6 +261,69 @@ pub(super) async fn fetch_review_events<'e>(
     .collect()
 }
 
+/// The events of all reviews created at or after `since`, oldest first, at most `limit`, each
+/// with its review's artifact type and ListingSource and without its details, and whether later
+/// events were left out.
+pub(super) async fn fetch_review_events_since<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    since: time::OffsetDateTime,
+    limit: usize,
+) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT e.event_id, e.review_id, r.artifact_type, r.listing_source_id, \
+                s.listing_source_name, e.actor, e.action, e.candidate_version, e.notes, e.created \
+         FROM crawler_review_events e \
+         JOIN crawler_reviews r ON r.review_id = e.review_id \
+         LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
+         WHERE e.created >= $1 \
+         ORDER BY e.created, e.event_id \
+         LIMIT $2",
+    )
+    .bind(since)
+    .bind(i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX))
+    .fetch_all(executor)
+    .await?;
+    let truncated = rows.len() > limit;
+    let events = rows
+        .into_iter()
+        .take(limit)
+        .map(|row| {
+            let event_id: uuid::Uuid = row.try_get("event_id")?;
+            let actor: String = row.try_get("actor")?;
+            let action: String = row.try_get("action")?;
+            Ok(ReviewEventSummary {
+                event_id: CrawlerReviewEventId::try_from(event_id).map_err(|source| {
+                    super::persisted_object_id_error("CrawlerReviewEventId", event_id, source)
+                })?,
+                review_id: crawler_review_id_from_uuid(row.try_get("review_id")?)?,
+                artifact_type: row.try_get("artifact_type")?,
+                listing_source_id: super::listing_source_id_from_uuid(
+                    row.try_get("listing_source_id")?,
+                )?,
+                listing_source_name: row.try_get("listing_source_name")?,
+                actor: persisted_actor(&actor)?,
+                action: persisted_action(&action)?,
+                candidate_version: row.try_get("candidate_version")?,
+                notes: row.try_get("notes")?,
+                created: row.try_get("created")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
+    Ok((events, truncated))
+}
+
+fn persisted_actor(actor: &str) -> Result<ReviewActor, sqlx::Error> {
+    ReviewActor::from_persisted(actor).ok_or_else(|| {
+        sqlx::Error::Decode(format!("unknown persisted review event actor `{actor}`").into())
+    })
+}
+
+fn persisted_action(action: &str) -> Result<ReviewEventAction, sqlx::Error> {
+    ReviewEventAction::from_persisted(action).ok_or_else(|| {
+        sqlx::Error::Decode(format!("unknown persisted review event action `{action}`").into())
+    })
+}
+
 fn row_to_event(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewEvent, sqlx::Error> {
     let event_id: uuid::Uuid = row.try_get("event_id")?;
     let actor: String = row.try_get("actor")?;
@@ -270,12 +333,8 @@ fn row_to_event(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewEvent, sqlx::
             super::persisted_object_id_error("CrawlerReviewEventId", event_id, source)
         })?,
         review_id: crawler_review_id_from_uuid(row.try_get("review_id")?)?,
-        actor: ReviewActor::from_persisted(&actor).ok_or_else(|| {
-            sqlx::Error::Decode(format!("unknown persisted review event actor `{actor}`").into())
-        })?,
-        action: ReviewEventAction::from_persisted(&action).ok_or_else(|| {
-            sqlx::Error::Decode(format!("unknown persisted review event action `{action}`").into())
-        })?,
+        actor: persisted_actor(&actor)?,
+        action: persisted_action(&action)?,
         candidate_version: row.try_get("candidate_version")?,
         notes: row.try_get("notes")?,
         details: row.try_get("details")?,

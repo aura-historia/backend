@@ -49,6 +49,8 @@ const MATRIX_REFRESH_PAGE_BUDGET: Duration =
 /// refreshing, leaving room within [`REQUEST_DEADLINE`].
 const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
+/// The most events `GET /api/review-events` answers; the review agents' daily digest reads a day.
+const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 
 mod source_pages;
 
@@ -210,11 +212,35 @@ impl ReviewServer {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
                 Err(err) => internal_error(err),
             },
+            ("GET", "/api/review-events") => self.review_events_since(&parsed).await,
             _ => self.route_dynamic(parsed, actor).await,
         }
     }
 
     /// Routes a request with a path parameter. Review mutations are recorded as `actor`'s.
+    /// `GET /api/review-events?since=<RFC 3339 time>`: the events of all reviews since then,
+    /// oldest first and without their details, and whether later ones were left out.
+    async fn review_events_since(&self, request: &ParsedRequest<'_>) -> HttpResponse {
+        let Some(since) = request.query.get("since").and_then(|since| {
+            time::OffsetDateTime::parse(since, &time::format_description::well_known::Rfc3339).ok()
+        }) else {
+            return HttpResponse::json(
+                400,
+                &json!({ "error": "since must be an RFC 3339 time, such as 2026-10-28T06:00:00Z" }),
+            );
+        };
+        match self
+            .repository
+            .list_review_events_since(since, MAX_LISTED_REVIEW_EVENTS)
+            .await
+        {
+            Ok((events, truncated)) => {
+                HttpResponse::json(200, &json!({ "events": events, "truncated": truncated }))
+            }
+            Err(err) => internal_error(err),
+        }
+    }
+
     async fn route_dynamic(&self, request: ParsedRequest<'_>, actor: ReviewActor) -> HttpResponse {
         if request.method == "GET"
             && request.path.starts_with("/api/listing-sources/")
@@ -2804,6 +2830,106 @@ Origin: http://127.0.0.1:7878/x
                     .is_some_and(|id| id.starts_with("cre_"))),
                 "{detail}"
             );
+        }
+
+        /// The events of all reviews since a time come back oldest first with each review's artifact
+        /// type and ListingSource and without their details, to any credential that reads the
+        /// console, such as the author agent's for the runner's digest; a time that is no RFC 3339
+        /// time is refused.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_list_the_events_of_all_reviews_since_a_time() {
+            let (server, review_id) = pending_review_server().await;
+            let schema_field = format!("POST /api/reviews/{review_id}/schema-field");
+            let edit = |version: i64| {
+                json!({
+                    "expected_candidate_version": version,
+                    "schema_index": 0,
+                    "field": "title",
+                    "rule": {"selector": "h1", "type": "text"},
+                })
+                .to_string()
+            };
+            let before = time::OffsetDateTime::now_utc() - time::Duration::seconds(1);
+            let (_, review) = send(&server, &format!("GET /api/reviews/{review_id}"), "").await;
+            let version = review["review"]["candidate_version"]
+                .as_i64()
+                .unwrap_or_default();
+            let (edited, _) = send_as(&server, AUTHOR_TOKEN, &schema_field, &edit(version)).await;
+            let (repaired, _) = send(
+                &server,
+                &format!("POST /api/reviews/{review_id}/needs-repair"),
+                &json!({ "notes": "price empty on /item/2" }).to_string(),
+            )
+            .await;
+            let since = |at: time::OffsetDateTime| {
+                url::form_urlencoded::byte_serialize(
+                    at.format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_default()
+                        .as_bytes(),
+                )
+                .collect::<String>()
+            };
+
+            let (status, listed) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("GET /api/review-events?since={}", since(before)),
+                "",
+            )
+            .await;
+            let (_, later) = send(
+                &server,
+                &format!(
+                    "GET /api/review-events?since={}",
+                    since(time::OffsetDateTime::now_utc() + time::Duration::minutes(1))
+                ),
+                "",
+            )
+            .await;
+            let (refused, _) = send(&server, "GET /api/review-events?since=yesterday", "").await;
+
+            assert!(edited.starts_with("HTTP/1.1 200"), "{edited}");
+            assert!(repaired.starts_with("HTTP/1.1 200"), "{repaired}");
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {listed}");
+            assert_eq!(listed["truncated"], json!(false));
+            let events: Vec<_> = listed["events"]
+                .as_array()
+                .unwrap_or_else(|| panic!("no events: {listed}"))
+                .iter()
+                .map(|event| {
+                    (
+                        event["review_id"].clone(),
+                        event["artifact_type"].clone(),
+                        event["actor"].clone(),
+                        event["action"].clone(),
+                        event["notes"].clone(),
+                        event.get("details").is_none(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                events,
+                vec![
+                    (
+                        json!(review_id.to_string()),
+                        json!("PRODUCT_SCHEMA"),
+                        json!("AGENT_AUTHOR"),
+                        json!("SCHEMA_FIELD_EDITED"),
+                        json!(null),
+                        true
+                    ),
+                    (
+                        json!(review_id.to_string()),
+                        json!("PRODUCT_SCHEMA"),
+                        json!("HUMAN"),
+                        json!("REPAIR_REQUESTED"),
+                        json!("price empty on /item/2"),
+                        true
+                    ),
+                ]
+            );
+            assert_eq!(later["events"], json!([]));
+            assert!(refused.starts_with("HTTP/1.1 400"), "{refused}");
         }
 
         /// The author agent changes no decided review: its edits and page additions to the
