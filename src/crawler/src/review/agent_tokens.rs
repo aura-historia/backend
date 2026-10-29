@@ -186,6 +186,7 @@ fn remove_token_file(path: &Path) -> io::Result<bool> {
 mod tests {
     use super::*;
     use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+    use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
 
     fn console_config(auth_token: Option<&str>) -> ReviewServerConfig {
         ReviewServerConfig {
@@ -194,6 +195,7 @@ mod tests {
             agent_tokens: None,
             agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
+            max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
         }
     }
 

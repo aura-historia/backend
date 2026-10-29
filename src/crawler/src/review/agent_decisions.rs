@@ -6,7 +6,7 @@
 //! `docs/crawler/operations.md` (review agents); the checks a guarded approval passes are in
 //! [`crate::review::approval_guard`].
 
-use crate::review::access::ReviewServerConfigError;
+use crate::review::access::{ReviewServerConfigError, positive_number};
 use crate::review::model::STATUS_PENDING_REVIEW;
 use std::num::NonZeroU32;
 use std::time::Duration;
@@ -107,26 +107,6 @@ impl AgentDecisionPolicy {
 
 fn minutes(count: NonZeroU32) -> Duration {
     Duration::from_secs(u64::from(count.get()) * 60)
-}
-
-/// The trimmed value of `name`, `None` when it is unset, empty or whitespace-only. A value that
-/// is not valid Unicode is returned as `Err` to be refused like any other value not accepted.
-fn setting(name: &str) -> Result<Option<String>, String> {
-    match std::env::var(name) {
-        Ok(raw) if raw.trim().is_empty() => Ok(None),
-        Ok(raw) => Ok(Some(raw.trim().to_owned())),
-        Err(std::env::VarError::NotPresent) => Ok(None),
-        Err(std::env::VarError::NotUnicode(raw)) => Err(raw.to_string_lossy().into_owned()),
-    }
-}
-
-fn positive_number(name: &'static str) -> Result<Option<NonZeroU32>, ReviewServerConfigError> {
-    setting(name)
-        .and_then(|raw| {
-            raw.map(|raw| raw.parse::<NonZeroU32>().map_err(|_| raw))
-                .transpose()
-        })
-        .map_err(|value| ReviewServerConfigError::InvalidPositiveNumber { name, value })
 }
 
 #[cfg(test)]
