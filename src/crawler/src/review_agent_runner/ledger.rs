@@ -60,7 +60,7 @@ pub struct ProcessRecord {
     pub finished: OffsetDateTime,
     pub review_id: CrawlerReviewId,
     pub role: ProcessRole,
-    /// The prompt and report schema version, such as `author.v1`.
+    /// The prompt and report schema version, such as `author.v2`.
     pub prompt_version: String,
     pub end: ProcessEnd,
     #[serde(default, skip_serializing_if = "Option::is_none")]

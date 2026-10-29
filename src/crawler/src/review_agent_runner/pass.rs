@@ -33,16 +33,16 @@ pub struct PassSummary {
     pub pending: usize,
     /// Pending reviews that wait for a human, which no process works.
     pub waiting_for_human: usize,
-    /// Reviews this pass worked that waited for a human after the author's pass, so no reviewer
-    /// process started for them.
-    pub handed_to_human: usize,
-    /// Of those, reviews still cooling down.
+    /// Of the workable ones, reviews still cooling down.
     pub cooling_down: usize,
     /// Reviews this pass started to work.
     pub worked: usize,
     pub processes: usize,
     /// Reviews the server took a reviewer decision on.
     pub decided: usize,
+    /// Reviews this pass worked that waited for a human after the author's pass, so no reviewer
+    /// process started for them.
+    pub handed_to_human: usize,
     /// Why the pass started no or no further process, if it stopped early.
     pub stopped: Option<PassStop>,
 }
@@ -201,7 +201,7 @@ impl Pass<'_> {
     /// Whether `review` waits for a human after the author's pass, such as after the author's own
     /// needs-repair verdict reached the cap: the console would refuse everything a reviewer
     /// process did on it with `HUMAN_REQUIRED`. A review the runner cannot read gets its
-    /// reviewer, whose console refuses it in that case.
+    /// reviewer; should it wait for a human, the console refuses that reviewer's verdicts.
     async fn handed_to_human(&self, review: &QueuedReview) -> bool {
         match waits_for_human(self.console, review.review_id).await {
             Ok(true) => {
@@ -341,9 +341,9 @@ impl Pass<'_> {
         }
     }
 
-    /// Charges a process that was stopped at its timeout or killed by a signal before it reported
-    /// a cost the highest cost a process reported in the ledger's window, so the rolling sums
-    /// never leave out what it spent. The CLI reports a cost only in its result envelope.
+    /// Charges a process that was stopped at its timeout, or killed by a signal, and reported no
+    /// cost the highest cost a process reported in the ledger's window, so the rolling sums never
+    /// leave out what it spent. The CLI reports a cost only in its result envelope.
     fn charge_unreported_cost(&self, record: &mut ProcessRecord) {
         if record.total_cost_usd > 0.0 {
             return;

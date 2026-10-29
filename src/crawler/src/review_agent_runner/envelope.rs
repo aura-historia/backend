@@ -1,11 +1,11 @@
 //! What a `claude -p --output-format stream-json --verbose` process printed, and what it means for
 //! the runner: the result envelope of its last `result` line, and the last `rate_limit_event`,
 //! whose `resetsAt` is the CLI's structured reset time of a usage limit that rejected a request.
-//! Every other line, what the agent read among them, is skipped unread. Every key is optional and
-//! read with a default, so a CLI that adds, renames or drops a key degrades to a failed process
-//! instead of a crash; a value of the wrong type counts as missing. The envelope's texts
-//! (`result`, `errors`) are read only to recognise a usage limit and are never stored; they can
-//! carry what the agent read, so the log gets at most the line of a usage-limit message whose
+//! Every other line, what the agent read among them, is dropped once its type is read. Every key
+//! is optional and read with a default, so a CLI that adds, renames or drops a key degrades to a
+//! failed process instead of a crash; a value of the wrong type counts as missing. The envelope's
+//! texts (`result`, `errors`) are read only to recognise a usage limit and are never stored; they
+//! can carry what the agent read, so the log gets at most the line of a usage-limit message whose
 //! reset time the runner cannot read.
 
 use regex::Regex;
