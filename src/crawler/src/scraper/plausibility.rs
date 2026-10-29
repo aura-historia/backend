@@ -147,6 +147,20 @@ impl PlausibilityFinding {
         }
     }
 
+    /// Whether the finding keeps a schema out of approval, deterministic and a review agent's.
+    /// A repeated image does not: capture keeps each image URL once, so a gallery that repeats
+    /// its featured photo loses nothing, and no selector can tell that repeat from a gallery
+    /// image. It still lowers the candidate's rank and shows in the schema matrix.
+    pub const fn blocks_approval(self) -> bool {
+        !matches!(
+            (self.field, self.check),
+            (
+                PlausibilityField::Images,
+                PlausibilityCheck::DuplicateValues
+            )
+        )
+    }
+
     /// A blank `title` or `state`: the page leaves a required value empty.
     const fn is_missing_required_value(self) -> bool {
         matches!(
@@ -222,6 +236,12 @@ impl PlausibilityFindings {
         self.with_impact(PlausibilityImpact::RejectsCandidate)
             .next()
             .is_some()
+    }
+
+    /// Whether a finding keeps the schema out of approval, as
+    /// [`PlausibilityFinding::blocks_approval`] decides.
+    pub fn blocks_approval(&self) -> bool {
+        self.0.iter().any(|finding| finding.blocks_approval())
     }
 
     /// The number of findings that lower a candidate's rank.
@@ -856,6 +876,34 @@ mod tests {
             assert_eq!(findings.as_slice(), [finding(SourceListingId, WordList)]);
             assert!(!findings.rejects_candidate());
             assert_eq!(findings.rank_penalty(), 0);
+        }
+    }
+
+    mod approval {
+        use super::*;
+
+        #[test]
+        fn should_keep_approval_open_when_only_an_image_repeats() {
+            let mut raw = plausible();
+            raw.images = vec![
+                "/a.jpg".to_owned(),
+                "/b.jpg".to_owned(),
+                "/a.jpg".to_owned(),
+            ];
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(Images, DuplicateValues)]);
+            assert!(!findings.blocks_approval());
+        }
+
+        #[test]
+        fn should_block_approval_with_any_other_finding_beside_a_repeated_image() {
+            let mut raw = plausible();
+            raw.images = vec!["/a.jpg".to_owned(), "/a.jpg".to_owned()];
+            raw.price = Some("£0.00".to_owned());
+
+            assert!(PlausibilityFindings::of(&raw).blocks_approval());
         }
     }
 

@@ -38,9 +38,11 @@ pub struct SchemaPageEvaluation {
 }
 
 impl SchemaPageEvaluation {
-    /// Whether the extraction failed a per-page, cross-page or identity agreement check.
-    pub fn fails_plausibility_checks(&self) -> bool {
-        !self.plausibility_findings.is_empty()
+    /// Whether a failed per-page, cross-page or identity agreement check keeps the schema out
+    /// of approval. A repeated image alone does not
+    /// ([`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)).
+    pub fn blocks_approval(&self) -> bool {
+        self.plausibility_findings.blocks_approval()
             || !self.cross_page_findings.is_empty()
             || !self.identity_agreement_findings.is_empty()
     }

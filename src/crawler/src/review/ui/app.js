@@ -1,13 +1,15 @@
 let selectedId = null;
 let selectedDetail = null;
 let selectedMatrix = null;
+let selectedMatrixFailure = '';
 let selectedSchemaIndex = 0;
 let compareSchemaIndex = 1;
 let selectedField = 'title';
 let selectedPageId = null;
 let activeWorkbenchPanel = 'selector';
 let pickedSelector = '';
-let removedPageTemplateRefusal = null;
+let editRefusal = null;
+let rawAttributeKeys = null;
 let dirty = false;
 let selectedReviewUpdatedAt = null;
 let selectedReviewStatus = null;
@@ -24,6 +26,9 @@ let collapsedListingSourceGroups = new Set(JSON.parse(
 let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
+// The sample labels being edited on the selected URL-pattern review, or null while the stored
+// labels are shown unedited.
+let sampleLabelDraft = null;
 
 const selectorFields = [
     'source_listing_id', 'title', 'description', 'price', 'price_estimate_min',
@@ -43,6 +48,10 @@ const schemaHighlightColors = {
     images: '#db2777'
 };
 const rawAttributeHighlightColor = '#64748b';
+// A raw attribute rule is edited as the field `raw_attributes.<key>`, as `/schema-field` names it.
+const RAW_ATTRIBUTE_FIELD_PREFIX = 'raw_attributes.';
+// Pages a reviewer may remove from a review: the ones they added and the ones waiting on it.
+const REMOVABLE_PAGE_ROLES = new Set(['REVIEWER_ADDED', 'WAITING_PAGE']);
 
 applyTheme(theme);
 
@@ -127,8 +136,25 @@ async function api(path, options = {}, allowPrompt = true) {
     if (res.status === 401 && allowPrompt && await requestReviewAuthToken()) {
         return api(path, options, false);
     }
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+        const error = new Error(await res.text());
+        error.status = res.status;
+        throw error;
+    }
     return res.json();
+}
+
+// A 409 that carries `candidate_version` means the review changed under the request: an edit
+// based on an older candidate version, or a matrix refresh during which the candidate changed
+// or an evaluated page was removed. The request may be repeated once the review is reloaded.
+function changedCandidateVersion(error) {
+    if (error?.status !== 409) return null;
+    try {
+        const version = JSON.parse(error.message).candidate_version;
+        return Number.isInteger(version) ? version : null;
+    } catch (_) {
+        return null;
+    }
 }
 
 async function loadReviews() {
@@ -154,6 +180,7 @@ function renderReviewGroups(reviews) {
             const group = {
                 listingSourceId: listingSourceKey,
                 listingSourceName: review.listing_source_name || review.listing_source_id || 'Unknown listing source',
+                crawlEnabled: review.listing_source_crawl_enabled !== false,
                 reviews: []
             };
             byListingSource.set(listingSourceKey, group);
@@ -175,6 +202,7 @@ function renderReviewGroups(reviews) {
             <div>
               <div class="queue-title">${escapeHtml(group.listingSourceName)}</div>
               <div class="queue-meta">${productSchemaCount} schema review${productSchemaCount === 1 ? '' : 's'} / ${group.reviews.length} total</div>
+              ${group.crawlEnabled ? '' : '<div class="queue-meta">Crawling disabled</div>'}
             </div>
             <div class="listing-source-group-actions">
               ${statusBadge(`${pendingCount} pending`)}
@@ -256,7 +284,7 @@ function renderReviewQueueItem(r) {
       <div class="queue-row">
         <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
         ${statusBadge(r.status)}
-        ${isWaitingForRepair(r) ? statusBadge('Waiting for repair') : ''}
+        ${repairBadge(r)}
       </div>
       <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
       ${evaluation ? `<div class="queue-meta">${statusBadge(evaluation.approved_by_llm ? 'LLM approved' : 'LLM not approved')} ${statusBadge(evaluation.confidence || 'unknown confidence')}</div>` : ''}
@@ -267,6 +295,7 @@ function renderReviewQueueItem(r) {
 async function selectReview(id) {
     selectedId = id;
     dirty = false;
+    sampleLabelDraft = null;
     activeWorkbenchPanel = 'selector';
     await loadReviews();
     await loadSelectedReview(true);
@@ -292,16 +321,29 @@ async function pollSchemaMatrix(reviewId, matrix) {
     return pollSchemaMatrix(reviewId, await api(`/api/reviews/${reviewId}/matrix`));
 }
 
+// A failed matrix refresh leaves the review workable: the workbench shows why, without a
+// matrix, and Re-evaluate starts a new refresh. The console never retries on its own.
 async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     if (!selectedId) return;
     const reviewId = selectedId;
     const detail = await api(`/api/reviews/${reviewId}`);
-    const matrix = detail.review.artifact_type === 'PRODUCT_SCHEMA'
-        ? await loadSchemaMatrix(reviewId, refreshMatrix)
-        : null;
+    let matrix = null;
+    let matrixFailure = '';
+    if (detail.review.artifact_type === 'PRODUCT_SCHEMA') {
+        try {
+            matrix = await loadSchemaMatrix(reviewId, refreshMatrix);
+        } catch (error) {
+            matrix = {review_id: reviewId, candidates: [], removed_page_matches: []};
+            matrixFailure = apiErrorMessage(error);
+        }
+    }
+    if (matrix && rawAttributeKeys === null) {
+        rawAttributeKeys = await api('/api/raw-attribute-keys').catch(() => null);
+    }
     if (selectedId !== reviewId) return;
     selectedDetail = detail;
     selectedMatrix = matrix;
+    selectedMatrixFailure = matrixFailure;
     selectedReviewUpdatedAt = detail.review.updated;
     selectedReviewStatus = detail.review.status;
     selectedReviewNeedsRefresh = false;
@@ -328,8 +370,9 @@ function renderDetail(detail, matrix) {
           <div class="review-title">
             <strong>${escapeHtml(review.listing_source_name || review.listing_source_id)}</strong>
             ${statusBadge(review.status)}
-            ${isWaitingForRepair(review) ? statusBadge('Waiting for repair') : ''}
+            ${repairBadge(review)}
             ${statusBadge(review.artifact_type)}
+            ${review.listing_source_crawl_enabled === false ? statusBadge('Source disabled') : ''}
           </div>
           <div class="review-meta">
             <span>${escapeHtml(displayName(review.reason))}</span>
@@ -337,9 +380,13 @@ function renderDetail(detail, matrix) {
             ${timeBadge(review.updated, 'Updated')}
           </div>
         </div>
-        ${renderApprovalPanel(review)}
+        ${renderApprovalPanel(detail)}
       </div>
+      ${renderHumanRequired(review)}
       ${renderRepairRequest(review)}
+      ${renderReviewEvents(detail)}
+      ${renderEditRefusal()}
+      ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`;
@@ -348,12 +395,19 @@ function renderDetail(detail, matrix) {
     updateReloadState();
 }
 
-function renderApprovalPanel(review) {
-    if (!review || review.status !== 'PENDING_REVIEW') {
-        if (review && review.status === 'APPROVED' && review.artifact_type === 'PRODUCT_SCHEMA') {
-            return `<div class="approval-actions">${statusBadge('Live schema editable')}</div>`;
-        }
-        return '';
+function renderApprovalPanel(detail) {
+    const review = detail.review;
+    if (review.status !== 'PENDING_REVIEW') {
+        if (review.status !== 'APPROVED') return '';
+        const live = review.artifact_type === 'PRODUCT_SCHEMA'
+            ? (detail.candidate_is_live
+                ? statusBadge('Live schema editable')
+                : '<span class="badge" title="The live schemas changed since this review was approved">Read-only: not the live schemas</span>')
+            : '';
+        const restore = approvalRestorable(detail)
+            ? '<button onclick="restoreApproval()" title="Bring back the live configuration this approval replaced">Restore previous</button>'
+            : '';
+        return live || restore ? `<div class="approval-actions">${live}${restore}</div>` : '';
     }
     return `<div class="approval-actions">
       <button class="primary" onclick="approveReview()">Approve</button>
@@ -362,8 +416,65 @@ function renderApprovalPanel(review) {
     </div>`;
 }
 
+// Edits go to a pending review's candidate, or to the live schema list through the one approved
+// review whose candidate is that list; the server refuses every other edit.
+function candidateEditable(detail) {
+    const review = detail?.review;
+    if (!review) return false;
+    if (review.status === 'PENDING_REVIEW') return true;
+    return review.status === 'APPROVED' && review.artifact_type === 'PRODUCT_SCHEMA' && Boolean(detail.candidate_is_live);
+}
+
+function renderCandidateEditHint(detail) {
+    const review = detail.review;
+    if (review.status === 'PENDING_REVIEW') return '';
+    if (review.status !== 'APPROVED') {
+        return '<div class="hint-card">This review is closed; its candidate is read-only.</div>';
+    }
+    return detail.candidate_is_live
+        ? '<div class="hint-card">This approved review holds the live schema list: saving a field or the schema list changes the live schemas at once.</div>'
+        : '<div class="hint-card">The live schemas changed since this review was approved, so it is read-only. Edit the review whose candidate is live.</div>';
+}
+
+// The server takes reviewer pages on pending and approved product-schema reviews.
+function reviewPagesEditable(review) {
+    return review?.artifact_type === 'PRODUCT_SCHEMA' && ['PENDING_REVIEW', 'APPROVED'].includes(review.status);
+}
+
+function pageRemovable(page) {
+    return Boolean(page) && REMOVABLE_PAGE_ROLES.has(page.role) && reviewPagesEditable(selectedDetail?.review);
+}
+
+function reviewPageLabel(page) {
+    let path = page.url;
+    try {
+        path = new URL(page.url).pathname;
+    } catch (_) {}
+    return `${displayName(page.role)}: ${path}`;
+}
+
 function isWaitingForRepair(review) {
     return review?.status === 'PENDING_REVIEW' && Boolean(review.repair_request);
+}
+
+// A review whose agent needs-repair rounds reached the cap waits for a human, which outranks
+// waiting for the repair the agents asked each other for.
+function repairBadge(review) {
+    if (review?.human_required) return statusBadge('Needs a human');
+    return isWaitingForRepair(review) ? statusBadge('Waiting for repair') : '';
+}
+
+function renderHumanRequired(review) {
+    if (!review?.human_required) return '';
+    const rounds = Number(review.agent_rounds) || 0;
+    return `<div class="review-card human-required-card">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>Needs a human</strong>
+          <span class="muted">The review agents gave ${escapeHtml(rounds)} needs-repair verdict${rounds === 1 ? '' : 's'} since a human last changed or judged this review and stopped working it. Edit it, change its pages or labels, or give needs-repair with what to do to hand it back to them; or approve or reject it.</span>
+        </div>
+      </div>
+    </div>`;
 }
 
 function renderRepairRequest(review) {
@@ -379,6 +490,85 @@ function renderRepairRequest(review) {
         ${timeBadge(request.requested, 'Repair requested')}
       </div>
     </div>`;
+}
+
+const REVIEW_EVENT_LABELS = {
+    CANDIDATE_EDITED: 'Candidate edited',
+    SCHEMA_FIELD_EDITED: 'Field edited',
+    PAGE_ADDED: 'Page added',
+    PAGE_REMOVED: 'Page removed',
+    REPAIR_REQUESTED: 'Repair requested',
+    APPROVED: 'Approved',
+    REJECTED: 'Rejected',
+    RESTORED: 'Restored'
+};
+
+// An approval whose event keeps what it made live can be restored once; the server also
+// refuses the restore once a newer change is live.
+function approvalRestorable(detail) {
+    const events = detail?.events || [];
+    const details = events.find(event => event.action === 'APPROVED')?.details || {};
+    const keepsWhatWentLive = details.approved_product_schemas !== undefined
+        || details.approved_url_pattern !== undefined;
+    return keepsWhatWentLive && !events.some(event => event.action === 'RESTORED');
+}
+
+// The review's event trail, newest first: each decision and edit with the actor that made it.
+function renderReviewEvents(detail) {
+    const events = detail?.events || [];
+    if (!events.length) return '';
+    return `<div class="review-card review-events-card">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>History</strong>
+          <span class="muted">Who changed this review: a human, the review agent or the crawler</span>
+        </div>
+      </div>
+      <ol class="review-events">${events.slice().reverse().map(renderReviewEvent).join('')}</ol>
+    </div>`;
+}
+
+function renderReviewEvent(event) {
+    const summary = reviewEventSummary(event);
+    return `<li class="review-event">
+      ${actorBadge(event.actor)}
+      <strong>${escapeHtml(REVIEW_EVENT_LABELS[event.action] || displayName(event.action))}</strong>
+      ${summary ? `<span class="muted">${escapeHtml(summary)}</span>` : ''}
+      ${event.notes ? `<span class="review-event-notes">${escapeHtml(event.notes)}</span>` : ''}
+      <span class="muted">version ${escapeHtml(event.candidate_version)}</span>
+      ${timeBadge(event.created, REVIEW_EVENT_LABELS[event.action] || displayName(event.action))}
+    </li>`;
+}
+
+function reviewEventSummary(event) {
+    const details = event.details || {};
+    const live = details.replaced_product_schemas !== undefined ? 'live schemas changed' : '';
+    switch (event.action) {
+        case 'CANDIDATE_EDITED':
+            if (details.sample_labels) return `sample labels: ${sampleLabelCountsText(details.sample_labels)}`;
+            return [details.removed_page_schemas_changed ? 'removed-page templates changed' : '', live].filter(Boolean).join('; ');
+        case 'SCHEMA_FIELD_EDITED':
+            return [`${schemaLabel(Number(details.schema_index) || 0)}: ${details.field || ''}`, live].filter(Boolean).join('; ');
+        case 'PAGE_ADDED':
+        case 'PAGE_REMOVED':
+            return details.url || '';
+        case 'APPROVED': {
+            const coverage = details.coverage;
+            if (coverage) return coverageText({...coverage, notEvaluated: coverage.not_evaluated});
+            return details.sample_labels ? `on sample labels: ${sampleLabelCountsText(labelCounts(details.sample_labels.labels))}` : '';
+        }
+        case 'RESTORED':
+            return details.replaced_url_pattern !== undefined
+                ? 'URL pattern the approval replaced is live again'
+                : 'schemas the approval replaced are live again';
+        default:
+            return '';
+    }
+}
+
+function actorBadge(actor) {
+    const kind = {AGENT_AUTHOR: 'agent', AGENT_REVIEWER: 'agent', SYSTEM: 'system'}[actor] || 'human';
+    return `<span class="badge badge-actor-${kind}">${escapeHtml(displayName(actor))}</span>`;
 }
 
 function autoSchemaEvaluation(review) {
@@ -409,7 +599,8 @@ function renderNonSchemaReview(review, urls) {
     return `<div class="review-card">
       <div class="tab-panel">
         ${renderUrlPatternEditor(review, urls)}
-        ${urls.length ? renderUrls(urls) : ''}
+        ${urls.length ? renderUrls(review, urls) : ''}
+        ${renderSampleLabels(review)}
         <h3>Candidate Payload</h3>
         <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
         <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
@@ -473,10 +664,174 @@ async function saveNoUrlPattern() {
     await saveUrlPatternDecision({type: 'NO_PATTERN'});
 }
 
-function renderUrls(urls) {
-    return `<h3>URL Pattern Preview</h3><div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Current</th><th>Candidate</th><th>Class</th></tr></thead><tbody>${
-        urls.map(u => `<tr><td>${linkifyText(u.url)}</td><td>${u.current_pattern_match}</td><td>${u.candidate_pattern_match}</td><td>${escapeHtml(u.candidate_class)}</td></tr>`).join('')
+function renderUrls(review, urls) {
+    const editable = sampleLabelsEditable(review);
+    const labels = currentSampleLabels(review);
+    return `<h3>URL Pattern Preview</h3><div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Current</th><th>Candidate</th><th>Class</th><th>Label</th></tr></thead><tbody>${
+        urls.map(u => {
+            const label = labels.find(l => l.url === u.url)?.label || '';
+            const cell = editable
+                ? renderSampleLabelSelect(label, `setSampleLabelOfUrl(${escapeHtmlAttr(JSON.stringify(u.url))}, this.value)`, true)
+                : (label ? statusBadge(label) : '');
+            return `<tr><td>${linkifyText(u.url)}</td><td>${u.current_pattern_match}</td><td>${u.candidate_pattern_match}</td><td>${escapeHtml(u.candidate_class)}</td><td>${cell}</td></tr>`;
+        }).join('')
     }</tbody></table></div>`;
+}
+
+const SAMPLE_URL_LABELS = ['PRODUCT', 'NOT_PRODUCT'];
+
+function sampleLabelsEditable(review) {
+    return review?.artifact_type === 'URL_PATTERN' && review.status === 'PENDING_REVIEW';
+}
+
+function storedSampleLabels(review) {
+    return review?.candidate_payload?.sample_labels || null;
+}
+
+// The labels shown: the unsaved edit, or else the candidate's stored labels.
+function currentSampleLabels(review) {
+    if (sampleLabelDraft) return sampleLabelDraft;
+    return (storedSampleLabels(review)?.labels || []).map(label => ({...label}));
+}
+
+function labelCounts(labels) {
+    const list = Array.isArray(labels) ? labels : [];
+    return {
+        product: list.filter(l => l.label === 'PRODUCT').length,
+        not_product: list.filter(l => l.label === 'NOT_PRODUCT').length
+    };
+}
+
+function sampleLabelCountsText(counts) {
+    return `${counts?.product ?? 0} PRODUCT, ${counts?.not_product ?? 0} NOT_PRODUCT`;
+}
+
+function renderSampleLabelSelect(selected, onchange, allowNone) {
+    const options = (allowNone ? [''] : []).concat(SAMPLE_URL_LABELS);
+    return `<select onchange="${onchange}">${options.map(value =>
+        `<option value="${escapeHtmlAttr(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value || '-')}</option>`
+    ).join('')}</select>`;
+}
+
+// Whether the decision in the pattern input takes `url`, as the browser previews it; the server
+// matches the crawler's spelling of the URL when it checks an agent approval.
+function decisionPreviewTakes(url) {
+    const pattern = document.getElementById('urlPatternInput')?.value?.trim()
+        || (urlPatternDecision(selectedDetail?.review).type === 'PATTERN' ? urlPatternDecision(selectedDetail.review).value : '');
+    if (!pattern) return null;
+    try {
+        return new RegExp(pattern).test(url);
+    } catch (_) {
+        return null;
+    }
+}
+
+// The author agent's or a human's labels of URLs of the review's domain, its sample's among
+// them: which are product pages. An agent approval of the pattern rests on them alone; the
+// reviewer agent cannot change them.
+function renderSampleLabels(review) {
+    if (review.artifact_type !== 'URL_PATTERN') return '';
+    const stored = storedSampleLabels(review);
+    const labels = currentSampleLabels(review);
+    const editable = sampleLabelsEditable(review);
+    const counts = labelCounts(labels);
+    const status = sampleLabelDraft
+        ? 'unsaved label edits'
+        : (stored ? `set ${timeBadge(stored.labelled_at, 'Labelled')}` : 'no labels yet');
+    const rows = labels.map((label, index) => {
+        const takes = decisionPreviewTakes(label.url);
+        const takesText = takes === null ? '' : (takes ? 'yes' : 'no');
+        const consistent = takes === null || takes === (label.label === 'PRODUCT');
+        return `<tr>
+          <td>${linkifyText(label.url)}</td>
+          <td>${editable ? renderSampleLabelSelect(label.label, `setSampleLabelKind(${index}, this.value)`, false) : statusBadge(label.label)}</td>
+          <td>${editable
+            ? `<input value="${escapeHtmlAttr(label.reason || '')}" placeholder="Why" oninput="setSampleLabelReason(${index}, this.value)">`
+            : escapeHtml(label.reason || '')}</td>
+          <td>${consistent ? escapeHtml(takesText) : statusBadge(`${takesText}: inconsistent`)}</td>
+          <td>${editable ? `<button onclick="removeSampleLabel(${index})">Remove</button>` : ''}</td>
+        </tr>`;
+    }).join('');
+    const adder = editable ? `<div class="actions">
+        <input id="sampleLabelUrl" placeholder="Another URL of the review's domain">
+        ${renderSampleLabelSelect('PRODUCT', '', false).replace('<select', '<select id="sampleLabelKind"')}
+        <input id="sampleLabelReason" placeholder="Why">
+        <button onclick="addSampleLabel()">Add label</button>
+      </div>
+      <div class="actions"><button class="primary" onclick="saveSampleLabels()">Save labels</button></div>` : '';
+    return `<h3>Sample Labels</h3>
+      <div class="hint-card">${escapeHtml(sampleLabelCountsText(counts))} (${status}). The reviewer agent's approval needs enough labels of each and a decision that takes every PRODUCT URL and no NOT_PRODUCT URL; schema.org Product markup decides nothing.</div>
+      ${labels.length ? `<div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Label</th><th>Reason</th><th>Decision takes it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+      ${adder}`;
+}
+
+function editSampleLabels(edit) {
+    const labels = currentSampleLabels(selectedDetail.review);
+    edit(labels);
+    sampleLabelDraft = labels;
+    markDirty();
+    rerenderWorkbench();
+}
+
+function setSampleLabelOfUrl(url, label) {
+    editSampleLabels(labels => {
+        const index = labels.findIndex(l => l.url === url);
+        if (!label) {
+            if (index >= 0) labels.splice(index, 1);
+        } else if (index >= 0) {
+            labels[index].label = label;
+        } else {
+            labels.push({url, label, reason: ''});
+        }
+    });
+}
+
+function setSampleLabelKind(index, label) {
+    editSampleLabels(labels => {
+        if (labels[index]) labels[index].label = label;
+    });
+}
+
+// Typing a reason keeps the input focused, so it changes the draft without rendering again.
+function setSampleLabelReason(index, reason) {
+    const labels = currentSampleLabels(selectedDetail.review);
+    if (!labels[index]) return;
+    labels[index].reason = reason;
+    sampleLabelDraft = labels;
+    markDirty();
+}
+
+function removeSampleLabel(index) {
+    editSampleLabels(labels => labels.splice(index, 1));
+}
+
+function addSampleLabel() {
+    const url = document.getElementById('sampleLabelUrl')?.value?.trim();
+    if (!url) return;
+    const label = document.getElementById('sampleLabelKind')?.value || 'PRODUCT';
+    const reason = document.getElementById('sampleLabelReason')?.value || '';
+    editSampleLabels(labels => {
+        const index = labels.findIndex(l => l.url === url);
+        if (index >= 0) labels.splice(index, 1);
+        labels.push({url, label, reason});
+    });
+}
+
+// The labels replace the candidate's labels as a whole, based on the candidate version shown; the
+// server checks each URL and reason and refuses the save with a message otherwise.
+async function saveSampleLabels() {
+    const labels = currentSampleLabels(selectedDetail.review)
+        .map(({url, label, reason}) => ({url, label, reason}));
+    await submitEdit(async () => {
+        const saved = await api(`/api/reviews/${selectedId}/sample-labels`, {
+            method: 'POST',
+            body: JSON.stringify({expected_candidate_version: expectedCandidateVersion(), labels})
+        });
+        recordSavedCandidateVersion(saved);
+        sampleLabelDraft = null;
+        await loadSelectedReview(false);
+        await loadReviews();
+    });
 }
 
 function renderSchemaWorkbench(detail, matrix) {
@@ -495,14 +850,16 @@ function renderSchemaWorkbench(detail, matrix) {
           </div>
           <div class="toolbar">
             <select onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
-              ${pages.map(p => `<option value="${p.review_page_id}" ${p.review_page_id === selectedPageId ? 'selected' : ''}>${escapeHtml(p.role)}</option>`).join('')}
+              ${pages.map(p => `<option value="${p.review_page_id}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
             </select>
+            <button ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay">Remove page</button>
           </div>
         </div>
         <div class="live-url-bar">
           <input id="livePreviewUrl" value="${escapeHtmlAttr(previewUrl)}" placeholder="https://example.com/product" onkeydown="if(event.key==='Enter') loadPreviewUrl()">
           <button onclick="loadPreviewUrl()">Open URL</button>
           <button ${page ? '' : 'disabled'} onclick="resetPreviewUrl()">Use review URL</button>
+          <button ${reviewPagesEditable(detail.review) ? '' : 'disabled'} onclick="addReviewPage()" title="Fetches this URL of the ListingSource and adds it to the review pages, so the matrix evaluates every schema on it">Add to review pages</button>
         </div>
         ${previewUrl ? `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>` : ''}
       </div>
@@ -550,8 +907,10 @@ function renderWorkbenchPanel(detail, matrix, schemas) {
 function renderSelectorPanel(schemas, matrix) {
     const rule = currentRule();
     const matrixPage = currentMatrixPage(matrix);
+    const disabled = candidateEditable(selectedDetail) ? '' : 'disabled';
     return `<div class="tab-panel">
-      ${renderSchemaOrderControls(schemas)}
+      ${renderCandidateEditHint(selectedDetail)}
+      ${renderSchemaOrderControls(schemas, disabled)}
       <div class="field-grid">
         <label>Schema
           <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
@@ -560,16 +919,17 @@ function renderSelectorPanel(schemas, matrix) {
         </label>
         <label>Field
           <select onchange="selectedField=this.value; rerenderWorkbench()">
-            ${selectorFields.map(field => `<option value="${field}" ${field === selectedField ? 'selected' : ''}>${displayName(field)}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
+            ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
           </select>
         </label>
       </div>
+      ${renderRawAttributeAdder(disabled)}
       <div>
         <h3>Selected Selector</h3>
         <div class="selector-box">
           <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
-          <button class="primary" onclick="saveCurrentField()">Save field</button>
-          <button class="danger" ${optionalFields.has(selectedField) ? '' : 'disabled'} onclick="deleteCurrentRule()">Delete rule</button>
+          <button class="primary" ${disabled} onclick="saveCurrentField()">Save field</button>
+          <button class="danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()">Delete rule</button>
         </div>
         ${renderSelectedFieldFindings(matrixPage)}
       </div>
@@ -579,13 +939,43 @@ function renderSelectorPanel(schemas, matrix) {
         <button onclick="applyPickedSelector()">Use clicked element</button>
         <button onclick="postHighlight(currentSelector())">Highlight field</button>
         <button onclick="postHighlightSchema()">Highlight schema</button>
-        <button onclick="reloadMatrix()">Re-evaluate</button>
+        <button onclick="reevaluateMatrix()">Re-evaluate</button>
         <button onclick="discardEdits()">Discard edits</button>
       </div>
       <div class="picked" id="pickedElement">No element picked yet.</div>
       <h3>Schema Highlight Legend</h3>
       ${renderSchemaLegend(currentSchema())}
     </div>`;
+}
+
+// Raw attribute keys come from the crawler's registry: an edit may add only those, while a key
+// the candidate already holds stays editable and removable.
+function renderRawAttributeAdder(disabled) {
+    const configured = new Set(Object.keys(currentSchema().raw_attributes || {}));
+    const available = (rawAttributeKeys || []).filter(entry => !configured.has(entry.key));
+    if (!available.length) return '';
+    const groups = [...new Set(available.map(entry => entry.group))];
+    return `<div class="raw-attribute-adder">
+      <label>Raw attribute
+        <select id="newRawAttributeKey" ${disabled}>
+          ${groups.map(group => `<optgroup label="${escapeHtmlAttr(displayName(group))}">${
+            available.filter(entry => entry.group === group).map(entry =>
+                `<option value="${escapeHtmlAttr(entry.key)}" title="${escapeHtmlAttr(entry.description)}">${escapeHtml(entry.key)}</option>`
+            ).join('')}</optgroup>`).join('')}
+        </select>
+      </label>
+      <button ${disabled} onclick="addRawAttribute()" title="Starts from the clicked element when one is picked; save the field to store it">Add raw attribute</button>
+    </div>`;
+}
+
+function addRawAttribute() {
+    const select = document.getElementById('newRawAttributeKey');
+    if (!select || !select.value) return;
+    selectedField = RAW_ATTRIBUTE_FIELD_PREFIX + select.value;
+    const rule = ensureCurrentRule();
+    if (pickedSelector) rule.selector = pickedSelector;
+    markDirty();
+    rerenderWorkbench();
 }
 
 function renderRuleOptions(rule) {
@@ -617,7 +1007,7 @@ function renderRuleOptions(rule) {
     </div>`;
 }
 
-function renderSchemaOrderControls(schemas) {
+function renderSchemaOrderControls(schemas, disabled) {
     if (!schemas.length) return '<div class="hint-card">No schemas available for ordering.</div>';
     return `<div class="schema-order-card">
       <div>
@@ -628,14 +1018,16 @@ function renderSchemaOrderControls(schemas) {
         ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
       </div>
       <div class="schema-order-actions">
-        <button ${selectedSchemaIndex === 0 ? 'disabled' : ''} onclick="moveCurrentSchema(-1)">Move up</button>
-        <button ${selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : ''} onclick="moveCurrentSchema(1)">Move down</button>
-        <button onclick="addNewSchema()">Add schema</button>
-        <button class="danger" ${schemas.length <= 1 ? 'disabled' : ''} onclick="deleteCurrentSchema()">Delete schema</button>
+        <button ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)">Move up</button>
+        <button ${disabled || (selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : '')} onclick="moveCurrentSchema(1)">Move down</button>
+        <button ${disabled} onclick="addNewSchema()" title="Adds a copy of the selected schema to rewrite for another template">Add schema</button>
+        <button class="danger" ${disabled || (schemas.length <= 1 ? 'disabled' : '')} onclick="deleteCurrentSchema()">Delete schema</button>
       </div>
     </div>`;
 }
 
+// The handlers let postHighlight name the selected field: a raw attribute key comes from the
+// candidate, and HTML escaping does not make it safe inside an inline handler's JS string.
 function renderAdditionalSelectors(rule) {
     const additional = (rule && Array.isArray(rule.additional_selectors)) ? rule.additional_selectors : [];
     return `<div class="additional-selector-card">
@@ -646,9 +1038,9 @@ function renderAdditionalSelectors(rule) {
       <div class="additional-selector-list">
         ${additional.length ? additional.map((selector, index) => `
           <div class="additional-selector-row">
-            <input value="${escapeHtmlAttr(selector)}" oninput="setAdditionalSelector(${index}, this.value); postHighlight(this.value, '${escapeHtmlAttr(displayName(selectedField))}')">
+            <input value="${escapeHtmlAttr(selector)}" oninput="setAdditionalSelector(${index}, this.value); postHighlight(this.value)">
             <button onclick="usePickedForAdditionalSelector(${index})">Use clicked</button>
-            <button onclick="postHighlight(additionalSelectorAt(${index}), '${escapeHtmlAttr(displayName(selectedField))}')">Highlight</button>
+            <button onclick="postHighlight(additionalSelectorAt(${index}))">Highlight</button>
             <button class="danger" onclick="removeAdditionalSelector(${index})">Delete</button>
           </div>`).join('') : '<div class="muted">No additional selectors configured.</div>'}
       </div>
@@ -723,7 +1115,6 @@ function renderRemovedPagePanel(detail, matrix) {
         <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>
         <button ${disabled} onclick="discardEdits()">Discard edits</button>
       </div>
-      ${renderRemovedPageTemplateRefusal()}
       <div class="picked" id="pickedElement">${pickedSelector ? `<strong>${escapeHtml(pickedSelector)}</strong>` : 'No element picked yet.'}</div>
       <h3>Matched review pages</h3>
       ${renderRemovedPageMatches(matrix, templates)}
@@ -825,22 +1216,70 @@ function removeRemovedPageTemplate(index) {
     rerenderWorkbench();
 }
 
-// The server validates templates under the generated contract; its refusal stays on the
-// panel with the unsaved edits so the reviewer can correct them.
 async function saveRemovedPageTemplates() {
+    await saveCandidatePayload(schemasPayload());
+}
+
+// The server refuses an edit or a verdict with a message (an invalid rule or template, a stale
+// approved review, a page outside the ListingSource, a closed review, incomplete coverage); it
+// stays above the workbench with the unsaved edits so the reviewer can correct them. Returns
+// whether the request went through.
+async function submitEdit(edit) {
     const reviewId = selectedId;
-    removedPageTemplateRefusal = null;
+    editRefusal = null;
     try {
-        await saveCandidatePayload(schemasPayload());
+        await edit();
+        return true;
     } catch (error) {
-        removedPageTemplateRefusal = {reviewId, message: apiErrorMessage(error)};
-        rerenderWorkbench();
+        editRefusal = {reviewId, message: apiErrorMessage(error)};
+        const currentVersion = changedCandidateVersion(error);
+        if (currentVersion !== null && selectedId === reviewId) {
+            selectedReviewNeedsRefresh = true;
+            selectedReviewRefreshReason = `The candidate changed elsewhere and is at version ${currentVersion}; your edits are not saved. Refresh the review and apply them again.`;
+        }
+        const coverage = refusedCoverage(error);
+        if (coverage && selectedId === reviewId) {
+            selectedReviewNeedsRefresh = true;
+            selectedReviewRefreshReason = `Not approved: the review's coverage is ${coverageText({...coverage, notEvaluated: coverage.not_evaluated})}. Refresh the review and confirm its current coverage.`;
+        }
+        if (selectedDetail && selectedId === reviewId) rerenderWorkbench();
+        return false;
     }
 }
 
-function renderRemovedPageTemplateRefusal() {
-    if (!removedPageTemplateRefusal || removedPageTemplateRefusal.reviewId !== selectedId) return '';
-    return `<div class="hint-card finding-hint"><span>${escapeHtml(removedPageTemplateRefusal.message)}</span></div>`;
+// Every candidate edit names the candidate version it was based on, so the server refuses it
+// once another writer has changed the candidate.
+function expectedCandidateVersion() {
+    return selectedDetail.review.candidate_version;
+}
+
+// The saved edit is the candidate version the next edit builds on, even when reloading the
+// review afterwards fails.
+function recordSavedCandidateVersion(saved) {
+    dirty = false;
+    if (selectedDetail && Number.isInteger(saved?.candidate_version)) {
+        selectedDetail.review.candidate_version = saved.candidate_version;
+    }
+}
+
+function renderMatrixNotice(detail, matrix) {
+    if (selectedMatrixFailure) {
+        return `<div class="hint-card finding-hint">
+          <span>No schema matrix: ${escapeHtml(selectedMatrixFailure)}</span>
+          <button onclick="reevaluateMatrix()">Re-evaluate</button>
+        </div>`;
+    }
+    const unevaluated = unevaluatedReviewPages(detail, matrix);
+    if (!unevaluated.length) return '';
+    return `<div class="hint-card">
+      <span>Not evaluated: ${unevaluated.length === 1 ? 'a page was' : `${unevaluated.length} pages were`} added to the review while this matrix was evaluated (${unevaluated.map(page => escapeHtml(reviewPageLabel(page))).join(', ')}).</span>
+      <button onclick="reevaluateMatrix()">Re-evaluate</button>
+    </div>`;
+}
+
+function renderEditRefusal() {
+    if (!editRefusal || editRefusal.reviewId !== selectedId) return '';
+    return `<div class="hint-card finding-hint"><span>${escapeHtml(editRefusal.message)}</span></div>`;
 }
 
 function apiErrorMessage(error) {
@@ -860,7 +1299,7 @@ function renderJsonPanel(detail) {
       </div>
       <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(detail.review.candidate_payload, null, 2))}</textarea>
       <div class="actions">
-        <button onclick="saveCandidate()">Save full JSON</button>
+        <button ${candidateEditable(detail) ? '' : 'disabled'} onclick="saveCandidate()">Save full JSON</button>
         <button onclick="discardEdits()">Discard edits</button>
       </div>
       <h3>Validation</h3>
@@ -868,18 +1307,86 @@ function renderJsonPanel(detail) {
     </div>`;
 }
 
+// The review pages the candidate resolves, out of every review page, counted as the server
+// counts them on approval: a page the removed-page templates capture as removed, or else one at
+// least one schema applies to. A review page the matrix did not evaluate is not covered until the
+// next evaluation, and without a matrix no page is evaluated.
+function reviewPageCoverage(detail, matrix) {
+    const evaluatedPages = matrix?.candidates?.[0]?.pages || [];
+    const coverage = {covered: 0, removed: 0, total: 0, notEvaluated: 0};
+    for (const page of detail?.pages || []) {
+        coverage.total += 1;
+        const evaluation = evaluatedPages.find(evaluated => evaluatesReviewPage(evaluated, page));
+        if (!evaluation) {
+            coverage.notEvaluated += 1;
+        } else if (capturedAsRemoved(matrix, evaluation.page_reference)) {
+            coverage.covered += 1;
+            coverage.removed += 1;
+        } else if (pageCovered(matrix, evaluation.page_reference)) {
+            coverage.covered += 1;
+        }
+    }
+    return coverage;
+}
+
+// A live matrix names a review page by its id; a generated matrix names the pages it was
+// generated from by position, stored as the review's pages under the same URL.
+function evaluatesReviewPage(evaluation, page) {
+    const reference = evaluation.page_reference || {};
+    if (reference.kind === 'persisted') return reference.review_page_id === page.review_page_id;
+    return reference.kind === 'input' && evaluation.url === page.url;
+}
+
+// The candidate's removed-page templates match the page and no candidate schema still extracts
+// it, so the scraper captures it as removed once the candidate is live.
+function capturedAsRemoved(matrix, pageReference) {
+    const referenceKey = pageReferenceKey(pageReference);
+    return referenceKey !== '' && (matrix.removed_page_matches || []).some(match =>
+        match.outcome === 'REMOVED' && pageReferenceKey(match.page_reference) === referenceKey
+    );
+}
+
+// A review without pages shows nothing the candidate extracts, so its coverage is never complete.
+function coverageComplete({covered, total}) {
+    return total > 0 && covered === total;
+}
+
+function coverageText({covered, removed, total, notEvaluated}) {
+    const resolved = removed
+        ? ` (${covered - removed} by a schema, ${removed} captured as removed)`
+        : ' by at least one schema';
+    return `${covered} / ${total} live page${total === 1 ? '' : 's'} covered${resolved}${notEvaluated ? `; ${notEvaluated} not evaluated` : ''}`;
+}
+
+// The coverage an approval acknowledges, as the server reports it in a refusal.
+function acknowledgedCoverage({covered, removed, total, notEvaluated}) {
+    return {covered, removed, total, not_evaluated: notEvaluated};
+}
+
+// A 409 that carries `coverage` refused an approval because the review's coverage is not the one
+// the console showed and the reviewer confirmed; the reviewer reloads the review to see it.
+function refusedCoverage(error) {
+    if (error?.status !== 409) return null;
+    try {
+        const coverage = JSON.parse(error.message).coverage;
+        return coverage && Number.isInteger(coverage.total) ? coverage : null;
+    } catch (_) {
+        return null;
+    }
+}
+
 function renderCoverageSummary(matrix) {
     if (!matrix || !matrix.candidates || !matrix.candidates.length) {
         return '<div class="muted">No schema coverage data available.</div>';
     }
-    const pageRefs = matrix.candidates[0].pages || [];
-    const covered = pageRefs.filter(page => pageCovered(matrix, page.page_reference)).length;
+    const coverage = reviewPageCoverage(selectedDetail, matrix);
+    const scope = coverage.notEvaluated ? 'evaluated' : 'live';
     const failures = currentCandidateFailures(matrix);
     return `<div class="hint-card">
       <strong>Coverage</strong>
-      <div>${covered} / ${pageRefs.length} live page${pageRefs.length === 1 ? '' : 's'} covered by at least one schema.</div>
-      ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : '<div class="muted">Selected schema applied to every live page.</div>'}
-      ${renderSchemasApplyingToNoPage(matrix)}
+      <div>${coverageText(coverage)}.</div>
+      ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : `<div class="muted">Selected schema applied to every ${scope} page.</div>`}
+      ${renderSchemasApplyingToNoPage(matrix, scope)}
       ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
       ${renderSkippedElementSummary(currentCandidatePagesWithSkippedElements(matrix))}
       ${renderPlausibilitySummary(matrix)}
@@ -913,7 +1420,7 @@ function pageFindings(page) {
 }
 
 function fieldFindings(page, field) {
-    return pageFindings(page).filter(finding => finding.field === field);
+    return pageFindings(page).filter(finding => finding.field === fieldKey(field));
 }
 
 function findingDescription(finding) {
@@ -1085,12 +1592,12 @@ function pageCovered(matrix, pageReference) {
 // Schemas that apply to no live review page. The reviewer retires a schema whose template the
 // shop no longer uses by deleting it from the candidate; another page of its template, added to
 // the review, shows whether it is still needed.
-function renderSchemasApplyingToNoPage(matrix) {
+function renderSchemasApplyingToNoPage(matrix, scope) {
     const unused = matrix.candidates
         .filter(candidate => (candidate.pages || []).length && candidate.pages.every(page => !page.apply_ok))
         .map(candidate => escapeHtml(schemaLabel(candidate.schema_index)));
     if (!unused.length) return '';
-    return `<div class="muted">Applies to no live page: ${unused.join(', ')}. Add a page of its template, or delete the schema once the shop no longer uses that template.</div>`;
+    return `<div class="muted">Applies to no ${scope} page: ${unused.join(', ')}. Add a page of its template, or delete the schema once the shop no longer uses that template.</div>`;
 }
 
 function currentCandidateFailures(matrix) {
@@ -1140,10 +1647,24 @@ function renderOptionalFieldMisses(misses) {
         + (empty.length ? `<div class="muted">Rule matched only empty elements, field left empty: ${fieldList(empty)}</div>` : '');
 }
 
+// A live matrix names the review pages it evaluated and leaves out a page that joined while it
+// was evaluated; a generated one references the pages it was given by position.
 function selectedMatrixPage(candidate) {
-    return (candidate.pages || []).find(page =>
-        pageReferenceKey(page.page_reference) === `persisted:${selectedPageId}`
-    ) || (candidate.pages || [])[0] || null;
+    const pages = candidate.pages || [];
+    const selected = pages.find(page => pageReferenceKey(page.page_reference) === `persisted:${selectedPageId}`);
+    if (selected) return selected;
+    return isLiveMatrixCandidate(candidate) ? null : pages[0] || null;
+}
+
+function isLiveMatrixCandidate(candidate) {
+    return (candidate.pages || []).some(page => page.page_reference?.kind === 'persisted');
+}
+
+function unevaluatedReviewPages(detail, matrix) {
+    const candidate = (matrix.candidates || [])[0];
+    if (!candidate || !isLiveMatrixCandidate(candidate)) return [];
+    const evaluated = new Set(candidate.pages.map(page => pageReferenceKey(page.page_reference)));
+    return (detail.pages || []).filter(page => !evaluated.has(`persisted:${page.review_page_id}`));
 }
 
 function selectedCandidate(matrix) {
@@ -1187,7 +1708,7 @@ function renderSchemaDiff(current, compare) {
             const right = normalizeRuleValue(schemaFieldValue(compare, field));
             const status = diffStatus(left, right);
             return `<div class="diff-row">
-              <div class="diff-field">${escapeHtml(displayName(field))}</div>
+              <div class="diff-field">${escapeHtml(fieldLabel(field))}</div>
               ${statusBadge(status)}
               <div class="diff-values">
                 <div class="diff-value"><span class="diff-label">Selected</span>${expandableValue(left || 'not configured')}</div>
@@ -1295,8 +1816,19 @@ async function reloadMatrix() {
     await loadReviews();
 }
 
+// Re-evaluating reloads the review's candidate, so it asks before discarding unsaved edits,
+// and with them a refusal of those edits.
+async function reevaluateMatrix() {
+    if (!confirmDiscardingEdits()) return;
+    editRefusal = null;
+    await reloadMatrix();
+}
+
+// Loading the current review discards the local edits, and with them a refusal of those edits.
 async function refreshSelectedReview() {
     dirty = false;
+    sampleLabelDraft = null;
+    editRefusal = null;
     await loadSelectedReview(false);
     await loadReviews();
 }
@@ -1316,7 +1848,36 @@ function currentSchema() {
 }
 
 function currentRule() {
-    return currentSchema()[selectedField] || null;
+    return schemaFieldValue(currentSchema(), selectedField) || null;
+}
+
+function isRawAttributeField(field) {
+    return field.startsWith(RAW_ATTRIBUTE_FIELD_PREFIX);
+}
+
+// The key of a field in its schema object, and in the matrix: a raw attribute's registry key.
+function fieldKey(field) {
+    return isRawAttributeField(field) ? field.slice(RAW_ATTRIBUTE_FIELD_PREFIX.length) : field;
+}
+
+function fieldLabel(field) {
+    return isRawAttributeField(field) ? `Raw attribute ${fieldKey(field)}` : displayName(field);
+}
+
+function fieldDeletable(field) {
+    return optionalFields.has(field) || isRawAttributeField(field);
+}
+
+function fieldHighlightColor(field) {
+    return isRawAttributeField(field) ? rawAttributeHighlightColor : (schemaHighlightColors[field] || '#2563eb');
+}
+
+// The core fields, then the raw attributes the schema configures.
+function schemaFields(schema) {
+    return [
+        ...selectorFields,
+        ...Object.keys(schema.raw_attributes || {}).sort().map(key => RAW_ATTRIBUTE_FIELD_PREFIX + key)
+    ];
 }
 
 function currentSelector() {
@@ -1359,11 +1920,15 @@ function defaultSchema() {
 function ensureCurrentRule() {
     const payload = schemasPayload();
     payload.schemas = payload.schemas || [];
-    payload.schemas[selectedSchemaIndex] = payload.schemas[selectedSchemaIndex] || defaultSchema();
-    payload.schemas[selectedSchemaIndex][selectedField] = payload.schemas[selectedSchemaIndex][selectedField] || defaultRuleFor(selectedField);
-    payload.schemas[selectedSchemaIndex][selectedField].additional_selectors = payload.schemas[selectedSchemaIndex][selectedField].additional_selectors || [];
+    const schema = payload.schemas[selectedSchemaIndex] = payload.schemas[selectedSchemaIndex] || defaultSchema();
+    const rules = isRawAttributeField(selectedField)
+        ? (schema.raw_attributes = schema.raw_attributes || {})
+        : schema;
+    const key = fieldKey(selectedField);
+    rules[key] = rules[key] || defaultRuleFor(selectedField);
+    rules[key].additional_selectors = rules[key].additional_selectors || [];
     selectedDetail.review.candidate_payload = payload;
-    return payload.schemas[selectedSchemaIndex][selectedField];
+    return rules[key];
 }
 
 function applyPickedSelector() {
@@ -1440,28 +2005,61 @@ function usePickedForAdditionalSelector(index) {
 }
 
 async function saveCurrentField() {
-    const rule = (schemasPayload().schemas[selectedSchemaIndex] || {})[selectedField] || null;
-    await api(`/api/reviews/${selectedId}/schema-field`, {
-        method: 'POST',
-        body: JSON.stringify({schema_index: selectedSchemaIndex, field: selectedField, rule})
-    });
-    dirty = false;
-    await loadSelectedReview(false, true);
-    await loadReviews();
+    const rule = schemaFieldValue(schemasPayload().schemas[selectedSchemaIndex], selectedField) || null;
+    await saveSchemaField(rule);
 }
 
 async function deleteCurrentRule() {
-    if (!optionalFields.has(selectedField)) return;
-    await api(`/api/reviews/${selectedId}/schema-field`, {
-        method: 'POST',
-        body: JSON.stringify({schema_index: selectedSchemaIndex, field: selectedField, rule: null})
-    });
-    dirty = false;
-    await loadSelectedReview(false, true);
-    await loadReviews();
+    if (!fieldDeletable(selectedField)) return;
+    await saveSchemaField(null);
 }
 
-function postHighlight(selector, label = displayName(selectedField), color = schemaHighlightColors[selectedField] || '#2563eb') {
+async function saveSchemaField(rule) {
+    await submitEdit(async () => {
+        const saved = await api(`/api/reviews/${selectedId}/schema-field`, {
+            method: 'POST',
+            body: JSON.stringify({
+                expected_candidate_version: expectedCandidateVersion(),
+                schema_index: selectedSchemaIndex,
+                field: selectedField,
+                rule
+            })
+        });
+        recordSavedCandidateVersion(saved);
+        await loadSelectedReview(false, true);
+        await loadReviews();
+    });
+}
+
+// Re-evaluating the matrix, or adding or removing a review page, reloads the review and
+// evaluates the matrix on its page set, so unsaved edits would be lost.
+function confirmDiscardingEdits() {
+    return !dirty || confirm('Discard the unsaved edits of this review?');
+}
+
+async function addReviewPage() {
+    const input = document.getElementById('livePreviewUrl');
+    const url = ((input && input.value) || '').trim();
+    if (!url || !confirmDiscardingEdits()) return;
+    await submitEdit(async () => {
+        const page = await api(`/api/reviews/${selectedId}/pages`, {method: 'POST', body: JSON.stringify({url})});
+        selectedPageId = page.review_page_id;
+        previewUrlOverride = '';
+        await reloadMatrix();
+    });
+}
+
+async function removeReviewPage() {
+    const page = (selectedDetail.pages || []).find(p => p.review_page_id === selectedPageId);
+    if (!pageRemovable(page) || !confirmDiscardingEdits() || !confirm(`Remove ${page.url} from the review pages?`)) return;
+    await submitEdit(async () => {
+        await api(`/api/review-pages/${page.review_page_id}`, {method: 'DELETE'});
+        selectedPageId = null;
+        await reloadMatrix();
+    });
+}
+
+function postHighlight(selector, label = fieldLabel(selectedField), color = fieldHighlightColor(selectedField)) {
     const frame = document.getElementById('snapshotFrame');
     if (frame && frame.contentWindow) frame.contentWindow.postMessage({
         type: 'crawler-review-highlight-selector',
@@ -1493,7 +2091,7 @@ function schemaHighlightRules(schema) {
         if (!rule || !rule.selector) continue;
         const selectors = [rule.selector].concat(rule.additional_selectors || []).filter(Boolean);
         if (!selectors.length) continue;
-        rules.push({field: displayName(field), selectors, color: rawAttributeHighlightColor});
+        rules.push({field: fieldLabel(RAW_ATTRIBUTE_FIELD_PREFIX + field), selectors, color: rawAttributeHighlightColor});
     }
     return rules;
 }
@@ -1504,45 +2102,80 @@ function postHighlightSoon() {
     }, 350);
 }
 
+// A product-schema candidate that does not cover every review page is approved only once the
+// reviewer confirms the counts; the approval names them, and the server refuses it without them
+// or once the review's coverage differs from them. Cancelling either dialog sends no verdict.
 async function approveReview() {
-    await api(`/api/reviews/${selectedId}/approve`, {
-        method: 'POST',
-        body: JSON.stringify({notes: prompt('Notes') || null})
-    });
-    await loadReviews();
-    await loadSelectedReview(false);
+    const coverage = selectedDetail?.review.artifact_type === 'PRODUCT_SCHEMA'
+        ? reviewPageCoverage(selectedDetail, selectedMatrix)
+        : null;
+    const incompleteCoverage = coverage !== null && !coverageComplete(coverage);
+    if (incompleteCoverage && !confirm(`Coverage is incomplete: ${coverageText(coverage)}.\n\nApprove this candidate anyway?`)) return;
+    const notes = prompt('Notes');
+    if (notes === null) return;
+    const verdict = {notes: notes || null, expected_candidate_version: expectedCandidateVersion()};
+    if (incompleteCoverage) verdict.acknowledged_coverage = acknowledgedCoverage(coverage);
+    await submitVerdict('approve', verdict);
+}
+
+// Brings back what this review's approval replaced, while what it made live is still live.
+// Cancelling either dialog sends nothing.
+async function restoreApproval() {
+    const what = selectedDetail?.review.artifact_type === 'URL_PATTERN'
+        ? 'the URL pattern'
+        : 'the schema list and removed-page templates';
+    if (!confirm(`Restore ${what} this approval replaced? Pages waiting on a review are retried with it.`)) return;
+    const notes = prompt('Why restore?');
+    if (notes === null) return;
+    await submitVerdict('restore', {notes: notes || null});
 }
 
 async function rejectReview() {
-    await api(`/api/reviews/${selectedId}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({notes: prompt('Notes') || null})
-    });
-    await loadReviews();
-    await loadSelectedReview(false);
+    const notes = prompt('Notes');
+    if (notes === null) return;
+    await submitVerdict('reject', {notes: notes || null});
 }
 
 async function needsRepair() {
     const notes = (prompt('What needs repair?') || '').trim();
     if (!notes) return;
-    await api(`/api/reviews/${selectedId}/needs-repair`, {
+    await submitVerdict('needs-repair', {notes});
+}
+
+// A refused verdict leaves the review on screen as it was and shows why; only an accepted one
+// reloads the review and the queue.
+async function submitVerdict(verdict, body) {
+    const reviewId = selectedId;
+    const decided = await submitEdit(() => api(`/api/reviews/${reviewId}/${verdict}`, {
         method: 'POST',
-        body: JSON.stringify({notes})
-    });
+        body: JSON.stringify(body)
+    }));
+    if (!decided) return;
     await loadReviews();
     await loadSelectedReview(false);
 }
 
 async function saveCandidate() {
-    const payload = JSON.parse(document.getElementById('candidatePayload').value);
-    await saveCandidatePayload(payload);
+    await submitEdit(async () => {
+        const payload = JSON.parse(document.getElementById('candidatePayload').value);
+        await saveCandidatePayload(payload);
+    });
 }
 
+// The edited payload stays the local candidate, so a refused save keeps it on screen as an
+// unsaved edit.
 async function saveCandidatePayload(payload) {
-    await api(`/api/reviews/${selectedId}/candidate`, {method: 'POST', body: JSON.stringify(payload)});
-    dirty = false;
-    await loadSelectedReview(false, true);
-    await loadReviews();
+    selectedDetail.review.candidate_payload = payload;
+    markDirty();
+    await submitEdit(async () => {
+        const saved = await api(`/api/reviews/${selectedId}/candidate`, {
+            method: 'POST',
+            body: JSON.stringify({...payload, expected_candidate_version: expectedCandidateVersion()})
+        });
+        recordSavedCandidateVersion(saved);
+        await loadSelectedReview(false, true);
+        await loadReviews();
+    });
 }
 
 async function moveCurrentSchema(delta) {
@@ -1590,7 +2223,8 @@ async function deleteCurrentSchema() {
 
 async function discardEdits() {
     dirty = false;
-    removedPageTemplateRefusal = null;
+    sampleLabelDraft = null;
+    editRefusal = null;
     await loadSelectedReview(false);
 }
 
@@ -1679,6 +2313,9 @@ function normalizeSchemaSelection() {
         return;
     }
     selectedSchemaIndex = Math.min(selectedSchemaIndex, schemas.length - 1);
+    if (isRawAttributeField(selectedField) && !schemaFieldValue(currentSchema(), selectedField)) {
+        selectedField = 'title';
+    }
     if (schemas.length === 1) {
         compareSchemaIndex = 0;
     } else if (compareSchemaIndex === selectedSchemaIndex || compareSchemaIndex >= schemas.length) {
@@ -1701,6 +2338,7 @@ function statusBadge(status) {
     else if (normalized.includes('changed')) cls += ' badge-changed';
     else if (normalized.includes('missing')) cls += ' badge-missing';
     else if (normalized.includes('reject') || normalized.includes('failed')) cls += ' badge-rejected';
+    else if (normalized.includes('human')) cls += ' badge-human';
     else if (normalized.includes('repair') || normalized.includes('superseded')) cls += ' badge-repair';
     return `<span class="${cls}">${escapeHtml(displayName(status))}</span>`;
 }

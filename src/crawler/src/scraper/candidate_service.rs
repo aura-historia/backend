@@ -316,7 +316,7 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Records URL failure state for a page that waits on a pending product-schema review,
     /// including the review it waits on and the consecutive-wait streak. The write is
     /// [`NoopStale`](CrawlerUrlWriteOutcome::NoopStale) once that review is no longer pending,
-    /// so a scrape that overlapped the review's approval cannot hold back a page the approval
+    /// so a scrape that overlapped the verdict on the review cannot hold back a page the verdict
     /// released.
     async fn mark_waiting_on_schema_review(
         &self,
@@ -416,11 +416,11 @@ impl ScraperCandidateServiceImpl {
     /// Candidate selection reads a wait only while `last_error_kind` is still
     /// `PendingSchemaReview`, so writes that leave the columns cannot extend a streak either.
     ///
-    /// The pending check share-locks the review row before the URL row is written. Approval
-    /// locks the review row first and releases the waiting pages last, so a wait written while
-    /// an approval commits waits for it and then finds the review closed, instead of passing a
-    /// check that read the review before the approval committed and overwriting the page the
-    /// approval just released.
+    /// The pending check share-locks the review row before the URL row is written. Approval and
+    /// rejection lock the review row first and release the waiting pages last, so a wait written
+    /// while either verdict commits waits for it and then finds the review closed, instead of
+    /// passing a check that read the review before the verdict committed and overwriting the page
+    /// the verdict just released.
     async fn update_url_failure(
         &self,
         failure: UrlFailureUpdate<'_>,

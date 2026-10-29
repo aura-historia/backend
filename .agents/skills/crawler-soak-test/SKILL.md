@@ -29,8 +29,8 @@ each check must answer.
   Credentials are valid (`gcloud auth application-default login`). Never print `.env` values.
 - No `dev.exe` running. While it runs, cargo cannot rebuild crawler bins; for tests in parallel use
   `--target-dir target/scratch` from PowerShell.
-- Check `CRAWLER_AUTHORING_MODE` in `.env` before the round (`auto`, `review` (default) or
-  `manual`; an invalid value or any of the removed `CRAWLER_REVIEW_*`/`CRAWLER_SCHEMA_LLM_REVIEW_MODE`
+- Check `CRAWLER_AUTHORING_MODE` in `.env` before the round (`auto`, `review` (default),
+  `manual` or `agent`; an invalid value or any of the removed `CRAWLER_REVIEW_*`/`CRAWLER_SCHEMA_LLM_REVIEW_MODE`
   variables fails startup, #2126). Note the effective mode in the findings; do not fix it mid-round.
 
 ## Procedure
@@ -71,9 +71,17 @@ each check must answer.
    category or page title), `price` must parse, `source_listing_id` must be stable across the
    source's schemas, `images` must be product images, and selectors should be label-anchored rather
    than positional. Fix a bad field with `POST /api/reviews/{id}/schema-field`
-   (`{"schema_index":n,"field":"price","rule":{...}}`) or replace the whole candidate with
-   `POST /api/reviews/{id}/candidate` (`{"schemas":[...]}`), re-run the matrix, and only then
-   `POST /api/reviews/{id}/approve` with `{"notes":"soak: reviewed, <what you changed>"}`. Reject
+   (`{"schema_index":n,"field":"price","rule":{...},"expected_candidate_version":v}`) or replace
+   the whole candidate with `POST /api/reviews/{id}/candidate`
+   (`{"schemas":[...],"expected_candidate_version":v}`), where `v` is the review's
+   `candidate_version` (a 409 means it changed: reload and edit again), re-run the matrix, and only then
+   `POST /api/reviews/{id}/approve` with
+   `{"notes":"soak: reviewed, <what you changed>","expected_candidate_version":v}`, `v` being the
+   version you reviewed (a 409 with `candidate_version` means it changed since: reload, re-check). A 409
+   with `coverage` means the stored matrix does not cover every review page (a page declared
+   removed counts once the re-run matrix captures it as removed): re-run the matrix or fix the
+   candidate, and send that `coverage` back as `"acknowledged_coverage"` only for pages you leave
+   uncovered on purpose, named in the note. Reject
    or mark `needs-repair` when no selector fix makes the page extract correctly, and record every
    decision with its time.
    Each wrong candidate is itself a finding: note the field, the wrong selector and the live value.
@@ -102,10 +110,11 @@ each check must answer.
    review's candidate and drop the LLM's new schema unless it is better. After approving, read
    the next captures in `scraped_raw_observations.json` (identity, description items, distinct
    images) to confirm the schema does what the matrix suggested.
-   The console's field editor only edits core fields of a schema, and editing an approved review
-   rewrites the live list from that review's candidate. Fix raw attributes or add schemas while
-   the review is still pending (`POST …/candidate`); a change after approval needs the live
-   `listing_source_product_schemas` row, and the note must say so.
+   The console edits core fields and registered raw attributes and adds or deletes schemas.
+   Editing an approved review rewrites the live list from that review's candidate, so only the
+   approved review whose candidate is still live accepts edits (`candidate_is_live`), and
+   removed-page templates change only while a review is pending. Make a change after approval
+   on that review, not in the `listing_source_product_schemas` row, and say so in the note.
 5. **Stop** after 60–90 minutes, or earlier if every domain is terminal, with Ctrl+C in the tab.
    Take a final database snapshot and log summary. The scraper pass is a barrier, so a pass that
    is still running at stop time is itself a finding.

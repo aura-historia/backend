@@ -88,10 +88,13 @@ impl ScraperServiceImpl {
         self
     }
 
-    /// The repository for manual schema reviews, when an operator authors schemas.
+    /// The repository for manual schema reviews, when an operator or the review agents author
+    /// schemas.
     pub(crate) fn manual_schema_review_repository(&self) -> Option<&CrawlerReviewRepository> {
         match self.authoring {
-            CrawlerAuthoringMode::Manual => self.review_repository.as_ref(),
+            CrawlerAuthoringMode::Manual | CrawlerAuthoringMode::Agent => {
+                self.review_repository.as_ref()
+            }
             CrawlerAuthoringMode::Auto | CrawlerAuthoringMode::Review => None,
         }
     }

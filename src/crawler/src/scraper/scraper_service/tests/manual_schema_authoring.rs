@@ -1,10 +1,11 @@
 use super::*;
 use crate::authoring::CrawlerAuthoringMode;
 use crate::review::model::{
-    PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE,
+    PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
     SchemaReviewPageInput,
 };
-use crate::review::repository::CrawlerReviewRepository;
+use crate::review::page_coverage::IncompleteCoverage;
+use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository as _, RemovedPageSchemaRepositoryImpl,
@@ -136,6 +137,19 @@ async fn open_pending_schema_review(
         .unwrap_or_else(|error| panic!("open pending review: {error}"))
 }
 
+/// The candidate version a reviewer reads before editing the review's candidate.
+async fn candidate_version(
+    repository: &CrawlerReviewRepository,
+    review_id: crate::CrawlerReviewId,
+) -> i64 {
+    repository
+        .get_review(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read the review: {error}"))
+        .review
+        .candidate_version
+}
+
 fn pending_review_id(
     result: Result<Option<ScrapedProduct>, ScraperError>,
 ) -> crate::CrawlerReviewId {
@@ -218,7 +232,7 @@ async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_re
     );
     let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
     repository
-        .reject_review(rejected, Some("not a product page"))
+        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     let mut candidates = MockScraperCandidateService::new();
@@ -543,12 +557,18 @@ async fn should_keep_needs_repair_review_and_its_candidate_edits_when_its_pages_
     edited_schema.title.selector = CssSelector::from("h1.reviewer-edit");
     let edited_candidate = json!({ "schemas": [edited_schema] });
     repository
-        .update_candidate_payload(review_id, edited_candidate.clone())
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            edited_candidate.clone(),
+        )
         .await
         .unwrap_or_else(|error| panic!("edit candidate: {error}"));
     repository
         .request_repair(
             review_id,
+            ReviewActor::Human,
             Some("  title selector misses the sold variant  "),
         )
         .await
@@ -622,7 +642,61 @@ fn manual_scraper_with_removed_page_templates(
     .with_removed_page_schema_repository(Box::new(RemovedPageSchemaRepositoryImpl::new(pool)))
 }
 
-/// Opens the manual review for the notice page, declares the page removed on it and approves.
+/// Approves the review's current candidate version as `actor`, as an approver who just read it.
+async fn approve(
+    repository: &CrawlerReviewRepository,
+    review_id: crate::CrawlerReviewId,
+    actor: ReviewActor,
+    notes: Option<&str>,
+    incomplete_coverage: IncompleteCoverage,
+) -> Result<(), ReviewRepositoryError> {
+    let expected_candidate_version = repository.candidate_version(review_id).await?;
+    repository
+        .approve_review(
+            review_id,
+            actor,
+            Approval {
+                expected_candidate_version,
+                notes,
+                incomplete_coverage,
+            },
+        )
+        .await
+}
+
+/// Approves the review the way a reviewer who confirmed its incomplete coverage does: with an
+/// acknowledgement of the coverage the refused approval reports.
+async fn approve_acknowledging_coverage(
+    repository: &CrawlerReviewRepository,
+    review_id: crate::CrawlerReviewId,
+) -> Result<(), ReviewRepositoryError> {
+    match approve(
+        repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    {
+        Err(ReviewRepositoryError::IncompleteCoverage { coverage, .. }) => {
+            approve(
+                repository,
+                review_id,
+                ReviewActor::Human,
+                None,
+                IncompleteCoverage::Acknowledged(coverage),
+            )
+            .await
+        }
+        decided => decided,
+    }
+}
+
+/// Opens the manual review for the notice page, declares the page removed on it, evaluates the
+/// candidate on the page as a matrix refresh does and approves. The stored matrix shows the
+/// template captures the review's only page as removed, so the approval needs no acknowledgement
+/// of incomplete coverage.
 async fn approve_removed_page_template_for_notice_page(
     pool: &PgPool,
     id: &ListingSourceId,
@@ -641,13 +715,38 @@ async fn approve_removed_page_template_for_notice_page(
             .result,
     );
     repository
-        .update_candidate_payload(review_id, candidate_declaring_the_notice_page_removed())
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(repository, review_id).await,
+            candidate_declaring_the_notice_page_removed(),
+        )
         .await
         .unwrap_or_else(|error| panic!("declare the page removed: {error}"));
-    repository
-        .approve_review(review_id, None)
+    let pages = repository
+        .get_review_pages(review_id)
         .await
-        .unwrap_or_else(|error| panic!("approve the removed-page template: {error}"));
+        .unwrap_or_else(|error| panic!("read the review pages: {error}"))
+        .into_iter()
+        .map(|page| (page, REMOVAL_NOTICE_HTML.to_owned()))
+        .collect();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, pages, time::OffsetDateTime::now_utc())
+        .await
+        .unwrap_or_else(|error| panic!("evaluate the declaration: {error}"));
+    repository
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
+        .await
+        .unwrap_or_else(|error| panic!("store the matrix: {error}"));
+    approve(
+        repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("approve the removed-page template: {error}"));
     review_id
 }
 
@@ -751,6 +850,8 @@ async fn approve_reviewed_removed_page_templates(
     repository
         .update_candidate_payload(
             review_id,
+            ReviewActor::Human,
+            opened.review.candidate_version,
             json!({
                 "schemas": [minimal_schema()],
                 "removed_page_schemas": removed_page_schemas,
@@ -758,8 +859,7 @@ async fn approve_reviewed_removed_page_templates(
         )
         .await
         .unwrap_or_else(|error| panic!("edit the stored templates: {error}"));
-    repository
-        .approve_review(review_id, None)
+    approve_acknowledging_coverage(repository, review_id)
         .await
         .unwrap_or_else(|error| panic!("approve the edited templates: {error}"));
 }

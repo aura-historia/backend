@@ -14,6 +14,7 @@
 use crate::authoring::CrawlerAuthoringMode;
 use crate::llm_runtime::{CrawlerLlmGovernor, DisabledLlm};
 use crate::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
+use crate::review::agent_tokens::provision_review_agents;
 use crate::review::repository::CrawlerReviewRepository;
 use crate::review::server::{ReviewServer, ReviewServerConfig};
 use crate::scraper::candidate_service::ScraperCandidateServiceImpl;
@@ -30,6 +31,7 @@ use crate::service::listing_source_registration::{
 use crate::service::raw_capture::ProductListingRawCaptureService;
 use crate::spider::candidate_service::SpiderCandidateServiceImpl;
 use crate::spider::classification::url_classification_service::UrlClassificationServiceImpl;
+use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crate::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crate::spider::classification::url_pattern_service::{
@@ -40,6 +42,7 @@ use crate::spider::local_lock::LocalLockManager;
 use crate::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use large_language_model::{LargeLanguageModel, VertexAiGemini};
 use sqlx::PgPool;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
@@ -57,6 +60,9 @@ pub use shutdown::DEFAULT_SHUTDOWN_GRACE_PERIOD;
 pub struct CrawlerRuntimeProfile {
     pub cron_config: CrawlerCronConfig,
     pub review_config: ReviewServerConfig,
+    /// Where the crawler keeps state outside its database: in `agent` authoring mode, the token
+    /// file of the review agents.
+    pub state_directory: PathBuf,
     /// Source of the ListingSources the crawler is allowed to crawl.
     pub listing_source_source: Box<dyn ListingSourceRegistrationSource>,
     /// Sink for changed raw ProductListing observations.
@@ -102,6 +108,14 @@ impl CrawlerLlmModels<DisabledLlm> {
     }
 }
 
+/// The crawler's state directory outside its database: its working directory, which the systemd
+/// unit sets to the service's state directory and a `dev` run's caller chooses.
+pub fn state_directory() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|error| {
+        panic!("cannot read the crawler's working directory, its state directory: {error}")
+    })
+}
+
 /// Applies pending crawler-local migrations. Runs at startup so deploying a new binary is the
 /// only step required to update the crawler schema.
 pub async fn apply_local_migrations(pool: &PgPool) {
@@ -120,10 +134,10 @@ pub struct CrawlerRuntime {
 }
 
 /// Wires the crawler pipeline on a migrated crawler-local `pool`, creating the LLM models that
-/// `config` selects.
+/// `config` selects and, in `agent` authoring mode, the review agents' tokens.
 pub fn build(
     pool: PgPool,
-    profile: CrawlerRuntimeProfile,
+    mut profile: CrawlerRuntimeProfile,
     config: CrawlerRuntimeConfig,
 ) -> CrawlerRuntime {
     let CrawlerRuntimeConfig {
@@ -131,6 +145,11 @@ pub fn build(
         llm,
         shutdown_grace_period,
     } = config;
+    profile.review_config =
+        provision_review_agents(profile.review_config, authoring, &profile.state_directory)
+            .unwrap_or_else(|error| {
+                panic!("invalid crawler review console configuration: {error}")
+            });
     let (review_server, cron_job) = match llm {
         CrawlerLlmConfig::VertexAi(vertex) => {
             let governor = Arc::new(CrawlerLlmGovernor::new(vertex.rate_limit));
@@ -161,10 +180,14 @@ where
     let CrawlerRuntimeProfile {
         cron_config,
         review_config,
+        state_directory: _,
         listing_source_source,
         raw_capture,
     } = profile;
-    let review_repo = CrawlerReviewRepository::new(pool.clone());
+    // The spider and the review rail classify URLs alike, as the authoring mode selects.
+    let url_classifier = UrlClassifier::for_authoring(authoring);
+    let review_repo =
+        CrawlerReviewRepository::new(pool.clone()).with_url_classifier(url_classifier);
 
     let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(Box::leak(
         Box::new(pool.clone()),
@@ -212,7 +235,7 @@ where
     let url_pattern_repo = Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone()));
 
     let url_pattern_authoring = match authoring {
-        CrawlerAuthoringMode::Manual => UrlPatternAuthoring::Manual {
+        CrawlerAuthoringMode::Manual | CrawlerAuthoringMode::Agent => UrlPatternAuthoring::Manual {
             review_repository: review_repo.clone(),
         },
         CrawlerAuthoringMode::Auto | CrawlerAuthoringMode::Review => {
@@ -232,6 +255,7 @@ where
     ));
 
     let spider_config = SpiderServiceConfig {
+        url_classifier,
         ..Default::default()
     };
     let website_spider = Box::new(SpiderImpl::new(cron_config.spider_website_config()));
@@ -481,6 +505,11 @@ mod tests {
         CrawlerRuntimeProfile {
             cron_config: CrawlerCronConfig::default(),
             review_config,
+            // Never created: `manual` mode only removes a token file that is not there.
+            state_directory: std::env::temp_dir().join(format!(
+                "crawler-runtime-test-{}",
+                uuid::Uuid::new_v4().simple()
+            )),
             listing_source_source: Box::new(EmptyListingSources),
             raw_capture: Box::new(MockProductListingRawCaptureService::new()),
         }

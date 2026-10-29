@@ -1,0 +1,77 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "review_id",
+    "decision",
+    "confidence",
+    "summary",
+    "risks",
+    "field_findings",
+    "server_answer"
+  ],
+  "properties": {
+    "review_id": {
+      "type": "string",
+      "description": "The id of the review you decided, such as cr_01..."
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["APPROVE", "REJECT", "NEEDS_REPAIR", "SKIP"],
+      "description": "The decision you sent to the server, or SKIP when you sent none."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["HIGH", "MEDIUM", "LOW"]
+    },
+    "summary": {
+      "type": "string",
+      "description": "What you checked, naming the page URLs, and why you decided as you did."
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What may still be wrong, one entry each."
+    },
+    "field_findings": {
+      "type": "array",
+      "description": "For a product-schema review, each field found wrong or doubtful.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema_index", "field", "selector", "finding"],
+        "properties": {
+          "schema_index": { "type": "integer" },
+          "field": { "type": "string" },
+          "selector": { "type": "string" },
+          "finding": { "type": "string" }
+        }
+      }
+    },
+    "server_answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "kind", "failed_checks", "detail"],
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": ["ACCEPTED", "REFUSED", "NOT_SENT"],
+          "description": "Whether the server took your decision."
+        },
+        "kind": {
+          "type": "string",
+          "description": "The error kind of a refusal, such as CONFLICT; empty otherwise."
+        },
+        "failed_checks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The check names of a refusal, such as TOO_FEW_LABELS."
+        },
+        "detail": {
+          "type": "string",
+          "description": "The refusal's reason or error, briefly; empty otherwise."
+        }
+      }
+    }
+  }
+}

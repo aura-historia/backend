@@ -561,7 +561,7 @@ label {
 
 .live-url-bar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
     gap: 7px;
     padding: 8px 11px;
     border-bottom: 1px solid var(--line-soft);
@@ -620,10 +620,29 @@ iframe {
     gap: 8px;
 }
 
+/* Long option labels, such as raw attribute keys, must not widen the column. */
+.field-grid > label,
+.field-grid select {
+    min-width: 0;
+}
+
 .selector-box {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 8px;
+}
+
+.raw-attribute-adder {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+}
+
+.raw-attribute-adder label,
+.raw-attribute-adder select {
+    min-width: 0;
+    width: 100%;
 }
 
 .picked,
@@ -941,10 +960,56 @@ tr.failed {
     color: var(--danger);
 }
 
+.human-required-card {
+    border-color: var(--danger-border);
+}
+
+.badge-human {
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-weight: 600;
+}
+
 .badge-repair,
 .badge-superseded {
     background: var(--control-disabled-bg);
     color: var(--muted);
+}
+
+.badge-actor-human {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+.badge-actor-agent {
+    background: var(--purple-soft);
+    color: var(--purple);
+}
+
+.badge-actor-system {
+    background: var(--control-disabled-bg);
+    color: var(--muted);
+}
+
+.review-events {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 10px 12px;
+    list-style: none;
+    font-size: 12px;
+}
+
+.review-event {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.review-event-notes {
+    color: var(--ink-soft);
+    font-style: italic;
 }
 
 .status-ok,

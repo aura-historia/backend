@@ -17,8 +17,8 @@
 //!
 //! | Env var          | Purpose                              | Default                                          |
 //! |------------------|--------------------------------------|--------------------------------------------------|
-//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required unless the authoring mode is `manual`)* |
-//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required unless the authoring mode is `manual`)* |
+//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required unless the authoring mode is `manual` or `agent`)* |
+//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required unless the authoring mode is `manual` or `agent`)* |
 //! | `SPIDER_MAX_SIZE_BYTES` | Spider page-body ceiling in bytes, from `1048576` (1 MiB) through `8388608` (8 MiB, the crawler's own response-body limit); every crawl fails while it is out of range. `server` requires it; this binary defaults it | `8388608` |
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
 //! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.5-flash` |
@@ -27,23 +27,33 @@
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
 //! | `LOCAL_DB_URL`   | Database to run against instead of `crawler_demo`, e.g. a copy of it. The run then neither starts Docker nor creates the database; a value that is not a connection URL fails startup | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
-//! | `CRAWLER_AUTHORING_MODE` | `auto` (LLM, high-confidence schemas auto-approved), `review` (LLM, human approves) or `manual` (no LLM, operator writes patterns and schemas); invalid values fail startup | `review` |
+//! | `CRAWLER_AUTHORING_MODE` | `auto` (LLM, high-confidence schemas auto-approved), `review` (LLM, human approves), `manual` (no LLM, operator writes patterns and schemas) or `agent` (opt-in: as `manual`, and the author and reviewer agents work the console with tokens generated at every start into `review-agent-tokens.json` in the working directory, mode 0600; the tokenless local console stays human); invalid values fail startup | `review` |
+//! | `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER` | In `agent` mode, whether this binary starts `review-agent-runner` from next to itself as its child, which runs the agents with the logged-in Claude Code CLI every `CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS` (here `30`) and keeps its state in `target/review-agents` unless `CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR` is set; `false` leaves the agents to a runner started by hand. Any other value fails startup | `true` |
 //! | `CRAWLER_REVIEW_REQUIRED`, `CRAWLER_REVIEW_URL_PATTERN_REQUIRED`, `CRAWLER_SCHEMA_LLM_REVIEW_MODE` | Removed: any non-empty value fails startup. Replace them with `CRAWLER_AUTHORING_MODE` (mapping in `docs/crawler/operations.md#authoring-modes`) | unset |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
-//! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations | unset |
+//! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations as a human, in `agent` mode too | unset |
+//! | `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` | The review agents' approvals plus rejections per rolling hour in `agent` mode | `20` |
+//! | `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` | How old the live matrix an agent approval of product schemas rests on may be | `30` |
+//! | `CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS` | How many sample URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many `NOT_PRODUCT` | `3` |
+//! | `CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS` | How many needs-repair verdicts the review agents give one review, counted since a human last changed or judged it, before it waits for a human in `agent` mode | `3` |
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!
 //! The pipeline is wired by [`crawler::runtime`], shared with `server`. This binary only supplies
-//! the demo ListingSources, short cron intervals, the tokenless local review console, and a file
-//! sink: changed raw observations are written to `scraped_raw_observations.json` instead of
-//! calling the ProductListing raw-capture use case.
+//! the demo ListingSources, short cron intervals, the tokenless local review console, a file
+//! sink (changed raw observations are written to `scraped_raw_observations.json` instead of
+//! calling the ProductListing raw-capture use case) and, in `agent` mode, the review agent runner
+//! as its child, as systemd runs it next to `server`. Build the runner with this binary:
+//! `cargo build --locked -p crawler --bin dev --bin review-agent-runner --bin review-mcp`. Like
+//! `server`, its working directory is its state directory, where `agent` mode writes the review
+//! agents' token file; the file is git-ignored.
 //!
 //! # Stopping
 //!
 //! Ctrl+C (SIGINT) or SIGTERM stops the binary gracefully: no new spider or scraper work starts,
 //! running work gets 30 seconds to finish and the raw observations captured so far are written,
-//! then the process exits 0. A second Ctrl+C exits at once. The contract is in
+//! the review agent runner is stopped with its agent processes, then the process exits 0. A
+//! second Ctrl+C exits at once. The contract is in
 //! `docs/crawler/operations.md#stopping-the-crawler`.
 
 use listing_source_core::ListingSourceId;
@@ -59,6 +69,7 @@ use crawler::local_db::{
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
+use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
 use crawler::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
@@ -69,7 +80,7 @@ use crawler::service::listing_source_registration::{
 };
 use crawler::service::raw_capture::FileProductListingRawCaptureService;
 
-use tracing::{Instrument, error, info};
+use tracing::{Instrument, error, info, warn};
 
 // ---------------------------------------------------------------------------
 // Demo ListingSource source — returns hardcoded ListingSources (no OpenSearch needed)
@@ -92,13 +103,11 @@ impl ListingSourceRegistrationSource for DemoListingSourceSource {
 /// crawler-dev-verify and crawler-soak-test skills use to reuse a shop's state in `crawler_demo`.
 fn demo_listing_sources() -> Vec<RegisteredListingSource> {
     [
-        (0x71, "Hingstons Antiques", "hingstons-antiques"),
-        (
-            0x72,
-            "Harrison Antique Furniture",
-            "harrison-antique-furniture",
-        ),
-        (0x73, "Collinge Antiques", "collinge-antiques"),
+        (0x74, "Holt Antique Furniture", "holt-antique-furniture"),
+        (0x75, "Martlesham Antiques", "martlesham-antiques"),
+        (0x76, "Loveday Antiques", "loveday-antiques"),
+        (0x77, "Freshfords", "freshfords"),
+        (0x78, "Antique Furniture Direct", "antique-furniture-direct"),
     ]
     .into_iter()
     .map(
@@ -126,6 +135,8 @@ fn demo_listing_sources() -> Vec<RegisteredListingSource> {
 const SPIDER_MAX_SIZE_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
 /// The crawler's own response-body limit: the largest accepted value.
 const DEV_SPIDER_MAX_SIZE_BYTES: &str = "8388608";
+/// Whether `agent` mode starts the review agent runner as this binary's child.
+const START_REVIEW_AGENT_RUNNER_ENV: &str = "CRAWLER_DEV_START_REVIEW_AGENT_RUNNER";
 
 #[tokio::main]
 async fn main() {
@@ -144,6 +155,9 @@ async fn main() {
         // Fail fast on invalid runtime settings before starting Docker or touching the database.
         let runtime_config = CrawlerRuntimeConfig::from_env()
             .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
+        let start_review_agent_runner = runtime_config.authoring.has_review_agents()
+            && starts_review_agent_runner(env::var(START_REVIEW_AGENT_RUNNER_ENV).ok())
+                .unwrap_or_else(|error| panic!("invalid crawler dev configuration: {error}"));
 
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
@@ -191,9 +205,11 @@ async fn main() {
         let domain_configuration =
             Arc::new(CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()));
         for (listing_source, domain) in demo_listing_sources().into_iter().zip([
-            "hingstons-antiques.co.uk",
-            "harrisonantiquefurniture.co.uk",
-            "collingeantiques.com",
+            "holtantiquefurniture.com",
+            "martleshamantiques.com",
+            "lovedayantiques.co.uk",
+            "freshfords.com",
+            "antiquefurnituredirect.co.uk",
         ]) {
             if let Err(error) = domain_configuration
                 .register(
@@ -218,11 +234,14 @@ async fn main() {
             "Crawler dev seeded demo ListingSources. Press Ctrl+C to stop."
         );
 
-        crawler::runtime::build(
+        let console_port = review_config.bind_addr.port();
+        // Building the runtime writes the agents' token file the runner reads.
+        let runtime = crawler::runtime::build(
             pool,
             CrawlerRuntimeProfile {
                 cron_config: config,
                 review_config,
+                state_directory: crawler::runtime::state_directory(),
                 listing_source_source: Box::new(DemoListingSourceSource {
                     listing_sources: demo_listing_sources(),
                 }),
@@ -231,9 +250,16 @@ async fn main() {
                 )),
             },
             runtime_config,
-        )
-        .run()
-        .await;
+        );
+        let review_agent_runner = if start_review_agent_runner {
+            start_review_agent_runner_child(console_port)
+        } else {
+            None
+        };
+        runtime.run().await;
+        if let Some(runner) = review_agent_runner {
+            runner.stop().await;
+        }
     }
     .instrument(span)
     .await;
@@ -294,6 +320,35 @@ fn init_logging() {
         .init();
 }
 
+/// Whether `agent` mode starts the review agent runner: unless `value` is `false`.
+fn starts_review_agent_runner(value: Option<String>) -> Result<bool, String> {
+    match value.as_deref().map(str::trim) {
+        None | Some("") => Ok(true),
+        Some(value) if value.eq_ignore_ascii_case("true") => Ok(true),
+        Some(value) if value.eq_ignore_ascii_case("false") => Ok(false),
+        Some(value) => Err(format!(
+            "invalid {START_REVIEW_AGENT_RUNNER_ENV}={value:?}: true or false"
+        )),
+    }
+}
+
+/// Starts the review agent runner next to this binary as its child, in the working directory
+/// where the runtime wrote the agents' token file.
+fn start_review_agent_runner_child(console_port: u16) -> Option<RunnerChild> {
+    let executable = match env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            warn!(error = %error, "Cannot locate dev's executable; dev runs without review agents");
+            return None;
+        }
+    };
+    RunnerChild::start(
+        &runner_executable_next_to(&executable),
+        &crawler::runtime::state_directory(),
+        runner_env(env::vars_os(), console_port),
+    )
+}
+
 /// Gives an unset `SPIDER_MAX_SIZE_BYTES` the dev default so a local run
 /// crawls out of the box; an explicit value, valid or not, is left for the
 /// spider to validate.
@@ -315,7 +370,7 @@ fn default_spider_body_limit() {
 mod tests {
     use super::{
         DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_spider_body_limit,
-        demo_listing_sources,
+        demo_listing_sources, starts_review_agent_runner,
     };
     use std::env;
 
@@ -330,11 +385,30 @@ mod tests {
         assert_eq!(
             ids,
             [
-                "01890a5d-ac96-774b-af1d-d5586c639f71",
-                "01890a5d-ac96-774b-af1d-d5586c639f72",
-                "01890a5d-ac96-774b-af1d-d5586c639f73",
+                "01890a5d-ac96-774b-af1d-d5586c639f74",
+                "01890a5d-ac96-774b-af1d-d5586c639f75",
+                "01890a5d-ac96-774b-af1d-d5586c639f76",
+                "01890a5d-ac96-774b-af1d-d5586c639f77",
+                "01890a5d-ac96-774b-af1d-d5586c639f78",
             ]
         );
+    }
+
+    #[test]
+    fn should_start_the_review_agent_runner_unless_set_to_false() {
+        for (value, starts) in [
+            (None, true),
+            (Some(" "), true),
+            (Some("TRUE"), true),
+            (Some("false"), false),
+        ] {
+            assert_eq!(
+                starts_review_agent_runner(value.map(str::to_owned)),
+                Ok(starts),
+                "{value:?}"
+            );
+        }
+        assert!(starts_review_agent_runner(Some("off".to_owned())).is_err());
     }
 
     /// One test owns the variable: parallel tests would race on process state.

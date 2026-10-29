@@ -19,10 +19,10 @@
 //! | `LOCAL_DB_URL`                  | Required crawler-local Postgres connection URL, e.g. `postgres://crawler:<password>@127.0.0.1:5432/crawler_server`. The operator creates the database; `server` only applies crawler-local migrations to it. |
 //! | `BUSINESS_DATABASE_URL`         | Required authoritative Postgres URL for listing_sources and products |
 //! | `SPIDER_MAX_SIZE_BYTES`         | Required Spider transport page-body ceiling; set to `8388608`  |
-//! | `CRAWLER_AUTHORING_MODE`        | `auto`, `review` or `manual`; unset or blank means `review`    |
-//! | `VERTEX_AI_PROJECT_ID`          | Google Cloud project for Vertex AI; required unless `CRAWLER_AUTHORING_MODE` is `manual` |
-//! | `VERTEX_AI_LOCATION`            | Vertex AI location; required unless `CRAWLER_AUTHORING_MODE` is `manual` |
-//! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file; unless the mode is `manual`, startup fails when Application Default Credentials cannot be loaded |
+//! | `CRAWLER_AUTHORING_MODE`        | `auto`, `review`, `manual` or `agent`; unset or blank means `review`. `agent` needs `CRAWLER_REVIEW_AUTH_TOKEN` and writes the review agents' tokens to `review-agent-tokens.json` in the working directory |
+//! | `VERTEX_AI_PROJECT_ID`          | Google Cloud project for Vertex AI; required unless `CRAWLER_AUTHORING_MODE` is `manual` or `agent` |
+//! | `VERTEX_AI_LOCATION`            | Vertex AI location; required unless `CRAWLER_AUTHORING_MODE` is `manual` or `agent` |
+//! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file; unless the mode is `manual` or `agent`, startup fails when Application Default Credentials cannot be loaded |
 //! | `VERTEX_AI_MODEL`               | Schema generation/repair model (default: `gemini-3.5-flash`) |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default model for low-risk crawler LLM tasks                   |
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
@@ -31,8 +31,9 @@
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
 //! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
 //!
-//! With `CRAWLER_AUTHORING_MODE=manual` no Vertex AI or LLM setting is read
-//! ([`CrawlerRuntimeConfig::from_env`]).
+//! With `CRAWLER_AUTHORING_MODE` `manual` or `agent` no Vertex AI or LLM setting is read
+//! ([`CrawlerRuntimeConfig::from_env`]). The review console settings are in
+//! `docs/crawler/operations.md#review-service`.
 //!
 //! # CloudWatch IAM permissions
 //!
@@ -377,6 +378,7 @@ async fn main() {
             CrawlerRuntimeProfile {
                 cron_config: config,
                 review_config,
+                state_directory: crawler::runtime::state_directory(),
                 listing_source_source,
                 raw_capture,
             },

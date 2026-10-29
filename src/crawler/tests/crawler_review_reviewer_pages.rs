@@ -1,7 +1,7 @@
 use crawler::review::model::{
     CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED,
-    PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, STATUS_PENDING_REVIEW,
-    SchemaReviewPageInput,
+    PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
+    STATUS_PENDING_REVIEW, SchemaReviewPageInput,
 };
 use crawler::review::repository::{
     CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewRepositoryError,
@@ -108,11 +108,17 @@ async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_lis
     let sold_url = url("https://example.com/products/sold");
 
     repository
-        .check_reviewer_page_target(review_id, &sold_url)
+        .check_reviewer_page_target(review_id, ReviewActor::Human, &sold_url)
         .await
         .unwrap();
     let page = repository
-        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &sold_url,
+            &sold_url,
+            SOLD_HTML,
+        )
         .await
         .unwrap();
 
@@ -140,7 +146,7 @@ async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_lis
         })
         .collect();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, pages)
+        .evaluate_schema_matrix_for_live_pages(review_id, pages, time::OffsetDateTime::now_utc())
         .await
         .unwrap();
     let evaluated_pages = &evaluated.matrix.candidates[0].pages;
@@ -167,7 +173,7 @@ async fn should_refuse_reviewer_page_when_url_is_outside_listing_source_domains(
     ] {
         let target = url(raw);
         let checked = repository
-            .check_reviewer_page_target(review_id, &target)
+            .check_reviewer_page_target(review_id, ReviewActor::Human, &target)
             .await;
         assert!(
             matches!(
@@ -177,7 +183,13 @@ async fn should_refuse_reviewer_page_when_url_is_outside_listing_source_domains(
             "{raw} must be refused before it is fetched"
         );
         let added = repository
-            .add_reviewer_page(review_id, &target, &target, PRODUCT_HTML)
+            .add_reviewer_page(
+                review_id,
+                ReviewActor::Human,
+                &target,
+                &target,
+                PRODUCT_HTML,
+            )
             .await;
         assert!(
             matches!(
@@ -200,7 +212,11 @@ async fn should_refuse_reviewer_page_when_url_is_already_a_page_or_limit_is_reac
     let (_, review_id) = pending_schema_review(&pool).await;
 
     let duplicate = repository
-        .check_reviewer_page_target(review_id, &url("https://www.example.com/products/1"))
+        .check_reviewer_page_target(
+            review_id,
+            ReviewActor::Human,
+            &url("https://www.example.com/products/1"),
+        )
         .await;
     assert!(matches!(
         duplicate,
@@ -208,7 +224,13 @@ async fn should_refuse_reviewer_page_when_url_is_already_a_page_or_limit_is_reac
     ));
     let with_fragment = url("https://www.example.com/products/1#gallery");
     let duplicate_with_fragment = repository
-        .add_reviewer_page(review_id, &with_fragment, &with_fragment, PRODUCT_HTML)
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &with_fragment,
+            &with_fragment,
+            PRODUCT_HTML,
+        )
         .await;
     assert!(matches!(
         duplicate_with_fragment,
@@ -218,13 +240,19 @@ async fn should_refuse_reviewer_page_when_url_is_already_a_page_or_limit_is_reac
     for index in 0..MAX_REVIEWER_ADDED_PAGES {
         let extra = url(&format!("https://example.com/products/extra-{index}"));
         repository
-            .add_reviewer_page(review_id, &extra, &extra, PRODUCT_HTML)
+            .add_reviewer_page(review_id, ReviewActor::Human, &extra, &extra, PRODUCT_HTML)
             .await
             .unwrap();
     }
     let one_too_many = url("https://example.com/products/one-too-many");
     let over_limit = repository
-        .add_reviewer_page(review_id, &one_too_many, &one_too_many, PRODUCT_HTML)
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &one_too_many,
+            &one_too_many,
+            PRODUCT_HTML,
+        )
         .await;
     assert!(matches!(
         over_limit,
@@ -237,10 +265,17 @@ async fn should_refuse_reviewer_page_when_review_is_not_open_for_schema_review()
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (_, review_id) = pending_schema_review(&pool).await;
-    repository.reject_review(review_id, None).await.unwrap();
+    repository
+        .reject_review(review_id, ReviewActor::Human, None)
+        .await
+        .unwrap();
 
     let result = repository
-        .check_reviewer_page_target(review_id, &url("https://example.com/products/2"))
+        .check_reviewer_page_target(
+            review_id,
+            ReviewActor::Human,
+            &url("https://example.com/products/2"),
+        )
         .await;
 
     assert!(matches!(result, Err(ReviewRepositoryError::NotPending(_))));
@@ -253,7 +288,13 @@ async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_
     let (listing_source_id, review_id) = pending_schema_review(&pool).await;
     let sold_url = url("https://example.com/products/sold");
     repository
-        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &sold_url,
+            &sold_url,
+            SOLD_HTML,
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -266,7 +307,10 @@ async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_
         STATUS_PENDING_REVIEW
     );
 
-    repository.reject_review(review_id, None).await.unwrap();
+    repository
+        .reject_review(review_id, ReviewActor::Human, None)
+        .await
+        .unwrap();
 
     assert!(
         !repository
@@ -297,29 +341,93 @@ fn with_html(pages: Vec<CrawlerReviewPage>) -> Vec<(CrawlerReviewPage, String)> 
         .collect()
 }
 
+/// A page added while the matrix is evaluated, by a reviewer or as a waiting page, does not fail
+/// the evaluation: the matrix of the pages it evaluated is stored and names them, and the next
+/// evaluation covers the new page.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_to_store_schema_matrix_when_reviewer_page_was_added_during_evaluation() {
+async fn should_store_the_matrix_of_the_evaluated_pages_when_a_page_was_added_during_evaluation() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (_, review_id) = pending_schema_review(&pool).await;
     let pages = repository.get_review_pages(review_id).await.unwrap();
+    let evaluated_page_id = pages[0].review_page_id;
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            with_html(pages),
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
     let sold_url = url("https://example.com/products/sold");
 
     repository
-        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &sold_url,
+            &sold_url,
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    repository
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
+        .await
+        .unwrap();
+
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(detail.pages.len(), 2);
+    let stored_page_ids: Vec<&serde_json::Value> =
+        detail.review.validation_summary["schema_matrix"]["candidates"][0]["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|page| &page["page_reference"]["review_page_id"])
+            .collect();
+    assert_eq!(stored_page_ids, vec![&json!(evaluated_page_id)]);
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_to_store_schema_matrix_when_an_evaluated_page_was_removed_during_evaluation()
+{
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (_, review_id) = pending_schema_review(&pool).await;
+    let sold_url = url("https://example.com/products/sold");
+    let page = repository
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &sold_url,
+            &sold_url,
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            with_html(pages),
+            time::OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+
+    repository
+        .remove_reviewer_page(page.review_page_id, ReviewActor::Human)
         .await
         .unwrap();
     let stored = repository
-        .store_schema_matrix_if_current(review_id, &evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await;
 
     assert!(matches!(
         stored,
-        Err(ReviewRepositoryError::CandidateChangedDuringEvaluation)
+        Err(ReviewRepositoryError::CandidateChangedDuringEvaluation {
+            candidate_version: 1
+        })
     ));
     let detail = repository.get_review(review_id).await.unwrap();
     assert!(
@@ -338,21 +446,31 @@ async fn should_remove_reviewer_page_and_cached_matrix_when_reviewer_removes_it(
     let (_, review_id) = pending_schema_review(&pool).await;
     let sold_url = url("https://example.com/products/sold");
     let page = repository
-        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &sold_url,
+            &sold_url,
+            SOLD_HTML,
+        )
         .await
         .unwrap();
     let pages = repository.get_review_pages(review_id).await.unwrap();
     let evaluated = repository
-        .evaluate_schema_matrix_for_live_pages(review_id, with_html(pages))
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            with_html(pages),
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .unwrap();
     repository
-        .store_schema_matrix_if_current(review_id, &evaluated)
+        .store_schema_matrix_if_current(review_id, ReviewActor::Human, evaluated)
         .await
         .unwrap();
 
     repository
-        .remove_reviewer_page(page.review_page_id)
+        .remove_reviewer_page(page.review_page_id, ReviewActor::Human)
         .await
         .unwrap();
 
@@ -385,7 +503,13 @@ async fn should_drop_generated_matrix_summary_with_cached_matrix_when_reviewer_a
     let sold_url = url("https://example.com/products/sold");
 
     repository
-        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &sold_url,
+            &sold_url,
+            SOLD_HTML,
+        )
         .await
         .unwrap();
 
@@ -403,9 +527,11 @@ async fn should_refuse_to_remove_review_page_when_reviewer_did_not_add_it() {
     let (_, review_id) = pending_schema_review(&pool).await;
     let primary = repository.get_review_pages(review_id).await.unwrap()[0].review_page_id;
 
-    let removed_primary = repository.remove_reviewer_page(primary).await;
+    let removed_primary = repository
+        .remove_reviewer_page(primary, ReviewActor::Human)
+        .await;
     let removed_unknown = repository
-        .remove_reviewer_page(CrawlerReviewPageId::new())
+        .remove_reviewer_page(CrawlerReviewPageId::new(), ReviewActor::Human)
         .await;
 
     assert!(matches!(
@@ -432,6 +558,7 @@ async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_pag
     let to_homepage = repository
         .add_reviewer_page(
             review_id,
+            ReviewActor::Human,
             &sold_url,
             &url("https://example.com/"),
             PRODUCT_HTML,
@@ -449,6 +576,7 @@ async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_pag
     let to_category = repository
         .add_reviewer_page(
             review_id,
+            ReviewActor::Human,
             &sold_url,
             &url("https://example.com/category/vases"),
             PRODUCT_HTML,
@@ -457,6 +585,7 @@ async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_pag
     let to_product = repository
         .add_reviewer_page(
             review_id,
+            ReviewActor::Human,
             &sold_url,
             &url("https://www.example.com/products/sold-archive"),
             SOLD_HTML,
@@ -490,7 +619,7 @@ async fn should_refuse_reviewer_page_when_it_differs_from_a_review_page_only_in_
         "http://www.example.com/products/1",
     ] {
         let duplicate = repository
-            .check_reviewer_page_target(review_id, &url(raw))
+            .check_reviewer_page_target(review_id, ReviewActor::Human, &url(raw))
             .await;
 
         assert!(
@@ -523,7 +652,13 @@ async fn should_not_count_seed_pages_against_reviewer_page_limit() {
 
     let sold_url = url("https://example.com/products/sold");
     repository
-        .add_reviewer_page(review_id, &sold_url, &sold_url, SOLD_HTML)
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &sold_url,
+            &sold_url,
+            SOLD_HTML,
+        )
         .await
         .unwrap();
 }
@@ -620,7 +755,7 @@ async fn should_not_join_when_no_product_schema_review_is_pending() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (listing_source_id, review_id) = pending_schema_review(&pool).await;
     repository
-        .reject_review(review_id, Some("not a product page"))
+        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
         .await
         .unwrap();
 
@@ -691,7 +826,7 @@ async fn should_remove_waiting_page_when_reviewer_removes_it() {
         .unwrap();
 
     repository
-        .remove_reviewer_page(waiting.review_page_id)
+        .remove_reviewer_page(waiting.review_page_id, ReviewActor::Human)
         .await
         .unwrap();
 
@@ -712,7 +847,7 @@ async fn should_not_treat_rejection_as_verdict_on_waiting_pages() {
         .unwrap();
 
     repository
-        .reject_review(review_id, Some("not a product page"))
+        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
         .await
         .unwrap();
 

@@ -1,0 +1,53 @@
+# Example systemd unit for the crawler's review agents, `review-agent-runner`: a pass over the
+# pending reviews every CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS until it is stopped.
+# Install as /etc/systemd/system/review-agent-runner.service next to crawler-server.service and
+# adjust the paths. Stop the agents with `systemctl disable --now review-agent-runner`.
+# Contract and host prerequisites: docs/crawler/operations.md#review-agent-runner
+# One run at a time: the runner holds a lock during each run.
+
+[Unit]
+Description=Aura Historia crawler review agents
+Documentation=https://github.com/aura-historia/backend/blob/main/docs/crawler/operations.md#review-agent-runner
+Wants=network-online.target
+After=network-online.target crawler-server.service
+
+[Service]
+Type=simple
+# The crawler's user: the only one who can read the agents' token file.
+User=crawler
+Group=crawler
+# Runner settings only. Never the crawler's environment file: the agents must not inherit the
+# console's human token or database credentials.
+EnvironmentFile=-/etc/crawler/review-agent-runner.env
+# The runner's own state: lock, state, process ledger, digests and the crawler-only CLI login.
+StateDirectory=crawler-review-agents
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/crawler-review-agents
+Environment=CLAUDE_CONFIG_DIR=/var/lib/crawler-review-agents/claude
+Environment=CRAWLER_REVIEW_AGENT_TOKEN_FILE=/var/lib/crawler/review-agent-tokens.json
+Environment=CRAWLER_REVIEW_AGENT_RUNNER_REVIEW_MCP_BIN=/opt/crawler/bin/review-mcp
+Environment=DISABLE_AUTOUPDATER=1
+ExecStart=/opt/crawler/bin/review-agent-runner
+# A failed run is logged and retried after the interval inside the runner; a crash restarts it.
+Restart=on-failure
+RestartSec=1min
+# Exit code 2 is a setting the runner does not accept: a restart would fail the same way.
+RestartPreventExitStatus=2
+KillMode=control-group
+# `systemctl stop` ends the runner with exit code 143 after stopping its agent processes.
+SuccessExitStatus=143
+# The agent processes read untrusted shop pages: keep them away from the rest of the host.
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -37,28 +37,38 @@ fn parse_page(raw_html: &str) -> Html {
     Html::parse_document(raw_html)
 }
 
-/// Evaluates the schemas and removed-page templates on the live review pages.
-/// `captured_identities` maps a page URL to the source listing id its listing was captured
-/// under.
+/// Evaluates the schemas and removed-page templates on the live review pages and on the live
+/// `url_pages` of the review's ListingSource that are no review pages, which the matrix refers to
+/// as inputs by their position. `captured_identities` maps a page URL to the source listing id its
+/// listing was captured under.
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
     schemas: &[ProductCssSelectorSchema],
     removed_page_schemas: &[RemovedPageSchema],
     pages: &[(CrawlerReviewPage, String)],
+    url_pages: &[SchemaReviewPageInput],
     captured_identities: &HashMap<String, String>,
 ) -> SchemaMatrix {
-    let pages: Vec<MatrixPage<'_>> = pages
+    let review_pages = pages.iter().map(|(page, raw_html)| MatrixPage {
+        page_reference: SchemaPageReference::Persisted {
+            review_page_id: page.review_page_id,
+        },
+        url: &page.url,
+        role: &page.role,
+        raw_html,
+        captured_identity: captured_identities.get(&page.url).map(String::as_str),
+    });
+    let url_pages = url_pages
         .iter()
-        .map(|(page, raw_html)| MatrixPage {
-            page_reference: SchemaPageReference::Persisted {
-                review_page_id: page.review_page_id,
-            },
+        .enumerate()
+        .map(|(page_index, page)| MatrixPage {
+            page_reference: SchemaPageReference::Input { page_index },
             url: &page.url,
             role: &page.role,
-            raw_html,
+            raw_html: &page.raw_html,
             captured_identity: captured_identities.get(&page.url).map(String::as_str),
-        })
-        .collect();
+        });
+    let pages: Vec<MatrixPage<'_>> = review_pages.chain(url_pages).collect();
     evaluate_matrix(Some(review_id), schemas, removed_page_schemas, &pages)
 }
 
@@ -120,9 +130,26 @@ fn evaluate_matrix(
         review_id,
         candidates,
         removed_page_matches,
+        live_evaluation: None,
     };
     evaluate_cross_page_findings(&mut matrix);
     matrix
+}
+
+/// The schema matrix a review's `validation_summary` stores, with the cross-page findings of
+/// this crawler's checks: `None` when it stores none, or the decoding error of one that no longer
+/// decodes, such as a matrix stored before a later per-page check. Every reader of a stored
+/// matrix, the console, the approval guard and the review tools, reads it through this, so a
+/// cross-page check added after the matrix was stored applies to it everywhere alike.
+pub(crate) fn stored_schema_matrix(
+    validation_summary: &serde_json::Value,
+) -> Option<Result<SchemaMatrix, serde_json::Error>> {
+    Some(
+        SchemaMatrix::stored_in(validation_summary)?.map(|mut matrix| {
+            evaluate_cross_page_findings(&mut matrix);
+            matrix
+        }),
+    )
 }
 
 /// Sets every candidate's cross-page findings from its extractions of the review pages,
@@ -130,7 +157,7 @@ fn evaluate_matrix(
 /// alone, so a cached matrix is read through this and shows every cross-page check of
 /// this crawler, including one added after it was cached, without fetching the pages
 /// again.
-pub(crate) fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
+fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
     for candidate in &mut matrix.candidates {
         add_cross_page_findings(&mut candidate.pages);
     }
@@ -254,44 +281,50 @@ fn add_identity_agreement_findings(
 pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
     schema_matrix_has_required_coverage(matrix)
         && optional_rules_missing_on_every_page(matrix).is_empty()
-        && !matrix
-            .candidates
+        && implausible_page_evaluations(matrix).next().is_none()
+}
+
+/// Every candidate's page evaluations whose failed per-page, cross-page or identity agreement
+/// checks block approval, each with its candidate's schema index. Deterministic approval refuses a matrix with
+/// any of them, and so does the review agent's [approval
+/// guard](crate::review::approval_guard), so the two refuse the same findings.
+fn implausible_page_evaluations(
+    matrix: &SchemaMatrix,
+) -> impl Iterator<Item = (usize, &SchemaPageEvaluation)> {
+    matrix.candidates.iter().flat_map(|candidate| {
+        candidate
+            .pages
             .iter()
-            .flat_map(|candidate| &candidate.pages)
-            .any(SchemaPageEvaluation::fails_plausibility_checks)
+            .filter(|page| page.blocks_approval())
+            .map(move |page| (candidate.schema_index, page))
+    })
 }
 
 /// A review page on which a candidate's extraction failed a per-page, cross-page or
 /// identity agreement check.
-#[derive(Debug, serde::Serialize)]
-pub(crate) struct ImplausiblePage<'a> {
-    schema_index: usize,
-    page_reference: &'a SchemaPageReference,
-    url: &'a str,
-    role: &'a str,
-    plausibility_findings: &'a PlausibilityFindings,
-    cross_page_findings: &'a CrossPageFindings,
-    identity_agreement_findings: &'a IdentityAgreementFindings,
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ImplausiblePage {
+    pub schema_index: usize,
+    pub page_reference: SchemaPageReference,
+    pub url: String,
+    pub role: String,
+    pub plausibility_findings: PlausibilityFindings,
+    pub cross_page_findings: CrossPageFindings,
+    pub identity_agreement_findings: IdentityAgreementFindings,
 }
 
-pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage<'_>> {
-    matrix
-        .candidates
-        .iter()
-        .flat_map(|candidate| {
-            candidate
-                .pages
-                .iter()
-                .filter(|page| page.fails_plausibility_checks())
-                .map(|page| ImplausiblePage {
-                    schema_index: candidate.schema_index,
-                    page_reference: &page.page_reference,
-                    url: &page.url,
-                    role: &page.role,
-                    plausibility_findings: &page.plausibility_findings,
-                    cross_page_findings: &page.cross_page_findings,
-                    identity_agreement_findings: &page.identity_agreement_findings,
-                })
+/// The extractions deterministic approval refuses, as [`implausible_page_evaluations`] finds
+/// them.
+pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage> {
+    implausible_page_evaluations(matrix)
+        .map(|(schema_index, page)| ImplausiblePage {
+            schema_index,
+            page_reference: page.page_reference.clone(),
+            url: page.url.clone(),
+            role: page.role.clone(),
+            plausibility_findings: page.plausibility_findings.clone(),
+            cross_page_findings: page.cross_page_findings.clone(),
+            identity_agreement_findings: page.identity_agreement_findings.clone(),
         })
         .collect()
 }
@@ -299,7 +332,7 @@ pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage<'_
 /// An optional rule of one candidate that matched nothing (primary and additional
 /// selectors) on every page the candidate applied to.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub(crate) struct OptionalRuleTotalMiss {
+pub struct OptionalRuleTotalMiss {
     pub schema_index: usize,
     pub field: String,
     pub selector: String,
@@ -370,14 +403,24 @@ fn schema_matrix_has_required_coverage(matrix: &SchemaMatrix) -> bool {
         return false;
     }
 
-    first_candidate.pages.iter().all(|target_page| {
-        matrix.candidates.iter().any(|candidate| {
-            candidate
-                .pages
-                .iter()
-                .find(|page| page.page_reference == target_page.page_reference)
-                .is_some_and(page_has_required_extraction)
-        })
+    first_candidate
+        .pages
+        .iter()
+        .all(|target_page| schema_matrix_covers_page(matrix, &target_page.page_reference))
+}
+
+/// A page is covered when at least one candidate's extraction of it applies, so runtime
+/// selection would capture it.
+pub(crate) fn schema_matrix_covers_page(
+    matrix: &SchemaMatrix,
+    page_reference: &SchemaPageReference,
+) -> bool {
+    matrix.candidates.iter().any(|candidate| {
+        candidate
+            .pages
+            .iter()
+            .find(|page| page.page_reference == *page_reference)
+            .is_some_and(page_has_required_extraction)
     })
 }
 
@@ -707,6 +750,7 @@ mod tests {
                 &schemas,
                 &removed_page_templates,
                 &live_pages,
+                &[],
                 &captured,
             )
         });
@@ -1512,6 +1556,30 @@ mod tests {
             assert!(schema_matrix_deterministic_approval_ok(&matrix));
         }
 
+        /// A gallery that repeats its featured photo: capture keeps each image once, so the
+        /// repeat stays in the matrix without keeping the schema out of approval.
+        #[test]
+        fn should_approve_deterministically_when_an_image_only_repeats_on_a_page() {
+            let pages = vec![
+                product_page("chair", "<img src=\"/images/chair.jpg\">"),
+                product_page("table", ""),
+            ];
+
+            let matrix = evaluate_schema_matrix_for_inputs(&[schema("h1")], &pages);
+
+            assert_eq!(
+                matrix.candidates[0].pages[0]
+                    .plausibility_findings
+                    .as_slice(),
+                [finding(
+                    PlausibilityField::Images,
+                    PlausibilityCheck::DuplicateValues
+                )]
+            );
+            assert!(implausible_pages(&matrix).is_empty());
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
         #[test]
         fn should_report_a_document_title_shared_by_every_page_for_its_candidate_only() {
             let schemas = vec![schema("h1"), schema("title")];
@@ -1873,7 +1941,8 @@ mod tests {
             }
         }
 
-        /// The review console reads a matrix cached before a later cross-page check.
+        /// The console, the approval guard and the review tools read a matrix cached before a
+        /// later cross-page check.
         mod cached_matrix {
             use super::*;
 
@@ -1898,10 +1967,10 @@ mod tests {
                     "values": ["Product chair"]
                 }]);
                 cached["candidates"][0]["pages"][1]["cross_page_findings"] = serde_json::json!([]);
-                let mut matrix = serde_json::from_value::<SchemaMatrix>(cached)
-                    .unwrap_or_else(|error| panic!("a cached matrix must load: {error}"));
 
-                evaluate_cross_page_findings(&mut matrix);
+                let matrix = stored_schema_matrix(&serde_json::json!({ "schema_matrix": cached }))
+                    .unwrap_or_else(|| panic!("the review stores a matrix"))
+                    .unwrap_or_else(|error| panic!("a cached matrix must load: {error}"));
 
                 assert_eq!(
                     cross_page_findings_of(&matrix, 0),
@@ -2082,6 +2151,7 @@ mod tests {
                 &schemas,
                 &[],
                 &[(sold_page, product_html(53036, true))],
+                &[],
                 &captured,
             );
 

@@ -1,7 +1,16 @@
+pub mod access;
+pub mod agent_decisions;
+pub mod agent_tokens;
+pub mod approval_guard;
 pub mod assets;
+mod candidate_evaluations;
 pub mod http;
 mod matrix_refresh;
 pub mod model;
+pub mod page_coverage;
+pub mod page_projection;
+pub mod product_markup;
 pub mod repository;
 pub mod schema_evaluation;
 pub mod server;
+pub mod source_url;

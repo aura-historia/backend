@@ -7,7 +7,7 @@
 
 use crate::CrawlerReviewId;
 use crate::review::http::HttpResponse;
-use crate::review::model::SchemaMatrix;
+use crate::review::model::ReviewSchemaMatrix;
 use serde_json::json;
 use std::collections::HashMap;
 use std::future::Future;
@@ -17,7 +17,7 @@ use tokio::sync::watch;
 use tracing::error;
 
 /// The refreshed matrix, or the response that explains why the refresh failed.
-pub(crate) type MatrixRefreshOutcome = Result<SchemaMatrix, HttpResponse>;
+pub(crate) type MatrixRefreshOutcome = Result<ReviewSchemaMatrix, HttpResponse>;
 
 /// What a console request without `refresh` learns about a review's refresh.
 pub(crate) enum MatrixRefreshStatus {
@@ -122,15 +122,20 @@ impl MatrixRefreshHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::review::model::SchemaMatrix;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Notify;
 
-    fn matrix() -> SchemaMatrix {
-        SchemaMatrix {
-            review_id: None,
-            candidates: Vec::new(),
-            removed_page_matches: Vec::new(),
-        }
+    fn matrix() -> ReviewSchemaMatrix {
+        ReviewSchemaMatrix::of(
+            SchemaMatrix {
+                review_id: None,
+                candidates: Vec::new(),
+                removed_page_matches: Vec::new(),
+                live_evaluation: None,
+            },
+            &[],
+        )
     }
 
     fn panicking_refresh() -> MatrixRefreshOutcome {

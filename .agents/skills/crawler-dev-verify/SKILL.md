@@ -21,7 +21,7 @@ never in the repo. The evidence sources are:
 |---|---|---|
 | Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d <db>`, `<db>` being `crawler_demo` or your copy | `listing_source_domains` (crawl and scrape timers, failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, `last_source_listing_id`), `listing_source_product_schemas` (live schemas), `crawler_reviews` and `crawler_review_pages` (status, reason, seed pages), `listing_sources.llm_calls_count` |
 | JSON log | `target/soak/<date>/verify-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url` | pass totals (`Scraper scheduler pass complete`), every `WARN` and `ERROR` kind, the change's own diagnostic, LLM retries |
-| Review console | `CRAWLER_REVIEW_BIND_ADDR`, default `http://127.0.0.1:7878`: `GET /api/reviews`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair` with an `Origin` header naming the same address | candidates, the deterministic gate on live seed pages, review decisions |
+| Review console | `CRAWLER_REVIEW_BIND_ADDR`, default `http://127.0.0.1:7878`: `GET /api/reviews`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair` with an `Origin` header naming the same address (an approval carries the `expected_candidate_version` it was based on) | candidates, the deterministic gate on live seed pages, review decisions |
 | Raw captures | `scraped_raw_observations.json` in the binary's working directory (a JSON array; `sourceRecordKey`, `sourcePayload`, `rawValues`) | what was extracted per page |
 | Live pages | curl with the crawler user agent (`AuraHistoriaBot/1.0 (+https://aura-historia.com)`) | whether a selector is right for a page variant |
 
@@ -38,7 +38,9 @@ it to the user as a ticket or a separate decision.
   `LOCAL_DB_URL` the binary runs `docker compose up -d` itself. Docker Hub may rate-limit pulls
   (HTTP 429): when `postgres:16` is missing, tag a local PostgreSQL 16 image as `postgres:16`
   instead of retrying. `crawler_demo` keeps the state of earlier rounds: listing sources, URLs,
-  live schemas, reviews. That state is the test bed; do not reset it.
+  live schemas, reviews. That state is the test bed; do not reset it, unless startup refuses
+  the database because a migration it applied changed or is missing from the binary: then
+  rebuild it with the `db-reset` script under `src/crawler/scripts/`.
 - `.env` in the binary's working directory for Vertex AI. In a worktree copy it from the repo
   root (`.env` is gitignored). Never print its values. Without `.env` or credentials, run with
   `CRAWLER_AUTHORING_MODE=manual`: no LLM call; author URL patterns and schemas through the
@@ -66,7 +68,7 @@ it to the user as a ticket or a separate decision.
    schema a page uses, and therefore needs an `EXTRACTOR_VERSION` raise under the rule in the
    [extraction contract](../../../docs/crawler/extraction-and-review.md#extraction-contract);
    a change to raw extraction alone changes the page hash and needs none.
-2. **Register the shops.** The committed `dev.rs` registers three demo shops. To run others,
+2. **Register the shops.** The committed `dev.rs` registers five demo shops. To run others,
    replace them temporarily: edit the `(index, name, slug)` tuple array and the domain list
    zipped in `main()`. IDs are `01890a5d-ac96-774b-af1d-d5586c639f{index:02x}`, so reuse the
    index of a shop already in `listing_sources` (the last two hex digits of its ID, e.g. `0x0b`)
@@ -138,6 +140,82 @@ it to the user as a ticket or a separate decision.
    `EXTRACTOR_VERSION` decision from step 1, each new finding with `path:line` and a sample URL,
    and which findings are outside the change. Leave the evidence paths in the shared notes
    folder when the task came from another session.
+
+## Agent mode
+
+Verify review-agent behaviour (#2565) with `dev` in `CRAWLER_AUTHORING_MODE=agent`. It is opt-in:
+the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI setting.
+
+1. **Start.** Run `dev` as in step 4 with `CRAWLER_AUTHORING_MODE=agent`, without
+   `CRAWLER_REVIEW_AUTH_TOKEN`, so the browser console at the `CRAWLER_REVIEW_BIND_ADDR` address
+   stays the human's tokenless loopback console, and with
+   `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER=false`: otherwise `dev` starts the review agent runner
+   as its child, whose agents spend the login's budget (step 5 starts it with a fake `claude`). Keep the scheduler quiet as in step 3 unless the change is a
+   pipeline change.
+2. **Token file.** The start writes `review-agent-tokens.json` to the working directory (mode
+   `0600`, `{"author": "...", "reviewer": "..."}`, git-ignored) and logs `Generated the review
+   agents' tokens of this start ...` with its `path`. Check the mode (`stat -c %a`) and that
+   neither token occurs in the JSON log or stderr (`grep -cF` with each token). Never print the
+   tokens: read them into shell variables, for example
+   `AUTHOR=$(python3 -c 'import json; print(json.load(open("review-agent-tokens.json"))["author"])')`.
+3. **Act as an agent through `review-mcp`.** The agents reach the console only through the review
+   MCP server (`docs/crawler/operations.md#review-mcp-server`), so drive it as their MCP client
+   does. Build it with `cargo build --locked -p crawler --bin review-mcp` and start one process per
+   role from the worktree root, `target/debug/review-mcp --role author` and `--role reviewer`, with
+   `CRAWLER_REVIEW_CONSOLE_URL` unset (the default `http://127.0.0.1:7878`) or naming the run's
+   `CRAWLER_REVIEW_BIND_ADDR`, and `CRAWLER_REVIEW_AGENT_TOKEN_FILE` unset or
+   pointing at the token file above; stderr to a file of its own. Drive each over stdio with a
+   small scripted client in the scratchpad (newline-delimited JSON-RPC: `initialize`,
+   `notifications/initialized`, `tools/list`, `tools/call`), never with the `claude` CLI, so the run
+   spends no LLM budget and no login. Expect 12 author and 7 reviewer tools, JSON-RPC error
+   `-32602` for the other role's tool, `isError` results whose text is a JSON object with `kind`
+   (`URL_OUTSIDE_REVIEW_SOURCE` for a URL off the review's ListingSource, before any request;
+   `FORBIDDEN` with `reason`; `CONFLICT` with `failed_checks` when the approval guard refuses, for a
+   URL pattern `TOO_FEW_LABELS`, `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`;
+   `CONFLICT` with `reason` `HUMAN_REQUIRED` once the agents' needs-repair verdicts on a review
+   reach `CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS`, until a human changes or judges it), and
+   answers below 48 KiB. The author reads (`get_review`, `inspect_page`), tests
+   (`evaluate_candidate`), stages (`update_candidate`, `update_schema_field`, `add_review_page`) and
+   labels (`label_sample_urls`, `PRODUCT` or `NOT_PRODUCT` with a `reason`); the reviewer refreshes a
+   product-schema review's live matrix (`refresh_matrix`) and approves with the `candidate_version`
+   it read, or rejects with `notes`. Until a pattern is approved the spider stores every crawled
+   URL as `other`; check `listing_source_urls.url_class`. The event trail (`get_review`, `events`)
+   records `AGENT_AUTHOR` and `AGENT_REVIEWER`. Neither token may occur in `review-mcp`'s stderr or
+   in any tool answer. For a console route no tool covers, send `Authorization: Bearer $AUTHOR` or
+   `$REVIEWER` with curl; no `Origin` header is needed, and the other role's routes answer `403`
+   `AUTHOR_CANNOT_DECIDE` or `REVIEWER_CANNOT_CHANGE_CANDIDATES`.
+4. **Rotation and kill switch.** A restart writes new tokens and the old ones answer `401`; a
+   running `review-mcp` reads the new token on that `401` and retries once, so its next tool call
+   succeeds without a restart. A restart with `CRAWLER_AUTHORING_MODE=manual` removes the file, and
+   `review-mcp` answers `UNAUTHORIZED`. Delete nothing else by hand.
+5. **The runner with a fake `claude`.** Check the review agent runner
+   (`docs/crawler/operations.md#review-agent-runner`) with `review-agent-runner --once` against
+   this `dev`, never with the real CLI unless the task asks for the documented real run: it spends
+   the login's budget. To check `dev`'s own runner child instead, start `dev` with
+   `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER` unset and `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN=<fake>`:
+   expect `Started the review agent runner as a child of dev`, a pass every 30 seconds in the same
+   log, and no runner process left after `dev` stops. Write a fake `claude` in the scratchpad, a shell script that answers
+   `auth status --json` with `{"loggedIn": true, "authMethod": "claude.ai"}` and every other call
+   with a canned result envelope per role (`--mcp-config` names `--role author` or `reviewer`; the
+   prompt on stdin names the review id), and records each call's argv, stdin and environment.
+   Pass it by path, never through `PATH`: build with
+   `cargo build --locked -p crawler --bin review-mcp --bin review-agent-runner` and run
+   `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN=<fake> CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR=<scratchpad dir> target/debug/review-agent-runner --once`
+   from the worktree root, with stand-in values of `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` and
+   `CRAWLER_REVIEW_AUTH_TOKEN` set to see that they never reach a child. Expect one author and
+   then one reviewer process per pending review of a crawl-enabled ListingSource that does not
+   wait for a human (`human_required`), at most
+   `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES` at once; children started from empty directories
+   with the flags of the runbook and an environment of only the runbook's allowlisted variables,
+   with neither token in argv, stdin or environment (only the token file's path in
+   `--mcp-config`). A canned `error_max_turns` envelope leaves its review
+   pending with a cooldown in `review-agent-runner-state.json`; a canned
+   `You've hit your weekly limit · resets <date>, 9am (UTC)` pauses the runner until then. Each
+   process is a line in `review-agent-processes.jsonl` and a `Review agent process finished` log
+   line with report, tokens and cost, and `--once` writes `digests/review-agents-<time>.md` with
+   the reviews that wait for a human and the event trail's decisions and restores. The fake
+   never starts `review-mcp`, so this checks the orchestration only; the tools are checked in
+   step 3.
 
 ## Rules
 

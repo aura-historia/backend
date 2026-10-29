@@ -63,15 +63,15 @@ pub enum CrawlerRuntimeConfigError {
         value: String,
         accepted: String,
     },
-    #[error("{name} was removed; set {AUTHORING_MODE_ENV} (auto, review or manual) instead")]
+    #[error("{name} was removed; set {AUTHORING_MODE_ENV} (auto, review, manual or agent) instead")]
     RemovedSetting { name: &'static str },
     #[error(transparent)]
     VertexAi(#[from] CrawlerVertexAiConfigError),
 }
 
 impl CrawlerRuntimeConfig {
-    /// Reads the authoring mode and, unless it is `manual`, the Vertex AI selection and LLM
-    /// rate limits, then logs the effective configuration that [`build`](super::build) applies.
+    /// Reads the authoring mode and, unless it is `manual` or `agent`, the Vertex AI selection and
+    /// LLM rate limits, then logs the effective configuration that [`build`](super::build) applies.
     /// The shutdown grace period is no environment setting; it starts at
     /// [`DEFAULT_SHUTDOWN_GRACE_PERIOD`].
     pub fn from_env() -> Result<Self, CrawlerRuntimeConfigError> {
@@ -138,6 +138,9 @@ fn authoring_summary(authoring: CrawlerAuthoringMode) -> &'static str {
         }
         CrawlerAuthoringMode::Manual => {
             "no LLM calls; operators write URL patterns and schemas in the review console"
+        }
+        CrawlerAuthoringMode::Agent => {
+            "no LLM calls; the author agent stages URL patterns and schemas in the review console and the reviewer agent approves or rejects them within the approval guard (set CRAWLER_AUTHORING_MODE=manual and restart to stop agent decisions)"
         }
     }
 }
@@ -269,13 +272,18 @@ mod tests {
         assert!(matches!(config.llm, CrawlerLlmConfig::VertexAi(_)));
     }
 
-    #[test]
+    #[rstest]
+    #[case::manual("manual", CrawlerAuthoringMode::Manual)]
+    #[case::agent("agent", CrawlerAuthoringMode::Agent)]
     #[serial]
-    fn should_disable_llm_without_vertex_ai_settings_in_manual_mode() {
-        let config = runtime_config_from(&[(AUTHORING_MODE_ENV, "manual")])
+    fn should_disable_llm_without_vertex_ai_settings_in_manual_and_agent_mode(
+        #[case] value: &'static str,
+        #[case] expected: CrawlerAuthoringMode,
+    ) {
+        let config = runtime_config_from(&[(AUTHORING_MODE_ENV, value)])
             .unwrap_or_else(|error| panic!("runtime config from env: {error}"));
 
-        assert_eq!(config.authoring, CrawlerAuthoringMode::Manual);
+        assert_eq!(config.authoring, expected);
         assert!(matches!(config.llm, CrawlerLlmConfig::Disabled));
     }
 
@@ -297,7 +305,7 @@ mod tests {
         assert_eq!(
             error.to_string(),
             format!(
-                "invalid CRAWLER_AUTHORING_MODE value {value:?}; expected one of: auto, review, manual"
+                "invalid CRAWLER_AUTHORING_MODE value {value:?}; expected one of: auto, review, manual, agent"
             )
         );
     }
@@ -318,7 +326,7 @@ mod tests {
         assert_eq!(
             error.to_string(),
             format!(
-                "{name} was removed; set CRAWLER_AUTHORING_MODE (auto, review or manual) instead"
+                "{name} was removed; set CRAWLER_AUTHORING_MODE (auto, review, manual or agent) instead"
             )
         );
     }

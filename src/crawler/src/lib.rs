@@ -6,6 +6,8 @@ pub mod logging;
 pub mod metrics;
 pub mod network;
 pub mod review;
+pub mod review_agent_runner;
+pub mod review_mcp;
 pub mod runtime;
 pub mod scraper;
 pub mod service;
@@ -15,5 +17,5 @@ mod test_support;
 pub mod vertex_ai;
 
 pub use crawler_domain_id::{
-    CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId,
+    CrawlerDomainId, CrawlerReviewEventId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId,
 };

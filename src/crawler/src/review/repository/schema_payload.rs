@@ -1,8 +1,13 @@
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
-use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
+use crate::scraper::css_selector::removed_page_schema::{
+    RemovedPageSchema, rebase_reviewed_removed_page_schemas,
+};
 use crate::scraper::css_selector::rule::ExtractionRule;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 
 use super::ReviewRepositoryError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -66,19 +71,38 @@ impl ProductSchemaReviewCandidate {
         Self { schemas, ..self }
     }
 
-    /// This candidate holding `removed_page_schemas` instead of its own.
-    pub(super) fn with_removed_page_schemas(
-        self,
-        removed_page_schemas: Vec<RemovedPageSchema>,
-    ) -> Self {
-        Self {
-            removed_page_schemas,
-            ..self
-        }
-    }
-
     pub(super) fn to_payload(&self) -> Result<serde_json::Value, ReviewRepositoryError> {
         Ok(serde_json::to_value(self)?)
+    }
+
+    /// SHA-256 of this candidate's schemas and removed-page templates, equal for equal
+    /// candidates: their serialization keeps field order and sorts raw attribute keys.
+    pub(super) fn fingerprint(&self) -> Result<String, ReviewRepositoryError> {
+        Ok(Sha256::digest(serde_json::to_vec(self)?)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect())
+    }
+
+    /// The product-schema configuration approving this reviewed candidate makes live: the schema
+    /// list approval stores, merged with the `live` list for a legacy single-schema append or
+    /// repair, and the removed-page templates rebased onto the changes other writers made to the
+    /// `stored` list since the review read it as `base`. The live matrix evaluates exactly this,
+    /// and approval stores exactly this.
+    pub(super) fn going_live(
+        &self,
+        reason: &str,
+        live: Option<&ListingSourceProductSchema>,
+        base: &[RemovedPageSchema],
+        stored: &[RemovedPageSchema],
+    ) -> Result<Self, ReviewRepositoryError> {
+        let schemas = approval_product_schemas(reason, live, self.schemas.clone())?;
+        let removed_page_schemas =
+            rebase_reviewed_removed_page_schemas(base, self.removed_page_schemas.clone(), stored);
+        Ok(Self {
+            schemas,
+            removed_page_schemas,
+        })
     }
 }
 
@@ -107,11 +131,12 @@ impl ProductSchemaCandidateEdit {
     /// The candidate this edit makes of `current`: the edit's schemas, and its templates when
     /// it carries a list that differs from `current`'s, validated; otherwise `current`'s
     /// templates as they are, so one that today's validation rejects refuses approval but not an
-    /// edit that leaves it alone.
+    /// edit that leaves it alone. The schemas may introduce only registered raw attribute keys.
     pub(super) fn apply_to(
         self,
         current: &ProductSchemaReviewCandidate,
     ) -> Result<ProductSchemaReviewCandidate, ReviewRepositoryError> {
+        refuse_unregistered_raw_attribute_keys(&current.schemas, &self.schemas)?;
         let removed_page_schemas = match self.removed_page_schemas {
             Some(templates) if templates != current.removed_page_schemas => {
                 validate_removed_page_schemas(&templates)?;
@@ -162,6 +187,19 @@ fn validate_removed_page_schemas(
         })
 }
 
+/// Whether the stored candidate of an approved review is the ListingSource's `live` schema list,
+/// the condition for editing the live list through that review. A stored candidate that no longer
+/// decodes is not provably the live list, and no list is live before the first approval.
+pub(super) fn holds_live_schemas(
+    stored_candidate_payload: &serde_json::Value,
+    live: Option<&[ProductCssSelectorSchema]>,
+) -> bool {
+    live.is_some_and(|live| {
+        ProductSchemaReviewCandidate::decode_stored(stored_candidate_payload)
+            .is_ok_and(|stored| stored.schemas == live)
+    })
+}
+
 pub(super) fn approval_product_schemas(
     reason: &str,
     existing: Option<&ListingSourceProductSchema>,
@@ -184,7 +222,8 @@ pub(super) fn approval_product_schemas(
 }
 
 /// The candidate in `candidate_payload` with `field` of the schema at `schema_index` set to
-/// `rule`, its schemas validated. Its removed-page templates pass through as they are.
+/// `rule`, its schemas validated and introducing only registered raw attribute keys. Its
+/// removed-page templates pass through as they are.
 pub(super) fn update_schema_field_payload(
     candidate_payload: &serde_json::Value,
     schema_index: usize,
@@ -199,37 +238,120 @@ pub(super) fn update_schema_field_payload(
         )));
     };
 
-    update_schema_rule(schema, field, rule)?;
+    SchemaField::parse(field)?.set_rule(schema, rule)?;
     validate_product_schemas(&schemas)?;
+    refuse_unregistered_raw_attribute_keys(&candidate.schemas, &schemas)?;
     Ok(candidate.with_schemas(schemas))
 }
 
-fn update_schema_rule(
-    schema: &mut ProductCssSelectorSchema,
-    field: &str,
-    rule: Option<ExtractionRule>,
+/// Refuses `edited` schemas that introduce a raw attribute key outside the registry. A key one of
+/// the `current` schemas already holds, such as one generated before the registry named its keys,
+/// stays editable and removable.
+fn refuse_unregistered_raw_attribute_keys(
+    current: &[ProductCssSelectorSchema],
+    edited: &[ProductCssSelectorSchema],
 ) -> Result<(), ReviewRepositoryError> {
-    match field {
-        "source_listing_id" => schema.source_listing_id = rule,
-        "title" => {
-            schema.title =
-                rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
-        }
-        "state" => {
-            schema.state =
-                rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
-        }
-        "images" => {
-            schema.images =
-                rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
-        }
-        "description" => schema.description = rule,
-        "price" => schema.price = rule,
-        "price_estimate_min" => schema.price_estimate_min = rule,
-        "price_estimate_max" => schema.price_estimate_max = rule,
-        other => return Err(ReviewRepositoryError::InvalidSchemaField(other.into())),
+    let current_keys: BTreeSet<&str> = current
+        .iter()
+        .flat_map(|schema| schema.raw_attributes.keys().map(String::as_str))
+        .collect();
+    match edited
+        .iter()
+        .flat_map(|schema| schema.raw_attributes.keys())
+        .find(|key| !is_registered_key(key) && !current_keys.contains(key.as_str()))
+    {
+        Some(key) => Err(ReviewRepositoryError::UnregisteredRawAttributeKey(
+            key.clone(),
+        )),
+        None => Ok(()),
     }
-    Ok(())
+}
+
+/// A rule of a product schema that a field edit sets or deletes, named on the wire by the
+/// schema's JSON key, a raw attribute as `raw_attributes.<key>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SchemaField {
+    SourceListingId,
+    Title,
+    Description,
+    Price,
+    PriceEstimateMin,
+    PriceEstimateMax,
+    State,
+    Images,
+    RawAttribute(String),
+}
+
+const RAW_ATTRIBUTE_FIELD_PREFIX: &str = "raw_attributes.";
+
+impl SchemaField {
+    fn parse(field: &str) -> Result<Self, ReviewRepositoryError> {
+        if let Some(key) = field.strip_prefix(RAW_ATTRIBUTE_FIELD_PREFIX) {
+            if key.is_empty() || key.trim() != key {
+                return Err(ReviewRepositoryError::InvalidSchemaField(field.into()));
+            }
+            return Ok(Self::RawAttribute(key.to_owned()));
+        }
+        Ok(match field {
+            "source_listing_id" => Self::SourceListingId,
+            "title" => Self::Title,
+            "description" => Self::Description,
+            "price" => Self::Price,
+            "price_estimate_min" => Self::PriceEstimateMin,
+            "price_estimate_max" => Self::PriceEstimateMax,
+            "state" => Self::State,
+            "images" => Self::Images,
+            other => return Err(ReviewRepositoryError::InvalidSchemaField(other.into())),
+        })
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Self::SourceListingId => "source_listing_id",
+            Self::Title => "title",
+            Self::Description => "description",
+            Self::Price => "price",
+            Self::PriceEstimateMin => "price_estimate_min",
+            Self::PriceEstimateMax => "price_estimate_max",
+            Self::State => "state",
+            Self::Images => "images",
+            Self::RawAttribute(key) => key,
+        }
+    }
+
+    /// Sets this field of `schema` to `rule`, or deletes it when `rule` is `None`; a required
+    /// field cannot be deleted.
+    fn set_rule(
+        &self,
+        schema: &mut ProductCssSelectorSchema,
+        rule: Option<ExtractionRule>,
+    ) -> Result<(), ReviewRepositoryError> {
+        let required =
+            |rule: Option<ExtractionRule>| rule.ok_or_else(|| self.required_field_error());
+        match self {
+            Self::SourceListingId => schema.source_listing_id = rule,
+            Self::Title => schema.title = required(rule)?,
+            Self::Description => schema.description = rule,
+            Self::Price => schema.price = rule,
+            Self::PriceEstimateMin => schema.price_estimate_min = rule,
+            Self::PriceEstimateMax => schema.price_estimate_max = rule,
+            Self::State => schema.state = required(rule)?,
+            Self::Images => schema.images = required(rule)?,
+            Self::RawAttribute(key) => match rule {
+                Some(rule) => {
+                    schema.raw_attributes.insert(key.clone(), rule);
+                }
+                None => {
+                    schema.raw_attributes.remove(key);
+                }
+            },
+        }
+        Ok(())
+    }
+
+    fn required_field_error(&self) -> ReviewRepositoryError {
+        ReviewRepositoryError::RequiredSchemaField(self.name().into())
+    }
 }
 
 fn merge_product_schema_lists(
@@ -581,6 +703,143 @@ mod tests {
         assert!(matches!(
             err,
             ReviewRepositoryError::InvalidProductSchemaCandidate
+        ));
+    }
+
+    fn with_raw_attribute(
+        mut schema: ProductCssSelectorSchema,
+        key: &str,
+        selector: &str,
+    ) -> ProductCssSelectorSchema {
+        schema
+            .raw_attributes
+            .insert(key.to_owned(), text_rule(selector));
+        schema
+    }
+
+    #[test]
+    fn should_set_and_delete_a_raw_attribute_rule_when_the_field_names_its_key() {
+        let payload = serde_json::json!({ "schemas": [schema("h1.product")] });
+
+        let added = update_schema_field_payload(
+            &payload,
+            0,
+            "raw_attributes.rawMaterial",
+            Some(text_rule(".material")),
+        )
+        .expect("a registered key can be added");
+        let deleted = update_schema_field_payload(
+            &added.to_payload().expect("serializable candidate"),
+            0,
+            "raw_attributes.rawMaterial",
+            None,
+        )
+        .expect("a raw attribute rule can be deleted");
+
+        assert_eq!(
+            added.schemas[0].raw_attributes.get("rawMaterial"),
+            Some(&text_rule(".material"))
+        );
+        assert!(deleted.schemas[0].raw_attributes.is_empty());
+    }
+
+    #[test]
+    fn should_refuse_a_raw_attribute_field_without_a_key() {
+        for field in [
+            "raw_attributes.",
+            "raw_attributes. rawMaterial",
+            "raw_attributes",
+        ] {
+            let result = update_schema_field_payload(
+                &serde_json::json!({ "schemas": [schema("h1.product")] }),
+                0,
+                field,
+                Some(text_rule(".material")),
+            );
+
+            assert!(
+                matches!(result, Err(ReviewRepositoryError::InvalidSchemaField(_))),
+                "{field} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn should_refuse_a_field_edit_that_adds_an_unregistered_raw_attribute_key() {
+        let result = update_schema_field_payload(
+            &serde_json::json!({ "schemas": [schema("h1.product")] }),
+            0,
+            "raw_attributes.rawFoo",
+            Some(text_rule(".foo")),
+        );
+
+        assert!(matches!(
+            result,
+            Err(ReviewRepositoryError::UnregisteredRawAttributeKey(key)) if key == "rawFoo"
+        ));
+    }
+
+    #[test]
+    fn should_keep_an_unregistered_raw_attribute_key_editable_when_the_candidate_holds_it() {
+        let payload = serde_json::json!({
+            "schemas": [with_raw_attribute(schema("h1.product"), "rawLegacy", ".legacy"), schema("h1.sold")],
+        });
+
+        let edited = update_schema_field_payload(
+            &payload,
+            1,
+            "raw_attributes.rawLegacy",
+            Some(text_rule(".legacy-sold")),
+        )
+        .expect("a key the candidate holds stays editable");
+        let deleted = update_schema_field_payload(&payload, 0, "raw_attributes.rawLegacy", None)
+            .expect("a key the candidate holds stays removable");
+
+        assert_eq!(
+            edited.schemas[1].raw_attributes.get("rawLegacy"),
+            Some(&text_rule(".legacy-sold"))
+        );
+        assert!(deleted.schemas[0].raw_attributes.is_empty());
+    }
+
+    #[test]
+    fn should_refuse_a_candidate_edit_that_introduces_an_unregistered_raw_attribute_key() {
+        let current = ProductSchemaReviewCandidate::read(&serde_json::json!({
+            "schemas": [with_raw_attribute(schema("h1.product"), "rawLegacy", ".legacy")],
+        }))
+        .expect("readable candidate");
+
+        let kept = edit(serde_json::json!({
+            "schemas": [
+                with_raw_attribute(schema("h1.product"), "rawLegacy", ".legacy"),
+                with_raw_attribute(schema("h1.sold"), "rawCondition", ".condition"),
+            ],
+        }))
+        .apply_to(&current);
+        let introduced = edit(serde_json::json!({
+            "schemas": [with_raw_attribute(schema("h1.product"), "rawInvented", ".invented")],
+        }))
+        .apply_to(&current);
+
+        assert!(matches!(kept, Ok(candidate) if candidate.schemas.len() == 2));
+        assert!(matches!(
+            introduced,
+            Err(ReviewRepositoryError::UnregisteredRawAttributeKey(key)) if key == "rawInvented"
+        ));
+    }
+
+    #[test]
+    fn should_hold_the_live_schemas_only_when_the_stored_candidate_is_the_live_list() {
+        let stored = serde_json::json!({ "schemas": [schema("h1.product")] });
+        let live = [schema("h1.product")];
+        let changed = [schema("h1.product"), schema("h1.sold")];
+
+        assert!(holds_live_schemas(&stored, Some(&live)));
+        assert!(!holds_live_schemas(&stored, Some(&changed)));
+        assert!(!holds_live_schemas(&stored, None));
+        assert!(!holds_live_schemas(
+            &serde_json::json!({ "schemas": [], "unexpected": true }),
+            Some(&live)
         ));
     }
 }

@@ -43,8 +43,10 @@ Crawler IDs exposed by the review service use TypeIDs: domains `cd`, reviews `cr
 - `dev` runs the same crawler locally against demo ListingSources, writes raw observations to a file, and needs neither AWS nor the business database.
 - `dev-spider` and `dev-scraper` are focused development entry points for their respective passes.
 - `fetch-fixture` saves source HTML for stable parser and schema snapshots; it is not a production ingestion path.
+- `review-mcp` serves the review console's tools to one review agent of `agent` authoring mode as an MCP server over stdio; see [review MCP server](operations.md#review-mcp-server).
+- `review-agent-runner` works the pending reviews with the author and reviewer agents of `agent` authoring mode, one headless Claude Code CLI process per review and role; see [review agent runner](operations.md#review-agent-runner).
 
-`server` and `dev` share one composition root, [`crawler::runtime`](../../src/crawler/src/runtime.rs). Each binary supplies only its ListingSource source, raw-capture sink, cron settings and review-console settings, so new crawler dependencies are wired there rather than in a binary. They stay separate binaries so local fixtures and the tokenless review console never ship in `server`.
+`server` and `dev` share one composition root, [`crawler::runtime`](../../src/crawler/src/runtime.rs). Each binary supplies only its ListingSource source, raw-capture sink, cron settings, review-console settings and state directory, so new crawler dependencies are wired there rather than in a binary. They stay separate binaries so local fixtures and the tokenless review console never ship in `server`.
 
 ## Boundaries
 
