@@ -2,6 +2,7 @@ let selectedId = null;
 let selectedDetail = null;
 let selectedMatrix = null;
 let selectedMatrixFailure = '';
+let selectedMatrixMissing = false;
 let selectedSchemaIndex = 0;
 let compareSchemaIndex = 1;
 let selectedField = 'title';
@@ -142,6 +143,15 @@ async function api(path, options = {}, allowPrompt = true) {
         throw error;
     }
     return res.json();
+}
+
+// The machine-readable `reason` of a refused request, such as `NO_MATRIX`, or null.
+function refusalReason(error) {
+    try {
+        return JSON.parse(error.message).reason || null;
+    } catch (_) {
+        return null;
+    }
 }
 
 // A 409 that carries `candidate_version` means the review changed under the request: an edit
@@ -304,7 +314,9 @@ async function selectReview(id) {
 const MATRIX_POLL_INTERVAL_MS = 3000;
 
 // A refresh fetches every review page at the shop's robots.txt Crawl-delay, so the server
-// answers 202 while it runs in the background; poll until the matrix or its error arrives.
+// answers 202 while it runs in the background; poll until the matrix or its error arrives. A read
+// without refresh never fetches: without a stored matrix it is refused with `NO_MATRIX`, and the
+// console asks for a refresh only when the reviewer does.
 async function loadSchemaMatrix(reviewId, refresh) {
     const matrix = await api(`/api/reviews/${reviewId}/matrix${refresh ? '?refresh=true' : ''}`);
     return pollSchemaMatrix(reviewId, matrix);
@@ -321,20 +333,26 @@ async function pollSchemaMatrix(reviewId, matrix) {
     return pollSchemaMatrix(reviewId, await api(`/api/reviews/${reviewId}/matrix`));
 }
 
-// A failed matrix refresh leaves the review workable: the workbench shows why, without a
-// matrix, and Re-evaluate starts a new refresh. The console never retries on its own.
+// A failed matrix refresh, or a review without a stored matrix, leaves the review workable: the
+// workbench shows why, without a matrix, and Re-evaluate starts a new refresh. The console never
+// fetches the shop's pages or retries on its own.
 async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     if (!selectedId) return;
     const reviewId = selectedId;
     const detail = await api(`/api/reviews/${reviewId}`);
     let matrix = null;
     let matrixFailure = '';
+    let matrixMissing = false;
     if (detail.review.artifact_type === 'PRODUCT_SCHEMA') {
         try {
             matrix = await loadSchemaMatrix(reviewId, refreshMatrix);
         } catch (error) {
             matrix = {review_id: reviewId, candidates: [], removed_page_matches: []};
-            matrixFailure = apiErrorMessage(error);
+            if (refusalReason(error) === 'NO_MATRIX') {
+                matrixMissing = true;
+            } else {
+                matrixFailure = apiErrorMessage(error);
+            }
         }
     }
     if (matrix && rawAttributeKeys === null) {
@@ -344,6 +362,7 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     selectedDetail = detail;
     selectedMatrix = matrix;
     selectedMatrixFailure = matrixFailure;
+    selectedMatrixMissing = matrixMissing;
     selectedReviewUpdatedAt = detail.review.updated;
     selectedReviewStatus = detail.review.status;
     selectedReviewNeedsRefresh = false;
@@ -1313,6 +1332,12 @@ function recordSavedCandidateVersion(saved) {
 }
 
 function renderMatrixNotice(detail, matrix) {
+    if (selectedMatrixMissing) {
+        return `<div class="hint-card">
+          <span>No schema matrix yet: the current candidate has not been evaluated on the live review pages. Evaluating fetches every review page from the shop at its crawl delay.</span>
+          <button onclick="reevaluateMatrix()">Evaluate on live pages</button>
+        </div>`;
+    }
     if (selectedMatrixFailure) {
         return `<div class="hint-card finding-hint">
           <span>No schema matrix: ${escapeHtml(selectedMatrixFailure)}</span>

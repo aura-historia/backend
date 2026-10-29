@@ -5,6 +5,7 @@ pub mod approval_guard;
 pub mod assets;
 mod candidate_evaluations;
 pub mod http;
+pub mod live_jobs;
 mod matrix_refresh;
 pub mod model;
 pub mod page_coverage;

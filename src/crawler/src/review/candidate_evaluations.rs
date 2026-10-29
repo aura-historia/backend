@@ -5,10 +5,12 @@
 //! fetcher, at the shop's robots.txt `Crawl-delay`, so like a matrix refresh it can outlast one
 //! console request. It runs as a task of its own under an id the console answers with, and its
 //! outcome stays available for polling for a while after it finished. Unlike a matrix refresh,
-//! nothing is stored and no later request joins it: each proposal is its own evaluation.
+//! nothing is stored and no later request joins it: each proposal is its own evaluation, and a live
+//! job of the console's [`LiveJobLimit`] until it ends.
 
 use crate::CrawlerReviewId;
 use crate::review::http::HttpResponse;
+use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::model::SchemaMatrix;
 use serde_json::json;
 use std::collections::HashMap;
@@ -21,8 +23,6 @@ use tracing::error;
 /// The evaluated matrix, or the response that explains why the evaluation failed.
 pub(crate) type CandidateEvaluationOutcome = Result<SchemaMatrix, HttpResponse>;
 
-/// How many evaluations run at once; each fetches several pages at a shop's crawl delay.
-const MAX_RUNNING_EVALUATIONS: usize = 4;
 /// How many finished evaluations stay available for polling at most.
 const MAX_FINISHED_EVALUATIONS: usize = 32;
 /// How long a finished evaluation stays available for polling.
@@ -43,31 +43,22 @@ pub(crate) struct CandidateEvaluations {
 /// A started or polled evaluation.
 pub(crate) struct CandidateEvaluationHandle(watch::Receiver<Option<CandidateEvaluationOutcome>>);
 
-/// [`MAX_RUNNING_EVALUATIONS`] evaluations are running already.
-#[derive(Debug)]
-pub(crate) struct EvaluationsBusy;
-
 impl CandidateEvaluations {
-    /// Spawns `evaluation` of a candidate proposed for the review under a new id, unless
-    /// [`MAX_RUNNING_EVALUATIONS`] are running already.
+    /// Spawns `evaluation` of a candidate proposed for the review under a new id as a live job of
+    /// `live_jobs`, unless it would go above their limit, in which case `evaluation` is dropped
+    /// unpolled.
     pub(crate) fn start<F>(
         &self,
         review_id: CrawlerReviewId,
+        live_jobs: &LiveJobLimit,
         evaluation: F,
-    ) -> Result<(uuid::Uuid, CandidateEvaluationHandle), EvaluationsBusy>
+    ) -> Result<(uuid::Uuid, CandidateEvaluationHandle), LiveJobsBusy>
     where
         F: Future<Output = CandidateEvaluationOutcome> + Send + 'static,
     {
+        let live_job = live_jobs.try_start()?;
         let mut slots = self.lock();
         forget_expired(&mut slots, Instant::now());
-        if slots
-            .values()
-            .filter(|slot| slot.finished.is_none())
-            .count()
-            >= MAX_RUNNING_EVALUATIONS
-        {
-            return Err(EvaluationsBusy);
-        }
         let evaluation_id = uuid::Uuid::new_v4();
         let (sender, receiver) = watch::channel(None);
         slots.insert(
@@ -92,6 +83,8 @@ impl CandidateEvaluations {
                     ))
                 }
             };
+            // The job ends with its outcome, so whoever learns the outcome finds its place free.
+            drop(live_job);
             // Every receiver may already be gone; the registry's own receiver keeps the outcome.
             let _ = sender.send(Some(outcome));
             registry.finish(evaluation_id);
@@ -163,7 +156,12 @@ impl CandidateEvaluationHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU32;
     use tokio::sync::oneshot;
+
+    fn live_jobs(limit: u32) -> LiveJobLimit {
+        LiveJobLimit::new(NonZeroU32::new(limit).unwrap_or(NonZeroU32::MIN))
+    }
 
     fn matrix(review_id: CrawlerReviewId) -> SchemaMatrix {
         SchemaMatrix {
@@ -181,7 +179,7 @@ mod tests {
         let (release, released) = oneshot::channel::<()>();
 
         let (evaluation_id, started) = evaluations
-            .start(review_id, async move {
+            .start(review_id, &live_jobs(1), async move {
                 let _ = released.await;
                 Ok(matrix(review_id))
             })
@@ -208,28 +206,39 @@ mod tests {
         assert!(evaluations.find(review_id, uuid::Uuid::new_v4()).is_none());
     }
 
+    /// A running evaluation holds its place under the console's live-job limit until it ends.
     #[tokio::test]
-    async fn should_refuse_an_evaluation_while_the_maximum_runs() {
+    async fn should_refuse_an_evaluation_above_the_live_job_limit_until_a_running_one_ends() {
         let evaluations = CandidateEvaluations::default();
+        let live_jobs = live_jobs(2);
         let review_id = CrawlerReviewId::new();
         let mut releases = Vec::new();
-        for _ in 0..MAX_RUNNING_EVALUATIONS {
+        let mut running = Vec::new();
+        for _ in 0..2 {
             let (release, released) = oneshot::channel::<()>();
             releases.push(release);
-            assert!(
-                evaluations
-                    .start(review_id, async move {
-                        let _ = released.await;
-                        Ok(matrix(review_id))
-                    })
-                    .is_ok()
-            );
+            let (_, handle) = evaluations
+                .start(review_id, &live_jobs, async move {
+                    let _ = released.await;
+                    Ok(matrix(review_id))
+                })
+                .unwrap_or_else(|busy| panic!("evaluation refused: {busy:?}"));
+            running.push(handle);
         }
 
+        let refused =
+            evaluations.start(review_id, &live_jobs, async move { Ok(matrix(review_id)) });
+        assert_eq!(refused.err().map(|busy| busy.limit.get()), Some(2));
+        let _ = releases.remove(0).send(());
+        let finished = running
+            .remove(0)
+            .outcome_within(Duration::from_secs(5))
+            .await;
+        assert!(matches!(finished, Some(Ok(_))));
         assert!(
             evaluations
-                .start(review_id, async move { Ok(matrix(review_id)) })
-                .is_err()
+                .start(review_id, &live_jobs, async move { Ok(matrix(review_id)) })
+                .is_ok()
         );
         drop(releases);
     }

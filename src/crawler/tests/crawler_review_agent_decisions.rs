@@ -1996,7 +1996,7 @@ async fn should_refuse_every_agent_change_and_verdict_once_the_agents_reached_th
             .remove_reviewer_page(added.review_page_id, ReviewActor::AgentAuthor)
             .await,
         repository
-            .check_matrix_refresh(review_id, ReviewActor::AgentReviewer)
+            .check_live_job(review_id, ReviewActor::AgentReviewer)
             .await,
         repository
             .store_schema_matrix_if_current(review_id, ReviewActor::AgentReviewer, evaluated)
