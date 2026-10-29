@@ -747,6 +747,33 @@ async fn should_move_row_stored_re_encoded_without_trailing_slash_to_slashed_url
     );
 }
 
+/// A page with rows under both earlier spellings keeps the more recent one: the row stored without
+/// the slash moves, and the re-encoded one stays put, since the fetched spelling has a row by then.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_move_only_unslashed_row_when_re_encoded_row_of_the_page_exists_too() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "slash.example.com").await;
+    let re_encoded = "https://slash.example.com/collections/vendors?q=A%2C+B";
+    let unslashed = "https://slash.example.com/collections/vendors?q=A%2C%20B";
+    let fetched = "https://slash.example.com/collections/vendors/?q=A%2C%20B";
+    insert_scraped_url(&pool, listing_source_id, domain_id, re_encoded).await;
+    insert_scraped_url(&pool, listing_source_id, domain_id, unslashed).await;
+
+    let records = upsert_batch(&repository, listing_source_id, domain_id, &[fetched]).await;
+
+    assert_eq!(records, vec![fetched.to_owned()]);
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![
+            scraped_row(fetched, unslashed),
+            scraped_row(re_encoded, re_encoded),
+        ]
+    );
+}
+
 /// A shop that links a page with and without the trailing slash keeps one row under the slashed
 /// spelling, whether both arrive in one batch or the unslashed one arrives after the slashed one
 /// was stored, and a row stored without the slash moves to it.
