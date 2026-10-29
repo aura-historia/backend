@@ -1,5 +1,6 @@
 use crate::CrawlerDomainId;
 use crate::network::policy::domain_failure_kind;
+use crate::scraper::candidate_service::SchemaSeedCandidate;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
     FetchFailureSource, ScrapeMode, record_transport_failure,
@@ -52,14 +53,12 @@ impl ScraperServiceImpl {
             });
         };
 
-        let extra_limit = (self.schema_seed_pages - 1) as i64;
         let sample_urls = match self
-            .candidate_service
-            .get_random_product_urls_for_schema_seed(
+            .sample_schema_seed_candidates(
                 listing_source_id,
                 domain_id,
-                &[url.to_string()],
-                extra_limit,
+                url,
+                self.schema_seed_pages - 1,
             )
             .await
         {
@@ -139,6 +138,52 @@ impl ScraperServiceImpl {
         }
 
         Ok(pages)
+    }
+
+    /// Samples up to `limit` stored product URLs of `domain_id` to seed a new schema for the page
+    /// `url` with. A page a rejected manual review covers is never taken: the sample is drawn
+    /// again without it, so other product pages take its place, and when none is left the new
+    /// review opens with fewer seed pages, or with the page alone.
+    async fn sample_schema_seed_candidates(
+        &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        url: &Url,
+        limit: usize,
+    ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error> {
+        let mut excluded_urls = vec![url.to_string()];
+        let mut seeds = Vec::with_capacity(limit);
+        while seeds.len() < limit {
+            let wanted = limit - seeds.len();
+            let sample = self
+                .candidate_service
+                .get_random_product_urls_for_schema_seed(
+                    listing_source_id,
+                    domain_id,
+                    &excluded_urls,
+                    wanted as i64,
+                )
+                .await?;
+            let pool_exhausted = sample.len() < wanted;
+            for candidate in sample {
+                excluded_urls.push(candidate.url.to_string());
+                if self
+                    .is_rejected_page(listing_source_id, &candidate.url)
+                    .await?
+                {
+                    debug!(
+                        sample_url = %candidate.url,
+                        "Leaving a page rejected as a non-product page out of the schema-seed sample"
+                    );
+                } else {
+                    seeds.push(candidate);
+                }
+            }
+            if pool_exhausted {
+                break;
+            }
+        }
+        Ok(seeds)
     }
 }
 

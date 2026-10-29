@@ -1064,3 +1064,190 @@ async fn should_match_what_the_edited_template_declares_once_a_review_edits_it()
         "the notice the template no longer declares must not be captured as removed, got {no_longer_available:?}"
     );
 }
+
+/// Stores `urls` as the active product URLs of the ListingSource's domain `example.com`, in the
+/// spellings given, and returns that domain.
+async fn store_product_urls(
+    pool: &PgPool,
+    listing_source_id: &ListingSourceId,
+    urls: &[&str],
+) -> crate::CrawlerDomainId {
+    let domain_id = crate::CrawlerDomainId::new();
+    sqlx::query(
+        "INSERT INTO listing_source_domains \
+         (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+         VALUES ($1, $2, 'example.com', 'example.com')",
+    )
+    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("insert domain: {error}"));
+    sqlx::query(
+        "INSERT INTO listing_source_urls \
+         (listing_source_id, domain_id, url, raw_source_record_key, url_class) \
+         SELECT $1, $2, url, url, 'product' FROM UNNEST($3::text[]) AS url",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(domain_id.as_uuid())
+    .bind(urls)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("store product URLs: {error}"));
+    domain_id
+}
+
+/// Opens a manual review over `pages`, recorded as `(url, role)`, and rejects it as an operator
+/// who found that they are no product pages.
+async fn reject_manual_review_over(
+    repository: &CrawlerReviewRepository,
+    listing_source_id: &ListingSourceId,
+    pages: &[(&str, &str)],
+) {
+    let review_id = repository
+        .create_schema_review(
+            listing_source_id,
+            MANUAL_SCHEMA_REASON,
+            &[minimal_schema()],
+            pages
+                .iter()
+                .map(|(url, role)| SchemaReviewPageInput {
+                    url: (*url).to_owned(),
+                    role: (*role).to_owned(),
+                    raw_html: sample_html(),
+                })
+                .collect(),
+            json!({ "manual_authoring": true }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("open manual review: {error}"));
+    repository
+        .reject_review(review_id, ReviewActor::Human, Some("not product pages"))
+        .await
+        .unwrap_or_else(|error| panic!("reject manual review: {error}"));
+}
+
+/// A manual-mode scraper without cached schemas that seeds a new review with up to three pages
+/// it samples from the stored product URLs. It serves the sample product page from every URL and
+/// fails the test unless it fetches exactly `fetches` pages, the scraped page included.
+fn seeding_manual_scraper(
+    pool: &PgPool,
+    repository: CrawlerReviewRepository,
+    fetches: usize,
+) -> ScraperServiceImpl {
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().times(fetches).returning(|url| {
+        let url = url.clone();
+        Box::pin(async move { Ok(fetch_result_for(sample_html(), url)) })
+    });
+    ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_service_without_generation(None)),
+        Arc::new(crate::scraper::candidate_service::ScraperCandidateServiceImpl::new(pool.clone())),
+        4,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    )
+    .with_review_gate(repository, CrawlerAuthoringMode::Manual)
+}
+
+/// Scrapes the product page `url` of the domain `domain_id` until it opens a manual review, and
+/// returns the URLs of that review's pages, sorted.
+async fn new_manual_review_page_urls(
+    scraper: &ScraperServiceImpl,
+    repository: &CrawlerReviewRepository,
+    listing_source_id: &ListingSourceId,
+    domain_id: crate::CrawlerDomainId,
+    url: &Url,
+) -> Vec<String> {
+    let request = ScrapeRequest {
+        domain_id: Some(domain_id),
+        ..normal_request(listing_source_id, url)
+    };
+    let review_id = pending_review_id(scraper.scrape(request).await.result);
+    let mut urls: Vec<String> = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read review pages: {error}"))
+        .into_iter()
+        .map(|page| page.url)
+        .collect();
+    urls.sort();
+    urls
+}
+
+const REJECTED_PRIMARY_RECORDED: &str = "https://example.com/products/rejected-primary";
+const REJECTED_PRIMARY_STORED: &str = "https://example.com/products/rejected-primary/";
+const REJECTED_SEED_RECORDED: &str = "https://example.com/products/rejected-seed/";
+const REJECTED_SEED_STORED: &str = "https://example.com/products/rejected-seed";
+
+/// Rejects a manual review over two pages the spider has stored since under the other
+/// trailing-slash spelling than the review recorded.
+async fn reject_two_stored_pages(
+    repository: &CrawlerReviewRepository,
+    listing_source_id: &ListingSourceId,
+) {
+    reject_manual_review_over(
+        repository,
+        listing_source_id,
+        &[
+            (REJECTED_PRIMARY_RECORDED, PAGE_ROLE_PRIMARY),
+            (REJECTED_SEED_RECORDED, crate::review::model::PAGE_ROLE_SEED),
+        ],
+    )
+    .await;
+}
+
+/// Rejecting a manual review classifies its pages as non-product pages, so the ListingSource's next
+/// review is not judged on them: its seed sample leaves them out in either trailing-slash spelling
+/// and takes the domain's other product pages instead, without fetching a rejected one.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_seed_a_new_manual_review_with_other_pages_than_the_rejected_ones() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let other_pages = [
+        "https://example.com/products/other-1",
+        "https://example.com/products/other-2",
+    ];
+    let domain_id = store_product_urls(
+        &pool,
+        &id,
+        &[
+            url.as_str(),
+            REJECTED_PRIMARY_STORED,
+            REJECTED_SEED_STORED,
+            other_pages[0],
+            other_pages[1],
+        ],
+    )
+    .await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    reject_two_stored_pages(&repository, &id).await;
+    let scraper = seeding_manual_scraper(&pool, repository.clone(), 3);
+
+    let pages = new_manual_review_page_urls(&scraper, &repository, &id, domain_id, &url).await;
+
+    assert_eq!(pages, vec![url.as_str(), other_pages[0], other_pages[1]]);
+}
+
+/// A rejected page never fills a seed sample: when rejections cover every other product page of
+/// the domain, the new review opens with the page that opened it alone.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_a_new_manual_review_with_its_page_alone_when_every_other_page_is_rejected() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let domain_id = store_product_urls(
+        &pool,
+        &id,
+        &[url.as_str(), REJECTED_PRIMARY_STORED, REJECTED_SEED_STORED],
+    )
+    .await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    reject_two_stored_pages(&repository, &id).await;
+    let scraper = seeding_manual_scraper(&pool, repository.clone(), 1);
+
+    let pages = new_manual_review_page_urls(&scraper, &repository, &id, domain_id, &url).await;
+
+    assert_eq!(pages, vec![url.as_str()]);
+}
