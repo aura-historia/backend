@@ -1,5 +1,6 @@
 use super::*;
 use crate::authoring::CrawlerAuthoringMode;
+use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crate::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
     SchemaReviewPageInput,
@@ -355,6 +356,121 @@ async fn should_classify_rejected_triggering_page_as_other_when_it_was_captured_
         ..primary_only_request(id, url)
     })
     .await;
+}
+
+/// The review repository of `agent` authoring mode, whose reviewer agent rejects reviews.
+fn agent_deciding_repository(pool: &PgPool) -> CrawlerReviewRepository {
+    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy {
+        approvals: AgentApprovals::Guarded,
+        ..AgentDecisionPolicy::default()
+    })
+}
+
+/// Rejects the review as the reviewer agent that took its pages for non-product pages, then
+/// revokes the rejection as the human who found the mistake.
+async fn reject_by_mistake(
+    repository: &CrawlerReviewRepository,
+    review_id: crate::CrawlerReviewId,
+) {
+    repository
+        .reject_review(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("not a product page"),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("reject manual review: {error}"));
+    repository
+        .revoke_rejection(review_id, ReviewActor::Human, Some("these are products"))
+        .await
+        .unwrap_or_else(|error| panic!("revoke the rejection: {error}"));
+}
+
+/// A scraper whose candidate service fails the test if the scrape classifies its page as other.
+fn manual_scraper_keeping_the_page_class(
+    schema_svc: MockProductListingSchemaService,
+    review_repository: CrawlerReviewRepository,
+) -> ScraperServiceImpl {
+    let mut candidates = MockScraperCandidateService::new();
+    candidates.expect_set_class().never();
+    manual_scraper(schema_svc, review_repository, candidates)
+}
+
+/// Once a human revokes the rejection, the page is scraped as a product page again: no cached
+/// schema extracts it, so it opens a new manual review instead of being classified as other.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_a_new_manual_review_for_a_page_once_its_rejection_is_revoked() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = agent_deciding_repository(&pool);
+    let opening = manual_scraper(
+        schema_service_without_generation(None),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+    );
+    let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
+    reject_by_mistake(&repository, rejected).await;
+    let rescraping = manual_scraper_keeping_the_page_class(
+        schema_service_without_generation(None),
+        repository.clone(),
+    );
+
+    let reopened = pending_review_id(
+        rescraping
+            .scrape(primary_only_request(&id, &url))
+            .await
+            .result,
+    );
+
+    assert_ne!(reopened, rejected);
+    let pages = repository
+        .get_review_pages(reopened)
+        .await
+        .unwrap_or_else(|error| panic!("read review pages: {error}"));
+    assert_eq!(
+        pages
+            .iter()
+            .map(|page| (page.url.as_str(), page.role.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(url.as_str(), PAGE_ROLE_PRIMARY)]
+    );
+}
+
+/// Once a human revokes the rejection of the review a triggering page opened, a cached schema
+/// that extracts the page captures it again.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_capture_a_rejected_triggering_page_once_its_rejection_is_revoked() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = agent_deciding_repository(&pool);
+    let opening = manual_scraper(
+        schema_service_without_generation(Some(cached_schemas(id, vec![stale_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+    );
+    let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
+    reject_by_mistake(&repository, rejected).await;
+    let rescraping = manual_scraper_keeping_the_page_class(
+        schema_service_without_generation(Some(cached_schemas(id, vec![minimal_schema()]))),
+        repository.clone(),
+    );
+
+    let result = rescraping
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .result;
+
+    let scraped = result.unwrap_or_else(|error| panic!("expected a scraped product: {error}"));
+    assert!(scraped.is_some(), "expected a scraped product");
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
+        None
+    );
 }
 
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]

@@ -98,6 +98,12 @@ pub(super) enum ReviewMutation<'a> {
         /// The domain's URL-pattern decision the restore replaced.
         replaced_url_pattern: DomainUrlPattern,
     },
+    RejectionRevoked {
+        #[serde(skip)]
+        notes: Option<&'a str>,
+        /// The crawler URLs of the rejected pages whose class the revocation changed.
+        reclassified_urls: Vec<String>,
+    },
 }
 
 /// A domain's URL-pattern decision as `listing_source_domains` stores it.
@@ -158,6 +164,7 @@ impl ReviewMutation<'_> {
             Self::ProductSchemasRestored { .. } | Self::UrlPatternRestored { .. } => {
                 ReviewEventAction::Restored
             }
+            Self::RejectionRevoked { .. } => ReviewEventAction::RejectionRevoked,
         }
     }
 
@@ -168,7 +175,8 @@ impl ReviewMutation<'_> {
             | Self::UrlPatternApproved { notes, .. }
             | Self::Rejected { notes }
             | Self::ProductSchemasRestored { notes, .. }
-            | Self::UrlPatternRestored { notes, .. } => *notes,
+            | Self::UrlPatternRestored { notes, .. }
+            | Self::RejectionRevoked { notes, .. } => *notes,
             Self::CandidateEdited { .. }
             | Self::SampleLabelsEdited { .. }
             | Self::SchemaFieldEdited { .. }
@@ -529,6 +537,15 @@ mod tests {
                 ReviewEventAction::Rejected,
                 Some("not a shop page"),
                 json!({}),
+            ),
+            (
+                ReviewMutation::RejectionRevoked {
+                    notes: Some("the agent rejected product pages"),
+                    reclassified_urls: vec!["https://shop.example/item/1".to_owned()],
+                },
+                ReviewEventAction::RejectionRevoked,
+                Some("the agent rejected product pages"),
+                json!({ "reclassified_urls": ["https://shop.example/item/1"] }),
             ),
         ] {
             assert_eq!(mutation.action(), action);

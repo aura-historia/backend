@@ -1,7 +1,7 @@
 use crawler::review::model::{
-    CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED,
-    PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
-    STATUS_PENDING_REVIEW, SchemaReviewPageInput,
+    CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_SEED,
+    PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor, ReviewEventAction,
+    STATUS_PENDING_REVIEW, STATUS_REJECTED, SchemaReviewPageInput,
 };
 use crawler::review::repository::{
     CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewRepositoryError,
@@ -945,5 +945,268 @@ async fn should_not_treat_rejection_as_verdict_on_waiting_pages() {
             )
             .await
             .unwrap()
+    );
+}
+
+/// The crawler URL `url` of the ListingSource's only domain, stored with `url_class` and a retry
+/// delay, as the rejection's scrape left a page it classified as other.
+async fn insert_crawler_url(
+    pool: &PgPool,
+    listing_source_id: &ListingSourceId,
+    url: &str,
+    url_class: &str,
+) {
+    sqlx::query(
+        "INSERT INTO listing_source_urls \
+         (listing_source_id, domain_id, url, url_class, raw_source_record_key, next_retry_at) \
+         SELECT listing_source_id, domain_id, $2, $3, $2, NOW() + INTERVAL '1 hour' \
+         FROM listing_source_domains WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url)
+    .bind(url_class)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn crawler_url_state(pool: &PgPool, url: &str) -> (String, bool) {
+    sqlx::query_as::<_, (String, bool)>(
+        "SELECT url_class, next_retry_at IS NULL FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// A human's revocation lifts the rejection's verdict on its seed and triggering pages, in either
+/// trailing-slash spelling: the ones the domain's pattern takes become product pages again with no
+/// retry delay, the others keep the class the pattern gives them, and pages the rejection never
+/// judged keep theirs. The review stays rejected and its trail records the revocation once.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, unrelated_review) = pending_schema_review(&pool).await;
+    repository
+        .reject_review(unrelated_review, ReviewActor::Human, None)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let review_id = repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema()],
+            vec![
+                SchemaReviewPageInput {
+                    url: "https://www.example.com/products/2".to_owned(),
+                    role: PAGE_ROLE_PRIMARY.to_owned(),
+                    raw_html: PRODUCT_HTML.to_owned(),
+                },
+                SchemaReviewPageInput {
+                    url: "https://www.example.com/p/oak-chair-story".to_owned(),
+                    role: PAGE_ROLE_SEED.to_owned(),
+                    raw_html: PRODUCT_HTML.to_owned(),
+                },
+            ],
+            json!({ "manual_authoring": true }),
+        )
+        .await
+        .unwrap();
+    let reviewer_page = url("https://www.example.com/products/3");
+    repository
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &reviewer_page,
+            &reviewer_page,
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    repository
+        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
+        .await
+        .unwrap();
+    for (crawler_url, class) in [
+        ("https://www.example.com/products/2/", "other"),
+        ("https://www.example.com/p/oak-chair-story", "other"),
+        ("https://www.example.com/products/3", "other"),
+        ("https://www.example.com/products/1", "other"),
+    ] {
+        insert_crawler_url(&pool, &listing_source_id, crawler_url, class).await;
+    }
+    let rejected = |crawler_url: &'static str| {
+        let repository = repository.clone();
+        async move {
+            repository
+                .has_rejected_schema_review_for_page(
+                    &listing_source_id,
+                    "manual_schema_required",
+                    crawler_url,
+                )
+                .await
+                .unwrap()
+        }
+    };
+    assert!(rejected("https://www.example.com/products/2/").await);
+
+    let by_agent = repository
+        .revoke_rejection(review_id, ReviewActor::AgentReviewer, None)
+        .await;
+    repository
+        .revoke_rejection(
+            review_id,
+            ReviewActor::Human,
+            Some("the agent rejected product pages"),
+        )
+        .await
+        .unwrap();
+    let again = repository
+        .revoke_rejection(review_id, ReviewActor::Human, None)
+        .await;
+
+    assert!(
+        matches!(by_agent, Err(ReviewRepositoryError::RevocationNeedsHuman)),
+        "{by_agent:?}"
+    );
+    assert!(
+        matches!(again, Err(ReviewRepositoryError::RejectionAlreadyRevoked(id)) if id == review_id),
+        "{again:?}"
+    );
+    for (crawler_url, still_rejected) in [
+        ("https://www.example.com/products/2", false),
+        ("https://www.example.com/products/2/", false),
+        ("https://www.example.com/p/oak-chair-story", false),
+        ("https://www.example.com/products/1", true),
+    ] {
+        assert_eq!(rejected(crawler_url).await, still_rejected, "{crawler_url}");
+    }
+    assert_eq!(
+        crawler_url_state(&pool, "https://www.example.com/products/2/").await,
+        ("product".to_owned(), true),
+        "a rejected page the pattern takes is scraped again"
+    );
+    for (crawler_url, why) in [
+        (
+            "https://www.example.com/p/oak-chair-story",
+            "the pattern does not take this rejected page",
+        ),
+        (
+            "https://www.example.com/products/3",
+            "the rejection never judged a reviewer-added page",
+        ),
+        (
+            "https://www.example.com/products/1",
+            "a page of another rejected review keeps its class",
+        ),
+    ] {
+        assert_eq!(
+            crawler_url_state(&pool, crawler_url).await,
+            ("other".to_owned(), false),
+            "{why}"
+        );
+    }
+    let detail = repository.get_review(review_id).await.unwrap();
+    assert_eq!(detail.review.status, STATUS_REJECTED);
+    let revocation = detail.events.last().unwrap();
+    assert_eq!(
+        (
+            revocation.actor,
+            revocation.action,
+            revocation.notes.as_deref()
+        ),
+        (
+            ReviewActor::Human,
+            ReviewEventAction::RejectionRevoked,
+            Some("the agent rejected product pages")
+        )
+    );
+    assert_eq!(
+        revocation.details,
+        json!({ "reclassified_urls": ["https://www.example.com/products/2/"] })
+    );
+    assert_eq!(
+        detail
+            .events
+            .iter()
+            .filter(|event| event.action == ReviewEventAction::RejectionRevoked)
+            .count(),
+        1
+    );
+}
+
+/// Only rejecting a manual product-schema review classifies pages, so no other review has a
+/// rejection to revoke, and a refused revocation records nothing.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_to_revoke_a_review_whose_rejection_classified_no_page() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, pending) = pending_schema_review(&pool).await;
+    repository
+        .reject_review(pending, ReviewActor::Human, None)
+        .await
+        .unwrap();
+    let generated = repository
+        .create_schema_review(
+            &listing_source_id,
+            "initial_schema_generation",
+            &[schema()],
+            vec![SchemaReviewPageInput {
+                url: "https://www.example.com/products/2".to_owned(),
+                role: PAGE_ROLE_PRIMARY.to_owned(),
+                raw_html: PRODUCT_HTML.to_owned(),
+            }],
+            json!({}),
+        )
+        .await
+        .unwrap();
+    let pending_revocation = repository
+        .revoke_rejection(generated, ReviewActor::Human, None)
+        .await;
+    repository
+        .reject_review(generated, ReviewActor::Human, None)
+        .await
+        .unwrap();
+
+    let generated_revocation = repository
+        .revoke_rejection(generated, ReviewActor::Human, None)
+        .await;
+    let unknown = CrawlerReviewId::new();
+    let unknown_revocation = repository
+        .revoke_rejection(unknown, ReviewActor::Human, None)
+        .await;
+
+    for (revocation, review_id) in [
+        (pending_revocation, generated),
+        (generated_revocation, generated),
+    ] {
+        assert!(
+            matches!(revocation, Err(ReviewRepositoryError::NoRejectionToRevoke(id)) if id == review_id),
+            "{revocation:?}"
+        );
+    }
+    assert!(
+        matches!(unknown_revocation, Err(ReviewRepositoryError::NotFound(id)) if id == unknown),
+        "{unknown_revocation:?}"
+    );
+    assert!(
+        repository
+            .get_review(generated)
+            .await
+            .unwrap()
+            .events
+            .iter()
+            .all(|event| event.action != ReviewEventAction::RejectionRevoked)
     );
 }

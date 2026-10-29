@@ -103,8 +103,8 @@ impl ReviewActor {
         !self.is_agent()
     }
 
-    /// Whether the actor may undo a decision, such as restoring the live configuration an approval
-    /// replaced: only a human undoes a decision.
+    /// Whether the actor may undo a decision, restoring the live configuration an approval replaced
+    /// or revoking a rejection: only a human undoes a decision.
     pub const fn may_undo_decisions(self) -> bool {
         matches!(self, Self::Human)
     }
@@ -127,10 +127,13 @@ pub enum ReviewEventAction {
     Rejected,
     /// `POST /api/reviews/{id}/restore`: a human brought back what the review's approval replaced.
     Restored,
+    /// `POST /api/reviews/{id}/revoke-rejection`: a human lifted the non-product verdict the
+    /// review's rejection gave its pages; the review stays rejected.
+    RejectionRevoked,
 }
 
 impl ReviewEventAction {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::CandidateEdited,
         Self::SchemaFieldEdited,
         Self::PageAdded,
@@ -139,6 +142,7 @@ impl ReviewEventAction {
         Self::Approved,
         Self::Rejected,
         Self::Restored,
+        Self::RejectionRevoked,
     ];
 
     /// The persisted and serialized name.
@@ -152,6 +156,7 @@ impl ReviewEventAction {
             Self::Approved => "APPROVED",
             Self::Rejected => "REJECTED",
             Self::Restored => "RESTORED",
+            Self::RejectionRevoked => "REJECTION_REVOKED",
         }
     }
 

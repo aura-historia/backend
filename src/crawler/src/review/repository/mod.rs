@@ -35,6 +35,7 @@ mod restore;
 mod review_events;
 mod review_source;
 mod reviewer_page_url;
+mod revocation;
 mod sample_labels;
 mod schema_payload;
 mod verdicts;
@@ -214,6 +215,14 @@ pub enum ReviewRepositoryError {
     },
     #[error("the approval of review {0} was already restored")]
     ApprovalAlreadyRestored(CrawlerReviewId),
+    #[error("only a human revokes a rejection")]
+    RevocationNeedsHuman,
+    #[error(
+        "review {0} has no rejection to revoke: only rejecting a manual_schema_required product-schema review classifies pages as non-product pages"
+    )]
+    NoRejectionToRevoke(CrawlerReviewId),
+    #[error("the rejection of review {0} was already revoked")]
+    RejectionAlreadyRevoked(CrawlerReviewId),
     #[error(
         "the live configuration changed since review {0} was approved; a restore would overwrite that newer change"
     )]
@@ -317,9 +326,9 @@ impl CrawlerReviewRepository {
     }
 
     /// Whether an operator rejected a product schema review opened for `reason` over the page of
-    /// the crawler URL `url`, which the review recorded with or without its trailing slash: the
-    /// spider moves a URL stored without the slash to the slashed spelling it fetches, while the
-    /// review page keeps the spelling it was recorded under
+    /// the crawler URL `url`, and no human revoked that rejection. The review recorded the page with
+    /// or without its trailing slash: the spider moves a URL stored without the slash to the
+    /// slashed spelling it fetches, while the review page keeps the spelling it was recorded under
     /// (`docs/crawler/networking.md#stored-urls`).
     pub async fn has_rejected_schema_review_for_page(
         &self,
@@ -332,12 +341,15 @@ impl CrawlerReviewRepository {
              JOIN crawler_review_pages p ON p.review_id = r.review_id \
              WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
                AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = ANY($3::text[]) \
-               AND p.role <> ALL($4))",
+               AND p.role <> ALL($4) \
+               AND NOT EXISTS (SELECT 1 FROM crawler_review_events e \
+                               WHERE e.review_id = r.review_id AND e.action = $5))",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(reason)
         .bind(page_url_spellings(url))
         .bind(ROLES_NO_REJECTION_JUDGES)
+        .bind(ReviewEventAction::RejectionRevoked.as_str())
         .fetch_one(&self.pool)
         .await
     }
