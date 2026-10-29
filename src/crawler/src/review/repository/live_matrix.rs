@@ -98,6 +98,11 @@ impl CrawlerReviewRepository {
             .iter()
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
+        let live_evaluation = LiveMatrixEvaluation {
+            candidate_version: review.candidate_version,
+            configuration_sha256: going_live.fingerprint()?,
+            fetched_at,
+        };
         let mut matrix = evaluate_schema_matrix_for_live_review_pages(
             review_id,
             &going_live.schemas,
@@ -106,11 +111,7 @@ impl CrawlerReviewRepository {
             &[],
             &captured_identities,
         );
-        matrix.live_evaluation = Some(LiveMatrixEvaluation {
-            candidate_version: review.candidate_version,
-            configuration_sha256: going_live.fingerprint()?,
-            fetched_at,
-        });
+        matrix.live_evaluation = Some(live_evaluation);
         Ok(EvaluatedSchemaMatrix {
             matrix,
             candidate_hash: review.candidate_hash,
