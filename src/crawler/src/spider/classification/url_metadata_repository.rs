@@ -283,64 +283,17 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         url: &url::Url,
         url_class: &UrlClass,
     ) -> Result<SpiderUrlRecord, UrlMetadataRepositoryError> {
-        let mut transaction = self.pool.begin().await.map_err(database_error)?;
-        let domain =
-            Self::verify_domain_owner(&mut transaction, *listing_source_id, *domain_id).await?;
-        Self::verify_url_hosts(std::slice::from_ref(url), &domain)?;
-        let urls = vec![url.to_string()];
-        Self::validate_existing_url_ownership(
-            &mut transaction,
-            *listing_source_id,
-            *domain_id,
-            &urls,
-        )
-        .await?;
-        Self::adopt_legacy_spellings(
-            &mut transaction,
-            *listing_source_id,
-            *domain_id,
+        self.upsert_links_batch(
+            listing_source_id,
+            domain_id,
             std::slice::from_ref(url),
+            std::slice::from_ref(url_class),
         )
-        .await?;
-
-        let record = sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, raw_source_record_key, url_class, created, updated) \
-             VALUES ($1, $2, $3, $3, $4, NOW(), NOW()) \
-             ON CONFLICT (url) DO UPDATE SET \
-                 url_class = CASE \
-                     WHEN listing_source_urls.crawler_disposition = 'ACTIVE' THEN EXCLUDED.url_class \
-                     ELSE listing_source_urls.url_class \
-                 END, \
-                 updated = CASE \
-                     WHEN listing_source_urls.crawler_disposition = 'ACTIVE' THEN NOW() \
-                     ELSE listing_source_urls.updated \
-                 END \
-             WHERE listing_source_urls.listing_source_id = EXCLUDED.listing_source_id \
-               AND listing_source_urls.domain_id = EXCLUDED.domain_id \
-             RETURNING listing_source_id, domain_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated",
-        )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
-        .bind(url.as_str())
-        .bind(url_class.to_string())
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(database_error)?;
-
-        let Some(record) = record else {
-            Self::validate_existing_url_ownership(
-                &mut transaction,
-                *listing_source_id,
-                *domain_id,
-                &urls,
-            )
-            .await?;
-            return Err(UrlMetadataRepositoryError::Database {
-                source: sqlx::Error::RowNotFound,
-            });
-        };
-        transaction.commit().await.map_err(database_error)?;
-        Ok(record)
+        .await?
+        .pop()
+        .ok_or(UrlMetadataRepositoryError::Database {
+            source: sqlx::Error::RowNotFound,
+        })
     }
 
     async fn upsert_links_batch(
