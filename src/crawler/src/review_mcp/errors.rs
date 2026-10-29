@@ -218,6 +218,10 @@ mod tests {
             409,
             json!({ "error": "waits for a human", "reason": "HUMAN_REQUIRED", "agent_rounds": 3, "limit": 3 }),
         ));
+        let missing = reported(refused(
+            404,
+            json!({ "error": "no matrix", "reason": "NO_MATRIX", "review_id": "cr_1" }),
+        ));
         let invalid = reported(refused(400, json!({ "error": "invalid review page url" })));
 
         assert_eq!(
@@ -250,6 +254,10 @@ mod tests {
                 "agent_rounds": 3,
                 "limit": 3,
             })
+        );
+        assert_eq!(
+            missing,
+            json!({ "kind": "NOT_FOUND", "error": "no matrix", "status": 404, "reason": "NO_MATRIX" })
         );
         assert_eq!(invalid["kind"], "INVALID_REQUEST");
         assert_eq!(invalid["status"], 400);
