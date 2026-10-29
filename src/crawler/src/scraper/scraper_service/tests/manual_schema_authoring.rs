@@ -886,6 +886,50 @@ async fn should_capture_a_notice_page_as_removed_once_its_review_approves_a_temp
     );
 }
 
+/// A rejection is a verdict that its pages are no product pages, not that their listings stay
+/// live: a rejected page that a stored removed-page template matches is still captured as removed,
+/// so the raw delete capture withdraws the listing a capture before the rejection made visible.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_capture_a_rejected_page_as_removed_when_a_removed_page_template_matches_it() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    let rejected = repository
+        .create_schema_review(
+            &id,
+            MANUAL_SCHEMA_REASON,
+            &[minimal_schema()],
+            vec![SchemaReviewPageInput {
+                url: url.to_string(),
+                role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_owned(),
+                raw_html: sample_html(),
+            }],
+            json!({}),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("open manual review: {error}"));
+    repository
+        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .await
+        .unwrap_or_else(|error| panic!("reject manual review: {error}"));
+    assert!(
+        repository
+            .has_rejected_schema_review_for_page(&id, MANUAL_SCHEMA_REASON, url.as_str())
+            .await
+            .unwrap_or_else(|error| panic!("read rejected pages: {error}")),
+        "the page must be a rejected page"
+    );
+
+    let result = scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
+
+    assert!(
+        matches!(result, Err(ScraperError::ProductListingRemoved { .. })),
+        "the verified removal must win over the rejection, got {result:?}"
+    );
+}
+
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_scrape_a_product_page_the_approved_template_matches_while_a_cached_schema_extracts_it()
  {
