@@ -24,9 +24,12 @@ pub(crate) struct LiveJobLimit {
 }
 
 /// One running live job's place under the [`LiveJobLimit`]; dropping it frees the place. Whatever
-/// runs the job's work holds it until that work ends: the spawned task of a background job, or the
-/// closure of the blocking thread a job's parsing runs on, since a blocking thread outlives a
-/// request that stops waiting for it.
+/// runs the job's work holds it until that work ends. The task of a background job (a refresh or an
+/// evaluation) holds it around the job's whole future, so the blocking work that future awaits to
+/// its end, such as parsing the pages it evaluates, counts against the limit and takes no place of
+/// its own: with a limit of one, a second place would refuse the job's own work. Blocking work that
+/// can outlive the future holding the place takes the place into its closure instead, as a
+/// projection's parse does, since a blocking thread outlives a request that stops waiting for it.
 #[must_use = "dropping the permit frees the live job's place at once"]
 #[derive(Debug)]
 pub(crate) struct LiveJobPermit {

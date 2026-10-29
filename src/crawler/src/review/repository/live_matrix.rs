@@ -103,14 +103,17 @@ impl CrawlerReviewRepository {
             configuration_sha256: going_live.fingerprint()?,
             fetched_at,
         };
-        let mut matrix = evaluate_schema_matrix_for_live_review_pages(
-            review_id,
-            &going_live.schemas,
-            &going_live.removed_page_schemas,
-            &pages,
-            &[],
-            &captured_identities,
-        );
+        let mut matrix = evaluate_on_blocking_thread(move || {
+            evaluate_schema_matrix_for_live_review_pages(
+                review_id,
+                &going_live.schemas,
+                &going_live.removed_page_schemas,
+                &pages,
+                &[],
+                &captured_identities,
+            )
+        })
+        .await?;
         matrix.live_evaluation = Some(live_evaluation);
         Ok(EvaluatedSchemaMatrix {
             matrix,
@@ -176,14 +179,17 @@ impl CrawlerReviewRepository {
         let captured_identities = self
             .captured_identities(proposal.listing_source_id, &page_urls)
             .await?;
-        Ok(evaluate_schema_matrix_for_live_review_pages(
-            proposal.review_id,
-            &proposal.going_live.schemas,
-            &proposal.going_live.removed_page_schemas,
-            &pages,
-            &url_pages,
-            &captured_identities,
-        ))
+        evaluate_on_blocking_thread(move || {
+            evaluate_schema_matrix_for_live_review_pages(
+                proposal.review_id,
+                &proposal.going_live.schemas,
+                &proposal.going_live.removed_page_schemas,
+                &pages,
+                &url_pages,
+                &captured_identities,
+            )
+        })
+        .await
     }
 
     async fn review_under_evaluation(
@@ -378,6 +384,18 @@ impl CrawlerReviewRepository {
         transaction.commit().await?;
         Ok(ReviewSchemaMatrix::of(evaluated.matrix, &pages))
     }
+}
+
+/// Runs `evaluate`, which parses every page it evaluates, on a blocking thread and waits for it to
+/// end. Parsing a shop's page costs more than its size on deeply nested markup, and on an async
+/// worker it would hold up the console's other requests. Waiting for the end keeps the evaluation
+/// within the console live job that awaits it, under that job's place in the console's limit.
+async fn evaluate_on_blocking_thread(
+    evaluate: impl FnOnce() -> SchemaMatrix + Send + 'static,
+) -> Result<SchemaMatrix, ReviewRepositoryError> {
+    tokio::task::spawn_blocking(evaluate)
+        .await
+        .map_err(|source| ReviewRepositoryError::MatrixEvaluationStopped { source })
 }
 
 /// Locks the review for the rest of the transaction and reads its status.

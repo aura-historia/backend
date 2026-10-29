@@ -188,7 +188,9 @@ impl ReviewServer {
     }
 
     /// Fetches the proposal's review pages and URLs live within a deadline sized for the shop's
-    /// pacing, and evaluates the proposed candidate on them.
+    /// pacing, and evaluates the proposed candidate on them on a blocking thread. The job's place
+    /// under the console's limit lasts until this future ends, so the evaluation runs under it and
+    /// takes none of its own (see [`LiveJobPermit`](crate::review::live_jobs::LiveJobPermit)).
     async fn evaluate_proposal(
         self,
         mut proposal: CandidateProposal,
