@@ -3,15 +3,18 @@
 //! number of processes at once. Each process's outcome is recorded in the ledger and logged.
 //! A process that ends without a decision cools its review down, and a usage limit pauses the
 //! runner until its reset. Whether a reviewer decided is what the review's event trail records,
-//! not what its report says the console answered. A review that waits for a human is no agent work: the pass starts no
-//! process for it, so it neither fails nor cools down.
+//! not what its report says the console answered. A review that waits for a human is no agent
+//! work: the pass starts no process for it, nor a reviewer process once the author's pass handed
+//! it to a human, so it neither fails nor cools down.
 
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
 use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, run_agent};
-use super::queue::{QueuedReview, review_events_since, review_queue, select_reviews};
+use super::queue::{
+    QueuedReview, review_events_since, review_queue, select_reviews, waits_for_human,
+};
 use super::reports::{AgentReport, AuthorAction};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, RunnerState, save_state};
@@ -30,13 +33,16 @@ pub struct PassSummary {
     pub pending: usize,
     /// Pending reviews that wait for a human, which no process works.
     pub waiting_for_human: usize,
-    /// Of those, reviews still cooling down.
+    /// Of the workable ones, reviews still cooling down.
     pub cooling_down: usize,
     /// Reviews this pass started to work.
     pub worked: usize,
     pub processes: usize,
     /// Reviews the server took a reviewer decision on.
     pub decided: usize,
+    /// Reviews this pass worked that waited for a human after the author's pass, so no reviewer
+    /// process started for them.
+    pub handed_to_human: usize,
     /// Why the pass started no or no further process, if it stopped early.
     pub stopped: Option<PassStop>,
 }
@@ -161,19 +167,23 @@ impl Pass<'_> {
 
     /// The author's pass, then the reviewer's when the author left a candidate to decide.
     async fn work_review(&self, review: QueuedReview) {
-        match self.run_process(AgentRole::Author, &review).await {
+        let author_report = match self.run_process(AgentRole::Author, &review).await {
             Step::NotStarted | Step::UsageLimit => return,
             Step::NoDecision => {
                 self.cool_down(&review);
                 return;
             }
-            Step::Reported(AgentReport::Author(report))
-                if report.action == AuthorAction::Skipped =>
-            {
-                self.cool_down(&review);
-                return;
-            }
-            Step::Reported(_) => {}
+            Step::Reported(report) => report,
+        };
+        if self.handed_to_human(&review).await {
+            self.with(|shared| shared.summary.handed_to_human += 1);
+            return;
+        }
+        if let AgentReport::Author(report) = &author_report
+            && report.action == AuthorAction::Skipped
+        {
+            self.cool_down(&review);
+            return;
         }
         let reviewer_started = OffsetDateTime::now_utc();
         match self.run_process(AgentRole::Reviewer, &review).await {
@@ -184,6 +194,32 @@ impl Pass<'_> {
                 } else {
                     self.cool_down(&review);
                 }
+            }
+        }
+    }
+
+    /// Whether `review` waits for a human after the author's pass, such as after the author's own
+    /// needs-repair verdict reached the cap: the console would refuse everything a reviewer
+    /// process did on it with `HUMAN_REQUIRED`. A review the runner cannot read gets its
+    /// reviewer; should it wait for a human, the console refuses that reviewer's verdicts.
+    async fn handed_to_human(&self, review: &QueuedReview) -> bool {
+        match waits_for_human(self.console, review.review_id).await {
+            Ok(true) => {
+                info!(
+                    review_id = %review.review_id,
+                    "The review waits for a human after the author's pass; no reviewer process starts and it does not cool down"
+                );
+                true
+            }
+            Ok(false) => false,
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot read whether the review waits for a human; its reviewer process starts"
+                );
+                false
             }
         }
     }
@@ -273,13 +309,18 @@ impl Pass<'_> {
                 return record.failed(error.to_string());
             }
         };
+        let envelope = ResultEnvelope::parse(&output.stdout);
         if output.timed_out {
+            if let Some(envelope) = &envelope {
+                record.take_accounting(envelope);
+            }
+            self.charge_unreported_cost(record);
             return record.failed(format!(
                 "stopped after its timeout of {} minutes",
                 self.settings.process_timeout.as_secs() / 60
             ));
         }
-        match ResultEnvelope::parse(&output.stdout) {
+        match envelope {
             Some(envelope) => self.read_envelope(record, role, review, &envelope),
             None => {
                 warn!(
@@ -289,12 +330,27 @@ impl Pass<'_> {
                     stderr_tail = %output.stderr_tail,
                     "The review agent process printed no result envelope"
                 );
+                if output.exit_code.is_none() {
+                    self.charge_unreported_cost(record);
+                }
                 record.failed(format!(
                     "no result envelope, exit code {:?}",
                     output.exit_code
                 ))
             }
         }
+    }
+
+    /// Charges a process that was stopped at its timeout, or killed by a signal, and reported no
+    /// cost the highest cost a process reported in the ledger's window, so the rolling sums count
+    /// it. The CLI reports a cost only in its result envelope; the charge is an estimate, which a
+    /// process that ran longer than any that reported may exceed, and zero while none reported.
+    fn charge_unreported_cost(&self, record: &mut ProcessRecord) {
+        if record.total_cost_usd > 0.0 {
+            return;
+        }
+        record.total_cost_usd = self.with(|shared| shared.ledger.highest_reported_cost());
+        record.cost_charged = true;
     }
 
     fn read_envelope(
@@ -304,14 +360,7 @@ impl Pass<'_> {
         review: &QueuedReview,
         envelope: &ResultEnvelope,
     ) -> Step {
-        record.subtype.clone_from(&envelope.subtype);
-        record.terminal_reason.clone_from(&envelope.terminal_reason);
-        record.api_error_status = envelope.api_error_status;
-        record.num_turns = envelope.num_turns;
-        record.duration_ms = envelope.duration_ms;
-        record.models.clone_from(&envelope.models);
-        record.usage = envelope.usage;
-        record.total_cost_usd = envelope.total_cost_usd;
+        record.take_accounting(envelope);
         let now = OffsetDateTime::now_utc();
         match envelope.outcome(now) {
             EnvelopeOutcome::Reported(output) => {
@@ -370,6 +419,7 @@ impl Pass<'_> {
             cache_read_input_tokens = record.usage.cache_read_input_tokens,
             cache_creation_input_tokens = record.usage.cache_creation_input_tokens,
             total_cost_usd = record.total_cost_usd,
+            cost_charged = record.cost_charged,
             report = %report,
             "Review agent process finished"
         );
@@ -412,12 +462,7 @@ impl Pass<'_> {
 
     fn pause(&self, limit: UsageLimit, now: OffsetDateTime) {
         let until = limit.paused_until(now);
-        warn!(
-            limit = name(Some(limit.kind)),
-            reported_reset = limit.resets_at.is_some(),
-            until = %timestamp(until),
-            "The CLI's login ran into a usage limit; the agents pause until it resets"
-        );
+        log_pause(&limit, until);
         self.with(|shared| {
             let later = shared.state.paused.is_none_or(|pause| pause.until < until);
             if later {
@@ -465,8 +510,22 @@ impl ProcessRecord {
             models: Vec::new(),
             usage: Default::default(),
             total_cost_usd: 0.0,
+            cost_charged: false,
             report: None,
         }
+    }
+
+    /// Takes over what the envelope reports about the process's run: why it ended, its turns,
+    /// duration, models, tokens and cost.
+    fn take_accounting(&mut self, envelope: &ResultEnvelope) {
+        self.subtype.clone_from(&envelope.subtype);
+        self.terminal_reason.clone_from(&envelope.terminal_reason);
+        self.api_error_status = envelope.api_error_status;
+        self.num_turns = envelope.num_turns;
+        self.duration_ms = envelope.duration_ms;
+        self.models.clone_from(&envelope.models);
+        self.usage = envelope.usage;
+        self.total_cost_usd = envelope.total_cost_usd;
     }
 
     fn failed(&mut self, failure: String) -> Step {
@@ -486,6 +545,27 @@ impl PassStop {
     }
 }
 
+/// Logs the pause a usage limit sets. A limit whose reset time the runner cannot read logs the
+/// line of the CLI's message, so a changed wording shows in the journal.
+fn log_pause(limit: &UsageLimit, until: OffsetDateTime) {
+    if limit.resets_at.is_some() {
+        warn!(
+            limit = name(Some(limit.kind)),
+            reported_reset = true,
+            until = %timestamp(until),
+            "The CLI's login ran into a usage limit; the agents pause until it resets"
+        );
+    } else {
+        warn!(
+            limit = name(Some(limit.kind)),
+            reported_reset = false,
+            until = %timestamp(until),
+            limit_message = limit.message.as_deref().unwrap_or(""),
+            "The CLI reported a usage limit without a reset time the runner can read; the agents pause for an hour"
+        );
+    }
+}
+
 /// The kind names of the usage limits, for the digest.
 pub fn usage_limit_name(kind: UsageLimitKind) -> &'static str {
     match kind {
@@ -493,5 +573,80 @@ pub fn usage_limit_name(kind: UsageLimitKind) -> &'static str {
         UsageLimitKind::Weekly => "weekly limit",
         UsageLimitKind::Model => "model limit",
         UsageLimitKind::Spend => "spend limit",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fmt::Write as _;
+    use std::sync::Arc;
+    use tracing::field::{Field, Visit};
+    use tracing_subscriber::layer::{Context, SubscriberExt};
+
+    /// The events logged while it is the default subscriber: each one's level and fields.
+    #[derive(Clone, Default)]
+    struct LoggedEvents(Arc<Mutex<Vec<(tracing::Level, String)>>>);
+
+    struct Fields(String);
+
+    impl Visit for Fields {
+        fn record_str(&mut self, field: &Field, value: &str) {
+            let _ = write!(self.0, "{}={value} ", field.name());
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            let _ = write!(self.0, "{}={value:?} ", field.name());
+        }
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LoggedEvents {
+        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+            let mut fields = Fields(String::new());
+            event.record(&mut fields);
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((*event.metadata().level(), fields.0));
+        }
+    }
+
+    #[test]
+    fn should_log_the_limit_message_at_warn_when_its_reset_time_cannot_be_read() {
+        let logged = LoggedEvents::default();
+        let now = OffsetDateTime::now_utc();
+        let unreadable = UsageLimit {
+            kind: UsageLimitKind::Weekly,
+            resets_at: None,
+            message: Some("You've hit your weekly limit · resets in a while".to_owned()),
+        };
+        let readable = UsageLimit {
+            resets_at: Some(now + time::Duration::days(1)),
+            ..unreadable.clone()
+        };
+
+        tracing::subscriber::with_default(
+            tracing_subscriber::registry().with(logged.clone()),
+            || {
+                tracing::callsite::rebuild_interest_cache();
+                log_pause(&unreadable, unreadable.paused_until(now));
+                log_pause(&readable, readable.paused_until(now));
+            },
+        );
+
+        let events = logged.0.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert!(
+            events
+                .iter()
+                .all(|(level, _)| *level == tracing::Level::WARN)
+        );
+        assert!(
+            events[0]
+                .1
+                .contains("limit_message=You've hit your weekly limit · resets in a while"),
+            "{events:?}"
+        );
+        assert!(!events[1].1.contains("limit_message"), "{events:?}");
     }
 }

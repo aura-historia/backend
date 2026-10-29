@@ -428,7 +428,12 @@ fn process_line(record: &ProcessRecord) -> String {
         (None, None, Some(failure)) => short(failure),
         (None, None, None) => end_name(record.end).to_owned(),
     };
-    format!("{role} {detail}")
+    let charged = if record.cost_charged {
+        ", cost charged"
+    } else {
+        ""
+    };
+    format!("{role} {detail}{charged}")
 }
 
 fn risks(risks: &[String]) -> String {

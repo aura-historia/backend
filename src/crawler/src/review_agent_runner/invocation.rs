@@ -1,6 +1,8 @@
 //! One agent process as the runner starts it: a fresh `claude -p` for one review and one role, with
 //! that role's prompt on stdin, its report schema, and its `review-mcp` as the only MCP server and
-//! the only tools. The prompts and report schemas are versioned files next to this module; a
+//! the only tools. It prints its messages as a stream of JSON lines, so the runner reads a usage
+//! limit's reset time from the CLI's `rate_limit_event`, not from its wording. The prompts and
+//! report schemas are versioned files next to this module; a
 //! changed prompt or schema gets a new version so the process ledger names what each report
 //! answered. The flags are the contract in `docs/crawler/operations.md` (review agent runner).
 
@@ -106,7 +108,8 @@ impl fmt::Debug for ChildEnvironment {
 
 /// A role's prompt and report schema, which change together.
 pub(super) struct RoleContract {
-    /// The version the process ledger and the log name, such as `author.v1`.
+    /// The version the process ledger and the log name, such as `author.v2`; it changes with the
+    /// prompt or the report schema.
     pub(super) version: &'static str,
     prompt: &'static str,
     report_schema: &'static str,
@@ -115,13 +118,13 @@ pub(super) struct RoleContract {
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v1",
-            prompt: include_str!("prompts/author.v1.md"),
+            version: "author.v2",
+            prompt: include_str!("prompts/author.v2.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
-            version: "reviewer.v1",
-            prompt: include_str!("prompts/reviewer.v1.md"),
+            version: "reviewer.v2",
+            prompt: include_str!("prompts/reviewer.v2.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
     }
@@ -175,7 +178,9 @@ pub(super) fn agent_command(
     let args = [
         "-p",
         "--output-format",
-        "json",
+        "stream-json",
+        // `-p` takes `stream-json` only with it.
+        "--verbose",
         "--json-schema",
         &report_schema,
         "--mcp-config",
@@ -285,7 +290,8 @@ mod tests {
         let expected: Vec<String> = [
             "-p",
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--json-schema",
             &schema,
             "--mcp-config",
@@ -488,6 +494,37 @@ mod tests {
             role_contract(AgentRole::Author)
                 .prompt(&review(), 4)
                 .contains("at least 4 URLs PRODUCT and at least 4 NOT_PRODUCT")
+        );
+    }
+
+    /// Both agents know what `human_required` and the console's refusals of live work mean
+    /// (`HUMAN_REQUIRED`, `LIVE_JOBS_BUSY`, `NO_MATRIX`), and the reviewer what a rejection does
+    /// to a product-schema review's pages.
+    #[test]
+    fn should_tell_each_agent_the_console_s_refusals_and_the_reviewer_what_a_rejection_does() {
+        for role in [AgentRole::Author, AgentRole::Reviewer] {
+            let prompt = role_contract(role).prompt(&review(), 3);
+            for term in [
+                "human_required",
+                "HUMAN_REQUIRED",
+                "agent_rounds",
+                "LIVE_JOBS_BUSY",
+                "NO_MATRIX",
+            ] {
+                assert!(prompt.contains(term), "{role}: {term}");
+            }
+        }
+        assert!(
+            role_contract(AgentRole::Reviewer)
+                .prompt(&review(), 3)
+                .contains("whose reason is manual_schema_required, as the crawler opens them in agent mode, classifies its seed and triggering pages as non-product pages for good")
+        );
+        assert_eq!(
+            [
+                role_contract(AgentRole::Author).version,
+                role_contract(AgentRole::Reviewer).version
+            ],
+            ["author.v2", "reviewer.v2"]
         );
     }
 

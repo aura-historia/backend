@@ -1,8 +1,9 @@
 //! The runner's ledger of agent processes: one JSON line per finished process with its review,
 //! role, outcome, report, tokens and cost, appended to `review-agent-processes.jsonl` in the state
-//! directory. It is what the rolling cost sums and the digest's reports read; prompts, envelopes
-//! and page content never reach it. Records older than the longest window anything reads are
-//! pruned at the start of a run.
+//! directory; a cost the runner charged a process stopped before it reported one is marked as
+//! such. It is what the rolling cost sums and the digest's reports read; prompts, envelopes and
+//! page content never reach it. Records older than the longest window anything reads are pruned
+//! at the start of a run.
 
 use super::envelope::{ProcessLimit, TokenUsage, UsageLimitKind};
 use super::reports::AgentReport;
@@ -59,7 +60,7 @@ pub struct ProcessRecord {
     pub finished: OffsetDateTime,
     pub review_id: CrawlerReviewId,
     pub role: ProcessRole,
-    /// The prompt and report schema version, such as `author.v1`.
+    /// The prompt and report schema version, such as `author.v2`.
     pub prompt_version: String,
     pub end: ProcessEnd,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,6 +86,10 @@ pub struct ProcessRecord {
     pub usage: TokenUsage,
     #[serde(default)]
     pub total_cost_usd: f64,
+    /// Whether `total_cost_usd` is the runner's charge for a process that was stopped or killed
+    /// before it reported a cost, not what the CLI reported.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cost_charged: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<AgentReport>,
 }
@@ -232,6 +237,16 @@ impl ProcessLedger {
             .map(|record| record.total_cost_usd)
             .sum()
     }
+
+    /// The highest cost a process in the ledger reported, the runner's own charges left out; zero
+    /// when none reported one.
+    pub fn highest_reported_cost(&self) -> f64 {
+        self.records
+            .iter()
+            .filter(|record| !record.cost_charged)
+            .map(|record| record.total_cost_usd)
+            .fold(0.0, f64::max)
+    }
 }
 
 /// Ends the ledger `text` at `path` with a newline: after its unfinished last line when that line
@@ -298,6 +313,7 @@ pub(super) mod tests {
             models: vec!["claude-opus-5-5".to_owned()],
             usage: TokenUsage::default(),
             total_cost_usd: cost,
+            cost_charged: false,
             report: None,
         }
     }
@@ -324,6 +340,29 @@ pub(super) mod tests {
 
         assert_eq!(reopened.cost_within(FIVE_HOURS, NOW), 3.5);
         assert_eq!(reopened.cost_within(ONE_WEEK, NOW), 15.5);
+    }
+
+    #[test]
+    fn should_find_the_highest_reported_cost_without_the_runner_s_charges() {
+        let directory = StateDirectory::new();
+        let mut ledger = ProcessLedger::open(directory.path()).unwrap_or_else(|e| panic!("{e}"));
+        let empty = ledger.highest_reported_cost();
+        for record in [
+            record(NOW - Duration::hours(3), 1.5),
+            record(NOW - Duration::hours(2), 4.0),
+            ProcessRecord {
+                cost_charged: true,
+                ..record(NOW - Duration::hours(1), 9.0)
+            },
+        ] {
+            ledger.append(record).unwrap_or_else(|e| panic!("{e}"));
+        }
+
+        let reopened = ProcessLedger::open(directory.path()).unwrap_or_else(|e| panic!("{e}"));
+
+        assert_eq!(empty, 0.0);
+        assert_eq!(reopened.highest_reported_cost(), 4.0);
+        assert_eq!(reopened.cost_within(FIVE_HOURS, NOW), 14.5);
     }
 
     #[test]
