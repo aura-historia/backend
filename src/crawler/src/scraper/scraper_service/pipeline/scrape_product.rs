@@ -513,6 +513,15 @@ impl ScraperServiceImpl {
             }
         }
 
+        // Ahead of the schemas and the unchanged-page skip, so a page rejected as no product page
+        // is never captured, whichever schema extracts it.
+        self.skip_rejected_page(
+            listing_source_id,
+            &effective_url,
+            expected_last_captured_raw_input_sha256,
+        )
+        .await?;
+
         // Obtain the effective schema set before the fast path: the page hash is what that set
         // extracts from the page, and the fingerprint forces extraction whenever the set changes.
         let listing_source_product_schemas = match cached_product_schemas {

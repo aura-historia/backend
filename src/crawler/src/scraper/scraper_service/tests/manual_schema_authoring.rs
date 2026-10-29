@@ -11,6 +11,9 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository as _, RemovedPageSchemaRepositoryImpl,
 };
 use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
+use crate::scraper::scraper_service::util::hash::{
+    EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
+};
 use crate::scraper::scraper_service::{ScrapedProduct, ScraperError};
 use serde_json::json;
 use sqlx::PgPool;
@@ -264,6 +267,94 @@ async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_re
             .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
         None
     );
+}
+
+/// Rejecting a manual review is a verdict on its triggering page, whichever schemas extract it:
+/// once a cached schema extracts the page, such as one another review approved since, the page is
+/// still classified as other instead of captured, under the scrape's capture guard, and no review
+/// reopens for it. `rescrape` builds the request of the scrape after the rejection from the
+/// schemas that extract the page.
+async fn assert_rejected_triggering_page_is_not_captured(
+    rescrape: impl FnOnce(&ListingSourceId, &Url, &ListingSourceProductSchema) -> ScrapeRequest,
+) {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let opening = manual_scraper(
+        schema_service_without_generation(Some(cached_schemas(id, vec![stale_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+    );
+    let rejected = pending_review_id(opening.scrape(primary_only_request(&id, &url)).await.result);
+    let pages = repository
+        .get_review_pages(rejected)
+        .await
+        .unwrap_or_else(|error| panic!("read review pages: {error}"));
+    assert_eq!(
+        pages
+            .iter()
+            .map(|page| (page.url.as_str(), page.role.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(url.as_str(), PAGE_ROLE_TRIGGERING_GENERATION_PAGE)]
+    );
+    repository
+        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .await
+        .unwrap_or_else(|error| panic!("reject manual review: {error}"));
+    let extracting = cached_schemas(id, vec![minimal_schema()]);
+    let request = rescrape(&id, &url, &extracting);
+    let mut candidates = MockScraperCandidateService::new();
+    let expected_url = url.clone();
+    let capture_guard = request.expected_last_captured_raw_input_sha256.clone();
+    candidates
+        .expect_set_class()
+        .once()
+        .withf(move |_, received_url, url_class, received_guard| {
+            received_url == &expected_url
+                && *url_class == crate::spider::classification::url_metadata::UrlClass::Other
+                && *received_guard == capture_guard.as_deref()
+        })
+        .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    let rescraping = manual_scraper(
+        schema_service_without_generation(Some(extracting)),
+        repository.clone(),
+        candidates,
+    );
+
+    let result = rescraping.scrape(request).await.result;
+
+    assert!(matches!(result, Err(ScraperError::NotProductPage { .. })));
+    assert_eq!(
+        repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}")),
+        None
+    );
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_classify_rejected_triggering_page_as_other_when_a_cached_schema_extracts_it() {
+    assert_rejected_triggering_page_is_not_captured(|id, url, _| primary_only_request(id, url))
+        .await;
+}
+
+/// A rejected page captured before, such as by a cached schema before the rejection took effect,
+/// and unchanged since, is classified as other too: the rejection is checked before the
+/// unchanged-page skip, under the guard of that capture.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_classify_rejected_triggering_page_as_other_when_it_was_captured_and_is_unchanged() {
+    assert_rejected_triggering_page_is_not_captured(|id, url, extracting| ScrapeRequest {
+        last_scraped_hash: Some(hash_page(&sample_html(), &extracting.product_schemas)),
+        last_scraped_schema_fingerprint: Some(
+            fingerprint_scraper_context(EXTRACTOR_VERSION, &extracting.product_schemas, None)
+                .unwrap_or_else(|error| panic!("test schemas must serialize: {error}")),
+        ),
+        expected_last_captured_raw_input_sha256: Some(vec![7; 32]),
+        ..primary_only_request(id, url)
+    })
+    .await;
 }
 
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
@@ -792,6 +883,50 @@ async fn should_capture_a_notice_page_as_removed_once_its_review_approves_a_temp
             text: Some("no longer available".to_owned()),
             regex: None,
         }])
+    );
+}
+
+/// A rejection is a verdict that its pages are no product pages, not that their listings stay
+/// live: a rejected page that a stored removed-page template matches is still captured as removed,
+/// so the raw delete capture withdraws the listing a capture before the rejection made visible.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_capture_a_rejected_page_as_removed_when_a_removed_page_template_matches_it() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    approve_removed_page_template_for_notice_page(&pool, &id, &repository).await;
+    let rejected = repository
+        .create_schema_review(
+            &id,
+            MANUAL_SCHEMA_REASON,
+            &[minimal_schema()],
+            vec![SchemaReviewPageInput {
+                url: url.to_string(),
+                role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_owned(),
+                raw_html: sample_html(),
+            }],
+            json!({}),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("open manual review: {error}"));
+    repository
+        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .await
+        .unwrap_or_else(|error| panic!("reject manual review: {error}"));
+    assert!(
+        repository
+            .has_rejected_schema_review_for_page(&id, MANUAL_SCHEMA_REASON, url.as_str())
+            .await
+            .unwrap_or_else(|error| panic!("read rejected pages: {error}")),
+        "the page must be a rejected page"
+    );
+
+    let result = scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
+
+    assert!(
+        matches!(result, Err(ScraperError::ProductListingRemoved { .. })),
+        "the verified removal must win over the rejection, got {result:?}"
     );
 }
 

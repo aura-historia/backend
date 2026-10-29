@@ -20,40 +20,53 @@ use url::Url;
 pub const MANUAL_SCHEMA_REASON: &str = "manual_schema_required";
 
 impl ScraperServiceImpl {
-    /// Rejecting a manual review is the operator's verdict that its page is not a product page.
-    /// Returns the error that classifies `url` as other instead of reopening the same review, or
-    /// `None` when no operator rejected a manual review over it.
-    pub(crate) async fn rejected_manual_page(
+    /// Rejecting a manual review is the operator's verdict that its seed and triggering pages are
+    /// not product pages, whichever schema extracts them. Classifies `url` as other and fails with
+    /// [`ScraperError::NotProductPage`], so the page is neither captured nor reopens the review;
+    /// `Ok` when no operator rejected a manual review over it, or when the mode authors no manual
+    /// schemas. A scrape checks its page before it obtains schemas, and again before it authors
+    /// one, which a rejection given while the page was scraped must still stop.
+    ///
+    /// `expected_last_captured_raw_input_sha256` is the scrape's guard for its URL writes, as for
+    /// any crawler URL write. Without it the classification of a page captured before is skipped
+    /// and left to the page's next scrape.
+    pub(crate) async fn skip_rejected_page(
         &self,
-        review_repository: &CrawlerReviewRepository,
         listing_source_id: &ListingSourceId,
         url: &Url,
-    ) -> Option<ScraperError> {
-        match review_repository
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) -> Result<(), ScraperError> {
+        let Some(review_repository) = self.manual_schema_review_repository() else {
+            return Ok(());
+        };
+        let rejected = review_repository
             .has_rejected_schema_review_for_page(
                 listing_source_id,
                 MANUAL_SCHEMA_REASON,
                 url.as_str(),
             )
             .await
-        {
-            Ok(true) => {
-                self.mark_url_other_best_effort(listing_source_id, url, None)
-                    .await;
-                Some(ScraperError::NotProductPage {
-                    url: url.clone(),
-                    details: "an operator rejected the manual schema review for this page"
-                        .to_owned(),
-                })
-            }
-            Ok(false) => None,
-            Err(error) => Some(review_error_to_schema_service_error(error.into()).into()),
+            .map_err(|error| {
+                ScraperError::from(review_error_to_schema_service_error(error.into()))
+            })?;
+        if !rejected {
+            return Ok(());
         }
+        self.mark_url_other_best_effort(
+            listing_source_id,
+            url,
+            expected_last_captured_raw_input_sha256,
+        )
+        .await;
+        Err(ScraperError::NotProductPage {
+            url: url.clone(),
+            details: "an operator rejected the manual schema review for this page".to_owned(),
+        })
     }
 
     /// Opens the pending manual schema review for `listing_source_id` and returns the error that
     /// makes the page wait until it is approved. A review that another worker opened meanwhile is
-    /// joined instead. The caller has already checked [`Self::rejected_manual_page`].
+    /// joined instead. The caller has already checked [`Self::skip_rejected_page`].
     ///
     /// The candidate keeps `existing_schemas` and appends a starter schema for the operator to
     /// rewrite; approval replaces the ListingSource's schemas with the reviewed list.
