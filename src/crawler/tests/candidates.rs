@@ -2780,7 +2780,7 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
         .get_random_product_urls_for_schema_seed(
             &seed_listing_source_id,
             &seed_domain_id,
-            &current_url,
+            &[current_url.to_string()],
             20,
         )
         .await
@@ -2846,7 +2846,7 @@ async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
         .get_random_product_urls_for_schema_seed(
             &listing_source_id,
             &domain_a,
-            &url::Url::parse(current_a).unwrap(),
+            &[url::Url::parse(current_a).unwrap().to_string()],
             10,
         )
         .await
@@ -2874,7 +2874,7 @@ async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
         .get_random_product_urls_for_schema_seed(
             &listing_source_id,
             &domain_b,
-            &url::Url::parse(current_b).unwrap(),
+            &[url::Url::parse(current_b).unwrap().to_string()],
             10,
         )
         .await
@@ -2927,7 +2927,12 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     .unwrap();
 
     let selected_seed = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &primary_url, 1)
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_id,
+            &[primary_url.to_string()],
+            1,
+        )
         .await
         .unwrap();
     assert_eq!(selected_seed.len(), 1);
@@ -3041,7 +3046,12 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     assert!(domain.3 > time::OffsetDateTime::now_utc());
 
     let sampled = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &primary_url, 10)
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_id,
+            &[primary_url.to_string()],
+            10,
+        )
         .await
         .unwrap();
     assert!(
@@ -3324,7 +3334,12 @@ async fn scraper_seed_urls_should_respect_limit() {
 
     let exclude = url::Url::parse(current_url).unwrap();
     let sampled = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &exclude, 3)
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_id,
+            &[exclude.to_string()],
+            3,
+        )
         .await
         .unwrap();
 

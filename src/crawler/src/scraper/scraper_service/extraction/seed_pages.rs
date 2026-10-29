@@ -55,7 +55,12 @@ impl ScraperServiceImpl {
         let extra_limit = (self.schema_seed_pages - 1) as i64;
         let sample_urls = match self
             .candidate_service
-            .get_random_product_urls_for_schema_seed(listing_source_id, domain_id, url, extra_limit)
+            .get_random_product_urls_for_schema_seed(
+                listing_source_id,
+                domain_id,
+                &[url.to_string()],
+                extra_limit,
+            )
             .await
         {
             Ok(urls) => urls,
