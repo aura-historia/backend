@@ -342,8 +342,9 @@ impl Pass<'_> {
     }
 
     /// Charges a process that was stopped at its timeout, or killed by a signal, and reported no
-    /// cost the highest cost a process reported in the ledger's window, so the rolling sums never
-    /// leave out what it spent. The CLI reports a cost only in its result envelope.
+    /// cost the highest cost a process reported in the ledger's window, so the rolling sums count
+    /// it. The CLI reports a cost only in its result envelope; the charge is an estimate, which a
+    /// process that ran longer than any that reported may exceed, and zero while none reported.
     fn charge_unreported_cost(&self, record: &mut ProcessRecord) {
         if record.total_cost_usd > 0.0 {
             return;

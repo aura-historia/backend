@@ -1023,8 +1023,8 @@ echo "end $role $review" >> "$dir/order.log"
     }
 
     /// A process stopped at its timeout, or killed, before its result envelope reported no cost:
-    /// the runner charges it the highest cost a process reported in the ledger, so the rolling
-    /// sums never leave out what it spent.
+    /// the runner charges it the highest cost a process reported in the ledger, which the rolling
+    /// sums count.
     #[tokio::test]
     async fn should_charge_a_stopped_or_killed_process_the_highest_reported_cost() {
         let worked = review("PENDING_REVIEW", true);
