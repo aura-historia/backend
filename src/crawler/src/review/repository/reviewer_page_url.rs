@@ -10,9 +10,10 @@ pub(super) fn reviewer_page_url(url: &Url) -> Url {
     url
 }
 
-/// Which shop page a review page URL names: the crawler's URL normalization (trailing slash,
-/// fragment, default port and similar spellings) on the crawler's ownership host, which treats
-/// `www.` and the bare host as one domain, regardless of http or https.
+/// Which shop page a review page URL names: the crawler's [page](CrawledUrl::page_spelling) of
+/// the URL (with or without its trailing slash, without fragment, default port and similar
+/// spellings) on the crawler's ownership host, which treats `www.` and the bare host as one
+/// domain, regardless of http or https.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(super) struct ReviewPageIdentity {
     host: Option<String>,
@@ -22,12 +23,11 @@ pub(super) struct ReviewPageIdentity {
 
 impl ReviewPageIdentity {
     pub(super) fn of(url: &Url) -> Self {
-        let normalized = CrawledUrl::new(url.clone());
-        let normalized = normalized.as_url();
+        let page = CrawledUrl::new(url.clone()).page_spelling();
         Self {
-            host: normalized.host_str().map(canonical_crawler_domain),
-            path: normalized.path().to_owned(),
-            query: normalized.query().map(str::to_owned),
+            host: page.host_str().map(canonical_crawler_domain),
+            path: page.path().to_owned(),
+            query: page.query().map(str::to_owned),
         }
     }
 
@@ -35,11 +35,17 @@ impl ReviewPageIdentity {
         Url::parse(stored_url).ok().map(|url| Self::of(&url))
     }
 
-    /// The spellings a crawler URL naming the same page as `url` can be stored under: `url`
-    /// and its crawler normalization, each on http and https, with and without `www.`.
+    /// The spellings a crawler URL naming the same page as `url` can be stored under: `url`, its
+    /// crawler spelling and that spelling with and without its trailing slash, each on http and
+    /// https, with and without `www.`.
     pub(super) fn spellings(url: &Url) -> Vec<String> {
+        let crawled = CrawledUrl::new(url.clone());
+        let page = CrawledUrl::new(crawled.page_spelling());
+        let bases = [url.clone(), crawled.as_url().clone(), page.as_url().clone()]
+            .into_iter()
+            .chain(page.slashed_twin());
         let mut spellings = Vec::new();
-        for base in [url.clone(), CrawledUrl::new(url.clone()).as_url().clone()] {
+        for base in bases {
             let Some(host) = base.host_str().map(canonical_crawler_domain) else {
                 continue;
             };
@@ -89,6 +95,7 @@ mod tests {
         for raw in [
             "https://www.example.com/products/1/",
             "https://example.com/products/1",
+            "https://example.com/products/1//",
             "http://www.example.com/products/1",
         ] {
             assert_eq!(stored, Some(ReviewPageIdentity::of(&url(raw))), "{raw}");
@@ -101,29 +108,38 @@ mod tests {
         }
     }
 
+    /// A crawler URL stored before the crawler kept the trailing slash lacks it, and one the
+    /// spider stored as fetched may carry it where the review page does not.
     #[test]
     fn should_spell_a_page_url_as_the_crawler_may_have_stored_it() {
-        let page = url("https://example.com/products/1/");
-
-        let spellings = ReviewPageIdentity::spellings(&page);
-
-        for stored in [
-            "https://example.com/products/1",
-            "https://example.com/products/1/",
-            "https://www.example.com/products/1",
-            "http://example.com/products/1",
+        for page in [
+            url("https://example.com/products/1/"),
+            url("https://example.com/products/1"),
+            url("https://example.com/products/1#gallery"),
         ] {
+            let spellings = ReviewPageIdentity::spellings(&page);
+
+            for stored in [
+                "https://example.com/products/1",
+                "https://example.com/products/1/",
+                "https://www.example.com/products/1",
+                "https://www.example.com/products/1/",
+                "http://example.com/products/1",
+            ] {
+                assert!(
+                    spellings.iter().any(|spelling| spelling == stored),
+                    "{page}: {stored}"
+                );
+            }
+            let identity = ReviewPageIdentity::of(&page);
             assert!(
-                spellings.iter().any(|spelling| spelling == stored),
-                "{stored}"
+                spellings
+                    .iter()
+                    .all(|spelling| ReviewPageIdentity::of_stored(spelling).as_ref()
+                        == Some(&identity)),
+                "{page}"
             );
         }
-        let identity = ReviewPageIdentity::of(&page);
-        assert!(
-            spellings
-                .iter()
-                .all(|spelling| ReviewPageIdentity::of_stored(spelling).as_ref() == Some(&identity))
-        );
     }
 
     #[test]

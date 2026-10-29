@@ -43,25 +43,60 @@ impl CrawledUrl {
         // Both only fail for URLs without a host, which carry no credentials.
         let _ = url.set_username("");
         let _ = url.set_password(None);
-        drop_trailing_slashes(&mut url);
         drop_tracking_parameters(&mut url);
         Self(url)
     }
 
-    /// The spelling the crawler stored this URL under while it re-encoded queries (`%20` as
-    /// `+`, sorted parameters, decoded path escapes), when that spelling differs from this one.
-    /// Rows stored then are found under it until the spider rediscovers them.
-    pub fn legacy_spelling(&self) -> Option<url::Url> {
-        let legacy = legacy_spelling_of(&self.0);
-        (legacy != self.0).then_some(legacy)
+    /// The earlier spellings the crawler may have stored this URL under, when they differ from
+    /// this one, the more recent first: without the trailing slash, as stored until the crawler
+    /// kept the slash, and re-encoded (`%20` as `+`, sorted parameters, decoded path escapes)
+    /// as well, as stored until it kept the fetched encoding. Rows stored then are found under
+    /// them until the spider rediscovers the page.
+    pub fn legacy_spellings(&self) -> Vec<url::Url> {
+        let mut spellings = Vec::with_capacity(2);
+        for legacy in [self.page_spelling(), legacy_spelling_of(&self.0)] {
+            if legacy != self.0 && !spellings.contains(&legacy) {
+                spellings.push(legacy);
+            }
+        }
+        spellings
     }
 
     pub fn as_url(&self) -> &url::Url {
         &self.0
     }
 
+    /// The spelling of the page this URL names, whatever its trailing slash: the URL without
+    /// trailing slashes after a non-root path. `/products/1/` and `/products/1` name one page.
+    pub fn page_spelling(&self) -> url::Url {
+        let mut url = self.0.clone();
+        let path = url.path();
+        if path.len() > 1 && path.ends_with('/') {
+            let trimmed = path.trim_end_matches('/');
+            let trimmed = if trimmed.is_empty() { "/" } else { trimmed }.to_owned();
+            url.set_path(&trimmed);
+        }
+        url
+    }
+
+    /// This URL with a trailing slash, the other spelling a shop may link its page under, when
+    /// the URL has none; `None` for the root path and a URL that ends with a slash.
+    pub fn slashed_twin(&self) -> Option<url::Url> {
+        with_trailing_slash(&self.0)
+    }
+
+    /// Whether this URL and `other` name one page: they differ at most in a trailing slash.
+    pub fn is_same_page(&self, other: &CrawledUrl) -> bool {
+        self.page_spelling() == other.page_spelling()
+    }
+
+    /// Whether `pattern` takes this URL's page: it matches the URL as stored, or with or without
+    /// its trailing slash, so a pattern written for either spelling takes the page.
     pub fn matches_pattern(&self, pattern: &Regex) -> bool {
+        let page = self.page_spelling();
         pattern.is_match(self.0.as_str())
+            || pattern.is_match(page.as_str())
+            || with_trailing_slash(&page).is_some_and(|slashed| pattern.is_match(slashed.as_str()))
     }
 
     pub fn classify(
@@ -168,51 +203,90 @@ impl TryFrom<&str> for CrawledUrl {
     }
 }
 
-/// A row stored under `legacy`, the earlier spelling of the fetched URL `fetched`.
+/// A row stored under `legacy`, an earlier spelling of the fetched URL `fetched`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LegacySpellingRename {
     pub legacy: url::Url,
     pub fetched: url::Url,
 }
 
-/// The renames that move rows stored under the earlier spelling to the URLs fetched in `fetched`.
-/// A legacy spelling that is itself among the fetched URLs is a page of its own and is not
-/// renamed; several fetched URLs sharing one legacy spelling take it in URL order, so the first
-/// keeps the row and the others become rows of their own.
-pub fn legacy_spelling_renames(fetched: &[url::Url]) -> Vec<LegacySpellingRename> {
+/// The renames that move rows stored under an earlier spelling to the URLs fetched in `fetched`,
+/// in rounds to apply one after the other: each URL's [more recent](CrawledUrl::legacy_spellings)
+/// earlier spelling first, then the older one, so a round names each fetched URL and each earlier
+/// spelling at most once and a later round finds the rows an earlier one moved. An earlier
+/// spelling that is itself among the fetched URLs is a page of its own and is not renamed; several
+/// fetched URLs sharing one earlier spelling take it in URL order, so the first keeps the row and
+/// the others become rows of their own.
+pub fn legacy_spelling_renames(fetched: &[url::Url]) -> Vec<Vec<LegacySpellingRename>> {
     let fetched_spellings = fetched.iter().map(url::Url::as_str).collect::<HashSet<_>>();
-    let mut renames = BTreeMap::<String, LegacySpellingRename>::new();
+    let mut rounds = Vec::<BTreeMap<String, LegacySpellingRename>>::new();
     for url in fetched {
-        let Some(legacy) = CrawledUrl::new(url.clone()).legacy_spelling() else {
-            continue;
-        };
-        if fetched_spellings.contains(legacy.as_str()) {
-            continue;
+        let legacy_spellings = CrawledUrl::new(url.clone())
+            .legacy_spellings()
+            .into_iter()
+            .filter(|legacy| !fetched_spellings.contains(legacy.as_str()));
+        for (round, legacy) in legacy_spellings.enumerate() {
+            if rounds.len() == round {
+                rounds.push(BTreeMap::new());
+            }
+            rounds[round]
+                .entry(legacy.to_string())
+                .and_modify(|rename| {
+                    if url.as_str() < rename.fetched.as_str() {
+                        rename.fetched = url.clone();
+                    }
+                })
+                .or_insert_with(|| LegacySpellingRename {
+                    legacy,
+                    fetched: url.clone(),
+                });
         }
-        renames
-            .entry(legacy.to_string())
-            .and_modify(|rename| {
-                if url.as_str() < rename.fetched.as_str() {
-                    rename.fetched = url.clone();
-                }
-            })
-            .or_insert_with(|| LegacySpellingRename {
-                legacy,
-                fetched: url.clone(),
-            });
     }
-    renames.into_values().collect()
+    rounds
+        .into_iter()
+        .map(|round| round.into_values().collect())
+        .collect()
 }
 
-/// `/products/1/` and `/products/1` name one page; the root path keeps its slash.
-fn drop_trailing_slashes(url: &mut url::Url) {
+/// The spellings the URLs of `fetched` are stored under, each with the value it came with. A
+/// page the shop links both with and without the trailing slash keeps one row, under the slashed
+/// spelling: a URL without the slash is stored under its slashed spelling when that spelling was
+/// fetched as well, where that entry stands for both, or `is_stored` says it already has a row.
+/// Every other URL is stored as fetched.
+pub fn stored_spellings<T: Clone>(
+    fetched: &[(url::Url, T)],
+    is_stored: impl Fn(&url::Url) -> bool,
+) -> Vec<(url::Url, T)> {
+    let fetched_spellings = fetched
+        .iter()
+        .map(|(url, _)| url.as_str())
+        .collect::<HashSet<_>>();
+    fetched
+        .iter()
+        .filter_map(|(url, value)| {
+            let Some(slashed) = CrawledUrl::new(url.clone()).slashed_twin() else {
+                return Some((url.clone(), value.clone()));
+            };
+            if fetched_spellings.contains(slashed.as_str()) {
+                None
+            } else if is_stored(&slashed) {
+                Some((slashed, value.clone()))
+            } else {
+                Some((url.clone(), value.clone()))
+            }
+        })
+        .collect()
+}
+
+/// `url` with `/` appended to its path, or `None` when the path already ends with one.
+fn with_trailing_slash(url: &url::Url) -> Option<url::Url> {
     let path = url.path();
-    if path.len() <= 1 || !path.ends_with('/') {
-        return;
+    if path.ends_with('/') {
+        return None;
     }
-    let trimmed = path.trim_end_matches('/');
-    let trimmed = if trimmed.is_empty() { "/" } else { trimmed }.to_owned();
-    url.set_path(&trimmed);
+    let mut slashed = url.clone();
+    slashed.set_path(&format!("{path}/"));
+    Some(slashed)
 }
 
 /// Drops `utm_*` campaign parameters and keeps every other parameter exactly as fetched. A
@@ -288,25 +362,101 @@ mod tests {
         assert_eq!(normalized, "https://www.example.com/product/123?ref=google");
     }
 
+    /// Some shops serve a page only under one spelling, such as lovedayantiques.co.uk, which
+    /// answers its product paths without the trailing slash with 404.
     #[test]
-    fn should_trim_trailing_slash_when_path_is_not_root_for_comparison() {
-        let input = "https://www.example.com/products/";
-        let normalized = normalize_for_test(input);
-        assert_eq!(normalized, "https://www.example.com/products");
+    fn should_keep_trailing_slash_as_fetched() {
+        for fetched in [
+            "https://www.lovedayantiques.co.uk/product/106/fine-19th-century-papier-mache-tray/",
+            "https://www.example.com/products/?q=1",
+            "https://www.example.com/products//",
+            "https://www.example.com/products",
+            "https://www.example.com/",
+        ] {
+            assert_eq!(normalize_for_test(fetched), fetched);
+        }
     }
 
     #[test]
-    fn should_trim_trailing_slash_with_query_params() {
-        let input = "https://www.example.com/products/?q=1";
-        let normalized = normalize_for_test(input);
-        assert_eq!(normalized, "https://www.example.com/products?q=1");
+    fn should_name_one_page_when_urls_differ_only_in_trailing_slash() {
+        let page = CrawledUrl::try_from("https://example.com/products/1").unwrap();
+
+        for same in [
+            "https://example.com/products/1/",
+            "https://example.com/products/1//",
+            "https://example.com/products/1#gallery",
+        ] {
+            assert!(
+                page.is_same_page(&CrawledUrl::try_from(same).unwrap()),
+                "{same}"
+            );
+        }
+        for other in [
+            "https://example.com/products/1/details",
+            "https://example.com/products/1?variant=2",
+            "https://example.com/products/10",
+            "https://www.example.com/products/1",
+        ] {
+            assert!(
+                !page.is_same_page(&CrawledUrl::try_from(other).unwrap()),
+                "{other}"
+            );
+        }
+        assert_eq!(
+            CrawledUrl::try_from("https://example.com/products/1/?q=1")
+                .unwrap()
+                .page_spelling()
+                .as_str(),
+            "https://example.com/products/1?q=1"
+        );
+        assert_eq!(
+            CrawledUrl::try_from("https://example.com/")
+                .unwrap()
+                .page_spelling()
+                .as_str(),
+            "https://example.com/"
+        );
     }
 
     #[test]
-    fn should_keep_root_slash_when_path_is_root_for_comparison() {
-        let input = "https://www.example.com/";
-        let normalized = normalize_for_test(input);
-        assert_eq!(normalized, "https://www.example.com/");
+    fn should_spell_slashed_twin_only_for_url_without_trailing_slash() {
+        assert_eq!(
+            CrawledUrl::try_from("https://example.com/products/1?q=1")
+                .unwrap()
+                .slashed_twin()
+                .map(String::from)
+                .as_deref(),
+            Some("https://example.com/products/1/?q=1")
+        );
+        for without_twin in ["https://example.com/products/1/", "https://example.com/"] {
+            assert_eq!(
+                CrawledUrl::try_from(without_twin).unwrap().slashed_twin(),
+                None,
+                "{without_twin}"
+            );
+        }
+    }
+
+    /// Patterns approved while the crawler stored URLs without the trailing slash keep taking
+    /// the pages, and a pattern written for the slashed spelling takes the unslashed one.
+    #[test]
+    fn should_match_pattern_against_url_with_or_without_trailing_slash() {
+        let unslashed = Regex::new(r"^https://shop\.example/product/\d+/[\w%.-]+$").unwrap();
+        let slashed = Regex::new(r"^https://shop\.example/product/\d+/[\w%.-]+/$").unwrap();
+
+        for url in [
+            "https://shop.example/product/106/tray",
+            "https://shop.example/product/106/tray/",
+        ] {
+            let url = CrawledUrl::try_from(url).unwrap();
+            assert!(url.matches_pattern(&unslashed), "{url}");
+            assert!(url.matches_pattern(&slashed), "{url}");
+        }
+        assert!(
+            !CrawledUrl::try_from("https://shop.example/product/106/")
+                .unwrap()
+                .matches_pattern(&unslashed)
+        );
     }
 
     #[test]
@@ -380,26 +530,40 @@ mod tests {
     }
 
     #[test]
-    fn should_name_legacy_spelling_when_earlier_normalization_re_encoded_the_url() {
+    fn should_name_legacy_spellings_when_earlier_normalization_changed_the_url() {
         for (fetched, legacy) in [
             (
                 "https://hickmet.com/collections/vendors?q=A%2C%20B",
-                "https://hickmet.com/collections/vendors?q=A%2C+B",
+                vec!["https://hickmet.com/collections/vendors?q=A%2C+B"],
             ),
             (
                 "https://example.com/index.php?id_product=12&controller=product",
-                "https://example.com/index.php?controller=product&id_product=12",
+                vec!["https://example.com/index.php?controller=product&id_product=12"],
             ),
             (
                 "https://example.com/products/%7Efoo",
-                "https://example.com/products/~foo",
+                vec!["https://example.com/products/~foo"],
+            ),
+            (
+                "https://example.com/products/1/",
+                vec!["https://example.com/products/1"],
+            ),
+            (
+                "https://example.com/products/1/?q=A%20B",
+                vec![
+                    "https://example.com/products/1?q=A%20B",
+                    "https://example.com/products/1?q=A+B",
+                ],
             ),
         ] {
             let url = CrawledUrl::try_from(fetched).unwrap();
 
             assert_eq!(
-                url.legacy_spelling().map(String::from).as_deref(),
-                Some(legacy),
+                url.legacy_spellings()
+                    .into_iter()
+                    .map(String::from)
+                    .collect::<Vec<_>>(),
+                legacy,
                 "{fetched}"
             );
         }
@@ -409,13 +573,14 @@ mod tests {
     fn should_name_no_legacy_spelling_when_earlier_normalization_kept_the_url() {
         for fetched in [
             "https://example.com/products/1",
+            "https://example.com/",
             "https://hickmet.com/collections/vendors?q=A%2C+B",
             "https://hickmet.com/collections/vendors?q=A%2C%2BB",
             "https://example.com/products/1?a=1&b=2",
         ] {
             let url = CrawledUrl::try_from(fetched).unwrap();
 
-            assert_eq!(url.legacy_spelling(), None, "{fetched}");
+            assert_eq!(url.legacy_spellings(), Vec::<url::Url>::new(), "{fetched}");
         }
     }
 
@@ -423,6 +588,13 @@ mod tests {
         raw.iter()
             .map(|raw| url::Url::parse(raw).unwrap())
             .collect()
+    }
+
+    fn rename(legacy: &str, fetched: &str) -> LegacySpellingRename {
+        LegacySpellingRename {
+            legacy: url::Url::parse(legacy).unwrap(),
+            fetched: url::Url::parse(fetched).unwrap(),
+        }
     }
 
     #[test]
@@ -434,12 +606,38 @@ mod tests {
 
         assert_eq!(
             renames,
-            vec![LegacySpellingRename {
-                legacy: url::Url::parse("https://hickmet.com/collections/vendors?q=A%2C+B")
-                    .unwrap(),
-                fetched: url::Url::parse("https://hickmet.com/collections/vendors?q=A%2C%20B")
-                    .unwrap(),
-            }]
+            vec![vec![rename(
+                "https://hickmet.com/collections/vendors?q=A%2C+B",
+                "https://hickmet.com/collections/vendors?q=A%2C%20B",
+            )]]
+        );
+    }
+
+    #[test]
+    fn should_rename_unslashed_spelling_before_re_encoded_one_when_fetched_url_has_both() {
+        let renames = legacy_spelling_renames(&urls(&[
+            "https://example.com/products/1/",
+            "https://example.com/products/2/?q=A%20B",
+        ]));
+
+        assert_eq!(
+            renames,
+            vec![
+                vec![
+                    rename(
+                        "https://example.com/products/1",
+                        "https://example.com/products/1/"
+                    ),
+                    rename(
+                        "https://example.com/products/2?q=A%20B",
+                        "https://example.com/products/2/?q=A%20B"
+                    ),
+                ],
+                vec![rename(
+                    "https://example.com/products/2?q=A+B",
+                    "https://example.com/products/2/?q=A%20B"
+                )],
+            ]
         );
     }
 
@@ -450,7 +648,7 @@ mod tests {
             "https://hickmet.com/collections/vendors?q=A%2C+B",
         ]));
 
-        assert!(renames.is_empty());
+        assert!(renames.iter().all(Vec::is_empty), "{renames:?}");
     }
 
     #[test]
@@ -460,14 +658,74 @@ mod tests {
             "https://example.com/search?a=1&b=A%20B",
         ]));
 
-        assert_eq!(renames.len(), 1);
         assert_eq!(
-            renames[0].legacy.as_str(),
-            "https://example.com/search?a=1&b=A+B"
+            renames,
+            vec![vec![rename(
+                "https://example.com/search?a=1&b=A+B",
+                "https://example.com/search?a=1&b=A%20B"
+            )]]
         );
+    }
+
+    fn stored(fetched: &[&str], with_row: &[&str]) -> Vec<(String, usize)> {
+        let fetched = urls(fetched).into_iter().zip(0..).collect::<Vec<_>>();
+        stored_spellings(&fetched, |url| with_row.contains(&url.as_str()))
+            .into_iter()
+            .map(|(url, index)| (url.to_string(), index))
+            .collect()
+    }
+
+    #[test]
+    fn should_store_page_under_slashed_spelling_when_shop_links_both() {
         assert_eq!(
-            renames[0].fetched.as_str(),
-            "https://example.com/search?a=1&b=A%20B"
+            stored(
+                &[
+                    "https://example.com/products/1",
+                    "https://example.com/products/2",
+                    "https://example.com/products/1/",
+                ],
+                &[]
+            ),
+            vec![
+                ("https://example.com/products/2".to_owned(), 1),
+                ("https://example.com/products/1/".to_owned(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn should_store_unslashed_url_under_slashed_spelling_when_that_has_a_row() {
+        assert_eq!(
+            stored(
+                &[
+                    "https://example.com/products/1?q=1",
+                    "https://example.com/products/2"
+                ],
+                &["https://example.com/products/1/?q=1"]
+            ),
+            vec![
+                ("https://example.com/products/1/?q=1".to_owned(), 0),
+                ("https://example.com/products/2".to_owned(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn should_store_urls_as_fetched_when_page_has_one_spelling() {
+        let fetched = [
+            "https://example.com/products/1",
+            "https://example.com/products/2/",
+            "https://example.com/",
+            "https://example.com/products/1",
+        ];
+
+        assert_eq!(
+            stored(&fetched, &["https://example.com/products/2"]),
+            fetched
+                .iter()
+                .enumerate()
+                .map(|(index, url)| ((*url).to_owned(), index))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -487,10 +745,9 @@ mod tests {
         assert!(rules.allows(space.as_url()));
         assert!(!rules.allows(plus.as_url()));
         assert!(!rules.allows(encoded_plus.as_url()));
-        let legacy = space
-            .legacy_spelling()
-            .expect("the earlier normalization re-encoded the space");
-        assert!(!rules.allows(&legacy));
+        let legacy = space.legacy_spellings();
+        assert!(!legacy.is_empty());
+        assert!(legacy.iter().all(|legacy| !rules.allows(legacy)));
     }
 
     #[test]

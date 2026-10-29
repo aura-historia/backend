@@ -5,10 +5,11 @@ use crate::network::policy::{
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
-use crate::spider::utils::url::legacy_spelling_renames;
+use crate::spider::utils::url::{CrawledUrl, legacy_spelling_renames, stored_spellings};
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::{FromRow, PgPool, Row};
+use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
@@ -205,7 +206,50 @@ impl UrlMetadataRepositoryImpl {
         Ok(())
     }
 
-    /// Moves rows stored under the earlier spelling of a rediscovered URL to the fetched spelling,
+    /// The spelling each of `urls` is stored under, with its class: a page the shop links both
+    /// with and without the trailing slash keeps one row, under the slashed spelling, whether the
+    /// two spellings arrive in one batch or the slashed one already has a row of this
+    /// ListingSource domain ([`stored_spellings`]).
+    async fn stored_spellings(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing_source_id: ListingSourceId,
+        domain_id: CrawlerDomainId,
+        urls: &[url::Url],
+        url_classes: &[UrlClass],
+    ) -> Result<Vec<(url::Url, UrlClass)>, UrlMetadataRepositoryError> {
+        let slashed_twins = urls
+            .iter()
+            .filter_map(|url| CrawledUrl::new(url.clone()).slashed_twin())
+            .map(String::from)
+            .collect::<Vec<_>>();
+        let stored_twins = if slashed_twins.is_empty() {
+            HashSet::new()
+        } else {
+            sqlx::query_scalar::<_, String>(
+                "SELECT url FROM listing_source_urls \
+                 WHERE url = ANY($3::text[]) AND listing_source_id = $1 AND domain_id = $2 \
+                 ORDER BY url FOR UPDATE",
+            )
+            .bind(uuid::Uuid::from(listing_source_id))
+            .bind(domain_id.as_uuid())
+            .bind(&slashed_twins)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(database_error)?
+            .into_iter()
+            .collect::<HashSet<_>>()
+        };
+        let fetched = urls
+            .iter()
+            .cloned()
+            .zip(url_classes.iter().copied())
+            .collect::<Vec<_>>();
+        Ok(stored_spellings(&fetched, |slashed| {
+            stored_twins.contains(slashed.as_str())
+        }))
+    }
+
+    /// Moves rows stored under an earlier spelling of a rediscovered URL to the fetched spelling,
     /// so the page keeps its row, scrape state and raw-capture identity instead of gaining a
     /// second row. Only rows of this ListingSource domain move, and never onto a URL that already
     /// has a row.
@@ -215,30 +259,32 @@ impl UrlMetadataRepositoryImpl {
         domain_id: CrawlerDomainId,
         urls: &[url::Url],
     ) -> Result<(), UrlMetadataRepositoryError> {
-        let renames = legacy_spelling_renames(urls);
-        if renames.is_empty() {
-            return Ok(());
+        let mut renamed = 0;
+        for round in legacy_spelling_renames(urls) {
+            if round.is_empty() {
+                continue;
+            }
+            let (legacy, fetched): (Vec<String>, Vec<String>) = round
+                .iter()
+                .map(|rename| (rename.legacy.to_string(), rename.fetched.to_string()))
+                .unzip();
+            renamed += sqlx::query(
+                "UPDATE listing_source_urls AS stored SET url = input.fetched \
+                 FROM UNNEST($3::text[], $4::text[]) AS input(legacy, fetched) \
+                 WHERE stored.url = input.legacy \
+                   AND stored.listing_source_id = $1 \
+                   AND stored.domain_id = $2 \
+                   AND NOT EXISTS (SELECT 1 FROM listing_source_urls existing WHERE existing.url = input.fetched)",
+            )
+            .bind(uuid::Uuid::from(listing_source_id))
+            .bind(domain_id.as_uuid())
+            .bind(&legacy)
+            .bind(&fetched)
+            .execute(&mut **transaction)
+            .await
+            .map_err(database_error)?
+            .rows_affected();
         }
-        let (legacy, fetched): (Vec<String>, Vec<String>) = renames
-            .iter()
-            .map(|rename| (rename.legacy.to_string(), rename.fetched.to_string()))
-            .unzip();
-        let renamed = sqlx::query(
-            "UPDATE listing_source_urls AS stored SET url = input.fetched \
-             FROM UNNEST($3::text[], $4::text[]) AS input(legacy, fetched) \
-             WHERE stored.url = input.legacy \
-               AND stored.listing_source_id = $1 \
-               AND stored.domain_id = $2 \
-               AND NOT EXISTS (SELECT 1 FROM listing_source_urls existing WHERE existing.url = input.fetched)",
-        )
-        .bind(uuid::Uuid::from(listing_source_id))
-        .bind(domain_id.as_uuid())
-        .bind(&legacy)
-        .bind(&fetched)
-        .execute(&mut **transaction)
-        .await
-        .map_err(database_error)?
-        .rows_affected();
         if renamed > 0 {
             tracing::info!(
                 renamed,
@@ -316,16 +362,26 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let domain =
             Self::verify_domain_owner(&mut transaction, *listing_source_id, *domain_id).await?;
         Self::verify_url_hosts(urls, &domain)?;
-        let url_strings = urls.iter().map(ToString::to_string).collect::<Vec<_>>();
         Self::validate_existing_url_ownership(
             &mut transaction,
             *listing_source_id,
             *domain_id,
-            &url_strings,
+            &urls.iter().map(ToString::to_string).collect::<Vec<_>>(),
         )
         .await?;
-        Self::adopt_legacy_spellings(&mut transaction, *listing_source_id, *domain_id, urls)
+        let (urls, url_classes): (Vec<url::Url>, Vec<UrlClass>) = Self::stored_spellings(
+            &mut transaction,
+            *listing_source_id,
+            *domain_id,
+            urls,
+            url_classes,
+        )
+        .await?
+        .into_iter()
+        .unzip();
+        Self::adopt_legacy_spellings(&mut transaction, *listing_source_id, *domain_id, &urls)
             .await?;
+        let url_strings = urls.iter().map(ToString::to_string).collect::<Vec<_>>();
 
         let records = sqlx::query_as::<_, SpiderUrlRecord>(
             "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, raw_source_record_key, url_class, created, updated) \
