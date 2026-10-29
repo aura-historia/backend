@@ -283,9 +283,11 @@ impl CrawlerReviewRepository {
             .collect())
     }
 
-    /// Refuses, before `actor`'s live refresh of the review's matrix fetches anything, a review
-    /// agent's refresh of a review that waits for a human; storing the matrix checks it again.
-    pub async fn check_matrix_refresh(
+    /// Refuses, before `actor`'s live job on the review fetches anything (a live matrix refresh, a
+    /// candidate evaluation or a page projection), a review agent's job on a review that waits for a
+    /// human, so the agents fetch no shop pages for a review they cannot change or decide; storing
+    /// a refreshed matrix checks it again.
+    pub async fn check_live_job(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,

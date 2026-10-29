@@ -6,6 +6,7 @@ use crate::review::assets::{
 };
 use crate::review::candidate_evaluations::CandidateEvaluations;
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
+use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{CrawlerReviewPage, RawAttributeKey, ReviewActor, SampleLabelInput};
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
@@ -56,6 +57,8 @@ pub struct ReviewServer {
     domain_administration: Arc<dyn CrawlerDomainAdministration>,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
+    /// The console's cap on live matrix refreshes, candidate evaluations and page projections.
+    live_jobs: LiveJobLimit,
     matrix_refreshes: MatrixRefreshes,
     matrix_refresh_wait: Duration,
     candidate_evaluations: CandidateEvaluations,
@@ -74,6 +77,7 @@ impl ReviewServer {
             // The console decides the review agents' approvals and rejections by its settings.
             repository: repository.with_agent_decisions(config.agent_decisions.clone()),
             domain_administration,
+            live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
             access: ReviewAccess::new(config),
             html_fetcher,
             matrix_refreshes: MatrixRefreshes::default(),
@@ -100,6 +104,7 @@ impl ReviewServer {
             agent_matrix_max_age_minutes = agent_decisions.max_matrix_age.as_secs() / 60,
             agent_min_labelled_urls = agent_decisions.min_labelled_urls.get(),
             agent_max_repair_rounds = agent_decisions.max_repair_rounds.get(),
+            max_concurrent_live_jobs = self.live_jobs.limit().get(),
             "Crawler review console listening"
         );
 
@@ -365,7 +370,10 @@ impl ReviewServer {
             else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            return match self.project_review_source_page(review_id, &request).await {
+            return match self
+                .project_review_source_page(review_id, actor, &request)
+                .await
+            {
                 Ok(projection) => HttpResponse::json(200, &projection),
                 Err(response) => response,
             };
@@ -384,7 +392,7 @@ impl ReviewServer {
                     return HttpResponse::json(400, &json!({ "error": error.to_string() }));
                 }
             };
-            return self.evaluate_candidate(review_id, payload).await;
+            return self.evaluate_candidate(review_id, actor, payload).await;
         }
 
         if request.method == "GET"
@@ -1163,6 +1171,26 @@ fn forbidden(error: &ReviewRepositoryError, reason: &str) -> HttpResponse {
     )
 }
 
+/// Answers a live job (a matrix refresh, a candidate evaluation or a page projection) the console
+/// does not start because it runs as many as its limit allows: 429 with `reason` `LIVE_JOBS_BUSY`,
+/// the limit and when to retry, also as `Retry-After`.
+fn live_jobs_busy(busy: LiveJobsBusy) -> HttpResponse {
+    let retry_after_secs = busy.retry_after.as_secs();
+    HttpResponse::json(
+        429,
+        &json!({
+            "error": format!(
+                "the review console runs {} live jobs (matrix refreshes, candidate evaluations and page projections) at once, as many as it allows; retry in {retry_after_secs} seconds",
+                busy.limit
+            ),
+            "reason": "LIVE_JOBS_BUSY",
+            "limit": busy.limit.get(),
+            "retry_after_secs": retry_after_secs,
+        }),
+    )
+    .with_header("Retry-After", retry_after_secs.to_string())
+}
+
 fn internal_error(error: impl std::fmt::Display + std::fmt::Debug) -> HttpResponse {
     error!(error = ?error, "Review API error");
     HttpResponse::json(500, &json!({ "error": "internal server error" }))
@@ -1206,6 +1234,7 @@ mod tests {
     use super::*;
     use crate::review::agent_decisions::AgentDecisionPolicy;
     use crate::review::approval_guard::FailedApprovalCheck;
+    use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
     use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
     use crate::service::crawler_domain_configuration::{
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
@@ -1283,6 +1312,7 @@ mod tests {
                 agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
             Arc::new(MockHtmlFetcher::new()),
         ))
@@ -1404,6 +1434,7 @@ mod tests {
                 agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
             Arc::new(StaticHtmlFetcher),
         );
@@ -1434,6 +1465,7 @@ mod tests {
                 agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
             Arc::new(StaticHtmlFetcher),
         );
@@ -1516,6 +1548,7 @@ mod tests {
                 agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
             Arc::new(StaticHtmlFetcher),
         );
@@ -1601,6 +1634,7 @@ mod tests {
                 agent_tokens: None,
                 agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             }
             .allow_local_mutations_without_token(),
             Arc::new(MockHtmlFetcher::new()),
@@ -1882,8 +1916,12 @@ Origin: http://127.0.0.1:7878/x
     }
 
     mod matrix_refresh {
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, send_as};
         use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig};
         use crate::network::policy::NetworkErrorKind;
+        use crate::review::agent_decisions::AgentApprovals;
+        use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::matrix_refresh::MatrixRefreshStatus;
         use crate::review::model::{PAGE_ROLE_PRIMARY, ReviewActor, SchemaReviewPageInput};
         use crate::review::repository::CrawlerReviewRepository;
@@ -1903,6 +1941,7 @@ Origin: http://127.0.0.1:7878/x
         use sqlx::PgPool;
         use std::collections::HashMap;
         use std::net::SocketAddr;
+        use std::num::NonZeroU32;
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::Duration;
@@ -2040,7 +2079,23 @@ Origin: http://127.0.0.1:7878/x
 
         const PAGE_COUNT: usize = 2;
 
+        /// The console of the paced shop: tokenless, without agents, with the default limit.
+        fn paced_console() -> ReviewServerConfig {
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: None,
+                agent_tokens: None,
+                agent_decisions: AgentDecisionPolicy::default(),
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+                local_mutations_without_token: false,
+            }
+        }
+
         async fn fixture(fetcher: Arc<PacedFetcher>) -> Fixture {
+            fixture_with(fetcher, paced_console()).await
+        }
+
+        async fn fixture_with(fetcher: Arc<PacedFetcher>, console: ReviewServerConfig) -> Fixture {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -2075,13 +2130,7 @@ Origin: http://127.0.0.1:7878/x
                 ..ReviewServer::new(
                     repository,
                     Arc::new(NoDomainAdministration),
-                    ReviewServerConfig {
-                        bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
-                        auth_token: None,
-                        agent_tokens: None,
-                        agent_decisions: AgentDecisionPolicy::default(),
-                        local_mutations_without_token: false,
-                    },
+                    console,
                     fetcher.clone(),
                 )
             };
@@ -2106,7 +2155,9 @@ Origin: http://127.0.0.1:7878/x
                     // Finish its database writes before the context removes its database.
                     fetcher.release(PAGE_COUNT);
                     while matches!(
-                        server.matrix_refreshes.status(review_id),
+                        server
+                            .matrix_refreshes
+                            .status(review_id, ReviewActor::Human),
                         MatrixRefreshStatus::Running
                     ) {
                         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -2385,6 +2436,153 @@ Origin: http://127.0.0.1:7878/x
                 "the answer names the page the matrix did not evaluate"
             );
         }
+
+        /// A plain read never starts a fetch: without a stored matrix it says so, and only an
+        /// explicit refresh fetches the review's pages.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_no_matrix_without_fetching_when_the_review_stores_none() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture(fetcher.clone()).await;
+
+            let read = get_matrix(&fixture.server, fixture.review_id, false).await;
+            tokio::task::yield_now().await;
+
+            assert!(read.starts_with("HTTP/1.1 404"), "{read}");
+            assert!(read.contains("\"reason\": \"NO_MATRIX\""), "{read}");
+            assert_eq!(fetcher.requested.load(Ordering::SeqCst), 0);
+            assert!(matches!(
+                fixture
+                    .server
+                    .matrix_refreshes
+                    .status(fixture.review_id, ReviewActor::Human),
+                MatrixRefreshStatus::Idle
+            ));
+        }
+
+        /// Refreshes, candidate evaluations and page projections share the console's limit: a
+        /// request that would start one above it is refused before it fetches anything, joining a
+        /// running refresh takes no place, and a finished refresh frees its place.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_live_jobs_above_the_console_limit_with_retry_after() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture_with(
+                fetcher.clone(),
+                ReviewServerConfig {
+                    max_concurrent_live_jobs: NonZeroU32::MIN,
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    ..paced_console()
+                },
+            )
+            .await;
+            let review_id = fixture.review_id;
+            let page_id = CrawlerReviewRepository::new(fixture.pool.clone())
+                .get_review(review_id)
+                .await
+                .unwrap_or_else(|error| panic!("read review: {error}"))
+                .pages[0]
+                .review_page_id;
+            let project = format!(
+                "GET /api/reviews/{review_id}/page-projection?page={page_id} HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            );
+            // The author agent's evaluation, a POST its token may send to the tokenless console.
+            let evaluate = format!(
+                "POST /api/reviews/{review_id}/evaluate HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {AUTHOR_TOKEN}\r\n\r\n{}",
+                json!({ "schemas": [schema("h1")] })
+            );
+
+            let refreshing = get_matrix(&fixture.server, review_id, true).await;
+            let joined = get_matrix(&fixture.server, review_id, true).await;
+            let evaluation = fixture.server.route(&evaluate).await.to_string();
+            let projection = fixture.server.route(&project).await.to_string();
+
+            assert!(refreshing.starts_with("HTTP/1.1 202"), "{refreshing}");
+            assert!(joined.starts_with("HTTP/1.1 202"), "{joined}");
+            for refused in [&evaluation, &projection] {
+                assert!(refused.starts_with("HTTP/1.1 429"), "{refused}");
+                assert!(refused.contains("Retry-After: 30\r\n"), "{refused}");
+                assert!(
+                    refused.contains("\"reason\": \"LIVE_JOBS_BUSY\""),
+                    "{refused}"
+                );
+                assert!(refused.contains("\"limit\": 1"), "{refused}");
+            }
+            fetcher.release(PAGE_COUNT);
+            let settled = poll_until_settled(&fixture.server, review_id).await;
+            assert!(settled.starts_with("HTTP/1.1 200"), "{settled}");
+            assert_eq!(fetcher.requested.load(Ordering::SeqCst), PAGE_COUNT);
+            fetcher.release(1);
+            let projected = fixture.server.route(&project).await.to_string();
+            assert!(projected.starts_with("HTTP/1.1 200"), "{projected}");
+        }
+
+        /// A review agent's refresh that the review refuses because it came to wait for a human
+        /// while the pages were fetched answers that agent only: a human, or the other agent,
+        /// reading the matrix next learns that the review holds none, without the words written
+        /// for the agents.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_an_agent_refusal_only_to_the_agent_whose_refresh_it_was() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture_with(
+                fetcher.clone(),
+                ReviewServerConfig {
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    agent_decisions: AgentDecisionPolicy {
+                        approvals: AgentApprovals::Guarded,
+                        max_repair_rounds: NonZeroU32::MIN,
+                        ..AgentDecisionPolicy::default()
+                    },
+                    ..paced_console()
+                },
+            )
+            .await;
+            let review_id = fixture.review_id;
+            let matrix = format!("GET /api/reviews/{review_id}/matrix");
+            let agent_text = "leave it until a human changes or judges it";
+
+            let (status, started) = send_as(
+                &fixture.server,
+                REVIEWER_TOKEN,
+                &format!("{matrix}?refresh=true"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 202"), "{status} {started}");
+            fetcher.wait_for_first_request().await;
+            let (status, verdict) = send_as(
+                &fixture.server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/needs-repair"),
+                &json!({ "notes": "the title takes the shop name" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {verdict}");
+            fetcher.release(PAGE_COUNT);
+            let mut settled = None;
+            for _ in 0..200 {
+                let (status, answer) = send_as(&fixture.server, REVIEWER_TOKEN, &matrix, "").await;
+                if !status.starts_with("HTTP/1.1 202") {
+                    settled = Some((status, answer));
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let (status, refused) =
+                settled.unwrap_or_else(|| panic!("the agent's refresh did not settle"));
+            let human = get_matrix(&fixture.server, review_id, false).await;
+            let (author_status, author) = send_as(&fixture.server, AUTHOR_TOKEN, &matrix, "").await;
+
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(refused["reason"], "HUMAN_REQUIRED", "{refused}");
+            assert!(human.starts_with("HTTP/1.1 404"), "{human}");
+            assert!(human.contains("\"reason\": \"NO_MATRIX\""), "{human}");
+            assert!(!human.contains(agent_text), "{human}");
+            assert!(
+                author_status.starts_with("HTTP/1.1 404"),
+                "{author_status} {author}"
+            );
+            assert_eq!(author["reason"], "NO_MATRIX", "{author}");
+            assert!(stored_matrix(&fixture.pool, review_id).await.is_none());
+        }
     }
 
     mod needs_repair {
@@ -2392,6 +2590,7 @@ Origin: http://127.0.0.1:7878/x
         use super::{
             AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
         };
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use listing_source_core::ListingSourceId;
@@ -2468,6 +2667,7 @@ Origin: http://127.0.0.1:7878/x
                     agent_tokens: None,
                     agent_decisions: AgentDecisionPolicy::default(),
                     local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
@@ -2521,6 +2721,7 @@ Origin: http://127.0.0.1:7878/x
         };
         use crate::CrawlerReviewId;
         use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use listing_source_core::ListingSourceId;
@@ -2569,6 +2770,7 @@ Origin: http://127.0.0.1:7878/x
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
                     agent_decisions,
                     local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
@@ -3094,9 +3296,9 @@ Origin: http://127.0.0.1:7878/x
         }
 
         /// Once the agents' needs-repair rounds reached the cap, the review list and the review
-        /// say the review waits for a human, every agent route on it answers 409
-        /// `HUMAN_REQUIRED` before any page is fetched and records nothing, and a human's verdict
-        /// hands it back.
+        /// say the review waits for a human, every agent route on it, the live jobs that fetch
+        /// shop pages without changing it among them, answers 409 `HUMAN_REQUIRED` before any page
+        /// is fetched and records nothing, and a human's verdict hands it back.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_answer_human_required_on_every_agent_route_once_the_repair_cap_is_reached()
         {
@@ -3165,6 +3367,25 @@ Origin: http://127.0.0.1:7878/x
                 (
                     REVIEWER_TOKEN,
                     format!("GET /api/reviews/{review_id}/matrix?refresh=true"),
+                    json!(null),
+                ),
+                (
+                    AUTHOR_TOKEN,
+                    format!("POST /api/reviews/{review_id}/evaluate"),
+                    json!({ "schemas": [super::matrix_refresh::schema("h1.agent")] }),
+                ),
+                (
+                    AUTHOR_TOKEN,
+                    format!(
+                        "GET /api/reviews/{review_id}/page-projection?url=https%3A%2F%2Fedited.example%2Fproducts%2F1"
+                    ),
+                    json!(null),
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    format!(
+                        "GET /api/reviews/{review_id}/page-projection?url=https%3A%2F%2Fedited.example%2Fproducts%2F2"
+                    ),
                     json!(null),
                 ),
                 (
@@ -3350,6 +3571,7 @@ Origin: http://127.0.0.1:7878/x
         use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
         use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
         use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::model::UrlPatternDecision;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
@@ -3436,6 +3658,7 @@ Origin: http://127.0.0.1:7878/x
                         ..AgentDecisionPolicy::default()
                     },
                     local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
@@ -3679,7 +3902,9 @@ Origin: http://127.0.0.1:7878/x
                 assert!(answer["error"].is_string(), "{request}: {answer}");
             }
             assert!(matches!(
-                server.matrix_refreshes.status(unknown),
+                server
+                    .matrix_refreshes
+                    .status(unknown, crate::review::model::ReviewActor::Human),
                 MatrixRefreshStatus::Idle
             ));
         }
@@ -3850,6 +4075,7 @@ Origin: http://127.0.0.1:7878/x
         use crate::CrawlerReviewId;
         use crate::network::policy::NetworkErrorKind;
         use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput};
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
@@ -3976,6 +4202,7 @@ Origin: http://127.0.0.1:7878/x
                         agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
                         agent_decisions: AgentDecisionPolicy::default(),
                         local_mutations_without_token: false,
+                        max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                     },
                     shop.clone(),
                 )

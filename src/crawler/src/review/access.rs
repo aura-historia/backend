@@ -7,6 +7,7 @@
 use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crate::review::agent_tokens::ReviewAgentTokens;
 use crate::review::http::{HttpResponse, ParsedRequest};
+use crate::review::live_jobs::{DEFAULT_MAX_CONCURRENT_LIVE_JOBS, MAX_CONCURRENT_LIVE_JOBS_ENV};
 use crate::review::model::ReviewActor;
 use dashmap::DashMap;
 use serde_json::json;
@@ -43,6 +44,9 @@ pub struct ReviewServerConfig {
     pub(super) agent_tokens: Option<ReviewAgentTokens>,
     /// What the agents may decide on their own; with the default they decide nothing.
     pub agent_decisions: AgentDecisionPolicy,
+    /// How many live jobs (live matrix refreshes, candidate evaluations and page projections) the
+    /// console runs at once, for all reviews and actors together.
+    pub max_concurrent_live_jobs: NonZeroU32,
     /// Lets same-origin browser requests mutate review state without a token on a
     /// loopback bind. Only the local `dev` binary opts in through
     /// [`ReviewServerConfig::allow_local_mutations_without_token`], which keeps it
@@ -60,6 +64,8 @@ impl ReviewServerConfig {
             auth_token: token_from_env("CRAWLER_REVIEW_AUTH_TOKEN"),
             agent_tokens: None,
             agent_decisions: AgentDecisionPolicy::from_env()?,
+            max_concurrent_live_jobs: positive_number(MAX_CONCURRENT_LIVE_JOBS_ENV)?
+                .unwrap_or(DEFAULT_MAX_CONCURRENT_LIVE_JOBS),
             local_mutations_without_token: false,
         }
         .validate()
@@ -418,6 +424,7 @@ mod tests {
             agent_tokens: None,
             agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
+            max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
         }
     }
 
@@ -515,6 +522,36 @@ mod tests {
             error.to_string(),
             "CRAWLER_REVIEW_BIND_ADDR must be host:port"
         );
+    }
+
+    /// The console's live-job limit defaults to four; a value that is set but not a whole number
+    /// of at least 1 fails startup with the variable and the value.
+    #[test]
+    #[serial_test::serial]
+    fn should_read_the_live_job_limit_and_refuse_a_value_that_is_not_accepted() {
+        let read = |value: Option<&str>| {
+            set_env(MAX_CONCURRENT_LIVE_JOBS_ENV, value);
+            let config = review_config_from(None, None);
+            set_env(MAX_CONCURRENT_LIVE_JOBS_ENV, None);
+            config
+        };
+        let limit = |value: Option<&str>| {
+            read(value)
+                .map(|config| config.max_concurrent_live_jobs.get())
+                .unwrap_or_else(|error| panic!("{value:?}: {error}"))
+        };
+
+        assert_eq!(limit(None), 4);
+        assert_eq!(limit(Some(" ")), 4);
+        assert_eq!(limit(Some(" 2 ")), 2);
+        for refused in ["0", "-1", "two"] {
+            assert_eq!(
+                read(Some(refused)).err().map(|error| error.to_string()),
+                Some(format!(
+                    "invalid CRAWLER_REVIEW_MAX_CONCURRENT_LIVE_JOBS value \"{refused}\"; expected a whole number of at least 1"
+                ))
+            );
+        }
     }
 
     /// No console reads agent tokens or turns agent decisions on from its settings: only `agent`

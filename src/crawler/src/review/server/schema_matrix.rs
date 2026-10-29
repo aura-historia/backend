@@ -1,13 +1,15 @@
 //! The console's live schema matrix of a product-schema review: reading the stored matrix, the
-//! running refresh or its failure, and refreshing it from the review's pages fetched live. The
-//! contract is in `docs/crawler/extraction-and-review.md` (review rail) and
-//! `docs/crawler/networking.md`.
+//! running refresh or its failure, and refreshing it from the review's pages fetched live, which
+//! only an explicit refresh does. The contract is in `docs/crawler/extraction-and-review.md`
+//! (review rail), `docs/crawler/networking.md` and `docs/crawler/operations.md` (review service).
 
-use super::{ReviewServer, live_fetch_error, review_error, review_page_url};
+use super::{ReviewServer, live_fetch_error, live_jobs_busy, review_error, review_page_url};
 use crate::CrawlerReviewId;
 use crate::network::robots::MAX_CRAWL_DELAY;
 use crate::review::http::HttpResponse;
-use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus};
+use crate::review::matrix_refresh::{
+    MatrixRefreshFailure, MatrixRefreshOutcome, MatrixRefreshStatus,
+};
 use crate::review::model::{
     ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, ReviewActor, ReviewDetail, ReviewSchemaMatrix,
     SchemaMatrix,
@@ -24,14 +26,15 @@ const MATRIX_REFRESH_PAGE_BUDGET: Duration =
     MAX_CRAWL_DELAY.saturating_add(Duration::from_secs(30));
 
 impl ReviewServer {
-    /// `GET /api/reviews/{id}/matrix`: the running refresh, the last refresh's failure or the
-    /// stored matrix, and a new refresh while the review stores none.
+    /// `GET /api/reviews/{id}/matrix`: the running refresh, the last refresh's failure as `actor`
+    /// learns it, or the stored matrix. A plain read never fetches the shop: without a stored
+    /// matrix it answers `404` with `reason` `NO_MATRIX`, and the reader asks for a refresh.
     pub(super) async fn read_schema_matrix(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
     ) -> HttpResponse {
-        match self.matrix_refreshes.status(review_id) {
+        match self.matrix_refreshes.status(review_id, actor) {
             MatrixRefreshStatus::Running => return matrix_refreshing(review_id),
             MatrixRefreshStatus::Failed(response) => return response,
             MatrixRefreshStatus::Idle => {}
@@ -42,12 +45,13 @@ impl ReviewServer {
         };
         match cached_schema_matrix(&detail) {
             Some(matrix) => HttpResponse::json(200, &ReviewSchemaMatrix::of(matrix, &detail.pages)),
-            None => self.start_schema_matrix_refresh(review_id, actor).await,
+            None => no_matrix_yet(review_id),
         }
     }
 
     /// `GET /api/reviews/{id}/matrix?refresh=true`: starts `actor`'s refresh of the review's
-    /// matrix, or joins the running one.
+    /// matrix as a live job, or joins the running one, and answers with the matrix when it
+    /// finishes in time, otherwise with `202` for the console to poll.
     pub(super) async fn refresh_schema_matrix(
         &self,
         review_id: CrawlerReviewId,
@@ -56,7 +60,23 @@ impl ReviewServer {
         if let Err(response) = self.product_schema_review(review_id).await {
             return response;
         }
-        self.start_schema_matrix_refresh(review_id, actor).await
+        if let Err(error) = self.repository.check_live_job(review_id, actor).await {
+            return review_error(error);
+        }
+        let refresh = self.clone().evaluate_live_schema_matrix(review_id, actor);
+        let refreshing =
+            match self
+                .matrix_refreshes
+                .start_or_join(review_id, actor, &self.live_jobs, refresh)
+            {
+                Ok(refreshing) => refreshing,
+                Err(busy) => return live_jobs_busy(busy),
+            };
+        match refreshing.outcome_within(self.matrix_refresh_wait).await {
+            Some(Ok(matrix)) => HttpResponse::json(200, &matrix),
+            Some(Err(response)) => response,
+            None => matrix_refreshing(review_id),
+        }
     }
 
     /// The review, refused unless it is a product-schema review: only it has pages to evaluate
@@ -79,29 +99,6 @@ impl ReviewServer {
             )));
         }
         Ok(detail)
-    }
-
-    /// Starts `actor`'s background refresh, or joins the running one, and answers with the matrix
-    /// when it finishes in time, otherwise with `202` for the console to poll.
-    async fn start_schema_matrix_refresh(
-        &self,
-        review_id: CrawlerReviewId,
-        actor: ReviewActor,
-    ) -> HttpResponse {
-        if let Err(error) = self.repository.check_matrix_refresh(review_id, actor).await {
-            return review_error(error);
-        }
-        let refresh = self.clone().evaluate_live_schema_matrix(review_id, actor);
-        match self
-            .matrix_refreshes
-            .start_or_join(review_id, refresh)
-            .outcome_within(self.matrix_refresh_wait)
-            .await
-        {
-            Some(Ok(matrix)) => HttpResponse::json(200, &matrix),
-            Some(Err(response)) => response,
-            None => matrix_refreshing(review_id),
-        }
     }
 
     /// Fetches every review page live within a deadline sized for the shop's pacing.
@@ -154,23 +151,49 @@ impl ReviewServer {
         self.repository
             .store_schema_matrix_if_current(review_id, actor, evaluated)
             .await
-            .map_err(review_error)
+            .map_err(|error| refused_matrix_store(actor, error))
+    }
+}
+
+/// Why the review refused to store `actor`'s refreshed matrix. A review agent's refresh of a review
+/// that came to wait for a human while it ran is refused because of the agent's role, so the
+/// refusal and its words for the agents reach that agent only; any other refusal fails the
+/// refresh for the review.
+fn refused_matrix_store(actor: ReviewActor, error: ReviewRepositoryError) -> MatrixRefreshFailure {
+    match error {
+        ReviewRepositoryError::HumanRequired { .. } => MatrixRefreshFailure::Actor {
+            actor,
+            response: review_error(error),
+        },
+        error => MatrixRefreshFailure::Review(review_error(error)),
     }
 }
 
 /// The schema matrix cached on the review with the cross-page findings of the current checks,
-/// or `None` when it holds none, or one that no longer decodes, so the caller refreshes it from
-/// the live pages.
+/// or `None` when it holds none, or one that no longer decodes, which only a refresh replaces.
 fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
     stored_schema_matrix(&detail.review.validation_summary)?
         .inspect_err(|err| {
             warn!(
                 review_id = %detail.review.review_id,
                 error = ?err,
-                "Cached schema matrix is invalid; refreshing from live pages"
+                "Cached schema matrix is invalid; answering that the review has no matrix until a refresh"
             );
         })
         .ok()
+}
+
+/// Answers a plain matrix read of a review that holds no matrix of its current candidate: the
+/// reader asks for a refresh when it wants the shop's pages fetched.
+fn no_matrix_yet(review_id: CrawlerReviewId) -> HttpResponse {
+    HttpResponse::json(
+        404,
+        &json!({
+            "error": "the review holds no schema matrix of its current candidate; a matrix read without refresh fetches nothing, so refresh the matrix to evaluate the candidate on the live review pages",
+            "reason": "NO_MATRIX",
+            "review_id": review_id,
+        }),
+    )
 }
 
 pub(super) fn matrix_refresh_deadline(page_count: usize) -> Duration {

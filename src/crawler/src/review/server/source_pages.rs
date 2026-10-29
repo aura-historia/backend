@@ -1,12 +1,17 @@
 //! The console's fetches of pages of a review's ListingSource for those who author and review it:
 //! a review agent's live previews stay on the review's ListingSource, a page is projected as the
 //! schema generation prompt sees it, and a proposed candidate is evaluated on the review's pages and
-//! on URLs of its ListingSource without being stored. The contract is in
-//! `docs/crawler/extraction-and-review.md` (review rail).
+//! on URLs of its ListingSource without being stored. A projection and an evaluation are live jobs
+//! under the console's limit, and refused to a review agent on a review that waits for a human. The
+//! contract is in `docs/crawler/extraction-and-review.md` (review rail) and
+//! `docs/crawler/operations.md` (review service, review agents).
 
 use super::schema_matrix::{matrix_refresh_deadline, matrix_refresh_timeout};
-use super::{ReviewServer, internal_error, live_url_fetch_error, review_error, review_page_url};
-use crate::review::candidate_evaluations::{CandidateEvaluationOutcome, EvaluationsBusy};
+use super::{
+    ReviewServer, internal_error, live_jobs_busy, live_url_fetch_error, review_error,
+    review_page_url,
+};
+use crate::review::candidate_evaluations::CandidateEvaluationOutcome;
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{PAGE_ROLE_EVALUATED_URL, ReviewActor, SchemaReviewPageInput};
 use crate::review::page_projection::{PageProjection, ProjectedHtml};
@@ -60,12 +65,17 @@ impl ReviewServer {
     }
 
     /// Fetches the review page or the URL of the review's ListingSource that `request`'s `page` or
-    /// `url` query names and answers its projection.
+    /// `url` query names and answers its projection, as a live job of `actor`'s.
     pub(super) async fn project_review_source_page(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         request: &ParsedRequest<'_>,
     ) -> Result<PageProjection, HttpResponse> {
+        self.repository
+            .check_live_job(review_id, actor)
+            .await
+            .map_err(review_error)?;
         let (review_page_id, url) = match (request.query.get("page"), request.query.get("url")) {
             (Some(page), None) => {
                 let page_id = page
@@ -96,14 +106,20 @@ impl ReviewServer {
                 ));
             }
         };
+        let live_job = self.live_jobs.try_start().map_err(live_jobs_busy)?;
         let fetched = self
             .fetch_live(&url)
             .await
             .map_err(|err| live_url_fetch_error(url.as_str(), &err))?;
         let html = fetched.html;
-        let projected = tokio::task::spawn_blocking(move || ProjectedHtml::of(&html))
-            .await
-            .map_err(internal_error)?;
+        let projected = tokio::task::spawn_blocking(move || {
+            // The projection keeps its place under the limit while it parses, even when the
+            // request stops waiting for it at its deadline.
+            let _live_job = live_job;
+            ProjectedHtml::of(&html)
+        })
+        .await
+        .map_err(internal_error)?;
         Ok(PageProjection {
             review_id,
             review_page_id,
@@ -115,13 +131,17 @@ impl ReviewServer {
     }
 
     /// Checks a candidate proposed for the review and starts its evaluation on the review's pages
-    /// and the proposed URLs, answering with the matrix when it finishes in time, otherwise with
-    /// `202` and the evaluation to poll.
+    /// and the proposed URLs as a live job of `actor`'s, answering with the matrix when it finishes
+    /// in time, otherwise with `202` and the evaluation to poll.
     pub(super) async fn evaluate_candidate(
         &self,
         review_id: CrawlerReviewId,
+        actor: ReviewActor,
         payload: EvaluationPayload,
     ) -> HttpResponse {
+        if let Err(error) = self.repository.check_live_job(review_id, actor).await {
+            return review_error(error);
+        }
         let proposal = match self
             .repository
             .propose_candidate(
@@ -135,14 +155,17 @@ impl ReviewServer {
             Err(error) => return review_error(error),
         };
         let evaluation = self.clone().evaluate_proposal(proposal);
-        match self.candidate_evaluations.start(review_id, evaluation) {
+        match self
+            .candidate_evaluations
+            .start(review_id, &self.live_jobs, evaluation)
+        {
             Ok((evaluation_id, started)) => {
                 match started.outcome_within(self.matrix_refresh_wait).await {
                     Some(outcome) => candidate_evaluated(outcome),
                     None => candidate_evaluating(review_id, evaluation_id),
                 }
             }
-            Err(EvaluationsBusy) => candidate_evaluations_busy(),
+            Err(busy) => live_jobs_busy(busy),
         }
     }
 
@@ -241,17 +264,4 @@ fn candidate_evaluating(review_id: CrawlerReviewId, evaluation_id: uuid::Uuid) -
             "message": "pages are fetched at the shop's robots.txt Crawl-delay; poll GET /api/reviews/{review_id}/evaluations/{evaluation_id}",
         }),
     )
-}
-
-fn candidate_evaluations_busy() -> HttpResponse {
-    const RETRY_AFTER_SECS: u64 = 30;
-    HttpResponse::json(
-        429,
-        &json!({
-            "error": "the console is evaluating as many candidates as it runs at once; retry later",
-            "reason": "CANDIDATE_EVALUATIONS_BUSY",
-            "retry_after_secs": RETRY_AFTER_SECS,
-        }),
-    )
-    .with_header("Retry-After", RETRY_AFTER_SECS.to_string())
 }
