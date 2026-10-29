@@ -417,6 +417,12 @@ function renderDetail(detail, matrix) {
 function renderApprovalPanel(detail) {
     const review = detail.review;
     if (review.status !== 'PENDING_REVIEW') {
+        if (rejectionRevocable(detail)) {
+            return '<div class="approval-actions"><button onclick="revokeRejection()" title="Lift this rejection\'s non-product verdict, so the crawler scrapes its seed and triggering pages again">Revoke rejection</button></div>';
+        }
+        if (rejectionRevoked(detail)) {
+            return '<div class="approval-actions"><span class="badge" title="The review stays rejected, but its rejection no longer classifies its seed and triggering pages as non-product pages">Rejection revoked</span></div>';
+        }
         if (review.status !== 'APPROVED') return '';
         const live = review.artifact_type === 'PRODUCT_SCHEMA'
             ? (detail.candidate_is_live
@@ -519,7 +525,8 @@ const REVIEW_EVENT_LABELS = {
     REPAIR_REQUESTED: 'Repair requested',
     APPROVED: 'Approved',
     REJECTED: 'Rejected',
-    RESTORED: 'Restored'
+    RESTORED: 'Restored',
+    REJECTION_REVOKED: 'Rejection revoked'
 };
 
 // An approval whose event keeps what it made live can be restored once; the server also
@@ -530,6 +537,22 @@ function approvalRestorable(detail) {
     const keepsWhatWentLive = details.approved_product_schemas !== undefined
         || details.approved_url_pattern !== undefined;
     return keepsWhatWentLive && !events.some(event => event.action === 'RESTORED');
+}
+
+// Only rejecting a manual product-schema review classifies its seed and triggering pages as
+// non-product pages, so only that rejection is revoked, once.
+function rejectionRevocable(detail) {
+    const review = detail?.review;
+    return review?.status === 'REJECTED'
+        && review.artifact_type === 'PRODUCT_SCHEMA'
+        && review.reason === 'manual_schema_required'
+        && !rejectionRevoked(detail);
+}
+
+// A revoked rejection keeps the review's REJECTED status, so the console says it no longer applies.
+function rejectionRevoked(detail) {
+    return detail?.review?.status === 'REJECTED'
+        && (detail.events || []).some(event => event.action === 'REJECTION_REVOKED');
 }
 
 // The review's event trail, newest first: each decision and edit with the actor that made it.
@@ -580,6 +603,10 @@ function reviewEventSummary(event) {
             return details.replaced_url_pattern !== undefined
                 ? 'URL pattern the approval replaced is live again'
                 : 'schemas the approval replaced are live again';
+        case 'REJECTION_REVOKED': {
+            const reclassified = (details.reclassified_urls || []).length;
+            return `${reclassified} rejected page${reclassified === 1 ? '' : 's'} classified again`;
+        }
         default:
             return '';
     }
@@ -2176,6 +2203,15 @@ async function restoreApproval() {
     const notes = prompt('Why restore?');
     if (notes === null) return;
     await submitVerdict('restore', {notes: notes || null});
+}
+
+// Lets the crawler scrape this review's seed and triggering pages again. Cancelling either dialog
+// sends nothing.
+async function revokeRejection() {
+    if (!confirm('Revoke this rejection? Its seed and triggering pages are classified again by their URL pattern and scraped again; a page no cached schema extracts opens a new review.')) return;
+    const notes = prompt('Why revoke?');
+    if (notes === null) return;
+    await submitVerdict('revoke-rejection', {notes: notes || null});
 }
 
 async function rejectReview() {

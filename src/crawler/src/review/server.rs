@@ -506,92 +506,79 @@ impl ReviewServer {
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/approve")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/approve") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ApprovalPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .approve_review(review_id, actor, payload.approval())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            let (review_id, payload) =
+                match verdict_request::<ApprovalPayload>(&request, "/approve") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .approve_review(review_id, actor, payload.approval())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/restore")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/restore") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .restore_approval(review_id, actor, payload.notes.as_deref())
-                .await
+            let (review_id, payload) = match verdict_request::<ActionPayload>(&request, "/restore")
             {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
+                Ok(verdict) => verdict,
+                Err(response) => return response,
             };
+            return verdict_answer(
+                self.repository
+                    .restore_approval(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/revoke-rejection")
+        {
+            let (review_id, payload) =
+                match verdict_request::<ActionPayload>(&request, "/revoke-rejection") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .revoke_rejection(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/reject")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/reject") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            let (review_id, payload) = match verdict_request::<ActionPayload>(&request, "/reject") {
+                Ok(verdict) => verdict,
+                Err(response) => return response,
             };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .reject_review(review_id, actor, payload.notes.as_deref())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            return verdict_answer(
+                self.repository
+                    .reject_review(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/needs-repair")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/needs-repair") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .request_repair(review_id, actor, payload.notes.as_deref())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            let (review_id, payload) =
+                match verdict_request::<ActionPayload>(&request, "/needs-repair") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .request_repair(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
@@ -978,6 +965,28 @@ fn parse_verdict_payload<T: DeserializeOwned>(body: &str) -> Result<T, serde_jso
     serde_json::from_str(if body.trim().is_empty() { "{}" } else { body })
 }
 
+/// The review id and body of a `POST /api/reviews/{id}{suffix}` verdict, or the 400 a path
+/// without a review id or a body that does not parse is answered with.
+fn verdict_request<T: DeserializeOwned>(
+    request: &ParsedRequest<'_>,
+    suffix: &str,
+) -> Result<(CrawlerReviewId, T), HttpResponse> {
+    let review_id = parse_review_id_with_suffix(request.path, suffix)
+        .ok_or_else(|| HttpResponse::json(400, &json!({ "error": "invalid review id" })))?;
+    let payload = parse_verdict_payload(request.body)
+        .map_err(|error| HttpResponse::json(400, &json!({ "error": error.to_string() })))?;
+    Ok((review_id, payload))
+}
+
+/// Answers a verdict that was taken with `{"ok": true}`, and a refused or failed one as
+/// [`review_error`] does.
+fn verdict_answer(taken: Result<(), ReviewRepositoryError>) -> HttpResponse {
+    match taken {
+        Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+        Err(error) => review_error(error),
+    }
+}
+
 fn parse_review_id(path: &str) -> Option<CrawlerReviewId> {
     let id = path.strip_prefix("/api/reviews/")?;
     id.parse().ok()
@@ -1086,6 +1095,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::RedirectedToNonProductPage(_)
         | ReviewRepositoryError::NoApprovalToRestore(_)
         | ReviewRepositoryError::ApprovalNotRestorable { .. }
+        | ReviewRepositoryError::NoRejectionToRevoke(_)
         | ReviewRepositoryError::TooManySampleLabels
         | ReviewRepositoryError::SampleLabelUrlNotAllowed(_)
         | ReviewRepositoryError::InvalidSampleLabelReason(_)
@@ -1105,6 +1115,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
         }
         ReviewRepositoryError::RestoreNeedsHuman => forbidden(&error, "RESTORE_NEEDS_HUMAN"),
+        ReviewRepositoryError::RevocationNeedsHuman => forbidden(&error, "REVOKE_NEEDS_HUMAN"),
         ReviewRepositoryError::StaleCandidateVersion { current, .. } => {
             review_changed(&error, current)
         }
@@ -1115,6 +1126,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)
         | ReviewRepositoryError::DuplicateReviewPage(_)
         | ReviewRepositoryError::ApprovalAlreadyRestored(_)
+        | ReviewRepositoryError::RejectionAlreadyRevoked(_)
         | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_) => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
@@ -1836,6 +1848,10 @@ Origin: http://127.0.0.1:7878/x
             (
                 ReviewRepositoryError::RestoreNeedsHuman,
                 "RESTORE_NEEDS_HUMAN",
+            ),
+            (
+                ReviewRepositoryError::RevocationNeedsHuman,
+                "REVOKE_NEEDS_HUMAN",
             ),
             (
                 ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(CrawlerReviewId::new()),
@@ -3293,6 +3309,78 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(last["action"], "RESTORED");
             assert_eq!(last["actor"], "HUMAN");
             assert_eq!(last["notes"], "wrong schema");
+        }
+
+        /// The reviewer agent's rejection is undone by a human, once and recorded as theirs; the
+        /// review stays rejected. Nothing else revokes: not an agent, and not on a review without
+        /// a rejection.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_revoke_a_rejection_for_a_human_only() {
+            let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
+                approvals: AgentApprovals::Guarded,
+                ..AgentDecisionPolicy::default()
+            })
+            .await;
+            let revoke = format!("POST /api/reviews/{review_id}/revoke-rejection");
+            let (pending_status, pending) = send_as(&server, TOKEN, &revoke, "").await;
+            let (status, rejected) = send_as(
+                &server,
+                REVIEWER_TOKEN,
+                &format!("POST /api/reviews/{review_id}/reject"),
+                &json!({ "notes": "not a product page" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {rejected}");
+
+            let (agent_status, by_agent) = send_as(&server, REVIEWER_TOKEN, &revoke, "").await;
+            let (status, revoked) = send_as(
+                &server,
+                TOKEN,
+                &revoke,
+                &json!({ "notes": "the agent rejected product pages" }).to_string(),
+            )
+            .await;
+            let (again_status, again) = send_as(&server, TOKEN, &revoke, "").await;
+
+            assert!(
+                pending_status.starts_with("HTTP/1.1 400"),
+                "{pending_status} {pending}"
+            );
+            assert!(
+                agent_status.starts_with("HTTP/1.1 403"),
+                "{agent_status} {by_agent}"
+            );
+            assert_eq!(by_agent["reason"], "REVOKE_NEEDS_HUMAN");
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {revoked}");
+            assert!(
+                again_status.starts_with("HTTP/1.1 409"),
+                "{again_status} {again}"
+            );
+            let (_, detail) =
+                send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert_eq!(detail["review"]["status"], "REJECTED");
+            let trail: Vec<(&str, &str)> = detail["events"]
+                .as_array()
+                .unwrap_or_else(|| panic!("review without events: {detail}"))
+                .iter()
+                .map(|event| {
+                    (
+                        event["actor"].as_str().unwrap_or_default(),
+                        event["action"].as_str().unwrap_or_default(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                trail,
+                vec![
+                    ("AGENT_REVIEWER", "REJECTED"),
+                    ("HUMAN", "REJECTION_REVOKED")
+                ]
+            );
+            assert_eq!(
+                detail["events"][1]["notes"],
+                "the agent rejected product pages"
+            );
         }
 
         /// Once the agents' needs-repair rounds reached the cap, the review list and the review

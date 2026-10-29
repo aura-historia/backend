@@ -37,7 +37,7 @@ impl CrawlerReviewRepository {
         actor: ReviewActor,
         notes: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
-        if !actor.may_restore_approvals() {
+        if !actor.may_undo_decisions() {
             return Err(ReviewRepositoryError::RestoreNeedsHuman);
         }
         let mut transaction = self.pool.begin().await?;

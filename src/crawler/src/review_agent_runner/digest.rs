@@ -1,9 +1,9 @@
 //! The daily digest of the agents' work, for humans who oversee after the fact: the reviews that
 //! wait for a human because the agents' needs-repair rounds on them reached the cap, what the
 //! event trail of all reviews recorded in the window (approvals, rejections and needs-repair
-//! verdicts by actor, and restores), what the agents reported (the server's refusals by failed
-//! check, each process's outcome), and each review's tokens and cost. It is written to a Markdown
-//! file in the state directory's `digests/` and summarised in one log line.
+//! verdicts by actor, restores and revoked rejections), what the agents reported (the server's
+//! refusals by failed check, each process's outcome), and each review's tokens and cost. It is
+//! written to a Markdown file in the state directory's `digests/` and summarised in one log line.
 
 use super::envelope::TokenUsage;
 use super::ledger::{ProcessEnd, ProcessRecord, ProcessRole};
@@ -53,6 +53,8 @@ pub struct Digest {
     pub rejected: DecisionCount,
     pub needs_repair: DecisionCount,
     pub restored: usize,
+    /// The rejections a human revoked, so they classify their pages as non-product pages no more.
+    pub revoked_rejections: usize,
     /// The pending reviews that wait for a human at the digest's time.
     pub needs_a_human: Vec<HumanRequiredReview>,
     decisions: Vec<ReviewEventEntry>,
@@ -87,7 +89,7 @@ impl Digest {
             .filter(|event| {
                 matches!(
                     event.action.as_str(),
-                    "APPROVED" | "REJECTED" | "REPAIR_REQUESTED" | "RESTORED"
+                    "APPROVED" | "REJECTED" | "REPAIR_REQUESTED" | "RESTORED" | "REJECTION_REVOKED"
                 )
             })
             .collect();
@@ -104,16 +106,20 @@ impl Digest {
                     count
                 })
         };
+        let total = |action: &str| {
+            decisions
+                .iter()
+                .filter(|event| event.action == action)
+                .count()
+        };
         let mut digest = Self {
             from,
             to,
             approved: count("APPROVED"),
             rejected: count("REJECTED"),
             needs_repair: count("REPAIR_REQUESTED"),
-            restored: decisions
-                .iter()
-                .filter(|event| event.action == "RESTORED")
-                .count(),
+            restored: total("RESTORED"),
+            revoked_rejections: total("REJECTION_REVOKED"),
             needs_a_human,
             decisions,
             events_truncated: events.truncated,
@@ -231,7 +237,12 @@ impl Digest {
         ] {
             let _ = writeln!(out, "| {name} | {} | {} |", count.agents, count.others);
         }
-        let _ = writeln!(out, "| Restored | – | {} |\n", self.restored);
+        let _ = writeln!(out, "| Restored | – | {} |", self.restored);
+        let _ = writeln!(
+            out,
+            "| Rejection revoked | – | {} |\n",
+            self.revoked_rejections
+        );
         if self.events_truncated {
             let _ = writeln!(
                 out,
@@ -520,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn should_count_the_window_s_decisions_by_actor_and_its_restores() {
+    fn should_count_the_window_s_decisions_by_actor_and_what_humans_undid() {
         let events = ReviewEventsSince {
             events: vec![
                 event("AGENT_REVIEWER", "APPROVED", 20),
@@ -531,6 +542,7 @@ mod tests {
                 event("AGENT_REVIEWER", "REPAIR_REQUESTED", 6),
                 event("HUMAN", "RESTORED", 5),
                 event("AGENT_AUTHOR", "CANDIDATE_EDITED", 4),
+                event("HUMAN", "REJECTION_REVOKED", 3),
             ],
             truncated: false,
         };
@@ -559,10 +571,16 @@ mod tests {
             }
         );
         assert_eq!(digest.restored, 1);
+        assert_eq!(digest.revoked_rejections, 1);
         let markdown = digest.markdown();
         assert!(markdown.contains("| Approved | 2 | 1 |"), "{markdown}");
         assert!(markdown.contains("| Restored | – | 1 |"), "{markdown}");
+        assert!(
+            markdown.contains("| Rejection revoked | – | 1 |"),
+            "{markdown}"
+        );
         assert!(markdown.contains("HUMAN RESTORED at version 3: price / empty on /item/2"));
+        assert!(markdown.contains("HUMAN REJECTION_REVOKED at version 3"));
         assert!(!markdown.contains("CANDIDATE_EDITED"));
     }
 
