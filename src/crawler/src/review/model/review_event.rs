@@ -103,9 +103,9 @@ impl ReviewActor {
         !self.is_agent()
     }
 
-    /// Whether the actor may restore the live configuration an approval replaced: only a human
-    /// undoes a decision.
-    pub const fn may_restore_approvals(self) -> bool {
+    /// Whether the actor may undo a decision, such as restoring the live configuration an approval
+    /// replaced: only a human undoes a decision.
+    pub const fn may_undo_decisions(self) -> bool {
         matches!(self, Self::Human)
     }
 }
@@ -209,10 +209,10 @@ mod tests {
     }
 
     #[test]
-    fn should_let_only_a_human_restore_an_approval() {
+    fn should_let_only_a_human_undo_a_decision() {
         for actor in ReviewActor::ALL {
             assert_eq!(
-                actor.may_restore_approvals(),
+                actor.may_undo_decisions(),
                 actor == ReviewActor::Human,
                 "{actor}"
             );

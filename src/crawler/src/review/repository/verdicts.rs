@@ -525,11 +525,7 @@ pub(super) async fn make_url_pattern_live(
     .execute(&mut **transaction)
     .await?;
     let live_pattern = decision
-        .url_pattern
-        .as_deref()
-        .filter(|_| decision.url_pattern_state == "MATCHED")
-        .map(Regex::new)
-        .transpose()
+        .live_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     reclassify_domain_urls(
         transaction,

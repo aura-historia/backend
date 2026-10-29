@@ -529,92 +529,63 @@ impl ReviewServer {
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/approve")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/approve") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ApprovalPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .approve_review(review_id, actor, payload.approval())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            let (review_id, payload) =
+                match verdict_request::<ApprovalPayload>(&request, "/approve") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .approve_review(review_id, actor, payload.approval())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/restore")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/restore") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .restore_approval(review_id, actor, payload.notes.as_deref())
-                .await
+            let (review_id, payload) = match verdict_request::<ActionPayload>(&request, "/restore")
             {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
+                Ok(verdict) => verdict,
+                Err(response) => return response,
             };
+            return verdict_answer(
+                self.repository
+                    .restore_approval(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/reject")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/reject") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            let (review_id, payload) = match verdict_request::<ActionPayload>(&request, "/reject") {
+                Ok(verdict) => verdict,
+                Err(response) => return response,
             };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .reject_review(review_id, actor, payload.notes.as_deref())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            return verdict_answer(
+                self.repository
+                    .reject_review(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/needs-repair")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/needs-repair") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .request_repair(review_id, actor, payload.notes.as_deref())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            let (review_id, payload) =
+                match verdict_request::<ActionPayload>(&request, "/needs-repair") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .request_repair(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
@@ -1072,6 +1043,28 @@ struct ReviewPagePayload {
 /// without notes, or an approval refused for naming no candidate version.
 fn parse_verdict_payload<T: DeserializeOwned>(body: &str) -> Result<T, serde_json::Error> {
     serde_json::from_str(if body.trim().is_empty() { "{}" } else { body })
+}
+
+/// The review id and body of a `POST /api/reviews/{id}{suffix}` verdict, or the 400 a path
+/// without a review id or a body that does not parse is answered with.
+fn verdict_request<T: DeserializeOwned>(
+    request: &ParsedRequest<'_>,
+    suffix: &str,
+) -> Result<(CrawlerReviewId, T), HttpResponse> {
+    let review_id = parse_review_id_with_suffix(request.path, suffix)
+        .ok_or_else(|| HttpResponse::json(400, &json!({ "error": "invalid review id" })))?;
+    let payload = parse_verdict_payload(request.body)
+        .map_err(|error| HttpResponse::json(400, &json!({ "error": error.to_string() })))?;
+    Ok((review_id, payload))
+}
+
+/// Answers a verdict that was taken with `{"ok": true}`, and a refused or failed one as
+/// [`review_error`] does.
+fn verdict_answer(taken: Result<(), ReviewRepositoryError>) -> HttpResponse {
+    match taken {
+        Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+        Err(error) => review_error(error),
+    }
 }
 
 fn parse_review_id(path: &str) -> Option<CrawlerReviewId> {

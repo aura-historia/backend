@@ -11,6 +11,7 @@ use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
@@ -104,6 +105,18 @@ pub(super) enum ReviewMutation<'a> {
 pub(super) struct DomainUrlPattern {
     pub(super) url_pattern: Option<String>,
     pub(super) url_pattern_state: String,
+}
+
+impl DomainUrlPattern {
+    /// The pattern that classifies the domain's URLs as products: only a `MATCHED` decision has
+    /// one.
+    pub(super) fn live_pattern(&self) -> Result<Option<Regex>, regex::Error> {
+        self.url_pattern
+            .as_deref()
+            .filter(|_| self.url_pattern_state == "MATCHED")
+            .map(Regex::new)
+            .transpose()
+    }
 }
 
 /// The live product-schema configuration an approval replaced and the one it made live, as the

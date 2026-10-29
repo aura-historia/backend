@@ -225,6 +225,10 @@ pub enum ReviewRepositoryError {
 /// API's 30-second request deadline, so reviewer pages may only add a few fetches.
 pub const MAX_REVIEWER_ADDED_PAGES: usize = 4;
 
+/// The roles of the review pages that rejecting their review gives no verdict on: reviewer-added
+/// and waiting pages only test the candidate.
+const ROLES_NO_REJECTION_JUDGES: [&str; 2] = [PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_WAITING_PAGE];
+
 /// Upper bound on the pages that wait on one pending review. They show the reviewer the template
 /// variants that need the schema, but every matrix refresh refetches them too; further failing
 /// pages still wait on the review without being attached.
@@ -333,9 +337,7 @@ impl CrawlerReviewRepository {
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(reason)
         .bind(page_url_spellings(url))
-        // Reviewer-added and waiting pages only test the candidate; rejecting the review is no
-        // verdict on them.
-        .bind([PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_WAITING_PAGE])
+        .bind(ROLES_NO_REJECTION_JUDGES)
         .fetch_one(&self.pool)
         .await
     }
