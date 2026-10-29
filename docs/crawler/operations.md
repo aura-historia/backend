@@ -147,12 +147,12 @@ For the Claude Code CLI, one role's MCP configuration reads:
 
 The agents run on a dedicated member of Aura's Claude for Teams plan, never on a person's seat, so they draw only from that seat's five-hour and weekly allowance; nobody else signs in to it. A Team admin invites the crawler member (for example a `crawler@` mailbox), gives it a Premium seat and leaves usage credits off; an admin can turn them on with an individual spend limit in **Organization settings > Usage** when a busy week needs more.
 
-On the crawler host, install a pinned Claude Code version (auto-update off) and sign in once as the crawler member, in the runner's crawler-only configuration directory:
+On the crawler host, install a pinned Claude Code version (auto-update off) outside `/home` and `/root`, which the runner's [sandbox](#sandbox) hides, for example as `/usr/local/bin/claude`, and sign in once as the crawler member with the `HOME` and crawler-only configuration directory the service uses:
 
 ```sh
 install -d -m 0700 -o crawler -g crawler /var/lib/crawler-review-agents
-sudo -u crawler env CLAUDE_CONFIG_DIR=/var/lib/crawler-review-agents/claude claude   # then /login with the crawler member
-sudo -u crawler env CLAUDE_CONFIG_DIR=/var/lib/crawler-review-agents/claude claude auth status --json
+sudo -u crawler env HOME=/var/lib/crawler-review-agents CLAUDE_CONFIG_DIR=/var/lib/crawler-review-agents/claude claude   # then /login with the crawler member
+sudo -u crawler env HOME=/var/lib/crawler-review-agents CLAUDE_CONFIG_DIR=/var/lib/crawler-review-agents/claude claude auth status --json
 ```
 
 The status must show `"loggedIn": true`, `"authMethod": "claude.ai"` and Aura's organization. No `claude setup-token` and no `CLAUDE_CODE_OAUTH_TOKEN` are needed; a `CLAUDE_CODE_OAUTH_TOKEN` in the runner's environment is used if present (`authMethod` `oauth_token`). Every run starts with this probe and refuses to run, with the reason in the journal, unless the CLI is logged in with a Claude subscription; when the login expires, sign in again the same way. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` must not be set for the runner: in print mode they silently take over billing. The runner never passes them, or any other variable outside its [allowlist](#invocation), to a child.
@@ -169,6 +169,19 @@ CRAWLER_AUTHORING_MODE=agent target/debug/dev
 ```
 
 `dev` then starts `review-agent-runner` from next to itself as its child, as systemd runs it next to `server`: in `dev`'s working directory, where `dev` writes the token file, from an empty environment holding only the runner's settings (`CRAWLER_REVIEW_AGENT_*`, `CRAWLER_REVIEW_CONSOLE_URL`, `LOG_LEVEL`) and the variables of the [allowlist](#invocation), never the crawler's database URLs, cloud credentials or `CRAWLER_REVIEW_AUTH_TOKEN`. Unless they are set, the runner works the console `dev` serves every 30 seconds and keeps its state in `target/review-agents`. Its log lines join `dev`'s, and stopping `dev` stops it with its agent processes. The agents spend the developer's own seat. With `CRAWLER_DEV_START_REVIEW_AGENT_RUNNER=false`, `dev` starts no runner; `review-agent-runner --once`, started by hand from the same directory, works the pending reviews once and then writes a digest of the last day at once. `manual` mode stays for development without agents.
+
+#### Sandbox
+
+The agent processes read untrusted shop pages, so the example unit runs the runner and everything it starts in a systemd sandbox. `ProtectSystem=strict` makes the whole file system read-only except `ReadWritePaths=/var/lib/crawler-review-agents`, the runner's state directory, and the private `/tmp` of `PrivateTmp=true`; `ProtectHome=yes` hides `/home`, `/root` and `/run/user`. The unit points `HOME` and `CLAUDE_CONFIG_DIR` into the state directory, so the CLI keeps its login, settings and caches there; the runner itself writes only its state there and its agents' empty working directories in `/tmp`, and reads the token file in `/var/lib/crawler`. A `review-agent-runner --once` started from a shell runs outside the sandbox.
+
+A CLI version can start writing somewhere new, so verify the sandbox with the real login after installing or changing the unit and after every CLI upgrade:
+
+1. `systemctl daemon-reload && systemctl restart review-agent-runner`; the restart starts a run at once.
+2. `journalctl -u review-agent-runner -n 50 -o cat` shows `Review agent runner started with the CLI's Claude login`: the login probe read the login inside the sandbox. A line with `the runner refuses to start` names what failed.
+3. Once a workable review is pending (a run with none makes no agent call), `journalctl -u review-agent-runner -f -o cat` shows `Review agent process finished` with `end` `REPORTED`, `LIMIT_REACHED` or `USAGE_LIMIT`, and `tail -n 1 /var/lib/crawler-review-agents/review-agent-processes.jsonl` shows its record. `FAILED` after `The review agent process printed no result envelope` points at the sandbox when its `stderr_tail` names a path.
+4. `journalctl -u review-agent-runner --since -1h -o cat | grep -i -E 'read-only file system|EROFS|permission denied|EACCES'` prints nothing.
+
+When a step fails because the CLI needs a path the sandbox denies, add that path to `ReadWritePaths` in a drop-in (`systemctl edit review-agent-runner`) rather than relaxing `ProtectSystem` or `ProtectHome`, and repeat the steps.
 
 #### Invocation
 

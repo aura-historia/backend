@@ -23,6 +23,9 @@ EnvironmentFile=-/etc/crawler/review-agent-runner.env
 StateDirectory=crawler-review-agents
 StateDirectoryMode=0700
 WorkingDirectory=/var/lib/crawler-review-agents
+# The CLI keeps its login, settings and caches under HOME and CLAUDE_CONFIG_DIR: both point into
+# the state directory, the only directory the sandbox below lets the runner and the CLI write.
+Environment=HOME=/var/lib/crawler-review-agents
 Environment=CLAUDE_CONFIG_DIR=/var/lib/crawler-review-agents/claude
 Environment=CRAWLER_REVIEW_AGENT_TOKEN_FILE=/var/lib/crawler/review-agent-tokens.json
 Environment=CRAWLER_REVIEW_AGENT_RUNNER_REVIEW_MCP_BIN=/opt/crawler/bin/review-mcp
@@ -36,12 +39,17 @@ RestartPreventExitStatus=2
 KillMode=control-group
 # `systemctl stop` ends the runner with exit code 143 after stopping its agent processes.
 SuccessExitStatus=143
-# The agent processes read untrusted shop pages: keep them away from the rest of the host.
+# The agent processes read untrusted shop pages: keep them away from the rest of the host. The
+# whole file system is read-only but the state directory and the private /tmp, and /home, /root
+# and /run/user are hidden, so install the CLI outside them. Verify the sandbox with the real
+# login after changing it or upgrading the CLI: docs/crawler/operations.md#sandbox
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
-ProtectSystem=full
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/crawler-review-agents
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
