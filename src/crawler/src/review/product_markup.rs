@@ -204,6 +204,8 @@ mod tests {
     #[case::subdomain("https://shop.schema.org/Product")]
     #[case::schema_org_as_user_info("https://schema.org@example.com/Product")]
     #[case::schema_org_in_the_path("https://example.com/schema.org/Product")]
+    #[case::schema_org_in_the_query("https://example.com/?type=https://schema.org/Product")]
+    #[case::percent_encoded_host("https://schema%2Eorg/Product")]
     #[case::product_in_a_deeper_path("https://schema.org/extensions/Product")]
     #[case::two_trailing_slashes("https://schema.org/Product//")]
     #[case::query("https://schema.org/Product?ref=shop")]
