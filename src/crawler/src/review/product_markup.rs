@@ -16,10 +16,10 @@ static SCRIPTS: LazyLock<Selector> =
 /// node, a member of a top-level array or of a top-level node's `@graph`, with `@type` naming
 /// `Product` as a string or in an array; nodes naming the same `url`, or else the same `@id`,
 /// describe one product, as when a theme and a plugin both mark the page up. A microdata item is
-/// top-level when no other item contains it, and its `itemtype` ends in `schema.org/Product`. A
-/// product nested in another item, such as a list or a page, does not count, and a page that lists
-/// several products top-level, such as a category page marking each product card, is no product
-/// page. A script that is not valid JSON shows nothing.
+/// top-level when no other item contains it, and its `itemtype` names schema.org's own `Product`
+/// IRI. A product nested in another item, such as a list or a page, does not count, and a page that
+/// lists several products top-level, such as a category page marking each product card, is no
+/// product page. A script that is not valid JSON shows nothing.
 pub fn describes_one_product(html: &str) -> bool {
     let document = Html::parse_document(html);
     let json_ld = json_ld_products(&document);
@@ -99,8 +99,23 @@ fn is_product_type(name: &str) -> bool {
     name == "Product" || name == "schema:Product" || is_product_iri(name)
 }
 
+/// schema.org's own address of `Product`: `http` or `https`, the host `schema.org` or
+/// `www.schema.org`, and the path `/Product`, with or without one trailing slash. schema.org
+/// publishes `https://schema.org/Product`; the other forms are spellings pages use for the same
+/// term. Scheme and host match in any case, as URLs do; the term is case-sensitive, as schema.org's
+/// terms are. Anything else, such as another host ending in `schema.org` or a path ending in
+/// `schema.org/Product`, names another vocabulary's type.
 fn is_product_iri(name: &str) -> bool {
-    name.ends_with("schema.org/Product")
+    let Some((scheme, address)) = name.split_once("://") else {
+        return false;
+    };
+    let Some((host, path)) = address.split_once('/') else {
+        return false;
+    };
+    let web = scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https");
+    let schema_org =
+        host.eq_ignore_ascii_case("schema.org") || host.eq_ignore_ascii_case("www.schema.org");
+    web && schema_org && matches!(path, "Product" | "Product/")
 }
 
 /// How many microdata items inside no other item name `Product` in their `itemtype`. One pass
@@ -156,6 +171,52 @@ mod tests {
     #[case::graph_in_array(r#"[{"@graph": [{"@type": "Product", "name": "Chair"}]}]"#)]
     fn should_find_one_product_in_json_ld(#[case] json: &str) {
         assert!(describes_one_product(&json_ld(json)), "{json}");
+    }
+
+    /// A page whose one item is typed `iri`, once in microdata and once in JSON-LD.
+    fn items_typed(iri: &str) -> [(&'static str, String); 2] {
+        [
+            (
+                "microdata",
+                page("", &format!(r#"<div itemscope itemtype="{iri}"></div>"#)),
+            ),
+            ("JSON-LD", json_ld(&format!(r#"{{"@type": "{iri}"}}"#))),
+        ]
+    }
+
+    #[rstest::rstest]
+    #[case::https("https://schema.org/Product")]
+    #[case::http("http://schema.org/Product")]
+    #[case::www_host("https://www.schema.org/Product")]
+    #[case::trailing_slash("https://schema.org/Product/")]
+    #[case::scheme_and_host_in_another_case("HTTPS://WWW.Schema.Org/Product/")]
+    fn should_find_one_product_when_its_type_is_schema_orgs_product_iri(#[case] iri: &str) {
+        for (markup, html) in items_typed(iri) {
+            assert!(describes_one_product(&html), "{markup} {iri}");
+        }
+    }
+
+    /// Only schema.org's own address names its `Product`: a look-alike host or a path that merely
+    /// ends in `schema.org/Product` names another vocabulary's type.
+    #[rstest::rstest]
+    #[case::look_alike_host("https://notschema.org/Product")]
+    #[case::host_under_another_domain("https://schema.org.example.com/Product")]
+    #[case::subdomain("https://shop.schema.org/Product")]
+    #[case::schema_org_as_user_info("https://schema.org@example.com/Product")]
+    #[case::schema_org_in_the_path("https://example.com/schema.org/Product")]
+    #[case::schema_org_in_the_query("https://example.com/?type=https://schema.org/Product")]
+    #[case::percent_encoded_host("https://schema%2Eorg/Product")]
+    #[case::product_in_a_deeper_path("https://schema.org/extensions/Product")]
+    #[case::two_trailing_slashes("https://schema.org/Product//")]
+    #[case::query("https://schema.org/Product?ref=shop")]
+    #[case::term_in_lower_case("https://schema.org/product")]
+    #[case::another_scheme("ftp://schema.org/Product")]
+    #[case::scheme_relative("//schema.org/Product")]
+    #[case::without_scheme("schema.org/Product")]
+    fn should_find_no_product_when_its_type_is_an_iri_outside_schema_org(#[case] iri: &str) {
+        for (markup, html) in items_typed(iri) {
+            assert!(!describes_one_product(&html), "{markup} {iri}");
+        }
     }
 
     #[test]
