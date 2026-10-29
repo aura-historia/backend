@@ -1,19 +1,24 @@
 //! Running a CLI child: an agent process from its [`AgentCommand`], in a fresh empty working
 //! directory of its own that is removed afterwards, or the login probe. The child starts from an
 //! empty environment with only its [`ChildEnvironment`]: the few variables the CLI needs, taken
-//! from the runner's, plus the variables a pinned CLI runs with. Its stdout is read up to a bound
-//! and its stderr is kept only as a short tail for a failure's log line. A child that outlives its
-//! timeout is stopped with everything it started, such as its `review-mcp`.
+//! from the runner's, plus the variables a pinned CLI runs with. The end of its stdout is kept up
+//! to a bound, where an agent process's stream ends with its result envelope, and its stderr only
+//! as a short tail for a failure's log line. A child that outlives its timeout is stopped with
+//! everything it started, such as its `review-mcp`.
 
 use super::invocation::{AgentCommand, ChildEnvironment};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
-/// The most stdout of a child the runner reads; an envelope is a few kilobytes.
-const MAX_STDOUT_BYTES: usize = 4 * 1024 * 1024;
+/// The most of a child's stdout, and of its stderr, the runner keeps: the end of it. An agent
+/// process's stream ends with its result envelope, a few kilobytes after what the agent read.
+const MAX_OUTPUT_TAIL_BYTES: usize = 4 * 1024 * 1024;
+/// How much of a child's output one read takes.
+const READ_CHUNK_BYTES: usize = 16 * 1024;
 /// The most stderr of a child the runner keeps, its tail.
 const MAX_STDERR_TAIL_CHARS: usize = 300;
 /// How long a stopped child's process group has to exit before it is killed.
@@ -119,7 +124,7 @@ async fn run(
         }
         drop(stdin.take());
         let (stdout, stderr, status) =
-            tokio::join!(read_bounded(stdout), read_bounded(stderr), child.wait());
+            tokio::join!(read_tail(stdout), read_tail(stderr), child.wait());
         Ok::<_, std::io::Error>((stdout?, stderr?, status?))
     };
     match tokio::time::timeout(timeout, exchange).await {
@@ -172,19 +177,38 @@ impl Drop for ProcessGroupGuard {
     }
 }
 
-/// Reads `stream` to its end and keeps its first [`MAX_STDOUT_BYTES`]; the rest is read and
-/// dropped, so a child that writes more is never blocked on a full pipe until its timeout.
-async fn read_bounded(stream: Option<impl AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    let Some(mut stream) = stream else {
-        return Ok(bytes);
-    };
-    (&mut stream)
-        .take(u64::try_from(MAX_STDOUT_BYTES).unwrap_or(u64::MAX))
-        .read_to_end(&mut bytes)
-        .await?;
-    tokio::io::copy(&mut stream, &mut tokio::io::sink()).await?;
-    Ok(bytes)
+/// Reads `stream` to its end and keeps its last [`MAX_OUTPUT_TAIL_BYTES`].
+async fn read_tail(stream: Option<impl AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
+    let mut tail = OutputTail::default();
+    if let Some(mut stream) = stream {
+        tail.read_from(&mut stream).await?;
+    }
+    Ok(tail.into_bytes())
+}
+
+/// The end of a child's output: at most [`MAX_OUTPUT_TAIL_BYTES`], earlier bytes dropped as later
+/// ones come, so a child that writes more is never blocked on a full pipe until its timeout.
+#[derive(Debug, Default)]
+struct OutputTail(VecDeque<u8>);
+
+impl OutputTail {
+    /// Reads `stream` to its end. A read that is stopped keeps every byte it read before.
+    async fn read_from(&mut self, stream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<()> {
+        let mut chunk = vec![0_u8; READ_CHUNK_BYTES];
+        loop {
+            let read = stream.read(&mut chunk).await?;
+            if read == 0 {
+                return Ok(());
+            }
+            self.0.extend(&chunk[..read]);
+            let excess = self.0.len().saturating_sub(MAX_OUTPUT_TAIL_BYTES);
+            self.0.drain(..excess);
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.0.into()
+    }
 }
 
 fn stderr_tail(stderr: &[u8]) -> String {
@@ -361,12 +385,17 @@ mod tests {
         assert!(!marker.exists(), "the child's own child was stopped too");
     }
 
+    /// A chatty child finishes, and the runner keeps the end of what it printed, where an agent
+    /// process's stream has its result envelope.
     #[tokio::test]
-    async fn should_read_on_past_its_bound_so_a_chatty_child_finishes() {
+    async fn should_keep_the_end_of_a_chatty_child_s_output() {
         let directory = StateDirectory::new();
         let program = script(
             &directory,
-            &format!("head -c {} /dev/zero; echo done >&2", MAX_STDOUT_BYTES * 2),
+            &format!(
+                "head -c {} /dev/zero; echo; echo '{{\"type\":\"result\"}}'; echo done >&2",
+                MAX_OUTPUT_TAIL_BYTES * 2
+            ),
         );
 
         let output = run_agent(&command(program), Duration::from_secs(30))
@@ -375,7 +404,8 @@ mod tests {
 
         assert!(!output.timed_out);
         assert_eq!(output.exit_code, Some(0));
-        assert_eq!(output.stdout.len(), MAX_STDOUT_BYTES);
+        assert_eq!(output.stdout.len(), MAX_OUTPUT_TAIL_BYTES);
+        assert!(output.stdout.ends_with(b"\n{\"type\":\"result\"}\n"));
         assert_eq!(output.stderr_tail, "done");
     }
 

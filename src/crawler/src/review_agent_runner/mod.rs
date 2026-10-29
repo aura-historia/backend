@@ -467,9 +467,16 @@ echo "end $role $review" >> "$dir/order.log"
 
         /// Answers `envelope` to the role, or to `<review id>-<role>`.
         fn answer(&self, name: &str, envelope: Value) {
+            self.stream(name, &[envelope]);
+        }
+
+        /// Prints `messages` as the CLI's stream of JSON lines to the role, or to
+        /// `<review id>-<role>`.
+        fn stream(&self, name: &str, messages: &[Value]) {
+            let lines: Vec<String> = messages.iter().map(Value::to_string).collect();
             std::fs::write(
                 self.directory.path().join(format!("envelopes/{name}.json")),
-                envelope.to_string(),
+                lines.join("\n"),
             )
             .unwrap_or_default();
         }
@@ -860,27 +867,29 @@ echo "end $role $review" >> "$dir/order.log"
         );
     }
 
+    /// The CLI's stream reports the limit with a `rate_limit_event` before its error result: the
+    /// event's `resetsAt` is the reset time, whatever the message's wording says.
     #[tokio::test]
     async fn should_pause_on_a_usage_limit_and_start_nothing_until_it_resets() {
         let limited = review("PENDING_REVIEW", true);
         let fixture = Fixture::new(vec![limited.clone(), review("PENDING_REVIEW", true)]).await;
-        // The CLI names the year only when the reset falls into another year.
-        let reset = OffsetDateTime::now_utc() + Duration::days(2);
-        let year = if reset.year() == OffsetDateTime::now_utc().year() {
-            String::new()
-        } else {
-            format!("{}, ", reset.year())
-        };
-        let month = &format!("{:?}", reset.month())[..3];
-        fixture.claude.answer(
+        let reset = (OffsetDateTime::now_utc() + Duration::days(2))
+            .replace_time(time::Time::from_hms(9, 0, 0).unwrap_or(time::Time::MIDNIGHT));
+        fixture.claude.stream(
             "author",
-            json!({
-                "type": "result", "subtype": "success", "is_error": true, "api_error_status": 429,
-                "result": format!(
-                    "You've hit your weekly limit · resets {month} {}, {year}9am (UTC)",
-                    reset.day()
-                ),
-            }),
+            &[
+                json!({ "type": "system", "subtype": "init", "model": "claude-opus-5-5" }),
+                json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "page text the runner must not log" }] } }),
+                json!({
+                    "type": "rate_limit_event",
+                    "rate_limit_info": { "status": "rejected", "resetsAt": reset.unix_timestamp() },
+                }),
+                json!({
+                    "type": "result", "subtype": "success", "is_error": true,
+                    "api_error_status": 429, "total_cost_usd": 0.1,
+                    "result": "You've hit your weekly limit · resets in a wording the runner cannot read",
+                }),
+            ],
         );
         let settings = fixture.settings(&[], &[]);
 
@@ -894,7 +903,7 @@ echo "end $role $review" >> "$dir/order.log"
             .unwrap_or_else(|| panic!("no pause: {state:?}"));
         assert_eq!(pause.limit, envelope::UsageLimitKind::Weekly);
         assert!(pause.reported_reset);
-        assert_eq!((pause.until.date(), pause.until.hour()), (reset.date(), 9));
+        assert_eq!(pause.until, reset);
         assert!(matches!(first_run.stopped, Some(PassStop::Paused(_))));
         assert!(
             state.cooldowns.is_empty(),

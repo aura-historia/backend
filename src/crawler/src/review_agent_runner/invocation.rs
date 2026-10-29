@@ -1,6 +1,8 @@
 //! One agent process as the runner starts it: a fresh `claude -p` for one review and one role, with
 //! that role's prompt on stdin, its report schema, and its `review-mcp` as the only MCP server and
-//! the only tools. The prompts and report schemas are versioned files next to this module; a
+//! the only tools. It prints its messages as a stream of JSON lines, so the runner reads a usage
+//! limit's reset time from the CLI's `rate_limit_event`, not from its wording. The prompts and
+//! report schemas are versioned files next to this module; a
 //! changed prompt or schema gets a new version so the process ledger names what each report
 //! answered. The flags are the contract in `docs/crawler/operations.md` (review agent runner).
 
@@ -175,7 +177,9 @@ pub(super) fn agent_command(
     let args = [
         "-p",
         "--output-format",
-        "json",
+        "stream-json",
+        // `-p` takes `stream-json` only with it.
+        "--verbose",
         "--json-schema",
         &report_schema,
         "--mcp-config",
@@ -285,7 +289,8 @@ mod tests {
         let expected: Vec<String> = [
             "-p",
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--json-schema",
             &schema,
             "--mcp-config",
