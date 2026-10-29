@@ -1135,6 +1135,19 @@ fn seeding_manual_scraper(
     repository: CrawlerReviewRepository,
     fetches: usize,
 ) -> ScraperServiceImpl {
+    seeding_manual_scraper_over(
+        Arc::new(crate::scraper::candidate_service::ScraperCandidateServiceImpl::new(pool.clone())),
+        repository,
+        fetches,
+    )
+}
+
+/// [`seeding_manual_scraper`] sampling seed pages from `candidates`.
+fn seeding_manual_scraper_over(
+    candidates: Arc<dyn crate::scraper::candidate_service::ScraperCandidateService>,
+    repository: CrawlerReviewRepository,
+    fetches: usize,
+) -> ScraperServiceImpl {
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().times(fetches).returning(|url| {
         let url = url.clone();
@@ -1143,7 +1156,7 @@ fn seeding_manual_scraper(
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_service_without_generation(None)),
-        Arc::new(crate::scraper::candidate_service::ScraperCandidateServiceImpl::new(pool.clone())),
+        candidates,
         4,
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     )
@@ -1250,4 +1263,95 @@ async fn should_open_a_new_manual_review_with_its_page_alone_when_every_other_pa
     let pages = new_manual_review_page_urls(&scraper, &repository, &id, domain_id, &url).await;
 
     assert_eq!(pages, vec![url.as_str()]);
+}
+
+/// Expects one schema-seed draw of `limit` URLs that leaves out exactly `excluded`, answered with
+/// `drawn`.
+fn expect_seed_draw(
+    candidates: &mut MockScraperCandidateService,
+    excluded: &[&Url],
+    limit: i64,
+    drawn: &[&Url],
+) {
+    let excluded: Vec<String> = excluded.iter().map(ToString::to_string).collect();
+    let drawn: Vec<crate::scraper::candidate_service::SchemaSeedCandidate> = drawn
+        .iter()
+        .map(
+            |url| crate::scraper::candidate_service::SchemaSeedCandidate {
+                url: (*url).clone(),
+                expected_last_captured_raw_input_sha256: None,
+            },
+        )
+        .collect();
+    candidates
+        .expect_get_random_product_urls_for_schema_seed()
+        .once()
+        .withf(move |_, _, received, received_limit| {
+            received == excluded.as_slice() && *received_limit == limit
+        })
+        .returning(move |_, _, _, _| {
+            let drawn = drawn.clone();
+            Box::pin(async move { Ok(drawn) })
+        });
+}
+
+/// A rejected page drawn as a seed is replaced by drawing again for the pages still missing,
+/// without every page drawn before, rejected or not. The sample query matches a page by its
+/// stored spelling, so a page stored in another spelling than the URL it parses to can come back:
+/// it is not taken twice, and once a draw brings no page not drawn before, sampling stops instead
+/// of drawing a rejected page forever.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_draw_again_for_rejected_seed_pages_until_a_draw_brings_only_pages_drawn_before() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    reject_two_stored_pages(&repository, &id).await;
+    let parse = |url: &str| Url::parse(url).unwrap_or_else(|error| panic!("{url}: {error}"));
+    let rejected_seed = parse(REJECTED_SEED_STORED);
+    let rejected_primary = parse(REJECTED_PRIMARY_STORED);
+    let others = [
+        parse("https://example.com/products/other-1"),
+        parse("https://example.com/products/other-2"),
+    ];
+    let mut candidates = MockScraperCandidateService::new();
+    expect_seed_draw(
+        &mut candidates,
+        &[&url],
+        3,
+        &[&rejected_seed, &others[0], &rejected_primary],
+    );
+    expect_seed_draw(
+        &mut candidates,
+        &[&url, &rejected_seed, &others[0], &rejected_primary],
+        2,
+        &[&others[0], &others[1]],
+    );
+    expect_seed_draw(
+        &mut candidates,
+        &[
+            &url,
+            &rejected_seed,
+            &others[0],
+            &rejected_primary,
+            &others[1],
+        ],
+        1,
+        &[&rejected_seed],
+    );
+    let scraper = seeding_manual_scraper_over(Arc::new(candidates), repository.clone(), 3);
+
+    let pages = new_manual_review_page_urls(
+        &scraper,
+        &repository,
+        &id,
+        crate::CrawlerDomainId::new(),
+        &url,
+    )
+    .await;
+
+    assert_eq!(
+        pages,
+        vec![url.as_str(), others[0].as_str(), others[1].as_str()]
+    );
 }

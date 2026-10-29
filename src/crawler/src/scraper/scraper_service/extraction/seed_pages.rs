@@ -9,7 +9,6 @@ use crate::scraper::scraper_service::html_fetcher::{DomainFetchStats, FetchError
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
-use std::collections::HashSet;
 use tracing::{debug, warn};
 use url::Url;
 
@@ -72,21 +71,11 @@ impl ScraperServiceImpl {
             }
         };
 
-        // Keep this exclusion keying aligned with the DB query in
-        // `get_random_product_urls_for_schema_seed`: both currently operate on
-        // raw URL strings for exclusion. If URL canonicalization is introduced,
-        // update both places together to avoid duplicate samples slipping through.
-        let mut seen_urls = HashSet::new();
-        seen_urls.insert(url.as_str().to_string());
         for seed_candidate in sample_urls {
             if pages.len() >= self.schema_seed_pages {
                 break;
             }
             let sample_url = seed_candidate.url;
-            let sample_url_key = sample_url.as_str().to_string();
-            if !seen_urls.insert(sample_url_key) {
-                continue;
-            }
             match self.html_fetcher.fetch(&sample_url).await {
                 Ok(sample) => {
                     if is_redirect_to_non_product_page(
@@ -140,10 +129,17 @@ impl ScraperServiceImpl {
         Ok(pages)
     }
 
-    /// Samples up to `limit` stored product URLs of `domain_id` to seed a new schema for the page
-    /// `url` with. A page a rejected manual review covers is never taken: the sample is drawn
-    /// again without it, so other product pages take its place, and when none is left the new
-    /// review opens with fewer seed pages, or with the page alone.
+    /// Samples up to `limit` stored product URLs of `domain_id` other than `url` to seed a new
+    /// schema for the page `url` with, each URL once. A page a rejected manual review covers is
+    /// never taken: the sample is drawn again without it, so other product pages take its place,
+    /// and when none is left the new review opens with fewer seed pages, or with the page alone.
+    ///
+    /// The sample query leaves out the URLs drawn so far by their string, which matches a row only
+    /// while its stored spelling is the one it parses to. A row stored in another spelling can come
+    /// back, so a URL drawn before is dropped again here, and a draw that brings no URL not drawn
+    /// before ends the sampling, as the next draw would leave out the same URLs: a rejected page
+    /// stored in another spelling would otherwise be drawn again forever. The new review may then
+    /// open with fewer seed pages than the domain still has.
     async fn sample_schema_seed_candidates(
         &self,
         listing_source_id: &ListingSourceId,
@@ -165,8 +161,14 @@ impl ScraperServiceImpl {
                 )
                 .await?;
             let pool_exhausted = sample.len() < wanted;
+            let mut drew_a_new_url = false;
             for candidate in sample {
-                excluded_urls.push(candidate.url.to_string());
+                let key = candidate.url.to_string();
+                if excluded_urls.contains(&key) {
+                    continue;
+                }
+                excluded_urls.push(key);
+                drew_a_new_url = true;
                 if self
                     .is_rejected_page(listing_source_id, &candidate.url)
                     .await?
@@ -179,7 +181,7 @@ impl ScraperServiceImpl {
                     seeds.push(candidate);
                 }
             }
-            if pool_exhausted {
+            if pool_exhausted || !drew_a_new_url {
                 break;
             }
         }
