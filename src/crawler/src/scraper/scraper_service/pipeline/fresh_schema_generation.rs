@@ -30,13 +30,8 @@ impl ScraperServiceImpl {
         &self,
         ctx: &FreshSchemaGenerationContext<'_>,
     ) -> Result<(), ScraperError> {
-        if let Some(review_repository) = self.manual_schema_review_repository()
-            && let Some(error) = self
-                .rejected_manual_page(review_repository, ctx.listing_source_id, ctx.url)
-                .await
-        {
-            return Err(error);
-        }
+        self.skip_rejected_page(ctx.listing_source_id, ctx.url)
+            .await?;
         match self
             .join_pending_product_schema_review(ctx.listing_source_id, ctx.url, ctx.html)
             .await?
