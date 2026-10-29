@@ -152,6 +152,15 @@ impl ToolDefinition {
         &self.tool.name
     }
 
+    /// Whether the tool works on one review, the one its required `review_id` argument names.
+    pub fn takes_review(&self) -> bool {
+        self.tool
+            .input_schema
+            .get("required")
+            .and_then(Value::as_array)
+            .is_some_and(|required| required.iter().any(|name| name == "review_id"))
+    }
+
     /// Runs the tool on `arguments` and answers its result or its tool error. The call is logged
     /// with its outcome, never with its arguments or answer.
     pub async fn call(&self, arguments: JsonObject, context: Arc<ToolContext>) -> CallToolResult {
@@ -366,6 +375,20 @@ mod tests {
                 .map(|name| (*name).to_owned())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn should_tell_the_tools_that_work_on_one_review_by_their_required_review_id() {
+        for role in [AgentRole::Author, AgentRole::Reviewer] {
+            for tool in tools_for(role).unwrap_or_else(|error| panic!("{error}")) {
+                assert_eq!(
+                    tool.takes_review(),
+                    tool.name() != "list_pending_reviews",
+                    "{}",
+                    tool.name()
+                );
+            }
+        }
     }
 
     #[test]

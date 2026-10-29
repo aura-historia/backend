@@ -1,9 +1,9 @@
 //! `review-mcp`: the review console's tools for one review agent of `agent` authoring mode, served
 //! as an MCP server over stdio. An MCP client such as the Claude Code CLI starts one process per
-//! agent role:
+//! agent role, scoped with `--review` to the one review an agent process works:
 //!
 //! ```text
-//! review-mcp --role author|reviewer
+//! review-mcp --role author|reviewer [--review <review id>]
 //! ```
 //!
 //! | Variable | Purpose | Default |

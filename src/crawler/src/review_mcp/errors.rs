@@ -6,6 +6,7 @@
 
 use super::bounds::{MAX_TOOL_OUTPUT_BYTES, truncated_text};
 use super::console::{ConsoleError, ConsoleRefusal};
+use crate::CrawlerReviewId;
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -32,6 +33,10 @@ pub enum ToolError {
         "URL `{0}` is not a plain http(s) URL on the default port, without credentials, on a domain of the review's ListingSource; the review tools fetch no other URL"
     )]
     UrlOutsideReviewSource(String),
+    #[error(
+        "this agent process works review {0} only; the review tools refuse every call that names no review or another one"
+    )]
+    ReviewOutsideScope(CrawlerReviewId),
     #[error("{0}")]
     Console(#[from] ConsoleError),
     #[error(
@@ -86,6 +91,7 @@ impl ToolError {
         match self {
             Self::InvalidArguments(_) => "INVALID_ARGUMENTS",
             Self::UrlOutsideReviewSource(_) => "URL_OUTSIDE_REVIEW_SOURCE",
+            Self::ReviewOutsideScope(_) => "REVIEW_OUTSIDE_SCOPE",
             Self::Console(ConsoleError::Refused(refusal)) => refusal_kind(refusal.status),
             Self::Console(ConsoleError::Unauthorized | ConsoleError::TokenFile(_)) => {
                 "UNAUTHORIZED"

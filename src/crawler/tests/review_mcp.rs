@@ -184,9 +184,17 @@ struct McpSession {
 }
 
 impl McpSession {
-    async fn start(role: &str, console: SocketAddr, token_file: &Path) -> Self {
+    /// A `review-mcp` session of `role`, scoped to `review` when one is given.
+    async fn start(
+        role: &str,
+        review: Option<CrawlerReviewId>,
+        console: SocketAddr,
+        token_file: &Path,
+    ) -> Self {
+        let scope = review.map(|review| format!("--review={review}"));
         let mut child = Command::new(env!("CARGO_BIN_EXE_review-mcp"))
             .args(["--role", role])
+            .args(scope)
             .env("CRAWLER_REVIEW_CONSOLE_URL", format!("http://{console}"))
             .env("CRAWLER_REVIEW_AGENT_TOKEN_FILE", token_file)
             .env("LOG_LEVEL", "warn")
@@ -334,8 +342,8 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
     let console = listener.local_addr().unwrap();
     let running_console = start_console(&pool, &state.0, listener);
 
-    let mut author = McpSession::start("author", console, &token_file).await;
-    let mut reviewer = McpSession::start("reviewer", console, &token_file).await;
+    let mut author = McpSession::start("author", None, console, &token_file).await;
+    let mut reviewer = McpSession::start("reviewer", None, console, &token_file).await;
 
     // Each role lists and runs only its own tools.
     assert_eq!(
@@ -381,6 +389,39 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         )
         .await;
     assert_eq!(edit_as_reviewer.unwrap_err()["code"], -32602);
+
+    // A process scoped to one review lists no review queue and refuses every other review; the
+    // URL-pattern review's trail at the end shows that the refused reject recorded nothing.
+    let mut scoped =
+        McpSession::start("reviewer", Some(product_schema), console, &token_file).await;
+    assert_eq!(
+        scoped.tool_names().await,
+        [
+            "get_review",
+            "inspect_page",
+            "refresh_matrix",
+            "mark_needs_repair",
+            "approve",
+            "reject",
+        ]
+    );
+    let own = scoped
+        .call(
+            "get_review",
+            json!({ "review_id": product_schema.to_string() }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(own["candidate_version"], 1);
+    let reject_elsewhere = scoped
+        .call(
+            "reject",
+            json!({ "review_id": url_pattern.to_string(), "notes": "the page says so" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(reject_elsewhere["kind"], "REVIEW_OUTSIDE_SCOPE");
+    scoped.close().await;
 
     // Reads.
     let queue = author

@@ -2,8 +2,9 @@
 //! MCP server over stdio. It is a thin client of the console API: every tool shapes one or a few
 //! console requests with the role's bearer token and maps the answer, and the console decides
 //! everything, so the server has no database access and no review policy of its own. A role's
-//! server lists and runs only that role's tools, refuses any URL off the review's ListingSource
-//! before a request is sent, and answers within a size bound. No answer carries a token, cookie or
+//! server lists and runs only that role's tools, started with `--review` only on that review,
+//! refuses any URL off the review's ListingSource before a request is sent, and answers within a
+//! size bound. No answer carries a token, cookie or
 //! header. The operator contract is in `docs/crawler/operations.md` (review MCP server).
 
 mod bounds;
@@ -20,7 +21,7 @@ pub use console::{ConsoleClient, ConsoleClientError, ConsoleError};
 pub use server::ReviewMcpServer;
 pub use settings::{
     AgentRole, DEFAULT_REVIEW_CONSOLE_URL, REVIEW_AGENT_TOKEN_FILE_ENV, REVIEW_CONSOLE_URL_ENV,
-    ReviewConsoleAccess, ReviewMcpSettings, ReviewMcpSettingsError,
+    ReviewConsoleAccess, ReviewMcpSettings, ReviewMcpSettingsError, ReviewScope,
 };
 pub use token_file::{RoleTokenFile, TokenFileError};
 pub use tools::{Polling, ToolContext, ToolSchemaError, tools_for};
@@ -56,19 +57,25 @@ where
 {
     let ReviewMcpSettings {
         role,
+        scope,
         console_url,
         token_file,
     } = settings;
     let console = ConsoleClient::new(&console_url, RoleTokenFile::new(token_file.clone(), role))?;
-    let tools = tools_for(role)?;
+    let server = ReviewMcpServer::new(
+        role,
+        scope,
+        tools_for(role)?,
+        ToolContext::new(console, polling),
+    );
     info!(
         role = role.as_str(),
+        scope = ?scope,
         console_url = %console_url,
         token_file = %token_file.display(),
-        tools = tools.len(),
+        tools = server.tools().len(),
         "Review MCP server serving its role's tools"
     );
-    let server = ReviewMcpServer::new(role, tools, ToolContext::new(console, polling));
     let session = server
         .serve((reader, writer))
         .await

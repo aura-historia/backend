@@ -1,8 +1,10 @@
-//! How `review-mcp` is started: the one agent role it serves, from `--role`, and from its
-//! environment the review console it calls and the token file it reads its role's token from.
+//! How `review-mcp` is started: the one agent role it serves, from `--role`, the one review it may
+//! work, from `--review`, and from its environment the review console it calls and the token file
+//! it reads its role's token from.
 //! Tokens are never settings: they come from the token file only. The review agent runner reaches
 //! the console the same way and reads the same two settings through [`ReviewConsoleAccess`].
 
+use crate::CrawlerReviewId;
 use crate::review::agent_tokens::REVIEW_AGENT_TOKEN_FILE;
 use std::fmt;
 use std::path::PathBuf;
@@ -43,9 +45,29 @@ impl fmt::Display for AgentRole {
     }
 }
 
+/// The reviews one `review-mcp` process works on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewScope {
+    /// Every review of the console, for an MCP client a person drives.
+    AnyReview,
+    /// Only this review. The runner starts each agent process for one review, so page content
+    /// the agent reads cannot turn it on any other review.
+    Only(CrawlerReviewId),
+}
+
+impl ReviewScope {
+    /// Whether a tool call on `review_id` stays within the scope.
+    pub fn admits(self, review_id: CrawlerReviewId) -> bool {
+        match self {
+            Self::AnyReview => true,
+            Self::Only(scoped) => scoped == review_id,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ReviewMcpSettingsError {
-    #[error("usage: review-mcp --role author|reviewer; {0}")]
+    #[error("usage: review-mcp --role author|reviewer [--review <review id>]; {0}")]
     Usage(String),
     /// The value itself is not repeated: a refused one may carry credentials or a token.
     #[error(
@@ -58,6 +80,7 @@ pub enum ReviewMcpSettingsError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewMcpSettings {
     pub role: AgentRole,
+    pub scope: ReviewScope,
     /// The console's base URL, without a trailing slash.
     pub console_url: Url,
     pub token_file: PathBuf,
@@ -66,21 +89,22 @@ pub struct ReviewMcpSettings {
 impl ReviewMcpSettings {
     /// Reads the settings from the command-line `args` (without the program name), the
     /// environment through `env`, and, for the default token file, the `state_directory`, the
-    /// crawler's working directory. `--role` is required and nothing else is accepted, so no
-    /// credential can be passed as an argument. An empty or whitespace-only setting counts as
-    /// unset.
+    /// crawler's working directory. `--role` is required, `--review` optional, and nothing else is
+    /// accepted, so no credential can be passed as an argument. An empty or whitespace-only
+    /// setting counts as unset.
     pub fn from_args_and_env(
         args: impl IntoIterator<Item = String>,
         env: impl Fn(&str) -> Option<String>,
         state_directory: impl FnOnce() -> PathBuf,
     ) -> Result<Self, ReviewMcpSettingsError> {
-        let role = role_from_args(args)?;
+        let (role, scope) = command_line(args)?;
         let ReviewConsoleAccess {
             console_url,
             token_file,
         } = ReviewConsoleAccess::from_env(env, state_directory)?;
         Ok(Self {
             role,
+            scope,
             console_url,
             token_file,
         })
@@ -121,30 +145,50 @@ impl ReviewConsoleAccess {
     }
 }
 
-fn role_from_args(
+/// The role from `--role`, required, and the scope from `--review`, optional; each at most once,
+/// as `--flag value` or `--flag=value`.
+fn command_line(
     args: impl IntoIterator<Item = String>,
-) -> Result<AgentRole, ReviewMcpSettingsError> {
-    let usage = |reason: String| Err(ReviewMcpSettingsError::Usage(reason));
+) -> Result<(AgentRole, ReviewScope), ReviewMcpSettingsError> {
+    let usage = |reason: String| ReviewMcpSettingsError::Usage(reason);
     let mut args = args.into_iter();
     let mut role = None;
+    let mut review = None;
     while let Some(arg) = args.next() {
-        let value = match arg.strip_prefix("--role") {
-            Some("") => args.next(),
-            Some(inline) if inline.starts_with('=') => Some(inline[1..].to_owned()),
-            _ => return usage(format!("unexpected argument {arg:?}")),
+        let Some((flag, inline)) = ["--role", "--review"].into_iter().find_map(|flag| {
+            arg.strip_prefix(flag)
+                .filter(|rest| rest.is_empty() || rest.starts_with('='))
+                .map(|rest| (flag, rest))
+        }) else {
+            return Err(usage(format!("unexpected argument {arg:?}")));
         };
-        let Some(value) = value else {
-            return usage("--role needs a value".to_owned());
+        let value = match inline.strip_prefix('=') {
+            Some(value) => value.to_owned(),
+            None => args
+                .next()
+                .ok_or_else(|| usage(format!("{flag} needs a value")))?,
         };
-        if role.is_some() {
-            return usage("--role is given more than once".to_owned());
+        let given_twice = || usage(format!("{flag} is given more than once"));
+        if flag == "--role" {
+            let parsed =
+                AgentRole::parse(&value).ok_or_else(|| usage(format!("unknown role {value:?}")))?;
+            if role.replace(parsed).is_some() {
+                return Err(given_twice());
+            }
+        } else {
+            let parsed = value
+                .parse::<CrawlerReviewId>()
+                .map_err(|_| usage(format!("{value:?} is not a review id")))?;
+            if review.replace(parsed).is_some() {
+                return Err(given_twice());
+            }
         }
-        role = Some(
-            AgentRole::parse(&value)
-                .map_or_else(|| usage(format!("unknown role {value:?}")), Ok)?,
-        );
     }
-    role.map_or_else(|| usage("--role is required".to_owned()), Ok)
+    let role = role.ok_or_else(|| usage("--role is required".to_owned()))?;
+    Ok((
+        role,
+        review.map_or(ReviewScope::AnyReview, ReviewScope::Only),
+    ))
 }
 
 /// The console's base URL. The bearer token travels with every request, so plain http is
@@ -206,6 +250,7 @@ mod tests {
             let read = settings(args, &[]).unwrap_or_else(|error| panic!("{error}"));
 
             assert_eq!(read.role, role);
+            assert_eq!(read.scope, ReviewScope::AnyReview);
             assert_eq!(read.console_url.as_str(), "http://127.0.0.1:7878/");
             assert_eq!(
                 read.token_file,
@@ -243,7 +288,36 @@ mod tests {
     }
 
     #[test]
-    fn should_refuse_any_argument_but_one_known_role() {
+    fn should_scope_the_process_to_the_review_named_on_the_command_line() {
+        let review = CrawlerReviewId::new();
+        let other = CrawlerReviewId::new();
+        for args in [
+            vec![
+                "--role".to_owned(),
+                "reviewer".to_owned(),
+                "--review".to_owned(),
+                review.to_string(),
+            ],
+            vec![format!("--review={review}"), "--role=reviewer".to_owned()],
+        ] {
+            let read = ReviewMcpSettings::from_args_and_env(
+                args,
+                |_| None,
+                || PathBuf::from("/var/lib/crawler"),
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+
+            assert_eq!(read.scope, ReviewScope::Only(review));
+            assert!(read.scope.admits(review));
+            assert!(!read.scope.admits(other));
+        }
+        assert!(ReviewScope::AnyReview.admits(other));
+    }
+
+    #[test]
+    fn should_refuse_any_argument_but_one_known_role_and_at_most_one_review() {
+        let review = CrawlerReviewId::new().to_string();
+        let page = crate::CrawlerReviewPageId::new().to_string();
         for args in [
             &[][..],
             &["--role"][..],
@@ -251,6 +325,11 @@ mod tests {
             &["--role", "author", "--role", "reviewer"][..],
             &["--role", "author", "--token", "secret"][..],
             &["author"][..],
+            &["--review", &review][..],
+            &["--role", "author", "--review"][..],
+            &["--role", "author", "--review", &page][..],
+            &["--role", "author", "--review", &review, "--review", &review][..],
+            &["--role", "author", "--reviewer", &review][..],
         ] {
             assert!(
                 matches!(settings(args, &[]), Err(ReviewMcpSettingsError::Usage(_))),

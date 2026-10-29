@@ -6,6 +6,7 @@
 
 use super::queue::QueuedReview;
 use super::settings::{RunnerSettings, effort_flag};
+use crate::CrawlerReviewId;
 use crate::review_mcp::{AgentRole, REVIEW_AGENT_TOKEN_FILE_ENV, REVIEW_CONSOLE_URL_ENV};
 use serde_json::{Value, json};
 use std::fmt;
@@ -178,7 +179,7 @@ pub(super) fn agent_command(
         "--json-schema",
         &report_schema,
         "--mcp-config",
-        &mcp_config(settings, role).to_string(),
+        &mcp_config(settings, role, review.review_id).to_string(),
         "--strict-mcp-config",
         "--allowedTools",
         &format!("mcp__{MCP_SERVER_NAME}__*"),
@@ -207,15 +208,16 @@ pub(super) fn agent_command(
     })
 }
 
-/// The MCP configuration of one role: `review-mcp` for that role, against the runner's console,
-/// reading the role's token from the crawler's token file. It names the file, never a token.
-fn mcp_config(settings: &RunnerSettings, role: AgentRole) -> Value {
+/// The MCP configuration of one role's process for one review: `review-mcp` for that role and
+/// only that review, against the runner's console, reading the role's token from the crawler's
+/// token file. It names the file, never a token.
+fn mcp_config(settings: &RunnerSettings, role: AgentRole, review_id: CrawlerReviewId) -> Value {
     json!({
         "mcpServers": {
             MCP_SERVER_NAME: {
                 "type": "stdio",
                 "command": settings.review_mcp_bin,
-                "args": ["--role", role.as_str()],
+                "args": ["--role", role.as_str(), "--review", review_id.to_string()],
                 "env": {
                     REVIEW_CONSOLE_URL_ENV: settings.console.console_url.as_str().trim_end_matches('/'),
                     REVIEW_AGENT_TOKEN_FILE_ENV: settings.console.token_file,
@@ -228,7 +230,6 @@ fn mcp_config(settings: &RunnerSettings, role: AgentRole) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CrawlerReviewId;
     use crate::review_agent_runner::queue::ReviewArtifact;
     use crate::review_agent_runner::settings::{RunnerLocation, RunnerSettings};
     use crate::review_mcp::tools_for;
@@ -280,7 +281,7 @@ mod tests {
         let schema = role_contract(AgentRole::Reviewer)
             .report_schema()
             .unwrap_or_else(|error| panic!("{error}"));
-        let mcp_config = mcp_config(&settings(), AgentRole::Reviewer).to_string();
+        let mcp_config = mcp_config(&settings(), AgentRole::Reviewer, review.review_id).to_string();
         let expected: Vec<String> = [
             "-p",
             "--output-format",
@@ -403,8 +404,9 @@ mod tests {
     }
 
     #[test]
-    fn should_give_each_role_only_its_own_review_mcp_by_the_token_file_s_path() {
-        let author = mcp_config(&settings(), AgentRole::Author);
+    fn should_give_each_role_only_its_own_review_mcp_for_the_review_by_the_token_file_s_path() {
+        let review_id = CrawlerReviewId::new();
+        let author = mcp_config(&settings(), AgentRole::Author, review_id);
 
         assert_eq!(
             author,
@@ -413,7 +415,7 @@ mod tests {
                     "crawler_review": {
                         "type": "stdio",
                         "command": "/opt/crawler/bin/review-mcp",
-                        "args": ["--role", "author"],
+                        "args": ["--role", "author", "--review", review_id.to_string()],
                         "env": {
                             "CRAWLER_REVIEW_CONSOLE_URL": "http://127.0.0.1:7878",
                             "CRAWLER_REVIEW_AGENT_TOKEN_FILE": "/var/lib/crawler/review-agent-tokens.json",
@@ -423,8 +425,9 @@ mod tests {
             })
         );
         assert_eq!(
-            mcp_config(&settings(), AgentRole::Reviewer)["mcpServers"]["crawler_review"]["args"],
-            json!(["--role", "reviewer"])
+            mcp_config(&settings(), AgentRole::Reviewer, review_id)["mcpServers"]["crawler_review"]
+                ["args"],
+            json!(["--role", "reviewer", "--review", review_id.to_string()])
         );
     }
 
