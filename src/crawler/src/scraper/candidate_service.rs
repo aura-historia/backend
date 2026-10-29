@@ -200,8 +200,8 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Counts the URLs due for scraping, by the same eligibility rule as
     /// [`ScraperCandidateService::get_candidates`].
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
-    /// Returns a random sample of product URLs for a ListingSource (excluding the current
-    /// URL) to seed first-time schema generation with additional page layouts.
+    /// Returns a random sample of product URLs for a ListingSource, other than the stored URLs
+    /// `excluded_urls` names, to seed first-time schema generation with additional page layouts.
     ///
     /// This query intentionally uses `ORDER BY RANDOM()` because the path is
     /// only used on schema cache misses, which are rare (typically one-time per
@@ -210,7 +210,7 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        exclude_url: &Url,
+        excluded_urls: &[String],
         limit: i64,
     ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error>;
     async fn mark_as_scraped(
@@ -723,7 +723,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        exclude_url: &Url,
+        excluded_urls: &[String],
         limit: i64,
     ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
@@ -741,7 +741,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
               AND su.domain_id = $2
               AND su.url_class = 'product'
               AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-              AND su.url <> $3
+              AND su.url <> ALL($3::text[])
               AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
               AND su.failure_count = 0
               AND (sd.scrape_failure_streak = 0
@@ -756,7 +756,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         )
         .bind(listing_source_id_uuid)
         .bind(domain_id_uuid)
-        .bind(exclude_url.to_string())
+        .bind(excluded_urls)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;

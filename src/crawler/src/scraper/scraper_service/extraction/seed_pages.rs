@@ -1,5 +1,6 @@
 use crate::CrawlerDomainId;
 use crate::network::policy::domain_failure_kind;
+use crate::scraper::candidate_service::SchemaSeedCandidate;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
 use crate::scraper::scraper_service::domain::product::{
     FetchFailureSource, ScrapeMode, record_transport_failure,
@@ -8,7 +9,6 @@ use crate::scraper::scraper_service::html_fetcher::{DomainFetchStats, FetchError
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
-use std::collections::HashSet;
 use tracing::{debug, warn};
 use url::Url;
 
@@ -52,10 +52,13 @@ impl ScraperServiceImpl {
             });
         };
 
-        let extra_limit = (self.schema_seed_pages - 1) as i64;
         let sample_urls = match self
-            .candidate_service
-            .get_random_product_urls_for_schema_seed(listing_source_id, domain_id, url, extra_limit)
+            .sample_schema_seed_candidates(
+                listing_source_id,
+                domain_id,
+                url,
+                self.schema_seed_pages - 1,
+            )
             .await
         {
             Ok(urls) => urls,
@@ -68,21 +71,11 @@ impl ScraperServiceImpl {
             }
         };
 
-        // Keep this exclusion keying aligned with the DB query in
-        // `get_random_product_urls_for_schema_seed`: both currently operate on
-        // raw URL strings for exclusion. If URL canonicalization is introduced,
-        // update both places together to avoid duplicate samples slipping through.
-        let mut seen_urls = HashSet::new();
-        seen_urls.insert(url.as_str().to_string());
         for seed_candidate in sample_urls {
             if pages.len() >= self.schema_seed_pages {
                 break;
             }
             let sample_url = seed_candidate.url;
-            let sample_url_key = sample_url.as_str().to_string();
-            if !seen_urls.insert(sample_url_key) {
-                continue;
-            }
             match self.html_fetcher.fetch(&sample_url).await {
                 Ok(sample) => {
                     if is_redirect_to_non_product_page(
@@ -134,6 +127,65 @@ impl ScraperServiceImpl {
         }
 
         Ok(pages)
+    }
+
+    /// Samples up to `limit` stored product URLs of `domain_id` other than `url` to seed a new
+    /// schema for the page `url` with, each URL once. A page a rejected manual review covers is
+    /// never taken: the sample is drawn again without it, so other product pages take its place,
+    /// and when none is left the new review opens with fewer seed pages, or with the page alone.
+    ///
+    /// The sample query leaves out the URLs drawn so far by their string, which matches a row only
+    /// while its stored spelling is the one it parses to. A row stored in another spelling can come
+    /// back, so a URL drawn before is dropped again here, and a draw that brings no URL not drawn
+    /// before ends the sampling, as the next draw would leave out the same URLs: a rejected page
+    /// stored in another spelling would otherwise be drawn again forever. The new review may then
+    /// open with fewer seed pages than the domain still has.
+    async fn sample_schema_seed_candidates(
+        &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        url: &Url,
+        limit: usize,
+    ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error> {
+        let mut excluded_urls = vec![url.to_string()];
+        let mut seeds = Vec::with_capacity(limit);
+        while seeds.len() < limit {
+            let wanted = limit - seeds.len();
+            let sample = self
+                .candidate_service
+                .get_random_product_urls_for_schema_seed(
+                    listing_source_id,
+                    domain_id,
+                    &excluded_urls,
+                    wanted as i64,
+                )
+                .await?;
+            let pool_exhausted = sample.len() < wanted;
+            let mut drew_a_new_url = false;
+            for candidate in sample {
+                let key = candidate.url.to_string();
+                if excluded_urls.contains(&key) {
+                    continue;
+                }
+                excluded_urls.push(key);
+                drew_a_new_url = true;
+                if self
+                    .is_rejected_page(listing_source_id, &candidate.url)
+                    .await?
+                {
+                    debug!(
+                        sample_url = %candidate.url,
+                        "Leaving a page rejected as a non-product page out of the schema-seed sample"
+                    );
+                } else {
+                    seeds.push(candidate);
+                }
+            }
+            if pool_exhausted || !drew_a_new_url {
+                break;
+            }
+        }
+        Ok(seeds)
     }
 }
 
