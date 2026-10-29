@@ -15,6 +15,9 @@ use serde_json::Value;
 pub(super) const MAX_TOOL_OUTPUT_BYTES: usize = 48 * 1024;
 /// The key of the list in which an answer names what it left out.
 const TRUNCATIONS: &str = "truncations";
+/// The answer keys [`bound_answer`] never cuts: its own `truncations`, and a review's `candidate`,
+/// which an edit sends back whole, so a cut one would drop what it left out from the review.
+const NEVER_CUT: [&str; 2] = [TRUNCATIONS, "candidate"];
 /// How often [`bound_answer`] cuts before it gives up on an answer.
 const MAX_CUTS: usize = 64;
 
@@ -62,9 +65,9 @@ pub(super) struct AnswerTooLarge;
 
 /// Bounds a tool's JSON `answer` to `limit` bytes. An answer within it stays as it is. A larger one
 /// that has a `truncations` list loses, one cut at a time, the second half of its largest list or
-/// text, each cut named there by its JSON pointer, until it fits; the answer keeps its shape, so it
-/// still matches the tool's output schema. Without that list, or when cutting does not make it fit,
-/// it is refused.
+/// text outside [`NEVER_CUT`], each cut named there by its JSON pointer, until it fits; the answer
+/// keeps its shape, so it still matches the tool's output schema. Without that list, or when
+/// cutting does not make it fit, it is refused.
 pub(super) fn bound_answer(mut answer: Value, limit: usize) -> Result<Value, AnswerTooLarge> {
     let mut cuts = Vec::new();
     for _ in 0..MAX_CUTS {
@@ -103,7 +106,7 @@ fn json_len(value: &Value) -> usize {
 }
 
 /// The JSON pointer and size of the largest list with more than one item, or text of more than a
-/// few characters, in `value`, leaving out the answer's own `truncations`.
+/// few characters, in `value`, leaving out the answer keys of [`NEVER_CUT`].
 fn largest_cuttable(value: &Value, pointer: String) -> Option<(String, usize)> {
     let own = match value {
         Value::Array(items) if items.len() > 1 => Some((pointer.clone(), json_len(value))),
@@ -120,7 +123,7 @@ fn largest_cuttable(value: &Value, pointer: String) -> Option<(String, usize)> {
             .collect(),
         Value::Object(fields) => fields
             .iter()
-            .filter(|(key, _)| !(pointer.is_empty() && key.as_str() == TRUNCATIONS))
+            .filter(|(key, _)| !(pointer.is_empty() && NEVER_CUT.contains(&key.as_str())))
             .map(|(key, item)| (format!("{pointer}/{}", escape_pointer(key)), item))
             .collect(),
         _ => Vec::new(),
@@ -220,6 +223,31 @@ mod tests {
                 .iter()
                 .all(|cut| cut.starts_with("/matrix/pages: the first ")),
             "{truncations:?}"
+        );
+    }
+
+    #[test]
+    fn should_never_cut_the_candidate_an_edit_sends_back_whole() {
+        let schemas: Vec<Value> = (0..12)
+            .map(|index| json!({ "title": format!(".product-{index} h1"), "notes": "x".repeat(150) }))
+            .collect();
+        let pages: Vec<Value> = (0..200)
+            .map(|index| json!({ "url": format!("https://shop.example/item/{index}") }))
+            .collect();
+        let answer = json!({
+            "candidate": { "kind": "PRODUCT_SCHEMA", "schemas": schemas },
+            "matrix": { "pages": pages },
+            "truncations": [],
+        });
+
+        let bounded = bound_answer(answer.clone(), 4_000).unwrap_or_else(|error| panic!("{error}"));
+
+        assert!(json_len(&bounded) <= 4_000, "{bounded}");
+        assert_eq!(bounded["candidate"], answer["candidate"]);
+        assert_eq!(
+            bound_answer(answer, 2_000),
+            Err(AnswerTooLarge),
+            "a candidate larger than the bound is refused, not cut"
         );
     }
 
