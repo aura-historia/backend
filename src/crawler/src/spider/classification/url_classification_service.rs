@@ -127,12 +127,21 @@ impl<Llm: LargeLanguageModel> UrlClassificationServiceImpl<Llm> {
         unique
     }
 
+    /// Lists each URL's [page](CrawledUrl::page_spelling) without its trailing slash, once per
+    /// page: a pattern takes a URL with or without the slash ([`CrawledUrl::matches_pattern`]), so
+    /// the slash tells product pages from other pages nothing, and the instruction's slug suffix
+    /// (`[\w%.-]+$`) expects a path that ends in its slug.
     fn build_prompt(urls: &[String]) -> String {
-        let sample = if urls.len() > SAMPLE_LIMIT {
-            &urls[..SAMPLE_LIMIT]
-        } else {
-            urls
-        };
+        let mut listed = HashSet::new();
+        let urls = urls
+            .iter()
+            .map(|url| {
+                CrawledUrl::try_from(url.as_str())
+                    .map_or_else(|_| url.clone(), |url| url.page_spelling().to_string())
+            })
+            .filter(|page| listed.insert(page.clone()))
+            .collect::<Vec<_>>();
+        let sample = &urls[..urls.len().min(SAMPLE_LIMIT)];
 
         format!(
             "First {sample_len} URLs (structure context):\n\
@@ -330,6 +339,29 @@ mod tests {
             }
             Err(error) => panic!("should serialize PatternResponse schema: {error}"),
         }
+    }
+
+    /// A pattern takes a page with or without its trailing slash, so the model sees each page once,
+    /// without the slash, as the instruction's slug suffix expects.
+    #[test]
+    fn should_list_each_page_once_without_its_trailing_slash() {
+        let urls = [
+            "https://example.com/product/106/tray/",
+            "https://example.com/product/106/tray",
+            "https://example.com/category/trays/?page=2",
+            "https://example.com/",
+        ]
+        .map(str::to_owned);
+
+        let prompt = UrlClassificationServiceImpl::<FixedLargeLanguageModel>::build_prompt(&urls);
+
+        let pages = "https://example.com/product/106/tray\n\
+                     https://example.com/category/trays?page=2\n\
+                     https://example.com/";
+        assert_eq!(
+            prompt,
+            format!("First 3 URLs (structure context):\n{pages}\n\nAll 3 URLs:\n{pages}")
+        );
     }
 
     #[tokio::test]
