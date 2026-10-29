@@ -154,6 +154,7 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
     info!(
         pending = summary.pending,
         waiting_for_human = summary.waiting_for_human,
+        handed_to_human = summary.handed_to_human,
         cooling_down = summary.cooling_down,
         worked = summary.worked,
         processes = summary.processes,
@@ -292,15 +293,17 @@ mod tests {
         ("NODE_OPTIONS", "--require /tmp/decoy.js"),
     ];
 
-    /// A review console that answers the review queue and the event list to the author's token.
-    /// The event list holds `events` and, as `AGENT_REVIEWER` events, the decisions the fake
-    /// `claude` logged to `decided_log`, as the review MCP server would have recorded them.
+    /// A review console that answers the review queue, a review and the event list to the
+    /// author's token. The event list holds `events` and, as `AGENT_REVIEWER` events, the
+    /// decisions the fake `claude` logged to its `decided.log`, as the review MCP server would
+    /// have recorded them. A review the fake's author handed to a human (`human/<review id>`)
+    /// waits for a human, and one marked `unreadable/<review id>` cannot be read.
     struct FakeConsole {
         url: String,
     }
 
     impl FakeConsole {
-        async fn start(reviews: Vec<CrawlerReview>, events: Value, decided_log: PathBuf) -> Self {
+        async fn start(reviews: Vec<CrawlerReview>, events: Value, claude_dir: PathBuf) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0")
                 .await
                 .unwrap_or_else(|error| panic!("bind: {error}"));
@@ -310,9 +313,10 @@ mod tests {
                     .local_addr()
                     .unwrap_or_else(|error| panic!("{error}"))
             );
-            let reviews = Arc::new(serde_json::to_string(&reviews).unwrap_or_default());
+            let listed = Arc::new(serde_json::to_string(&reviews).unwrap_or_default());
+            let reviews = Arc::new(reviews);
             let events = Arc::new(events);
-            let decided_log = Arc::new(decided_log);
+            let claude_dir = Arc::new(claude_dir);
             tokio::spawn(async move {
                 while let Ok((mut stream, _)) = listener.accept().await {
                     let mut request = Vec::new();
@@ -331,9 +335,16 @@ mod tests {
                     let (status, body) = if !authorized {
                         (401, "{\"error\":\"unauthorized\"}".to_owned())
                     } else if path == "/api/reviews" {
-                        (200, reviews.to_string())
+                        (200, listed.to_string())
                     } else if path.starts_with("/api/review-events?since=") {
+                        let decided_log = claude_dir.join("decided.log");
                         (200, with_decisions(&events, &decided_log).to_string())
+                    } else if let Some(review) = path.strip_prefix("/api/reviews/").and_then(|id| {
+                        reviews
+                            .iter()
+                            .find(|review| review.review_id.to_string() == id)
+                    }) {
+                        review_detail(review, &claude_dir)
                     } else {
                         (404, "{\"error\":\"not found\"}".to_owned())
                     };
@@ -347,6 +358,21 @@ mod tests {
             });
             Self { url }
         }
+    }
+
+    /// `GET /api/reviews/{id}` of `review`, as the fake `claude` in `claude_dir` left it.
+    fn review_detail(review: &CrawlerReview, claude_dir: &Path) -> (u16, String) {
+        let id = review.review_id.to_string();
+        if claude_dir.join("unreadable").join(&id).exists() {
+            return (500, "{\"error\":\"failed\"}".to_owned());
+        }
+        let mut review = review.clone();
+        if claude_dir.join("human").join(&id).exists() {
+            review.agent_rounds = 3;
+            review.human_required = true;
+        }
+        let detail = json!({ "review": review, "pages": [], "urls": [], "events": [] });
+        (200, detail.to_string())
     }
 
     /// `events` with an `AGENT_REVIEWER` event for each `<review id> <action>` line of `decided_log`.
@@ -411,7 +437,8 @@ mod tests {
     /// answers the canned envelope of its role, or of its review and role. A reviewer process
     /// logs the decision of its review, or of the role, to `decided.log`, as the console records it.
     /// A process told to hang waits after its stream until it is stopped; one told to die kills
-    /// itself.
+    /// itself. An author told to hand its review over gives the needs-repair verdict that reaches
+    /// the cap, which the fake console then shows.
     struct FakeClaude {
         directory: StateDirectory,
     }
@@ -429,6 +456,7 @@ printf '%s\n' "$@" > "$call/argv"
 printf '%s' "$prompt" > "$call/stdin"
 env > "$call/env"
 echo "start $role $review" >> "$dir/order.log"
+if [ "$role" = author ] && [ -f "$dir/hand_over/$review" ]; then touch "$dir/human/$review"; fi
 if [ "$role" = reviewer ]; then
   decision="$dir/decisions/$review"
   [ -f "$decision" ] || decision="$dir/decisions/reviewer"
@@ -450,7 +478,15 @@ echo "end $role $review" >> "$dir/order.log"
             std::fs::write(&path, FAKE_CLAUDE).unwrap_or_default();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
                 .unwrap_or_else(|error| panic!("{error}"));
-            for subdirectory in ["envelopes", "decisions", "hang", "die"] {
+            for subdirectory in [
+                "envelopes",
+                "decisions",
+                "hang",
+                "die",
+                "hand_over",
+                "human",
+                "unreadable",
+            ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
             }
             let fake = Self { directory };
@@ -486,6 +522,30 @@ echo "end $role $review" >> "$dir/order.log"
             .unwrap_or_default();
         }
 
+        /// Has the author of `review_id` give the needs-repair verdict that hands it to a human.
+        fn hand_to_human(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("hand_over")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
+        /// Has the console fail to answer the review `review_id`.
+        fn unreadable(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("unreadable")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
         /// Has the process `<review id>-<role>` hang after its stream until it is stopped.
         fn hang(&self, name: &str) {
             std::fs::write(self.directory.path().join("hang").join(name), "").unwrap_or_default();
@@ -501,10 +561,6 @@ echo "end $role $review" >> "$dir/order.log"
         fn decide(&self, name: &str, action: &str) {
             std::fs::write(self.directory.path().join("decisions").join(name), action)
                 .unwrap_or_default();
-        }
-
-        fn decided_log(&self) -> PathBuf {
-            self.directory.path().join("decided.log")
         }
 
         fn order(&self) -> Vec<String> {
@@ -605,7 +661,8 @@ echo "end $role $review" >> "$dir/order.log"
             .unwrap_or_default();
             let claude = FakeClaude::new();
             Self {
-                console: FakeConsole::start(reviews, events, claude.decided_log()).await,
+                console: FakeConsole::start(reviews, events, claude.directory.path().to_path_buf())
+                    .await,
                 claude,
                 state: StateDirectory::new(),
                 tokens,
@@ -838,6 +895,40 @@ echo "end $role $review" >> "$dir/order.log"
             digest.contains(": title still takes the shop name"),
             "{digest}"
         );
+    }
+
+    /// The author's own needs-repair verdict that reaches the cap hands the review to a human: the
+    /// runner starts no reviewer process, whose every verdict the console would refuse with
+    /// `HUMAN_REQUIRED`, and gives the review no cooldown. A review the console cannot answer
+    /// gets its reviewer as before.
+    #[tokio::test]
+    async fn should_start_no_reviewer_for_a_review_that_waits_for_a_human_after_the_author() {
+        let handed_over = review("PENDING_REVIEW", true);
+        let unreadable = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![handed_over.clone(), unreadable.clone()]).await;
+        fixture.claude.hand_to_human(handed_over.review_id);
+        fixture.claude.unreadable(unreadable.review_id);
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(
+            (run.worked, run.processes, run.handed_to_human, run.decided),
+            (2, 3, 1, 1)
+        );
+        let (handed_over_id, unreadable_id) = (handed_over.review_id, unreadable.review_id);
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {handed_over_id}"),
+                format!("end author {handed_over_id}"),
+                format!("start author {unreadable_id}"),
+                format!("end author {unreadable_id}"),
+                format!("start reviewer {unreadable_id}"),
+                format!("end reviewer {unreadable_id}"),
+            ]
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.is_empty(), "{state:?}");
     }
 
     #[tokio::test]

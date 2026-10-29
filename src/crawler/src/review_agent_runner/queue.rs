@@ -1,7 +1,8 @@
 //! What the runner reads from the review console with the author agent's token: the pending
-//! reviews the agents work, in the console's queue order, those that wait for a human, and the
-//! event trail of all reviews since a time, for the digest. The console decides what is pending
-//! and what waits for a human; the runner only picks which reviews this pass works.
+//! reviews the agents work, in the console's queue order, those that wait for a human, whether a
+//! review waits for a human now, and the event trail of all reviews since a time, for the digest.
+//! The console decides what is pending and what waits for a human; the runner only picks which
+//! reviews this pass works.
 
 use crate::review::model::{
     ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, RepairRequest,
@@ -107,6 +108,25 @@ impl ReviewQueue {
         }
         queue
     }
+}
+
+/// `GET /api/reviews/{id}`, of which the runner reads only the review.
+#[derive(Debug, Deserialize)]
+struct ReviewDetail {
+    review: CrawlerReview,
+}
+
+/// Whether the console says `review_id` waits for a human now: the agents' needs-repair rounds
+/// on it reached the cap, so it refuses every agent change and verdict on it.
+pub async fn waits_for_human(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<bool, ConsoleError> {
+    let detail: ReviewDetail = console
+        .get(&format!("/api/reviews/{review_id}"))
+        .await?
+        .decode()?;
+    Ok(detail.review.human_required)
 }
 
 /// The `max` reviews of `queue` this pass works, and how many of the others are cooling down.

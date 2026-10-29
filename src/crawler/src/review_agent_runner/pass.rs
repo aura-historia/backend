@@ -3,15 +3,18 @@
 //! number of processes at once. Each process's outcome is recorded in the ledger and logged.
 //! A process that ends without a decision cools its review down, and a usage limit pauses the
 //! runner until its reset. Whether a reviewer decided is what the review's event trail records,
-//! not what its report says the console answered. A review that waits for a human is no agent work: the pass starts no
-//! process for it, so it neither fails nor cools down.
+//! not what its report says the console answered. A review that waits for a human is no agent
+//! work: the pass starts no process for it, nor a reviewer process once the author's pass handed
+//! it to a human, so it neither fails nor cools down.
 
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
 use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, run_agent};
-use super::queue::{QueuedReview, review_events_since, review_queue, select_reviews};
+use super::queue::{
+    QueuedReview, review_events_since, review_queue, select_reviews, waits_for_human,
+};
 use super::reports::{AgentReport, AuthorAction};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, RunnerState, save_state};
@@ -30,6 +33,9 @@ pub struct PassSummary {
     pub pending: usize,
     /// Pending reviews that wait for a human, which no process works.
     pub waiting_for_human: usize,
+    /// Reviews this pass worked that waited for a human after the author's pass, so no reviewer
+    /// process started for them.
+    pub handed_to_human: usize,
     /// Of those, reviews still cooling down.
     pub cooling_down: usize,
     /// Reviews this pass started to work.
@@ -169,6 +175,10 @@ impl Pass<'_> {
             }
             Step::Reported(report) => report,
         };
+        if self.handed_to_human(&review).await {
+            self.with(|shared| shared.summary.handed_to_human += 1);
+            return;
+        }
         if let AgentReport::Author(report) = &author_report
             && report.action == AuthorAction::Skipped
         {
@@ -184,6 +194,32 @@ impl Pass<'_> {
                 } else {
                     self.cool_down(&review);
                 }
+            }
+        }
+    }
+
+    /// Whether `review` waits for a human after the author's pass, such as after the author's own
+    /// needs-repair verdict reached the cap: the console would refuse everything a reviewer
+    /// process did on it with `HUMAN_REQUIRED`. A review the runner cannot read gets its
+    /// reviewer, whose console refuses it in that case.
+    async fn handed_to_human(&self, review: &QueuedReview) -> bool {
+        match waits_for_human(self.console, review.review_id).await {
+            Ok(true) => {
+                info!(
+                    review_id = %review.review_id,
+                    "The review waits for a human after the author's pass; no reviewer process starts and it does not cool down"
+                );
+                true
+            }
+            Ok(false) => false,
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot read whether the review waits for a human; its reviewer process starts"
+                );
+                false
             }
         }
     }
