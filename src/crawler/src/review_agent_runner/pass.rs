@@ -273,13 +273,18 @@ impl Pass<'_> {
                 return record.failed(error.to_string());
             }
         };
+        let envelope = ResultEnvelope::parse(&output.stdout);
         if output.timed_out {
+            if let Some(envelope) = &envelope {
+                record.take_accounting(envelope);
+            }
+            self.charge_unreported_cost(record);
             return record.failed(format!(
                 "stopped after its timeout of {} minutes",
                 self.settings.process_timeout.as_secs() / 60
             ));
         }
-        match ResultEnvelope::parse(&output.stdout) {
+        match envelope {
             Some(envelope) => self.read_envelope(record, role, review, &envelope),
             None => {
                 warn!(
@@ -289,12 +294,26 @@ impl Pass<'_> {
                     stderr_tail = %output.stderr_tail,
                     "The review agent process printed no result envelope"
                 );
+                if output.exit_code.is_none() {
+                    self.charge_unreported_cost(record);
+                }
                 record.failed(format!(
                     "no result envelope, exit code {:?}",
                     output.exit_code
                 ))
             }
         }
+    }
+
+    /// Charges a process that was stopped at its timeout or killed by a signal before it reported
+    /// a cost the highest cost a process reported in the ledger's window, so the rolling sums
+    /// never leave out what it spent. The CLI reports a cost only in its result envelope.
+    fn charge_unreported_cost(&self, record: &mut ProcessRecord) {
+        if record.total_cost_usd > 0.0 {
+            return;
+        }
+        record.total_cost_usd = self.with(|shared| shared.ledger.highest_reported_cost());
+        record.cost_charged = true;
     }
 
     fn read_envelope(
@@ -363,6 +382,7 @@ impl Pass<'_> {
             cache_read_input_tokens = record.usage.cache_read_input_tokens,
             cache_creation_input_tokens = record.usage.cache_creation_input_tokens,
             total_cost_usd = record.total_cost_usd,
+            cost_charged = record.cost_charged,
             report = %report,
             "Review agent process finished"
         );
@@ -453,6 +473,7 @@ impl ProcessRecord {
             models: Vec::new(),
             usage: Default::default(),
             total_cost_usd: 0.0,
+            cost_charged: false,
             report: None,
         }
     }

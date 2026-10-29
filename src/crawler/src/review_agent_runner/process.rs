@@ -4,7 +4,8 @@
 //! from the runner's, plus the variables a pinned CLI runs with. The end of its stdout is kept up
 //! to a bound, where an agent process's stream ends with its result envelope, and its stderr only
 //! as a short tail for a failure's log line. A child that outlives its timeout is stopped with
-//! everything it started, such as its `review-mcp`.
+//! everything it started, such as its `review-mcp`, and its output is what it printed until it
+//! stopped, so the runner still reads a cost it reported.
 
 use super::invocation::{AgentCommand, ChildEnvironment};
 use std::collections::VecDeque;
@@ -12,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
+use tokio::process::{ChildStderr, ChildStdout, Command};
 
 /// The most of a child's stdout, and of its stderr, the runner keeps: the end of it. An agent
 /// process's stream ends with its result envelope, a few kilobytes after what the agent read.
@@ -24,14 +25,16 @@ const MAX_STDERR_TAIL_CHARS: usize = 300;
 /// How long a stopped child's process group has to exit before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
-/// What a finished child left.
+/// What a finished or stopped child left.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChildOutput {
     /// The exit code, `None` when a signal ended it.
     pub exit_code: Option<i32>,
+    /// The end of its stdout, up to when it ended or was stopped.
     pub stdout: Vec<u8>,
     /// The last line of its stderr, shortened, for a failure's log line.
     pub stderr_tail: String,
+    /// It outlived its timeout and was stopped.
     pub timed_out: bool,
 }
 
@@ -112,44 +115,35 @@ async fn run(
         source,
     })?;
     let mut stdin = child.stdin.take();
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
     let process_group = child.id();
     // Declared after `child`, so it is dropped first, while the group's leader is not yet reaped.
     let mut group_guard = ProcessGroupGuard(process_group);
+    let mut output = OutputTails::default();
     let exchange = async {
         if let (Some(stdin), Some(input)) = (stdin.as_mut(), input) {
             // A child that exits without reading its input closes the pipe; its output says why.
             let _ = stdin.write_all(input).await;
         }
         drop(stdin.take());
-        let (stdout, stderr, status) =
-            tokio::join!(read_tail(stdout), read_tail(stderr), child.wait());
-        Ok::<_, std::io::Error>((stdout?, stderr?, status?))
+        let (read, status) = tokio::join!(output.read_from(&mut stdout, &mut stderr), child.wait());
+        read?;
+        status
     };
-    match tokio::time::timeout(timeout, exchange).await {
-        Ok(Ok((stdout, stderr, status))) => {
-            group_guard.disarm();
-            Ok(ChildOutput {
-                exit_code: status.code(),
-                stdout,
-                stderr_tail: stderr_tail(&stderr),
-                timed_out: false,
-            })
-        }
-        Ok(Err(error)) => Err(ChildError::Io(error)),
+    let finished = tokio::time::timeout(timeout, exchange).await;
+    let timed_out = finished.is_err();
+    let exit_code = match finished {
+        Ok(Ok(status)) => status.code(),
+        Ok(Err(error)) => return Err(ChildError::Io(error)),
         Err(_) => {
-            stop_process_group(process_group).await;
+            stop_process_group(process_group, output.read_from(&mut stdout, &mut stderr)).await;
             let _ = child.kill().await;
-            group_guard.disarm();
-            Ok(ChildOutput {
-                exit_code: None,
-                stdout: Vec::new(),
-                stderr_tail: String::new(),
-                timed_out: true,
-            })
+            None
         }
-    }
+    };
+    group_guard.disarm();
+    Ok(output.into_output(exit_code, timed_out))
 }
 
 /// The process group of a child that has not ended yet. Dropping it kills the whole group: a run
@@ -177,13 +171,34 @@ impl Drop for ProcessGroupGuard {
     }
 }
 
-/// Reads `stream` to its end and keeps its last [`MAX_OUTPUT_TAIL_BYTES`].
-async fn read_tail(stream: Option<impl AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
-    let mut tail = OutputTail::default();
-    if let Some(mut stream) = stream {
-        tail.read_from(&mut stream).await?;
+/// The ends of a child's stdout and stderr, as far as they were read.
+#[derive(Debug, Default)]
+struct OutputTails {
+    stdout: OutputTail,
+    stderr: OutputTail,
+}
+
+impl OutputTails {
+    /// Reads both streams to their ends. A read that is stopped keeps every byte it read before,
+    /// so reading on later loses nothing.
+    async fn read_from(
+        &mut self,
+        stdout: &mut Option<ChildStdout>,
+        stderr: &mut Option<ChildStderr>,
+    ) -> std::io::Result<()> {
+        let (stdout, stderr) =
+            tokio::join!(self.stdout.read_from(stdout), self.stderr.read_from(stderr));
+        stdout.and(stderr)
     }
-    Ok(tail.into_bytes())
+
+    fn into_output(self, exit_code: Option<i32>, timed_out: bool) -> ChildOutput {
+        ChildOutput {
+            exit_code,
+            stdout: self.stdout.into_bytes(),
+            stderr_tail: stderr_tail(&self.stderr.into_bytes()),
+            timed_out,
+        }
+    }
 }
 
 /// The end of a child's output: at most [`MAX_OUTPUT_TAIL_BYTES`], earlier bytes dropped as later
@@ -192,8 +207,14 @@ async fn read_tail(stream: Option<impl AsyncRead + Unpin>) -> std::io::Result<Ve
 struct OutputTail(VecDeque<u8>);
 
 impl OutputTail {
-    /// Reads `stream` to its end. A read that is stopped keeps every byte it read before.
-    async fn read_from(&mut self, stream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<()> {
+    /// Reads `stream`, when there is one, to its end.
+    async fn read_from(
+        &mut self,
+        stream: &mut Option<impl AsyncRead + Unpin>,
+    ) -> std::io::Result<()> {
+        let Some(stream) = stream else {
+            return Ok(());
+        };
         let mut chunk = vec![0_u8; READ_CHUNK_BYTES];
         loop {
             let read = stream.read(&mut chunk).await?;
@@ -219,22 +240,31 @@ fn stderr_tail(stderr: &[u8]) -> String {
 }
 
 /// Stops the child's process group, the CLI and the `review-mcp` it started: SIGTERM, then SIGKILL
-/// after a grace period.
-async fn stop_process_group(process_group: Option<u32>) {
+/// after a grace period, during which `read_on` keeps what the child prints as it stops, such as
+/// a result envelope with the cost it reported.
+async fn stop_process_group(process_group: Option<u32>, read_on: impl Future) {
     #[cfg(unix)]
     if let Some(group) = process_group.and_then(|id| libc::pid_t::try_from(id).ok()) {
         // SAFETY: killpg only sends a signal to the group the runner created for this child.
         unsafe {
             libc::killpg(group, libc::SIGTERM);
         }
-        tokio::time::sleep(STOP_GRACE).await;
+        // The read never reaps the child, so the group id stays the child's until SIGKILL. A
+        // read that fails or outlasts the grace keeps what it read so far.
+        let _ = tokio::join!(
+            tokio::time::timeout(STOP_GRACE, read_on),
+            tokio::time::sleep(STOP_GRACE)
+        );
         // SAFETY: as above; the group may be gone already, which killpg reports and we ignore.
         unsafe {
             libc::killpg(group, libc::SIGKILL);
         }
     }
     #[cfg(not(unix))]
-    let _ = (process_group, STOP_GRACE);
+    {
+        let _ = (process_group, STOP_GRACE);
+        drop(read_on);
+    }
 }
 
 /// A new empty directory of its own under the system's temporary directory, outside any project,
@@ -407,6 +437,30 @@ mod tests {
         assert_eq!(output.stdout.len(), MAX_OUTPUT_TAIL_BYTES);
         assert!(output.stdout.ends_with(b"\n{\"type\":\"result\"}\n"));
         assert_eq!(output.stderr_tail, "done");
+    }
+
+    /// A stopped child's output is what it printed until it ended: before its timeout, and while
+    /// it stops, such as a result envelope a CLI ends with on SIGTERM.
+    #[tokio::test]
+    async fn should_keep_what_a_stopped_child_printed_before_and_while_it_stopped() {
+        let directory = StateDirectory::new();
+        let program = script(
+            &directory,
+            r#"trap 'echo "{\"type\":\"result\",\"total_cost_usd\":0.7}"; exit 143' TERM
+echo '{"type":"system","subtype":"init"}'
+while :; do sleep 0.1; done"#,
+        );
+
+        let output = run_agent(&command(program), Duration::from_millis(500))
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        assert!(output.timed_out);
+        assert_eq!(output.exit_code, None);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "{\"type\":\"system\",\"subtype\":\"init\"}\n{\"type\":\"result\",\"total_cost_usd\":0.7}\n"
+        );
     }
 
     #[tokio::test]

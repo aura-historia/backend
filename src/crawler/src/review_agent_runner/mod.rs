@@ -410,6 +410,8 @@ mod tests {
     /// A `claude` executable that records each call's arguments, input and environment and
     /// answers the canned envelope of its role, or of its review and role. A reviewer process
     /// logs the decision of its review, or of the role, to `decided.log`, as the console records it.
+    /// A process told to hang waits after its stream until it is stopped; one told to die kills
+    /// itself.
     struct FakeClaude {
         directory: StateDirectory,
     }
@@ -436,6 +438,8 @@ sleep 0.2
 envelope="$dir/envelopes/$review-$role.json"
 [ -f "$envelope" ] || envelope="$dir/envelopes/$role.json"
 sed "s/__REVIEW_ID__/$review/g" "$envelope"
+if [ -f "$dir/hang/$review-$role" ]; then sleep 30; fi
+if [ -f "$dir/die/$review-$role" ]; then kill -KILL $$; fi
 echo "end $role $review" >> "$dir/order.log"
 "#;
 
@@ -446,8 +450,9 @@ echo "end $role $review" >> "$dir/order.log"
             std::fs::write(&path, FAKE_CLAUDE).unwrap_or_default();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
                 .unwrap_or_else(|error| panic!("{error}"));
-            std::fs::create_dir(directory.path().join("envelopes")).unwrap_or_default();
-            std::fs::create_dir(directory.path().join("decisions")).unwrap_or_default();
+            for subdirectory in ["envelopes", "decisions", "hang", "die"] {
+                std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
+            }
             let fake = Self { directory };
             fake.login(json!({ "loggedIn": true, "authMethod": "claude.ai", "orgName": "Aura" }));
             fake.answer("author", author_envelope("STAGED", 0.5));
@@ -479,6 +484,16 @@ echo "end $role $review" >> "$dir/order.log"
                 lines.join("\n"),
             )
             .unwrap_or_default();
+        }
+
+        /// Has the process `<review id>-<role>` hang after its stream until it is stopped.
+        fn hang(&self, name: &str) {
+            std::fs::write(self.directory.path().join("hang").join(name), "").unwrap_or_default();
+        }
+
+        /// Has the process `<review id>-<role>` kill itself after its stream.
+        fn die(&self, name: &str) {
+            std::fs::write(self.directory.path().join("die").join(name), "").unwrap_or_default();
         }
 
         /// Has the reviewer of the review `name`, or every reviewer for `reviewer`, take `action`;
@@ -912,6 +927,79 @@ echo "end $role $review" >> "$dir/order.log"
         assert_eq!(second_run.processes, 0);
         assert_eq!(second_run.stopped, Some(PassStop::Paused(pause.until)));
         assert_eq!(fixture.ledger()[0]["usage_limit"], "WEEKLY");
+    }
+
+    /// A process stopped at its timeout, or killed, before its result envelope reported no cost:
+    /// the runner charges it the highest cost a process reported in the ledger, so the rolling
+    /// sums never leave out what it spent.
+    #[tokio::test]
+    async fn should_charge_a_stopped_or_killed_process_the_highest_reported_cost() {
+        let worked = review("PENDING_REVIEW", true);
+        let stopped = review("PENDING_REVIEW", true);
+        let killed = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![worked.clone(), stopped.clone(), killed.clone()]).await;
+        for unfinished in [&stopped, &killed] {
+            fixture.claude.stream(
+                &format!("{}-author", unfinished.review_id),
+                &[
+                    json!({ "type": "system", "subtype": "init", "model": "claude-opus-5-5" }),
+                    json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "page text" }] } }),
+                ],
+            );
+        }
+        fixture
+            .claude
+            .hang(&format!("{}-author", stopped.review_id));
+        fixture.claude.die(&format!("{}-author", killed.review_id));
+        let mut settings = fixture.settings(&[], &[]);
+        settings.process_timeout = std::time::Duration::from_secs(2);
+
+        let run = summary(&run_with(&settings).await);
+
+        assert_eq!((run.worked, run.processes, run.decided), (3, 4, 1));
+        let ledger = fixture.ledger();
+        let costs: Vec<(Value, Value, Value)> = ledger
+            .iter()
+            .map(|record| {
+                (
+                    record["review_id"].clone(),
+                    record["total_cost_usd"].clone(),
+                    record.get("cost_charged").cloned().unwrap_or(json!(false)),
+                )
+            })
+            .collect();
+        assert_eq!(
+            costs,
+            [
+                (
+                    json!(worked.review_id.to_string()),
+                    json!(0.5),
+                    json!(false)
+                ),
+                (
+                    json!(worked.review_id.to_string()),
+                    json!(0.25),
+                    json!(false)
+                ),
+                (
+                    json!(stopped.review_id.to_string()),
+                    json!(0.5),
+                    json!(true)
+                ),
+                (json!(killed.review_id.to_string()), json!(0.5), json!(true)),
+            ]
+        );
+        assert!(
+            ledger[2]["failure"]
+                .as_str()
+                .is_some_and(|failure| failure.starts_with("stopped after its timeout")),
+            "{}",
+            ledger[2]
+        );
+        assert_eq!(ledger[3]["failure"], "no result envelope, exit code None");
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.contains_key(&stopped.review_id));
+        assert!(state.cooldowns.contains_key(&killed.review_id));
     }
 
     /// The event trail, not the reviewer's report, says whether the console took a decision: a
