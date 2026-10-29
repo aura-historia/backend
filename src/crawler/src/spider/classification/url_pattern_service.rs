@@ -42,6 +42,13 @@ pub enum UrlPatternServiceError {
     },
 }
 
+/// A domain's completed URL classification: its product URL pattern, or a decided `NO_PATTERN`.
+#[derive(Debug, Clone)]
+pub enum DecidedUrlPattern {
+    Pattern(Regex),
+    NoPattern,
+}
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait UrlPatternService: Send + Sync {
@@ -69,13 +76,24 @@ pub trait UrlPatternService: Send + Sync {
         domain_id: &CrawlerDomainId,
     ) -> Result<(), UrlPatternServiceError>;
 
+    /// Re-reads the domain's pattern state for a crawl that classifies with `crawl_pattern`: the
+    /// decision stored while the crawl ran, such as the approval of a URL-pattern review it waits
+    /// on, which is `NO_PATTERN` or a stored pattern other than `crawl_pattern`. `None` while the
+    /// domain is undecided or still holds `crawl_pattern`.
+    async fn decision_stored_during_crawl(
+        &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_pattern: Option<&Regex>,
+    ) -> Result<Option<DecidedUrlPattern>, UrlPatternServiceError>;
+
     /// Asks the inference client to classify a product URL pattern from `urls`, persists the
     /// result when one is found, and returns it.
     ///
     /// This is the fallback used when no stored pattern exists or when
     /// the stored pattern must be refreshed after a failed crawl. `crawl_pattern` is the pattern
-    /// the crawl classifies with; a stored pattern that differs from it was stored while the crawl
-    /// ran and is returned as-is, without inference or review.
+    /// the crawl classifies with; a decision stored while the crawl ran
+    /// ([`Self::decision_stored_during_crawl`]) is returned as-is, without inference or review.
     async fn classify_and_save(
         &self,
         listing_source_id: &ListingSourceId,
@@ -210,6 +228,30 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(())
     }
 
+    async fn decision_stored_during_crawl(
+        &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_pattern: Option<&Regex>,
+    ) -> Result<Option<DecidedUrlPattern>, UrlPatternServiceError> {
+        let Some(record) = self
+            .repository
+            .find_pattern(listing_source_id, domain_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(match (record.url_pattern_state, record.url_pattern) {
+            (UrlPatternState::NoPattern, _) => Some(DecidedUrlPattern::NoPattern),
+            (UrlPatternState::Matched, Some(stored))
+                if crawl_pattern.is_none_or(|pattern| pattern.as_str() != stored) =>
+            {
+                Some(DecidedUrlPattern::Pattern(Regex::new(&stored)?))
+            }
+            _ => None,
+        })
+    }
+
     #[tracing::instrument(
         skip(self, crawl_pattern, urls),
         fields(listing_source_id = %listing_source_id, domain_id = %domain_id, crawl_root_url = %crawl_root_url, url_count = urls.len())
@@ -222,21 +264,16 @@ impl UrlPatternService for UrlPatternServiceImpl {
         crawl_pattern: Option<&Regex>,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
-        if let Some(record) = self
-            .repository
-            .find_pattern(listing_source_id, domain_id)
+        match self
+            .decision_stored_during_crawl(listing_source_id, domain_id, crawl_pattern)
             .await?
         {
-            match (record.url_pattern_state, record.url_pattern) {
-                (UrlPatternState::NoPattern, _) => return Ok(None),
-                (UrlPatternState::Matched, Some(stored))
-                    if crawl_pattern.is_none_or(|pattern| pattern.as_str() != stored) =>
-                {
-                    debug!(crawl_root_url, domain_id = %domain_id, "Using product URL pattern stored during the crawl");
-                    return Ok(Some(Regex::new(&stored)?));
-                }
-                _ => {}
+            Some(DecidedUrlPattern::NoPattern) => return Ok(None),
+            Some(DecidedUrlPattern::Pattern(stored)) => {
+                debug!(crawl_root_url, domain_id = %domain_id, "Using product URL pattern stored during the crawl");
+                return Ok(Some(stored));
             }
+            None => {}
         }
 
         if let Some(review_repository) = self.authoring.review_repository()
