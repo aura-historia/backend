@@ -90,13 +90,27 @@ impl CrawledUrl {
         self.page_spelling() == other.page_spelling()
     }
 
-    /// Whether `pattern` takes this URL's page: it matches the URL as stored, or with or without
-    /// its trailing slash, so a pattern written for either spelling takes the page.
-    pub fn matches_pattern(&self, pattern: &Regex) -> bool {
+    /// The spellings this URL's page goes by: the URL as stored, and its page without and with
+    /// a trailing slash. The root path has only its own.
+    pub fn page_spellings(&self) -> Vec<url::Url> {
         let page = self.page_spelling();
-        pattern.is_match(self.0.as_str())
-            || pattern.is_match(page.as_str())
-            || with_trailing_slash(&page).is_some_and(|slashed| pattern.is_match(slashed.as_str()))
+        let slashed = with_trailing_slash(&page);
+        let mut spellings = vec![self.0.clone()];
+        for spelling in std::iter::once(page).chain(slashed) {
+            if !spellings.contains(&spelling) {
+                spellings.push(spelling);
+            }
+        }
+        spellings
+    }
+
+    /// Whether `pattern` takes this URL's page: it matches one of its
+    /// [spellings](Self::page_spellings), the URL as stored or with or without its trailing
+    /// slash, so a pattern written for either spelling takes the page.
+    pub fn matches_pattern(&self, pattern: &Regex) -> bool {
+        self.page_spellings()
+            .iter()
+            .any(|spelling| pattern.is_match(spelling.as_str()))
     }
 
     pub fn classify(
@@ -433,6 +447,46 @@ mod tests {
                 CrawledUrl::try_from(without_twin).unwrap().slashed_twin(),
                 None,
                 "{without_twin}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_spell_page_as_stored_and_with_and_without_trailing_slash() {
+        for (stored, spellings) in [
+            (
+                "https://example.com/products/1?q=1",
+                vec![
+                    "https://example.com/products/1?q=1",
+                    "https://example.com/products/1/?q=1",
+                ],
+            ),
+            (
+                "https://example.com/products/1/",
+                vec![
+                    "https://example.com/products/1/",
+                    "https://example.com/products/1",
+                ],
+            ),
+            (
+                "https://example.com/products/1//",
+                vec![
+                    "https://example.com/products/1//",
+                    "https://example.com/products/1",
+                    "https://example.com/products/1/",
+                ],
+            ),
+            ("https://example.com/", vec!["https://example.com/"]),
+        ] {
+            assert_eq!(
+                CrawledUrl::try_from(stored)
+                    .unwrap()
+                    .page_spellings()
+                    .into_iter()
+                    .map(String::from)
+                    .collect::<Vec<_>>(),
+                spellings,
+                "{stored}"
             );
         }
     }
