@@ -1209,7 +1209,7 @@ mod sdk_tests {
 
     const SQS_ENDPOINT: &str = "https://sqs.us-east-1.amazonaws.com/";
     const QUEUE_URL: &str = "https://sqs.us-east-1.amazonaws.com/123456789012/ingestion.fifo";
-    const FIXTURES: &str = include_str!("../tests/fixtures/ingestion_v1.json");
+    const FIXTURES: &str = include_str!("../tests/fixtures/ingestion_v2.json");
 
     // The connector is below SdkTransport: requests are signed/serialized and responses decoded by
     // the real SDK. A connector I/O failure is ambiguous even if a later SQS entry says senderFault.

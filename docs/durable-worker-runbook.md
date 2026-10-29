@@ -283,7 +283,7 @@ Shipping processing relies on CDC/SQS delivery, retries and controlled DLQ redri
 is no scheduled shipping expiry or pending-work recovery scan.
 
 Verify the baseline schema, compatible shipping/event codecs, CDC table selection, dedicated
-queue/consumer, ingestion delivery envelope v1 and strict nested shipping mapping under the
+queue/consumer, ingestion delivery envelope v2 and strict nested shipping mapping under the
 [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
 Fence/drain incompatible old complete-projector binaries before activating shipping work;
 old document builders omit shipping even when they read a newer listing fence.

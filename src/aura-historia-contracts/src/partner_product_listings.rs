@@ -1,7 +1,9 @@
 //! Source-keyed integration inputs shared by synchronous and asynchronous transports.
 use crate::{
     patch_value::{PatchValue, clearable},
-    product_listing_fields::{ProductListingAuctionData, auction_patch, product_images},
+    product_listing_fields::{
+        ProductListingAuctionData, auction_patch, product_images, title, title_patch,
+    },
     product_listing_management::MutationInputError,
     values::{LocalizedTextData, PriceData, ProductListingPriceData},
 };
@@ -11,7 +13,7 @@ use money::Price;
 use product_listing_core::{
     description::Description, listing_availability::ListingAvailability,
     product_listing::ProductListingPricing, product_listing_id::ProductListingKey,
-    source_listing_id::SourceListingId, title::Title,
+    source_listing_id::SourceListingId,
 };
 use product_listing_service::use_cases::{
     CreateProductListingCommand, UpdateProductListingCommand, UpsertProductListingCommand,
@@ -53,6 +55,10 @@ pub struct CreateProductListingData {
 pub struct UpdateProductListingData {
     pub source_listing_id: String,
     #[serde(default)]
+    pub title: PatchValue<LocalizedTextData>,
+    #[serde(default)]
+    pub description: PatchValue<LocalizedTextData>,
+    #[serde(default)]
     pub price: PatchValue<ProductListingPriceData>,
     #[serde(default)]
     pub price_estimate_min: PatchValue<PriceData>,
@@ -78,9 +84,9 @@ pub struct UpdateProductListingData {
 pub struct UpsertProductListingData {
     pub source_listing_id: String,
     #[serde(default)]
-    pub title: Option<LocalizedTextData>,
+    pub title: PatchValue<LocalizedTextData>,
     #[serde(default)]
-    pub description: Option<LocalizedTextData>,
+    pub description: PatchValue<LocalizedTextData>,
     #[serde(default)]
     pub price: PatchValue<ProductListingPriceData>,
     #[serde(default)]
@@ -146,6 +152,8 @@ impl UpdateProductListingData {
         );
         let auction = auction_patch(self.auction)?;
         let command = UpdateProductListingCommand {
+            title: title_patch(self.title)?,
+            description: clearable(self.description.map(description)),
             price: clearable(self.price.map(product_listing_price)),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
             price_estimate_max: clearable(self.price_estimate_max.map(price)),
@@ -167,8 +175,8 @@ impl UpsertProductListingData {
         Ok(UpsertProductListingCommand {
             listing_source_id,
             source_listing_id: source_listing_id(self.source_listing_id)?,
-            title: self.title.map(title).transpose()?,
-            description: self.description.map(description),
+            title: title_patch(self.title)?,
+            description: clearable(self.description.map(description)),
             price: clearable(self.price.map(product_listing_price)),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
             price_estimate_max: clearable(self.price_estimate_max.map(price)),
@@ -190,20 +198,6 @@ impl WithdrawProductListingData {
             source_listing_id(self.source_listing_id)?,
         ))
     }
-}
-
-/// Rejects a title without text after normalization, such as a blank or emoji-only title.
-fn title(
-    value: LocalizedTextData,
-) -> Result<localization::Localized<localization::Language, Title>, MutationInputError> {
-    let title: localization::Localized<localization::Language, Title> = value.into_localized();
-    if title.payload.as_ref().is_empty() {
-        return Err(MutationInputError::invalid(
-            "title.text",
-            "Title must contain text other than whitespace, emoji or symbols.",
-        ));
-    }
-    Ok(title)
 }
 
 fn description(
@@ -451,10 +445,14 @@ mod tests {
                 .into_command(listing_source_id)
                 .unwrap_or_else(|error| panic!("valid create command: {error}"))
                 .title,
-            upsert
+            match upsert
                 .into_command(listing_source_id)
-                .unwrap_or_else(|error| panic!("valid upsert command: {error}"))
-                .title,
+                .expect("valid upsert command")
+                .title
+            {
+                PatchField::Set(title) => Some(title),
+                _ => panic!("expected title set"),
+            },
         ] {
             assert_eq!(
                 Some("Anrichte Kirschbaum | 3360"),
@@ -588,5 +586,56 @@ mod tests {
             .unwrap_or_else(|| panic!("blank source listing ID must fail"));
 
         assert_eq!(error.field, "sourceListingId");
+    }
+    #[test]
+    fn should_preserve_text_patch_intent_across_update_upsert_and_management() {
+        let source = ListingSourceId::new();
+        for fields in [
+            serde_json::json!({}),
+            serde_json::json!({"title":null,"description":null}),
+            serde_json::json!({"title":{"text":"New title","language":"fr"},"description":{"text":"New description","language":"de"}}),
+        ] {
+            let mut integration = fields.clone();
+            integration["sourceListingId"] = serde_json::json!("item");
+            let update = serde_json::from_value::<UpdateProductListingData>(integration.clone())
+                .unwrap()
+                .into_key_and_command(source)
+                .unwrap()
+                .1;
+            let upsert = serde_json::from_value::<UpsertProductListingData>(integration)
+                .unwrap()
+                .into_command(source)
+                .unwrap();
+            let mut management = fields.clone();
+            management["expectedVersion"] = serde_json::json!(1);
+            let management =
+                serde_json::from_value::<crate::product_listing_management::UpdateData>(management)
+                    .unwrap()
+                    .into_command(product_listing_core::product_listing_id::ProductListingId::new())
+                    .unwrap()
+                    .patch;
+            assert_eq!(update.title, upsert.title);
+            assert_eq!(update.description, upsert.description);
+            assert_eq!(update.title, management.title);
+            assert_eq!(update.description, management.description);
+            match fields.get("title") {
+                None => {
+                    assert_eq!(update.title, PatchField::Unchanged);
+                    assert_eq!(update.description, PatchField::Unchanged);
+                }
+                Some(serde_json::Value::Null) => {
+                    assert_eq!(update.title, PatchField::Clear);
+                    assert_eq!(update.description, PatchField::Clear);
+                }
+                Some(_) => {
+                    assert!(
+                        matches!(update.title, PatchField::Set(ref v) if v.localization == localization::Language::Fr && v.payload.as_ref() == "New title")
+                    );
+                    assert!(
+                        matches!(update.description, PatchField::Set(ref v) if v.localization == localization::Language::De)
+                    );
+                }
+            }
+        }
     }
 }

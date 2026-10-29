@@ -7,6 +7,7 @@ use product_listing_core::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductListingContentAssessmentSourceEvent {
     Discovered,
+    ChangedText,
     Other,
 }
 

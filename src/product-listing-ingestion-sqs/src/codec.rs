@@ -50,7 +50,7 @@ use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
-pub const SCHEMA_VERSION: u8 = 1;
+pub const SCHEMA_VERSION: u8 = 2;
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const GROUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-group.v1";
 const DEDUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-dedup.v1";
@@ -69,10 +69,10 @@ pub enum CodecError {
 
 type Result<T> = std::result::Result<T, CodecError>;
 
-/// Durable v1 envelope for every operation. Unknown fields and versions are rejected.
+/// Durable v2 envelope for every operation. Unknown fields and versions are rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct IngestionEnvelopeV1 {
+pub struct IngestionEnvelopeV2 {
     schema_version: u8,
     submission_id: String,
     command_id: String,
@@ -87,7 +87,7 @@ pub struct IngestionEnvelopeV1 {
     payload: WirePayload,
 }
 
-impl IngestionEnvelopeV1 {
+impl IngestionEnvelopeV2 {
     pub fn command_id(&self) -> &str {
         &self.command_id
     }
@@ -307,8 +307,8 @@ impl WirePayload {
             Self::Create(c) => ProductListingIngestionIntent::Create(CreateProductListingCommand {
                 listing_source_id: parse_source(&c.key.listing_source_id)?,
                 source_listing_id: parse_listing(&c.key.source_listing_id)?,
-                title: localized_title(c.title)?,
-                description: localized_description(c.description)?,
+                title: c.title.map(localized_title).transpose()?,
+                description: c.description.map(localized_description).transpose()?,
                 pricing: ProductListingPricing {
                     price: c.pricing.price.map(price_assertion).transpose()?,
                     price_estimate_min: c.pricing.price_estimate_min.map(price).transpose()?,
@@ -326,6 +326,8 @@ impl WirePayload {
                 ProductListingIngestionIntent::Update {
                     product_key: key(c.key)?,
                     command: UpdateProductListingCommand {
+                        title: map_patch(c.title, patch_title)?,
+                        description: map_patch(c.description, localized_description)?,
                         price: map_patch(c.price, price_assertion)?,
                         price_estimate_min: map_patch(c.price_estimate_min, price)?,
                         price_estimate_max: map_patch(c.price_estimate_max, price)?,
@@ -339,8 +341,8 @@ impl WirePayload {
             Self::Upsert(c) => ProductListingIngestionIntent::Upsert(UpsertProductListingCommand {
                 listing_source_id: parse_source(&c.key.listing_source_id)?,
                 source_listing_id: parse_listing(&c.key.source_listing_id)?,
-                title: localized_title(c.title)?,
-                description: localized_description(c.description)?,
+                title: map_patch(c.title, patch_title)?,
+                description: map_patch(c.description, localized_description)?,
                 price: map_patch(c.price, price_assertion)?,
                 price_estimate_min: map_patch(c.price_estimate_min, price)?,
                 price_estimate_max: map_patch(c.price_estimate_max, price)?,
@@ -475,6 +477,8 @@ struct WireCreate {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WireUpdate {
     key: WireKey,
+    title: WirePatch<WireLocalized>,
+    description: WirePatch<WireLocalized>,
     price: WirePatch<WirePriceAssertion>,
     price_estimate_min: WirePatch<WirePrice>,
     price_estimate_max: WirePatch<WirePrice>,
@@ -487,8 +491,8 @@ struct WireUpdate {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WireUpsert {
     key: WireKey,
-    title: Option<WireLocalized>,
-    description: Option<WireLocalized>,
+    title: WirePatch<WireLocalized>,
+    description: WirePatch<WireLocalized>,
     price: WirePatch<WirePriceAssertion>,
     price_estimate_min: WirePatch<WirePrice>,
     price_estimate_max: WirePatch<WirePrice>,
@@ -577,33 +581,25 @@ fn price_assertion(p: WirePriceAssertion) -> Result<ProductListingPrice> {
         WirePriceAssertion::OnRequest => Ok(ProductListingPrice::OnRequest),
     }
 }
-fn localized_title(l: Option<WireLocalized>) -> Result<Option<Localized<Language, Title>>> {
-    l.map(|l| {
-        // Envelopes encoded before typography normalization carry the earlier canonical title.
-        if !Title::has_canonical_structure(&l.value) {
-            return Err(CodecError::Invalid);
-        }
-        Ok(Localized::new(
-            Language::from_code(&l.language).ok_or(CodecError::Invalid)?,
-            Title::from(l.value),
-        ))
-    })
-    .transpose()
+fn localized_title(value: WireLocalized) -> Result<Localized<Language, Title>> {
+    // Envelopes encoded before typography normalization carry the earlier canonical title.
+    if !Title::has_canonical_structure(&value.value) {
+        return Err(CodecError::Invalid);
+    }
+    Ok(Localized::new(
+        Language::from_code(&value.language).ok_or(CodecError::Invalid)?,
+        Title::from(value.value),
+    ))
 }
-fn localized_description(
-    l: Option<WireLocalized>,
-) -> Result<Option<Localized<Language, Description>>> {
-    l.map(|l| {
-        let description = Description::from(l.value.as_str());
-        if description.as_ref() != l.value {
-            return Err(CodecError::Invalid);
-        }
-        Ok(Localized::new(
-            Language::from_code(&l.language).ok_or(CodecError::Invalid)?,
-            description,
-        ))
-    })
-    .transpose()
+fn localized_description(value: WireLocalized) -> Result<Localized<Language, Description>> {
+    let description = Description::from(value.value.as_str());
+    if description.as_ref() != value.value {
+        return Err(CodecError::Invalid);
+    }
+    Ok(Localized::new(
+        Language::from_code(&value.language).ok_or(CodecError::Invalid)?,
+        description,
+    ))
 }
 fn images(values: Vec<String>) -> Result<IndexSet<ProductListingImage>> {
     let count = values.len();
@@ -729,18 +725,25 @@ fn wire_key(source: ListingSourceId, listing: &SourceListingId) -> WireKey {
 fn wire_images(images: &IndexSet<ProductListingImage>) -> Vec<String> {
     images.iter().map(|i| i.url().to_string()).collect()
 }
-fn wire_localized<T: AsRef<str>>(value: &Option<Localized<Language, T>>) -> Option<WireLocalized> {
-    value.as_ref().map(|v| WireLocalized {
-        language: v.localization.as_str().into(),
-        value: v.payload.as_ref().into(),
-    })
+fn wire_localized<T: AsRef<str>>(value: &Localized<Language, T>) -> WireLocalized {
+    WireLocalized {
+        language: value.localization.as_str().into(),
+        value: value.payload.as_ref().into(),
+    }
+}
+fn patch_title(value: WireLocalized) -> Result<Localized<Language, Title>> {
+    let title = localized_title(value)?;
+    if title.payload.as_ref().is_empty() {
+        return Err(CodecError::Invalid);
+    }
+    Ok(title)
 }
 fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
     Ok(match intent {
         ProductListingIngestionIntent::Create(c) => WirePayload::Create(WireCreate {
             key: wire_key(c.listing_source_id, &c.source_listing_id),
-            title: wire_localized(&c.title),
-            description: wire_localized(&c.description),
+            title: c.title.as_ref().map(wire_localized),
+            description: c.description.as_ref().map(wire_localized),
             pricing: WirePricing {
                 price: c.pricing.price.map(wire_assertion),
                 price_estimate_min: c.pricing.price_estimate_min.map(wire_price),
@@ -759,6 +762,8 @@ fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
                 product_key.listing_source_id,
                 &product_key.source_listing_id,
             ),
+            title: wire_patch(&c.title, wire_localized),
+            description: wire_patch(&c.description, wire_localized),
             price: wire_patch(&c.price, |v| wire_assertion(*v)),
             price_estimate_min: wire_patch(&c.price_estimate_min, |v| wire_price(*v)),
             price_estimate_max: wire_patch(&c.price_estimate_max, |v| wire_price(*v)),
@@ -773,8 +778,8 @@ fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
         }),
         ProductListingIngestionIntent::Upsert(c) => WirePayload::Upsert(WireUpsert {
             key: wire_key(c.listing_source_id, &c.source_listing_id),
-            title: wire_localized(&c.title),
-            description: wire_localized(&c.description),
+            title: wire_patch(&c.title, wire_localized),
+            description: wire_patch(&c.description, wire_localized),
             price: wire_patch(&c.price, |v| wire_assertion(*v)),
             price_estimate_min: wire_patch(&c.price_estimate_min, |v| wire_price(*v)),
             price_estimate_max: wire_patch(&c.price_estimate_max, |v| wire_price(*v)),
@@ -825,9 +830,9 @@ fn wire_payload(intent: &ProductListingIngestionIntent) -> Result<WirePayload> {
 }
 
 /// Constructs the correctly versioned envelope, checking metadata/intent consistency.
-pub fn envelope(message: &ProductListingIngestionMessage) -> Result<IngestionEnvelopeV1> {
+pub fn envelope(message: &ProductListingIngestionMessage) -> Result<IngestionEnvelopeV2> {
     let m = &message.metadata;
-    let mut value = IngestionEnvelopeV1 {
+    let mut value = IngestionEnvelopeV2 {
         schema_version: SCHEMA_VERSION,
         submission_id: m.submission_id.as_str().into(),
         command_id: m.command_id.as_str().into(),
@@ -859,11 +864,11 @@ pub fn encode(message: &ProductListingIngestionMessage) -> Result<String> {
 }
 
 /// Rejects unknown fields, unsupported versions, mismatched source IDs and invalid typed leaves.
-pub fn decode(body: &str) -> Result<IngestionEnvelopeV1> {
+pub fn decode(body: &str) -> Result<IngestionEnvelopeV2> {
     if body.len() > MAX_MESSAGE_BYTES {
         return Err(CodecError::TooLarge);
     }
-    let value: IngestionEnvelopeV1 = serde_json::from_str(body).map_err(|_| CodecError::Invalid)?;
+    let value: IngestionEnvelopeV2 = serde_json::from_str(body).map_err(|_| CodecError::Invalid)?;
     value.validate()?;
     Ok(value)
 }
@@ -871,13 +876,13 @@ pub fn decode(body: &str) -> Result<IngestionEnvelopeV1> {
 /// SHA-256 of actor scope plus versioned canonical semantic command data. Excludes command,
 /// submission, request/correlation IDs and prepared time. Object keys are canonicalized;
 /// image order, patch states, and raw evidence/provenance are retained.
-pub fn semantic_fingerprint(value: &IngestionEnvelopeV1) -> Result<String> {
+pub fn semantic_fingerprint(value: &IngestionEnvelopeV2) -> Result<String> {
     Ok(value.verified_fingerprint()?.to_owned())
 }
 
 /// Stable per-listing FIFO partition; raw observations partition by method and raw source key.
 /// Hashing keeps opaque keys out of SQS message attributes and within the 128-byte FIFO limit.
-pub fn fifo_group_id(value: &IngestionEnvelopeV1) -> Result<String> {
+pub fn fifo_group_id(value: &IngestionEnvelopeV2) -> Result<String> {
     value.validate()?;
     let source = value.listing_source_id.as_bytes();
     let fields: Vec<&[u8]> = match &value.payload {
@@ -900,7 +905,7 @@ pub fn fifo_group_id(value: &IngestionEnvelopeV1) -> Result<String> {
 
 /// Command identity plus semantic fingerprint, not SQS's content-based deduplication (which
 /// would change when request/correlation IDs change). Different commands on the same key survive.
-pub fn fifo_deduplication_id(value: &IngestionEnvelopeV1) -> Result<String> {
+pub fn fifo_deduplication_id(value: &IngestionEnvelopeV2) -> Result<String> {
     value.validate()?;
     let fingerprint = value.verified_fingerprint()?;
     Ok(format!(
@@ -917,16 +922,16 @@ mod tests {
     use super::*;
     use serde_json::{Value, json};
 
-    const GOLDEN_V1: &str = include_str!("../tests/fixtures/ingestion_v1.json");
+    const GOLDEN_V2: &str = include_str!("../tests/fixtures/ingestion_v2.json");
     const GOLDEN_SOURCE: &str = "ls_01h455vb4pex5vy7enb1p677vn";
     const GOLDEN_LISTING: &str = "陶器 🏺 / SKU-42";
 
     fn golden_fixtures() -> Vec<Value> {
-        serde_json::from_str(GOLDEN_V1).unwrap()
+        serde_json::from_str(GOLDEN_V2).unwrap()
     }
 
     #[test]
-    fn golden_v1_envelopes_decode_and_reencode_without_losing_fields() {
+    fn golden_v2_envelopes_decode_and_reencode_without_losing_fields() {
         let fixtures = golden_fixtures();
         assert_eq!(fixtures.len(), 5);
         for (index, (expected_operation, original)) in
@@ -1093,7 +1098,7 @@ mod tests {
 
     fn fixture(operation: &str, command: Value) -> Value {
         json!({
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "submissionId": format!("plis1_{}", "a".repeat(64)),
             "commandId": format!("plic1_{}", "b".repeat(64)),
             "index": 0, "inputCount": 2,
@@ -1118,14 +1123,14 @@ mod tests {
         value["semanticFingerprint"] = json!(fingerprint(&actor, &payload)?);
         Ok(value)
     }
-    fn decode_value(value: &Value) -> Result<IngestionEnvelopeV1> {
+    fn decode_value(value: &Value) -> Result<IngestionEnvelopeV2> {
         decode(&fingerprinted_value(value)?.to_string())
     }
 
     // For malformed *semantic* leaves, compute the framing hash without invoking the
     // production validator. A failure then proves the leaf is rejected, not just a stale hash.
     fn assert_semantically_invalid(mut value: Value) {
-        let envelope: IngestionEnvelopeV1 = serde_json::from_value(value.clone()).unwrap();
+        let envelope: IngestionEnvelopeV2 = serde_json::from_value(value.clone()).unwrap();
         let payload = serde_json::to_vec(&envelope.payload).unwrap();
         value["semanticFingerprint"] = json!(digest(
             FINGERPRINT_DOMAIN,
@@ -1150,15 +1155,15 @@ mod tests {
         })
     }
     fn update_command(source: &str) -> Value {
-        json!({ "key": key(source), "price": { "state": "SET", "value": { "kind": "MONETARY", "currency": "EUR", "amount": 1200 } },
+        json!({ "key": key(source), "title": patch("UNCHANGED"), "description": patch("UNCHANGED"), "price": { "state": "SET", "value": { "kind": "MONETARY", "currency": "EUR", "amount": 1200 } },
             "priceEstimateMin": patch("UNCHANGED"), "priceEstimateMax": patch("CLEAR"),
             "availability": patch("CLEAR"), "url": patch("UNCHANGED"),
             "images": { "state": "SET", "value": [] }, "auction": patch("UNCHANGED") })
     }
     fn upsert_command(source: &str) -> Value {
         let mut value = update_command(source);
-        value["title"] = Value::Null;
-        value["description"] = Value::Null;
+        value["title"] = patch("UNCHANGED");
+        value["description"] = patch("UNCHANGED");
         value["url"] = Value::Null;
         value
     }
@@ -1314,6 +1319,31 @@ mod tests {
     }
 
     #[test]
+    fn mutable_text_intents_round_trip_with_distinct_fingerprints() {
+        for operation in [1, 2] {
+            for field in ["title", "description"] {
+                let mut hashes = std::collections::HashSet::new();
+                for patch in [
+                    json!({"state":"UNCHANGED"}),
+                    json!({"state":"CLEAR"}),
+                    json!({"state":"SET","value":{"language":"fr","value":"Nouveau texte"}}),
+                ] {
+                    let mut value = golden_fixtures()[operation].clone();
+                    value["payload"]["command"][field] = patch.clone();
+                    let decoded = decode_value(&value).unwrap();
+                    assert!(hashes.insert(semantic_fingerprint(&decoded).unwrap()));
+                    let message = decoded.into_service_envelope().unwrap().message;
+                    let encoded: Value = serde_json::from_str(&encode(&message).unwrap()).unwrap();
+                    assert_eq!(encoded["payload"]["command"][field], patch);
+                }
+                let mut invalid = golden_fixtures()[operation].clone();
+                invalid["payload"]["command"][field] = Value::Null;
+                assert!(decode_value(&invalid).is_err());
+            }
+        }
+    }
+
+    #[test]
     fn update_patch_state_variants_round_trip_as_distinct_instructions() {
         let update = golden_fixtures()[1].clone();
         let baseline = decode(&update.to_string()).unwrap();
@@ -1357,7 +1387,7 @@ mod tests {
             tampered["semanticFingerprint"] = json!("0".repeat(64));
             assert!(decode(&tampered.to_string()).is_err());
             tampered = original.clone();
-            tampered["schemaVersion"] = json!(2);
+            tampered["schemaVersion"] = json!(1);
             assert_eq!(
                 decode(&tampered.to_string()),
                 Err(CodecError::UnsupportedVersion)
@@ -1367,6 +1397,8 @@ mod tests {
             assert!(decode(&tampered.to_string()).is_err());
         }
         for field in [
+            "title",
+            "description",
             "price",
             "priceEstimateMin",
             "priceEstimateMax",
@@ -1381,7 +1413,7 @@ mod tests {
                 .unwrap()
                 .remove(field);
             assert!(
-                serde_json::from_value::<IngestionEnvelopeV1>(missing.clone()).is_err(),
+                serde_json::from_value::<IngestionEnvelopeV2>(missing.clone()).is_err(),
                 "missing {field}"
             );
             assert!(decode(&missing.to_string()).is_err());
@@ -1394,12 +1426,12 @@ mod tests {
         ] {
             let mut bad = fixtures[1].clone();
             bad["payload"]["command"]["price"] = malformed;
-            assert!(serde_json::from_value::<IngestionEnvelopeV1>(bad.clone()).is_err());
+            assert!(serde_json::from_value::<IngestionEnvelopeV2>(bad.clone()).is_err());
             assert!(decode(&bad.to_string()).is_err());
         }
         let mut unknown_patch_field = fixtures[1].clone();
         unknown_patch_field["payload"]["command"]["price"]["extra"] = json!(true);
-        assert!(serde_json::from_value::<IngestionEnvelopeV1>(unknown_patch_field).is_err());
+        assert!(serde_json::from_value::<IngestionEnvelopeV2>(unknown_patch_field).is_err());
         let mut bad = fixtures[0].clone();
         bad["payload"]["command"]["auction"]["cataloguePosition"] =
             json!({"state": "SET", "value": 0});
@@ -1578,7 +1610,7 @@ mod tests {
         value["payload"]["command"] = create_command(&source);
         assert!(decode_value(&value).is_ok());
         for (path, invalid) in [
-            ("schemaVersion", json!(2)),
+            ("schemaVersion", json!(1)),
             ("inputCount", json!(0)),
             ("commandId", json!("bad")),
             ("listingSourceId", json!(ListingSourceId::new().to_string())),
@@ -1751,7 +1783,7 @@ mod tests {
         tampered = fingerprinted_value(&value).unwrap();
         tampered["actor"]["id"] = json!(user_core::user_id::UserId::new().to_string());
         assert!(decode(&tampered.to_string()).is_err());
-        let unverified: IngestionEnvelopeV1 = serde_json::from_value(tampered.clone()).unwrap();
+        let unverified: IngestionEnvelopeV2 = serde_json::from_value(tampered.clone()).unwrap();
         assert_eq!(unverified.verified_fingerprint(), Err(CodecError::Invalid));
         let mut same_user = fingerprinted_value(&value).unwrap();
         same_user["actor"]["kind"] = json!("USER");

@@ -144,6 +144,23 @@ async fn should_preserve_typed_auction_lot_facts_when_normalizing_generic_raw_up
         [revision] if revision.outcome == ProductListingRawNormalizationOutcome::Applied
     ));
 
+    let text: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT title_text,description_text FROM product_listings WHERE product_listing_id=$1",
+    )
+    .bind(result.product_listing_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        text.0.as_deref(),
+        Some("An antique ceramic vase from an English collection")
+    );
+    assert_eq!(
+        text.1.as_deref(),
+        Some(
+            "This antique ceramic vase has documented provenance and careful restoration history."
+        )
+    );
     let after = auction_lot_facts(&pool, result.product_listing_id.into_uuid()).await;
     assert_eq!(before, after);
     assert_eq!(

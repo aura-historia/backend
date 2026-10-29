@@ -1,7 +1,9 @@
 use crate::patch_value::{PatchValue, clearable};
 use crate::product_listing_management::MutationInputError;
+use crate::values::LocalizedTextData;
 use application::patch_field::PatchField;
 use auction_core::AuctionId;
+use product_listing_core::title::Title;
 use product_listing_core::{
     product_listing::{CataloguePosition, LotNumber},
     product_listing_image::ProductListingImage,
@@ -163,4 +165,29 @@ fn catalogue_position_patch_schema(_: &mut schemars::SchemaGenerator) -> schemar
 
 pub fn image_urls_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({"type":"array", "items":crate::wire::schema::url(generator)})
+}
+
+/// A submitted title must retain text after normalization.
+pub(crate) fn title(
+    value: LocalizedTextData,
+) -> Result<localization::Localized<localization::Language, Title>, MutationInputError> {
+    let title: localization::Localized<localization::Language, Title> = value.into_localized();
+    if title.payload.as_ref().is_empty() {
+        return Err(MutationInputError::invalid(
+            "title.text",
+            "Title must contain text other than whitespace, emoji or symbols.",
+        ));
+    }
+    Ok(title)
+}
+
+pub(crate) fn title_patch(
+    value: PatchValue<LocalizedTextData>,
+) -> Result<PatchField<localization::Localized<localization::Language, Title>>, MutationInputError>
+{
+    Ok(match value {
+        PatchValue::Omitted => PatchField::Unchanged,
+        PatchValue::Null => PatchField::Clear,
+        PatchValue::Value(value) => PatchField::Set(title(value)?),
+    })
 }

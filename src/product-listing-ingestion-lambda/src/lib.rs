@@ -339,7 +339,7 @@ async fn process_ingestion_job(
     correlation: &RefCell<Option<CommandCorrelation>>,
 ) -> JobDisposition {
     let envelope =
-        match codec::decode(body).and_then(codec::IngestionEnvelopeV1::into_service_envelope) {
+        match codec::decode(body).and_then(codec::IngestionEnvelopeV2::into_service_envelope) {
             Ok(envelope) => envelope,
             Err(_) => return JobDisposition::Unprocessable("invalid_wire_command"),
         };
@@ -402,7 +402,7 @@ mod tests {
     };
 
     const GOLDEN: &str =
-        include_str!("../../product-listing-ingestion-sqs/tests/fixtures/ingestion_v1.json");
+        include_str!("../../product-listing-ingestion-sqs/tests/fixtures/ingestion_v2.json");
 
     #[derive(Clone, Copy)]
     enum Mode {

@@ -140,6 +140,9 @@ fn content_assessment_event(
                 product_listing_core::product_listing_event::ProductListingEventPayload::Discovered(_) => {
                     ProductListingContentAssessmentSourceEvent::Discovered
                 }
+                product_listing_core::product_listing_event::ProductListingEventPayload::Changed(changed) if changed.has_text_change() => {
+                    ProductListingContentAssessmentSourceEvent::ChangedText
+                }
                 product_listing_core::product_listing_event::ProductListingEventPayload::Changed(_) => {
                     ProductListingContentAssessmentSourceEvent::Other
                 }

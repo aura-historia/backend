@@ -15,6 +15,7 @@ pub type VersionedProductListing = Versioned<ProductListing, ProductListingStora
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ProductListingWriteEffects {
+    pub advance_content_source: bool,
     pub advance_embedding_source: bool,
 }
 
@@ -22,10 +23,13 @@ impl From<&ProductListingEventPayload> for ProductListingWriteEffects {
     fn from(payload: &ProductListingEventPayload) -> Self {
         match payload {
             ProductListingEventPayload::Discovered(_) => Self {
+                advance_content_source: true,
                 advance_embedding_source: true,
             },
             ProductListingEventPayload::Changed(changes) => Self {
-                advance_embedding_source: changes.image_count().is_some(),
+                advance_content_source: changes.has_text_change(),
+                advance_embedding_source: changes.has_text_change()
+                    || changes.image_count().is_some(),
             },
         }
     }

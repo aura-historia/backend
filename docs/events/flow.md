@@ -181,10 +181,14 @@ Product event fanout:
 | Event | Additional consumers |
 | --- | --- |
 | `PRODUCT_LISTING_DISCOVERED` | Content assessment, embedding, translation |
-| `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image changes |
+| `PRODUCT_LISTING_CHANGED` | Watchlist for main-price/availability changes; embedding for image or text changes; content assessment and title translation for title/description changes |
 | `ENRICHMENT_EMBEDDED`, `ENRICHMENT_TRANSLATED_TITLES`, `ENRICHMENT_GEOGRAPHY_UPDATED`, `ENRICHMENT_SHIPPING_UPDATED`, `ENRICHMENT_CONTENT_ASSESSED` | None beyond product projector; no enrichment loop |
 
-Combined change dimensions route to the union of their consumers. Canonical listing
+Combined change dimensions route to the union of their consumers. Meaningful text changes
+advance content and embedding source markers with canonical state, delete obsolete translations
+and invalidate embeddings in the same transaction. Description changes also schedule title
+translation under the shared content guard. Enrichment readers classify these changes as work;
+late results remain fenced by their source revision. Text-only events never notify watchlists. Canonical listing
 rows, saved-filter configuration, Users, watchlist entries, Auction events, proofs and
 operational receipts do not implicitly trigger these routes. In particular, a User update
 is not a subscription job.
@@ -218,7 +222,10 @@ complete, and a change must contain both previous and current values. Delivery-o
 changes project the listing without triggering price/availability watchlist
 notifications or image embedding. Protected delivery terms never enter ordinary jobs or
 public history. All ingestion operations, including `CHANGE_DELIVERY`, use envelope
-version 1 with strict codecs, verified semantic fingerprints and stable retry identities.
+version 2 with strict codecs, verified semantic fingerprints and stable retry identities.
+Mutable text uses the same explicit `UNCHANGED`/`CLEAR`/`SET` wire patches as other fields;
+request omission and null retain distinct semantic fingerprints. Unsupported envelope versions
+are rejected. The FIFO grouping, deduplication and command identity rules remain stable.
 Jobs carry compact identity/revision metadata, never CDC rows or raw evidence. The
 `CAPTURE_RAW` command is a separate, explicitly designed evidence boundary; provider
 credentials, signatures and signed request headers still never enter it.

@@ -336,8 +336,8 @@ fn upsert(source: ListingSourceId, key: &str, value: &str) -> ProductListingInge
     ProductListingIngestionIntent::Upsert(UpsertProductListingCommand {
         listing_source_id: source,
         source_listing_id: SourceListingId::try_from(key).unwrap(),
-        title: None,
-        description: None,
+        title: PatchField::Unchanged,
+        description: PatchField::Unchanged,
         price: PatchField::Unchanged,
         price_estimate_min: PatchField::Unchanged,
         price_estimate_max: PatchField::Unchanged,

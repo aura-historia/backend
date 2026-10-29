@@ -145,7 +145,11 @@ where
         if source.content_source_event_id != command.event_id {
             return Ok(result(TranslateProductListingEventOutcome::Stale));
         }
-        if source.event != ProductListingTranslationSourceEvent::Discovered {
+        if !matches!(
+            source.event,
+            ProductListingTranslationSourceEvent::Discovered
+                | ProductListingTranslationSourceEvent::ChangedText
+        ) {
             return Ok(result(TranslateProductListingEventOutcome::IgnoredEvent));
         }
         let Some(title) = source.title else {
@@ -478,6 +482,31 @@ mod tests {
             event_id: source.event_id,
             product_listing_id: source.product_listing_id,
         }
+    }
+
+    #[tokio::test]
+    async fn should_translate_current_text_revision_and_skip_a_cleared_title() {
+        let state = state_with_source();
+        lock(&state).source.as_mut().unwrap().event =
+            ProductListingTranslationSourceEvent::ChangedText;
+        let result = handler(&state)
+            .execute(&context(Principal::System), command(&state))
+            .await
+            .unwrap();
+        assert_eq!(result.outcome, TranslateProductListingEventOutcome::Applied);
+        assert_eq!(lock(&state).commits, 1);
+        lock(&state).translations.clear();
+        lock(&state).source.as_mut().unwrap().title = None;
+        let result = handler(&state)
+            .execute(&context(Principal::System), command(&state))
+            .await
+            .unwrap();
+        assert_eq!(
+            result.outcome,
+            TranslateProductListingEventOutcome::MissingTitle
+        );
+        assert!(lock(&state).translations.is_empty());
+        assert_eq!(lock(&state).commits, 1);
     }
 
     #[tokio::test]

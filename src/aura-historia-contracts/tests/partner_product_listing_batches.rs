@@ -32,7 +32,7 @@ fn should_preserve_shared_patch_schemas_and_wire_compatibility() {
     for (body, allowed) in [
         (json!({"sourceListingId":"sku"}), true),
         (
-            json!({"sourceListingId":"sku","price":null,"priceEstimateMin":null,"priceEstimateMax":null,"availability":null,"images":[]}),
+            json!({"sourceListingId":"sku","title":null,"description":null,"price":null,"priceEstimateMin":null,"priceEstimateMax":null,"availability":null,"images":[]}),
             true,
         ),
         (
@@ -51,8 +51,8 @@ fn should_preserve_shared_patch_schemas_and_wire_compatibility() {
             false,
         ),
         (
-            json!({"sourceListingId":"sku","title":{"text":"read only","language":"en"}}),
-            false,
+            json!({"sourceListingId":"sku","title":{"text":"Mutable title","language":"en"}}),
+            true,
         ),
         (
             json!({"sourceListingId":"sku","auction":{"cataloguePosition":0}}),

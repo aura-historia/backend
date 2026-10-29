@@ -151,6 +151,14 @@ impl TryFrom<Vec<ProductListingHistoryChange>> for ProductListingHistoryChanges 
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductListingHistoryChange {
+    TitleChanged {
+        previous: Option<Localized<Language, Title>>,
+        current: Option<Localized<Language, Title>>,
+    },
+    DescriptionChanged {
+        previous: Option<Localized<Language, Description>>,
+        current: Option<Localized<Language, Description>>,
+    },
     /// Address-free notice; protected delivery assertions are never public history.
     DeliveryChanged,
     MainPriceChanged {

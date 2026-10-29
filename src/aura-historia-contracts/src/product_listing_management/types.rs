@@ -25,6 +25,10 @@ pub struct UpdateData {
     #[schemars(range(min = 1, max = i64::MAX as u64))]
     expected_version: u64,
     #[serde(default)]
+    title: PatchValue<LocalizedTextData>,
+    #[serde(default)]
+    description: PatchValue<LocalizedTextData>,
+    #[serde(default)]
     price: PatchValue<AdminPriceData>,
     #[serde(default)]
     price_estimate_min: PatchValue<MonetaryPriceData>,
@@ -100,6 +104,8 @@ impl UpdateData {
             product_listing_id: id,
             expected_version: version(self.expected_version)?,
             patch: UpdateProductListingCommand {
+                title: crate::product_listing_fields::title_patch(self.title)?,
+                description: clearable(self.description.map(LocalizedTextData::into_localized)),
                 price: clearable(self.price.map(Into::into)),
                 price_estimate_min: clearable(self.price_estimate_min.map(Into::into)),
                 price_estimate_max: clearable(self.price_estimate_max.map(Into::into)),

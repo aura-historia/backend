@@ -334,7 +334,7 @@ async fn composed_admin_router_validates_fields_versions_lifecycle_and_privilege
         json!({}),
         json!({"expectedVersion":0}),
         json!({"expectedVersion":u64::MAX}),
-        json!({"expectedVersion":1,"title":null}),
+        json!({"expectedVersion":1,"title":{"text":"🌿✨","language":"en"}}),
         json!({"expectedVersion":1,"images":null}),
         json!({"expectedVersion":1,"auction":{"timing":{"illegal":1}}}),
     ] {

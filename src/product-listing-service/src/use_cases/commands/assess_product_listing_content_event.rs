@@ -131,7 +131,11 @@ where
                 AssessProductListingContentEventOutcome::ProductListingNotFound,
             ));
         };
-        if source.event != ProductListingContentAssessmentSourceEvent::Discovered {
+        if !matches!(
+            source.event,
+            ProductListingContentAssessmentSourceEvent::Discovered
+                | ProductListingContentAssessmentSourceEvent::ChangedText
+        ) {
             return Ok(result(
                 AssessProductListingContentEventOutcome::IgnoredEvent,
             ));
@@ -385,6 +389,7 @@ mod tests {
             let mut state = lock(&state);
             state.source.title = None;
             state.source.description = Some(Description::from("Nazi memorabilia"));
+            state.source.event = ProductListingContentAssessmentSourceEvent::ChangedText;
         }
 
         let result = handler(&state).execute(&context(), command(&state)).await;

@@ -149,6 +149,9 @@ fn translation_event(
                 ProductListingEventPayload::Discovered(_) => {
                     ProductListingTranslationSourceEvent::Discovered
                 }
+                ProductListingEventPayload::Changed(changed) if changed.has_text_change() => {
+                    ProductListingTranslationSourceEvent::ChangedText
+                }
                 ProductListingEventPayload::Changed(_) => {
                     ProductListingTranslationSourceEvent::Other
                 }
