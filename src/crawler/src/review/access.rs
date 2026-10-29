@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use subtle::ConstantTimeEq;
 use url::Url;
 
 #[derive(Debug, thiserror::Error)]
@@ -330,15 +331,10 @@ impl TokenDigest {
         Self(Sha256::digest(token.as_bytes()).into())
     }
 
-    /// Whether both are the digest of the same token, reading every byte whatever the first
-    /// difference.
+    /// Whether both are the digest of the same token. `subtle` reads every byte whatever the
+    /// first difference and keeps the optimizer from turning the comparison into an early exit.
     fn matches(self, other: Self) -> bool {
-        let difference = self
-            .0
-            .iter()
-            .zip(other.0)
-            .fold(0, |difference, (left, right)| difference | (left ^ right));
-        difference == 0
+        self.0.as_slice().ct_eq(other.0.as_slice()).into()
     }
 }
 
