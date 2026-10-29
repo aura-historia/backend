@@ -196,21 +196,26 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    expect `Started the review agent runner as a child of dev`, a pass every 30 seconds in the same
    log, and no runner process left after `dev` stops. Write a fake `claude` in the scratchpad, a shell script that answers
    `auth status --json` with `{"loggedIn": true, "authMethod": "claude.ai"}` and every other call
-   with a canned result envelope per role (`--mcp-config` names `--role author` or `reviewer`; the
-   prompt on stdin names the review id), and records each call's argv, stdin and environment.
+   with a canned stream per role (`--mcp-config` names `--role author` or `reviewer`; the prompt
+   on stdin names the review id): JSON lines, as `--output-format stream-json --verbose` prints
+   them, ending with one `{"type":"result",...}` line; it records each call's argv, stdin and
+   environment.
    Pass it by path, never through `PATH`: build with
    `cargo build --locked -p crawler --bin review-mcp --bin review-agent-runner` and run
    `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN=<fake> CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR=<scratchpad dir> target/debug/review-agent-runner --once`
    from the worktree root, with stand-in values of `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` and
    `CRAWLER_REVIEW_AUTH_TOKEN` set to see that they never reach a child. Expect one author and
    then one reviewer process per pending review of a crawl-enabled ListingSource that does not
-   wait for a human (`human_required`), at most
-   `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES` at once; children started from empty directories
+   wait for a human (`human_required`), and no reviewer for a review the author's pass handed to a
+   human (`handed_to_human`), at most `CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES` at once; children started from empty directories
    with the flags of the runbook and an environment of only the runbook's allowlisted variables,
    with neither token in argv, stdin or environment (only the token file's path in
    `--mcp-config`). A canned `error_max_turns` envelope leaves its review
-   pending with a cooldown in `review-agent-runner-state.json`; a canned
-   `You've hit your weekly limit · resets <date>, 9am (UTC)` pauses the runner until then. Each
+   pending with a cooldown in `review-agent-runner-state.json`; a `rate_limit_event` line with
+   `rate_limit_info` `status` `rejected` and `resetsAt` (Unix seconds) before an error `result`
+   with `api_error_status` 429 pauses the runner until then; an author that hangs past
+   `CRAWLER_REVIEW_AGENT_RUNNER_PROCESS_TIMEOUT_MINUTES` is stopped and charged (`cost_charged`).
+   Each
    process is a line in `review-agent-processes.jsonl` and a `Review agent process finished` log
    line with report, tokens and cost, and `--once` writes `digests/review-agents-<time>.md` with
    the reviews that wait for a human and the event trail's decisions and restores. The fake

@@ -181,7 +181,7 @@ A CLI version can start writing somewhere new, so verify the sandbox with the re
 3. Once a workable review is pending (a run with none makes no agent call), `journalctl -u review-agent-runner -f -o cat` shows `Review agent process finished` with `end` `REPORTED`, `LIMIT_REACHED` or `USAGE_LIMIT`, and `tail -n 1 /var/lib/crawler-review-agents/review-agent-processes.jsonl` shows its record. `FAILED` after `The review agent process printed no result envelope` points at the sandbox when its `stderr_tail` names a path.
 4. `journalctl -u review-agent-runner --since -1h -o cat | grep -i -E 'read-only file system|EROFS|permission denied|EACCES'` prints nothing.
 
-When a step fails because the CLI needs a path the sandbox denies, add that path to `ReadWritePaths` in a drop-in (`systemctl edit review-agent-runner`) rather than relaxing `ProtectSystem` or `ProtectHome`, and repeat the steps.
+`systemd-analyze verify` checks only the unit file; only these steps show that the CLI logs in and runs inside the sandbox. When a step fails because the CLI needs a path the sandbox denies, add that path to `ReadWritePaths` in a drop-in (`systemctl edit review-agent-runner`) rather than relaxing `ProtectSystem` or `ProtectHome`, and repeat the steps.
 
 #### Invocation
 
