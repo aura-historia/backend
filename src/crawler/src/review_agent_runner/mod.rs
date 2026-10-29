@@ -227,6 +227,7 @@ async fn write_digest(
                 needs_repair_by_agents = digest.needs_repair.agents,
                 needs_repair_by_others = digest.needs_repair.others,
                 restored = digest.restored,
+                revoked_rejections = digest.revoked_rejections,
                 needs_a_human = digest.needs_a_human.len(),
                 refusals_by_failed_check = ?digest.refusals_by_check,
                 refusals_by_kind = ?digest.refusals_by_kind,

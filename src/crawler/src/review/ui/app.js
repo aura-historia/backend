@@ -401,6 +401,9 @@ function renderApprovalPanel(detail) {
         if (rejectionRevocable(detail)) {
             return '<div class="approval-actions"><button onclick="revokeRejection()" title="Lift this rejection\'s non-product verdict, so the crawler scrapes its seed and triggering pages again">Revoke rejection</button></div>';
         }
+        if (rejectionRevoked(detail)) {
+            return '<div class="approval-actions"><span class="badge" title="The review stays rejected, but its rejection no longer classifies its seed and triggering pages as non-product pages">Rejection revoked</span></div>';
+        }
         if (review.status !== 'APPROVED') return '';
         const live = review.artifact_type === 'PRODUCT_SCHEMA'
             ? (detail.candidate_is_live
@@ -524,7 +527,13 @@ function rejectionRevocable(detail) {
     return review?.status === 'REJECTED'
         && review.artifact_type === 'PRODUCT_SCHEMA'
         && review.reason === 'manual_schema_required'
-        && !(detail.events || []).some(event => event.action === 'REJECTION_REVOKED');
+        && !rejectionRevoked(detail);
+}
+
+// A revoked rejection keeps the review's REJECTED status, so the console says it no longer applies.
+function rejectionRevoked(detail) {
+    return detail?.review?.status === 'REJECTED'
+        && (detail.events || []).some(event => event.action === 'REJECTION_REVOKED');
 }
 
 // The review's event trail, newest first: each decision and edit with the actor that made it.

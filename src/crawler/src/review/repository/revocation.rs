@@ -104,7 +104,10 @@ async fn lock_revocable_rejection(
 /// Classifies the crawler URLs of the review's seed and triggering pages, in either trailing-slash
 /// spelling, again by their domain's live URL-pattern decision with `url_classifier` and clears
 /// their retry delay. The rejection classified them `other` whether they were active or sold, so
-/// both are classified again. Returns the URLs whose class changed.
+/// both are classified again. The decision is read under a share lock until the revocation
+/// commits, so an approval or restore of the domain's URL pattern that commits meanwhile
+/// classifies these URLs after it instead of being overwritten with the decision it replaced.
+/// Returns the URLs whose class changed.
 async fn classify_rejected_pages_again(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -128,7 +131,8 @@ async fn classify_rejected_pages_again(
          JOIN listing_source_domains d \
            ON d.listing_source_id = u.listing_source_id AND d.domain_id = u.domain_id \
          WHERE u.listing_source_id = $1 AND u.url = ANY($2::text[]) \
-           AND u.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",
+           AND u.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD') \
+         FOR SHARE OF d",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(&spellings)

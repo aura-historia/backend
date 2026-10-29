@@ -982,8 +982,9 @@ async fn crawler_url_state(pool: &PgPool, url: &str) -> (String, bool) {
 
 /// A human's revocation lifts the rejection's verdict on its seed and triggering pages, in either
 /// trailing-slash spelling: the ones the domain's pattern takes become product pages again with no
-/// retry delay, the others keep the class the pattern gives them, and pages the rejection never
-/// judged keep theirs. The review stays rejected and its trail records the revocation once.
+/// retry delay, sold ones too, since the rejection's scrape classified them as well, the others
+/// keep the class the pattern gives them, and pages the rejection never judged keep theirs. The
+/// review stays rejected and its trail records the revocation once.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection() {
     let pool = get_postgres_client().await;
@@ -1018,6 +1019,11 @@ async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection
                     role: PAGE_ROLE_SEED.to_owned(),
                     raw_html: PRODUCT_HTML.to_owned(),
                 },
+                SchemaReviewPageInput {
+                    url: "https://www.example.com/products/4".to_owned(),
+                    role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_owned(),
+                    raw_html: SOLD_HTML.to_owned(),
+                },
             ],
             json!({ "manual_authoring": true }),
         )
@@ -1043,9 +1049,17 @@ async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection
         ("https://www.example.com/p/oak-chair-story", "other"),
         ("https://www.example.com/products/3", "other"),
         ("https://www.example.com/products/1", "other"),
+        ("https://www.example.com/products/4", "other"),
     ] {
         insert_crawler_url(&pool, &listing_source_id, crawler_url, class).await;
     }
+    sqlx::query(
+        "UPDATE listing_source_urls SET crawler_disposition = 'DORMANT_SOLD' \
+         WHERE url = 'https://www.example.com/products/4'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let rejected = |crawler_url: &'static str| {
         let repository = repository.clone();
         async move {
@@ -1092,11 +1106,16 @@ async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection
     ] {
         assert_eq!(rejected(crawler_url).await, still_rejected, "{crawler_url}");
     }
-    assert_eq!(
-        crawler_url_state(&pool, "https://www.example.com/products/2/").await,
-        ("product".to_owned(), true),
-        "a rejected page the pattern takes is scraped again"
-    );
+    for crawler_url in [
+        "https://www.example.com/products/2/",
+        "https://www.example.com/products/4",
+    ] {
+        assert_eq!(
+            crawler_url_state(&pool, crawler_url).await,
+            ("product".to_owned(), true),
+            "a rejected page the pattern takes is scraped again: {crawler_url}"
+        );
+    }
     for (crawler_url, why) in [
         (
             "https://www.example.com/p/oak-chair-story",
@@ -1132,9 +1151,19 @@ async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection
             Some("the agent rejected product pages")
         )
     );
+    let mut reclassified: Vec<&str> = revocation.details["reclassified_urls"]
+        .as_array()
+        .unwrap_or_else(|| panic!("revocation without reclassified URLs: {revocation:?}"))
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    reclassified.sort_unstable();
     assert_eq!(
-        revocation.details,
-        json!({ "reclassified_urls": ["https://www.example.com/products/2/"] })
+        reclassified,
+        [
+            "https://www.example.com/products/2/",
+            "https://www.example.com/products/4"
+        ]
     );
     assert_eq!(
         detail
@@ -1208,5 +1237,69 @@ async fn should_refuse_to_revoke_a_review_whose_rejection_classified_no_page() {
             .events
             .iter()
             .all(|event| event.action != ReviewEventAction::RejectionRevoked)
+    );
+}
+
+/// A revocation classifies the rejected pages by the domain's URL-pattern decision as it stands
+/// when the revocation commits: one that meets a pattern change in flight waits for it and
+/// classifies with the changed pattern instead of overwriting what that change classified.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_classify_revoked_pages_by_a_pattern_change_that_commits_meanwhile() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, review_id) = pending_schema_review(&pool).await;
+    repository
+        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
+        .await
+        .unwrap();
+    let rejected_page = "https://www.example.com/products/1";
+    insert_crawler_url(&pool, &listing_source_id, rejected_page, "other").await;
+    // An approval of the domain's URL pattern holds the domain's row until it commits.
+    let mut pattern_change = pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&mut *pattern_change)
+    .await
+    .unwrap();
+
+    let revocation = tokio::spawn({
+        let repository = repository.clone();
+        async move {
+            repository
+                .revoke_rejection(review_id, ReviewActor::Human, None)
+                .await
+        }
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pg_stat_activity \
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if waiting >= 1 {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the revocation never waited on the domain's URL-pattern decision"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    pattern_change.commit().await.unwrap();
+
+    revocation
+        .await
+        .unwrap_or_else(|error| panic!("revocation task: {error}"))
+        .unwrap();
+    assert_eq!(
+        crawler_url_state(&pool, rejected_page).await,
+        ("product".to_owned(), true)
     );
 }
