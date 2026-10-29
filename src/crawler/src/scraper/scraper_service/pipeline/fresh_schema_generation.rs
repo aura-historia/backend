@@ -24,14 +24,19 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
 
 impl ScraperServiceImpl {
     /// Makes a page that failed every cached schema wait instead of authoring a schema: in manual
-    /// mode a page an operator rejected is classified as other, and in every mode the page joins a
-    /// pending product-schema review. Returns `Ok` when the page may author a fresh schema.
+    /// and agent mode a page whose manual review was rejected while it was scraped is classified
+    /// as other, and in every mode the page joins a pending product-schema review. Returns `Ok`
+    /// when the page may author a fresh schema.
     pub(crate) async fn wait_instead_of_authoring(
         &self,
         ctx: &FreshSchemaGenerationContext<'_>,
     ) -> Result<(), ScraperError> {
-        self.skip_rejected_page(ctx.listing_source_id, ctx.url)
-            .await?;
+        self.skip_rejected_page(
+            ctx.listing_source_id,
+            ctx.url,
+            ctx.expected_last_captured_raw_input_sha256,
+        )
+        .await?;
         match self
             .join_pending_product_schema_review(ctx.listing_source_id, ctx.url, ctx.html)
             .await?

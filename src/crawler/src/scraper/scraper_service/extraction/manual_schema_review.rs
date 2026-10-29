@@ -20,14 +20,21 @@ use url::Url;
 pub const MANUAL_SCHEMA_REASON: &str = "manual_schema_required";
 
 impl ScraperServiceImpl {
-    /// Rejecting a manual review is the operator's verdict that its page is not a product page.
-    /// Classifies `url` as other and fails with [`ScraperError::NotProductPage`] instead of
-    /// reopening the same review; `Ok` when no operator rejected a manual review over it, or when
-    /// the mode authors no manual schemas.
+    /// Rejecting a manual review is the operator's verdict that its seed and triggering pages are
+    /// not product pages, whichever schema extracts them. Classifies `url` as other and fails with
+    /// [`ScraperError::NotProductPage`], so the page is neither captured nor reopens the review;
+    /// `Ok` when no operator rejected a manual review over it, or when the mode authors no manual
+    /// schemas. A scrape checks its page before it obtains schemas, and again before it authors
+    /// one, which a rejection given while the page was scraped must still stop.
+    ///
+    /// `expected_last_captured_raw_input_sha256` is the scrape's guard for its URL writes, as for
+    /// any crawler URL write. Without it the classification of a page captured before is skipped
+    /// and left to the page's next scrape.
     pub(crate) async fn skip_rejected_page(
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<(), ScraperError> {
         let Some(review_repository) = self.manual_schema_review_repository() else {
             return Ok(());
@@ -45,8 +52,12 @@ impl ScraperServiceImpl {
         if !rejected {
             return Ok(());
         }
-        self.mark_url_other_best_effort(listing_source_id, url, None)
-            .await;
+        self.mark_url_other_best_effort(
+            listing_source_id,
+            url,
+            expected_last_captured_raw_input_sha256,
+        )
+        .await;
         Err(ScraperError::NotProductPage {
             url: url.clone(),
             details: "an operator rejected the manual schema review for this page".to_owned(),
