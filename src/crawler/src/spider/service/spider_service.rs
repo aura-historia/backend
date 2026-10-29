@@ -13,7 +13,7 @@ use crate::spider::discovery::website_spider::{
     CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlStopReason, CrawledPage, Spider,
     SpiderDiscoveryError,
 };
-use crate::spider::service::crawl_run_state::CrawlRunState;
+use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
@@ -196,7 +196,8 @@ impl SpiderServiceImpl {
     }
 
     /// Stores the buffered pages under the crawl's pattern, counts its product URLs among them
-    /// and empties the buffer.
+    /// and empties the buffer. A crawl that waits on a URL-pattern review keeps the pages it
+    /// stored for the review's decision.
     async fn store_buffered_pages(
         &self,
         state: &mut CrawlRunState,
@@ -211,7 +212,50 @@ impl SpiderServiceImpl {
             &state.pattern,
         )
         .await?;
-        state.page_buffer.clear();
+        match &mut state.url_pattern_review_wait {
+            Some(wait) => wait.stored_pages.append(&mut state.page_buffer),
+            None => state.page_buffer.clear(),
+        }
+        Ok(())
+    }
+
+    /// Re-reads the domain's pattern state while the crawl waits on a URL-pattern review. When
+    /// the review was decided while the crawl ran, the crawl stores the pages it stored while
+    /// waiting again, classified with the decision, and stops waiting, so no URL it stored after
+    /// the decision stays unclassified and its outcome is the completion the decision gives.
+    #[tracing::instrument(
+        name = "spider_classify_with_decision_made_while_waiting",
+        skip(self, state),
+        fields(listing_source_id = %listing_source_id, domain_id = %domain_id)
+    )]
+    async fn classify_with_decision_made_while_waiting(
+        &self,
+        state: &mut CrawlRunState,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+    ) -> Result<(), SpiderServiceError> {
+        let Some(review_id) = state.pending_url_pattern_review() else {
+            return Ok(());
+        };
+        let Some(decision) = self
+            .pattern_service
+            .decision_stored_during_crawl(listing_source_id, domain_id, state.pattern.as_regex())
+            .await?
+        else {
+            return Ok(());
+        };
+        let stored_pages = state.end_url_pattern_review_wait(ProductListingPattern::from(decision));
+        info!(
+            review_id = %review_id,
+            stored_urls = stored_pages.len(),
+            product_pattern = ?state.pattern.as_regex().map(regex::Regex::as_str),
+            "URL pattern review was decided during the crawl, classifying its stored URLs with the decision"
+        );
+        for pages in stored_pages.chunks(self.config.db_batch_size.max(1)) {
+            state.products_found += count_products(pages, &state.pattern);
+            self.persist_url_metadata_batch(listing_source_id, domain_id, pages, &state.pattern)
+                .await?;
+        }
         Ok(())
     }
 
@@ -258,7 +302,10 @@ impl SpiderServiceImpl {
                 sample_size = state.inference_sample.len(),
                 "Crawl waits for a URL pattern review"
             );
-            state.pending_url_pattern_review = Some(review_id);
+            state.url_pattern_review_wait = Some(UrlPatternReviewWait {
+                review_id,
+                stored_pages: Vec::new(),
+            });
             return Ok(());
         }
 
@@ -318,6 +365,8 @@ impl SpiderServiceImpl {
     ) -> Result<(), SpiderServiceError> {
         if state.classification_done && state.page_buffer.len() >= self.config.db_batch_size {
             self.store_buffered_pages(state, listing_source_id, domain_id)
+                .await?;
+            self.classify_with_decision_made_while_waiting(state, listing_source_id, domain_id)
                 .await?;
         }
         Ok(())
@@ -552,10 +601,12 @@ impl SpiderServiceImpl {
         .await?;
         self.flush_remaining_pages(&mut state, listing_source_id, domain_id)
             .await?;
+        self.classify_with_decision_made_while_waiting(&mut state, listing_source_id, domain_id)
+            .await?;
 
         // URLs stay stored either way; only the recorded outcome differs.
         let completion = diagnostics.completion;
-        if state.pending_url_pattern_review.is_none()
+        if state.pending_url_pattern_review().is_none()
             && let Some(error) = no_product_urls_error(crawl_root_url, &state, completion)
         {
             return Err(error);
@@ -582,7 +633,7 @@ impl SpiderServiceImpl {
             product_urls_count: state.products_found,
             product_pattern,
             completion,
-            pending_url_pattern_review: state.pending_url_pattern_review,
+            pending_url_pattern_review: state.pending_url_pattern_review(),
         })
     }
 }
@@ -655,13 +706,13 @@ fn log_crawl_outcome(
         initial_anti_bot = ?diagnostics.initial_anti_bot,
         status_counts = ?diagnostics.status_counts,
         rate_limit = ?diagnostics.rate_limit,
-        pending_url_pattern_review = ?state.pending_url_pattern_review.map(|id| id.to_string()),
+        pending_url_pattern_review = ?state.pending_url_pattern_review().map(|id| id.to_string()),
         stopped_early = ?diagnostics.stopped_early.map(CrawlStopReason::as_str),
         "{}",
         crawl_outcome_message(
             completion,
             diagnostics.stopped_early,
-            state.pending_url_pattern_review.is_some()
+            state.pending_url_pattern_review().is_some()
         )
     );
 }
@@ -728,7 +779,9 @@ mod service_tests {
     use crate::spider::classification::url_classifier::UrlClassifier;
     use crate::spider::classification::url_metadata::UrlClass;
     use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
-    use crate::spider::classification::url_pattern_service::MockUrlPatternService;
+    use crate::spider::classification::url_pattern_service::{
+        DecidedUrlPattern, MockUrlPatternService,
+    };
     use crate::spider::discovery::website_spider::{
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
@@ -924,6 +977,12 @@ mod service_tests {
         }
     }
 
+    /// Re-reads of the domain's pattern state find the review the crawl waits on undecided.
+    fn setup_mock_review_still_pending(mock: &mut MockUrlPatternService) {
+        mock.expect_decision_stored_during_crawl()
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+    }
+
     #[tokio::test]
     async fn should_keep_urls_and_mark_crawled_when_pattern_review_is_pending_at_threshold() {
         let mut mock_spider = MockSpider::new();
@@ -950,6 +1009,7 @@ mod service_tests {
             .returning(move |_, _, _, _, _| {
                 Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
             });
+        setup_mock_review_still_pending(&mut mock_pattern_service);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         mock_url_repo
             .expect_upsert_links_batch()
@@ -1010,6 +1070,7 @@ mod service_tests {
             .returning(move |_, _, _, _, _| {
                 Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
             });
+        setup_mock_review_still_pending(&mut mock_pattern_service);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo
             .expect_upsert_links_batch()
@@ -1057,6 +1118,7 @@ mod service_tests {
             .returning(move |_, _, _, _, _| {
                 Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
             });
+        setup_mock_review_still_pending(&mut mock_pattern_service);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
 
@@ -1075,6 +1137,138 @@ mod service_tests {
         assert_eq!(run_result.pending_url_pattern_review, Some(review_id));
         assert_eq!(run_result.product_urls_count, 0);
         assert_eq!(run_result.product_pattern.as_deref(), Some(r"/product/"));
+    }
+
+    /// The pages a crawl that waits on a URL-pattern review stores, each batch with its classes.
+    type StoredBatches = Arc<std::sync::Mutex<Vec<Vec<(String, UrlClass)>>>>;
+
+    /// Runs a crawl of [`product_pages_until_timeout`] that opens a URL-pattern review at the
+    /// threshold and stores batches of ten pages, whose re-reads of the domain's pattern state
+    /// find the review undecided until the last one, which finds `decision`.
+    async fn run_crawl_decided_while_waiting(
+        decision: DecidedUrlPattern,
+    ) -> (Result<SpiderRunResult, SpiderServiceError>, StoredBatches) {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+        setup_mock_crawl(
+            &mut mock_spider,
+            crawl_root_url,
+            product_pages_until_timeout(),
+        );
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(move |_, _, _, _, _| {
+                Box::pin(
+                    async move { Err(pending_review(listing_source_id, CrawlerReviewId::new())) },
+                )
+            });
+        // Re-read after the threshold batch, then at the end of the crawl.
+        let re_reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        mock_pattern_service
+            .expect_decision_stored_during_crawl()
+            .times(2)
+            .withf(|_, _, crawl_pattern| crawl_pattern.is_none())
+            .returning(move |_, _, _| {
+                let decided = re_reads.fetch_add(1, Ordering::SeqCst) == 1;
+                let decision = decision.clone();
+                Box::pin(async move { Ok(decided.then_some(decision)) })
+            });
+        mock_pattern_service
+            .expect_mark_as_crawled()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+        let stored: StoredBatches = Arc::default();
+        let recorded = Arc::clone(&stored);
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .returning(move |_, _, urls, classes| {
+                recorded.lock().unwrap().push(
+                    urls.iter()
+                        .map(|url| url.path().to_owned())
+                        .zip(classes.iter().copied())
+                        .collect(),
+                );
+                Box::pin(async { Ok(Vec::new()) })
+            });
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig {
+                db_batch_size: 10,
+                ..SpiderServiceConfig::default()
+            },
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .await;
+
+        (run, stored)
+    }
+
+    /// A review approved while the crawl waits on it: the crawl stores every URL it stored while
+    /// waiting again, classified with the approved pattern, and completes as a crawl with that
+    /// pattern does.
+    #[tokio::test]
+    async fn should_classify_stored_urls_and_complete_when_review_is_approved_mid_crawl() {
+        let (run, stored) = run_crawl_decided_while_waiting(DecidedUrlPattern::Pattern(
+            Regex::new(r"/product/").unwrap(),
+        ))
+        .await;
+
+        let run = run.unwrap_or_else(|error| panic!("crawl: {error}"));
+        assert_eq!(run.pending_url_pattern_review, None);
+        assert_eq!(run.completion, CrawlCompletion::Completed);
+        assert_eq!(run.total_links, 25);
+        assert_eq!(run.product_urls_count, 25);
+        assert_eq!(run.product_pattern.as_deref(), Some(r"/product/"));
+        let stored = stored.lock().unwrap();
+        let (while_waiting, after_decision) = stored.split_at(2);
+        assert!(
+            while_waiting
+                .iter()
+                .flatten()
+                .all(|(_, class)| *class != UrlClass::ProductListing),
+            "{while_waiting:?}"
+        );
+        let classified: std::collections::BTreeSet<_> = after_decision
+            .iter()
+            .flatten()
+            .filter(|(_, class)| *class == UrlClass::ProductListing)
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(
+            classified.len(),
+            25,
+            "every URL the crawl stored is stored again as a product URL: {after_decision:?}"
+        );
+    }
+
+    /// A review decided `NO_PATTERN` while the crawl waits on it ends the wait: the crawl records
+    /// the failure of a domain whose classification is complete without a pattern.
+    #[tokio::test]
+    async fn should_fail_with_no_url_pattern_when_review_decides_no_pattern_mid_crawl() {
+        let (run, _) = run_crawl_decided_while_waiting(DecidedUrlPattern::NoPattern).await;
+
+        assert!(
+            matches!(
+                run,
+                Err(SpiderServiceError::NoUrlPattern {
+                    total_links: 25,
+                    completion: CrawlCompletion::Completed,
+                    ..
+                })
+            ),
+            "{run:?}"
+        );
     }
 
     #[tokio::test]
@@ -1833,6 +2027,7 @@ mod service_tests {
                     async move { Err(pending_review(listing_source_id, CrawlerReviewId::new())) },
                 )
             });
+        setup_mock_review_still_pending(&mut mock_pattern_service);
         mock_pattern_service
             .expect_mark_as_crawled()
             .returning(|_, _| Box::pin(async { Ok(()) }));
