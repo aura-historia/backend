@@ -312,7 +312,11 @@ impl CrawlerReviewRepository {
         .transpose()
     }
 
-    /// Whether an operator rejected a product schema review opened for `reason` over `url`.
+    /// Whether an operator rejected a product schema review opened for `reason` over the page of
+    /// the crawler URL `url`, which the review recorded with or without its trailing slash: the
+    /// spider moves a URL stored without the slash to the slashed spelling it fetches, while the
+    /// review page keeps the spelling it was recorded under
+    /// (`docs/crawler/networking.md#stored-urls`).
     pub async fn has_rejected_schema_review_for_page(
         &self,
         listing_source_id: &ListingSourceId,
@@ -323,11 +327,12 @@ impl CrawlerReviewRepository {
             "SELECT EXISTS (SELECT 1 FROM crawler_reviews r \
              JOIN crawler_review_pages p ON p.review_id = r.review_id \
              WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
-               AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = $3 AND p.role <> ALL($4))",
+               AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = ANY($3::text[]) \
+               AND p.role <> ALL($4))",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(reason)
-        .bind(url)
+        .bind(page_url_spellings(url))
         // Reviewer-added and waiting pages only test the candidate; rejecting the review is no
         // verdict on them.
         .bind([PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_WAITING_PAGE])
@@ -1760,6 +1765,20 @@ fn pattern_takes(pattern: &Regex, raw_url: &str) -> bool {
     CrawledUrl::try_from(raw_url).is_ok_and(|url| url.matches_pattern(pattern))
 }
 
+/// The spellings a review page naming the page of the crawler URL `url` may be recorded under:
+/// `url` itself and its page with and without the trailing slash ([`CrawledUrl::page_spellings`]).
+fn page_url_spellings(url: &str) -> Vec<String> {
+    let mut spellings = vec![url.to_owned()];
+    if let Ok(crawled) = CrawledUrl::try_from(url) {
+        for spelling in crawled.page_spellings().into_iter().map(String::from) {
+            if !spellings.contains(&spelling) {
+                spellings.push(spelling);
+            }
+        }
+    }
+    spellings
+}
+
 fn row_to_page(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewPage, sqlx::Error> {
     Ok(CrawlerReviewPage {
         review_page_id: crawler_review_page_id_from_uuid(row.try_get("review_page_id")?)?,
@@ -1869,8 +1888,32 @@ fn append_manual_schema_edit(
 
 #[cfg(test)]
 mod tests {
-    use super::append_manual_schema_edit;
+    use super::{append_manual_schema_edit, page_url_spellings};
     use serde_json::json;
+
+    #[test]
+    fn should_spell_a_crawler_url_as_a_review_page_may_have_recorded_its_page() {
+        for (url, spellings) in [
+            (
+                "https://example.com/products/1",
+                vec![
+                    "https://example.com/products/1",
+                    "https://example.com/products/1/",
+                ],
+            ),
+            (
+                "https://example.com/products/1/?q=1",
+                vec![
+                    "https://example.com/products/1/?q=1",
+                    "https://example.com/products/1?q=1",
+                ],
+            ),
+            ("https://example.com/", vec!["https://example.com/"]),
+            ("not a url", vec!["not a url"]),
+        ] {
+            assert_eq!(page_url_spellings(url), spellings, "{url}");
+        }
+    }
 
     #[test]
     fn appends_manual_schema_edit_audit_entry() {
