@@ -673,3 +673,166 @@ async fn should_leave_row_under_earlier_spelling_when_fetched_url_already_has_a_
         ]
     );
 }
+
+/// The spelling the crawler stored while it dropped trailing slashes, and the one the shop links.
+const UNSLASHED_SPELLING: &str = "https://slash.example.com/product/106/papier-mache-tray";
+const SLASHED_SPELLING: &str = "https://slash.example.com/product/106/papier-mache-tray/";
+
+async fn upsert_batch(
+    repository: &UrlMetadataRepositoryImpl,
+    listing_source_id: ListingSourceId,
+    domain_id: CrawlerDomainId,
+    urls: &[&str],
+) -> Vec<String> {
+    let urls = urls
+        .iter()
+        .map(|url| Url::parse(url).unwrap())
+        .collect::<Vec<_>>();
+    repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &urls,
+            &vec![UrlClass::ProductListing; urls.len()],
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|record| record.url.to_string())
+        .collect()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_move_row_stored_without_trailing_slash_when_spider_rediscovers_slashed_url() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "slash.example.com").await;
+    insert_scraped_url(&pool, listing_source_id, domain_id, UNSLASHED_SPELLING).await;
+
+    let records = upsert_batch(
+        &repository,
+        listing_source_id,
+        domain_id,
+        &[SLASHED_SPELLING],
+    )
+    .await;
+
+    assert_eq!(records, vec![SLASHED_SPELLING.to_owned()]);
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![scraped_row(SLASHED_SPELLING, UNSLASHED_SPELLING)]
+    );
+}
+
+/// A row stored while the crawler re-encoded queries and dropped the trailing slash moves to the
+/// fetched spelling once no row holds the spelling without the slash.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_move_row_stored_re_encoded_without_trailing_slash_to_slashed_url() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "slash.example.com").await;
+    let legacy = "https://slash.example.com/collections/vendors?q=A%2C+B";
+    let fetched = "https://slash.example.com/collections/vendors/?q=A%2C%20B";
+    insert_scraped_url(&pool, listing_source_id, domain_id, legacy).await;
+
+    upsert_batch(&repository, listing_source_id, domain_id, &[fetched]).await;
+
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![scraped_row(fetched, legacy)]
+    );
+}
+
+/// A page with rows under both earlier spellings keeps the more recent one: the row stored without
+/// the slash moves, and the re-encoded one stays put, since the fetched spelling has a row by then.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_move_only_unslashed_row_when_re_encoded_row_of_the_page_exists_too() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "slash.example.com").await;
+    let re_encoded = "https://slash.example.com/collections/vendors?q=A%2C+B";
+    let unslashed = "https://slash.example.com/collections/vendors?q=A%2C%20B";
+    let fetched = "https://slash.example.com/collections/vendors/?q=A%2C%20B";
+    insert_scraped_url(&pool, listing_source_id, domain_id, re_encoded).await;
+    insert_scraped_url(&pool, listing_source_id, domain_id, unslashed).await;
+
+    let records = upsert_batch(&repository, listing_source_id, domain_id, &[fetched]).await;
+
+    assert_eq!(records, vec![fetched.to_owned()]);
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![
+            scraped_row(fetched, unslashed),
+            scraped_row(re_encoded, re_encoded),
+        ]
+    );
+}
+
+/// A shop that links a page with and without the trailing slash keeps one row under the slashed
+/// spelling, whether both arrive in one batch or the unslashed one arrives after the slashed one
+/// was stored, and a row stored without the slash moves to it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_one_row_under_slashed_spelling_when_shop_links_both_spellings() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "slash.example.com").await;
+    insert_scraped_url(&pool, listing_source_id, domain_id, UNSLASHED_SPELLING).await;
+
+    let both = upsert_batch(
+        &repository,
+        listing_source_id,
+        domain_id,
+        &[UNSLASHED_SPELLING, SLASHED_SPELLING],
+    )
+    .await;
+    let unslashed_later = upsert_batch(
+        &repository,
+        listing_source_id,
+        domain_id,
+        &[UNSLASHED_SPELLING],
+    )
+    .await;
+
+    assert_eq!(both, vec![SLASHED_SPELLING.to_owned()]);
+    assert_eq!(unslashed_later, vec![SLASHED_SPELLING.to_owned()]);
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![scraped_row(SLASHED_SPELLING, UNSLASHED_SPELLING)]
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_store_both_spellings_once_under_slashed_one_when_page_is_new() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "slash.example.com").await;
+
+    let records = upsert_batch(
+        &repository,
+        listing_source_id,
+        domain_id,
+        &[UNSLASHED_SPELLING, SLASHED_SPELLING],
+    )
+    .await;
+
+    assert_eq!(records, vec![SLASHED_SPELLING.to_owned()]);
+    assert_eq!(
+        stored_rows(&pool, listing_source_id).await,
+        vec![(
+            SLASHED_SPELLING.to_owned(),
+            SLASHED_SPELLING.to_owned(),
+            None,
+            None
+        )]
+    );
+}

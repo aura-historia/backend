@@ -28,6 +28,9 @@ use regex::Regex;
 use tracing::{debug, warn};
 use url::Url;
 
+/// Whether `original_url` redirected to a page that is not a product page: on the same host,
+/// outside `product_url_pattern`, or to the homepage without one. A redirect that names the same
+/// page, such as one that only adds or removes the trailing slash, is none.
 pub(crate) fn is_redirect_to_non_product_page(
     original_url: &Url,
     final_url: &Url,
@@ -36,7 +39,7 @@ pub(crate) fn is_redirect_to_non_product_page(
     let normalized_original = CrawledUrl::new(original_url.clone());
     let normalized_final = CrawledUrl::new(final_url.clone());
 
-    if normalized_original.as_url() == normalized_final.as_url() {
+    if normalized_original.is_same_page(&normalized_final) {
         return false;
     }
 
@@ -434,7 +437,9 @@ impl ScraperServiceImpl {
         let acquired_at = time::OffsetDateTime::now_utc();
         let normalized_original_url = CrawledUrl::new(url.clone());
         let normalized_final_url = CrawledUrl::new(fetched.final_url.clone());
-        let url_moved = normalized_original_url.as_url() != normalized_final_url.as_url();
+        // A redirect that only adds or removes the trailing slash leads to the page the row is
+        // stored under, so the row keeps its URL (`docs/crawler/networking.md#stored-urls`).
+        let url_moved = !normalized_original_url.is_same_page(&normalized_final_url);
         let effective_url = if url_moved {
             normalized_final_url.as_url().clone()
         } else {

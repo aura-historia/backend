@@ -16,6 +16,7 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
 use crate::spider::classification::url_classifier::UrlClassifier;
+use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -653,7 +654,7 @@ impl CrawlerReviewRepository {
         let validation_summary = json!({
             "sample_count": urls.len(),
             "candidate_product_count": candidate_pattern
-                .map(|pattern| urls.iter().filter(|url| pattern.is_match(url)).count())
+                .map(|pattern| urls.iter().filter(|url| pattern_takes(pattern, url)).count())
                 .unwrap_or(0),
         });
         let mut transaction = self.pool.begin().await?;
@@ -701,8 +702,9 @@ impl CrawlerReviewRepository {
         };
         if is_new {
             for raw_url in urls {
-                let current_match = current_pattern.map(|pattern| pattern.is_match(raw_url));
-                let candidate_match = candidate_pattern.map(|pattern| pattern.is_match(raw_url));
+                let current_match = current_pattern.map(|pattern| pattern_takes(pattern, raw_url));
+                let candidate_match =
+                    candidate_pattern.map(|pattern| pattern_takes(pattern, raw_url));
                 let candidate_class = self
                     .url_classifier
                     .classify(raw_url, candidate_pattern)
@@ -1750,6 +1752,12 @@ fn row_to_repair_request(
             "a review's repair request must record both its time and its note".into(),
         )),
     }
+}
+
+/// Whether `pattern` takes the stored URL `raw_url` as the spider matches it, with or without its
+/// trailing slash.
+fn pattern_takes(pattern: &Regex, raw_url: &str) -> bool {
+    CrawledUrl::try_from(raw_url).is_ok_and(|url| url.matches_pattern(pattern))
 }
 
 fn row_to_page(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewPage, sqlx::Error> {

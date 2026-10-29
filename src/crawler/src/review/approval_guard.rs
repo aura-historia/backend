@@ -379,7 +379,8 @@ fn is_on_domain(url: &str, domain: &str) -> bool {
 }
 
 /// Whether the decision's `pattern` takes the labelled `url` as a product page, matched in the
-/// crawler's URL spelling as the spider matches it; `NO_PATTERN` takes none.
+/// crawler's URL spelling, with or without its trailing slash, as the spider matches it;
+/// `NO_PATTERN` takes none.
 fn decision_takes(pattern: Option<&Regex>, url: &str) -> bool {
     pattern.is_some_and(|pattern| {
         Url::parse(url).is_ok_and(|url| CrawledUrl::new(url).matches_pattern(pattern))
@@ -388,11 +389,11 @@ fn decision_takes(pattern: Option<&Regex>, url: &str) -> bool {
 
 /// Whether the decision's `pattern` takes the page the labelled `url` names under any spelling the
 /// crawler may store it under: the crawler's spelling of the URL on http or https, with or without
-/// `www.`, which the crawler treats as one domain, each also in its [legacy
-/// spelling](CrawledUrl::legacy_spelling), under which an earlier row stays until the spider
-/// rediscovers the page and which approval classifies as it is stored. A decision that takes only
-/// one of them would otherwise pass a `NOT_PRODUCT` label in another and still take the page as
-/// the crawler stored it.
+/// `www.`, which the crawler treats as one domain, each with or without its trailing slash and in
+/// its [legacy spellings](CrawledUrl::legacy_spellings), under which an earlier row stays until the
+/// spider rediscovers the page and which approval classifies as it is stored. A decision that
+/// takes only one of them would otherwise pass a `NOT_PRODUCT` label in another and still take the
+/// page as the crawler stored it.
 fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
     let Some(pattern) = pattern else {
         return false;
@@ -402,7 +403,7 @@ fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
     };
     let url = CrawledUrl::new(url).as_url().clone();
     let Some(domain) = url.host_str().map(canonical_crawler_domain) else {
-        return pattern.is_match(url.as_str());
+        return CrawledUrl::new(url).matches_pattern(pattern);
     };
     let www = format!("www.{domain}");
     ["https", "http"]
@@ -415,10 +416,10 @@ fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
         })
         .chain(std::iter::once(url.clone()))
         .flat_map(|spelling| {
-            let legacy = CrawledUrl::new(spelling.clone()).legacy_spelling();
+            let legacy = CrawledUrl::new(spelling.clone()).legacy_spellings();
             std::iter::once(spelling).chain(legacy)
         })
-        .any(|spelling| pattern.is_match(spelling.as_str()))
+        .any(|spelling| CrawledUrl::new(spelling).matches_pattern(pattern))
 }
 
 /// The refusal of a live matrix whose pages were fetched more than `max_age` before `now`.
@@ -1055,6 +1056,23 @@ mod tests {
         assert_eq!(
             url_checks(&on_www(r"^https://www\.antique-shop\.example/item/[^/]+$")),
             Vec::new()
+        );
+    }
+
+    /// The spider stores a URL with the trailing slash it fetched it with, and a pattern takes a
+    /// page with or without its slash: one written for the slashed spelling takes `PRODUCT`
+    /// labels without it, and a `NOT_PRODUCT` label without it as well.
+    #[test]
+    fn should_match_labels_with_or_without_their_trailing_slash() {
+        let gift_card = "https://antique-shop.example/item/gift-card";
+        let not_products = [gift_card, NOT_PRODUCTS[1], NOT_PRODUCTS[2]];
+        let candidate = labelled(pattern(r"/item/[^/]+/$"), &PRODUCTS, &not_products);
+
+        assert_eq!(
+            url_checks(&candidate),
+            vec![FailedApprovalCheck::NotProductLabelMatched {
+                urls: vec![gift_card.to_owned()],
+            }]
         );
     }
 

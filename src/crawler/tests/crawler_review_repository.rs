@@ -1764,14 +1764,19 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
     let domain_id = insert_domain(&pool, listing_source_id, "example.com").await;
     let captured_url = "https://example.com/products/1";
     let uncaptured_url = "https://example.com/products/2";
-    // A reviewer page is stored as fetched: the shop redirects to the trailing slash that
-    // the crawler URL's normalization drops.
+    // A reviewer page is stored as fetched: the shop redirects to the trailing slash that a
+    // crawler URL stored before the crawler kept the slash lacks.
     let respelled_crawler_url = "https://example.com/products/3";
     let respelled_page_url = "https://example.com/products/3/";
+    // A seed page stored without the slash names a crawler URL the spider has since moved to
+    // the slashed spelling the shop links.
+    let slashed_crawler_url = "https://example.com/products/4/";
+    let unslashed_page_url = "https://example.com/products/4";
     for (url, identity) in [
         (captured_url, Some("53036")),
         (uncaptured_url, None),
         (respelled_crawler_url, Some("53037")),
+        (slashed_crawler_url, Some("53038")),
     ] {
         sqlx::query(
             "INSERT INTO listing_source_urls \
@@ -1787,14 +1792,19 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
         .unwrap();
     }
     let html = "<html><body><span class=\"id\">product-53036</span><h1>Chair</h1><span class=\"state\">Sold</span><img class=\"product\" src=\"a.jpg\"></body></html>";
-    let pages = [captured_url, uncaptured_url, respelled_page_url]
-        .into_iter()
-        .map(|url| SchemaReviewPageInput {
-            url: url.to_owned(),
-            role: PAGE_ROLE_PRIMARY.to_owned(),
-            raw_html: html.to_owned(),
-        })
-        .collect();
+    let pages = [
+        captured_url,
+        uncaptured_url,
+        respelled_page_url,
+        unslashed_page_url,
+    ]
+    .into_iter()
+    .map(|url| SchemaReviewPageInput {
+        url: url.to_owned(),
+        role: PAGE_ROLE_PRIMARY.to_owned(),
+        raw_html: html.to_owned(),
+    })
+    .collect();
     let review_id = repository
         .create_schema_review(
             &listing_source_id,
@@ -1844,6 +1854,14 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
             "field": "source_listing_id",
             "check": "DIFFERS_FROM_CAPTURED_IDENTITY",
             "values": ["53037"]
+        }])
+    )));
+    assert!(findings.contains(&(
+        unslashed_page_url.to_owned(),
+        json!([{
+            "field": "source_listing_id",
+            "check": "DIFFERS_FROM_CAPTURED_IDENTITY",
+            "values": ["53038"]
         }])
     )));
 }

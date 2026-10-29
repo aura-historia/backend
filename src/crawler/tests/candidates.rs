@@ -1992,6 +1992,69 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     assert!(rows.iter().any(|row| row.1 == effective_url.as_str()));
 }
 
+/// A page with and without its trailing slash is one page, so a redirect to a page stored under
+/// the other spelling is a known destination as well: moving the row there would give the page a
+/// second row.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn redirected_scrape_should_reject_destination_known_under_other_trailing_slash_spelling() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    for (index, (stored_destination, effective_path)) in [("/new", "/new/"), ("/new/", "/new")]
+        .into_iter()
+        .enumerate()
+    {
+        let listing_source_id = ListingSourceId::new();
+        let host = format!("redirect-slash-{index}.example.com");
+        let domain_id = insert_listing_source_with_domain(&pool, listing_source_id, &host).await;
+        let original_url = format!("https://{host}/old");
+        let stored_destination = format!("https://{host}{stored_destination}");
+        let effective_url = url::Url::parse(&format!("https://{host}{effective_path}")).unwrap();
+        insert_product_url(&pool, listing_source_id, domain_id, &original_url).await;
+        insert_product_url(&pool, listing_source_id, domain_id, &stored_destination).await;
+
+        assert!(
+            !service
+                .redirect_destination_is_available(&effective_url)
+                .await
+                .unwrap(),
+            "{effective_url}"
+        );
+        let error = service
+            .move_redirected_url(RedirectUrlMove {
+                listing_source_id,
+                original_url: url::Url::parse(&original_url).unwrap(),
+                effective_url: effective_url.clone(),
+                hash: "redirect-hash".to_owned(),
+                schema_fingerprint: "redirect-schema".to_owned(),
+                raw_input_sha256: vec![6; 32],
+                source_listing_id: "stable-source-id".to_owned(),
+                disposition: CrawlerDisposition::Active,
+                expected_last_captured_raw_input_sha256: None,
+            })
+            .await
+            .expect_err("a destination known under its other spelling must be deferred");
+        assert!(
+            error
+                .to_string()
+                .contains("reconciliation deferred to #1899"),
+            "{effective_url}"
+        );
+
+        let rows: Vec<String> = sqlx::query_scalar(
+            "SELECT url FROM listing_source_urls WHERE listing_source_id = $1 ORDER BY url",
+        )
+        .bind(listing_source_id.as_uuid())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            rows,
+            vec![stored_destination, original_url],
+            "{effective_url}"
+        );
+    }
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
     let pool = get_postgres_client().await;

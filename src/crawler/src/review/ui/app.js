@@ -638,8 +638,31 @@ function urlPatternPreviewText(pattern, urls) {
     } catch (error) {
         return `Invalid pattern: ${escapeHtml(error.message)}`;
     }
-    const matches = urls.filter(u => regex.test(u.url)).length;
+    const matches = urls.filter(u => regexTakesUrl(regex, u.url)).length;
     return `${matches} of ${urls.length} sample URLs match (browser preview; the server validates the pattern on save).`;
+}
+
+// Whether `regex` takes the page of `url` as the crawler matches a URL pattern: the URL as stored,
+// or its path with or without the trailing slash (docs/crawler/networking.md#stored-urls).
+function regexTakesUrl(regex, url) {
+    return pageSpellings(url).some(spelling => regex.test(spelling));
+}
+
+function pageSpellings(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (_) {
+        return [url];
+    }
+    const path = parsed.pathname.replace(/\/+$/, '');
+    if (!path) return [url];
+    const spellings = [url];
+    for (const pathname of [path, `${path}/`]) {
+        parsed.pathname = pathname;
+        if (!spellings.includes(parsed.href)) spellings.push(parsed.href);
+    }
+    return spellings;
 }
 
 function previewUrlPattern() {
@@ -720,7 +743,7 @@ function decisionPreviewTakes(url) {
         || (urlPatternDecision(selectedDetail?.review).type === 'PATTERN' ? urlPatternDecision(selectedDetail.review).value : '');
     if (!pattern) return null;
     try {
-        return new RegExp(pattern).test(url);
+        return regexTakesUrl(new RegExp(pattern), url);
     } catch (_) {
         return null;
     }

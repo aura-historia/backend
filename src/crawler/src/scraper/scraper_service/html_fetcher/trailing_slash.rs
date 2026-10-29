@@ -1,8 +1,10 @@
-//! Hosts that redirect a path to its trailing-slash form. The crawler stores
-//! URLs without the trailing slash, so on such a host (WordPress and
-//! WooCommerce by default) every fetch would cost a redirect round trip.
-//! Remembering the host lets later fetches request the slashed form directly;
-//! stored URLs keep their normalized form.
+//! Hosts that redirect a path to its trailing-slash form (WordPress and
+//! WooCommerce by default). The crawler stores a URL with the trailing slash
+//! the spider fetched it with, so such a host costs a redirect round trip only
+//! for URLs stored without the slash: where the shop links that spelling, and
+//! rows stored before the crawler kept the slash, until the spider rediscovers
+//! them. Remembering the host lets later fetches request the slashed form
+//! directly; stored URLs keep their spelling.
 
 use dashmap::DashSet;
 use tracing::debug;

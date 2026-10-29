@@ -17,6 +17,7 @@ use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE;
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
+use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerDomainId, CrawlerReviewId};
 
 // ---------------------------------------------------------------------------
@@ -486,6 +487,17 @@ struct UrlFailureUpdate<'a> {
     expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
 }
 
+/// The URLs a redirect destination may already be stored under: its page with or without the
+/// trailing slash names one page (`docs/crawler/networking.md#stored-urls`), so a row under either
+/// spelling makes the destination known instead of gaining a second row for the page.
+fn destination_spellings(effective_url: &Url) -> Vec<String> {
+    CrawledUrl::new(effective_url.clone())
+        .page_spellings()
+        .into_iter()
+        .map(String::from)
+        .collect()
+}
+
 /// Decodes a persisted review wait, failing closed when the review id and streak disagree.
 fn schema_review_wait_from_row(
     review_id: Option<uuid::Uuid>,
@@ -821,11 +833,12 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         &self,
         effective_url: &Url,
     ) -> Result<bool, sqlx::Error> {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_source_urls WHERE url = $1)")
-                .bind(effective_url.to_string())
-                .fetch_one(&self.pool)
-                .await?;
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM listing_source_urls WHERE url = ANY($1::text[]))",
+        )
+        .bind(destination_spellings(effective_url))
+        .fetch_one(&self.pool)
+        .await?;
         Ok(!exists)
     }
 
@@ -881,11 +894,12 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             ));
         }
 
-        let destination_exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM listing_source_urls WHERE url = $1)")
-                .bind(effective_url.to_string())
-                .fetch_one(&mut *transaction)
-                .await?;
+        let destination_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM listing_source_urls WHERE url = ANY($1::text[]))",
+        )
+        .bind(destination_spellings(&effective_url))
+        .fetch_one(&mut *transaction)
+        .await?;
         if destination_exists {
             return Err(sqlx::Error::Protocol(
                 "redirect destination already known; reconciliation deferred to #1899".to_owned(),

@@ -122,13 +122,13 @@ pub(super) async fn url_pattern_review_domain(
 
 /// The sample labels `inputs` describe, labelled at `labelled_at`, or `None` for no label. Each
 /// URL must be on the review's `domain`, on http or https, with or without `www.`, as the crawler
-/// treats one domain: one of the review's `sample` URLs, under the crawler's URL spelling, or an
-/// http(s) URL on the default port; a URL with credentials is refused either way. A label of a
-/// sample URL keeps the sample's spelling, any other URL is stored in the crawler's spelling, so
-/// a pattern is matched against it as the spider would. Each page is labelled once, in whichever
-/// spelling the crawler treats as that page (http or https, with or without `www.`), so the
-/// labels of one page never count as several, and with a reason of at most
-/// [`MAX_SAMPLE_LABEL_REASON_CHARS`] characters.
+/// treats one domain: one of the review's `sample` URLs, under the crawler's URL spelling with or
+/// without its trailing slash, or an http(s) URL on the default port; a URL with credentials is
+/// refused either way. A label of a sample URL keeps the sample's spelling, any other URL is
+/// stored in the crawler's spelling, so a pattern is matched against it as the spider would. Each
+/// page is labelled once, in whichever spelling the crawler treats as that page (http or https,
+/// with or without `www.` or the trailing slash), so the labels of one page never count as
+/// several, and with a reason of at most [`MAX_SAMPLE_LABEL_REASON_CHARS`] characters.
 fn validated_sample_labels(
     inputs: Vec<SampleLabelInput>,
     sample: &[String],
@@ -140,7 +140,7 @@ fn validated_sample_labels(
     }
     let sample_spellings: HashMap<String, &String> = sample
         .iter()
-        .filter_map(|url| Some((crawler_spelling(&Url::parse(url).ok()?), url)))
+        .filter_map(|url| Some((sample_key(&Url::parse(url).ok()?), url)))
         .collect();
     let mut labelled = HashSet::new();
     let mut labels = Vec::with_capacity(inputs.len());
@@ -183,18 +183,19 @@ fn labelled_url(
     if !url_matches_configured_domain(&url, domain) {
         return not_allowed(url.to_string());
     }
-    let spelling = crawler_spelling(&url);
-    if let Some(sample_url) = sample_spellings.get(&spelling) {
+    if let Some(sample_url) = sample_spellings.get(&sample_key(&url)) {
         return Ok((*sample_url).clone());
     }
     if is_review_source_url(&url, &[domain.to_owned()]) {
-        return Ok(spelling);
+        return Ok(CrawledUrl::new(url).to_string());
     }
     not_allowed(url.to_string())
 }
 
-fn crawler_spelling(url: &Url) -> String {
-    CrawledUrl::new(url.clone()).to_string()
+/// The key a label finds a sample URL under: the crawler's spelling of the URL's page, with or
+/// without its trailing slash.
+fn sample_key(url: &Url) -> String {
+    CrawledUrl::new(url.clone()).page_spelling().to_string()
 }
 
 #[cfg(test)]
@@ -277,6 +278,47 @@ mod tests {
             ]
         );
         assert_eq!(labels.labelled_at, OffsetDateTime::UNIX_EPOCH);
+    }
+
+    /// The spider stores a URL with the trailing slash it fetched it with, so a sample URL may
+    /// carry one that a label leaves out; a label of another URL keeps its slash.
+    #[test]
+    fn should_take_sample_url_whichever_trailing_slash_spelling_labels_it() {
+        let sample = vec!["https://antiques.example/item/chair/".to_owned()];
+
+        let labels = validated_sample_labels(
+            vec![
+                input(
+                    "https://antiques.example/item/chair",
+                    SampleUrlLabel::Product,
+                ),
+                input(
+                    "https://antiques.example/item/table/",
+                    SampleUrlLabel::Product,
+                ),
+            ],
+            &sample,
+            DOMAIN,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .unwrap_or_else(|error| panic!("{error}"))
+        .unwrap_or_else(|| panic!("labels"));
+
+        assert_eq!(
+            urls(&labels),
+            vec![
+                (
+                    "https://antiques.example/item/chair/",
+                    SampleUrlLabel::Product,
+                    "seen on the page"
+                ),
+                (
+                    "https://antiques.example/item/table/",
+                    SampleUrlLabel::Product,
+                    "seen on the page"
+                ),
+            ]
+        );
     }
 
     /// No label names a URL outside the review's domain, even on another domain of its
