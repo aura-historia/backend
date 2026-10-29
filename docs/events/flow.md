@@ -268,7 +268,7 @@ freshness or widen the scheduled matching interval.
 
 | Intake | Boundary and acknowledgment |
 | --- | --- |
-| WooCommerce | Signed HTTP intake plus partner authorization → command FIFO. A mapped webhook acknowledges confirmed admission, not raw capture; authorized ignored inputs create no command/receipt. Delivery IDs are unique only per webhook and second, so command and provider-receipt identity also bind the product and the sanitized evidence digest; the randomly sampled `related_ids` is not evidence. |
+| WooCommerce | Signed HTTP intake plus partner authorization → command FIFO. A mapped webhook acknowledges confirmed admission, not raw capture; authorized ignored inputs create no command/receipt. Delivery IDs are unique only per webhook and second, so command and provider-receipt identity also bind the product and the sanitized evidence digest; the randomly sampled `related_ids` is not evidence. Deletions, including non-public status updates, carry the product ID as `sourceListingId`, so they withdraw the product's listing even when no live upsert has bound its raw stream, such as a listing created through the partner API. |
 | Shopify | Partner EventBridge → retained provider Standard queue → Shopify Lambda → command FIFO. Forwarding and command application are separate acknowledgments and failure locations. |
 | Stripe | Partner EventBridge → dedicated Lambda → User-service reconciliation. Provider reads occur between short PostgreSQL transactions; receipts, tier changes and entitlement reconciliation commit together. |
 | Cognito pre-sign-up | Federated collision checks fail closed. Linking requires the explicit provider trust policy and verified persisted identity; email alone is insufficient. |

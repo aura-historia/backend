@@ -471,10 +471,14 @@ impl WoocommerceProductEventKind {
         };
         let source_occurred_at = parse_source_occurred_at(product.date_modified_gmt.as_deref())?;
 
+        // A delete names its product so normalization can withdraw its listing even when no
+        // upsert has bound the raw stream, such as a listing created through the partner API.
         let raw_values = match operation {
             RawProductListingOperation::Upsert => upsert_raw_values(source, &product)?,
-            RawProductListingOperation::Delete => RawProductListingValues::new(json!({}))
-                .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?,
+            RawProductListingOperation::Delete => RawProductListingValues::new(json!({
+                "sourceListingId": product.id.to_string(),
+            }))
+            .map_err(WoocommerceWebhookIntakeError::InvalidSourcePayload)?,
         };
         let context = normalization_context(source, product.permalink.as_deref(), operation)?;
         let input = ProductListingNormalizationInput::new(
@@ -1759,8 +1763,23 @@ mod tests {
                     if input.operation() == RawProductListingOperation::Delete
                         && input.raw_values_schema_version()
                             == product_listing_normalization::PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION
+                        && input.raw_values().value() == &json!({"sourceListingId": "42"})
             ));
         }
+    }
+
+    #[test]
+    fn should_name_the_product_in_raw_delete_values_when_the_deletion_carries_only_its_id() {
+        let observation = WoocommerceProductEventKind::Delete
+            .raw_observation(&source(), json!({"id": 236}))
+            .unwrap_or_else(|error| panic!("mapping failed: {error}"))
+            .unwrap_or_else(|| panic!("delete must capture"));
+
+        assert_eq!("236", observation.source_record_key);
+        assert_eq!(
+            &json!({"sourceListingId": "236"}),
+            observation.input.raw_values().value()
+        );
     }
 
     #[test]
