@@ -2664,6 +2664,9 @@ Origin: http://127.0.0.1:7878/x
 
             let refresh_started = Instant::now();
             let refreshing = get_matrix(&fixture.server, fixture.review_id, true).await;
+            // The refresh request counts as one of the waits: with the sleeps between them, the
+            // waits cover the whole refresh, so a parse on the async worker lands in one of them,
+            // usually the refresh request's own short wait for the outcome.
             let mut longest_wait = refresh_started.elapsed();
             while matches!(
                 fixture

@@ -80,7 +80,9 @@ impl CrawlerReviewRepository {
     /// configuration approving the review's current candidate would make live: its schemas,
     /// merged with the live list for a legacy single-schema append or repair, and its
     /// removed-page templates rebased onto the stored ones. The matrix records what it evaluated
-    /// and when, so an approval can tell whether it still describes the review.
+    /// and when, so an approval can tell whether it still describes the review. The pages are
+    /// parsed on a blocking thread awaited to its end, so a caller runs this within a console live
+    /// job, whose place under the console's limit bounds that thread.
     pub async fn evaluate_schema_matrix_for_live_pages(
         &self,
         review_id: CrawlerReviewId,
@@ -164,7 +166,9 @@ impl CrawlerReviewRepository {
 
     /// Evaluates the `proposal` on its review `pages` and its `url_pages` as the shop serves them
     /// now. The matrix is no live evaluation of the review: it records none and is not stored, so
-    /// it never stands in for the review's own live matrix.
+    /// it never stands in for the review's own live matrix. The pages are parsed on a blocking
+    /// thread awaited to its end, so a caller runs this within a console live job, whose place
+    /// under the console's limit bounds that thread.
     pub async fn evaluate_candidate_proposal(
         &self,
         proposal: CandidateProposal,
@@ -408,4 +412,20 @@ async fn lock_review_status(
         .fetch_optional(&mut **transaction)
         .await?
         .ok_or(ReviewRepositoryError::NotFound(review_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn should_stop_with_the_panic_as_its_cause_when_the_evaluation_panics() {
+        let evaluated =
+            evaluate_on_blocking_thread(|| -> SchemaMatrix { panic!("evaluation panicked") }).await;
+
+        let Err(ReviewRepositoryError::MatrixEvaluationStopped { source }) = evaluated else {
+            panic!("a panicking evaluation must stop with an error, not a matrix or another error");
+        };
+        assert!(source.is_panic(), "{source}");
+    }
 }
