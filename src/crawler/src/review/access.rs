@@ -12,6 +12,7 @@ use dashmap::DashMap;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 use subtle::ConstantTimeEq;
@@ -104,6 +105,30 @@ impl ReviewServerConfig {
             ..self
         })
     }
+}
+
+/// The trimmed value of `name`, `None` when it is unset, empty or whitespace-only. A value that
+/// is not valid Unicode is returned as `Err` to be refused like any other value not accepted.
+fn setting(name: &str) -> Result<Option<String>, String> {
+    match std::env::var(name) {
+        Ok(raw) if raw.trim().is_empty() => Ok(None),
+        Ok(raw) => Ok(Some(raw.trim().to_owned())),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(raw)) => Err(raw.to_string_lossy().into_owned()),
+    }
+}
+
+/// A whole-number setting of at least 1, `None` when it is unset, empty or whitespace-only. A
+/// value that is set but not accepted fails startup instead of silently changing a limit.
+pub(super) fn positive_number(
+    name: &'static str,
+) -> Result<Option<NonZeroU32>, ReviewServerConfigError> {
+    setting(name)
+        .and_then(|raw| {
+            raw.map(|raw| raw.parse::<NonZeroU32>().map_err(|_| raw))
+                .transpose()
+        })
+        .map_err(|value| ReviewServerConfigError::InvalidPositiveNumber { name, value })
 }
 
 /// A token setting, where an empty or whitespace-only value counts as unset.

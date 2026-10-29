@@ -4,10 +4,8 @@
 //! on URLs of its ListingSource without being stored. The contract is in
 //! `docs/crawler/extraction-and-review.md` (review rail).
 
-use super::{
-    ReviewServer, internal_error, live_url_fetch_error, matrix_refresh_deadline,
-    matrix_refresh_timeout, review_error, review_page_url,
-};
+use super::schema_matrix::{matrix_refresh_deadline, matrix_refresh_timeout};
+use super::{ReviewServer, internal_error, live_url_fetch_error, review_error, review_page_url};
 use crate::review::candidate_evaluations::{CandidateEvaluationOutcome, EvaluationsBusy};
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{PAGE_ROLE_EVALUATED_URL, ReviewActor, SchemaReviewPageInput};
