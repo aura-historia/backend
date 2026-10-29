@@ -161,19 +161,19 @@ impl Pass<'_> {
 
     /// The author's pass, then the reviewer's when the author left a candidate to decide.
     async fn work_review(&self, review: QueuedReview) {
-        match self.run_process(AgentRole::Author, &review).await {
+        let author_report = match self.run_process(AgentRole::Author, &review).await {
             Step::NotStarted | Step::UsageLimit => return,
             Step::NoDecision => {
                 self.cool_down(&review);
                 return;
             }
-            Step::Reported(AgentReport::Author(report))
-                if report.action == AuthorAction::Skipped =>
-            {
-                self.cool_down(&review);
-                return;
-            }
-            Step::Reported(_) => {}
+            Step::Reported(report) => report,
+        };
+        if let AgentReport::Author(report) = &author_report
+            && report.action == AuthorAction::Skipped
+        {
+            self.cool_down(&review);
+            return;
         }
         let reviewer_started = OffsetDateTime::now_utc();
         match self.run_process(AgentRole::Reviewer, &review).await {
@@ -304,14 +304,7 @@ impl Pass<'_> {
         review: &QueuedReview,
         envelope: &ResultEnvelope,
     ) -> Step {
-        record.subtype.clone_from(&envelope.subtype);
-        record.terminal_reason.clone_from(&envelope.terminal_reason);
-        record.api_error_status = envelope.api_error_status;
-        record.num_turns = envelope.num_turns;
-        record.duration_ms = envelope.duration_ms;
-        record.models.clone_from(&envelope.models);
-        record.usage = envelope.usage;
-        record.total_cost_usd = envelope.total_cost_usd;
+        record.take_accounting(envelope);
         let now = OffsetDateTime::now_utc();
         match envelope.outcome(now) {
             EnvelopeOutcome::Reported(output) => {
@@ -467,6 +460,19 @@ impl ProcessRecord {
             total_cost_usd: 0.0,
             report: None,
         }
+    }
+
+    /// Takes over what the envelope reports about the process's run: why it ended, its turns,
+    /// duration, models, tokens and cost.
+    fn take_accounting(&mut self, envelope: &ResultEnvelope) {
+        self.subtype.clone_from(&envelope.subtype);
+        self.terminal_reason.clone_from(&envelope.terminal_reason);
+        self.api_error_status = envelope.api_error_status;
+        self.num_turns = envelope.num_turns;
+        self.duration_ms = envelope.duration_ms;
+        self.models.clone_from(&envelope.models);
+        self.usage = envelope.usage;
+        self.total_cost_usd = envelope.total_cost_usd;
     }
 
     fn failed(&mut self, failure: String) -> Step {
