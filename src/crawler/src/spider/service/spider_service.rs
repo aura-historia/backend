@@ -195,18 +195,24 @@ impl SpiderServiceImpl {
         }
     }
 
-    async fn process_buffer(
+    /// Stores the buffered pages under the crawl's pattern, counts its product URLs among them
+    /// and empties the buffer.
+    async fn store_buffered_pages(
         &self,
-        buffer: &mut Vec<CrawledPage>,
+        state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        pattern: &ProductListingPattern,
-    ) -> Result<usize, SpiderServiceError> {
-        let count = count_products(buffer, pattern);
-        self.persist_url_metadata_batch(listing_source_id, domain_id, buffer, pattern)
-            .await?;
-        buffer.clear();
-        Ok(count)
+    ) -> Result<(), SpiderServiceError> {
+        state.products_found += count_products(&state.page_buffer, &state.pattern);
+        self.persist_url_metadata_batch(
+            listing_source_id,
+            domain_id,
+            &state.page_buffer,
+            &state.pattern,
+        )
+        .await?;
+        state.page_buffer.clear();
+        Ok(())
     }
 
     #[tracing::instrument(
@@ -311,13 +317,7 @@ impl SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
         if state.classification_done && state.page_buffer.len() >= self.config.db_batch_size {
-            state.products_found += self
-                .process_buffer(
-                    &mut state.page_buffer,
-                    listing_source_id,
-                    domain_id,
-                    &state.pattern,
-                )
+            self.store_buffered_pages(state, listing_source_id, domain_id)
                 .await?;
         }
         Ok(())
@@ -407,13 +407,7 @@ impl SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
         if !state.page_buffer.is_empty() {
-            state.products_found += self
-                .process_buffer(
-                    &mut state.page_buffer,
-                    listing_source_id,
-                    domain_id,
-                    &state.pattern,
-                )
+            self.store_buffered_pages(state, listing_source_id, domain_id)
                 .await?;
         }
         Ok(())
