@@ -334,6 +334,81 @@ async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_
     );
 }
 
+/// The spider moves a crawler URL stored without its trailing slash to the slashed spelling it
+/// fetches, while a review page keeps the spelling it was recorded under: a rejection holds for
+/// its seed and triggering pages in either spelling, and still for no other page.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_treat_rejected_page_as_rejected_in_either_trailing_slash_spelling() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    // The seed page is recorded as https://www.example.com/products/1.
+    let (listing_source_id, unslashed_review) = pending_schema_review(&pool).await;
+    let sold_url = url("https://www.example.com/products/sold");
+    repository
+        .add_reviewer_page(
+            unslashed_review,
+            ReviewActor::Human,
+            &sold_url,
+            &sold_url,
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    repository
+        .reject_review(
+            unslashed_review,
+            ReviewActor::Human,
+            Some("not a product page"),
+        )
+        .await
+        .unwrap();
+    let slashed_review = repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema()],
+            vec![SchemaReviewPageInput {
+                url: "https://www.example.com/products/2/".to_owned(),
+                role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_owned(),
+                raw_html: PRODUCT_HTML.to_owned(),
+            }],
+            json!({ "manual_authoring": true }),
+        )
+        .await
+        .unwrap();
+    repository
+        .reject_review(
+            slashed_review,
+            ReviewActor::Human,
+            Some("not a product page"),
+        )
+        .await
+        .unwrap();
+
+    for (crawler_url, rejected) in [
+        ("https://www.example.com/products/1", true),
+        ("https://www.example.com/products/1/", true),
+        ("https://www.example.com/products/2/", true),
+        ("https://www.example.com/products/2", true),
+        ("https://www.example.com/products/10/", false),
+        ("https://www.example.com/products/sold", false),
+        ("https://www.example.com/products/sold/", false),
+    ] {
+        assert_eq!(
+            repository
+                .has_rejected_schema_review_for_page(
+                    &listing_source_id,
+                    "manual_schema_required",
+                    crawler_url,
+                )
+                .await
+                .unwrap(),
+            rejected,
+            "{crawler_url}"
+        );
+    }
+}
+
 fn with_html(pages: Vec<CrawlerReviewPage>) -> Vec<(CrawlerReviewPage, String)> {
     pages
         .into_iter()

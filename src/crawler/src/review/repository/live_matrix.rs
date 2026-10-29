@@ -235,9 +235,9 @@ impl CrawlerReviewRepository {
 
     /// The source listing id each page's listing was captured under, by page URL, for the
     /// `page_urls` whose listing has been captured. A page is matched with the crawler URL
-    /// that names it, however the two spell it: a reviewer page is stored as fetched, often
-    /// with the trailing slash the crawler URL's normalization drops. The exact spelling
-    /// wins over another one.
+    /// that names it, however the two spell it: a reviewer page is stored as fetched after
+    /// redirects, and a crawler URL stored before the crawler kept the trailing slash lacks it
+    /// until the spider rediscovers the page. The exact spelling wins over another one.
     async fn captured_identities(
         &self,
         listing_source_id: uuid::Uuid,

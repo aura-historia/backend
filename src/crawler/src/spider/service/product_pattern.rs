@@ -1,5 +1,7 @@
 use regex::Regex;
 
+use crate::spider::classification::url_pattern_service::DecidedUrlPattern;
+
 #[derive(Debug, Clone)]
 pub enum ProductListingPattern {
     Known(Regex),
@@ -26,5 +28,14 @@ impl ProductListingPattern {
 impl From<Regex> for ProductListingPattern {
     fn from(value: Regex) -> Self {
         ProductListingPattern::Known(value)
+    }
+}
+
+impl From<DecidedUrlPattern> for ProductListingPattern {
+    fn from(decision: DecidedUrlPattern) -> Self {
+        match decision {
+            DecidedUrlPattern::Pattern(pattern) => ProductListingPattern::Known(pattern),
+            DecidedUrlPattern::NoPattern => ProductListingPattern::Unknown,
+        }
     }
 }
