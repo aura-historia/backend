@@ -1,6 +1,7 @@
 use application::operation_context::{OperationContext, Principal};
 use geo_service::resolution::MaintainResolutionsUseCase;
 use lambda_runtime::Error;
+use notification_service::saved_search_digest::MaintainSavedSearchDigestsUseCase;
 use oauth_service::ports::ExpiredCredentialCleanupError;
 use oauth_service::use_cases::{
     CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
@@ -11,6 +12,7 @@ use product_listing_service::geography::ProjectListingGeographyUseCase;
 use product_listing_service::use_cases::{
     RefreshPublicCatalogueOverviewError, RefreshPublicCatalogueOverviewUseCase,
 };
+use search_filter_service::use_cases::RecoverSavedSearchNotificationsUseCase;
 use std::env;
 use std::time::Instant;
 use user_service::use_cases::{CleanupConsentWorkflowError, CleanupConsentWorkflowUseCase};
@@ -98,6 +100,86 @@ pub async fn run_listing_geography_recovery(
         sqlstate = failure.sqlstate(),
     );
     Err(Error::from(error))
+}
+
+/// Generates saved-search notifications whose CDC wake-up was lost. Each failed selection is
+/// deferred by the use case and recorded here once; any failure fails the invocation.
+pub async fn run_saved_search_notification_recovery(
+    recovery: &dyn RecoverSavedSearchNotificationsUseCase,
+    limit: usize,
+) -> Result<(), Error> {
+    let started_at = Instant::now();
+    let report = match recovery.execute(limit).await {
+        Ok(report) => report,
+        Err(error) => {
+            let failure = FailureDiagnostic::postgres("saved_search_notification_recovery", &error);
+            tracing::warn!(
+                event = "backend_cleanup.saved_search_notification_recovery.completed",
+                outcome = "failure",
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
+                duration_ms = started_at.elapsed().as_millis(),
+            );
+            return Err(Error::from("saved-search notification recovery failed"));
+        }
+    };
+    for failed in &report.failures {
+        let failure = FailureDiagnostic::from_kind(
+            failed.error.failure_stage(),
+            failed.error.failure_kind(),
+            None,
+            &failed.error,
+        );
+        tracing::warn!(
+            event = "backend_cleanup.saved_search_notification.recovery_failed",
+            user_id = %failed.user_id,
+            search_filter_id = %failed.search_filter_id,
+            stage = failure.stage(),
+            dependency = failure.dependency(),
+            error_category = failure.category(),
+            sqlstate = failure.sqlstate(),
+        );
+    }
+    tracing::info!(
+        event = "backend_cleanup.saved_search_notification_recovery.completed",
+        outcome = if report.failures.is_empty() {
+            "success"
+        } else {
+            "incomplete"
+        },
+        recovered = report.recovered,
+        failed = report.failures.len(),
+        duration_ms = started_at.elapsed().as_millis(),
+    );
+    if report.failures.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::from("saved-search notification recovery incomplete"))
+    }
+}
+
+/// Finalizes ready saved-search digest groups that no completed selection finalized.
+pub async fn run_saved_search_digest_maintenance(
+    maintenance: &dyn MaintainSavedSearchDigestsUseCase,
+    limit: usize,
+) -> Result<(), Error> {
+    let started_at = Instant::now();
+    let Err(error) = maintenance.execute(limit).await else {
+        return Ok(());
+    };
+    let failure = FailureDiagnostic::postgres("saved_search_digest_maintenance", &error);
+    tracing::warn!(
+        event = "backend_cleanup.saved_search_digest_maintenance.completed",
+        outcome = "failure",
+        stage = failure.stage(),
+        dependency = failure.dependency(),
+        error_category = failure.category(),
+        sqlstate = failure.sqlstate(),
+        duration_ms = started_at.elapsed().as_millis(),
+    );
+    Err(Error::from("saved-search digest maintenance failed"))
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -268,6 +350,9 @@ mod tests {
     use super::*;
     use application::{error::box_error, transaction::TransactionError};
     use geo_service::resolution::{ResolutionError, ResolutionMaintenanceCounts};
+    use notification_service::saved_search_digest::{
+        SavedSearchDigestError, SavedSearchDigestMaintenanceReport,
+    };
     use oauth_service::ports::ExpiredCredentialCleanupError;
     use oauth_service::use_cases::CleanupCounts;
     use product_listing_service::geography::{GeographyError, GeographyWorkId};
@@ -275,9 +360,15 @@ mod tests {
         PublicCatalogueOverview, PublicCatalogueOverviewRefresh,
         RefreshPublicCatalogueOverviewError,
     };
+    use search_filter_core::user_search_filter_id::UserSearchFilterId;
+    use search_filter_service::use_cases::{
+        GenerateSearchFilterMatchNotificationError, SavedSearchNotificationRecoveryError,
+        SavedSearchNotificationRecoveryFailure, SavedSearchNotificationRecoveryReport,
+    };
     use serde_json::{Map, Value, json};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use test_api::CapturedLogs;
+    use user_core::user_id::UserId;
     use user_service::use_cases::{
         CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts, ConsentWorkflowCleanupTarget,
     };
@@ -405,6 +496,114 @@ mod tests {
             json!({"stage": "geography_transaction", "dependency": "postgres",
                 "error_category": "io"}),
             failure_diagnostic(&logs, "backend_cleanup.listing_geography.failed")
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
+    struct PartialNotificationRecovery;
+
+    #[async_trait::async_trait]
+    impl RecoverSavedSearchNotificationsUseCase for PartialNotificationRecovery {
+        async fn execute(
+            &self,
+            _: usize,
+        ) -> Result<SavedSearchNotificationRecoveryReport, SavedSearchNotificationRecoveryError>
+        {
+            Ok(SavedSearchNotificationRecoveryReport {
+                recovered: 1,
+                failures: vec![SavedSearchNotificationRecoveryFailure {
+                    user_id: UserId::new(),
+                    search_filter_id: UserSearchFilterId::new(),
+                    error:
+                        GenerateSearchFilterMatchNotificationError::MonthlyMatchQuotaReadFailed {
+                            source: Box::new(sqlx::Error::PoolTimedOut),
+                        },
+                }],
+            })
+        }
+    }
+
+    struct FailingNotificationRecovery;
+
+    #[async_trait::async_trait]
+    impl RecoverSavedSearchNotificationsUseCase for FailingNotificationRecovery {
+        async fn execute(
+            &self,
+            _: usize,
+        ) -> Result<SavedSearchNotificationRecoveryReport, SavedSearchNotificationRecoveryError>
+        {
+            Err(SavedSearchNotificationRecoveryError {
+                source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
+            })
+        }
+    }
+
+    struct FailingDigestMaintenance;
+
+    #[async_trait::async_trait]
+    impl MaintainSavedSearchDigestsUseCase for FailingDigestMaintenance {
+        async fn execute(
+            &self,
+            _: usize,
+        ) -> Result<SavedSearchDigestMaintenanceReport, SavedSearchDigestError> {
+            Err(SavedSearchDigestError {
+                source: Box::new(TransactionError::CommitFailed(Box::new(sqlx::Error::Io(
+                    std::io::Error::other(SENTINEL),
+                )))),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn should_record_each_failed_saved_search_selection_and_fail_the_invocation() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let result = run_saved_search_notification_recovery(&PartialNotificationRecovery, 10).await;
+        drop(guard);
+
+        assert!(result.is_err());
+        assert_eq!(
+            json!({"stage": "monthly_quota_read", "dependency": "postgres",
+                "error_category": "pool_timed_out"}),
+            failure_diagnostic(
+                &logs,
+                "backend_cleanup.saved_search_notification.recovery_failed"
+            )
+        );
+        let completed = logs.events_where(
+            "event",
+            "backend_cleanup.saved_search_notification_recovery.completed",
+        );
+        assert_eq!(Some("incomplete"), completed[0]["outcome"].as_str());
+        assert_eq!(Some(1), completed[0]["failed"].as_u64());
+    }
+
+    #[tokio::test]
+    async fn should_record_failed_saved_search_recovery_steps_without_their_cause() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let notifications =
+            run_saved_search_notification_recovery(&FailingNotificationRecovery, 10).await;
+        let digests = run_saved_search_digest_maintenance(&FailingDigestMaintenance, 10).await;
+        drop(guard);
+
+        assert!(notifications.is_err());
+        assert!(digests.is_err());
+        assert_eq!(
+            json!({"stage": "saved_search_notification_recovery", "dependency": "postgres",
+                "error_category": "io"}),
+            failure_diagnostic(
+                &logs,
+                "backend_cleanup.saved_search_notification_recovery.completed"
+            )
+        );
+        assert_eq!(
+            json!({"stage": "saved_search_digest_maintenance", "dependency": "postgres",
+                "error_category": "io"}),
+            failure_diagnostic(
+                &logs,
+                "backend_cleanup.saved_search_digest_maintenance.completed"
+            )
         );
         assert!(!logs.text().contains("SENTINEL"));
     }

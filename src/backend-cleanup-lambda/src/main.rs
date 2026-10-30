@@ -1,6 +1,7 @@
 use backend_cleanup_lambda::{
     cleanup_batch_size_from_env, run_cleanup, run_listing_geography_recovery,
-    run_public_catalogue_overview_refresh,
+    run_public_catalogue_overview_refresh, run_saved_search_digest_maintenance,
+    run_saved_search_notification_recovery,
 };
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::resolution::MaintainResolutionsHandler;
@@ -132,16 +133,19 @@ async fn main() -> Result<(), Error> {
             )
             .await;
             let recovery_result = run_listing_geography_recovery(&cleanup.value().3).await;
-            let notification_recovery = cleanup.value().4.execute(batch_size.get() as usize).await;
-            let digest_recovery = cleanup.value().5.execute(batch_size.get() as usize).await;
+            let notification_recovery = run_saved_search_notification_recovery(
+                &cleanup.value().4,
+                batch_size.get() as usize,
+            )
+            .await;
+            let digest_recovery =
+                run_saved_search_digest_maintenance(&cleanup.value().5, batch_size.get() as usize)
+                    .await;
             // Last: when due, the full aggregate must not delay bounded maintenance work.
             let overview_refresh = run_public_catalogue_overview_refresh(&cleanup.value().6).await;
             cleanup_result?;
-            let failed_notifications = notification_recovery?;
+            notification_recovery?;
             digest_recovery?;
-            if failed_notifications > 0 {
-                return Err(Error::from("saved-search notification recovery incomplete"));
-            }
             recovery_result?;
             overview_refresh?;
             Ok::<(), Error>(())
