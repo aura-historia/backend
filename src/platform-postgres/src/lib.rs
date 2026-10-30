@@ -1,3 +1,5 @@
+pub mod keyset;
+
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
 use async_trait::async_trait;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};

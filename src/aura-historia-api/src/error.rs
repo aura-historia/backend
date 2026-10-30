@@ -1232,6 +1232,7 @@ impl From<SearchListingSourcesError> for ApiError {
             SearchListingSourcesError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
+            SearchListingSourcesError::CursorScopeMismatch => crate::keyset_cursor::foreign_scope(),
             SearchListingSourcesError::TemporarilyUnavailable { .. }
             | SearchListingSourcesError::BeginTransactionFailed(_)
             | SearchListingSourcesError::CommitTransactionFailed(_) => {
@@ -1951,6 +1952,7 @@ impl From<SearchPartiesError> for ApiError {
             SearchPartiesError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
+            SearchPartiesError::CursorScopeMismatch => crate::keyset_cursor::foreign_scope(),
             SearchPartiesError::TemporarilyUnavailable { .. }
             | SearchPartiesError::BeginTransactionFailed(_)
             | SearchPartiesError::CommitTransactionFailed(_) => {
@@ -1976,6 +1978,7 @@ impl From<SearchUsersError> for ApiError {
             SearchUsersError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
+            SearchUsersError::CursorScopeMismatch => crate::keyset_cursor::foreign_scope(),
             SearchUsersError::TemporarilyUnavailable { .. }
             | SearchUsersError::BeginTransactionFailed(_)
             | SearchUsersError::CommitTransactionFailed(_) => {
@@ -3516,6 +3519,27 @@ mod tests {
             }),
             body
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_cross_scope_admin_search_cursors_to_bad_search_after()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for error in [
+            ApiError::from(SearchPartiesError::CursorScopeMismatch),
+            ApiError::from(SearchUsersError::CursorScopeMismatch),
+            ApiError::from(SearchListingSourcesError::CursorScopeMismatch),
+        ] {
+            let response = error.into_response();
+            assert_eq!(StatusCode::BAD_REQUEST, response.status());
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+            assert_eq!(json!(BAD_QUERY_PARAMETER_VALUE.to_string()), body["error"]);
+            assert_eq!(
+                json!({"field": "searchAfter", "type": "QUERY"}),
+                body["source"]
+            );
+        }
         Ok(())
     }
 

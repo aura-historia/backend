@@ -838,14 +838,6 @@ async fn should_reject_invalid_listing_source_search_query_values() {
     let party_id = PartyId::new();
     for (field, values) in [
         (
-            "searchAfter",
-            [
-                ProductListingId::new().to_string(),
-                listing_source_id.as_uuid().to_string(),
-                "ls_not-a-typeid".to_owned(),
-            ],
-        ),
-        (
             "listingSourceId",
             [
                 ProductListingId::new().to_string(),

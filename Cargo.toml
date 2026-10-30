@@ -125,7 +125,7 @@ aura-historia-auth = { path = "src/aura-historia-auth" }
 aura-historia-contracts = { path = "src/aura-historia-contracts" }
 aura-historia-mcp = { path = "src/aura-historia-mcp" }
 aura-historia-runtime = { path = "src/aura-historia-runtime" }
-rmcp = { version = "=3.7.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "=3.8.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 tokio-util = "0.7.18"
 aura-historia-jobs = { path = "src/aura-historia-jobs" }
 aura-historia-cdc-routing = { path = "src/aura-historia-cdc-routing" }

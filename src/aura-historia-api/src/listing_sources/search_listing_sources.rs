@@ -1,6 +1,7 @@
 use super::types::ListingSourceSearchCollectionData;
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE};
+use crate::keyset_cursor::{self, CursorText};
 use crate::state::ListingSourcesState;
 use crate::wire::parse_query_object_id;
 use application::pagination::Cursor;
@@ -13,9 +14,12 @@ use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceSearch, ListingSourceSlugId,
     PlatformTechnology, SortListingSourceField,
 };
-use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesRequest;
+use listing_source_service::use_cases::queries::search_listing_sources::{
+    ListingSourceSearchCursor, ListingSourceSortKey, SearchListingSourcesRequest,
+};
 use party_core::party_id::PartyId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -182,7 +186,7 @@ fn parse_sort_field(value: &str) -> Result<SortListingSourceField, ApiError> {
 fn parse_cursor(
     size: Option<&str>,
     search_after: Option<&str>,
-) -> Result<Option<Cursor<ListingSourceId>>, ApiError> {
+) -> Result<Option<Cursor<ListingSourceSearchCursor>>, ApiError> {
     let size = size
         .map(|value| value.parse::<u64>().map(|size| size.clamp(1, 100)))
         .transpose()
@@ -191,7 +195,7 @@ fn parse_cursor(
 
     if size.is_some() || search_after.is_some() {
         Ok(Some(Cursor {
-            size: size.unwrap_or_else(|| Cursor::<ListingSourceId>::default().size),
+            size: size.unwrap_or_else(|| Cursor::<ListingSourceSearchCursor>::default().size),
             search_after,
         }))
     } else {
@@ -199,8 +203,43 @@ fn parse_cursor(
     }
 }
 
-fn parse_search_after(value: &str) -> Result<ListingSourceId, ApiError> {
-    parse_query_object_id(value, "searchAfter", "ListingSource")
+fn parse_search_after(value: &str) -> Result<ListingSourceSearchCursor, ApiError> {
+    Ok(keyset_cursor::decode::<ListingSourceSortKeyData, _>(value)?.map_sort_key(Into::into))
+}
+
+pub(super) fn encode_search_after(cursor: ListingSourceSearchCursor) -> String {
+    keyset_cursor::encode(cursor.map_sort_key(ListingSourceSortKeyData::from))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum ListingSourceSortKeyData {
+    Name(CursorText),
+    Slug(CursorText),
+    Created(#[serde(with = "time::serde::timestamp::nanoseconds")] OffsetDateTime),
+    Updated(#[serde(with = "time::serde::timestamp::nanoseconds")] OffsetDateTime),
+}
+
+impl From<ListingSourceSortKey> for ListingSourceSortKeyData {
+    fn from(key: ListingSourceSortKey) -> Self {
+        match key {
+            ListingSourceSortKey::Name(name) => Self::Name(CursorText(name)),
+            ListingSourceSortKey::Slug(slug) => Self::Slug(CursorText(slug)),
+            ListingSourceSortKey::Created(instant) => Self::Created(instant),
+            ListingSourceSortKey::Updated(instant) => Self::Updated(instant),
+        }
+    }
+}
+
+impl From<ListingSourceSortKeyData> for ListingSourceSortKey {
+    fn from(key: ListingSourceSortKeyData) -> Self {
+        match key {
+            ListingSourceSortKeyData::Name(name) => Self::Name(name.0),
+            ListingSourceSortKeyData::Slug(slug) => Self::Slug(slug.0),
+            ListingSourceSortKeyData::Created(instant) => Self::Created(instant),
+            ListingSourceSortKeyData::Updated(instant) => Self::Updated(instant),
+        }
+    }
 }
 
 fn bad_query(field: &'static str, detail: impl std::fmt::Display) -> ApiError {
@@ -221,12 +260,22 @@ mod tests {
     use super::*;
     use domain_primitives::sort::SortOrder;
 
+    fn cursor(sort_key: ListingSourceSortKey) -> ListingSourceSearchCursor {
+        ListingSourceSearchCursor {
+            scope: application::pagination::ScopeBinding::builder("test/v1").finish(),
+            sort_key,
+            id: ListingSourceId::new(),
+        }
+    }
+
     #[test]
     fn should_map_listing_source_search_query_to_service_request() -> Result<(), ApiError> {
         let listing_source_id = ListingSourceId::new();
         let operator_party_id = PartyId::new();
+        let cursor = cursor(ListingSourceSortKey::Created(OffsetDateTime::UNIX_EPOCH));
         let request = parse_search_listing_sources_query(Some(&format!(
-            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&sort=created&order=desc&size=200&searchAfter={listing_source_id}"
+            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&sort=created&order=desc&size=200&searchAfter={}",
+            encode_search_after(cursor.clone())
         )))?;
 
         assert_eq!(Some("operator"), request.search.query.as_deref());
@@ -262,11 +311,30 @@ mod tests {
         assert_eq!(
             Some(Cursor {
                 size: 100,
-                search_after: Some(listing_source_id),
+                search_after: Some(cursor),
             }),
             request.cursor
         );
         Ok(())
+    }
+
+    #[test]
+    fn should_round_trip_every_listing_source_sort_key() {
+        for sort_key in [
+            ListingSourceSortKey::Name("Antik".to_owned()),
+            ListingSourceSortKey::Slug("antik-source".to_owned()),
+            ListingSourceSortKey::Created(OffsetDateTime::UNIX_EPOCH),
+            ListingSourceSortKey::Updated(OffsetDateTime::UNIX_EPOCH),
+        ] {
+            let cursor = cursor(sort_key);
+
+            assert_eq!(
+                cursor,
+                parse_search_after(&encode_search_after(cursor.clone())).unwrap_or_else(
+                    |error| panic!("listing source cursor must round trip: {error:?}")
+                )
+            );
+        }
     }
 
     #[test]

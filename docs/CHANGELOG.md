@@ -7,6 +7,11 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - Cognito bearers naming a signing key the API has not cached are still rejected with `401`, but no longer refetch Cognito's signing keys on every request. A newly published Cognito key is accepted within about fifteen seconds.
 - After a failed signing-key fetch, bearers whose key the API instance has not cached get `503` for up to ten seconds instead of retrying the fetch on each request; already cached keys keep working. Malformed key material in Cognito's JWKS now yields `503` like an unreachable JWKS instead of `500`. See the [front-door contract](http-api-front-door.md#route-and-authentication-boundary).
 
+## 2026-10-30 — Admin search cursors survive changes to the last item (#2623)
+
+- `GET /v1/admin/parties`, `GET /v1/admin/users` and `GET /v1/admin/listing-sources` return an opaque `searchAfter` that carries the sort position of the last returned item instead of its ID. Deleting that item, or changing it so it no longer matches the filters, no longer ends the traversal with an empty terminal page while later matches remain; the next page continues after its former position. Ordering, sort fields, defaults and page sizes are unchanged.
+- **Breaking change:** `searchAfter` is valid only with the filters and sort that returned it. Malformed cursors, cursors returned for other filters or sort, and the Party, User or ListingSource ID cursors issued before this change (including the User JSON-array form) return `400 BAD_QUERY_PARAMETER_VALUE` for `searchAfter`; restart such a traversal without `searchAfter`.
+
 ## 2026-10-29 — WooCommerce deletion of backfilled products (#2606)
 
 - `product.deleted`, and `product.created`/`product.updated` with status `trash`, `draft`, `pending` or `private`, now withdraw the listing whose `sourceListingId` is the WooCommerce product `id`, even when it was so far only created or changed through the partner API, such as by the extension's catalogue backfill. Previously such a deletion was acknowledged with `204` but had no effect; only a deletion after an applied live product webhook withdrew the listing. Listings left `ACTIVE` by earlier deletions are not repaired; withdraw them through the partner API. Signed-request and `204` admission semantics are unchanged.

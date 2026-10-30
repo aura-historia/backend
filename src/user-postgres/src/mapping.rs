@@ -7,7 +7,6 @@ use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
 use user_core::measurement_unit::MeasurementUnit;
 use user_core::role::UserRole;
-use user_core::sort_user_field::SortUserField;
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::tier::UserTier;
 use user_core::user::{RehydratedUserState, User, UserAccount, UserPreferences, UserProfile};
@@ -171,19 +170,6 @@ pub(crate) fn bind_role(value: UserRole) -> &'static str {
     value.as_str()
 }
 
-pub(crate) fn sort_user_field_columns(field: SortUserField) -> &'static [&'static str] {
-    match field {
-        SortUserField::Name => &["first_name", "last_name"],
-        SortUserField::Email => &["email"],
-        SortUserField::FirstName => &["first_name"],
-        SortUserField::LastName => &["last_name"],
-        SortUserField::Tier => &["tier"],
-        SortUserField::Role => &["role"],
-        SortUserField::Created => &["created"],
-        SortUserField::Updated => &["updated"],
-    }
-}
-
 fn parse_email(value: &str) -> Result<Email, UserRowMappingError> {
     Email::try_from(value).map_err(|_| UserRowMappingError::InvalidEmail)
 }
@@ -222,7 +208,7 @@ pub(crate) fn parse_tier(value: &str) -> Result<UserTier, UserRowMappingError> {
     UserTier::from_code(value).ok_or(UserRowMappingError::InvalidTier)
 }
 
-fn parse_role(value: &str) -> Result<UserRole, UserRowMappingError> {
+pub(crate) fn parse_role(value: &str) -> Result<UserRole, UserRowMappingError> {
     UserRole::from_code(value).ok_or(UserRowMappingError::InvalidRole)
 }
 
@@ -308,33 +294,6 @@ mod tests {
             parse_role("admin"),
             Err(UserRowMappingError::InvalidRole)
         ));
-    }
-
-    #[test]
-    fn should_map_user_sort_fields_to_postgres_columns() {
-        assert_eq!(
-            &["first_name", "last_name"],
-            sort_user_field_columns(SortUserField::Name)
-        );
-        assert_eq!(&["email"], sort_user_field_columns(SortUserField::Email));
-        assert_eq!(
-            &["first_name"],
-            sort_user_field_columns(SortUserField::FirstName)
-        );
-        assert_eq!(
-            &["last_name"],
-            sort_user_field_columns(SortUserField::LastName)
-        );
-        assert_eq!(&["tier"], sort_user_field_columns(SortUserField::Tier));
-        assert_eq!(&["role"], sort_user_field_columns(SortUserField::Role));
-        assert_eq!(
-            &["created"],
-            sort_user_field_columns(SortUserField::Created)
-        );
-        assert_eq!(
-            &["updated"],
-            sort_user_field_columns(SortUserField::Updated)
-        );
     }
 
     #[test]
