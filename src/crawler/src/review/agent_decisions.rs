@@ -4,12 +4,15 @@
 //! rounds the agents give one review before it waits for a human. The composition root builds the
 //! one [`AgentDecisionPolicy`] of a start from the authoring mode and these settings, and the
 //! review console, the scraper's review gate and the spider share it through the one review
-//! repository. The operator contract is in `docs/crawler/operations.md` (review agents); the
-//! checks an agent approval passes are in [`crate::review::approval_guard`].
+//! repository. The console answers the limits at [`AGENT_LIMITS_ROUTE`], so the review agent runner
+//! tells the agents the limits the console applies. The operator contract is in
+//! `docs/crawler/operations.md` (review agents); the checks an agent approval passes are in
+//! [`crate::review::approval_guard`].
 
 use crate::authoring::CrawlerAuthoringMode;
 use crate::review::access::{ReviewServerConfigError, positive_number};
 use crate::review::model::STATUS_PENDING_REVIEW;
+use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::time::Duration;
 
@@ -18,14 +21,18 @@ pub const AGENT_MATRIX_MAX_AGE_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_MATRIX_
 pub const AGENT_MIN_LABELLED_URLS_ENV: &str = "CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS";
 pub const AGENT_MAX_REPAIR_ROUNDS_ENV: &str = "CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS";
 
+/// The console's read-only route that answers its [`AgentLimits`].
+pub const AGENT_LIMITS_ROUTE: &str = "/api/review-agent-limits";
+
 const DEFAULT_MAX_DECISIONS_PER_HOUR: NonZeroU32 = NonZeroU32::new(20).unwrap();
 const DEFAULT_MATRIX_MAX_AGE_MINUTES: NonZeroU32 = NonZeroU32::new(30).unwrap();
-pub const DEFAULT_MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
+const DEFAULT_MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 const DEFAULT_MAX_REPAIR_ROUNDS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 
 /// The limits of the review agents' own decisions, approvals and rejections alike: the
-/// `CRAWLER_REVIEW_AGENT_*` settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `CRAWLER_REVIEW_AGENT_*` settings, as the console answers them at [`AGENT_LIMITS_ROUTE`]. A
+/// limit that is not a whole number of at least 1 is no limit, so it does not deserialize.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentLimits {
     /// The agent's approvals plus rejections taken within any rolling hour.
     pub max_decisions_per_hour: NonZeroU32,
@@ -229,6 +236,30 @@ mod tests {
             .unwrap_or_else(|| panic!("{name}={value} must fail startup"));
 
         assert_eq!(error.to_string(), message);
+    }
+
+    /// The console answers the limits under the names of their settings; a reader refuses a limit
+    /// that is no whole number of at least 1 rather than tell the agents it.
+    #[test]
+    fn should_answer_the_limits_by_name_and_refuse_one_below_one() {
+        let answered = serde_json::to_value(AgentLimits::default()).unwrap();
+
+        assert_eq!(
+            answered,
+            serde_json::json!({
+                "max_decisions_per_hour": 20,
+                "matrix_max_age_minutes": 30,
+                "min_labelled_urls": 3,
+                "max_repair_rounds": 3,
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<AgentLimits>(answered.clone()).unwrap(),
+            AgentLimits::default()
+        );
+        let mut no_labels = answered;
+        no_labels["min_labelled_urls"] = serde_json::json!(0);
+        assert!(serde_json::from_value::<AgentLimits>(no_labels).is_err());
     }
 
     fn capped_at_three(authoring: CrawlerAuthoringMode) -> AgentDecisionPolicy {

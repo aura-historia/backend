@@ -1,13 +1,13 @@
 //! How `review-agent-runner` is started: whether it runs every interval until stopped or once
 //! (`--once`), and from its environment the review console, the CLI and `review-mcp` it starts, its
 //! state directory, each agent role's model, effort and turn cap, the run's limits and the
-//! interval between runs.
+//! interval between runs. The limits of the agents' decisions are the console's, which each run
+//! reads from it; the runner reads none from its environment.
 //! An empty or whitespace-only setting counts as unset; any other value that is not accepted fails
 //! startup with the variable's name, so a mistyped limit never silently widens what the agents
 //! may do.
 
 use super::invocation::ChildEnvironment;
-use crate::review::agent_decisions::{AGENT_MIN_LABELLED_URLS_ENV, DEFAULT_MIN_LABELLED_URLS};
 use crate::review_mcp::{AgentRole, ReviewConsoleAccess, ReviewMcpSettingsError};
 use large_language_model::ClaudeEffort;
 use std::num::NonZeroU32;
@@ -79,9 +79,6 @@ pub struct RunnerSettings {
     pub process_timeout: Duration,
     /// How long the service rests after a run ends before it starts the next; `--once` ignores it.
     pub interval: Duration,
-    /// How many URLs of each label the author agent sets on a URL-pattern review: the console's
-    /// `CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS`, which the runner reads to say so in the prompt.
-    pub min_labelled_urls: NonZeroU32,
 }
 
 impl RunnerSettings {
@@ -187,9 +184,6 @@ impl RunnerSettings {
                     .unwrap_or(DEFAULT_INTERVAL_SECONDS)
                     .get(),
             )),
-            min_labelled_urls: read
-                .positive(AGENT_MIN_LABELLED_URLS_ENV)?
-                .unwrap_or(DEFAULT_MIN_LABELLED_URLS),
         })
     }
 }
@@ -410,7 +404,6 @@ mod tests {
         assert_eq!(read.max_processes.get(), 2);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
         assert_eq!(read.process_timeout, Duration::from_secs(60 * 60));
-        assert_eq!(read.min_labelled_urls.get(), 3);
     }
 
     #[test]
@@ -431,7 +424,6 @@ mod tests {
                 (COOLDOWN_MINUTES_ENV, "5"),
                 (PROCESS_TIMEOUT_MINUTES_ENV, "2"),
                 (INTERVAL_SECONDS_ENV, "30"),
-                (AGENT_MIN_LABELLED_URLS_ENV, "4"),
             ],
         )
         .unwrap_or_else(|error| panic!("{error}"));
@@ -460,7 +452,6 @@ mod tests {
         assert_eq!(read.cooldown, Duration::from_secs(300));
         assert_eq!(read.process_timeout, Duration::from_secs(120));
         assert_eq!(read.interval, Duration::from_secs(30));
-        assert_eq!(read.min_labelled_urls.get(), 4);
     }
 
     #[test]

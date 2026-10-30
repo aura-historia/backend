@@ -1,6 +1,7 @@
 use crate::network::policy::NetworkErrorKind;
 use crate::review::access::ReviewAccess;
 pub use crate::review::access::{ReviewServerConfig, ReviewServerConfigError};
+use crate::review::agent_decisions::AGENT_LIMITS_ROUTE;
 use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
@@ -206,6 +207,9 @@ impl ReviewServer {
             }
             ("GET", "/api/raw-attribute-keys") => {
                 HttpResponse::json(200, &RawAttributeKey::registry())
+            }
+            ("GET", AGENT_LIMITS_ROUTE) => {
+                HttpResponse::json(200, self.repository.agent_decisions().limits())
             }
             ("GET", "/api/reviews") => match self.repository.list_reviews(200).await {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
@@ -1418,6 +1422,49 @@ mod tests {
                 .to_string()
                 .starts_with("HTTP/1.1 401 Unauthorized")
         );
+        Ok(())
+    }
+
+    /// The console answers the limits of the agent decision policy its repository applies to
+    /// whoever may read it, so the review agent runner tells the agents those limits.
+    #[tokio::test]
+    async fn should_answer_the_agents_limits_the_console_applies()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        let limits = AgentLimits {
+            min_labelled_urls: std::num::NonZeroU32::new(5).ok_or("five is not zero")?,
+            ..AgentLimits::default()
+        };
+        let server = ReviewServer::new(
+            CrawlerReviewRepository::new(pool).with_agent_decisions(agent_mode(limits)),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: Some("review-token".to_owned()),
+                agent_tokens: None,
+                local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+            },
+            Arc::new(MockHtmlFetcher::new()),
+        );
+        let read = |authorization: &str| {
+            format!("GET {AGENT_LIMITS_ROUTE} HTTP/1.1\r\nHost: 127.0.0.1\r\n{authorization}\r\n")
+        };
+
+        let answered = server
+            .route(&read("Authorization: Bearer review-token\r\n"))
+            .await
+            .to_string();
+        let refused = server.route(&read("")).await.to_string();
+
+        assert!(answered.starts_with("HTTP/1.1 200"), "{answered}");
+        let body = answered
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body)
+            .ok_or("answer without body")?;
+        assert_eq!(serde_json::from_str::<AgentLimits>(body)?, limits);
+        assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
         Ok(())
     }
 
