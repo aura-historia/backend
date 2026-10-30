@@ -380,6 +380,52 @@ async fn should_record_no_review_wait_when_url_pattern_review_is_rejected_during
     );
 }
 
+/// An earlier crawl left the domain waiting on its manual URL-pattern review, and the domain is
+/// crawled again while the review is still pending, as it is once that wait has run out. The
+/// crawl waits on the same review, and the operator rejects it while the crawl still runs. The
+/// rejection releases the domain and clears the earlier crawl's review-wait outcome, and the
+/// crawl's own wait is not recorded, so the domain reports no wait on a review it no longer has.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_clear_an_earlier_review_wait_when_its_review_is_rejected_during_a_later_crawl() {
+    let fixture = ManualCrawlFixture::new().await;
+    let review_id = fixture.review_an_earlier_crawl_waits_on().await;
+    let (pages, crawl) = fixture.start_crawl();
+
+    assert_eq!(
+        fixture.crawl_until_the_review_waits(&pages).await,
+        review_id
+    );
+    fixture
+        .review_repository
+        .reject_review(
+            review_id,
+            ReviewActor::Human,
+            Some("not the shop's catalogue"),
+        )
+        .await
+        .unwrap();
+    let schedule_after_rejection = fixture.crawl_schedule().await;
+    drop(pages);
+    let run = crawl
+        .await
+        .unwrap()
+        .unwrap_or_else(|error| panic!("crawl: {error}"));
+    let wait_write = fixture.record_review_wait(review_id).await;
+
+    assert_eq!(run.pending_url_pattern_review, Some(review_id));
+    assert_eq!(wait_write, UrlPatternReviewWaitWrite::ReviewNotPending);
+    assert_eq!(
+        schedule_after_rejection,
+        (None, None),
+        "the rejection released the domain and cleared the earlier crawl's review wait"
+    );
+    assert_eq!(
+        fixture.crawl_schedule().await,
+        (None, None),
+        "the crawl that waited on the rejected review records no wait"
+    );
+}
+
 /// A verdict that closes the URL-pattern review a crawl waits on.
 #[derive(Clone, Copy, Debug)]
 enum ClosingVerdict {
@@ -446,10 +492,11 @@ async fn assert_wait_written_while_the_verdict_commits_keeps_the_release(verdict
         wait_write.await.unwrap(),
         UrlPatternReviewWaitWrite::ReviewNotPending
     );
-    let (_, next_crawl_at) = fixture.crawl_schedule().await;
     assert_eq!(
-        next_crawl_at, None,
-        "{verdict:?} released the domain, and the crawl's wait must not hold it back again"
+        fixture.crawl_schedule().await,
+        (None, None),
+        "{verdict:?} released the domain and cleared its review wait, and the crawl's wait must \
+         not hold it back or report it again"
     );
 }
 
