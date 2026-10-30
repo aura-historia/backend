@@ -1,8 +1,9 @@
 //! The review agents' needs-repair rounds on a review: every needs-repair verdict an agent gave it
 //! since a human last changed or judged it, counted from its event trail. Once a pending review
-//! reached the cap of [`AgentDecisionPolicy::max_repair_rounds`] it waits for a human, and every
-//! agent change and verdict on it is refused until a human's own change or verdict hands it back
-//! and the count restarts. The contract is in `docs/crawler/operations.md` (review agents).
+//! reached the cap of
+//! [`AgentLimits::max_repair_rounds`](crate::review::agent_decisions::AgentLimits::max_repair_rounds)
+//! it waits for a human, and every agent change and verdict on it is refused until a human's own
+//! change or verdict hands it back and the count restarts. The contract is in `docs/crawler/operations.md` (review agents).
 
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::CrawlerReviewId;
@@ -69,7 +70,7 @@ pub(super) async fn refuse_agent_while_human_required(
         return Err(ReviewRepositoryError::HumanRequired {
             review_id,
             agent_rounds,
-            max_repair_rounds: agent_decisions.max_repair_rounds.get(),
+            max_repair_rounds: agent_decisions.limits.max_repair_rounds.get(),
         });
     }
     Ok(())

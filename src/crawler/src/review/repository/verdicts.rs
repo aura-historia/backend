@@ -77,7 +77,7 @@ impl CrawlerReviewRepository {
         if guarded {
             check_agent_decision_rate(
                 &mut transaction,
-                self.agent_decisions.max_decisions_per_hour,
+                self.agent_decisions.limits.max_decisions_per_hour,
             )
             .await?;
             refuse_approval_of_own_change(&mut transaction, review_id, actor, &review).await?;
@@ -94,7 +94,7 @@ impl CrawlerReviewRepository {
                         url_pattern_approval_checks(
                             &candidate,
                             &domain,
-                            self.agent_decisions.min_labelled_urls,
+                            self.agent_decisions.limits.min_labelled_urls,
                         ),
                     )?;
                 }
@@ -123,7 +123,7 @@ impl CrawlerReviewRepository {
                         &pages,
                         matrix.as_ref(),
                         &going_live.live,
-                        self.agent_decisions.max_matrix_age,
+                        self.agent_decisions.limits.max_matrix_age(),
                     )?;
                 }
                 let coverage = check_approval_coverage(
@@ -178,7 +178,7 @@ impl CrawlerReviewRepository {
         if actor.is_agent() {
             check_agent_decision_rate(
                 &mut transaction,
-                self.agent_decisions.max_decisions_per_hour,
+                self.agent_decisions.limits.max_decisions_per_hour,
             )
             .await?;
         }

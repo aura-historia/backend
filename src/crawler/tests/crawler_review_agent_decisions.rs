@@ -7,7 +7,7 @@
 //! who hands it back; and a human restores what an approval replaced while it is still live.
 
 use crawler::authoring::CrawlerAuthoringMode;
-use crawler::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+use crawler::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
 use crawler::review::model::{
     PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_APPROVED, STATUS_PENDING_REVIEW,
@@ -95,8 +95,11 @@ fn page(slug: &str) -> SchemaReviewPageInput {
 fn guarded_policy(max_decisions_per_hour: u32) -> AgentDecisionPolicy {
     AgentDecisionPolicy {
         approvals: AgentApprovals::Guarded,
-        max_decisions_per_hour: NonZeroU32::new(max_decisions_per_hour).unwrap_or(NonZeroU32::MIN),
-        ..AgentDecisionPolicy::default()
+        limits: AgentLimits {
+            max_decisions_per_hour: NonZeroU32::new(max_decisions_per_hour)
+                .unwrap_or(NonZeroU32::MIN),
+            ..AgentLimits::default()
+        },
     }
 }
 
@@ -1829,9 +1832,13 @@ async fn should_refuse_an_agent_approval_of_a_version_the_approving_agent_change
 /// A repository taking the agents' guarded decisions that hands a review to a human after
 /// `max_repair_rounds` agent needs-repair verdicts.
 fn capped(pool: &PgPool, max_repair_rounds: u32) -> CrawlerReviewRepository {
+    let guarded = guarded_policy(20);
     CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy {
-        max_repair_rounds: NonZeroU32::new(max_repair_rounds).unwrap_or(NonZeroU32::MIN),
-        ..guarded_policy(20)
+        limits: AgentLimits {
+            max_repair_rounds: NonZeroU32::new(max_repair_rounds).unwrap_or(NonZeroU32::MIN),
+            ..guarded.limits
+        },
+        ..guarded
     })
 }
 

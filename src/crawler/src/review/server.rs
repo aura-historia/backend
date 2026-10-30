@@ -100,10 +100,10 @@ impl ReviewServer {
             bind_addr = %bind_addr,
             agent_access = self.access.agent_access(),
             agent_approvals = agent_decisions.approvals.as_str(),
-            agent_max_decisions_per_hour = agent_decisions.max_decisions_per_hour.get(),
-            agent_matrix_max_age_minutes = agent_decisions.max_matrix_age.as_secs() / 60,
-            agent_min_labelled_urls = agent_decisions.min_labelled_urls.get(),
-            agent_max_repair_rounds = agent_decisions.max_repair_rounds.get(),
+            agent_max_decisions_per_hour = agent_decisions.limits.max_decisions_per_hour.get(),
+            agent_matrix_max_age_minutes = agent_decisions.limits.matrix_max_age_minutes.get(),
+            agent_min_labelled_urls = agent_decisions.limits.min_labelled_urls.get(),
+            agent_max_repair_rounds = agent_decisions.limits.max_repair_rounds.get(),
             max_concurrent_live_jobs = self.live_jobs.limit().get(),
             "Crawler review console listening"
         );
@@ -1936,7 +1936,7 @@ Origin: http://127.0.0.1:7878/x
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, send_as};
         use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig};
         use crate::network::policy::NetworkErrorKind;
-        use crate::review::agent_decisions::AgentApprovals;
+        use crate::review::agent_decisions::{AgentApprovals, AgentLimits};
         use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::matrix_refresh::MatrixRefreshStatus;
@@ -2566,8 +2566,10 @@ Origin: http://127.0.0.1:7878/x
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
                     agent_decisions: AgentDecisionPolicy {
                         approvals: AgentApprovals::Guarded,
-                        max_repair_rounds: NonZeroU32::MIN,
-                        ..AgentDecisionPolicy::default()
+                        limits: AgentLimits {
+                            max_repair_rounds: NonZeroU32::MIN,
+                            ..AgentLimits::default()
+                        },
                     },
                     ..paced_console()
                 },
@@ -3320,7 +3322,7 @@ Origin: http://127.0.0.1:7878/x
     mod agent_decisions {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
         use super::schema_editing::pending_review_server_deciding;
-        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy, AgentLimits};
         use serde_json::json;
         use test_api::IntegrationTestService as _;
 
@@ -3503,8 +3505,10 @@ Origin: http://127.0.0.1:7878/x
         {
             let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
                 approvals: AgentApprovals::Guarded,
-                max_repair_rounds: std::num::NonZeroU32::MIN,
-                ..AgentDecisionPolicy::default()
+                limits: AgentLimits {
+                    max_repair_rounds: std::num::NonZeroU32::MIN,
+                    ..AgentLimits::default()
+                },
             })
             .await;
             let review = format!("GET /api/reviews/{review_id}");

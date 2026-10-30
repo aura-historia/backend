@@ -41,16 +41,16 @@ impl AgentApprovals {
     }
 }
 
-/// The limits of the review agents' own decisions, approvals and rejections alike.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentDecisionPolicy {
-    pub approvals: AgentApprovals,
+/// The limits of the review agents' own decisions, approvals and rejections alike: the
+/// `CRAWLER_REVIEW_AGENT_*` settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgentLimits {
     /// The agent's approvals plus rejections taken within any rolling hour.
     pub max_decisions_per_hour: NonZeroU32,
-    /// How long ago the review pages of the live schema matrix an agent approval rests on may
-    /// have been fetched. A URL pattern's sample labels do not expire: they belong to the
+    /// How many minutes ago the review pages of the live schema matrix an agent approval rests on
+    /// may have been fetched. A URL pattern's sample labels do not expire: they belong to the
     /// candidate version an approval names.
-    pub max_matrix_age: Duration,
+    pub matrix_max_age_minutes: NonZeroU32,
     /// How many URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many
     /// labelled `NOT_PRODUCT`.
     pub min_labelled_urls: NonZeroU32,
@@ -60,40 +60,69 @@ pub struct AgentDecisionPolicy {
     pub max_repair_rounds: NonZeroU32,
 }
 
-impl Default for AgentDecisionPolicy {
-    /// Agent decisions off: the agent decides nothing until an operator opts in.
+impl Default for AgentLimits {
     fn default() -> Self {
         Self {
-            approvals: AgentApprovals::Off,
             max_decisions_per_hour: DEFAULT_MAX_DECISIONS_PER_HOUR,
-            max_matrix_age: minutes(DEFAULT_MATRIX_MAX_AGE_MINUTES),
+            matrix_max_age_minutes: DEFAULT_MATRIX_MAX_AGE_MINUTES,
             min_labelled_urls: DEFAULT_MIN_LABELLED_URLS,
             max_repair_rounds: DEFAULT_MAX_REPAIR_ROUNDS,
         }
     }
 }
 
-impl AgentDecisionPolicy {
-    /// Reads the limits of agent decisions, which are off until the review console of `agent`
-    /// authoring mode turns them on. An empty or whitespace-only value counts as unset; a value
-    /// that is set but not accepted fails startup instead of silently changing what the agents
-    /// may decide.
+impl AgentLimits {
+    /// Reads the limits of agent decisions. An empty or whitespace-only value counts as unset; a
+    /// value that is set but not accepted fails startup instead of silently changing what the
+    /// agents may decide.
     pub fn from_env() -> Result<Self, ReviewServerConfigError> {
         let defaults = Self::default();
-        let max_decisions_per_hour = positive_number(AGENT_MAX_DECISIONS_PER_HOUR_ENV)?
-            .unwrap_or(defaults.max_decisions_per_hour);
-        let max_matrix_age = positive_number(AGENT_MATRIX_MAX_AGE_MINUTES_ENV)?
-            .map_or(defaults.max_matrix_age, minutes);
-        let min_labelled_urls =
-            positive_number(AGENT_MIN_LABELLED_URLS_ENV)?.unwrap_or(defaults.min_labelled_urls);
-        let max_repair_rounds =
-            positive_number(AGENT_MAX_REPAIR_ROUNDS_ENV)?.unwrap_or(defaults.max_repair_rounds);
+        let read = |name, default| positive_number(name).map(|value| value.unwrap_or(default));
         Ok(Self {
-            approvals: defaults.approvals,
-            max_decisions_per_hour,
-            max_matrix_age,
-            min_labelled_urls,
-            max_repair_rounds,
+            max_decisions_per_hour: read(
+                AGENT_MAX_DECISIONS_PER_HOUR_ENV,
+                defaults.max_decisions_per_hour,
+            )?,
+            matrix_max_age_minutes: read(
+                AGENT_MATRIX_MAX_AGE_MINUTES_ENV,
+                defaults.matrix_max_age_minutes,
+            )?,
+            min_labelled_urls: read(AGENT_MIN_LABELLED_URLS_ENV, defaults.min_labelled_urls)?,
+            max_repair_rounds: read(AGENT_MAX_REPAIR_ROUNDS_ENV, defaults.max_repair_rounds)?,
+        })
+    }
+
+    /// How long ago the review pages of the live schema matrix an agent approval rests on may have
+    /// been fetched.
+    pub fn max_matrix_age(&self) -> Duration {
+        Duration::from_secs(u64::from(self.matrix_max_age_minutes.get()) * 60)
+    }
+}
+
+/// What the review agents may decide on their own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDecisionPolicy {
+    pub approvals: AgentApprovals,
+    pub limits: AgentLimits,
+}
+
+impl Default for AgentDecisionPolicy {
+    /// Agent decisions off: the agent decides nothing until an operator opts in.
+    fn default() -> Self {
+        Self {
+            approvals: AgentApprovals::Off,
+            limits: AgentLimits::default(),
+        }
+    }
+}
+
+impl AgentDecisionPolicy {
+    /// Reads the limits of agent decisions, which are off until the review console of `agent`
+    /// authoring mode turns them on.
+    pub fn from_env() -> Result<Self, ReviewServerConfigError> {
+        Ok(Self {
+            approvals: AgentApprovals::Off,
+            limits: AgentLimits::from_env()?,
         })
     }
 
@@ -101,12 +130,8 @@ impl AgentDecisionPolicy {
     /// since a human last changed or judged it waits for a human: it is pending and their
     /// back-and-forth on it reached the cap.
     pub fn waits_for_human(&self, status: &str, agent_rounds: u32) -> bool {
-        status == STATUS_PENDING_REVIEW && agent_rounds >= self.max_repair_rounds.get()
+        status == STATUS_PENDING_REVIEW && agent_rounds >= self.limits.max_repair_rounds.get()
     }
-}
-
-fn minutes(count: NonZeroU32) -> Duration {
-    Duration::from_secs(u64::from(count.get()) * 60)
 }
 
 #[cfg(test)]
@@ -156,10 +181,10 @@ mod tests {
 
             assert_eq!(policy, AgentDecisionPolicy::default(), "{env:?}");
             assert_eq!(policy.approvals, AgentApprovals::Off);
-            assert_eq!(policy.max_decisions_per_hour.get(), 20);
-            assert_eq!(policy.max_matrix_age, Duration::from_secs(30 * 60));
-            assert_eq!(policy.min_labelled_urls.get(), 3);
-            assert_eq!(policy.max_repair_rounds.get(), 3);
+            assert_eq!(policy.limits.max_decisions_per_hour.get(), 20);
+            assert_eq!(policy.limits.max_matrix_age(), Duration::from_secs(30 * 60));
+            assert_eq!(policy.limits.min_labelled_urls.get(), 3);
+            assert_eq!(policy.limits.max_repair_rounds.get(), 3);
         }
     }
 
@@ -179,10 +204,12 @@ mod tests {
             policy,
             AgentDecisionPolicy {
                 approvals: AgentApprovals::Off,
-                max_decisions_per_hour: NonZeroU32::new(5).unwrap(),
-                max_matrix_age: Duration::from_secs(10 * 60),
-                min_labelled_urls: NonZeroU32::new(4).unwrap(),
-                max_repair_rounds: NonZeroU32::new(2).unwrap(),
+                limits: AgentLimits {
+                    max_decisions_per_hour: NonZeroU32::new(5).unwrap(),
+                    matrix_max_age_minutes: NonZeroU32::new(10).unwrap(),
+                    min_labelled_urls: NonZeroU32::new(4).unwrap(),
+                    max_repair_rounds: NonZeroU32::new(2).unwrap(),
+                },
             }
         );
     }
@@ -238,7 +265,10 @@ mod tests {
     #[test]
     fn should_hand_a_review_to_a_human_once_the_agents_reached_the_cap() {
         let policy = AgentDecisionPolicy {
-            max_repair_rounds: NonZeroU32::new(3).unwrap(),
+            limits: AgentLimits {
+                max_repair_rounds: NonZeroU32::new(3).unwrap(),
+                ..AgentLimits::default()
+            },
             ..AgentDecisionPolicy::default()
         };
 
