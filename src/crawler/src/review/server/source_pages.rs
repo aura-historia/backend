@@ -1,10 +1,10 @@
 //! The console's fetches of pages of a review's ListingSource for those who author and review it:
-//! a review agent's live previews stay on the review's ListingSource, a page is projected as the
-//! schema generation prompt sees it, and a proposed candidate is evaluated on the review's pages and
-//! on URLs of its ListingSource without being stored. A projection and an evaluation are live jobs
-//! under the console's limit, and refused to a review agent on a review that waits for a human. The
-//! contract is in `docs/crawler/extraction-and-review.md` (review rail) and
-//! `docs/crawler/operations.md` (review service, review agents).
+//! a page is projected as the schema generation prompt sees it, and a proposed candidate is
+//! evaluated on the review's pages and on URLs of its ListingSource without being stored. A
+//! projection and an evaluation are live jobs under the console's limit, and refused to a review
+//! agent on a review that waits for a human. The contract is in
+//! `docs/crawler/extraction-and-review.md` (review rail) and `docs/crawler/operations.md` (review
+//! service, review agents).
 
 use super::schema_matrix::{matrix_refresh_deadline, matrix_refresh_timeout};
 use super::{
@@ -20,50 +20,8 @@ use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
-use url::Url;
 
 impl ReviewServer {
-    /// The URL a live preview (`/api/live-inspect`, `/api/live-html`) fetches: any URL for a
-    /// human, and for a review agent only a URL of the ListingSource of the review its `review`
-    /// query names, so an agent's token never fetches another host.
-    pub(super) async fn live_preview_url(
-        &self,
-        request: &ParsedRequest<'_>,
-        actor: ReviewActor,
-    ) -> Result<Url, HttpResponse> {
-        let Some(raw_url) = request.query.get("url") else {
-            return Err(HttpResponse::json(400, &json!({ "error": "missing url" })));
-        };
-        if !actor.is_agent() {
-            return Url::parse(raw_url).map_err(|err| {
-                HttpResponse::json(
-                    400,
-                    &json!({
-                        "error": "invalid live preview url",
-                        "url": raw_url,
-                        "details": err.to_string(),
-                    }),
-                )
-            });
-        }
-        let Some(review_id) = request
-            .query
-            .get("review")
-            .and_then(|review_id| review_id.parse::<CrawlerReviewId>().ok())
-        else {
-            return Err(HttpResponse::json(
-                400,
-                &json!({
-                    "error": "a review agent's live fetch names the review whose ListingSource the url belongs to as `review`",
-                }),
-            ));
-        };
-        self.repository
-            .review_source_url(review_id, raw_url)
-            .await
-            .map_err(review_error)
-    }
-
     /// Fetches the review page or the URL of the review's ListingSource that `request`'s `page` or
     /// `url` query names and answers its projection, as a live job of `actor`'s.
     pub(super) async fn project_review_source_page(

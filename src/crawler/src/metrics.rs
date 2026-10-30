@@ -48,6 +48,9 @@ pub(crate) enum CrawlerMetric {
     ScrapesSucceeded,
     /// Scraper URLs whose scrape failed, per domain batch.
     ScrapesFailed,
+    /// Scraper URLs whose page waits on a pending product-schema review, per domain batch: no
+    /// failure, so neither in `ScrapesFailed` nor in `UrlFailures`.
+    ScrapesAwaitingSchemaReview,
     /// Raw observations raw capture persisted durably, per capture batch.
     ProductsCaptured,
     /// Scraper URL failures of one `failure_kind`, per domain batch.
@@ -71,6 +74,7 @@ impl CrawlerMetric {
         match self {
             Self::ScrapesSucceeded => "ScrapesSucceeded",
             Self::ScrapesFailed => "ScrapesFailed",
+            Self::ScrapesAwaitingSchemaReview => "ScrapesAwaitingSchemaReview",
             Self::ProductsCaptured => "ProductsCaptured",
             Self::UrlFailures => "UrlFailures",
             Self::DomainCircuitOpened => "DomainCircuitOpened",

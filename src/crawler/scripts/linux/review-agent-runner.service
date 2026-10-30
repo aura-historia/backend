@@ -37,8 +37,12 @@ Restart=on-failure
 RestartSec=1min
 # Exit code 2 is a setting the runner does not accept: a restart would fail the same way.
 RestartPreventExitStatus=2
-KillMode=control-group
-# `systemctl stop` ends the runner with exit code 143 after stopping its agent processes.
+# `systemctl stop` sends SIGTERM to the runner alone, never straight to the CLIs, which would then
+# report no cost: the runner stops them as at their timeout, SIGINT first, records their cost and
+# exits with 143 within its 20-second stop deadline. systemd then kills what is left of the unit,
+# and everything once TimeoutStopSec has passed.
+KillMode=mixed
+TimeoutStopSec=30s
 SuccessExitStatus=143
 # The agent processes read untrusted shop pages: keep them away from the rest of the host. The
 # whole file system is read-only but the state directory and the private /tmp, and /home, /root

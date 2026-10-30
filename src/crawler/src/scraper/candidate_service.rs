@@ -66,8 +66,8 @@ impl SchemaReviewWait {
     }
 }
 
-/// URL failure state for a page that waits on a pending product-schema review, together
-/// with the wait it records.
+/// Retry state for a page that waits on a pending product-schema review, written in the shape of
+/// a URL failure but not counted as one, together with the wait it records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaReviewWaitRequest {
     pub url_failure: FetchFailureRequest,
@@ -202,6 +202,9 @@ pub trait ScraperCandidateService: Send + Sync {
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
     /// Returns a random sample of product URLs for a ListingSource, other than the stored URLs
     /// `excluded_urls` names, to seed first-time schema generation with additional page layouts.
+    /// A URL is drawn only while its retry is due and it recorded no fetch failure or
+    /// schema-generation outcome since its last completed scrape; waiting on a product-schema
+    /// review is neither.
     ///
     /// This query intentionally uses `ORDER BY RANDOM()` because the path is
     /// only used on schema cache misses, which are rare (typically one-time per
@@ -314,8 +317,9 @@ pub trait ScraperCandidateService: Send + Sync {
         Ok(CrawlerUrlWriteOutcome::NoopStale)
     }
 
-    /// Records URL failure state for a page that waits on a pending product-schema review,
-    /// including the review it waits on and the consecutive-wait streak. The write is
+    /// Records URL retry state for a page that waits on a pending product-schema review,
+    /// including the review it waits on and the consecutive-wait streak. The wait is no failure
+    /// and leaves the URL's failure count as it was. The write is
     /// [`NoopStale`](CrawlerUrlWriteOutcome::NoopStale) once that review is no longer pending,
     /// so a scrape that overlapped the verdict on the review cannot hold back a page the verdict
     /// released.
@@ -417,6 +421,10 @@ impl ScraperCandidateServiceImpl {
     /// Candidate selection reads a wait only while `last_error_kind` is still
     /// `PendingSchemaReview`, so writes that leave the columns cannot extend a streak either.
     ///
+    /// A wait is no failure: it leaves `failure_count` as it was, so a page that only waited on a
+    /// review stays a [schema seed](ScraperCandidateService::get_random_product_urls_for_schema_seed)
+    /// once the review releases it. Every other failure counts one more.
+    ///
     /// The pending check share-locks the review row before the URL row is written. Approval and
     /// rejection lock the review row first and release the waiting pages last, so a wait written
     /// while either verdict commits waits for it and then finds the review closed, instead of
@@ -433,7 +441,9 @@ impl ScraperCandidateServiceImpl {
 
         let result = sqlx::query(
             "UPDATE listing_source_urls
-             SET failure_count = failure_count + 1,
+             SET failure_count = CASE WHEN $8::uuid IS NULL
+                                      THEN failure_count + 1
+                                      ELSE failure_count END,
                  last_error_kind = $3,
                  last_error_message = $4,
                  last_status_code = $5,

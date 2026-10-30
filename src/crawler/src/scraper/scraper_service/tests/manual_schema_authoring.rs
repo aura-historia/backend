@@ -1288,11 +1288,30 @@ async fn new_manual_review_page_urls(
     domain_id: crate::CrawlerDomainId,
     url: &Url,
 ) -> Vec<String> {
+    let review_id = open_manual_review(scraper, listing_source_id, domain_id, url).await;
+    review_page_urls(repository, review_id).await
+}
+
+/// Scrapes the product page `url` of the domain `domain_id` until it opens a manual review, and
+/// returns that review.
+async fn open_manual_review(
+    scraper: &ScraperServiceImpl,
+    listing_source_id: &ListingSourceId,
+    domain_id: crate::CrawlerDomainId,
+    url: &Url,
+) -> crate::CrawlerReviewId {
     let request = ScrapeRequest {
         domain_id: Some(domain_id),
         ..normal_request(listing_source_id, url)
     };
-    let review_id = pending_review_id(scraper.scrape(request).await.result);
+    pending_review_id(scraper.scrape(request).await.result)
+}
+
+/// The URLs of the review's pages, sorted.
+async fn review_page_urls(
+    repository: &CrawlerReviewRepository,
+    review_id: crate::CrawlerReviewId,
+) -> Vec<String> {
     let mut urls: Vec<String> = repository
         .get_review_pages(review_id)
         .await
@@ -1470,4 +1489,83 @@ async fn should_draw_again_for_rejected_seed_pages_until_a_draw_brings_only_page
         pages,
         vec![url.as_str(), others[0].as_str(), others[1].as_str()]
     );
+}
+
+/// Records, as the scraper pass does, that the stored product page `url` waits on the pending
+/// product-schema review `review_id` for its first time.
+async fn record_schema_review_wait(
+    candidates: &crate::scraper::candidate_service::ScraperCandidateServiceImpl,
+    listing_source_id: &ListingSourceId,
+    url: &str,
+    review_id: crate::CrawlerReviewId,
+) {
+    use crate::scraper::candidate_service::{
+        FetchFailureRequest, SchemaReviewWait, SchemaReviewWaitRequest,
+        ScraperCandidateService as _,
+    };
+    let outcome = candidates
+        .mark_waiting_on_schema_review(SchemaReviewWaitRequest {
+            url_failure: FetchFailureRequest {
+                listing_source_id: *listing_source_id,
+                url: Url::parse(url).unwrap_or_else(|error| panic!("{url}: {error}")),
+                error_kind: "PendingSchemaReview".to_owned(),
+                error_message: "waits on the pending product schema review".to_owned(),
+                status_code: None,
+                next_retry_at: OffsetDateTime::now_utc() + time::Duration::minutes(30),
+                expected_last_captured_raw_input_sha256: None,
+            },
+            wait: SchemaReviewWait {
+                review_id,
+                streak: 1,
+            },
+        })
+        .await
+        .unwrap_or_else(|error| panic!("record the wait of {url}: {error}"));
+    assert_eq!(outcome, CrawlerUrlWriteOutcome::Applied);
+}
+
+/// Waiting on a review is no failure: once a rejection of the ListingSource's first manual review
+/// releases the pages that waited on it, its next manual review is seeded from them with as many
+/// pages as the first, leaving out only the pages the rejection covers.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_seed_the_next_manual_review_with_pages_that_waited_on_the_first() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let stored: Vec<String> = std::iter::once(url.to_string())
+        .chain((1..=7).map(|page| format!("https://example.com/products/waiting-{page}")))
+        .collect();
+    let stored_urls: Vec<&str> = stored.iter().map(String::as_str).collect();
+    let domain_id = store_product_urls(&pool, &id, &stored_urls).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let candidates =
+        crate::scraper::candidate_service::ScraperCandidateServiceImpl::new(pool.clone());
+    let scraper = seeding_manual_scraper(&pool, repository.clone(), 8);
+
+    let first_review = open_manual_review(&scraper, &id, domain_id, &url).await;
+    for page in &stored_urls {
+        record_schema_review_wait(&candidates, &id, page, first_review).await;
+    }
+    repository
+        .reject_review(first_review, ReviewActor::Human, Some("not product pages"))
+        .await
+        .unwrap_or_else(|error| panic!("reject the first review: {error}"));
+    let first_pages = review_page_urls(&repository, first_review).await;
+    let mut released: Vec<String> = stored
+        .iter()
+        .filter(|page| !first_pages.contains(page))
+        .cloned()
+        .collect();
+    released.sort();
+    let next_url = Url::parse(&released[0]).unwrap_or_else(|error| panic!("{error}"));
+
+    let next_pages =
+        new_manual_review_page_urls(&scraper, &repository, &id, domain_id, &next_url).await;
+
+    assert_eq!(
+        first_pages.len(),
+        4,
+        "the first review has its page and three seeds"
+    );
+    assert_eq!(next_pages, released);
 }
