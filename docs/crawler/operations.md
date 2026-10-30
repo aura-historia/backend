@@ -325,7 +325,7 @@ All metrics use the namespace `AuraHistoria/Crawler`. Dimension values are Listi
 
 | Metric | Unit | Dimensions | Recorded |
 |---|---|---|---|
-| `ScrapesSucceeded`, `ScrapesFailed` | Count | `listing_source_id`, `domain` | Per scraper domain batch: URLs whose scrape completed (changed or not) and URLs whose scrape failed, pages that [wait on a product-schema review](scheduling-and-retries.md#fetch-retries) included, which the pass log counts apart. |
+| `ScrapesSucceeded`, `ScrapesFailed`, `ScrapesAwaitingSchemaReview` | Count | `listing_source_id`, `domain` | Per scraper domain batch: URLs whose scrape completed (changed or not), URLs whose scrape failed, and URLs whose page [waits on a product-schema review](scheduling-and-retries.md#fetch-retries), which is no failure and counts in neither `ScrapesFailed` nor `UrlFailures`. |
 | `DomainCircuitOpened` | Count | `listing_source_id`, `domain` | Per scraper domain batch: 1 when the batch opened the [domain circuit](scheduling-and-retries.md#scraper-domain-circuits), else 0. |
 | `UrlFailures` | Count | `listing_source_id`, `domain`, `failure_kind` | Per scraper domain batch and failure kind: the URL failures that recorded that `last_error_kind`, such as `HTTP_503` or `Timeout`. |
 | `ProductsCaptured` | Count | `listing_source_id`, `domain` | Per raw-capture batch: observations raw capture persisted durably; 0 when every capture of the domain failed. |

@@ -142,7 +142,8 @@ struct ScrapeCandidateOutcome {
     /// robots.txt of the URL's origin could not be reached, which disallows
     /// every URL there until it is fetched again.
     robots_unreachable: bool,
-    /// The error kind the failure recorded on its URL.
+    /// The error kind the failure recorded on its URL; `None` for a review wait, which is no
+    /// failure.
     failure_kind: Option<String>,
 }
 
@@ -195,13 +196,13 @@ impl DomainBatchMetrics {
                 &self.listing_source_domain,
             )
         };
-        // `ScrapesFailed` keeps counting pages that wait on a product-schema review, as
-        // `docs/crawler/operations.md#metrics-and-alarms` documents; the pass log counts them
-        // apart.
-        let scrapes_failed = outcome.failed + outcome.awaiting_schema_review;
         record()
             .with_value(CrawlerMetric::ScrapesSucceeded, outcome.succeeded as u64)
-            .with_value(CrawlerMetric::ScrapesFailed, scrapes_failed as u64)
+            .with_value(CrawlerMetric::ScrapesFailed, outcome.failed as u64)
+            .with_value(
+                CrawlerMetric::ScrapesAwaitingSchemaReview,
+                outcome.awaiting_schema_review as u64,
+            )
             .with_value(
                 CrawlerMetric::DomainCircuitOpened,
                 u64::from(self.circuit_opened),
@@ -907,7 +908,8 @@ async fn handle_scrape_error(
         circuit_opened: record.circuit_opened,
         persisted_domain_health: record.persisted_domain_health,
         robots_unreachable: is_robots_unreachable(&error),
-        failure_kind: Some(record.error_kind),
+        // A wait is no URL failure, so `UrlFailures` leaves it out as `ScrapesFailed` does.
+        failure_kind: (!awaits_schema_review).then_some(record.error_kind),
         ..Default::default()
     }
 }
@@ -5065,8 +5067,7 @@ mod tests {
         }
 
         /// A page that waits on a pending product-schema review is no failed scrape: the batch
-        /// counts it apart from the page whose fetch failed, while the `ScrapesFailed` metric
-        /// keeps counting both.
+        /// and its metrics count it apart from the page whose fetch failed.
         #[tokio::test]
         async fn should_count_a_page_waiting_on_a_schema_review_apart_from_failed_pages() {
             let (metrics, _guard) = capture_metrics();
@@ -5117,14 +5118,20 @@ mod tests {
             .await;
 
             assert_eq!((outcome.failed, outcome.awaiting_schema_review), (1, 1));
-            assert_eq!(
+            let source = |metric| {
+                metrics.values_with(metric, MetricDimension::ListingSourceId, &listing_source_id)
+            };
+            assert_eq!(source(CrawlerMetric::ScrapesFailed), vec![1]);
+            assert_eq!(source(CrawlerMetric::ScrapesAwaitingSchemaReview), vec![1]);
+            let url_failures = |kind| {
                 metrics.values_with(
-                    CrawlerMetric::ScrapesFailed,
-                    MetricDimension::ListingSourceId,
-                    &listing_source_id
-                ),
-                vec![2]
-            );
+                    CrawlerMetric::UrlFailures,
+                    MetricDimension::FailureKind,
+                    kind,
+                )
+            };
+            assert_eq!(url_failures("HTTP_500"), vec![1]);
+            assert!(url_failures("PendingSchemaReview").is_empty());
         }
 
         #[tokio::test]

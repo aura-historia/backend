@@ -202,8 +202,9 @@ pub trait ScraperCandidateService: Send + Sync {
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
     /// Returns a random sample of product URLs for a ListingSource, other than the stored URLs
     /// `excluded_urls` names, to seed first-time schema generation with additional page layouts.
-    /// A URL is drawn only while its retry is due and it has not failed since its last completed
-    /// scrape; waiting on a product-schema review is no failure.
+    /// A URL is drawn only while its retry is due and it recorded no fetch failure or
+    /// schema-generation outcome since its last completed scrape; waiting on a product-schema
+    /// review is neither.
     ///
     /// This query intentionally uses `ORDER BY RANDOM()` because the path is
     /// only used on schema cache misses, which are rare (typically one-time per
