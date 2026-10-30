@@ -100,9 +100,15 @@ fn listing_geography_failure(error: &GeographyError) -> FailureDiagnostic {
             FailureDiagnostic::postgres("geography_transaction", error)
         }
         GeographyError::Resolution(error) => resolution_failure("geography_resolution", error),
-        GeographyError::Superseded => rejected("geography_projection", "claim_superseded"),
-        GeographyError::Deferred => rejected("geography_projection", "claimed_elsewhere"),
-        GeographyError::InvalidInput => rejected("geography_projection", "invalid_input"),
+        GeographyError::Superseded => {
+            FailureDiagnostic::rejected("geography_projection", "claim_superseded")
+        }
+        GeographyError::Deferred => {
+            FailureDiagnostic::rejected("geography_projection", "claimed_elsewhere")
+        }
+        GeographyError::InvalidInput => {
+            FailureDiagnostic::rejected("geography_projection", "invalid_input")
+        }
     }
 }
 
@@ -259,32 +265,30 @@ fn consent_cleanup_failure(error: &CleanupConsentWorkflowError) -> FailureDiagno
             FailureDiagnostic::postgres(target.label(), error)
         }
         CleanupConsentWorkflowError::InvalidBatchSize => {
-            rejected("consent_workflow", "invalid_batch_size")
+            FailureDiagnostic::rejected("consent_workflow", "invalid_batch_size")
         }
     }
 }
 
 fn resolution_failure(stage: &'static str, error: &ResolutionError) -> FailureDiagnostic {
     match error {
+        ResolutionError::Provider(provider) => FailureDiagnostic::new(
+            stage,
+            "amazon_location",
+            provider.kind.diagnostic_category(),
+            None,
+        ),
         ResolutionError::Storage(_) | ResolutionError::Transaction(_) => {
             FailureDiagnostic::postgres(stage, error)
         }
         ResolutionError::InvalidState(_) => {
             FailureDiagnostic::new(stage, "postgres", "invalid_persisted_state", None)
         }
-        ResolutionError::Provider(error) => {
-            FailureDiagnostic::new(stage, "geocoding", error.kind.as_str(), None)
-        }
-        ResolutionError::InvalidInput => rejected(stage, "invalid_input"),
-        ResolutionError::Forbidden => rejected(stage, "forbidden"),
-        ResolutionError::Conflict => rejected(stage, "conflict"),
-        ResolutionError::Missing => rejected(stage, "missing"),
+        ResolutionError::InvalidInput => FailureDiagnostic::rejected(stage, "invalid_input"),
+        ResolutionError::Forbidden => FailureDiagnostic::rejected(stage, "forbidden"),
+        ResolutionError::Conflict => FailureDiagnostic::rejected(stage, "conflict"),
+        ResolutionError::Missing => FailureDiagnostic::rejected(stage, "missing"),
     }
-}
-
-/// The use case refused the request itself; no dependency was involved.
-fn rejected(stage: &'static str, category: &'static str) -> FailureDiagnostic {
-    FailureDiagnostic::new(stage, "none", category, None)
 }
 
 #[cfg(test)]

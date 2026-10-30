@@ -28,7 +28,7 @@ pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> bool {
     match use_case.execute(&context(), work).await {
         Ok(outcome) => outcome == ResolveOutcome::Complete,
         Err(error) => {
-            let failure = resolution_failure(&error);
+            let failure = resolution_failure("resolution", &error);
             tracing::warn!(
                 event = "geo_resolution.work_failed",
                 resolution_id = %job.resolution_id,
@@ -43,31 +43,25 @@ pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> bool {
 }
 
 /// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
-fn resolution_failure(error: &ResolutionError) -> FailureDiagnostic {
+fn resolution_failure(stage: &'static str, error: &ResolutionError) -> FailureDiagnostic {
     match error {
-        ResolutionError::Provider(provider) => {
-            FailureDiagnostic::new("geocoding", "amazon_location", provider.kind.as_str(), None)
-        }
-        ResolutionError::Storage(_) => FailureDiagnostic::postgres("resolution_storage", error),
-        ResolutionError::Transaction(_) => {
-            FailureDiagnostic::postgres("resolution_transaction", error)
-        }
-        ResolutionError::InvalidState(_) => FailureDiagnostic::new(
-            "resolution_storage",
-            "postgres",
-            "invalid_persisted_state",
+        ResolutionError::Provider(provider) => FailureDiagnostic::new(
+            stage,
+            "amazon_location",
+            provider.kind.diagnostic_category(),
             None,
         ),
-        ResolutionError::InvalidInput => rejected("invalid_input"),
-        ResolutionError::Forbidden => rejected("forbidden"),
-        ResolutionError::Conflict => rejected("conflict"),
-        ResolutionError::Missing => rejected("missing"),
+        ResolutionError::Storage(_) | ResolutionError::Transaction(_) => {
+            FailureDiagnostic::postgres(stage, error)
+        }
+        ResolutionError::InvalidState(_) => {
+            FailureDiagnostic::new(stage, "postgres", "invalid_persisted_state", None)
+        }
+        ResolutionError::InvalidInput => FailureDiagnostic::rejected(stage, "invalid_input"),
+        ResolutionError::Forbidden => FailureDiagnostic::rejected(stage, "forbidden"),
+        ResolutionError::Conflict => FailureDiagnostic::rejected(stage, "conflict"),
+        ResolutionError::Missing => FailureDiagnostic::rejected(stage, "missing"),
     }
-}
-
-/// The use case refused the request itself; no dependency was involved.
-fn rejected(category: &'static str) -> FailureDiagnostic {
-    FailureDiagnostic::new("resolution", "none", category, None)
 }
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
@@ -159,7 +153,7 @@ mod tests {
         assert!(!completed);
         let failures = logs.events_where("event", "geo_resolution.work_failed");
         assert_eq!(1, failures.len());
-        assert_eq!(Some("resolution_storage"), failures[0]["stage"].as_str());
+        assert_eq!(Some("resolution"), failures[0]["stage"].as_str());
         assert_eq!(Some("postgres"), failures[0]["dependency"].as_str());
         assert_eq!(Some("tls"), failures[0]["error_category"].as_str());
         assert!(!logs.text().contains("SENTINEL"));

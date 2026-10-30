@@ -190,7 +190,11 @@ impl LargeLanguageModelError {
             Self::InvalidRequest { .. } => "invalid_request",
             Self::Authentication { .. } => "authentication",
             Self::Timeout { .. } => "timeout",
-            Self::Retryable { .. } => "retryable",
+            Self::Retryable { advice, .. } => match advice.kind {
+                LargeLanguageModelRetryKind::RateLimited => "rate_limited",
+                LargeLanguageModelRetryKind::ServiceUnavailable => "unavailable",
+                LargeLanguageModelRetryKind::Transient => "transient",
+            },
             Self::Permanent { .. } => "rejected",
             Self::InvalidResponse { .. } => "response_invalid",
         }

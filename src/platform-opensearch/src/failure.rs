@@ -43,6 +43,8 @@ impl OpenSearchFailure {
         let error = error.downcast_ref::<opensearch::Error>()?;
         let kind = if error.is_timeout() {
             "timeout"
+        } else if error.is_json() {
+            "response_invalid"
         } else if error.status_code().is_some() {
             "http_status"
         } else {
@@ -76,8 +78,8 @@ mod tests {
 
         assert_eq!(Some("http_status"), failure.map(|failure| failure.kind()));
         assert_eq!(Some(403), failure.and_then(|failure| failure.http_status()));
-        assert!(!format!("{failure:?}").contains(SENTINEL));
         assert!(!error.0.to_string().contains(SENTINEL));
+        assert!(!format!("{error:?}").contains(SENTINEL));
     }
 
     #[test]

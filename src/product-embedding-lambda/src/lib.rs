@@ -125,7 +125,7 @@ async fn handler_with_budget(
                 message_id = %attempt.message_id,
                 outcome = category,
                 stage = failure.map(FailureDiagnostic::stage),
-                dependency = failure.map(FailureDiagnostic::dependency),
+                dependency = failure.and_then(FailureDiagnostic::dependency),
                 error_category = failure.map(FailureDiagnostic::category),
                 http_status = failure.and_then(FailureDiagnostic::http_status),
                 sqlstate = failure.and_then(FailureDiagnostic::sqlstate),

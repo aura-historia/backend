@@ -3,7 +3,7 @@ use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent};
 use opensearch::OpenSearch;
-use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE};
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_opensearch::failure::OpenSearchFailure;
 use platform_postgres::SqlxUnitOfWork;
@@ -107,7 +107,7 @@ async fn handler_with_budget(
                 message_id = %attempt.message_id,
                 outcome = category,
                 stage = failure.map(FailureDiagnostic::stage),
-                dependency = failure.map(FailureDiagnostic::dependency),
+                dependency = failure.and_then(FailureDiagnostic::dependency),
                 error_category = failure.map(FailureDiagnostic::category),
                 http_status = failure.and_then(FailureDiagnostic::http_status),
                 sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
@@ -130,19 +130,29 @@ pub enum ProductListingOpenSearchJobDisposition {
     Retry(&'static str),
     DependencyUnavailable(FailureDiagnostic),
     Poison(&'static str),
+    /// Poison caused by persisted state that cannot be read as valid until it is repaired.
+    InvalidPersistedState {
+        category: &'static str,
+        failure: FailureDiagnostic,
+    },
 }
 
 impl ProductListingOpenSearchJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::Complete(category)
+            | Self::Retry(category)
+            | Self::Poison(category)
+            | Self::InvalidPersistedState { category, .. } => category,
             Self::DependencyUnavailable(_) => "projection_unavailable",
         }
     }
 
     pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
         match self {
-            Self::DependencyUnavailable(failure) => Some(failure),
+            Self::DependencyUnavailable(failure) | Self::InvalidPersistedState { failure, .. } => {
+                Some(failure)
+            }
             Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
         }
     }
@@ -185,7 +195,15 @@ fn projection_error_disposition(
     use ProjectProductListingError as E;
     match error {
         E::SaleObservationFxSnapshotMissing => D::Retry("sale_snapshot_missing"),
-        E::SaleObservationFxSnapshotInvalid { .. } => D::Poison("sale_snapshot_invalid"),
+        E::SaleObservationFxSnapshotInvalid { .. } => D::InvalidPersistedState {
+            category: "sale_snapshot_invalid",
+            failure: FailureDiagnostic::new(
+                "sale_snapshot_read",
+                "postgres",
+                "invalid_persisted_state",
+                None,
+            ),
+        },
         E::BeginFailed { .. } => {
             D::DependencyUnavailable(FailureDiagnostic::postgres("source_begin", error))
         }
@@ -202,12 +220,14 @@ fn projection_error_disposition(
     }
 }
 
+/// Without an OpenSearch error in the chain, the adapter refused to build the document from the
+/// source (an invalid version or unmappable field), so the cause lies in the source data.
 fn target_write_failure(error: &ProjectProductListingError) -> FailureDiagnostic {
     let failure = OpenSearchFailure::find(error);
     FailureDiagnostic::new(
         "target_write",
         "opensearch",
-        failure.map_or(UNCLASSIFIED_FAILURE, |failure| failure.kind()),
+        failure.map_or("document_invalid", |failure| failure.kind()),
         failure.and_then(|failure| failure.http_status()),
     )
 }
@@ -529,7 +549,9 @@ mod tests {
                     "error_category": "http_status", "http_status": 403}),
                 json!({"message_id": "commit", "outcome": "projection_unavailable",
                     "stage": "source_commit", "dependency": "postgres", "error_category": "io"}),
-                json!({"message_id": "invalid-fx", "outcome": "sale_snapshot_invalid"}),
+                json!({"message_id": "invalid-fx", "outcome": "sale_snapshot_invalid",
+                    "stage": "sale_snapshot_read", "dependency": "postgres",
+                    "error_category": "invalid_persisted_state"}),
             ]
         );
         assert!(!logs.text().contains("SENTINEL"));

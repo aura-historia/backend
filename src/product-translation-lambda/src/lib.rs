@@ -9,6 +9,7 @@ use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
     SqlxProductListingTranslationSourceReader, SqlxProductListingTranslationWriterFactory,
 };
+use product_listing_service::ports::ProductListingTitleTranslationError;
 use product_listing_service::use_cases::{
     TranslateProductListingCommand, TranslateProductListingEventError,
     TranslateProductListingEventHandler, TranslateProductListingEventOutcome,
@@ -127,7 +128,7 @@ async fn handler_with_budget(
                 message_id = %attempt.message_id,
                 outcome = category,
                 stage = failure.map(FailureDiagnostic::stage),
-                dependency = failure.map(FailureDiagnostic::dependency),
+                dependency = failure.and_then(FailureDiagnostic::dependency),
                 error_category = failure.map(FailureDiagnostic::category),
                 http_status = failure.and_then(FailureDiagnostic::http_status),
                 sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
@@ -228,21 +229,31 @@ fn translation_error_disposition(
     D::DependencyUnavailable(FailureDiagnostic::postgres(stage, error))
 }
 
+/// Classifies by the provider error when one is in the chain. Otherwise the translator adapter
+/// rejected the provider response itself, which its port variant still names.
 fn translation_failure(error: &TranslateProductListingEventError) -> FailureDiagnostic {
-    let failure =
+    let chain = || {
         std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |error| {
             (*error).source()
         })
-        .find_map(|error| error.downcast_ref::<LargeLanguageModelError>());
-    FailureDiagnostic::new(
-        "translation",
-        "anthropic",
-        failure.map_or(
-            UNCLASSIFIED_FAILURE,
-            LargeLanguageModelError::diagnostic_category,
-        ),
-        None,
-    )
+    };
+    let category = chain()
+        .find_map(|error| error.downcast_ref::<LargeLanguageModelError>())
+        .map(LargeLanguageModelError::diagnostic_category)
+        .or_else(|| {
+            chain()
+                .find_map(|error| error.downcast_ref::<ProductListingTitleTranslationError>())
+                .map(|error| match error {
+                    ProductListingTitleTranslationError::TemporarilyUnavailable { .. } => {
+                        "unavailable"
+                    }
+                    ProductListingTitleTranslationError::InvalidResponse { .. } => {
+                        "response_invalid"
+                    }
+                })
+        })
+        .unwrap_or(UNCLASSIFIED_FAILURE);
+    FailureDiagnostic::new("translation", "anthropic", category, None)
 }
 
 pub fn translation_disposition(
@@ -377,7 +388,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_record_the_failed_stage_without_logging_its_cause() {
-        let use_case = FakeUseCase::new([FakeResult::Unavailable]);
+        let use_case = FakeUseCase::new([FakeResult::ProviderAuthenticationFailed]);
         let (logs, guard) = CapturedLogs::start();
 
         let response = handler(events([(Some("unavailable"), valid_body())]), &use_case)
@@ -438,6 +449,7 @@ mod tests {
     enum FakeResult {
         Outcome(TranslateProductListingEventOutcome),
         Unavailable,
+        ProviderAuthenticationFailed,
         Pending,
     }
 
@@ -473,6 +485,11 @@ mod tests {
                     Ok(TranslateProductListingEventResult { outcome })
                 }
                 Some(FakeResult::Unavailable) => {
+                    Err(TranslateProductListingEventError::CommitTransactionFailed {
+                        source: Box::new(std::io::Error::other("commit result unknown")),
+                    })
+                }
+                Some(FakeResult::ProviderAuthenticationFailed) => {
                     Err(TranslateProductListingEventError::TranslationFailed {
                         source: Box::new(LargeLanguageModelError::Authentication {
                             source: Box::new(std::io::Error::other(SENTINEL)),

@@ -25,7 +25,7 @@ pub async fn process_job(body: &str, use_case: &dyn ProjectListingShippingUseCas
                 work_id = %job.work_id,
                 category,
                 stage = failure.as_ref().map(FailureDiagnostic::stage),
-                dependency = failure.as_ref().map(FailureDiagnostic::dependency),
+                dependency = failure.as_ref().and_then(FailureDiagnostic::dependency),
                 error_category = failure.as_ref().map(FailureDiagnostic::category),
                 sqlstate = failure.as_ref().and_then(FailureDiagnostic::sqlstate),
             );
@@ -34,13 +34,21 @@ pub async fn process_job(body: &str, use_case: &dyn ProjectListingShippingUseCas
     }
 }
 
-/// Claim outcomes are expected contention and invalid input is the worker's own request; only
-/// dependency failures carry safe cause facts.
+/// Claim outcomes are expected contention and carry no diagnostic. Invalid input is the worker's
+/// own request, so it names no dependency.
 fn shipping_failure(error: &ShippingProjectionError) -> (&'static str, Option<FailureDiagnostic>) {
     let stage = match error {
         ShippingProjectionError::Deferred => return ("DEFERRED", None),
         ShippingProjectionError::Superseded => return ("SUPERSEDED", None),
-        ShippingProjectionError::InvalidInput => return ("INVALID_INPUT", None),
+        ShippingProjectionError::InvalidInput => {
+            return (
+                "INVALID_INPUT",
+                Some(FailureDiagnostic::rejected(
+                    "shipping_projection",
+                    "invalid_input",
+                )),
+            );
+        }
         ShippingProjectionError::Storage(_) => "shipping_projection",
         ShippingProjectionError::Transaction(_) => "shipping_transaction",
         ShippingProjectionError::Assessment(_) => "shipping_assessment",

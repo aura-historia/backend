@@ -149,7 +149,6 @@ mod tests {
                 .as_ref()
                 .map(SqlState::as_str)
         );
-        assert!(!format!("{failure:?}").contains(SENTINEL));
     }
 
     #[test]

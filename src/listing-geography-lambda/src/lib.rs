@@ -1,5 +1,6 @@
 use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
+use geo_service::resolution::ResolutionError;
 use lambda_runtime::{Error, LambdaEvent};
 use platform_lambda_bootstrap::FailureDiagnostic;
 use platform_lambda_sqs::{RecordOutcome, process_batch};
@@ -17,34 +18,61 @@ pub async fn process_job(body: &str, use_case: &dyn ProjectListingGeographyUseCa
     let Err(error) = use_case.execute(Some(job.work_id), 100).await else {
         return true;
     };
-    let (category, failure) = geography_failure(&error);
+    // Claim contention is expected: another worker owns or superseded this work.
+    if matches!(error, GeographyError::Deferred | GeographyError::Superseded) {
+        return false;
+    }
+    let failure = listing_geography_failure(&error);
     tracing::warn!(
         event = "listing_geography.work_failed",
         work_id = %job.work_id,
-        category,
-        stage = failure.as_ref().map(FailureDiagnostic::stage),
-        dependency = failure.as_ref().map(FailureDiagnostic::dependency),
-        error_category = failure.as_ref().map(FailureDiagnostic::category),
-        sqlstate = failure.as_ref().and_then(FailureDiagnostic::sqlstate),
+        stage = failure.stage(),
+        dependency = failure.dependency(),
+        error_category = failure.category(),
+        sqlstate = failure.sqlstate(),
     );
     false
 }
 
-/// Claim outcomes are expected contention and invalid input is the worker's own request; only
-/// dependency failures carry safe cause facts.
-fn geography_failure(error: &GeographyError) -> (&'static str, Option<FailureDiagnostic>) {
-    let stage = match error {
-        GeographyError::Deferred => return ("DEFERRED", None),
-        GeographyError::Superseded => return ("SUPERSEDED", None),
-        GeographyError::InvalidInput => return ("INVALID_INPUT", None),
-        GeographyError::Storage(_) => "geography_projection",
-        GeographyError::Transaction(_) => "geography_transaction",
-        GeographyError::Resolution(_) => "geography_resolution",
-    };
-    (
-        "DEPENDENCY_OR_STORAGE",
-        Some(FailureDiagnostic::postgres(stage, error)),
-    )
+/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
+fn listing_geography_failure(error: &GeographyError) -> FailureDiagnostic {
+    match error {
+        GeographyError::Storage(_) => FailureDiagnostic::postgres("geography_projection", error),
+        GeographyError::Transaction(_) => {
+            FailureDiagnostic::postgres("geography_transaction", error)
+        }
+        GeographyError::Resolution(error) => resolution_failure("geography_resolution", error),
+        GeographyError::Superseded => {
+            FailureDiagnostic::rejected("geography_projection", "claim_superseded")
+        }
+        GeographyError::Deferred => {
+            FailureDiagnostic::rejected("geography_projection", "claimed_elsewhere")
+        }
+        GeographyError::InvalidInput => {
+            FailureDiagnostic::rejected("geography_projection", "invalid_input")
+        }
+    }
+}
+
+fn resolution_failure(stage: &'static str, error: &ResolutionError) -> FailureDiagnostic {
+    match error {
+        ResolutionError::Provider(provider) => FailureDiagnostic::new(
+            stage,
+            "amazon_location",
+            provider.kind.diagnostic_category(),
+            None,
+        ),
+        ResolutionError::Storage(_) | ResolutionError::Transaction(_) => {
+            FailureDiagnostic::postgres(stage, error)
+        }
+        ResolutionError::InvalidState(_) => {
+            FailureDiagnostic::new(stage, "postgres", "invalid_persisted_state", None)
+        }
+        ResolutionError::InvalidInput => FailureDiagnostic::rejected(stage, "invalid_input"),
+        ResolutionError::Forbidden => FailureDiagnostic::rejected(stage, "forbidden"),
+        ResolutionError::Conflict => FailureDiagnostic::rejected(stage, "conflict"),
+        ResolutionError::Missing => FailureDiagnostic::rejected(stage, "missing"),
+    }
 }
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,

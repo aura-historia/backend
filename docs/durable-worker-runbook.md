@@ -154,13 +154,16 @@ other groups in the batch continue. Records without a group ID, and records afte
 exhausted invocation budget, are all retained. Partial failures need not increment Lambda `Errors`;
 monitor outcome counts, age/backlog, DLQs and provider failures too.
 
-The worker or scheduled-job boundary logs a technical failure once, beside its custody
-`outcome`: `stage` names the failed step, `dependency` the system it called (`none` when the
-use case refused the request itself) and `error_category` a bounded cause class such as
-`pool_timed_out`, `authentication` or `http_status`, with `http_status` or `sqlstate` when the
-cause carries one. Use them to choose what to repair before a redrive. `unclassified` means the
-cause had no safe classification; inspect the dependency instead. Error messages, provider
-bodies and payloads are never logged.
+Each worker or scheduled-job boundary records a failure in one event: the retained-record event,
+or for workers without one, the event that names the failed work. `stage` names the failed step,
+`dependency` the system it called and `error_category` a bounded lower-case cause class such as
+`pool_timed_out`, `authentication` or `http_status`; `http_status`, `sqlstate` or a channel's
+`provider_code` follow when the cause carries one. `dependency` is absent when the use case
+refused the request itself and `unknown` when the service did not say which system failed.
+`unclassified` means the cause had no safe classification; inspect the dependency. Use these
+fields to choose a repair before a redrive: `invalid_persisted_state` and `document_invalid`
+point to data to repair, not an outage. They never carry error messages, provider bodies or
+payloads.
 
 FIFO consumers park a record that can never succeed as delivered on its first redelivery
 instead of retaining it for the whole retry budget: they send the unchanged body to the

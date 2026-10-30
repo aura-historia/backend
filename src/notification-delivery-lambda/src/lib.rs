@@ -179,14 +179,16 @@ pub async fn process_notification_delivery_job(
         }
         Err(error) => {
             let failure = delivery_failure(&error);
+            let code = provider_code(&error);
             let disposition = delivery_error_disposition(error);
             warn!(
                 notification_delivery_id = %notification_delivery_id,
                 outcome = disposition.category(),
                 stage = failure.as_ref().map(FailureDiagnostic::stage),
-                dependency = failure.as_ref().map(FailureDiagnostic::dependency),
+                dependency = failure.as_ref().and_then(FailureDiagnostic::dependency),
                 error_category = failure.as_ref().map(FailureDiagnostic::category),
                 sqlstate = failure.as_ref().and_then(FailureDiagnostic::sqlstate),
+                provider_code = code,
                 "notification delivery attempt remains unfinished"
             );
             disposition
@@ -256,6 +258,15 @@ pub fn delivery_error_disposition(
         }
     }
 }
+/// The channel adapter's own static code for a failed send, logged beside the shared category.
+fn provider_code(error: &DeliverNotificationError) -> Option<&'static str> {
+    match error {
+        DeliverNotificationError::RetryableSend(send)
+        | DeliverNotificationError::AmbiguousSend(send) => Some(send.code()),
+        _ => None,
+    }
+}
+
 /// Safe cause facts for dependency failures; the error chain itself is never logged. Lease,
 /// channel-registration and invalid-state outcomes are fully named by their category.
 fn delivery_failure(error: &DeliverNotificationError) -> Option<FailureDiagnostic> {
@@ -266,11 +277,16 @@ fn delivery_failure(error: &DeliverNotificationError) -> Option<FailureDiagnosti
         DeliverNotificationError::FinalizationExhausted { .. } => {
             Some(FailureDiagnostic::postgres("finalization", error))
         }
-        DeliverNotificationError::RetryableSend(send)
-        | DeliverNotificationError::AmbiguousSend(send) => Some(FailureDiagnostic::new(
+        DeliverNotificationError::RetryableSend(_) => Some(FailureDiagnostic::new(
             "provider_send",
             "notification_channel",
-            send.code(),
+            "retryable",
+            None,
+        )),
+        DeliverNotificationError::AmbiguousSend(_) => Some(FailureDiagnostic::new(
+            "provider_send",
+            "notification_channel",
+            "acceptance_unknown",
             None,
         )),
         DeliverNotificationError::AttemptTimedOut { phase } => {
@@ -361,16 +377,23 @@ mod tests {
                     fields["stage"].as_str(),
                     fields["dependency"].as_str(),
                     fields["error_category"].as_str(),
+                    fields.get("provider_code").and_then(|code| code.as_str()),
                 )
             })
             .collect::<Vec<_>>();
         assert_eq!(
             diagnostics,
             [
-                (Some("delivery_repository"), Some("postgres"), Some("io")),
+                (
+                    Some("delivery_repository"),
+                    Some("postgres"),
+                    Some("io"),
+                    None
+                ),
                 (
                     Some("provider_send"),
                     Some("notification_channel"),
+                    Some("retryable"),
                     Some("THROTTLED")
                 ),
             ]

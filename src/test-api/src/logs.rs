@@ -70,7 +70,8 @@ impl CapturedLogs {
 fn reevaluate_callsites_per_event() {
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
-        // An existing global subscriber already gives callsites a non-"never" interest.
+        // If another global subscriber is already installed, callsites at the levels it enables
+        // keep a non-"never" interest; captures below those levels can then still be missed.
         let _ = tracing::subscriber::set_global_default(ReevaluatePerEvent);
     });
 }

@@ -208,9 +208,10 @@ pub async fn process_marketing_consent_sync_job(
 fn sync_failure(error: &SyncMarketingConsentIntentError) -> FailureDiagnostic {
     use SyncMarketingConsentIntentError as E;
     match error {
-        // The service reports this stage without a cause.
+        // The service returns this for both PostgreSQL and Loops state reads and drops the cause,
+        // so the failed system cannot be named here.
         E::Persistence => {
-            FailureDiagnostic::new("intent_persistence", "postgres", UNCLASSIFIED_FAILURE, None)
+            FailureDiagnostic::new("intent_sync", "unknown", UNCLASSIFIED_FAILURE, None)
         }
         E::Transaction(_) => FailureDiagnostic::postgres("intent_transaction", error),
         E::ReconciliationExhausted { .. } => FailureDiagnostic::postgres("reconciliation", error),

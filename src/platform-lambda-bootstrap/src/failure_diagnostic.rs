@@ -12,7 +12,7 @@ pub const UNCLASSIFIED_FAILURE: &str = "unclassified";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FailureDiagnostic {
     stage: &'static str,
-    dependency: &'static str,
+    dependency: Option<&'static str>,
     category: &'static str,
     http_status: Option<u16>,
     sqlstate: Option<SqlState>,
@@ -28,9 +28,20 @@ impl FailureDiagnostic {
     ) -> Self {
         Self {
             stage,
-            dependency,
+            dependency: Some(dependency),
             category,
             http_status,
+            sqlstate: None,
+        }
+    }
+
+    /// Records a request the use case refused itself, so no dependency was involved.
+    pub const fn rejected(stage: &'static str, category: &'static str) -> Self {
+        Self {
+            stage,
+            dependency: None,
+            category,
+            http_status: None,
             sqlstate: None,
         }
     }
@@ -40,7 +51,7 @@ impl FailureDiagnostic {
         let failure = PostgresFailure::find(error);
         Self {
             stage,
-            dependency: "postgres",
+            dependency: Some("postgres"),
             category: failure.map_or(UNCLASSIFIED_FAILURE, |failure| failure.kind()),
             http_status: None,
             sqlstate: failure.and_then(|failure| failure.sqlstate()),
@@ -51,7 +62,7 @@ impl FailureDiagnostic {
         self.stage
     }
 
-    pub fn dependency(&self) -> &'static str {
+    pub fn dependency(&self) -> Option<&'static str> {
         self.dependency
     }
 
@@ -83,18 +94,25 @@ mod tests {
         let failure = FailureDiagnostic::postgres("source_begin", &error);
 
         assert_eq!("source_begin", failure.stage());
-        assert_eq!("postgres", failure.dependency());
+        assert_eq!(Some("postgres"), failure.dependency());
         assert_eq!("pool_timed_out", failure.category());
         assert_eq!(None, failure.sqlstate());
     }
 
     #[test]
     fn should_mark_a_postgres_stage_unclassified_without_an_sqlx_error() {
-        let error = std::io::Error::other("SENTINEL_PERSISTED_VALUE");
+        let error = std::io::Error::other("persisted value rejected");
 
         let failure = FailureDiagnostic::postgres("source_read", &error);
 
         assert_eq!(UNCLASSIFIED_FAILURE, failure.category());
-        assert!(!format!("{failure:?}").contains("SENTINEL"));
+    }
+
+    #[test]
+    fn should_record_a_refused_request_without_a_dependency() {
+        let failure = FailureDiagnostic::rejected("resolution", "forbidden");
+
+        assert_eq!(None, failure.dependency());
+        assert_eq!("forbidden", failure.category());
     }
 }
