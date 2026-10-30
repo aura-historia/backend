@@ -2445,7 +2445,8 @@ fn ids(reviews: &[PendingReviewSummary]) -> Vec<CrawlerReviewId> {
 /// `GET /api/reviews`, the oldest of which wait for a human: the agents' queue lists every
 /// workable one page by page, oldest first, and the ones that wait for a human apart, so they take
 /// no workable review's place; each page answers the totals of the whole queue, counted in SQL; a
-/// review that closes between two pages moves no other review across the page boundary; and
+/// review that closes between two pages moves no other review across the page boundary, and one
+/// that opens meanwhile joins the end; and
 /// neither a pending review of a disabled ListingSource nor a closed review is in the queue.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_human_apart() {
@@ -2524,7 +2525,7 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
         assert!(!ids(&listed).contains(outside), "{outside} is in the queue");
     }
 
-    // A review of the first page closes before the second page is read.
+    // A review of the first page closes before the second page is read, and one opens.
     let first = repository
         .list_pending_reviews(PendingReviewQuery {
             human_required: Some(false),
@@ -2538,6 +2539,10 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
         .execute(&pool)
         .await
         .unwrap();
+    let opened = bulk_reviews(&pool, 1, true, STATUS_PENDING_REVIEW, |_| {
+        OffsetDateTime::now_utc()
+    })
+    .await;
     let second = repository
         .list_pending_reviews(PendingReviewQuery {
             human_required: Some(false),
@@ -2550,10 +2555,23 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
     assert_eq!(
         second.totals,
         PendingReviewTotals {
-            workable: 229,
+            workable: 230,
             waiting_for_human: 30,
         }
     );
+    // The review opened while the queue was read joins its end.
+    let third = repository
+        .list_pending_reviews(PendingReviewQuery {
+            human_required: Some(false),
+            after: second.next_after,
+            page_size: PendingReviewPageSize::new(100).unwrap(),
+        })
+        .await
+        .unwrap();
+    let mut rest = in_order(&workable[200..]);
+    rest.extend(in_order(&opened));
+    assert_eq!(ids(&third.reviews), rest);
+    assert_eq!(third.next_after, None);
 
     let unknown = CrawlerReviewId::new();
     let refused = repository
