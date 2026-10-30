@@ -1,6 +1,6 @@
 use crate::product_listing_document::{ProductListingDocument, ProductListingDocumentSerdeField};
 
-use application::error::{BoxError, box_error, static_error};
+use application::error::{BoxError, static_error};
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
@@ -123,15 +123,14 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             sort: SortProductListingField::Score,
             order: SortOrder::Desc,
         });
-        let body = build_search_request(request, &sort)
-            .map_err(|error| read_model_invalid(box_error(error)))?;
+        let body = build_search_request(request, &sort).map_err(read_model_invalid)?;
         let response = self
             .client
             .search(SearchParts::Index(&[self.index.as_str()]))
             .body(body)
             .send()
             .await
-            .map_err(|error| query_failed(box_error(error)))?;
+            .map_err(query_failed)?;
         let search_response = read_search_response(response, "product search").await?;
 
         map_search_response(&request.compiled_search, search_response)
@@ -147,8 +146,7 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             return self.search(request).await;
         }
         self.validate_continuation_mode(request, ProductListingSearchMode::Hybrid)?;
-        let body = build_hybrid_search_request(request, embedding)
-            .map_err(|error| read_model_invalid(box_error(error)))?;
+        let body = build_hybrid_search_request(request, embedding).map_err(read_model_invalid)?;
         let pipeline = [("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
         let response = self
             .client
@@ -161,7 +159,7 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
                 None,
             )
             .await
-            .map_err(|error| query_failed(box_error(error)))?;
+            .map_err(query_failed)?;
         let search_response = read_search_response(response, "product hybrid search").await?;
 
         map_hybrid_search_response(&request.compiled_search, search_response, &request.cursor)
@@ -172,29 +170,27 @@ async fn read_search_response(
     response: Response,
     request_kind: &'static str,
 ) -> Result<SearchResponse<ProductListingDocument>, ProductListingSearchReadError> {
-    let response = read_response(response)
-        .await
-        .map_err(|error| query_failed(box_error(error)))?;
+    let response = read_response(response).await.map_err(query_failed)?;
     decode_search_response(response.status(), response.body(), request_kind)
 }
 
-/// Classifies a fully read search response. An unsuccessful status keeps only its status as
-/// context so the provider body never enters the error chain.
+/// Classifies a fully read search response. An unsuccessful status keeps only its status and
+/// request kind as context, never the provider's error body.
 fn decode_search_response(
     status: StatusCode,
     payload: &str,
     request_kind: &'static str,
 ) -> Result<SearchResponse<ProductListingDocument>, ProductListingSearchReadError> {
     if !status.is_success() {
-        return Err(query_failed(box_error(UnsuccessfulSearchStatus {
+        return Err(query_failed(UnsuccessfulSearchStatus {
             request_kind,
             status,
-        })));
+        }));
     }
     serde_json::from_str::<SearchResponse<ProductListingDocument>>(payload)
-        .map_err(|error| read_model_invalid(box_error(error)))?
+        .map_err(read_model_invalid)?
         .into_non_timed_out(request_kind)
-        .map_err(|error| query_failed(box_error(error)))
+        .map_err(query_failed)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -204,12 +200,16 @@ struct UnsuccessfulSearchStatus {
     status: StatusCode,
 }
 
-fn query_failed(source: BoxError) -> ProductListingSearchReadError {
-    ProductListingSearchReadError::ProductListingSearchQueryFailed { source }
+fn query_failed(source: impl Into<BoxError>) -> ProductListingSearchReadError {
+    ProductListingSearchReadError::ProductListingSearchQueryFailed {
+        source: source.into(),
+    }
 }
 
-fn read_model_invalid(source: BoxError) -> ProductListingSearchReadError {
-    ProductListingSearchReadError::ProductListingSearchReadModelInvalid { source }
+fn read_model_invalid(source: impl Into<BoxError>) -> ProductListingSearchReadError {
+    ProductListingSearchReadError::ProductListingSearchReadModelInvalid {
+        source: source.into(),
+    }
 }
 
 pub(crate) fn map_search_response(
@@ -338,9 +338,7 @@ fn resolve_price(
     document: &ProductListingDocument,
     price_filter: &ProductListingPriceFilterPlan,
 ) -> Result<Option<ProductListingPrice>, ProductListingSearchReadError> {
-    document
-        .validate()
-        .map_err(|error| read_model_invalid(box_error(error)))?;
+    document.validate().map_err(read_model_invalid)?;
 
     if document.has_sale_observation() {
         return match document.source_price() {
@@ -373,7 +371,7 @@ fn resolve_price(
                     price_filter.target_currency,
                 )))
             })
-            .map_err(|error| read_model_invalid(box_error(error))),
+            .map_err(read_model_invalid),
     }
 }
 
@@ -914,24 +912,24 @@ fn discovery_dimension(
 > {
     let invalid = |reason: &'static str| read_model_invalid(static_error(reason));
     let release = geo::reference::ReferenceRelease::from_code(&d.reference_release)
-        .map_err(|error| read_model_invalid(box_error(error)))?;
+        .map_err(read_model_invalid)?;
     let country = d
         .country
         .as_deref()
         .map(|c| geo::country_from_code(c, release))
         .transpose()
-        .map_err(|error| read_model_invalid(box_error(error)))?;
+        .map_err(read_model_invalid)?;
     let subdivision = d
         .subdivision
         .as_deref()
         .map(|s| geo::SubdivisionCode::from_code(s, release))
         .transpose()
-        .map_err(|error| read_model_invalid(box_error(error)))?;
+        .map_err(read_model_invalid)?;
     if d.basis != product_listing_service::geography::GeographicDimension::BASIS {
         return Err(invalid("geographic dimension basis is unsupported"));
     }
     geo::GeographicDescription::new_in_release(release, None, country, subdivision, None)
-        .map_err(|error| read_model_invalid(box_error(error)))?;
+        .map_err(read_model_invalid)?;
     if country.is_none() && subdivision.is_none() && d.point.is_none() {
         return Err(invalid(
             "geographic dimension has no country, subdivision or point",
@@ -941,13 +939,12 @@ fn discovery_dimension(
         (None, None) => None,
         (Some(p), Some(precision)) => Some(
             geo::SpatialPosition::new(
-                geo::GeoPoint::new(p.lat, p.lon)
-                    .map_err(|error| read_model_invalid(box_error(error)))?,
+                geo::GeoPoint::new(p.lat, p.lon).map_err(read_model_invalid)?,
                 geo::SpatialPrecision::from_code(&precision)
                     .ok_or_else(|| invalid("geographic point precision is unknown"))?,
                 None,
             )
-            .map_err(|error| read_model_invalid(box_error(error)))?,
+            .map_err(read_model_invalid)?,
         ),
         _ => {
             return Err(invalid(
@@ -979,7 +976,7 @@ mod tests {
     use indexmap::IndexSet;
     use listing_source_core::ListingSourceId;
     use money::MonetaryAmount;
-    use opensearch::http::transport::Transport;
+    use opensearch::http::transport::{SingleNodeConnectionPool, Transport, TransportBuilder};
     use platform_opensearch::search_response::OpenSearchTimedOutError;
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
@@ -1124,9 +1121,12 @@ mod tests {
         })
     }
 
+    /// A reader whose only node refuses connections; proxies are bypassed so the failure is
+    /// always the local transport's own.
     fn local_reader() -> Result<OpenSearchProductListingSearchReader, Box<dyn std::error::Error>> {
+        let pool = SingleNodeConnectionPool::new(Url::parse("http://127.0.0.1:1")?);
         Ok(OpenSearchProductListingSearchReader::new(OpenSearch::new(
-            Transport::single_node("http://127.0.0.1:1")?,
+            TransportBuilder::new(pool).disable_proxy().build()?,
         )))
     }
 
