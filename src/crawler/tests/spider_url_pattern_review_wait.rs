@@ -208,6 +208,28 @@ impl ManualCrawlFixture {
             .unwrap()
     }
 
+    /// Opens the domain's manual URL-pattern review and records the wait on it of an earlier
+    /// crawl that ended while the review was pending.
+    async fn review_an_earlier_crawl_waits_on(&self) -> CrawlerReviewId {
+        let review_id = self
+            .review_repository
+            .create_url_pattern_review(
+                &self.listing_source_id,
+                &self.domain_id,
+                MANUAL_URL_PATTERN_REASON,
+                UrlPatternDecision::Undecided,
+                &[format!("https://{DOMAIN}/item/0")],
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            self.record_review_wait(review_id).await,
+            UrlPatternReviewWaitWrite::Recorded
+        );
+        review_id
+    }
+
     /// The domain's recorded crawl outcome and the time it is due again.
     async fn crawl_schedule(&self) -> (Option<String>, Option<OffsetDateTime>) {
         sqlx::query_as(
@@ -383,23 +405,8 @@ impl ClosingVerdict {
 /// that closes the review, so the wait write waits for it and then finds the review closed.
 async fn assert_wait_written_while_the_verdict_commits_keeps_the_release(verdict: ClosingVerdict) {
     let fixture = Arc::new(ManualCrawlFixture::new().await);
-    let review_id = fixture
-        .review_repository
-        .create_url_pattern_review(
-            &fixture.listing_source_id,
-            &fixture.domain_id,
-            MANUAL_URL_PATTERN_REASON,
-            UrlPatternDecision::Undecided,
-            &[format!("https://{DOMAIN}/item/0")],
-            None,
-        )
-        .await
-        .unwrap();
     // An earlier crawl waits on the review, so the verdict has a domain to release.
-    assert_eq!(
-        fixture.record_review_wait(review_id).await,
-        UrlPatternReviewWaitWrite::Recorded
-    );
+    let review_id = fixture.review_an_earlier_crawl_waits_on().await;
     if let ClosingVerdict::Approve = verdict {
         stage_pattern(&fixture.review_repository, review_id, "/item/").await;
     }
