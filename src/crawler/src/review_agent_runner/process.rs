@@ -573,11 +573,12 @@ while :; do sleep 0.1; done"#,
             &directory,
             &format!(
                 r#"trap 'echo "{{\"type\":\"result\",\"total_cost_usd\":0.3}}"; exit 130' INT
-(sleep 8; touch '{}') >/dev/null 2>&1 &
+(sleep 3; touch '{}') >/dev/null 2>&1 &
 while :; do sleep 0.1; done"#,
                 marker.display()
             ),
         );
+        let started = tokio::time::Instant::now();
 
         let output = tokio::time::timeout(
             LONGEST_CHILD_STOP + Duration::from_secs(5),
@@ -590,7 +591,8 @@ while :; do sleep 0.1; done"#,
         .await
         .unwrap_or_else(|_| panic!("the stop waited for the child's timeout"))
         .unwrap_or_else(|error| panic!("{error}"));
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        // Past the moment a grandchild the stop missed would have left its marker.
+        tokio::time::sleep_until(started + Duration::from_secs(4)).await;
 
         assert_eq!(output.stopped, Some(ChildStop::RunnerStop));
         assert_eq!(output.exit_code, None);
