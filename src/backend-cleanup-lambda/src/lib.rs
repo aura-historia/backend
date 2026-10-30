@@ -178,7 +178,9 @@ mod tests {
         RefreshPublicCatalogueOverviewError,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use user_service::use_cases::{CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts};
+    use user_service::use_cases::{
+        CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts, ConsentWorkflowCleanupTarget,
+    };
 
     struct RecordingOverviewRefresh {
         calls: AtomicUsize,
@@ -296,7 +298,10 @@ mod tests {
         ) -> Result<ConsentWorkflowCleanupCounts, CleanupConsentWorkflowError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
             if self.fail {
-                return Err(CleanupConsentWorkflowError::TemporarilyUnavailable);
+                return Err(CleanupConsentWorkflowError::TemporarilyUnavailable {
+                    target: ConsentWorkflowCleanupTarget::WebhookReceipts,
+                    source: Box::new(std::io::Error::other("fixture failure")),
+                });
             }
             Ok(ConsentWorkflowCleanupCounts {
                 unconfirmed_challenges_deleted: 1,

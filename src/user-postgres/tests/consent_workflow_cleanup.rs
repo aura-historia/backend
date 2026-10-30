@@ -11,9 +11,13 @@ use user_service::ports::marketing_consent_intents::{
     ConsentWorkerClaimOutcome, MarketingConsentIntentWorker,
 };
 use user_service::ports::{
-    ConsentWorkflowCleanup, ConsentWorkflowCleanupFactory, NewsletterConfirmationClock,
+    ConsentWorkflowCleanup, ConsentWorkflowCleanupError, ConsentWorkflowCleanupFactory,
+    NewsletterConfirmationClock,
 };
-use user_service::use_cases::{CleanupConsentWorkflowHandler, CleanupConsentWorkflowUseCase};
+use user_service::use_cases::{
+    CleanupConsentWorkflowError, CleanupConsentWorkflowHandler, CleanupConsentWorkflowUseCase,
+    ConsentWorkflowCleanupTarget,
+};
 use uuid::Uuid;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
@@ -371,14 +375,18 @@ async fn adapter_rejects_invalid_batches_before_deletion() {
     let mut tx = uow.begin().await.unwrap();
     let mut cleanup = repo.in_transaction(&mut tx);
     for batch in [0, 1001] {
-        assert!(
-            cleanup
-                .cleanup_confirmed_challenges(now, batch)
-                .await
-                .is_err()
-        );
-        assert!(cleanup.cleanup_completed_intents(now, batch).await.is_err());
-        assert!(cleanup.cleanup_webhook_receipts(now, batch).await.is_err());
+        assert!(matches!(
+            cleanup.cleanup_confirmed_challenges(now, batch).await,
+            Err(ConsentWorkflowCleanupError::InvalidBatchSize)
+        ));
+        assert!(matches!(
+            cleanup.cleanup_completed_intents(now, batch).await,
+            Err(ConsentWorkflowCleanupError::InvalidBatchSize)
+        ));
+        assert!(matches!(
+            cleanup.cleanup_webhook_receipts(now, batch).await,
+            Err(ConsentWorkflowCleanupError::InvalidBatchSize)
+        ));
     }
 }
 
@@ -399,7 +407,16 @@ async fn later_failure_preserves_committed_batches_for_safe_retry() {
         SqlxConsentWorkflowCleanup::new(),
         FixedClock(now),
     );
-    assert!(handler.execute(1).await.is_err());
+    let Err(CleanupConsentWorkflowError::TemporarilyUnavailable { target, source }) =
+        handler.execute(1).await
+    else {
+        panic!("a rejected receipt delete must make the cleanup unavailable");
+    };
+    assert_eq!(ConsentWorkflowCleanupTarget::WebhookReceipts, target);
+    let Some(sqlx::Error::Database(database_error)) = source.downcast_ref::<sqlx::Error>() else {
+        panic!("the cleanup failure must keep its SQL cause");
+    };
+    assert_eq!("fixture failure", database_error.message());
     assert!(
         !exists(
             &pool,
