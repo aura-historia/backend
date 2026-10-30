@@ -453,7 +453,6 @@ impl From<AuthError> for ApiError {
             | AuthError::MissingClaim(_)
             | AuthError::InvalidClaimType(_)
             | AuthError::JwksKeyNotFound
-            | AuthError::JwksFetch(_)
             | AuthError::AuraAccessToken(
                 AccessTokenAuthenticationError::MalformedCredentials { .. }
                 | AccessTokenAuthenticationError::InvalidCredentials,
@@ -1233,6 +1232,7 @@ impl From<SearchListingSourcesError> for ApiError {
             SearchListingSourcesError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
+            SearchListingSourcesError::CursorScopeMismatch => crate::keyset_cursor::foreign_scope(),
             SearchListingSourcesError::TemporarilyUnavailable { .. }
             | SearchListingSourcesError::BeginTransactionFailed(_)
             | SearchListingSourcesError::CommitTransactionFailed(_) => {
@@ -1314,7 +1314,8 @@ impl From<CreateProductListingError> for ApiError {
                     .with_detail("Auction reference validation is temporarily unavailable.")
             }
             CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
-            | CreateProductListingError::PersistenceFailed
+            | CreateProductListingError::PersistenceFailed { .. }
+            | CreateProductListingError::ConcurrencyConflict
             | CreateProductListingError::InvalidDeliveryPersisted { .. }
             | CreateProductListingError::EventAppenderFailed { .. }
             | CreateProductListingError::BeginTransactionFailed(_)
@@ -1368,7 +1369,8 @@ impl From<UpdateProductListingError> for ApiError {
                     .with_detail("Auction reference validation is temporarily unavailable.")
             }
             UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
-            | UpdateProductListingError::PersistenceFailed
+            | UpdateProductListingError::PersistenceFailed { .. }
+            | UpdateProductListingError::ConcurrencyConflict
             | UpdateProductListingError::InvalidDeliveryPersisted { .. }
             | UpdateProductListingError::EventAppenderFailed { .. }
             | UpdateProductListingError::BeginTransactionFailed(_)
@@ -1402,7 +1404,8 @@ impl From<WithdrawProductListingError> for ApiError {
             WithdrawProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
             WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
-            | WithdrawProductListingError::PersistenceFailed
+            | WithdrawProductListingError::PersistenceFailed { .. }
+            | WithdrawProductListingError::ConcurrencyConflict
             | WithdrawProductListingError::InvalidDeliveryPersisted { .. }
             | WithdrawProductListingError::EventAppenderFailed { .. }
             | WithdrawProductListingError::BeginTransactionFailed(_)
@@ -1590,7 +1593,8 @@ impl From<UpsertProductListingError> for ApiError {
             }
             UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
-            | UpsertProductListingError::PersistenceFailed
+            | UpsertProductListingError::PersistenceFailed { .. }
+            | UpsertProductListingError::ConcurrencyConflict
             | UpsertProductListingError::InvalidDeliveryPersisted { .. }
             | UpsertProductListingError::EventAppenderFailed { .. }
             | UpsertProductListingError::BeginTransactionFailed(_)
@@ -1663,7 +1667,7 @@ impl From<GetSimilarProductListingsError> for ApiError {
                     .with_detail("ProductListing was not found.")
             }
             GetSimilarProductListingsError::ProductListingEmbeddingQueryFailed { .. }
-            | GetSimilarProductListingsError::SimilaritySearchUnavailable
+            | GetSimilarProductListingsError::SimilaritySearchUnavailable { .. }
             | GetSimilarProductListingsError::BeginTransactionFailed(_)
             | GetSimilarProductListingsError::CommitTransactionFailed(_)
             | GetSimilarProductListingsError::PricingFxSnapshotMissing
@@ -1702,7 +1706,7 @@ impl From<SearchProductListingsError> for ApiError {
             SearchProductListingsError::InvalidGeographicQuery => {
                 Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
             }
-            SearchProductListingsError::ProductListingSearchQueryFailed
+            SearchProductListingsError::ProductListingSearchQueryFailed { .. }
             | SearchProductListingsError::QueryEmbeddingFailed { .. }
             | SearchProductListingsError::FxRateSnapshotMissing
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
@@ -1712,7 +1716,7 @@ impl From<SearchProductListingsError> for ApiError {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing search is temporarily unavailable.")
             }
-            SearchProductListingsError::ProductListingSearchReadModelInvalid
+            SearchProductListingsError::ProductListingSearchReadModelInvalid { .. }
             | SearchProductListingsError::FxRateSnapshotInvalid { .. }
             | SearchProductListingsError::ListingSourceSummaryReadModelInvalid { .. }
             | SearchProductListingsError::ListingSourceSummaryMissing { .. }
@@ -1952,6 +1956,7 @@ impl From<SearchPartiesError> for ApiError {
             SearchPartiesError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
+            SearchPartiesError::CursorScopeMismatch => crate::keyset_cursor::foreign_scope(),
             SearchPartiesError::TemporarilyUnavailable { .. }
             | SearchPartiesError::BeginTransactionFailed(_)
             | SearchPartiesError::CommitTransactionFailed(_) => {
@@ -1977,6 +1982,7 @@ impl From<SearchUsersError> for ApiError {
             SearchUsersError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
+            SearchUsersError::CursorScopeMismatch => crate::keyset_cursor::foreign_scope(),
             SearchUsersError::TemporarilyUnavailable { .. }
             | SearchUsersError::BeginTransactionFailed(_)
             | SearchUsersError::CommitTransactionFailed(_) => {
@@ -3521,6 +3527,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_map_cross_scope_admin_search_cursors_to_bad_search_after()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for error in [
+            ApiError::from(SearchPartiesError::CursorScopeMismatch),
+            ApiError::from(SearchUsersError::CursorScopeMismatch),
+            ApiError::from(SearchListingSourcesError::CursorScopeMismatch),
+        ] {
+            let response = error.into_response();
+            assert_eq!(StatusCode::BAD_REQUEST, response.status());
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+            assert_eq!(json!(BAD_QUERY_PARAMETER_VALUE.to_string()), body["error"]);
+            assert_eq!(
+                json!({"field": "searchAfter", "type": "QUERY"}),
+                body["source"]
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_map_hybrid_continuation_embedding_failure_to_service_unavailable()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = ApiError::from(SearchProductListingsError::QueryEmbeddingFailed {
@@ -3540,6 +3567,42 @@ mod tests {
             }),
             body
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_keep_product_search_failure_sources_out_of_public_problems()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (error, expected) in [
+            (
+                SearchProductListingsError::ProductListingSearchQueryFailed {
+                    source: application::error::static_error("PRIVATE_OPENSEARCH_SENTINEL"),
+                },
+                json!({
+                    "status": 503,
+                    "title": "Service Unavailable",
+                    "error": PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE.to_string(),
+                    "detail": "ProductListing search is temporarily unavailable."
+                }),
+            ),
+            (
+                SearchProductListingsError::ProductListingSearchReadModelInvalid {
+                    source: application::error::static_error("PRIVATE_OPENSEARCH_SENTINEL"),
+                },
+                json!({
+                    "status": 500,
+                    "title": "Internal Server Error",
+                    "error": PRODUCT_LISTING_INTERNAL_ERROR.to_string(),
+                    "detail": "ProductListing search failed internally."
+                }),
+            ),
+        ] {
+            let response = ApiError::from(error).into_response();
+
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+            assert_eq!(expected, body);
+        }
         Ok(())
     }
 

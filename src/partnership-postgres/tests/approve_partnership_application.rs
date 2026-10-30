@@ -649,16 +649,25 @@ async fn should_approve_existing_source_and_expose_granted_source_authorization(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_approve_proposed_source_when_another_party_has_the_same_name() {
+async fn should_approve_proposed_source_under_next_slugs_when_same_named_records_exist() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool).await;
+    let existing_party_id = PartyId::new();
     let existing_party = sqlx::query(
-            "INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, 'northwind-antiques-existing', 'Northwind Antiques')",
+            "INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, 'northwind-antiques', 'Northwind Antiques')",
         )
-        .bind(PartyId::new().into_uuid())
+        .bind(existing_party_id.into_uuid())
         .execute(&pool)
         .await;
     assert!(existing_party.is_ok());
+    let existing_source = sqlx::query(
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, 'northwind-source', 'Northwind Source', $2)",
+        )
+        .bind(ListingSourceId::new().into_uuid())
+        .bind(existing_party_id.into_uuid())
+        .execute(&pool)
+        .await;
+    assert!(existing_source.is_ok());
     let application_id = seed_application(&pool, user_id, "IN_REVIEW", proposed_source()).await;
 
     let result = handler(pool.clone())
@@ -666,12 +675,29 @@ async fn should_approve_proposed_source_when_another_party_has_the_same_name() {
             &system_context(),
             ApprovePartnershipApplicationCommand { application_id },
         )
-        .await;
+        .await
+        .unwrap_or_else(|error| panic!("approve application: {error}"));
 
-    assert!(result.is_ok());
+    let approved_source_id = result
+        .listing_source_id
+        .unwrap_or_else(|| panic!("approval has no listing source"));
+    let slugs = sqlx::query_as::<_, (String, String)>(
+        "SELECT p.party_slug_id, s.listing_source_slug_id FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id WHERE s.listing_source_id = $1",
+    )
+    .bind(approved_source_id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("read approved slugs: {error}"));
+    assert_eq!(
+        (
+            "northwind-antiques-2".to_owned(),
+            "northwind-source-2".to_owned()
+        ),
+        slugs
+    );
     assert_eq!("APPROVED", application_state(&pool, application_id).await);
     assert_eq!(2, count(&pool, "parties").await);
-    assert_eq!(1, count(&pool, "listing_sources").await);
+    assert_eq!(2, count(&pool, "listing_sources").await);
     assert_eq!(1, count(&pool, "partnerships").await);
     assert_eq!(1, count(&pool, "partnership_members").await);
     assert_eq!(1, count(&pool, "partnership_listing_source_grants").await);

@@ -104,7 +104,13 @@ pub enum UpsertProductListingError {
     #[error("product listing title slug generation was exhausted")]
     ProductListingTitleSlugGenerationExhausted,
     #[error("product listing persistence failed")]
-    PersistenceFailed,
+    PersistenceFailed {
+        #[source]
+        source: BoxError,
+    },
+    /// Another writer changed the listing first; a later attempt sees its result.
+    #[error("product listing changed concurrently")]
+    ConcurrencyConflict,
     #[error("persisted listing delivery is invalid")]
     InvalidDeliveryPersisted {
         #[source]
@@ -337,7 +343,11 @@ where
                     product.id(),
                     time::OffsetDateTime::now_utc(),
                     product.take_pending_event_payload().ok_or_else(|| {
-                        AttemptError::Failed(UpsertProductListingError::PersistenceFailed)
+                        AttemptError::Failed(UpsertProductListingError::PersistenceFailed {
+                            source: application::error::static_error(
+                                "changed product listing has no pending event",
+                            ),
+                        })
                     })?,
                 );
                 let persisted = self
@@ -410,7 +420,7 @@ where
                     continue;
                 }
                 Err(AttemptError::SourceRace) => {
-                    return Err(UpsertProductListingError::PersistenceFailed);
+                    return Err(UpsertProductListingError::ConcurrencyConflict);
                 }
                 Err(AttemptError::SlugCollision) => {
                     slug_attempts += 1;
@@ -570,7 +580,10 @@ impl From<ProductListingRepositoryError> for UpsertProductListingError {
             ProductListingRepositoryError::InvalidDeliveryPersisted { source } => {
                 Self::InvalidDeliveryPersisted { source }
             }
-            _ => Self::PersistenceFailed,
+            ProductListingRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
+            error => Self::PersistenceFailed {
+                source: Box::new(error),
+            },
         }
     }
 }
@@ -1136,7 +1149,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_classify_exhausted_source_race_as_persistence_failure() {
+    async fn should_classify_exhausted_source_race_as_a_concurrency_conflict() {
         let state = Arc::new(Mutex::new(State {
             finds: VecDeque::from([None, None]),
             insert_results: VecDeque::from([
@@ -1150,7 +1163,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(UpsertProductListingError::PersistenceFailed)
+            Err(UpsertProductListingError::ConcurrencyConflict)
         ));
         let state = lock(&state);
         assert_eq!((state.begins, state.commits, state.rollbacks), (2, 0, 2));
@@ -1204,9 +1217,12 @@ mod tests {
 
         let result = handler(&state).execute(&context(), command()).await;
 
+        let Err(UpsertProductListingError::PersistenceFailed { source }) = &result else {
+            panic!("expected a persistence failure, got {result:?}");
+        };
         assert!(matches!(
-            result,
-            Err(UpsertProductListingError::PersistenceFailed)
+            source.downcast_ref::<ProductListingRepositoryError>(),
+            Some(ProductListingRepositoryError::ProductListingInsertFailed)
         ));
         let state = lock(&state);
         assert_eq!((state.begins, state.commits, state.rollbacks), (1, 0, 1));

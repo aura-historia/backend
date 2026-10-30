@@ -154,6 +154,26 @@ other groups in the batch continue. Records without a group ID, and records afte
 exhausted invocation budget, are all retained. Partial failures need not increment Lambda `Errors`;
 monitor outcome counts, age/backlog, DLQs and provider failures too.
 
+Each worker or scheduled-job boundary records a failure in one event: the retained-record event,
+or for workers without one, the event that names the failed work. `stage` names the failed step,
+`dependency` the system it called and `error_category` a bounded lower-case cause class such as
+`pool_timed_out`, `authentication` or `http_status`; `http_status`, `sqlstate` or a channel's
+`provider_code` follow when the cause carries one. `dependency` is absent when the use case
+refused the request itself and `unknown` when the service did not say which system failed.
+`unclassified` means the cause had no safe classification; inspect the dependency. Use these
+fields to choose a repair before a redrive: `invalid_persisted_state` and `document_invalid`
+point to data to repair, not an outage. They never carry error messages, provider bodies or
+payloads. Expected claim, lease or version contention carries no failure diagnostic; identity
+deletion, geo resolution and ingestion record it at INFO.
+
+A Lambda, including the API and MCP, that cannot refresh its PostgreSQL credentials records one
+`lambda.setup.failed` event with `component` and the same fields (for example
+`credential_refresh`/`secrets_manager`/`throttled` or `access_denied`) before failing the
+invocation. Pools connect lazily, so a login refused after a rotation appears in the first
+record's own diagnostic, such as `database` with SQLSTATE `28P01`. The router's `worker SQS
+publication finished` and `worker SQS queue validation failed` events carry the AWS SDK class
+(such as `throttled`, `access_denied`, `not_found` or `kms_unavailable`) and `http_status`.
+
 FIFO consumers park a record that can never succeed as delivered on its first redelivery
 instead of retaining it for the whole retry budget: they send the unchanged body to the
 source queue's own DLQ under the original message group, deduplicated by the original SQS

@@ -1008,30 +1008,38 @@ mod tests {
         listing_source_id: ListingSourceId,
         party_id: PartyId,
     ) -> (StoredParty, StoredListingSource) {
-        let party = Party::create(party_core::party::NewParty {
-            id: party_id,
-            name: PartyName::try_from("Existing Operator")
-                .unwrap_or_else(|error| panic!("valid test party name: {error}")),
-            contact: PartyContact {
-                phone: None,
-                email: None,
+        let party = Party::create(
+            party_core::party::NewParty {
+                id: party_id,
+                name: PartyName::try_from("Existing Operator")
+                    .unwrap_or_else(|error| panic!("valid test party name: {error}")),
+                contact: PartyContact {
+                    phone: None,
+                    email: None,
+                },
             },
-        });
-        let source = ListingSource::create(listing_source_core::NewListingSource {
-            id: listing_source_id,
-            name: ListingSourceName::try_from("Existing Source")
-                .unwrap_or_else(|error| panic!("valid test source name: {error}")),
-            operator_party_id: party_id,
-            ingestion_methods: std::collections::HashSet::from([
-                ListingIngestionMethod::PartnerApi,
-            ]),
-            presentation: ListingSourcePresentation {
-                url: None,
-                image: None,
+            party_core::party_slug_id::PartySlugId::raw("party")
+                .unwrap_or_else(|error| panic!("invalid test party slug: {error}")),
+        );
+        let source = ListingSource::create(
+            listing_source_core::NewListingSource {
+                id: listing_source_id,
+                name: ListingSourceName::try_from("Existing Source")
+                    .unwrap_or_else(|error| panic!("valid test source name: {error}")),
+                operator_party_id: party_id,
+                ingestion_methods: std::collections::HashSet::from([
+                    ListingIngestionMethod::PartnerApi,
+                ]),
+                presentation: ListingSourcePresentation {
+                    url: None,
+                    image: None,
+                },
+                platform_technology: None,
+                referral_configuration: None,
             },
-            platform_technology: None,
-            referral_configuration: None,
-        });
+            listing_source_core::ListingSourceSlugId::raw("source")
+                .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+        );
         let party_version = PartyStorageVersion::try_from(1_i64)
             .unwrap_or_else(|error| panic!("valid test party version: {error}"));
         let source_version = ListingSourceStorageVersion::try_from(1_i64)

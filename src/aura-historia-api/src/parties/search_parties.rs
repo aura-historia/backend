@@ -1,8 +1,8 @@
 use super::types::PartyCollectionData;
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE};
+use crate::keyset_cursor::{self, CursorText};
 use crate::state::PartiesState;
-use crate::wire::parse_query_object_id;
 use application::pagination::Cursor;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
@@ -10,11 +10,12 @@ use axum::response::{IntoResponse, Response};
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
-use party_core::party_id::PartyId;
 use party_core::party_search::PartySearch;
 use party_core::sort_party_field::SortPartyField;
-use party_service::use_cases::queries::search_parties::SearchPartiesRequest;
-use serde::Deserialize;
+use party_service::use_cases::queries::search_parties::{
+    PartySearchCursor, PartySortKey, SearchPartiesRequest,
+};
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
@@ -137,7 +138,7 @@ fn parse_sort_field(value: &str) -> Result<SortPartyField, ApiError> {
 fn parse_cursor(
     size: Option<&str>,
     search_after: Option<&str>,
-) -> Result<Option<Cursor<PartyId>>, ApiError> {
+) -> Result<Option<Cursor<PartySearchCursor>>, ApiError> {
     let size = size
         .map(|value| value.parse::<u64>().map(|size| size.clamp(1, 100)))
         .transpose()
@@ -146,7 +147,7 @@ fn parse_cursor(
 
     if size.is_some() || search_after.is_some() {
         Ok(Some(Cursor {
-            size: size.unwrap_or_else(|| Cursor::<PartyId>::default().size),
+            size: size.unwrap_or_else(|| Cursor::<PartySearchCursor>::default().size),
             search_after,
         }))
     } else {
@@ -154,8 +155,46 @@ fn parse_cursor(
     }
 }
 
-fn parse_search_after(value: &str) -> Result<PartyId, ApiError> {
-    parse_query_object_id(value, "searchAfter", "Party")
+fn parse_search_after(value: &str) -> Result<PartySearchCursor, ApiError> {
+    Ok(keyset_cursor::decode::<PartySortKeyData, _>(value)?.map_sort_key(Into::into))
+}
+
+pub(super) fn encode_search_after(cursor: PartySearchCursor) -> String {
+    keyset_cursor::encode(cursor.map_sort_key(PartySortKeyData::from))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum PartySortKeyData {
+    Name(CursorText),
+    Email(Option<CursorText>),
+    Phone(Option<CursorText>),
+    Created(#[serde(with = "time::serde::timestamp::nanoseconds")] OffsetDateTime),
+    Updated(#[serde(with = "time::serde::timestamp::nanoseconds")] OffsetDateTime),
+}
+
+impl From<PartySortKey> for PartySortKeyData {
+    fn from(key: PartySortKey) -> Self {
+        match key {
+            PartySortKey::Name(name) => Self::Name(CursorText(name)),
+            PartySortKey::Email(email) => Self::Email(email.map(CursorText)),
+            PartySortKey::Phone(phone) => Self::Phone(phone.map(CursorText)),
+            PartySortKey::Created(instant) => Self::Created(instant),
+            PartySortKey::Updated(instant) => Self::Updated(instant),
+        }
+    }
+}
+
+impl From<PartySortKeyData> for PartySortKey {
+    fn from(key: PartySortKeyData) -> Self {
+        match key {
+            PartySortKeyData::Name(name) => Self::Name(name.0),
+            PartySortKeyData::Email(email) => Self::Email(email.map(|email| email.0)),
+            PartySortKeyData::Phone(phone) => Self::Phone(phone.map(|phone| phone.0)),
+            PartySortKeyData::Created(instant) => Self::Created(instant),
+            PartySortKeyData::Updated(instant) => Self::Updated(instant),
+        }
+    }
 }
 
 fn bad_query(field: &'static str, detail: impl std::fmt::Display) -> ApiError {
@@ -179,9 +218,14 @@ mod tests {
 
     #[test]
     fn should_map_party_search_query_to_service_request() -> Result<(), ApiError> {
-        let party_id = PartyId::new();
+        let cursor = PartySearchCursor {
+            scope: application::pagination::ScopeBinding::builder("test/v1").finish(),
+            sort_key: PartySortKey::Email(Some("a@example.test".to_owned())),
+            id: party_core::party_id::PartyId::new(),
+        };
         let request = parse_search_parties_query(Some(&format!(
-            "query=operator&name=Antik&phone=%2B49&email=example.com&created%5Bmin%5D=2026-01-01T00%3A00%3A00Z&created%5Bmax%5D=2026-12-31T23%3A59%3A59Z&updated%5Bmin%5D=2026-02-01T00%3A00%3A00Z&sort=email&order=desc&size=200&searchAfter={party_id}",
+            "query=operator&name=Antik&phone=%2B49&email=example.com&created%5Bmin%5D=2026-01-01T00%3A00%3A00Z&created%5Bmax%5D=2026-12-31T23%3A59%3A59Z&updated%5Bmin%5D=2026-02-01T00%3A00%3A00Z&sort=email&order=desc&size=200&searchAfter={}",
+            encode_search_after(cursor.clone()),
         )))?;
 
         assert_eq!(Some("operator"), request.search.query.as_deref());
@@ -212,7 +256,7 @@ mod tests {
         assert_eq!(
             Some(Cursor {
                 size: 100,
-                search_after: Some(party_id),
+                search_after: Some(cursor),
             }),
             request.cursor
         );
@@ -220,13 +264,26 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_legacy_json_array_party_cursor() {
-        let query = format!("searchAfter=%5B%22name%22%2C%22{}%22%5D", PartyId::new());
+    fn should_round_trip_every_party_sort_key() {
+        for sort_key in [
+            PartySortKey::Name("Antik".to_owned()),
+            PartySortKey::Email(None),
+            PartySortKey::Phone(Some("+49 30 1".to_owned())),
+            PartySortKey::Created(datetime!(2026-01-01 00:00:00.123456 UTC)),
+            PartySortKey::Updated(datetime!(2026-01-02 00:00 UTC)),
+        ] {
+            let cursor = PartySearchCursor {
+                scope: application::pagination::ScopeBinding::builder("test/v1").finish(),
+                sort_key,
+                id: party_core::party_id::PartyId::new(),
+            };
 
-        let error = parse_search_parties_query(Some(&query))
-            .expect_err("legacy JSON-array cursor must be rejected");
-
-        assert_eq!(crate::error::INVALID_OBJECT_ID, error.code());
+            assert_eq!(
+                cursor,
+                parse_search_after(&encode_search_after(cursor.clone()))
+                    .unwrap_or_else(|error| panic!("party cursor must round trip: {error:?}"))
+            );
+        }
     }
 
     #[test]

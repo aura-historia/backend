@@ -46,4 +46,5 @@ watchlist-service = { workspace = true }
 [dev-dependencies]
 listing-source-core = { workspace = true }
 serial_test = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+test-api = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util"] }

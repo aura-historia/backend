@@ -8,6 +8,13 @@ where
     serialize_code(value, serializer, UserTier::as_str)
 }
 
+pub fn deserialize<'de, D>(deserializer: D) -> Result<UserTier, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_code(deserializer, UserTier::from_code)
+}
+
 pub mod patch {
     use super::*;
 

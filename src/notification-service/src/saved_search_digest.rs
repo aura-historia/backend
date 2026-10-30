@@ -63,10 +63,20 @@ impl<U, S> MaintainSavedSearchDigestsHandler<U, S> {
         }
     }
 }
-impl<U: UnitOfWork, S: SavedSearchDigestStoreFactory<U::Tx>>
-    MaintainSavedSearchDigestsHandler<U, S>
+#[async_trait::async_trait]
+pub trait MaintainSavedSearchDigestsUseCase: Send + Sync {
+    /// Finalizes up to `limit` ready digest groups, one transaction each.
+    async fn execute(
+        &self,
+        limit: usize,
+    ) -> Result<SavedSearchDigestMaintenanceReport, SavedSearchDigestError>;
+}
+
+#[async_trait::async_trait]
+impl<U: UnitOfWork, S: SavedSearchDigestStoreFactory<U::Tx>> MaintainSavedSearchDigestsUseCase
+    for MaintainSavedSearchDigestsHandler<U, S>
 {
-    pub async fn execute(
+    async fn execute(
         &self,
         limit: usize,
     ) -> Result<SavedSearchDigestMaintenanceReport, SavedSearchDigestError> {

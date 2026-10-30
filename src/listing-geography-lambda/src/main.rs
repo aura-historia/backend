@@ -2,8 +2,8 @@ use aws_lambda_events::sqs::SqsEvent;
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
-    LambdaInvocationBudget, LambdaPostgresConfig, VersionedCompositionCache, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    LambdaInvocationBudget, LambdaPostgresConfig, VersionedCompositionCache,
+    current_postgres_credentials, log_cold_start, log_invocation_start, logging_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
@@ -17,6 +17,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+const COMPONENT: &str = "listing-geography-lambda";
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let started = Instant::now();
@@ -28,30 +30,23 @@ async fn main() -> Result<(), Error> {
     let cache = Arc::new(VersionedCompositionCache::<
         Arc<dyn ProjectListingGeographyUseCase>,
     >::new());
-    log_cold_start("listing-geography-lambda", started);
+    log_cold_start(COMPONENT, started);
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let postgres = postgres.clone();
         let credentials = Arc::clone(&credentials);
         let cache = Arc::clone(&cache);
         async move {
-            log_invocation_start("listing-geography-lambda", &event.context);
+            log_invocation_start(COMPONENT, &event.context);
             let budget = LambdaInvocationBudget::from_context(
                 &event.context,
                 Duration::from_secs(45),
                 Duration::from_secs(5),
             );
             tokio::time::timeout(budget.remaining(), async move {
-                let current = credentials
-                    .current()
-                    .await
-                    .map_err(|_| Error::from("PostgreSQL credentials unavailable"))?;
+                let current = current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 let use_case = cache
                     .get_or_try_build(current.version_id(), || async {
-                        let pool = postgres
-                            .pool_config(current.credentials())?
-                            .connect()
-                            .await
-                            .map_err(|_| Error::from("PostgreSQL pool unavailable"))?;
+                        let pool = postgres.connect(COMPONENT, current.credentials()).await?;
                         Ok::<_, Error>(Arc::new(ProjectListingGeographyHandler::new(
                             SqlxUnitOfWork::new(pool),
                             SqlxGeographyProjectionStoreFactory,

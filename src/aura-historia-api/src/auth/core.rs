@@ -80,8 +80,6 @@ pub enum AuthError {
     InvalidClaimType(&'static str),
     #[error("JWKS key id was not found")]
     JwksKeyNotFound,
-    #[error("failed to fetch JWKS: {0}")]
-    JwksFetch(String),
     #[error("auth service is temporarily unavailable")]
     TemporarilyUnavailable,
     #[error("auth service failed internally: {0}")]

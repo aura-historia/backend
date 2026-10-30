@@ -23,6 +23,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "io-util", "rt"] }
 money = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true }

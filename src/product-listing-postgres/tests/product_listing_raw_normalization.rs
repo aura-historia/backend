@@ -496,7 +496,7 @@ async fn should_reconcile_healthy_stream_when_unsupported_stream_is_blocked_with
         result.stream_failures.as_slice(),
         [failure]
             if failure.product_listing_raw_stream_id == blocked_stream_id
-                && failure.error_code == "UNSUPPORTED_STORED_SCHEMA_VERSION"
+                && failure.error.diagnostic_code() == "UNSUPPORTED_STORED_SCHEMA_VERSION"
     ));
     assert_eq!(Some(2), result.pending_stream_page_count);
     assert_eq!(None, result.next_pending_stream_cursor);
@@ -591,8 +591,8 @@ async fn should_reach_later_healthy_stream_after_blocked_reconciliation_page() {
         [first, second]
             if first.product_listing_raw_stream_id == first_blocked_stream_id
                 && second.product_listing_raw_stream_id == second_blocked_stream_id
-                && first.error_code == "UNSUPPORTED_STORED_SCHEMA_VERSION"
-                && second.error_code == "UNSUPPORTED_STORED_SCHEMA_VERSION"
+                && first.error.diagnostic_code() == "UNSUPPORTED_STORED_SCHEMA_VERSION"
+                && second.error.diagnostic_code() == "UNSUPPORTED_STORED_SCHEMA_VERSION"
     ));
     let cursor = first_page
         .next_pending_stream_cursor

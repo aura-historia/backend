@@ -111,6 +111,7 @@ dependencies = [
  "credential-core",
  "domain-primitives",
  "fake",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -605,6 +606,7 @@ dependencies = [
  "shipping-postgres",
  "shipping-service",
  "sqlx",
+ "test-api",
  "thiserror 2.0.21",
  "tokio",
  "url",
@@ -1452,12 +1454,16 @@ dependencies = [
  "platform-postgres-secretsmanager",
  "product-listing-postgres",
  "product-listing-service",
+ "search-filter-core",
  "search-filter-postgres",
  "search-filter-service",
  "serde_json",
+ "sqlx",
+ "test-api",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "user-core",
  "user-postgres",
  "user-service",
 ]
@@ -1838,6 +1844,7 @@ dependencies = [
  "localization",
  "money",
  "notification-core",
+ "platform-aws",
  "platform-observability",
  "platform-worker-queue-contract",
  "product-listing-core",
@@ -2898,6 +2905,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "google-cloud-auth",
+ "http 1.5.0",
  "image-fetcher",
  "lru 0.19.0",
  "reqwest 0.12.28",
@@ -4456,9 +4464,9 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.60.1"
+version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65de752665c4a06528af6759955eecf60ba73ae7442d35349963a09c8031cd71"
+checksum = "a42a11b47492e6a2cc76e9c7bcc8077776cb31dac444e0795d7f61bcc6441c08"
 dependencies = [
  "ahash",
  "bytecount",
@@ -4855,6 +4863,8 @@ dependencies = [
  "platform-postgres-secretsmanager",
  "product-listing-postgres",
  "product-listing-service",
+ "sqlx",
+ "test-api",
  "tokio",
  "tracing",
 ]
@@ -4874,6 +4884,8 @@ dependencies = [
  "platform-postgres-secretsmanager",
  "product-listing-postgres",
  "product-listing-service",
+ "sqlx",
+ "test-api",
  "tokio",
  "tracing",
 ]
@@ -4892,7 +4904,6 @@ dependencies = [
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -6274,6 +6285,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform-aws"
+version = "0.1.0"
+dependencies = [
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+]
+
+[[package]]
 name = "platform-google-adc"
 version = "0.1.0"
 dependencies = [
@@ -6286,6 +6305,8 @@ dependencies = [
 name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
+ "application",
+ "async-trait",
  "google-cloud-auth",
  "lambda_runtime",
  "platform-google-adc",
@@ -6328,6 +6349,7 @@ dependencies = [
 name = "platform-opensearch"
 version = "0.1.0"
 dependencies = [
+ "application",
  "opensearch",
  "serde",
  "serde_json",
@@ -6340,6 +6362,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "domain-primitives",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
@@ -6353,6 +6376,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
+ "platform-aws",
  "platform-postgres",
  "serde",
  "serde_json",
@@ -6797,6 +6821,7 @@ dependencies = [
  "platform-lambda-bootstrap",
  "platform-lambda-sqs",
  "platform-observability",
+ "platform-opensearch",
  "platform-postgres",
  "platform-postgres-secretsmanager",
  "product-listing-core",
@@ -7526,9 +7551,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.7.0"
+version = "3.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ece64e19631fc38758181e637c15509a2c2709ee53bfde1e1d58f9dc991f919e"
+checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -9854,6 +9879,7 @@ dependencies = [
  "application",
  "async-trait",
  "aws-sdk-cognitoidentityprovider",
+ "platform-aws",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
@@ -9925,6 +9951,9 @@ dependencies = [
  "platform-observability",
  "platform-postgres",
  "platform-postgres-secretsmanager",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "user-cognito",

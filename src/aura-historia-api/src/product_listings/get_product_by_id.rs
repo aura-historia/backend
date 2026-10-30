@@ -138,7 +138,13 @@ mod tests {
             _context: &OperationContext,
             _request: GetSimilarProductListingsRequest,
         ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError> {
-            Err(GetSimilarProductListingsError::SimilaritySearchUnavailable)
+            Err(
+                GetSimilarProductListingsError::SimilaritySearchUnavailable {
+                    source: application::error::static_error(
+                        "similarity search fixture unavailable",
+                    ),
+                },
+            )
         }
     }
 

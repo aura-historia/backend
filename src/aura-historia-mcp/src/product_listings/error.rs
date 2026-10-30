@@ -26,14 +26,14 @@ pub(super) fn search(error: SearchProductListingsError) -> OperationError {
         error @ (InvalidCursor | InvalidGeographicQuery) => {
             OperationError::InvalidArguments(Box::new(error))
         }
-        error @ (ProductListingSearchQueryFailed
+        error @ (ProductListingSearchQueryFailed { .. }
         | QueryEmbeddingFailed { .. }
         | FxRateSnapshotMissing
         | FxRateSnapshotReadFailed { .. }
         | ListingSourceSummaryQueryFailed { .. }
         | ProductListingUserStateQueryFailed { .. }
         | ContentAssessmentQueryFailed { .. }) => OperationError::Unavailable(Box::new(error)),
-        error @ (ProductListingSearchReadModelInvalid
+        error @ (ProductListingSearchReadModelInvalid { .. }
         | FxRateSnapshotInvalid { .. }
         | ListingSourceSummaryReadModelInvalid { .. }
         | ListingSourceSummaryMissing { .. }
@@ -49,7 +49,7 @@ pub(super) fn similar(error: GetSimilarProductListingsError) -> OperationError {
         Shipping(error) => shipping(error),
         NotFound => OperationError::NotFound,
         error @ (ProductListingEmbeddingQueryFailed { .. }
-        | SimilaritySearchUnavailable
+        | SimilaritySearchUnavailable { .. }
         | BeginTransactionFailed(_)
         | CommitTransactionFailed(_)
         | PricingFxSnapshotMissing

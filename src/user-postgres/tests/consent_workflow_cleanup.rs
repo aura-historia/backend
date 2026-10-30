@@ -13,7 +13,9 @@ use user_service::ports::marketing_consent_intents::{
 use user_service::ports::{
     ConsentWorkflowCleanup, ConsentWorkflowCleanupFactory, NewsletterConfirmationClock,
 };
-use user_service::use_cases::{CleanupConsentWorkflowHandler, CleanupConsentWorkflowUseCase};
+use user_service::use_cases::{
+    CleanupConsentWorkflowError, CleanupConsentWorkflowHandler, CleanupConsentWorkflowUseCase,
+};
 use uuid::Uuid;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
@@ -399,7 +401,17 @@ async fn later_failure_preserves_committed_batches_for_safe_retry() {
         SqlxConsentWorkflowCleanup::new(),
         FixedClock(now),
     );
-    assert!(handler.execute(1).await.is_err());
+    let Err(error @ CleanupConsentWorkflowError::TemporarilyUnavailable { .. }) =
+        handler.execute(1).await
+    else {
+        panic!("a rejected receipt delete must make the cleanup unavailable");
+    };
+    let Some(sqlx::Error::Database(database_error)) =
+        std::error::Error::source(&error).and_then(|source| source.downcast_ref::<sqlx::Error>())
+    else {
+        panic!("the cleanup failure must keep its SQL cause");
+    };
+    assert_eq!("fixture failure", database_error.message());
     assert!(
         !exists(
             &pool,

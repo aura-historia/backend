@@ -10,12 +10,31 @@ pub enum DeleteUserIdentityResult {
     Completed,
     Deferred,
 }
+
+/// The deletion step that failed. Each step keeps the port failure as its source.
+#[derive(Debug, thiserror::Error)]
+pub enum DeleteUserIdentityError {
+    #[error("failed to claim user identity deletion")]
+    Claim(#[source] UserIdentityDeletionError),
+    #[error("failed to look up user identity deletion target")]
+    TargetLookup(#[source] UserIdentityDeletionError),
+    /// The eventually consistent lookup has not observed the identity yet.
+    #[error("user identity deletion target is not yet observable")]
+    TargetNotYetObserved,
+    #[error("failed to save user identity deletion target")]
+    TargetSave(#[source] UserIdentityDeletionError),
+    #[error("failed to remove user identity from the identity provider")]
+    IdentityRemoval(#[source] UserIdentityDeletionError),
+    #[error("failed to complete user identity deletion")]
+    Completion(#[source] UserIdentityDeletionError),
+}
+
 #[async_trait::async_trait]
 pub trait DeleteUserIdentityUseCase: Send + Sync {
     async fn execute(
         &self,
         user_id: UserId,
-    ) -> Result<DeleteUserIdentityResult, UserIdentityDeletionError>;
+    ) -> Result<DeleteUserIdentityResult, DeleteUserIdentityError>;
 }
 pub struct DeleteUserIdentityHandler<U, S, D> {
     unit_of_work: U,
@@ -42,10 +61,22 @@ where
     async fn execute(
         &self,
         user_id: UserId,
-    ) -> Result<DeleteUserIdentityResult, UserIdentityDeletionError> {
-        let mut tx = self.unit_of_work.begin().await.map_err(transaction_error)?;
-        let outcome = self.store.in_transaction(&mut tx).claim(user_id).await?;
-        tx.commit().await.map_err(transaction_error)?;
+    ) -> Result<DeleteUserIdentityResult, DeleteUserIdentityError> {
+        use DeleteUserIdentityError as E;
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|source| E::Claim(storage_error(source)))?;
+        let outcome = self
+            .store
+            .in_transaction(&mut tx)
+            .claim(user_id)
+            .await
+            .map_err(E::Claim)?;
+        tx.commit()
+            .await
+            .map_err(|source| E::Claim(storage_error(source)))?;
         let claim = match outcome {
             UserIdentityDeletionClaimOutcome::Completed => {
                 return Ok(DeleteUserIdentityResult::Completed);
@@ -61,34 +92,47 @@ where
             let username = self
                 .deleter
                 .resolve_username(&claim.identity)
-                .await?
-                .ok_or_else(|| {
-                    UserIdentityDeletionError(application::error::static_error(
-                        "identity deletion lookup not yet observed",
-                    ))
-                })?;
-            let mut tx = self.unit_of_work.begin().await.map_err(transaction_error)?;
+                .await
+                .map_err(E::TargetLookup)?
+                .ok_or(E::TargetNotYetObserved)?;
+            let mut tx = self
+                .unit_of_work
+                .begin()
+                .await
+                .map_err(|source| E::TargetSave(storage_error(source)))?;
             self.store
                 .in_transaction(&mut tx)
                 .save_username(&claim, &username)
-                .await?;
-            tx.commit().await.map_err(transaction_error)?;
+                .await
+                .map_err(E::TargetSave)?;
+            tx.commit()
+                .await
+                .map_err(|source| E::TargetSave(storage_error(source)))?;
             username
         };
         // The exact target survives lost provider responses and completion commits.
         // No authoritative transaction spans a provider call.
         self.deleter
             .delete_identity(&claim.identity, &username)
-            .await?;
-        let mut tx = self.unit_of_work.begin().await.map_err(transaction_error)?;
-        self.store.in_transaction(&mut tx).complete(&claim).await?;
-        tx.commit().await.map_err(transaction_error)?;
+            .await
+            .map_err(E::IdentityRemoval)?;
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|source| E::Completion(storage_error(source)))?;
+        self.store
+            .in_transaction(&mut tx)
+            .complete(&claim)
+            .await
+            .map_err(E::Completion)?;
+        tx.commit()
+            .await
+            .map_err(|source| E::Completion(storage_error(source)))?;
         tracing::info!(event = "user.identity_deletion.completed", user_id = %user_id);
         Ok(DeleteUserIdentityResult::Completed)
     }
 }
-fn transaction_error(
-    source: application::transaction::TransactionError,
-) -> UserIdentityDeletionError {
-    UserIdentityDeletionError(Box::new(source))
+fn storage_error(source: application::transaction::TransactionError) -> UserIdentityDeletionError {
+    UserIdentityDeletionError::Storage(Box::new(source))
 }

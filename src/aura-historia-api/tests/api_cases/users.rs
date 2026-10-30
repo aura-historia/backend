@@ -315,7 +315,6 @@ async fn should_follow_admin_user_search_cursor() {
 
     assert_eq!(reqwest::StatusCode::OK, first_status);
     assert_eq!(Some(2), first_body["items"].as_array().map(Vec::len));
-    assert_id_prefix(&first_body["searchAfter"], "usr_");
     let cursor = first_body["searchAfter"]
         .as_str()
         .unwrap_or_else(|| panic!("missing admin user search cursor"))
@@ -344,43 +343,6 @@ async fn should_follow_admin_user_search_cursor() {
         second_body["items"][0]["userId"]
     );
     assert!(second_body.get("searchAfter").is_none());
-}
-
-#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_reject_noncanonical_admin_user_search_cursors() {
-    let admin_id = seed_user("ADMIN").await;
-    let token = seed_access_token_for(
-        admin_id,
-        std::collections::HashSet::from([Scope::UsersRead]),
-    )
-    .await;
-    let user_id = UserId::new();
-
-    for invalid_id in [
-        "usr_not-a-typeid".to_owned(),
-        user_id.as_uuid().to_string(),
-        AccessTokenId::new().to_string(),
-    ] {
-        let response = reqwest::Client::new()
-            .get(format!("{}/v1/admin/users", AURA_API.base_url()))
-            .bearer_auth(String::from(token.clone()))
-            .query(&[("searchAfter", invalid_id)])
-            .send()
-            .await
-            .unwrap_or_else(|error| panic!("failed to validate admin user cursor: {error}"));
-        let (status, body) = json_response(response).await;
-
-        assert_problem(
-            status,
-            &body,
-            reqwest::StatusCode::BAD_REQUEST,
-            "INVALID_OBJECT_ID",
-        );
-        assert_eq!(
-            serde_json::json!({"field": "searchAfter", "type": "QUERY"}),
-            body["source"]
-        );
-    }
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

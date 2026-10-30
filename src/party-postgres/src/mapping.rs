@@ -7,7 +7,7 @@ use party_core::{
     sort_party_field::SortPartyField,
 };
 use party_service::ports::{PartyStorageVersion, StoredParty};
-use party_service::use_cases::queries::search_parties::PartySummary;
+use party_service::use_cases::queries::search_parties::{PartySortKey, PartySummary};
 use serde_email::Email;
 use time::OffsetDateTime;
 
@@ -45,13 +45,16 @@ pub(crate) fn party_columns() -> &'static str {
     PARTY_COLUMNS
 }
 
-pub(crate) fn sort_party_field_columns(field: SortPartyField) -> &'static [&'static str] {
-    match field {
-        SortPartyField::Name => &["name"],
-        SortPartyField::Email => &["email"],
-        SortPartyField::Phone => &["phone"],
-        SortPartyField::Created => &["created"],
-        SortPartyField::Updated => &["updated"],
+impl PartyRow {
+    /// Stored value of `field`, exactly as PostgreSQL orders it.
+    pub(crate) fn sort_key(&self, field: SortPartyField) -> PartySortKey {
+        match field {
+            SortPartyField::Name => PartySortKey::Name(self.name.clone()),
+            SortPartyField::Email => PartySortKey::Email(self.email.clone()),
+            SortPartyField::Phone => PartySortKey::Phone(self.phone.clone()),
+            SortPartyField::Created => PartySortKey::Created(self.created),
+            SortPartyField::Updated => PartySortKey::Updated(self.updated),
+        }
     }
 }
 

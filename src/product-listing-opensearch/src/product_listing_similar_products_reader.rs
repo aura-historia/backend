@@ -1,8 +1,8 @@
-use crate::product_listing_document::{ProductListingDocument, ProductListingDocumentSerdeField};
+use crate::product_listing_document::ProductListingDocumentSerdeField;
 use crate::product_listing_search_reader::map_search_response;
-use application::error::box_error;
+use crate::search_response_decoding::read_search_response;
+use application::error::BoxError;
 use opensearch::{OpenSearch, SearchParts};
-use platform_opensearch::{response::read_response, search_response::SearchResponse};
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingSimilarProductListingsReadError,
@@ -54,61 +54,25 @@ impl ProductListingSimilarProductListingsReader
             .body(build_similar_products_request(request))
             .send()
             .await
-            .map_err(|error| {
-                ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
-                    source: box_error(error),
-                }
-            })?;
-        let response = read_response(response).await.map_err(|error| {
-            ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
-                source: box_error(error),
-            }
-        })?;
-        if !response.status().is_success() {
-            return Err(
-                ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
-                    source: box_error(std::io::Error::other(format!(
-                        "OpenSearch similar product listings returned {}: {}",
-                        response.status(),
-                        response.body(),
-                    ))),
-                },
-            );
-        }
-        let payload = response.into_body();
-        let search_response = serde_json::from_str::<SearchResponse<ProductListingDocument>>(
-            &payload,
-        )
-        .map_err(|error| {
-            ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
-                source: box_error(error),
-            }
-        })?
-        .into_non_timed_out("similar product_listings")
-        .map_err(|error| {
-            ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
-                source: box_error(error),
-            }
-        })?;
+            .map_err(query_failed)?;
+        let search_response = read_search_response(response, "similar product_listings")
+            .await
+            .map_err(|error| query_failed(error.into_source()))?;
         let search =
             ProductListingSearch::new(request.language, request.price_filter_plan.target_currency);
-        let compiled_search = CompiledProductListingSearch::new(
-            search,
-            request.price_filter_plan.clone(),
-        )
-        .map_err(|source| {
-            ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
-                source: box_error(source),
-            }
-        })?;
+        let compiled_search =
+            CompiledProductListingSearch::new(search, request.price_filter_plan.clone())
+                .map_err(query_failed)?;
 
         map_search_response(&compiled_search, search_response)
             .map(|result| result.items)
-            .map_err(|error| {
-                ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
-                    source: box_error(error),
-                }
-            })
+            .map_err(query_failed)
+    }
+}
+
+fn query_failed(source: impl Into<BoxError>) -> ProductListingSimilarProductListingsReadError {
+    ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
+        source: source.into(),
     }
 }
 
@@ -144,11 +108,13 @@ mod tests {
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use localization::Language;
     use money::Currency;
+    use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
     use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_service::ports::ProductListingPriceFilterPlan;
     use serde_json::json;
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
+    use url::Url;
 
     fn test_price_filter_plan() -> ProductListingPriceFilterPlan {
         let snapshot = NewFxRateSnapshot::capture_eur(
@@ -191,5 +157,35 @@ mod tests {
             Some(&json!(product_listing_id.to_string()))
         );
         assert!(actual.pointer("/query/bool").is_none());
+    }
+
+    #[tokio::test]
+    async fn should_preserve_transport_failure_when_similar_search_cannot_connect()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool = SingleNodeConnectionPool::new(Url::parse("http://127.0.0.1:1")?);
+        let reader = OpenSearchProductListingSimilarProductListingsReader::new(OpenSearch::new(
+            TransportBuilder::new(pool).disable_proxy().build()?,
+        ));
+        let request = ProductListingSimilarProductListingsRequest {
+            product_listing_id: ProductListingId::new(),
+            embedding: vec![0.1, 0.2],
+            language: Language::De,
+            price_filter_plan: test_price_filter_plan(),
+        };
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            reader.find_similar_product_listings(&request),
+        )
+        .await?;
+
+        let Err(ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
+            source,
+        }) = result
+        else {
+            panic!("an unreachable search engine must fail the similar products query");
+        };
+        assert!(source.downcast_ref::<opensearch::Error>().is_some());
+        Ok(())
     }
 }

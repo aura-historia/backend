@@ -10,13 +10,15 @@ use notification_delivery_lambda::{
 use notification_email_aws::EmailDeliveryConfig;
 use notification_service::use_cases::commands::deliver_notification::DeliverNotificationUseCase;
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease,
+    current_postgres_credentials, log_cold_start, log_invocation_start, logging_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use std::{future::Future, sync::Arc, time::Instant};
+
+const COMPONENT: &str = "notification-delivery-lambda";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -42,7 +44,7 @@ async fn main() -> Result<(), Error> {
     let ses = SesClient::new(&aws_config);
     let use_cases = Arc::new(VersionedCompositionCache::new());
 
-    log_cold_start("notification-delivery-lambda", initialization_started_at);
+    log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let postgres = postgres.clone();
         let email = email.clone();
@@ -51,20 +53,15 @@ async fn main() -> Result<(), Error> {
         let ses = ses.clone();
         let use_cases = Arc::clone(&use_cases);
         async move {
-            log_invocation_start("notification-delivery-lambda", &event.context);
+            log_invocation_start(COMPONENT, &event.context);
             handle_invocation(event, move || async move {
-                let credentials = credentials
-                    .current()
-                    .await
-                    .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
+                let credentials =
+                    current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 use_cases
                     .get_or_try_build(credentials.version_id(), || async {
                         let pool = postgres
-                            .pool_config(credentials.credentials())
-                            .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
-                            .connect()
-                            .await
-                            .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                            .connect(COMPONENT, credentials.credentials())
+                            .await?;
                         compose_delivery_use_case(pool, s3, ses, email)
                     })
                     .await
@@ -88,7 +85,7 @@ where
 {
     handle_sqs_invocation(
         event,
-        "notification-delivery-lambda",
+        COMPONENT,
         invocation_budget,
         setup,
         |event, use_case, budget| async move {

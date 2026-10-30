@@ -6,7 +6,7 @@ use crate::ports::{
 };
 use crate::tier_policy::monthly_match_quota;
 use application::{
-    error::{BoxError, box_error},
+    error::{BoxError, FailureKind, box_error},
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
 use domain_primitives::event_id::EventId;
@@ -117,6 +117,47 @@ pub enum GenerateSearchFilterMatchNotificationError {
         #[source]
         source: BoxError,
     },
+}
+
+impl GenerateSearchFilterMatchNotificationError {
+    /// The bounded label of the step that failed, shared by every boundary that records it.
+    pub fn failure_stage(&self) -> &'static str {
+        match self {
+            Self::BeginTransactionFailed { .. } => "selection_begin",
+            Self::MatchSourceReadFailed { .. } | Self::MatchSourceStateInvalid { .. } => {
+                "match_source_read"
+            }
+            Self::ProductListingSourceReadFailed { .. }
+            | Self::ProductListingSourceStateInvalid { .. }
+            | Self::ProductListingSourceMismatch => "product_source_read",
+            Self::ContentAssessmentReadFailed { .. }
+            | Self::ContentAssessmentStateInvalid { .. } => "content_assessment_read",
+            Self::UserTierEntitlementsLockFailed { .. } => "tier_entitlements_lock",
+            Self::MonthlyMatchQuotaReadFailed { .. } => "monthly_quota_read",
+            Self::CommitTransactionFailed { .. } => "selection_commit",
+            Self::DigestFinalizationFailed { .. } => "digest_finalization",
+            Self::NotificationCreateFailed { .. } => "notification_create",
+        }
+    }
+
+    /// The bounded kind every boundary records for this failure.
+    pub fn failure_kind(&self) -> FailureKind {
+        match self {
+            Self::MatchSourceStateInvalid { .. }
+            | Self::ProductListingSourceStateInvalid { .. }
+            | Self::ProductListingSourceMismatch
+            | Self::ContentAssessmentStateInvalid { .. } => FailureKind::InvalidPersistedState,
+            Self::BeginTransactionFailed { .. }
+            | Self::MatchSourceReadFailed { .. }
+            | Self::ProductListingSourceReadFailed { .. }
+            | Self::ContentAssessmentReadFailed { .. }
+            | Self::UserTierEntitlementsLockFailed { .. }
+            | Self::MonthlyMatchQuotaReadFailed { .. }
+            | Self::CommitTransactionFailed { .. }
+            | Self::DigestFinalizationFailed { .. }
+            | Self::NotificationCreateFailed { .. } => FailureKind::Storage,
+        }
+    }
 }
 
 #[async_trait::async_trait]

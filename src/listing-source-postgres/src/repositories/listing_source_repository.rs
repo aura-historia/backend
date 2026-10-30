@@ -1,4 +1,4 @@
-use application::error::box_error;
+use application::error::{box_error, static_error};
 use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::*;
 use listing_source_service::ports::*;
@@ -186,7 +186,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         })?;
         let referral_configuration = referral_json(source.referral_configuration());
         let row = sqlx::query_as::<_, SourceRow>(
-            "INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
+            "INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (listing_source_slug_id) DO NOTHING RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
         )
         .bind(source.id().into_uuid())
         .bind(source.slug_id().as_ref())
@@ -196,9 +196,12 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         .bind(source.presentation().image.as_ref().map(Url::as_str))
         .bind(source.platform_technology().map(AsRef::as_ref))
         .bind(referral_configuration)
-        .fetch_one(&mut *self.connection)
+        .fetch_optional(&mut *self.connection)
         .await
-        .map_err(db_write)?;
+        .map_err(db_write)?
+        .ok_or_else(|| ListingSourceRepositoryError::SlugConflict {
+            source: static_error("listing source slug already exists"),
+        })?;
         write_configuration(self.connection, source.id(), configuration).await?;
         load(self.connection, row).await
     }
@@ -495,13 +498,6 @@ fn db_read(error: sqlx::Error) -> ListingSourceRepositoryError {
 fn db_write(error: sqlx::Error) -> ListingSourceRepositoryError {
     match &error {
         sqlx::Error::Database(database_error)
-            if database_error.constraint() == Some("listing_sources_slug_unique") =>
-        {
-            ListingSourceRepositoryError::SlugConflict {
-                source: box_error(error),
-            }
-        }
-        sqlx::Error::Database(database_error)
             if database_error.constraint() == Some("listing_source_shopify_domain_unique") =>
         {
             ListingSourceRepositoryError::ShopifyDomainConflict {
@@ -519,6 +515,7 @@ mod tests {
     use super::*;
     use crate::{SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory};
     use application::transaction::{Transaction, UnitOfWork};
+    use listing_source_service::listing_source_creation::insert_new_listing_source;
     use listing_source_service::ports::{
         ListingSourceDetailsReader, ListingSourceRepository, ListingSourceRepositoryFactory,
         ShopifySourceReader, WebCrawlSourceReader, WoocommerceSignatureVerifier,
@@ -608,17 +605,24 @@ mod tests {
     ) -> ListingSource {
         let operator_party_id = PartyId::new();
         let source_id = ListingSourceId::new();
-        let name = format!("Missing {} configuration", method.as_str());
-        let source = ListingSource::create(NewListingSource {
-            id: source_id,
-            name: ListingSourceName::try_from(name.as_str())
-                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-            operator_party_id,
-            ingestion_methods: HashSet::from([method]),
-            presentation: ListingSourcePresentation::default(),
-            platform_technology: None,
-            referral_configuration: None,
-        });
+        let name =
+            ListingSourceName::try_from(format!("Missing {} configuration", method.as_str()))
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}"));
+        let slug_id = ListingSourceSlugId::candidates(&name)
+            .next()
+            .unwrap_or_else(|| panic!("test listing source name has no slug candidate"));
+        let source = ListingSource::create(
+            NewListingSource {
+                id: source_id,
+                name,
+                operator_party_id,
+                ingestion_methods: HashSet::from([method]),
+                presentation: ListingSourcePresentation::default(),
+                platform_technology: None,
+                referral_configuration: None,
+            },
+            slug_id,
+        );
         sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
             .bind(operator_party_id.into_uuid())
             .bind(format!(
@@ -697,6 +701,80 @@ mod tests {
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+    async fn should_insert_same_named_source_under_next_slug_after_conflict_in_same_transaction() {
+        let pool = get_postgres_client().await;
+        let operator_party_id = PartyId::new();
+        sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+            .bind(operator_party_id.into_uuid())
+            .bind("shared-operator")
+            .bind("Shared Operator")
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert operator party: {error}"));
+        let new_source = || NewListingSource {
+            id: ListingSourceId::new(),
+            name: ListingSourceName::try_from("Shared Source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+            operator_party_id,
+            ingestion_methods: HashSet::from([ListingIngestionMethod::WebCrawl]),
+            presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
+            referral_configuration: None,
+        };
+        let same_slug = ListingSource::create(
+            new_source(),
+            ListingSourceSlugId::raw("shared-source")
+                .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+        );
+        let configuration = configuration_for(ListingIngestionMethod::WebCrawl);
+        let unit_of_work = platform_postgres::SqlxUnitOfWork::new(pool.clone());
+        let sources = SqlxListingSourceRepositoryFactory::new();
+
+        let mut transaction = unit_of_work
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin same-name inserts: {error}"));
+        let mut repository = sources.in_transaction(&mut transaction);
+        let first = insert_new_listing_source(&mut repository, new_source(), &configuration).await;
+        let conflict = repository.insert(&same_slug, &configuration).await;
+        let disambiguated =
+            insert_new_listing_source(&mut repository, new_source(), &configuration).await;
+        drop(repository);
+        transaction
+            .commit()
+            .await
+            .unwrap_or_else(|error| panic!("commit same-name inserts: {error}"));
+
+        assert!(matches!(
+            first,
+            Ok(ref stored) if stored.source.slug_id().as_ref() == "shared-source"
+        ));
+        assert!(matches!(
+            conflict,
+            Err(ListingSourceRepositoryError::SlugConflict { .. })
+        ));
+        assert!(matches!(
+            disambiguated,
+            Ok(ref stored) if stored.source.slug_id().as_ref() == "shared-source-2"
+        ));
+        let slugs = sqlx::query_scalar::<_, String>(
+            "SELECT listing_source_slug_id FROM listing_sources ORDER BY listing_source_slug_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("read committed listing source slugs: {error}"));
+        assert_eq!(vec!["shared-source", "shared-source-2"], slugs);
+        let conflicting_configuration = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM listing_source_ingestion_methods WHERE listing_source_id = $1",
+        )
+        .bind(same_slug.id().into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("read conflicting source configuration: {error}"));
+        assert_eq!(0, conflicting_configuration);
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
     async fn should_persist_and_read_operator_provider_configuration_and_webcrawl_source() {
         let pool = get_postgres_client().await;
         let operator_party_id = PartyId::new();
@@ -708,26 +786,30 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("insert operator party: {error}"));
 
-        let mut source = ListingSource::create(NewListingSource {
-            id: ListingSourceId::new(),
-            name: ListingSourceName::try_from("Provider Source")
-                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-            operator_party_id,
-            ingestion_methods: HashSet::from([
-                ListingIngestionMethod::WebCrawl,
-                ListingIngestionMethod::Shopify,
-                ListingIngestionMethod::Woocommerce,
-            ]),
-            presentation: ListingSourcePresentation {
-                url: Some(
-                    Url::parse("https://provider.example")
-                        .unwrap_or_else(|error| panic!("test URL: {error}")),
-                ),
-                image: None,
+        let mut source = ListingSource::create(
+            NewListingSource {
+                id: ListingSourceId::new(),
+                name: ListingSourceName::try_from("Provider Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                operator_party_id,
+                ingestion_methods: HashSet::from([
+                    ListingIngestionMethod::WebCrawl,
+                    ListingIngestionMethod::Shopify,
+                    ListingIngestionMethod::Woocommerce,
+                ]),
+                presentation: ListingSourcePresentation {
+                    url: Some(
+                        Url::parse("https://provider.example")
+                            .unwrap_or_else(|error| panic!("test URL: {error}")),
+                    ),
+                    image: None,
+                },
+                platform_technology: Some(PlatformTechnology::try_from("BIGCOMMERCE").unwrap()),
+                referral_configuration: None,
             },
-            platform_technology: Some(PlatformTechnology::try_from("BIGCOMMERCE").unwrap()),
-            referral_configuration: None,
-        });
+            listing_source_core::ListingSourceSlugId::raw("provider-source")
+                .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+        );
         let configuration = ListingSourceIngestionConfigurations(vec![
             ListingIngestionConfiguration::WebCrawl {
                 fallback_currency: Some(money::Currency::Ars),

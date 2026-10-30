@@ -44,6 +44,36 @@ pub enum MarketingEmailConsentError {
     Protocol { status: Option<u16> },
 }
 
+impl MarketingEmailConsentError {
+    /// The bounded lower-case class used by worker failure diagnostics.
+    pub const fn diagnostic_category(self) -> &'static str {
+        match self {
+            Self::InvalidEmail => "invalid_email",
+            Self::IneligibleIntent => "ineligible_intent",
+            Self::Rejected { .. } => "rejected",
+            Self::Throttled { .. } => "throttled",
+            Self::NotSent => "not_sent",
+            Self::AcceptanceUnknown => "acceptance_unknown",
+            Self::ReadUnavailable => "unavailable",
+            Self::PreWriteProtocol { .. } | Self::Protocol { .. } => "protocol",
+        }
+    }
+
+    pub const fn http_status(self) -> Option<u16> {
+        match self {
+            Self::Rejected { status }
+            | Self::Throttled { status }
+            | Self::PreWriteProtocol { status }
+            | Self::Protocol { status } => status,
+            Self::InvalidEmail
+            | Self::IneligibleIntent
+            | Self::NotSent
+            | Self::AcceptanceUnknown
+            | Self::ReadUnavailable => None,
+        }
+    }
+}
+
 /// Caller must fence and commit an eligible immutable intent before any grant/revoke.
 /// This port neither decides consent nor retries writes after ambiguous acceptance.
 #[async_trait::async_trait]

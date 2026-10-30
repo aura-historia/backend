@@ -8,14 +8,15 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 
 use product_listing_postgres::SqlxProductListingWatchlistNotificationSourceReaderFactory;
 use product_listing_service::use_cases::{
-    GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsHandler,
-    GenerateWatchlistNotificationsResult, GenerateWatchlistNotificationsUseCase,
+    GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsError,
+    GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
+    GenerateWatchlistNotificationsUseCase,
 };
 
 use std::{sync::Arc, time::Duration};
@@ -89,21 +90,29 @@ async fn handler_with_budget(
     .await?;
     let record_count = results.record_count;
     let response = results.finish(|attempt| {
-        let (complete, category) = match &attempt.outcome {
+        let (complete, category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(disposition) => (
                 matches!(
                     disposition,
                     WatchlistNotificationJobDisposition::Complete(_)
                 ),
                 disposition.category(),
+                disposition.failure_diagnostic(),
             ),
-            RecordOutcome::MissingBody => (false, "missing_message_body"),
-            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-            RecordOutcome::TimedOut => (false, "execution_timeout"),
-            RecordOutcome::Panicked => (false, "handler_panicked"),
+            RecordOutcome::MissingBody => (false, "missing_message_body", None),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget", None),
+            RecordOutcome::TimedOut => (false, "execution_timeout", None),
+            RecordOutcome::Panicked => (false, "handler_panicked", None),
         };
         if !complete {
-            warn!(message_id = %attempt.message_id, outcome = category,
+            warn!(
+                message_id = %attempt.message_id,
+                outcome = category,
+                stage = failure.map(FailureDiagnostic::stage),
+                dependency = failure.and_then(FailureDiagnostic::dependency),
+                error_category = failure.map(FailureDiagnostic::category),
+                http_status = failure.and_then(FailureDiagnostic::http_status),
+                sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
                 "Watchlist notification record retained for SQS retry or redrive");
         }
         complete
@@ -120,17 +129,22 @@ async fn handler_with_budget(
 pub enum WatchlistNotificationJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
-    DependencyUnavailable(&'static str),
+    DependencyUnavailable(FailureDiagnostic),
     Poison(&'static str),
 }
 
 impl WatchlistNotificationJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
+            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::DependencyUnavailable(_) => "watchlist_notification_unavailable",
+        }
+    }
+
+    pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
+        match self {
+            Self::DependencyUnavailable(failure) => Some(failure),
+            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
         }
     }
 }
@@ -162,10 +176,25 @@ pub async fn execute_job(
         .await
     {
         Ok(result) => watchlist_outcome(result),
-        Err(_) => WatchlistNotificationJobDisposition::DependencyUnavailable(
-            "watchlist_notification_unavailable",
-        ),
+        Err(error) => watchlist_error_disposition(&error),
     }
+}
+
+/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
+fn watchlist_error_disposition(
+    error: &GenerateWatchlistNotificationsError,
+) -> WatchlistNotificationJobDisposition {
+    use GenerateWatchlistNotificationsError as E;
+    let stage = match error {
+        E::BeginTransactionFailed { .. } => "source_begin",
+        E::SourceReadFailed { .. } => "source_read",
+        E::RecipientReadFailed { .. } => "recipient_read",
+        E::CommitTransactionFailed { .. } => "source_commit",
+        E::NotificationCreateFailed { .. } => "notification_create",
+    };
+    WatchlistNotificationJobDisposition::DependencyUnavailable(FailureDiagnostic::postgres(
+        stage, error,
+    ))
 }
 
 pub fn watchlist_outcome(
@@ -220,6 +249,7 @@ mod tests {
         },
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
 
     #[tokio::test]
     async fn acknowledges_completed_watchlist_results_but_retains_retry_and_poison_records() {
@@ -275,6 +305,30 @@ mod tests {
         ]))
         .expect("partial batch response");
         assert_eq!(failure_ids(response), ["first", "second"]);
+    }
+
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let use_case = FakeUseCase::new([FakeResult::Unavailable]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(events([(Some("unavailable"), valid_body())]), &use_case)
+            .await
+            .expect("handler response");
+        drop(guard);
+
+        assert_eq!(failure_ids(response), ["unavailable"]);
+        let retained = logs.events_where(
+            "message",
+            "Watchlist notification record retained for SQS retry or redrive",
+        );
+        assert_eq!(1, retained.len());
+        assert_eq!(Some("source_begin"), retained[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), retained[0]["dependency"].as_str());
+        assert_eq!(Some("protocol"), retained[0]["error_category"].as_str());
+        assert!(!logs.text().contains("SENTINEL"));
     }
 
     fn valid_body() -> String {
@@ -364,7 +418,7 @@ mod tests {
                 }
                 Some(FakeResult::Unavailable) => Err(
                     GenerateWatchlistNotificationsError::BeginTransactionFailed {
-                        source: Box::new(std::io::Error::other("unavailable")),
+                        source: Box::new(sqlx::Error::Protocol(SENTINEL.to_owned())),
                     },
                 ),
                 Some(FakeResult::Pending) => std::future::pending().await,

@@ -2,8 +2,8 @@ use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
 use cognito_post_confirmation::handler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
-    logging_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, current_postgres_credentials, log_cold_start,
+    log_invocation_start, logging_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
@@ -12,6 +12,8 @@ use std::{sync::Arc, time::Instant};
 use user_postgres::SqlxMarketingConsentIntentRepository;
 use user_postgres::{SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory};
 use user_service::use_cases::RegisterCognitoUserHandler;
+
+const COMPONENT: &str = "cognito-post-confirmation";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -25,7 +27,7 @@ async fn main() -> Result<(), Error> {
         .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
     let services = Arc::new(VersionedCompositionCache::new());
 
-    log_cold_start("cognito-post-confirmation", initialization_started_at);
+    log_cold_start(COMPONENT, initialization_started_at);
 
     run(service_fn(
         move |event: LambdaEvent<CognitoEventUserPoolsPostConfirmation>| {
@@ -33,19 +35,14 @@ async fn main() -> Result<(), Error> {
             let credentials = Arc::clone(&credentials);
             let services = Arc::clone(&services);
             async move {
-                log_invocation_start("cognito-post-confirmation", &event.context);
-                let credentials = credentials
-                    .current()
-                    .await
-                    .map_err(|_| Error::from("PostgreSQL credential refresh unavailable"))?;
+                log_invocation_start(COMPONENT, &event.context);
+                let credentials =
+                    current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 let service = services
                     .get_or_try_build(credentials.version_id(), || async {
                         let pool = postgres
-                            .pool_config(credentials.credentials())
-                            .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
-                            .connect()
-                            .await
-                            .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                            .connect(COMPONENT, credentials.credentials())
+                            .await?;
                         Ok::<_, Error>(RegisterCognitoUserHandler::new(
                             SqlxUnitOfWork::new(pool),
                             SqlxUserRepositoryFactory::new(),

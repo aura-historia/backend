@@ -4,9 +4,9 @@ use super::types::{
 use super::util::{no_store, parse_json, parse_user_id};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
+use crate::keyset_cursor::{self, CursorText};
 use crate::patch_value::{clearable, non_nullable_option, non_nullable_patch};
 use crate::state::UsersState;
-use crate::wire::parse_query_object_id;
 use application::pagination::Cursor;
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
@@ -16,19 +16,20 @@ use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use user_core::role::UserRole;
 use user_core::sort_user_field::SortUserField;
 use user_core::tier::UserTier;
-use user_core::user_id::UserId;
 use user_core::user_search::UserSearch;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleCommand;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierCommand;
 use user_service::use_cases::commands::delete_user::DeleteUserCommand;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand;
 use user_service::use_cases::queries::admin_get_user::AdminGetUserRequest;
-use user_service::use_cases::queries::search_users::SearchUsersRequest;
+use user_service::use_cases::queries::search_users::{
+    SearchUsersRequest, UserSearchCursor, UserSortKey,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,7 +90,7 @@ pub async fn search_users(
                 Json(CursorData {
                     size: items.len() as u64,
                     items,
-                    search_after: result.cursor.search_after,
+                    search_after: result.cursor.search_after.map(encode_search_after),
                     total: result.total,
                 })
                 .into_response(),
@@ -202,7 +203,7 @@ fn parse_sort_field(value: &str) -> Result<SortUserField, ApiError> {
 fn parse_cursor(
     size: Option<&str>,
     search_after: Option<&str>,
-) -> Result<Option<Cursor<UserId>>, ApiError> {
+) -> Result<Option<Cursor<UserSearchCursor>>, ApiError> {
     let size = size
         .map(|value| value.parse::<u64>().map(|size| size.clamp(1, 100)))
         .transpose()
@@ -211,7 +212,7 @@ fn parse_cursor(
 
     if size.is_some() || search_after.is_some() {
         Ok(Some(Cursor {
-            size: size.unwrap_or_else(|| Cursor::<UserId>::default().size),
+            size: size.unwrap_or_else(|| Cursor::<UserSearchCursor>::default().size),
             search_after,
         }))
     } else {
@@ -219,24 +220,62 @@ fn parse_cursor(
     }
 }
 
-fn parse_search_after(value: &str) -> Result<UserId, ApiError> {
-    let candidate = match serde_json::from_str::<serde_json::Value>(value) {
-        Ok(serde_json::Value::String(value)) => value,
-        Ok(serde_json::Value::Array(values)) => values
-            .last()
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| bad_query("searchAfter", "searchAfter must contain a User ID."))?,
-        Ok(_) => {
-            return Err(bad_query(
-                "searchAfter",
-                "searchAfter must contain a User ID.",
-            ));
-        }
-        Err(_) => value.to_owned(),
-    };
+fn parse_search_after(value: &str) -> Result<UserSearchCursor, ApiError> {
+    Ok(keyset_cursor::decode::<UserSortKeyData, _>(value)?.map_sort_key(Into::into))
+}
 
-    parse_query_object_id(&candidate, "searchAfter", "User")
+fn encode_search_after(cursor: UserSearchCursor) -> String {
+    keyset_cursor::encode(cursor.map_sort_key(UserSortKeyData::from))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum UserSortKeyData {
+    Name(Option<CursorText>, Option<CursorText>),
+    Email(CursorText),
+    FirstName(Option<CursorText>),
+    LastName(Option<CursorText>),
+    Tier(#[serde(with = "crate::wire::user_tier")] UserTier),
+    Role(#[serde(with = "crate::wire::user_role")] UserRole),
+    Created(#[serde(with = "time::serde::timestamp::nanoseconds")] OffsetDateTime),
+    Updated(#[serde(with = "time::serde::timestamp::nanoseconds")] OffsetDateTime),
+}
+
+impl From<UserSortKey> for UserSortKeyData {
+    fn from(key: UserSortKey) -> Self {
+        match key {
+            UserSortKey::Name {
+                first_name,
+                last_name,
+            } => Self::Name(first_name.map(CursorText), last_name.map(CursorText)),
+            UserSortKey::Email(email) => Self::Email(CursorText(email)),
+            UserSortKey::FirstName(name) => Self::FirstName(name.map(CursorText)),
+            UserSortKey::LastName(name) => Self::LastName(name.map(CursorText)),
+            UserSortKey::Tier(tier) => Self::Tier(tier),
+            UserSortKey::Role(role) => Self::Role(role),
+            UserSortKey::Created(instant) => Self::Created(instant),
+            UserSortKey::Updated(instant) => Self::Updated(instant),
+        }
+    }
+}
+
+impl From<UserSortKeyData> for UserSortKey {
+    fn from(key: UserSortKeyData) -> Self {
+        let text = |value: Option<CursorText>| value.map(|value| value.0);
+        match key {
+            UserSortKeyData::Name(first_name, last_name) => Self::Name {
+                first_name: text(first_name),
+                last_name: text(last_name),
+            },
+            UserSortKeyData::Email(email) => Self::Email(email.0),
+            UserSortKeyData::FirstName(name) => Self::FirstName(text(name)),
+            UserSortKeyData::LastName(name) => Self::LastName(text(name)),
+            UserSortKeyData::Tier(tier) => Self::Tier(tier),
+            UserSortKeyData::Role(role) => Self::Role(role),
+            UserSortKeyData::Created(instant) => Self::Created(instant),
+            UserSortKeyData::Updated(instant) => Self::Updated(instant),
+        }
+    }
 }
 
 fn bad_query(field: &'static str, detail: impl std::fmt::Display) -> ApiError {
@@ -418,11 +457,20 @@ mod tests {
     use domain_primitives::sort::SortOrder;
     use time::macros::datetime;
 
+    fn cursor(sort_key: UserSortKey) -> UserSearchCursor {
+        UserSearchCursor {
+            scope: application::pagination::ScopeBinding::builder("test/v1").finish(),
+            sort_key,
+            id: user_core::user_id::UserId::new(),
+        }
+    }
+
     #[test]
     fn should_map_user_search_query_to_service_request() -> Result<(), ApiError> {
+        let cursor = cursor(UserSortKey::Email("ada@example.com".to_owned()));
         let request = parse_search_users_query(Some(&format!(
             "query=ada&email=example.com&firstName=Ada&lastName=Lovelace&tier=PRO&tier=ULTIMATE&role=ADMIN&created%5Bmin%5D=2026-01-01T00%3A00%3A00Z&created%5Bmax%5D=2026-12-31T23%3A59%3A59Z&updated%5Bmin%5D=2026-02-01T00%3A00%3A00Z&sort=email&order=desc&size=200&searchAfter={}",
-            UserId::new()
+            encode_search_after(cursor.clone())
         )))?;
 
         assert_eq!(Some("ada"), request.search.query.as_deref());
@@ -458,15 +506,10 @@ mod tests {
             }),
             request.sort
         );
-        let cursor_user_id = request
-            .cursor
-            .as_ref()
-            .and_then(|cursor| cursor.search_after)
-            .ok_or_else(|| ApiError::internal_server_error(crate::error::USER_INTERNAL_ERROR))?;
         assert_eq!(
             Some(Cursor {
                 size: 100,
-                search_after: Some(cursor_user_id),
+                search_after: Some(cursor),
             }),
             request.cursor
         );
@@ -474,20 +517,28 @@ mod tests {
     }
 
     #[test]
-    fn should_accept_json_array_user_cursor() -> Result<(), ApiError> {
-        let request = parse_search_users_query(Some(&format!(
-            "searchAfter=[\"email\",\"{}\"]",
-            UserId::new()
-        )))?;
+    fn should_round_trip_every_user_sort_key() {
+        for sort_key in [
+            UserSortKey::Name {
+                first_name: Some("Ada".to_owned()),
+                last_name: None,
+            },
+            UserSortKey::Email("ada@example.com".to_owned()),
+            UserSortKey::FirstName(None),
+            UserSortKey::LastName(Some("Lovelace".to_owned())),
+            UserSortKey::Tier(UserTier::Ultimate),
+            UserSortKey::Role(UserRole::Admin),
+            UserSortKey::Created(datetime!(2026-01-01 00:00:00.123456 UTC)),
+            UserSortKey::Updated(datetime!(2026-01-02 00:00 UTC)),
+        ] {
+            let cursor = cursor(sort_key);
 
-        assert!(request.search.query.is_none());
-        assert_eq!(21, request.cursor.as_ref().map_or(0, |cursor| cursor.size));
-        assert!(
-            request
-                .cursor
-                .is_some_and(|cursor| cursor.search_after.is_some())
-        );
-        Ok(())
+            assert_eq!(
+                cursor,
+                parse_search_after(&encode_search_after(cursor.clone()))
+                    .unwrap_or_else(|error| panic!("user cursor must round trip: {error:?}"))
+            );
+        }
     }
 
     #[test]

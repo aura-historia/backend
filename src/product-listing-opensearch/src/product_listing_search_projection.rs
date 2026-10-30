@@ -125,10 +125,7 @@ async fn write_response_outcome(
     }
     Err(projection_write_error(
         is_write,
-        application::error::box_error(std::io::Error::other(format!(
-            "OpenSearch ProductListing projection returned {status}: {}",
-            response.body(),
-        ))),
+        application::error::box_error(response.into_status_error()),
     ))
 }
 

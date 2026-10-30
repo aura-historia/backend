@@ -2,6 +2,26 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-30 — Readable Party and ListingSource slugs (#2654)
+
+- Parties and ListingSources created from now on get their slugified name as `partySlugId` or `listingSourceSlugId`, such as `antiques-and-more`, instead of the name followed by the full UUID. This covers `POST /v1/admin/parties`, `POST /v1/admin/listing-sources` (including a `NEW` operator Party) and the Party and ListingSource created when a proposed-source partnership application is approved. When another Party or ListingSource already holds that slug, the first free of `antiques-and-more-2`, `antiques-and-more-3`, and so on is used, so slugs stay unique.
+- Slugs remain immutable: renaming never changes them, and existing slugs, including the UUID-suffixed ones, are kept and keep resolving. A slug freed by deleting an unused Party or ListingSource can be given to a later one with the same name. A slug conflict now returns `409 CONFLICT` only when the first 100 slug candidates for the name are all taken.
+
+## 2026-10-30 — Bounded embedding and search-index requests (#2625)
+
+- A text search on `GET /v1/product-listings` no longer waits for a stalled embedding provider until the request times out with `408`. When the query embedding takes longer than about three seconds, a first page returns BM25 results, and a semantic continuation returns `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`; retry it with the unchanged cursor. Creating or updating a search filter whose text query needs an embedding returns `503` after the same deadline. Searches without text are unaffected.
+- `GET /v1/product-listings` and `GET /v1/product-listings/{productListingId}/similar` return `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` when the search index does not answer within about four seconds, instead of waiting until the request times out with `408`.
+
+## 2026-10-30 — Bounded Cognito signing-key refresh (#2621)
+
+- Cognito bearers naming a signing key the API has not cached are still rejected with `401`, but no longer refetch Cognito's signing keys on every request. A newly published Cognito key is accepted within about fifteen seconds.
+- After a failed signing-key fetch, bearers whose key the API instance has not cached get `503` for up to ten seconds instead of retrying the fetch on each request; already cached keys keep working. Malformed key material in Cognito's JWKS now yields `503` like an unreachable JWKS instead of `500`. See the [front-door contract](http-api-front-door.md#route-and-authentication-boundary).
+
+## 2026-10-30 — Admin search cursors survive changes to the last item (#2623)
+
+- `GET /v1/admin/parties`, `GET /v1/admin/users` and `GET /v1/admin/listing-sources` return an opaque `searchAfter` that carries the sort position of the last returned item instead of its ID. Deleting that item, or changing it so it no longer matches the filters, no longer ends the traversal with an empty terminal page while later matches remain; the next page continues after its former position. Ordering, sort fields, defaults and page sizes are unchanged.
+- **Breaking change:** `searchAfter` is valid only with the filters and sort that returned it. Malformed cursors, cursors returned for other filters or sort, and the Party, User or ListingSource ID cursors issued before this change (including the User JSON-array form) return `400 BAD_QUERY_PARAMETER_VALUE` for `searchAfter`; restart such a traversal without `searchAfter`.
+
 ## 2026-10-29 — WooCommerce deletion of backfilled products (#2606)
 
 - `product.deleted`, and `product.created`/`product.updated` with status `trash`, `draft`, `pending` or `private`, now withdraw the listing whose `sourceListingId` is the WooCommerce product `id`, even when it was so far only created or changed through the partner API, such as by the extension's catalogue backfill. Previously such a deletion was acknowledged with `204` but had no effect; only a deletion after an applied live product webhook withdrew the listing. Listings left `ACTIVE` by earlier deletions are not repaired; withdraw them through the partner API. Signed-request and `204` admission semantics are unchanged.

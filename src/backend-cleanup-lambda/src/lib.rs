@@ -1,16 +1,25 @@
 use application::operation_context::{OperationContext, Principal};
 use geo_service::resolution::MaintainResolutionsUseCase;
 use lambda_runtime::Error;
+use notification_service::saved_search_digest::MaintainSavedSearchDigestsUseCase;
+use oauth_service::ports::ExpiredCredentialCleanupError;
 use oauth_service::use_cases::{
     CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
     ExpiryCleanupBatchSizeError,
 };
-use product_listing_service::use_cases::RefreshPublicCatalogueOverviewUseCase;
+use platform_lambda_bootstrap::{Dependency, FailureDiagnostic};
+use product_listing_service::geography::ProjectListingGeographyUseCase;
+use product_listing_service::use_cases::{
+    RefreshPublicCatalogueOverviewError, RefreshPublicCatalogueOverviewUseCase,
+};
+use search_filter_service::use_cases::RecoverSavedSearchNotificationsUseCase;
 use std::env;
 use std::time::Instant;
-use user_service::use_cases::CleanupConsentWorkflowUseCase;
+use user_service::use_cases::{CleanupConsentWorkflowError, CleanupConsentWorkflowUseCase};
 
 pub const EXPIRY_CLEANUP_BATCH_SIZE_ENV: &str = "EXPIRY_CLEANUP_BATCH_SIZE";
+/// The geocoding provider the composition wires behind resolution and geography maintenance.
+const GEOCODING_PROVIDER: Option<Dependency> = Some(Dependency::AmazonLocation);
 /// Runs last in the hourly maintenance invocation; the use case recalculates only once the
 /// stored calculation is due, so most runs skip the full aggregate.
 pub async fn run_public_catalogue_overview_refresh(
@@ -37,15 +46,155 @@ pub async fn run_public_catalogue_overview_refresh(
             );
             Ok(())
         }
-        Err(_) => {
+        Err(error) => {
+            let failure = overview_refresh_failure(&error);
             tracing::warn!(
                 event = "backend_cleanup.public_catalogue_overview.refreshed",
                 outcome = "failure",
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
                 duration_ms = started_at.elapsed().as_millis(),
             );
             Err(Error::from("public catalogue overview refresh failed"))
         }
     }
+}
+
+fn overview_refresh_failure(error: &RefreshPublicCatalogueOverviewError) -> FailureDiagnostic {
+    use RefreshPublicCatalogueOverviewError as E;
+    match error {
+        E::RefresherTemporarilyUnavailable { .. } => {
+            FailureDiagnostic::postgres("overview_calculation", error)
+        }
+        E::RefresherInvalidReadModel { .. } => FailureDiagnostic::new(
+            "overview_calculation",
+            Dependency::Postgres,
+            "invalid_read_model",
+            None,
+        ),
+        E::BeginTransaction { .. } => FailureDiagnostic::postgres("overview_begin", error),
+        E::CommitTransaction { .. } => FailureDiagnostic::postgres("overview_commit", error),
+    }
+}
+
+/// Runs one unscoped recovery page so geography work does not depend on wake-up delivery alone.
+pub async fn run_listing_geography_recovery(
+    recovery: &dyn ProjectListingGeographyUseCase,
+) -> Result<(), Error> {
+    let Err(error) = recovery.execute(None, 100).await else {
+        return Ok(());
+    };
+    let failure = FailureDiagnostic::from_kind(
+        error.failure_stage(),
+        error.failure_kind(),
+        GEOCODING_PROVIDER,
+        &error,
+    );
+    tracing::warn!(
+        event = "backend_cleanup.listing_geography.failed",
+        stage = failure.stage(),
+        dependency = failure.dependency(),
+        error_category = failure.category(),
+        sqlstate = failure.sqlstate(),
+    );
+    Err(Error::from(error))
+}
+
+/// Generates saved-search notifications whose CDC wake-up was lost. Each failed selection is
+/// deferred by the use case and recorded here once; any failure fails the invocation.
+pub async fn run_saved_search_notification_recovery(
+    recovery: &dyn RecoverSavedSearchNotificationsUseCase,
+    limit: usize,
+) -> Result<(), Error> {
+    let started_at = Instant::now();
+    let report = match recovery.execute(limit).await {
+        Ok(report) => report,
+        Err(error) => {
+            let failure = FailureDiagnostic::postgres("saved_search_notification_read", &error);
+            tracing::warn!(
+                event = "backend_cleanup.saved_search_notification_recovery.completed",
+                outcome = "failure",
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
+                duration_ms = started_at.elapsed().as_millis(),
+            );
+            return Err(Error::from("saved-search notification recovery failed"));
+        }
+    };
+    for failed in &report.failures {
+        let failure = FailureDiagnostic::from_kind(
+            failed.error.failure_stage(),
+            failed.error.failure_kind(),
+            None,
+            &failed.error,
+        );
+        tracing::warn!(
+            event = "backend_cleanup.saved_search_notification.recovery_failed",
+            user_id = %failed.user_id,
+            search_filter_id = %failed.search_filter_id,
+            stage = failure.stage(),
+            dependency = failure.dependency(),
+            error_category = failure.category(),
+            sqlstate = failure.sqlstate(),
+        );
+    }
+    if let Some(error) = &report.defer_failure {
+        let failure = FailureDiagnostic::postgres("saved_search_notification_defer", error);
+        tracing::warn!(
+            event = "backend_cleanup.saved_search_notification_recovery.completed",
+            outcome = "failure",
+            recovered = report.recovered,
+            failed = report.failures.len(),
+            stage = failure.stage(),
+            dependency = failure.dependency(),
+            error_category = failure.category(),
+            sqlstate = failure.sqlstate(),
+            duration_ms = started_at.elapsed().as_millis(),
+        );
+        return Err(Error::from("saved-search notification recovery failed"));
+    }
+    tracing::info!(
+        event = "backend_cleanup.saved_search_notification_recovery.completed",
+        outcome = if report.failures.is_empty() {
+            "success"
+        } else {
+            "incomplete"
+        },
+        recovered = report.recovered,
+        failed = report.failures.len(),
+        duration_ms = started_at.elapsed().as_millis(),
+    );
+    if report.failures.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::from("saved-search notification recovery incomplete"))
+    }
+}
+
+/// Finalizes ready saved-search digest groups that no completed selection finalized.
+pub async fn run_saved_search_digest_maintenance(
+    maintenance: &dyn MaintainSavedSearchDigestsUseCase,
+    limit: usize,
+) -> Result<(), Error> {
+    let started_at = Instant::now();
+    let Err(error) = maintenance.execute(limit).await else {
+        return Ok(());
+    };
+    let failure = FailureDiagnostic::postgres("saved_search_digest_maintenance", &error);
+    tracing::warn!(
+        event = "backend_cleanup.saved_search_digest_maintenance.completed",
+        outcome = "failure",
+        stage = failure.stage(),
+        dependency = failure.dependency(),
+        error_category = failure.category(),
+        sqlstate = failure.sqlstate(),
+        duration_ms = started_at.elapsed().as_millis(),
+    );
+    Err(Error::from("saved-search digest maintenance failed"))
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -109,11 +258,16 @@ pub async fn run_cleanup(
                 duration_ms = started_at.elapsed().as_millis(),
             );
         }
-        Err(_) => {
+        Err(error) => {
+            let failure = expired_credential_failure(error);
             tracing::warn!(
                 event = "backend_cleanup.expired_credentials.completed",
                 outcome = "failure",
                 batch_size = batch_size.get(),
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
                 duration_ms = started_at.elapsed().as_millis(),
             );
         }
@@ -130,12 +284,19 @@ pub async fn run_cleanup(
             webhook_receipts_deleted = counts.webhook_receipts_deleted,
             duration_ms = started_at.elapsed().as_millis(),
         ),
-        Err(_) => tracing::warn!(
-            event = "backend_cleanup.consent_workflow.completed",
-            outcome = "failure",
-            batch_size = batch_size.get(),
-            duration_ms = started_at.elapsed().as_millis(),
-        ),
+        Err(error) => {
+            let failure = consent_cleanup_failure(error);
+            tracing::warn!(
+                event = "backend_cleanup.consent_workflow.completed",
+                outcome = "failure",
+                batch_size = batch_size.get(),
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
+                duration_ms = started_at.elapsed().as_millis(),
+            )
+        }
     }
     let context = OperationContext {
         principal: Principal::Service("backend-cleanup-worker".into()),
@@ -153,12 +314,24 @@ pub async fn run_cleanup(
             requeued = counts.requeued,
             duration_ms = started_at.elapsed().as_millis(),
         ),
-        Err(_) => tracing::warn!(
-            event = "backend_cleanup.geographic_resolution.completed",
-            outcome = "failure",
-            batch_size = geography_limit,
-            duration_ms = started_at.elapsed().as_millis(),
-        ),
+        Err(error) => {
+            let failure = FailureDiagnostic::from_kind(
+                "resolution_maintenance",
+                error.failure_kind(),
+                GEOCODING_PROVIDER,
+                error,
+            );
+            tracing::warn!(
+                event = "backend_cleanup.geographic_resolution.completed",
+                outcome = "failure",
+                batch_size = geography_limit,
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
+                duration_ms = started_at.elapsed().as_millis(),
+            )
+        }
     }
     if credential_result.is_err() || consent_result.is_err() || geography_result.is_err() {
         Err(Error::from("backend cleanup failed"))
@@ -167,18 +340,77 @@ pub async fn run_cleanup(
     }
 }
 
+fn expired_credential_failure(error: &ExpiredCredentialCleanupError) -> FailureDiagnostic {
+    match error {
+        ExpiredCredentialCleanupError::TemporarilyUnavailable { .. } => {
+            FailureDiagnostic::postgres("expired_credentials", error)
+        }
+    }
+}
+
+fn consent_cleanup_failure(error: &CleanupConsentWorkflowError) -> FailureDiagnostic {
+    match error {
+        CleanupConsentWorkflowError::TransactionFailed { target, .. }
+        | CleanupConsentWorkflowError::TemporarilyUnavailable { target, .. } => {
+            FailureDiagnostic::postgres(target.label(), error)
+        }
+        CleanupConsentWorkflowError::InvalidBatchSize => {
+            FailureDiagnostic::rejected("consent_workflow", "invalid_batch_size")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::{error::box_error, transaction::TransactionError};
     use geo_service::resolution::{ResolutionError, ResolutionMaintenanceCounts};
+    use notification_service::saved_search_digest::{
+        SavedSearchDigestError, SavedSearchDigestMaintenanceReport,
+    };
     use oauth_service::ports::ExpiredCredentialCleanupError;
     use oauth_service::use_cases::CleanupCounts;
+    use product_listing_service::geography::{GeographyError, GeographyWorkId};
     use product_listing_service::use_cases::{
         PublicCatalogueOverview, PublicCatalogueOverviewRefresh,
         RefreshPublicCatalogueOverviewError,
     };
+    use search_filter_core::user_search_filter_id::UserSearchFilterId;
+    use search_filter_service::use_cases::{
+        GenerateSearchFilterMatchNotificationError, SavedSearchNotificationRecoveryError,
+        SavedSearchNotificationRecoveryFailure, SavedSearchNotificationRecoveryReport,
+    };
+    use serde_json::{Map, Value, json};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use user_service::use_cases::{CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts};
+    use test_api::CapturedLogs;
+    use user_core::user_id::UserId;
+    use user_service::use_cases::{
+        CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts, ConsentWorkflowCleanupTarget,
+    };
+
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    /// The safe diagnostic fields of the one event named `event`.
+    fn failure_diagnostic(logs: &CapturedLogs, event: &str) -> Value {
+        let events = logs.events_where("event", event);
+        assert_eq!(1, events.len(), "{event}");
+        Value::Object(
+            events[0]
+                .iter()
+                .filter(|(name, _)| {
+                    [
+                        "stage",
+                        "dependency",
+                        "error_category",
+                        "http_status",
+                        "sqlstate",
+                    ]
+                    .contains(&name.as_str())
+                })
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect::<Map<_, _>>(),
+        )
+    }
 
     struct RecordingOverviewRefresh {
         calls: AtomicUsize,
@@ -196,7 +428,7 @@ mod tests {
             if self.fail {
                 return Err(
                     RefreshPublicCatalogueOverviewError::RefresherTemporarilyUnavailable {
-                        source: Box::new(std::io::Error::other("fixture failure")),
+                        source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
                     },
                 );
             }
@@ -230,6 +462,168 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn should_record_the_failed_overview_refresh_stage_without_its_cause() {
+        let refresh = RecordingOverviewRefresh {
+            calls: AtomicUsize::new(0),
+            due: true,
+            fail: true,
+        };
+        let (logs, guard) = CapturedLogs::start();
+
+        let result = run_public_catalogue_overview_refresh(&refresh).await;
+        drop(guard);
+
+        assert!(result.is_err());
+        assert_eq!(
+            json!({"stage": "overview_calculation", "dependency": "postgres",
+                "error_category": "io"}),
+            failure_diagnostic(&logs, "backend_cleanup.public_catalogue_overview.refreshed")
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
+    struct FailingGeographyRecovery;
+
+    #[async_trait::async_trait]
+    impl ProjectListingGeographyUseCase for FailingGeographyRecovery {
+        async fn execute(
+            &self,
+            work: Option<GeographyWorkId>,
+            _limit: u16,
+        ) -> Result<u32, GeographyError> {
+            assert!(work.is_none());
+            Err(GeographyError::Transaction(TransactionError::CommitFailed(
+                box_error(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
+            )))
+        }
+    }
+
+    #[tokio::test]
+    async fn should_record_and_return_a_failed_listing_geography_recovery() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let result = run_listing_geography_recovery(&FailingGeographyRecovery).await;
+        drop(guard);
+
+        assert!(result.is_err());
+        assert_eq!(
+            json!({"stage": "geography_transaction", "dependency": "postgres",
+                "error_category": "io"}),
+            failure_diagnostic(&logs, "backend_cleanup.listing_geography.failed")
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
+    struct PartialNotificationRecovery;
+
+    #[async_trait::async_trait]
+    impl RecoverSavedSearchNotificationsUseCase for PartialNotificationRecovery {
+        async fn execute(
+            &self,
+            _: usize,
+        ) -> Result<SavedSearchNotificationRecoveryReport, SavedSearchNotificationRecoveryError>
+        {
+            Ok(SavedSearchNotificationRecoveryReport {
+                recovered: 1,
+                failures: vec![SavedSearchNotificationRecoveryFailure {
+                    user_id: UserId::new(),
+                    search_filter_id: UserSearchFilterId::new(),
+                    error:
+                        GenerateSearchFilterMatchNotificationError::MonthlyMatchQuotaReadFailed {
+                            source: Box::new(sqlx::Error::PoolTimedOut),
+                        },
+                }],
+                defer_failure: None,
+            })
+        }
+    }
+
+    struct FailingNotificationRecovery;
+
+    #[async_trait::async_trait]
+    impl RecoverSavedSearchNotificationsUseCase for FailingNotificationRecovery {
+        async fn execute(
+            &self,
+            _: usize,
+        ) -> Result<SavedSearchNotificationRecoveryReport, SavedSearchNotificationRecoveryError>
+        {
+            Err(SavedSearchNotificationRecoveryError {
+                source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
+            })
+        }
+    }
+
+    struct FailingDigestMaintenance;
+
+    #[async_trait::async_trait]
+    impl MaintainSavedSearchDigestsUseCase for FailingDigestMaintenance {
+        async fn execute(
+            &self,
+            _: usize,
+        ) -> Result<SavedSearchDigestMaintenanceReport, SavedSearchDigestError> {
+            Err(SavedSearchDigestError {
+                source: Box::new(TransactionError::CommitFailed(Box::new(sqlx::Error::Io(
+                    std::io::Error::other(SENTINEL),
+                )))),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn should_record_each_failed_saved_search_selection_and_fail_the_invocation() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let result = run_saved_search_notification_recovery(&PartialNotificationRecovery, 10).await;
+        drop(guard);
+
+        assert!(result.is_err());
+        assert_eq!(
+            json!({"stage": "monthly_quota_read", "dependency": "postgres",
+                "error_category": "pool_timed_out"}),
+            failure_diagnostic(
+                &logs,
+                "backend_cleanup.saved_search_notification.recovery_failed"
+            )
+        );
+        let completed = logs.events_where(
+            "event",
+            "backend_cleanup.saved_search_notification_recovery.completed",
+        );
+        assert_eq!(Some("incomplete"), completed[0]["outcome"].as_str());
+        assert_eq!(Some(1), completed[0]["failed"].as_u64());
+    }
+
+    #[tokio::test]
+    async fn should_record_failed_saved_search_recovery_steps_without_their_cause() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let notifications =
+            run_saved_search_notification_recovery(&FailingNotificationRecovery, 10).await;
+        let digests = run_saved_search_digest_maintenance(&FailingDigestMaintenance, 10).await;
+        drop(guard);
+
+        assert!(notifications.is_err());
+        assert!(digests.is_err());
+        assert_eq!(
+            json!({"stage": "saved_search_notification_read", "dependency": "postgres",
+                "error_category": "io"}),
+            failure_diagnostic(
+                &logs,
+                "backend_cleanup.saved_search_notification_recovery.completed"
+            )
+        );
+        assert_eq!(
+            json!({"stage": "saved_search_digest_maintenance", "dependency": "postgres",
+                "error_category": "io"}),
+            failure_diagnostic(
+                &logs,
+                "backend_cleanup.saved_search_digest_maintenance.completed"
+            )
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
     struct RecordingCleanup {
         calls: AtomicUsize,
         fail: bool,
@@ -256,9 +650,9 @@ mod tests {
             assert_eq!(100, limit);
             self.calls.fetch_add(1, Ordering::Relaxed);
             if self.fail {
-                return Err(ResolutionError::Storage(Box::new(std::io::Error::other(
-                    "fixture failure",
-                ))));
+                return Err(ResolutionError::Storage(Box::new(
+                    sqlx::Error::PoolTimedOut,
+                )));
             }
             Ok(ResolutionMaintenanceCounts {
                 expired: 1,
@@ -276,7 +670,7 @@ mod tests {
             self.calls.fetch_add(1, Ordering::Relaxed);
             if self.fail {
                 return Err(ExpiredCredentialCleanupError::TemporarilyUnavailable {
-                    source: Box::new(std::io::Error::other("fixture failure")),
+                    source: Box::new(sqlx::Error::Protocol(SENTINEL.to_owned())),
                 });
             }
             Ok(CleanupCounts {
@@ -296,7 +690,10 @@ mod tests {
         ) -> Result<ConsentWorkflowCleanupCounts, CleanupConsentWorkflowError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
             if self.fail {
-                return Err(CleanupConsentWorkflowError::TemporarilyUnavailable);
+                return Err(CleanupConsentWorkflowError::TemporarilyUnavailable {
+                    target: ConsentWorkflowCleanupTarget::WebhookReceipts,
+                    source: Box::new(sqlx::Error::Tls(Box::new(std::io::Error::other(SENTINEL)))),
+                });
             }
             Ok(ConsentWorkflowCleanupCounts {
                 unconfirmed_challenges_deleted: 1,
@@ -351,6 +748,45 @@ mod tests {
         assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
         assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
         assert_eq!(geography.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn should_record_each_failed_cleanup_step_with_only_safe_cause_facts() {
+        let cleanup = RecordingCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let consent = RecordingConsentCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let geography = RecordingGeographyCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let batch_size = ExpiryCleanupBatchSize::try_from(100).unwrap();
+        let (logs, guard) = CapturedLogs::start();
+
+        let result = run_cleanup(&cleanup, &consent, &geography, batch_size).await;
+        drop(guard);
+
+        assert!(result.is_err());
+        assert_eq!(
+            json!({"stage": "expired_credentials", "dependency": "postgres",
+                "error_category": "protocol"}),
+            failure_diagnostic(&logs, "backend_cleanup.expired_credentials.completed")
+        );
+        assert_eq!(
+            json!({"stage": "webhook_receipts", "dependency": "postgres",
+                "error_category": "tls"}),
+            failure_diagnostic(&logs, "backend_cleanup.consent_workflow.completed")
+        );
+        assert_eq!(
+            json!({"stage": "resolution_maintenance", "dependency": "postgres",
+                "error_category": "pool_timed_out"}),
+            failure_diagnostic(&logs, "backend_cleanup.geographic_resolution.completed")
+        );
+        assert!(!logs.text().contains("SENTINEL"));
     }
 
     #[tokio::test]
