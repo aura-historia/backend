@@ -114,3 +114,21 @@ fn unavailable(source: sqlx::Error) -> ConsentWorkflowCleanupError {
         source: box_error(source),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_reject_out_of_range_batch_sizes_as_invalid_batch_size() {
+        for batch_size in [0, 1_001] {
+            assert!(matches!(
+                validate_batch_size(batch_size),
+                Err(ConsentWorkflowCleanupError::InvalidBatchSize)
+            ));
+        }
+        for batch_size in [1, 1_000] {
+            assert!(validate_batch_size(batch_size).is_ok());
+        }
+    }
+}

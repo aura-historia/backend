@@ -639,6 +639,33 @@ mod tests {
             OperationError::NotFound
         ));
     }
+    #[test]
+    fn should_keep_product_search_failure_sources_out_of_protocol_errors() {
+        use std::error::Error;
+        let unavailable = error::search(
+            SearchProductListingsError::ProductListingSearchQueryFailed {
+                source: application::error::static_error("PRIVATE_OPENSEARCH_SENTINEL"),
+            },
+        );
+        assert!(matches!(unavailable, OperationError::Unavailable(_)));
+        assert_eq!(
+            "PRIVATE_OPENSEARCH_SENTINEL",
+            unavailable.source().unwrap().source().unwrap().to_string()
+        );
+        let response = format!("{:?}", unavailable.into_protocol());
+        assert!(response.contains("TEMPORARILY_UNAVAILABLE"));
+        assert!(!response.contains("PRIVATE_OPENSEARCH_SENTINEL"));
+
+        let internal = error::search(
+            SearchProductListingsError::ProductListingSearchReadModelInvalid {
+                source: application::error::static_error("PRIVATE_OPENSEARCH_SENTINEL"),
+            },
+        );
+        assert!(matches!(internal, OperationError::Internal(_)));
+        let response = format!("{:?}", internal.into_protocol());
+        assert!(response.contains("Operation failed"));
+        assert!(!response.contains("PRIVATE_OPENSEARCH_SENTINEL"));
+    }
     fn source() -> ListingSourceSummary {
         ListingSourceSummary {
             listing_source_id: "ls_01k6k0w000e008000000000002".parse().unwrap(),

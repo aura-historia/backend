@@ -758,8 +758,10 @@ impl From<ProductListingSummaryPersonalizationError> for SearchProductListingsEr
             ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
                 listing_source_id,
             } => Self::ListingSourceSummaryMissing { listing_source_id },
-            ProductListingSummaryPersonalizationError::ViewUrlInvalid { source } => {
-                Self::ProductListingSearchReadModelInvalid { source }
+            error @ ProductListingSummaryPersonalizationError::ViewUrlInvalid { .. } => {
+                Self::ProductListingSearchReadModelInvalid {
+                    source: box_error(error),
+                }
             }
             ProductListingSummaryPersonalizationError::UserStateQueryFailed { source } => {
                 Self::ProductListingUserStateQueryFailed { source }
