@@ -2704,15 +2704,11 @@ Origin: http://127.0.0.1:7878/x
             assert!(projected.starts_with("HTTP/1.1 200"), "{projected}");
         }
 
-        /// A review agent's refresh that the review refuses because it came to wait for a human
-        /// while the pages were fetched answers that agent only: a human, or the other agent,
-        /// reading the matrix next learns that the review holds none, without the words written
-        /// for the agents.
-        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_answer_an_agent_refusal_only_to_the_agent_whose_refresh_it_was() {
-            let fetcher = PacedFetcher::new(None);
-            let fixture = fixture_with(
-                fetcher.clone(),
+        /// A paced review on a console in `agent` mode whose agents reach the repair cap with one
+        /// needs-repair round.
+        async fn one_round_fixture(fetcher: Arc<PacedFetcher>) -> Fixture {
+            fixture_with(
+                fetcher,
                 ReviewServerConfig {
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
                     ..paced_console()
@@ -2722,11 +2718,18 @@ Origin: http://127.0.0.1:7878/x
                     ..AgentLimits::default()
                 }),
             )
-            .await;
+            .await
+        }
+
+        /// Starts the reviewer agent's refresh of the fixture's review, has the author agent's
+        /// needs-repair verdict bring the review to the cap while the pages are fetched, and
+        /// answers the reviewer's first plain matrix read after the refresh settled.
+        async fn refresh_refused_for_a_human(
+            fixture: &Fixture,
+            fetcher: &PacedFetcher,
+        ) -> (String, serde_json::Value) {
             let review_id = fixture.review_id;
             let matrix = format!("GET /api/reviews/{review_id}/matrix");
-            let agent_text = "leave it until a human changes or judges it";
-
             let (status, started) = send_as(
                 &fixture.server,
                 REVIEWER_TOKEN,
@@ -2745,17 +2748,29 @@ Origin: http://127.0.0.1:7878/x
             .await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {verdict}");
             fetcher.release(PAGE_COUNT);
-            let mut settled = None;
             for _ in 0..200 {
                 let (status, answer) = send_as(&fixture.server, REVIEWER_TOKEN, &matrix, "").await;
                 if !status.starts_with("HTTP/1.1 202") {
-                    settled = Some((status, answer));
-                    break;
+                    return (status, answer);
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            let (status, refused) =
-                settled.unwrap_or_else(|| panic!("the agent's refresh did not settle"));
+            panic!("the agent's refresh did not settle");
+        }
+
+        /// A review agent's refresh that the review refuses because it came to wait for a human
+        /// while the pages were fetched answers that agent only: a human, or the other agent,
+        /// reading the matrix next learns that the review holds none, without the words written
+        /// for the agents.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_an_agent_refusal_only_to_the_agent_whose_refresh_it_was() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = one_round_fixture(fetcher.clone()).await;
+            let review_id = fixture.review_id;
+            let matrix = format!("GET /api/reviews/{review_id}/matrix");
+            let agent_text = "leave it until a human changes or judges it";
+
+            let (status, refused) = refresh_refused_for_a_human(&fixture, &fetcher).await;
             let human = get_matrix(&fixture.server, review_id, false).await;
             let (author_status, author) = send_as(&fixture.server, AUTHOR_TOKEN, &matrix, "").await;
 
@@ -2770,6 +2785,36 @@ Origin: http://127.0.0.1:7878/x
             );
             assert_eq!(author["reason"], "NO_MATRIX", "{author}");
             assert!(stored_matrix(&fixture.pool, review_id).await.is_none());
+        }
+
+        /// Once a human hands the review back, the agent whose refresh the review refused reads
+        /// the matrix as everyone else does: its refusal from before the hand-back is stale.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_no_refusal_from_before_the_hand_back_to_the_agent() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = one_round_fixture(fetcher.clone()).await;
+            let review_id = fixture.review_id;
+            let (status, refused) = refresh_refused_for_a_human(&fixture, &fetcher).await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+
+            CrawlerReviewRepository::new(fixture.pool.clone())
+                .request_repair(
+                    review_id,
+                    ReviewActor::Human,
+                    Some("keep the title on the h1 and try again"),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("hand the review back: {error}"));
+            let (status, answer) = send_as(
+                &fixture.server,
+                REVIEWER_TOKEN,
+                &format!("GET /api/reviews/{review_id}/matrix"),
+                "",
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {answer}");
+            assert_eq!(answer["reason"], "NO_MATRIX", "{answer}");
         }
 
         /// A refresh and a candidate evaluation each evaluate their pages on a blocking thread

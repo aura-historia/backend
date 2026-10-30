@@ -5,13 +5,14 @@
 //! request may run, so a refresh runs as a task of its own: at most one per review, which
 //! later requests join, and whose result the console polls for. Each refresh is a live job of
 //! the console's [`LiveJobLimit`] until it ends: one that would go above the limit is not started,
-//! while joining a running one takes no place. A failure the review refused because of the role of
-//! the actor who started the refresh reaches that actor only.
+//! while joining a running one takes no place. A review agent's refresh that the review refused
+//! because it came to wait for a human reaches that agent only, and only until a human hands the
+//! review back.
 
-use crate::CrawlerReviewId;
 use crate::review::http::HttpResponse;
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
-use crate::review::model::{ReviewActor, ReviewSchemaMatrix};
+use crate::review::model::{ReviewActor, ReviewDetail, ReviewSchemaMatrix};
+use crate::{CrawlerReviewEventId, CrawlerReviewId};
 use serde_json::json;
 use std::collections::HashMap;
 use std::future::Future;
@@ -30,12 +31,9 @@ pub(crate) enum MatrixRefreshFailure {
     /// the next refresh starts.
     Review(HttpResponse),
     /// The review refused a review agent's refresh because it came to wait for a human while the
-    /// refresh ran (`HUMAN_REQUIRED`). Only the `actor` who started it learns it; for every other
-    /// actor the refresh stored nothing.
-    HumanRequired {
-        actor: ReviewActor,
-        response: HttpResponse,
-    },
+    /// refresh ran (`HUMAN_REQUIRED`). Only the agent who started it learns it, and only while the
+    /// review waits for that human; for every other actor the refresh stored nothing.
+    HumanRequired(HumanRequiredRefusal),
 }
 
 impl From<HttpResponse> for MatrixRefreshFailure {
@@ -49,8 +47,51 @@ impl MatrixRefreshFailure {
     fn answer_for(&self, asking: ReviewActor) -> Option<HttpResponse> {
         match self {
             Self::Review(response) => Some(response.clone()),
-            Self::HumanRequired { actor, response } => (*actor == asking).then(|| response.clone()),
+            Self::HumanRequired(refusal) => {
+                (refusal.actor == asking).then(|| refusal.response.clone())
+            }
         }
+    }
+}
+
+/// A review agent's refresh that the review refused because it came to wait for a human while the
+/// refresh ran.
+#[derive(Clone)]
+pub(crate) struct HumanRequiredRefusal {
+    /// The agent who started the refresh.
+    pub(crate) actor: ReviewActor,
+    pub(crate) response: HttpResponse,
+    /// The review's hand-back when the refresh started: the wait for a human that refused it
+    /// began after it.
+    pub(crate) hand_back: HandBack,
+}
+
+impl HumanRequiredRefusal {
+    /// The refusal while `review` still waits for the human it came to wait for during the
+    /// refresh. Once a human handed it back the refusal is stale, also should the agents bring it
+    /// to the cap again: `None`, and the agent reads the review as if the refresh stored nothing.
+    pub(crate) fn answer_while_waiting(self, review: &ReviewDetail) -> Option<HttpResponse> {
+        (review.review.human_required && HandBack::of(review) == self.hand_back)
+            .then_some(self.response)
+    }
+}
+
+/// The human change or verdict that last handed a review to the agents, from which the agents'
+/// needs-repair rounds on it count, or none while no human acted on it. A human hands a review
+/// that waits for a human back with a later one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HandBack(Option<CrawlerReviewEventId>);
+
+impl HandBack {
+    pub(crate) fn of(review: &ReviewDetail) -> Self {
+        Self(
+            review
+                .events
+                .iter()
+                .rev()
+                .find(|event| event.actor == ReviewActor::Human)
+                .map(|event| event.event_id),
+        )
     }
 }
 
@@ -61,6 +102,10 @@ pub(crate) enum MatrixRefreshStatus {
     Running,
     /// The last refresh failed; it stays reported until the next refresh starts.
     Failed(HttpResponse),
+    /// The asking agent's last refresh was refused because the review came to wait for a human;
+    /// it stays reported until the next refresh starts, while the review waits for that human
+    /// ([`HumanRequiredRefusal::answer_while_waiting`]).
+    RefusedForHuman(HumanRequiredRefusal),
 }
 
 enum RefreshSlot {
@@ -139,9 +184,16 @@ impl MatrixRefreshes {
         match self.lock().get(&review_id) {
             None => MatrixRefreshStatus::Idle,
             Some(RefreshSlot::Running(_)) => MatrixRefreshStatus::Running,
-            Some(RefreshSlot::Failed(failure)) => failure
-                .answer_for(actor)
-                .map_or(MatrixRefreshStatus::Idle, MatrixRefreshStatus::Failed),
+            Some(RefreshSlot::Failed(MatrixRefreshFailure::Review(response))) => {
+                MatrixRefreshStatus::Failed(response.clone())
+            }
+            Some(RefreshSlot::Failed(MatrixRefreshFailure::HumanRequired(refusal))) => {
+                if refusal.actor == actor {
+                    MatrixRefreshStatus::RefusedForHuman(refusal.clone())
+                } else {
+                    MatrixRefreshStatus::Idle
+                }
+            }
         }
     }
 
@@ -199,9 +251,14 @@ fn refused_for_the_starting_actor() -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::model::SchemaMatrix;
+    use crate::review::model::{
+        ARTIFACT_PRODUCT_SCHEMA, CrawlerReview, CrawlerReviewEvent, ReviewEventAction,
+        STATUS_PENDING_REVIEW, SchemaMatrix,
+    };
+    use listing_source_core::ListingSourceId;
     use std::num::NonZeroU32;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use time::OffsetDateTime;
     use tokio::sync::Notify;
 
     fn matrix() -> ReviewSchemaMatrix {
@@ -226,6 +283,88 @@ mod tests {
 
     fn panicking_refresh() -> MatrixRefreshOutcome {
         panic!("refresh panicked")
+    }
+
+    /// A pending product-schema review whose trail holds one needs-repair verdict of `actor`, after
+    /// which it waits for a human when `human_required`.
+    fn review_with_verdict(actor: ReviewActor, human_required: bool) -> ReviewDetail {
+        let now = OffsetDateTime::now_utc();
+        let review = CrawlerReview {
+            review_id: CrawlerReviewId::new(),
+            listing_source_id: ListingSourceId::new(),
+            listing_source_name: None,
+            listing_source_crawl_enabled: true,
+            domain_id: None,
+            artifact_type: ARTIFACT_PRODUCT_SCHEMA.to_owned(),
+            status: STATUS_PENDING_REVIEW.to_owned(),
+            reason: "manual_schema_required".to_owned(),
+            candidate_payload: json!({}),
+            candidate_version: 1,
+            validation_summary: json!({}),
+            reviewer_notes: None,
+            repair_request: None,
+            agent_rounds: 0,
+            human_required: false,
+            created: now,
+            updated: now,
+            reviewed: None,
+        };
+        after_verdict(
+            &ReviewDetail {
+                review,
+                candidate_is_live: false,
+                pages: Vec::new(),
+                urls: Vec::new(),
+                events: Vec::new(),
+            },
+            actor,
+            human_required,
+        )
+    }
+
+    /// `review` once `actor` gave it a needs-repair verdict, after which it waits for a human
+    /// when `human_required`.
+    fn after_verdict(
+        review: &ReviewDetail,
+        actor: ReviewActor,
+        human_required: bool,
+    ) -> ReviewDetail {
+        let mut events = review.events.clone();
+        events.push(CrawlerReviewEvent {
+            event_id: CrawlerReviewEventId::new(),
+            review_id: review.review.review_id,
+            actor,
+            action: ReviewEventAction::RepairRequested,
+            candidate_version: review.review.candidate_version,
+            notes: Some("the title takes the shop name".to_owned()),
+            details: json!({}),
+            created: OffsetDateTime::now_utc(),
+        });
+        ReviewDetail {
+            review: CrawlerReview {
+                human_required,
+                ..review.review.clone()
+            },
+            candidate_is_live: false,
+            pages: Vec::new(),
+            urls: Vec::new(),
+            events,
+        }
+    }
+
+    /// Words of the console's `HUMAN_REQUIRED` refusal written for the agents.
+    const AGENT_TEXT: &str = "leave it until a human changes or judges it";
+
+    /// The refusal of `actor`'s refresh that started on `review`, as the store answers it.
+    fn human_required_refusal(actor: ReviewActor, review: &ReviewDetail) -> MatrixRefreshFailure {
+        MatrixRefreshFailure::HumanRequired(HumanRequiredRefusal {
+            actor,
+            response: HttpResponse::json(
+                409,
+                &json!({ "error": AGENT_TEXT, "reason": "HUMAN_REQUIRED" }),
+            ),
+            hand_back: HandBack::of(review),
+        })
     }
 
     #[tokio::test]
@@ -402,10 +541,11 @@ mod tests {
     async fn should_answer_a_refusal_of_the_starting_actor_to_that_actor_only() {
         let refreshes = MatrixRefreshes::default();
         let live_jobs = live_jobs(1);
-        let review_id = CrawlerReviewId::new();
+        let started_on = review_with_verdict(ReviewActor::AgentAuthor, false);
+        let review_id = started_on.review.review_id;
+        let refused = human_required_refusal(ReviewActor::AgentReviewer, &started_on);
         let release = Arc::new(Notify::new());
         let waiting = release.clone();
-        const AGENT_TEXT: &str = "leave it until a human changes or judges it";
 
         let agent = started(refreshes.start_or_join(
             review_id,
@@ -413,13 +553,7 @@ mod tests {
             &live_jobs,
             async move {
                 waiting.notified().await;
-                Err(MatrixRefreshFailure::HumanRequired {
-                    actor: ReviewActor::AgentReviewer,
-                    response: HttpResponse::json(
-                        409,
-                        &json!({ "error": AGENT_TEXT, "reason": "HUMAN_REQUIRED" }),
-                    ),
-                })
+                Err(refused)
             },
         ));
         let human = started(refreshes.start_or_join(
@@ -443,7 +577,7 @@ mod tests {
         assert!(!human.to_string().contains(AGENT_TEXT), "{human}");
         assert!(matches!(
             refreshes.status(review_id, ReviewActor::AgentReviewer),
-            MatrixRefreshStatus::Failed(_)
+            MatrixRefreshStatus::RefusedForHuman(_)
         ));
         for actor in [ReviewActor::Human, ReviewActor::AgentAuthor] {
             assert!(
@@ -454,6 +588,52 @@ mod tests {
                 "{actor:?}"
             );
         }
+    }
+
+    /// The agent's refusal holds while the review waits for the human it came to wait for during
+    /// the refresh: a human's later change or verdict hands it back, and from then on the agent's
+    /// reads find it stale, also once the agents bring the review to the cap again.
+    #[tokio::test]
+    async fn should_answer_a_refusal_to_its_agent_only_until_a_human_hands_the_review_back() {
+        let refreshes = MatrixRefreshes::default();
+        let started_on = review_with_verdict(ReviewActor::Human, false);
+        let review_id = started_on.review.review_id;
+        let refused = human_required_refusal(ReviewActor::AgentReviewer, &started_on);
+        let failed = started(refreshes.start_or_join(
+            review_id,
+            ReviewActor::AgentReviewer,
+            &live_jobs(1),
+            async move { Err(refused) },
+        ))
+        .outcome_within(Duration::from_secs(5))
+        .await;
+        assert!(matches!(failed, Some(Err(_))));
+        let waiting = after_verdict(&started_on, ReviewActor::AgentAuthor, true);
+        let handed_back = after_verdict(&waiting, ReviewActor::Human, false);
+        let waiting_again = after_verdict(&handed_back, ReviewActor::AgentAuthor, true);
+        let answer_on = |review: &ReviewDetail| match refreshes
+            .status(review_id, ReviewActor::AgentReviewer)
+        {
+            MatrixRefreshStatus::RefusedForHuman(refusal) => refusal.answer_while_waiting(review),
+            _ => panic!("the agent's refusal must stay kept until the next refresh"),
+        };
+
+        let while_waiting = answer_on(&waiting);
+        let after_hand_back = answer_on(&handed_back);
+        let at_the_cap_again = answer_on(&waiting_again);
+
+        let Some(while_waiting) = while_waiting else {
+            panic!("the agent learns its refusal while the review waits for a human");
+        };
+        assert!(
+            while_waiting.to_string().contains(AGENT_TEXT),
+            "{while_waiting}"
+        );
+        assert!(after_hand_back.is_none(), "stale after the hand-back");
+        assert!(
+            at_the_cap_again.is_none(),
+            "a refusal from before the hand-back stays stale at the cap again"
+        );
     }
 
     #[tokio::test]
