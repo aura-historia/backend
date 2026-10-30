@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
-use aws_sdk_secretsmanager::Client;
+use aws_sdk_secretsmanager::{
+    Client, error::SdkError, operation::get_secret_value::GetSecretValueError,
+};
+use platform_aws::{AwsSdkFailure, AwsSdkFailureKind};
 use platform_postgres::{
     PostgresCredentialRefreshError, PostgresCredentialsProvider, VersionedPostgresCredentials,
 };
@@ -122,24 +125,42 @@ impl PostgresCredentialsProvider for AwsSecretsManagerPostgresCredentialsProvide
                 .version_stage("AWSCURRENT")
                 .send(),
         )
-        .await?;
+        .await?
+        .map_err(|error| refresh_failure(&error))?;
 
         parse_current_secret(result.version_id(), result.secret_string())
             .map_err(|_| PostgresCredentialRefreshError::InvalidSecret)
     }
 }
 
+/// Bounds the whole request, including credential resolution and SDK retries.
 async fn bounded_secret_request<T, E, Request>(
     timeout: Duration,
     request: Request,
-) -> Result<T, PostgresCredentialRefreshError>
+) -> Result<Result<T, E>, PostgresCredentialRefreshError>
 where
     Request: Future<Output = Result<T, E>>,
 {
     tokio::time::timeout(timeout, request)
         .await
-        .map_err(|_| PostgresCredentialRefreshError::Timeout)?
-        .map_err(|_| PostgresCredentialRefreshError::Unavailable)
+        .map_err(|_| PostgresCredentialRefreshError::Timeout)
+}
+
+/// Keeps only the bounded class of a failed secret read; the SDK error never leaves this adapter.
+fn refresh_failure(error: &SdkError<GetSecretValueError>) -> PostgresCredentialRefreshError {
+    match AwsSdkFailure::classify(error).kind() {
+        AwsSdkFailureKind::Timeout => PostgresCredentialRefreshError::Timeout,
+        AwsSdkFailureKind::Throttled => PostgresCredentialRefreshError::Throttled,
+        AwsSdkFailureKind::AccessDenied | AwsSdkFailureKind::KeyUnavailable => {
+            PostgresCredentialRefreshError::AccessDenied
+        }
+        AwsSdkFailureKind::NotFound
+        | AwsSdkFailureKind::Configuration
+        | AwsSdkFailureKind::Rejected => PostgresCredentialRefreshError::Rejected,
+        AwsSdkFailureKind::Transport
+        | AwsSdkFailureKind::Unavailable
+        | AwsSdkFailureKind::InvalidResponse => PostgresCredentialRefreshError::Unavailable,
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -267,7 +288,7 @@ mod tests {
         let result =
             bounded_secret_request(Duration::ZERO, std::future::pending::<Result<(), ()>>()).await;
         let error = match result {
-            Ok(()) => panic!("expected credential refresh timeout"),
+            Ok(_) => panic!("expected credential refresh timeout"),
             Err(error) => error,
         };
 
@@ -276,6 +297,50 @@ mod tests {
             error.to_string(),
             "PostgreSQL credential refresh unavailable"
         );
+    }
+
+    #[test]
+    fn should_classify_a_failed_secret_read_by_status_and_code() {
+        use aws_sdk_secretsmanager::{config::http::HttpResponse, error::ErrorMetadata};
+        for (status, code, expected) in [
+            (
+                400,
+                "ThrottlingException",
+                PostgresCredentialRefreshError::Throttled,
+            ),
+            (
+                400,
+                "AccessDeniedException",
+                PostgresCredentialRefreshError::AccessDenied,
+            ),
+            (
+                400,
+                "DecryptionFailure",
+                PostgresCredentialRefreshError::AccessDenied,
+            ),
+            (
+                400,
+                "ResourceNotFoundException",
+                PostgresCredentialRefreshError::Rejected,
+            ),
+            (
+                500,
+                "InternalServiceError",
+                PostgresCredentialRefreshError::Unavailable,
+            ),
+        ] {
+            let error = SdkError::service_error(
+                GetSecretValueError::generic(
+                    ErrorMetadata::builder()
+                        .code(code)
+                        .message("SENTINEL_PROVIDER_MESSAGE")
+                        .build(),
+                ),
+                HttpResponse::new(status.try_into().unwrap(), "SENTINEL_BODY".into()),
+            );
+
+            assert_eq!(expected, refresh_failure(&error), "{code}");
+        }
     }
 
     #[test]

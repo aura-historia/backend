@@ -2,13 +2,9 @@
 use std::time::{Duration, Instant};
 
 use aura_historia_jobs::{PreparedJob, WorkerQueueType};
-use aws_sdk_sqs::{
-    Client,
-    config::Region,
-    error::{ProvideErrorMetadata, SdkError},
-    types::QueueAttributeName,
-};
+use aws_sdk_sqs::{Client, config::Region, types::QueueAttributeName};
 use aws_smithy_types::{retry::RetryConfig, timeout::TimeoutConfig};
+use platform_aws::AwsSdkFailure;
 
 use crate::queue_config::validate_attributes;
 pub use crate::queue_config::{CdcRouterQueueConfig, QueueError, SqsQueueConfig};
@@ -70,12 +66,12 @@ impl SqsQueue {
         .await
         .map_err(|_| QueueError::Timeout)?
         .map_err(|error| {
-            let failure = SqsFailure::classify(&error);
+            let failure = AwsSdkFailure::classify(&error);
             tracing::warn!(
                 scope = self.config.scope().as_str(),
                 queue = if dlq { "dlq" } else { "source" },
-                error_category = failure.category,
-                http_status = failure.http_status,
+                error_category = failure.kind().diagnostic_category(),
+                http_status = failure.http_status(),
                 "worker SQS queue validation failed"
             );
             QueueError::Unavailable
@@ -112,7 +108,7 @@ impl SqsQueue {
             bytes: usize,
             started: Instant,
             outcome: &'static str,
-            failure: Option<SqsFailure>,
+            failure: Option<AwsSdkFailure>,
         }
         impl Drop for Observation<'_> {
             fn drop(&mut self) {
@@ -121,8 +117,10 @@ impl SqsQueue {
                     encoded_bytes = self.bytes,
                     publication_duration_ms = self.started.elapsed().as_secs_f64() * 1000.0,
                     outcome = self.outcome,
-                    error_category = self.failure.map(|failure| failure.category),
-                    http_status = self.failure.and_then(|failure| failure.http_status),
+                    error_category = self
+                        .failure
+                        .map(|failure| failure.kind().diagnostic_category()),
+                    http_status = self.failure.and_then(|failure| failure.http_status()),
                     "worker SQS publication finished"
                 );
             }
@@ -150,7 +148,7 @@ impl SqsQueue {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
                 observation.outcome = "failed_acceptance_unknown";
-                observation.failure = Some(SqsFailure::classify(&error));
+                observation.failure = Some(AwsSdkFailure::classify(&error));
                 return Err(QueueError::Unavailable);
             }
             Err(_) => {
@@ -164,74 +162,6 @@ impl SqsQueue {
         }
         observation.outcome = "published";
         Ok(())
-    }
-}
-
-/// Bounded, loggable facts about a failed SQS call: a lower-case class from the transport
-/// outcome, HTTP status and standardized AWS error code. The SDK message, raw response and any
-/// unrecognized code stay unlogged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SqsFailure {
-    category: &'static str,
-    http_status: Option<u16>,
-}
-
-impl SqsFailure {
-    fn classify<E: ProvideErrorMetadata>(error: &SdkError<E>) -> Self {
-        let http_status = error
-            .raw_response()
-            .map(|response| response.status().as_u16());
-        let category = match error {
-            SdkError::TimeoutError(_) => "timeout",
-            SdkError::DispatchFailure(error) if error.is_timeout() => "timeout",
-            SdkError::DispatchFailure(error) if error.is_io() => "transport",
-            SdkError::ConstructionFailure(_) | SdkError::DispatchFailure(_) => "configuration",
-            SdkError::ServiceError(error) => {
-                Self::service_category(http_status, error.err().code())
-            }
-            SdkError::ResponseError(_) => match http_status {
-                Some(500..=599) => "unavailable",
-                _ => "response_invalid",
-            },
-            _ => "unavailable",
-        };
-        Self {
-            category,
-            http_status,
-        }
-    }
-
-    fn service_category(http_status: Option<u16>, code: Option<&str>) -> &'static str {
-        match (http_status, code) {
-            (Some(429), _)
-            | (_, Some("ThrottlingException" | "RequestThrottled" | "KmsThrottled")) => "throttled",
-            (Some(401 | 403), _)
-            | (
-                _,
-                Some(
-                    "AccessDenied"
-                    | "AccessDeniedException"
-                    | "KmsAccessDenied"
-                    | "InvalidClientTokenId"
-                    | "UnrecognizedClientException"
-                    | "ExpiredToken"
-                    | "ExpiredTokenException"
-                    | "InvalidSecurity",
-                ),
-            ) => "access_denied",
-            (_, Some("QueueDoesNotExist" | "AWS.SimpleQueueService.NonExistentQueue")) => {
-                "queue_missing"
-            }
-            (
-                _,
-                Some(
-                    "KmsDisabled" | "KmsInvalidState" | "KmsNotFound" | "KmsInvalidKeyUsage"
-                    | "KmsOptInRequired",
-                ),
-            ) => "kms_unavailable",
-            (Some(500..=599), _) => "unavailable",
-            _ => "rejected",
-        }
     }
 }
 
@@ -305,62 +235,6 @@ mod tests {
         assert_eq!(
             None,
             standard_request.get_message_deduplication_id().as_deref()
-        );
-    }
-
-    #[test]
-    fn classifies_sqs_service_failures_by_status_and_code() {
-        use aws_sdk_sqs::{
-            config::http::HttpResponse, error::ErrorMetadata,
-            operation::send_message::SendMessageError,
-        };
-        for (status, code, category) in [
-            (400, "ThrottlingException", "throttled"),
-            (400, "KmsThrottled", "throttled"),
-            (403, "AccessDenied", "access_denied"),
-            (400, "KmsAccessDenied", "access_denied"),
-            (400, "QueueDoesNotExist", "queue_missing"),
-            (400, "KmsDisabled", "kms_unavailable"),
-            (503, "ServiceUnavailable", "unavailable"),
-            (400, "InvalidParameterValue", "rejected"),
-        ] {
-            let error = SdkError::service_error(
-                SendMessageError::generic(
-                    ErrorMetadata::builder()
-                        .code(code)
-                        .message("SENTINEL_PROVIDER_MESSAGE")
-                        .build(),
-                ),
-                HttpResponse::new(status.try_into().unwrap(), "SENTINEL_PROVIDER_BODY".into()),
-            );
-
-            let failure = SqsFailure::classify(&error);
-
-            assert_eq!(
-                SqsFailure {
-                    category,
-                    http_status: Some(status)
-                },
-                failure,
-                "{code}"
-            );
-        }
-    }
-
-    #[test]
-    fn classifies_an_unparseable_sqs_response_by_its_status() {
-        use aws_sdk_sqs::{config::http::HttpResponse, operation::send_message::SendMessageError};
-        let error: SdkError<SendMessageError> = SdkError::response_error(
-            std::io::Error::other("SENTINEL_PROVIDER_BODY"),
-            HttpResponse::new(502.try_into().unwrap(), "SENTINEL_PROVIDER_BODY".into()),
-        );
-
-        assert_eq!(
-            SqsFailure {
-                category: "unavailable",
-                http_status: Some(502)
-            },
-            SqsFailure::classify(&error)
         );
     }
 }

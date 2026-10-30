@@ -4,6 +4,7 @@ use aws_sdk_cognitoidentityprovider::{
     error::{ProvideErrorMetadata, SdkError},
     types::UserType,
 };
+use platform_aws::{AwsSdkFailure, AwsSdkFailureKind};
 use user_service::ports::user_identity_deletion::{
     IdentityProviderFailure, UserIdentityDeleter, UserIdentityDeletionError, UserIdentityUsername,
 };
@@ -172,50 +173,29 @@ fn invalid_response(source: application::error::BoxError) -> UserIdentityDeletio
     }
 }
 
-/// Classifies an SDK failure by its transport outcome, HTTP status and standardized error code.
-/// The message, raw response and any other code stay in the source chain.
+/// Maps the shared AWS SDK classification onto the port's provider classes. The message, raw
+/// response and any other code stay in the source chain.
 fn provider_error<E>(source: SdkError<E>) -> UserIdentityDeletionError
 where
     E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
 {
-    let http_status = source
-        .raw_response()
-        .map(|response| response.status().as_u16());
-    let failure = match &source {
-        SdkError::TimeoutError(_) => IdentityProviderFailure::Timeout,
-        SdkError::DispatchFailure(error) if error.is_timeout() => IdentityProviderFailure::Timeout,
-        SdkError::DispatchFailure(error) if error.is_io() => IdentityProviderFailure::Unavailable,
-        SdkError::ConstructionFailure(_) | SdkError::DispatchFailure(_) => {
-            IdentityProviderFailure::Configuration
+    let classified = AwsSdkFailure::classify(&source);
+    let failure = match classified.kind() {
+        AwsSdkFailureKind::Timeout => IdentityProviderFailure::Timeout,
+        AwsSdkFailureKind::Throttled => IdentityProviderFailure::Throttled,
+        AwsSdkFailureKind::AccessDenied => IdentityProviderFailure::Authentication,
+        AwsSdkFailureKind::Transport | AwsSdkFailureKind::Unavailable => {
+            IdentityProviderFailure::Unavailable
         }
-        SdkError::ServiceError(error) => match (http_status, error.err().code()) {
-            (Some(429), _) | (_, Some("TooManyRequestsException" | "ThrottlingException")) => {
-                IdentityProviderFailure::Throttled
-            }
-            (Some(401 | 403), _)
-            | (
-                _,
-                Some(
-                    "NotAuthorizedException"
-                    | "AccessDeniedException"
-                    | "UnrecognizedClientException"
-                    | "ExpiredTokenException",
-                ),
-            ) => IdentityProviderFailure::Authentication,
-            (Some(500..=599), _) | (_, Some("InternalErrorException")) => {
-                IdentityProviderFailure::Unavailable
-            }
-            _ => IdentityProviderFailure::Configuration,
-        },
-        SdkError::ResponseError(_) => match http_status {
-            Some(500..=599) => IdentityProviderFailure::Unavailable,
-            _ => IdentityProviderFailure::InvalidResponse,
-        },
-        _ => IdentityProviderFailure::Unavailable,
+        AwsSdkFailureKind::InvalidResponse => IdentityProviderFailure::InvalidResponse,
+        AwsSdkFailureKind::Configuration
+        | AwsSdkFailureKind::NotFound
+        | AwsSdkFailureKind::KeyUnavailable
+        | AwsSdkFailureKind::Rejected => IdentityProviderFailure::Configuration,
     };
     UserIdentityDeletionError::IdentityProvider {
         failure,
-        http_status,
+        http_status: classified.http_status(),
         source: box_error(source),
     }
 }

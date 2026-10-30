@@ -9,6 +9,7 @@ async-trait = { workspace = true }
 aws-sdk-geoplaces = { workspace = true }
 geo = { workspace = true }
 geo-service = { workspace = true }
+platform-aws = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time", "sync"] }
 

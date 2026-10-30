@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-secretsmanager = { workspace = true }
+platform-aws = { workspace = true }
 platform-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

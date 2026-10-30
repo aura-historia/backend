@@ -1843,6 +1843,7 @@ dependencies = [
  "localization",
  "money",
  "notification-core",
+ "platform-aws",
  "platform-observability",
  "platform-worker-queue-contract",
  "product-listing-core",
@@ -3412,6 +3413,7 @@ dependencies = [
  "geo",
  "geo-service",
  "localization",
+ "platform-aws",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -6284,6 +6286,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform-aws"
+version = "0.1.0"
+dependencies = [
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+]
+
+[[package]]
 name = "platform-google-adc"
 version = "0.1.0"
 dependencies = [
@@ -6367,6 +6377,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
+ "platform-aws",
  "platform-postgres",
  "serde",
  "serde_json",
@@ -9869,6 +9880,7 @@ dependencies = [
  "application",
  "async-trait",
  "aws-sdk-cognitoidentityprovider",
+ "platform-aws",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",

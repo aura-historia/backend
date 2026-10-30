@@ -9,7 +9,7 @@ pub use config::{
 use application::error::{box_error, static_error};
 use aws_sdk_geoplaces::{
     Client,
-    error::{ProvideErrorMetadata, SdkError},
+    error::SdkError,
     operation::geocode::{GeocodeError, builders::GeocodeFluentBuilder},
     types::{GeocodeFilter, GeocodeIntendedUse},
 };
@@ -18,6 +18,7 @@ use geo_service::geocoding::{
     GeocodingError, GeocodingFailure, GeocodingProvider, GeocodingRequest, GeocodingResult,
     ResultRetention,
 };
+use platform_aws::{AwsSdkFailure, AwsSdkFailureKind};
 
 pub struct AmazonLocationGeocoder {
     client: Client,
@@ -121,42 +122,18 @@ impl GeocodingProvider for AmazonLocationGeocoder {
 }
 
 fn map_sdk_error(source: SdkError<GeocodeError>) -> GeocodingError {
-    let kind = match &source {
-        SdkError::TimeoutError(_) => GeocodingFailure::Timeout,
-        SdkError::DispatchFailure(error) if error.is_timeout() => GeocodingFailure::Timeout,
-        SdkError::DispatchFailure(error) if error.is_io() => GeocodingFailure::Unavailable,
-        SdkError::ConstructionFailure(_) | SdkError::DispatchFailure(_) => {
-            GeocodingFailure::Configuration
+    let kind = match AwsSdkFailure::classify(&source).kind() {
+        AwsSdkFailureKind::Timeout => GeocodingFailure::Timeout,
+        AwsSdkFailureKind::Throttled => GeocodingFailure::Throttled,
+        AwsSdkFailureKind::AccessDenied => GeocodingFailure::Authentication,
+        AwsSdkFailureKind::Transport | AwsSdkFailureKind::Unavailable => {
+            GeocodingFailure::Unavailable
         }
-        SdkError::ServiceError(error) => {
-            let status = error.raw().status().as_u16();
-            match (status, error.err().code()) {
-                (200..=299, _) => GeocodingFailure::InvalidResponse,
-                (429, _) | (_, Some("ThrottlingException")) => GeocodingFailure::Throttled,
-                (401 | 403, _)
-                | (
-                    _,
-                    Some(
-                        "AccessDeniedException"
-                        | "UnrecognizedClientException"
-                        | "InvalidSignatureException"
-                        | "ExpiredTokenException",
-                    ),
-                ) => GeocodingFailure::Authentication,
-                (408 | 504, _) => GeocodingFailure::Timeout,
-                (500..=599, _) => GeocodingFailure::Unavailable,
-                _ => GeocodingFailure::Configuration,
-            }
-        }
-        SdkError::ResponseError(error) => match error.raw().status().as_u16() {
-            401 | 403 => GeocodingFailure::Authentication,
-            408 | 504 => GeocodingFailure::Timeout,
-            429 => GeocodingFailure::Throttled,
-            500..=599 => GeocodingFailure::Unavailable,
-            400..=499 => GeocodingFailure::Configuration,
-            _ => GeocodingFailure::InvalidResponse,
-        },
-        _ => GeocodingFailure::Unavailable,
+        AwsSdkFailureKind::InvalidResponse => GeocodingFailure::InvalidResponse,
+        AwsSdkFailureKind::Configuration
+        | AwsSdkFailureKind::NotFound
+        | AwsSdkFailureKind::KeyUnavailable
+        | AwsSdkFailureKind::Rejected => GeocodingFailure::Configuration,
     };
     // The original SDK error (including retry exhaustion) remains in the source chain.
     // Do not log its Display/Debug, raw response, or arbitrary provider message/code.

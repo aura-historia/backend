@@ -127,6 +127,14 @@ pub enum PostgresCredentialRefreshError {
     #[error("PostgreSQL credential refresh unavailable")]
     Timeout,
     #[error("PostgreSQL credential refresh unavailable")]
+    Throttled,
+    /// The provider refused the caller's identity, its permissions or the secret's key.
+    #[error("PostgreSQL credential refresh unavailable")]
+    AccessDenied,
+    /// The provider rejected the request, for example because the secret does not exist.
+    #[error("PostgreSQL credential refresh unavailable")]
+    Rejected,
+    #[error("PostgreSQL credential refresh unavailable")]
     Unavailable,
     /// The provider answered with a secret that holds no valid credentials.
     #[error("PostgreSQL credential refresh unavailable")]
@@ -138,6 +146,9 @@ impl PostgresCredentialRefreshError {
     pub const fn diagnostic_category(self) -> &'static str {
         match self {
             Self::Timeout => "timeout",
+            Self::Throttled => "throttled",
+            Self::AccessDenied => "access_denied",
+            Self::Rejected => "rejected",
             Self::Unavailable => "unavailable",
             Self::InvalidSecret => "invalid_secret",
         }
