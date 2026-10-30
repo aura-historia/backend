@@ -19,6 +19,7 @@ pub enum Dependency {
     Anthropic,
     NotificationChannel,
     Cognito,
+    Loops,
     /// The service did not say which system failed.
     Unknown,
 }
@@ -34,6 +35,7 @@ impl Dependency {
             Self::Anthropic => "anthropic",
             Self::NotificationChannel => "notification_channel",
             Self::Cognito => "cognito",
+            Self::Loops => "loops",
             Self::Unknown => "unknown",
         }
     }

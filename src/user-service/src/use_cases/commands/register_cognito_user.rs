@@ -945,7 +945,7 @@ mod tests {
         assert!(matches!(
             result,
             Err(RegisterCognitoUserError::SignupConsentFailed(
-                CoordinateMarketingConsentError::TemporarilyUnavailable
+                CoordinateMarketingConsentError::TemporarilyUnavailable(_)
             ))
         ));
         assert_eq!(0, state.consent_intent_count);

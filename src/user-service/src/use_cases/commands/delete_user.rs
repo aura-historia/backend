@@ -283,10 +283,8 @@ impl From<CoordinateMarketingConsentError> for DeleteUserError {
             CoordinateMarketingConsentError::UserNotFound => Self::UserNotFound,
             CoordinateMarketingConsentError::ConcurrencyConflict
             | CoordinateMarketingConsentError::SourceKeyConflict => Self::ConcurrencyConflict,
-            CoordinateMarketingConsentError::TemporarilyUnavailable => {
-                Self::TemporarilyUnavailable {
-                    source: application::error::static_error("consent persistence unavailable"),
-                }
+            CoordinateMarketingConsentError::TemporarilyUnavailable(source) => {
+                Self::TemporarilyUnavailable { source }
             }
             CoordinateMarketingConsentError::InvalidPersistedState => Self::InvalidPersistedState {
                 source: application::error::static_error("invalid persisted consent state"),
