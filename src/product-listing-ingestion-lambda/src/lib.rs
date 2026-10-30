@@ -1,7 +1,7 @@
 use auction_postgres::SqlxAuctionReferenceValidatorFactory;
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
 use platform_lambda_sqs::{
     FailureCustody, FifoDisposition, RecordOutcome, handle_fifo_sqs_invocation, process_fifo_batch,
     safe_message_id,
@@ -138,33 +138,37 @@ async fn handler_with_budget(
             async move { process_ingestion_job(&body, use_case, correlation).await }
         },
         |attempt| {
-            let (disposition, category) = match &attempt.outcome {
+            let (disposition, category, failure) = match &attempt.outcome {
                 RecordOutcome::Completed(JobDisposition::Complete(category)) => {
-                    (AttemptDisposition::Completed, *category)
+                    (AttemptDisposition::Completed, *category, None)
                 }
                 RecordOutcome::Completed(JobDisposition::Rejected(category)) => {
-                    (AttemptDisposition::Rejected, *category)
+                    (AttemptDisposition::Rejected, *category, None)
                 }
                 RecordOutcome::Completed(JobDisposition::Unprocessable(category)) => {
-                    (AttemptDisposition::Unprocessable, *category)
+                    (AttemptDisposition::Unprocessable, *category, None)
                 }
-                RecordOutcome::Completed(JobDisposition::Failed(category)) => {
-                    (AttemptDisposition::Retained, *category)
+                RecordOutcome::Completed(JobDisposition::Failed(failure)) => {
+                    (AttemptDisposition::Retained, failure.stage(), Some(failure))
                 }
                 RecordOutcome::MissingBody => {
-                    (AttemptDisposition::Retained, "missing_message_body")
+                    (AttemptDisposition::Retained, "missing_message_body", None)
                 }
                 RecordOutcome::InsufficientBudget => (
                     AttemptDisposition::Retained,
                     "insufficient_invocation_budget",
+                    None,
                 ),
-                RecordOutcome::TimedOut => (AttemptDisposition::Retained, "execution_timeout"),
-                RecordOutcome::Panicked => (AttemptDisposition::Retained, "handler_panicked"),
+                RecordOutcome::TimedOut => {
+                    (AttemptDisposition::Retained, "execution_timeout", None)
+                }
+                RecordOutcome::Panicked => (AttemptDisposition::Retained, "handler_panicked", None),
             };
             let command = correlation.borrow_mut().take();
             log_attempt(
                 disposition,
                 category,
+                failure,
                 command.as_ref(),
                 safe_message_id(&attempt.message_id).unwrap_or("invalid"),
                 attempt.duration.as_millis(),
@@ -216,13 +220,19 @@ impl AttemptDisposition {
     }
 }
 
+/// `failure` carries the safe cause facts of a retained failure; `category` is then its
+/// stage-level code.
 fn log_attempt(
     disposition: AttemptDisposition,
     category: &'static str,
+    failure: Option<&FailureDiagnostic>,
     command: Option<&CommandCorrelation>,
     sqs_message_id: &str,
     duration_ms: u128,
 ) {
+    let dependency = failure.and_then(FailureDiagnostic::dependency);
+    let error_category = failure.map(FailureDiagnostic::category);
+    let sqlstate = failure.and_then(FailureDiagnostic::sqlstate);
     // tracing needs a literal level and message per call site; this writes the shared
     // correlation fields once for every disposition.
     macro_rules! log_with_command {
@@ -230,6 +240,9 @@ fn log_attempt(
             match command {
                 Some(command) => $level!(
                     $category = category,
+                    dependency,
+                    error_category,
+                    sqlstate,
                     sqs_message_id,
                     duration_ms,
                     command_id = %command.command_id,
@@ -241,7 +254,15 @@ fn log_attempt(
                     item_index = command.index,
                     $message
                 ),
-                None => $level!($category = category, sqs_message_id, duration_ms, $message),
+                None => $level!(
+                    $category = category,
+                    dependency,
+                    error_category,
+                    sqlstate,
+                    sqs_message_id,
+                    duration_ms,
+                    $message
+                ),
             }
         };
     }
@@ -330,7 +351,8 @@ enum JobDisposition {
     Complete(&'static str),
     Rejected(&'static str),
     Unprocessable(&'static str),
-    Failed(&'static str),
+    /// A retryable failure; its stage is the error's stage-level diagnostic code.
+    Failed(FailureDiagnostic),
 }
 
 async fn process_ingestion_job(
@@ -365,8 +387,10 @@ async fn process_ingestion_job(
             ProductListingIngestionFailureClass::Unprocessable => {
                 JobDisposition::Unprocessable(error.diagnostic_code())
             }
+            // Every retryable ingestion step reads or writes PostgreSQL. A failure without an
+            // SQLx cause, such as slug contention, is recorded as unclassified.
             ProductListingIngestionFailureClass::Retryable => {
-                JobDisposition::Failed(error.diagnostic_code())
+                JobDisposition::Failed(FailureDiagnostic::postgres(error.diagnostic_code(), &error))
             }
         },
     }
@@ -410,6 +434,7 @@ mod tests {
         Complete,
         Failure,
         CommitUnknown,
+        CommitConnectionLost,
         MissingTarget,
         Forbidden,
         ReceiptFailure,
@@ -470,6 +495,11 @@ mod tests {
                 Mode::CommitUnknown => Err(ProductListingIngestionError::CommitTransactionFailed(
                     application::error::static_error("test transaction failure"),
                 )),
+                Mode::CommitConnectionLost => Err(
+                    ProductListingIngestionError::CommitTransactionFailed(Box::new(
+                        sqlx::Error::Io(std::io::Error::other("SENTINEL_ERROR_TEXT")),
+                    )),
+                ),
                 Mode::MissingTarget => Err(ProductListingIngestionError::Update(
                     UpdateProductListingError::NotFound,
                 )),
@@ -838,9 +868,14 @@ mod tests {
     #[tokio::test]
     async fn captured_logs_distinguish_receipt_and_unconfirmed_commit_without_causes() {
         let body = golden_body(1);
-        for (mode, expected) in [
-            (Mode::ReceiptFailure, "RECEIPT_OPERATION_FAILED"),
-            (Mode::CommitUnknown, "COMMIT_UNCONFIRMED"),
+        for (mode, expected, error_category) in [
+            (
+                Mode::ReceiptFailure,
+                "RECEIPT_OPERATION_FAILED",
+                "unclassified",
+            ),
+            (Mode::CommitUnknown, "COMMIT_UNCONFIRMED", "unclassified"),
+            (Mode::CommitConnectionLost, "COMMIT_UNCONFIRMED", "io"),
         ] {
             let events = Arc::new(Mutex::new(Vec::new()));
             let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
@@ -864,6 +899,14 @@ mod tests {
                 Some("failed")
             );
             assert!(!failure.contains_key("outcome"));
+            assert_eq!(
+                failure.get("dependency").map(String::as_str),
+                Some("postgres")
+            );
+            assert_eq!(
+                failure.get("error_category").map(String::as_str),
+                Some(error_category)
+            );
             assert!(failure.get("duration_ms").unwrap().parse::<u64>().is_ok());
             assert!(
                 !records
