@@ -6,6 +6,7 @@ mod product_listing_projection_document;
 mod product_listing_search_projection;
 mod product_listing_search_reader;
 mod product_listing_similar_products_reader;
+mod search_response_decoding;
 
 pub use product_listing_search_projection::OpenSearchProductListingSearchProjection;
 pub use product_listing_search_reader::OpenSearchProductListingSearchReader;

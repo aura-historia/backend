@@ -1,4 +1,5 @@
 use crate::product_listing_document::{ProductListingDocument, ProductListingDocumentSerdeField};
+use crate::search_response_decoding::{SearchResponseError, read_search_response};
 
 use application::error::{BoxError, static_error};
 use application::pagination::{Cursor, CursoredResult};
@@ -7,16 +8,12 @@ use domain_primitives::sort::{Sort, SortOrder};
 
 use localization::{Language, Localized};
 use money::Currency;
-use platform_opensearch::{
-    response::read_response,
-    search_response::{SearchHit, SearchResponse},
-};
+use platform_opensearch::search_response::{SearchHit, SearchResponse};
 
 use money::Price;
+use opensearch::http::Method;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
-use opensearch::http::response::Response;
-use opensearch::http::{Method, StatusCode};
 use opensearch::{OpenSearch, SearchParts};
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
@@ -131,7 +128,9 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             .send()
             .await
             .map_err(query_failed)?;
-        let search_response = read_search_response(response, "product search").await?;
+        let search_response = read_search_response(response, "product search")
+            .await
+            .map_err(search_response_error)?;
 
         map_search_response(&request.compiled_search, search_response)
     }
@@ -160,44 +159,21 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             )
             .await
             .map_err(query_failed)?;
-        let search_response = read_search_response(response, "product hybrid search").await?;
+        let search_response = read_search_response(response, "product hybrid search")
+            .await
+            .map_err(search_response_error)?;
 
         map_hybrid_search_response(&request.compiled_search, search_response, &request.cursor)
     }
 }
 
-async fn read_search_response(
-    response: Response,
-    request_kind: &'static str,
-) -> Result<SearchResponse<ProductListingDocument>, ProductListingSearchReadError> {
-    let response = read_response(response).await.map_err(query_failed)?;
-    decode_search_response(response.status(), response.body(), request_kind)
-}
-
-/// Classifies a fully read search response. An unsuccessful status keeps only its status and
-/// request kind as context, never the provider's error body.
-fn decode_search_response(
-    status: StatusCode,
-    payload: &str,
-    request_kind: &'static str,
-) -> Result<SearchResponse<ProductListingDocument>, ProductListingSearchReadError> {
-    if !status.is_success() {
-        return Err(query_failed(UnsuccessfulSearchStatus {
-            request_kind,
-            status,
-        }));
+/// An undecodable response is an invalid read model; every other unusable response failed the
+/// query.
+fn search_response_error(error: SearchResponseError) -> ProductListingSearchReadError {
+    match error {
+        SearchResponseError::Undecodable(source) => read_model_invalid(source),
+        error => query_failed(error.into_source()),
     }
-    serde_json::from_str::<SearchResponse<ProductListingDocument>>(payload)
-        .map_err(read_model_invalid)?
-        .into_non_timed_out(request_kind)
-        .map_err(query_failed)
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("OpenSearch {request_kind} returned unsuccessful status {status}")]
-struct UnsuccessfulSearchStatus {
-    request_kind: &'static str,
-    status: StatusCode,
 }
 
 fn query_failed(source: impl Into<BoxError>) -> ProductListingSearchReadError {
@@ -2022,61 +1998,31 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_only_status_context_when_search_response_is_unsuccessful() {
-        let result = decode_search_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            r#"{"error":"PRIVATE_PROVIDER_BODY"}"#,
-            "product search",
-        );
-
-        let Err(ProductListingSearchReadError::ProductListingSearchQueryFailed { source }) = result
-        else {
-            panic!("an unsuccessful status must fail the query");
+    fn should_classify_undecodable_responses_as_invalid_read_models_and_others_as_query_failures() {
+        let undecodable = serde_json::from_str::<Value>("{").unwrap_err();
+        let timed_out = OpenSearchTimedOutError {
+            request_kind: "product search",
+            took: 30,
+            total_shards: 2,
+            successful_shards: 1,
+            skipped_shards: 0,
+            failed_shards: 1,
         };
-        assert_eq!(
-            "OpenSearch product search returned unsuccessful status 503 Service Unavailable",
-            source.to_string()
-        );
-        assert!(source.source().is_none());
-    }
 
-    #[test]
-    fn should_preserve_decoding_cause_when_search_response_is_malformed() {
-        let result = decode_search_response(StatusCode::OK, "{", "product search");
-
-        let Err(ProductListingSearchReadError::ProductListingSearchReadModelInvalid { source }) =
-            result
+        let ProductListingSearchReadError::ProductListingSearchReadModelInvalid { source } =
+            search_response_error(SearchResponseError::Undecodable(undecodable))
         else {
-            panic!("a malformed payload must invalidate the read model");
+            panic!("an undecodable response must invalidate the read model");
         };
         assert!(source.downcast_ref::<serde_json::Error>().is_some());
-    }
 
-    #[test]
-    fn should_preserve_timeout_details_when_search_engine_times_out() {
-        let payload = json!({
-            "took": 30,
-            "timed_out": true,
-            "_shards": {"total": 2, "successful": 1, "skipped": 0, "failed": 1},
-            "hits": {"total": {"value": 0, "relation": "eq"}, "max_score": null, "hits": []}
-        })
-        .to_string();
-
-        let result = decode_search_response(StatusCode::OK, &payload, "product hybrid search");
-
-        let Err(ProductListingSearchReadError::ProductListingSearchQueryFailed { source }) = result
+        let ProductListingSearchReadError::ProductListingSearchQueryFailed { source } =
+            search_response_error(SearchResponseError::TimedOut(timed_out.clone()))
         else {
             panic!("an engine timeout must fail the query");
         };
         assert_eq!(
-            Some(&OpenSearchTimedOutError {
-                request_kind: "product hybrid search",
-                took: 30,
-                total_shards: 2,
-                successful_shards: 1,
-                skipped_shards: 0,
-                failed_shards: 1,
-            }),
+            Some(&timed_out),
             source.downcast_ref::<OpenSearchTimedOutError>()
         );
     }
