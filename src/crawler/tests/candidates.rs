@@ -1776,6 +1776,71 @@ async fn scraper_should_record_a_schema_review_wait_only_on_a_pending_review_of_
 }
 
 // ---------------------------------------------------------------------------
+// get_random_product_urls_for_schema_seed — a schema review wait is no failure
+// ---------------------------------------------------------------------------
+
+async fn url_failure_count(pool: &sqlx::PgPool, url: &str) -> i32 {
+    sqlx::query_scalar("SELECT failure_count FROM listing_source_urls WHERE url = $1")
+        .bind(url)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// A page that only waited on a product-schema review keeps no failure and stays a schema seed,
+/// however often it waited; a page whose fetch failed stays out of the sample, and a later wait
+/// does not clear that failure.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_keep_a_page_that_only_waited_on_a_schema_review_as_a_seed() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-seed.example.com")
+            .await;
+    let primary_url = "https://waiting-seed.example.com/p/primary";
+    let waiting_url = "https://waiting-seed.example.com/p/waiting";
+    let failing_url = "https://waiting-seed.example.com/p/failing";
+    for url in [primary_url, waiting_url, failing_url] {
+        insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    }
+    let review_id = insert_pending_product_schema_review(&pool, listing_source_id).await;
+    let wait = |streak| SchemaReviewWait { review_id, streak };
+
+    record_due_schema_review_wait(&service, listing_source_id, waiting_url, wait(1)).await;
+    record_due_schema_review_wait(&service, listing_source_id, waiting_url, wait(2)).await;
+    service
+        .mark_fetch_failure(
+            &listing_source_id,
+            &url::Url::parse(failing_url).unwrap(),
+            "HTTP_500",
+            "server error",
+            Some(500),
+            time::OffsetDateTime::now_utc() - time::Duration::minutes(1),
+            None,
+        )
+        .await
+        .unwrap();
+    record_due_schema_review_wait(&service, listing_source_id, failing_url, wait(1)).await;
+
+    assert_eq!(url_failure_count(&pool, waiting_url).await, 0);
+    assert_eq!(url_failure_count(&pool, failing_url).await, 1);
+    let seeds: Vec<String> = service
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_id,
+            &[primary_url.to_owned()],
+            10,
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|seed| seed.url.to_string())
+        .collect();
+    assert_eq!(seeds, vec![waiting_url]);
+}
+
+// ---------------------------------------------------------------------------
 // get_candidates — excluded active domains are NOT returned
 // ---------------------------------------------------------------------------
 
