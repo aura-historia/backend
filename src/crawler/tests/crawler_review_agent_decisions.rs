@@ -10,11 +10,15 @@ use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
 use crawler::review::model::{
-    PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_APPROVED, STATUS_PENDING_REVIEW,
-    SampleLabelInput, SampleUrlLabel, SchemaReviewPageInput, UrlPatternDecision,
+    PAGE_ROLE_PRIMARY, PendingReviewSummary, PendingReviewTotals, ReviewActor, ReviewEventAction,
+    STATUS_APPROVED, STATUS_PENDING_REVIEW, SampleLabelInput, SampleUrlLabel,
+    SchemaReviewPageInput, UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
-use crawler::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
+use crawler::review::repository::{
+    Approval, CrawlerReviewRepository, PendingReviewPageSize, PendingReviewQuery,
+    ReviewRepositoryError,
+};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
@@ -1772,8 +1776,8 @@ fn capped(pool: &PgPool, max_repair_rounds: u32) -> CrawlerReviewRepository {
     }))
 }
 
-/// The review's agent rounds and whether it waits for a human, as its detail and the review list
-/// report them; both must agree.
+/// The review's agent rounds and whether it waits for a human, as its detail, the review list and,
+/// while it is pending, the agents' queue report them; all must agree.
 async fn agent_rounds(
     repository: &CrawlerReviewRepository,
     review_id: CrawlerReviewId,
@@ -1791,7 +1795,48 @@ async fn agent_rounds(
         (detail.agent_rounds, detail.human_required),
         "the list and the detail disagree"
     );
+    let queued = queued_review(repository, review_id).await;
+    if detail.status == STATUS_PENDING_REVIEW {
+        let queued = queued.unwrap_or_else(|| panic!("review {review_id} is not in the queue"));
+        assert_eq!(
+            (queued.agent_rounds, queued.human_required),
+            (detail.agent_rounds, detail.human_required),
+            "the agents' queue and the detail disagree"
+        );
+    } else {
+        assert_eq!(queued, None, "a closed review is in the agents' queue");
+    }
     (detail.agent_rounds, detail.human_required)
+}
+
+/// The review as the agents' queue lists it, found under the `human_required` filter its own
+/// `human_required` must match.
+async fn queued_review(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+) -> Option<PendingReviewSummary> {
+    for human_required in [false, true] {
+        let page = repository
+            .list_pending_reviews(PendingReviewQuery {
+                human_required: Some(human_required),
+                after: None,
+                page_size: PendingReviewPageSize::MAX,
+            })
+            .await
+            .unwrap();
+        if let Some(review) = page
+            .reviews
+            .into_iter()
+            .find(|review| review.review_id == review_id)
+        {
+            assert_eq!(
+                review.human_required, human_required,
+                "the queue's filter and the review's flag disagree"
+            );
+            return Some(review);
+        }
+    }
+    None
 }
 
 fn assert_human_required(
@@ -2242,4 +2287,238 @@ async fn should_count_every_agent_actors_rounds_since_the_latest_human_event() {
         .unwrap();
 
     assert_eq!(agent_rounds(&repository, review_id).await, (3, true));
+}
+
+/// Inserts `count` crawl-enabled, or disabled, ListingSources, one pending product-schema review
+/// each, in `status`, created at `created(index)`, and answers the reviews in the queue's order.
+async fn bulk_reviews(
+    pool: &PgPool,
+    count: usize,
+    crawl_enabled: bool,
+    status: &str,
+    created: impl Fn(usize) -> OffsetDateTime,
+) -> Vec<(OffsetDateTime, CrawlerReviewId)> {
+    let sources: Vec<uuid::Uuid> = (0..count)
+        .map(|_| *ListingSourceId::new().as_uuid())
+        .collect();
+    let reviews: Vec<(OffsetDateTime, CrawlerReviewId)> = (0..count)
+        .map(|index| (created(index), CrawlerReviewId::new()))
+        .collect();
+    sqlx::query(
+        "INSERT INTO listing_sources \
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled) \
+         SELECT id, 'Queue source', 'queue-source-' || id, $2 FROM UNNEST($1::uuid[]) AS t(id)",
+    )
+    .bind(&sources)
+    .bind(crawl_enabled)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO crawler_reviews \
+         (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, created, updated) \
+         SELECT review_id, source_id, 'PRODUCT_SCHEMA', $3, 'manual_schema_required', '{}'::jsonb, \
+                created, created \
+         FROM UNNEST($1::uuid[], $2::uuid[], $4::timestamptz[]) AS t(review_id, source_id, created)",
+    )
+    .bind(
+        reviews
+            .iter()
+            .map(|(_, review_id)| *review_id.as_uuid())
+            .collect::<Vec<_>>(),
+    )
+    .bind(&sources)
+    .bind(status)
+    .bind(reviews.iter().map(|(created, _)| *created).collect::<Vec<_>>())
+    .execute(pool)
+    .await
+    .unwrap();
+    queue_order(reviews)
+}
+
+/// `reviews` in the agents' queue order: oldest first, and by review id among those created at
+/// the same time.
+fn queue_order(
+    mut reviews: Vec<(OffsetDateTime, CrawlerReviewId)>,
+) -> Vec<(OffsetDateTime, CrawlerReviewId)> {
+    reviews.sort_by_key(|(created, id)| (*created, *id.as_uuid()));
+    reviews
+}
+
+/// Every page of the agents' queue `human_required` selects, `page_size` reviews a page: the
+/// reviews in their order and the totals each page answered.
+async fn every_page(
+    repository: &CrawlerReviewRepository,
+    human_required: Option<bool>,
+    page_size: usize,
+) -> (Vec<PendingReviewSummary>, Vec<PendingReviewTotals>) {
+    let page_size = PendingReviewPageSize::new(page_size).unwrap();
+    let (mut reviews, mut totals) = (Vec::new(), Vec::new());
+    let mut after = None;
+    loop {
+        let page = repository
+            .list_pending_reviews(PendingReviewQuery {
+                human_required,
+                after,
+                page_size,
+            })
+            .await
+            .unwrap();
+        assert!(page.reviews.len() <= page_size.get());
+        reviews.extend(page.reviews);
+        totals.push(page.totals);
+        match page.next_after {
+            Some(next) => after = Some(next),
+            None => return (reviews, totals),
+        }
+    }
+}
+
+fn ids(reviews: &[PendingReviewSummary]) -> Vec<CrawlerReviewId> {
+    reviews.iter().map(|review| review.review_id).collect()
+}
+
+/// More pending reviews of crawl-enabled ListingSources than the 200 rows of the browser console's
+/// `GET /api/reviews`, the oldest of which wait for a human: the agents' queue lists every
+/// workable one page by page, oldest first, and the ones that wait for a human apart, so they take
+/// no workable review's place; each page answers the totals of the whole queue, counted in SQL; a
+/// review that closes between two pages moves no other review across the page boundary, and one
+/// that opens meanwhile joins the end; and
+/// neither a pending review of a disabled ListingSource nor a closed review is in the queue.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_human_apart() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 2);
+    let start = OffsetDateTime::now_utc() - Duration::from_secs(86_400);
+    // Two reviews share each time, so the order and the page boundaries also rest on the id.
+    let at = |offset: usize| start + Duration::from_secs(u64::try_from(offset / 2).unwrap());
+    let waiting = bulk_reviews(&pool, 30, true, STATUS_PENDING_REVIEW, at).await;
+    let workable = bulk_reviews(&pool, 230, true, STATUS_PENDING_REVIEW, |index| {
+        at(30 + index)
+    })
+    .await;
+    let disabled = bulk_reviews(&pool, 5, false, STATUS_PENDING_REVIEW, |index| {
+        start + Duration::from_secs(u64::try_from(index + 1).unwrap())
+    })
+    .await;
+    let closed = bulk_reviews(&pool, 5, true, STATUS_APPROVED, |index| {
+        start + Duration::from_secs(u64::try_from(index + 1).unwrap())
+    })
+    .await;
+    // The cap is two agent needs-repair rounds; the 30 oldest reviews reached it.
+    let waiting_ids: Vec<uuid::Uuid> = waiting.iter().map(|(_, id)| *id.as_uuid()).collect();
+    let rounds: Vec<uuid::Uuid> = waiting_ids.iter().chain(&waiting_ids).copied().collect();
+    sqlx::query(
+        "INSERT INTO crawler_review_events \
+         (event_id, review_id, actor, action, candidate_version, details) \
+         SELECT event_id, review_id, 'AGENT_REVIEWER', 'REPAIR_REQUESTED', 1, '{}' \
+         FROM UNNEST($1::uuid[], $2::uuid[]) AS t(event_id, review_id)",
+    )
+    .bind(
+        rounds
+            .iter()
+            .map(|_| uuid::Uuid::now_v7())
+            .collect::<Vec<_>>(),
+    )
+    .bind(&rounds)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let expected_totals = PendingReviewTotals {
+        workable: 230,
+        waiting_for_human: 30,
+    };
+    let in_order = |reviews: &[(OffsetDateTime, CrawlerReviewId)]| -> Vec<CrawlerReviewId> {
+        reviews.iter().map(|(_, id)| *id).collect()
+    };
+
+    // Unfiltered, the 30 that wait for a human fill the head of the queue.
+    let head = repository
+        .list_pending_reviews(PendingReviewQuery::default())
+        .await
+        .unwrap();
+    assert_eq!(ids(&head.reviews[..30]), in_order(&waiting));
+    assert_eq!(head.totals, expected_totals);
+
+    let (listed, totals) = every_page(&repository, Some(false), 100).await;
+    assert_eq!(ids(&listed), in_order(&workable));
+    assert!(listed.iter().all(|review| !review.human_required));
+    assert_eq!(totals, vec![expected_totals; 3]);
+
+    let (listed, totals) = every_page(&repository, Some(true), 100).await;
+    assert_eq!(ids(&listed), in_order(&waiting));
+    assert!(
+        listed
+            .iter()
+            .all(|review| review.human_required && review.agent_rounds == 2)
+    );
+    assert_eq!(totals, vec![expected_totals]);
+
+    let (listed, _) = every_page(&repository, None, 500).await;
+    let mut queue = waiting.clone();
+    queue.extend(workable.clone());
+    assert_eq!(ids(&listed), in_order(&queue_order(queue)));
+    for (_, outside) in disabled.iter().chain(&closed) {
+        assert!(!ids(&listed).contains(outside), "{outside} is in the queue");
+    }
+
+    // A review of the first page closes before the second page is read, and one opens.
+    let first = repository
+        .list_pending_reviews(PendingReviewQuery {
+            human_required: Some(false),
+            after: None,
+            page_size: PendingReviewPageSize::new(100).unwrap(),
+        })
+        .await
+        .unwrap();
+    sqlx::query("UPDATE crawler_reviews SET status = 'APPROVED' WHERE review_id = $1")
+        .bind(first.reviews[50].review_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let opened = bulk_reviews(&pool, 1, true, STATUS_PENDING_REVIEW, |_| {
+        OffsetDateTime::now_utc()
+    })
+    .await;
+    let second = repository
+        .list_pending_reviews(PendingReviewQuery {
+            human_required: Some(false),
+            after: first.next_after,
+            page_size: PendingReviewPageSize::new(100).unwrap(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(ids(&second.reviews), in_order(&workable[100..200]));
+    assert_eq!(
+        second.totals,
+        PendingReviewTotals {
+            workable: 230,
+            waiting_for_human: 30,
+        }
+    );
+    // The review opened while the queue was read joins its end.
+    let third = repository
+        .list_pending_reviews(PendingReviewQuery {
+            human_required: Some(false),
+            after: second.next_after,
+            page_size: PendingReviewPageSize::new(100).unwrap(),
+        })
+        .await
+        .unwrap();
+    let mut rest = in_order(&workable[200..]);
+    rest.extend(in_order(&opened));
+    assert_eq!(ids(&third.reviews), rest);
+    assert_eq!(third.next_after, None);
+
+    let unknown = CrawlerReviewId::new();
+    let refused = repository
+        .list_pending_reviews(PendingReviewQuery {
+            after: Some(unknown),
+            ..PendingReviewQuery::default()
+        })
+        .await;
+    assert!(
+        matches!(refused, Err(ReviewRepositoryError::NotFound(id)) if id == unknown),
+        "{refused:?}"
+    );
 }

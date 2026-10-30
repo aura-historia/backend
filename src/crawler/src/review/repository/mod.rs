@@ -30,6 +30,7 @@ use tracing::info;
 use url::Url;
 
 mod live_matrix;
+mod pending_reviews;
 mod repair_rounds;
 mod restore;
 mod review_events;
@@ -41,6 +42,7 @@ mod schema_payload;
 mod verdicts;
 
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
+pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use verdicts::Approval;
@@ -431,6 +433,15 @@ impl CrawlerReviewRepository {
         rows.into_iter()
             .map(|row| row_to_review(row, &agent_rounds, &self.agent_decisions))
             .collect()
+    }
+
+    /// A page of the review agents' queue, the pending reviews of crawl-enabled ListingSources,
+    /// oldest first, with the totals of the whole queue; see [`PendingReviewQuery`].
+    pub async fn list_pending_reviews(
+        &self,
+        query: PendingReviewQuery,
+    ) -> Result<PendingReviewPage, ReviewRepositoryError> {
+        pending_reviews::fetch_pending_review_page(&self.pool, &self.agent_decisions, query).await
     }
 
     /// The events of all reviews created at or after `since`, oldest first, at most `limit`, and

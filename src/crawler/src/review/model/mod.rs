@@ -1,6 +1,7 @@
 pub mod artifact;
 pub mod listing_source_overview;
 pub mod page_role;
+pub mod pending_review;
 pub mod raw_attribute_key;
 pub mod removed_page_template_match;
 pub mod review;
@@ -20,6 +21,7 @@ pub mod url_pattern_candidate;
 pub use artifact::*;
 pub use listing_source_overview::{DomainCrawlOverview, ListingSourceOverview};
 pub use page_role::*;
+pub use pending_review::{PendingReviewPage, PendingReviewSummary, PendingReviewTotals};
 pub use raw_attribute_key::RawAttributeKey;
 pub use removed_page_template_match::{
     MatchedRemovedPageTemplate, RemovedPageTemplateMatch, RemovedPageTemplateOutcome,
