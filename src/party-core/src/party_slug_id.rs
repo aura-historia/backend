@@ -11,7 +11,7 @@ pub struct InvalidPartySlugId {
 pub struct PartySlugId(String);
 
 impl PartySlugId {
-    pub const FALLBACK_PREFIX: &str = "party";
+    const FALLBACK_BASE: &str = "party";
 
     pub fn raw(value: impl AsRef<str>) -> Result<Self, InvalidPartySlugId> {
         let value = value.as_ref();
@@ -32,11 +32,11 @@ impl PartySlugId {
     }
 
     /// Slugs a new Party named `name` may take, in preference order: the slugified name
-    /// ([`Self::FALLBACK_PREFIX`] when nothing of it survives slugification), then that base
-    /// followed by `-2`, `-3` and so on for when the earlier candidates are already taken.
+    /// (`party` when nothing of it survives slugification), then that base followed by `-2`,
+    /// `-3` and so on for when the earlier candidates are already taken.
     pub fn candidates(name: &PartyName) -> impl Iterator<Item = Self> + use<> {
         let base = match slug::slugify(name.as_ref()) {
-            base if base.is_empty() => Self::FALLBACK_PREFIX.to_owned(),
+            base if base.is_empty() => Self::FALLBACK_BASE.to_owned(),
             base => base,
         };
         let disambiguated = (2_u32..).map({
@@ -91,6 +91,11 @@ mod tests {
     #[test]
     fn should_fall_back_to_party_base_when_name_has_no_slug_characters() {
         assert_eq!(vec!["party", "party-2"], candidates("\u{10FFFF}", 2));
+    }
+
+    #[test]
+    fn should_append_ordinal_even_when_slugified_name_ends_in_digits() {
+        assert_eq!(vec!["shop-2", "shop-2-2"], candidates("Shop 2", 2));
     }
 
     #[test]

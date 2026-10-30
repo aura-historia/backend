@@ -15,7 +15,7 @@ pub struct InvalidListingSourceSlug {
 pub struct ListingSourceSlugId(String);
 
 impl ListingSourceSlugId {
-    pub const FALLBACK_PREFIX: &str = "listing-source";
+    const FALLBACK_BASE: &str = "listing-source";
 
     pub fn raw(value: impl AsRef<str>) -> Result<Self, InvalidListingSourceSlug> {
         let value = value.as_ref();
@@ -36,11 +36,11 @@ impl ListingSourceSlugId {
     }
 
     /// Slugs a new ListingSource named `name` may take, in preference order: the slugified name
-    /// ([`Self::FALLBACK_PREFIX`] when nothing of it survives slugification), then that base
-    /// followed by `-2`, `-3` and so on for when the earlier candidates are already taken.
+    /// (`listing-source` when nothing of it survives slugification), then that base followed by `-2`,
+    /// `-3` and so on for when the earlier candidates are already taken.
     pub fn candidates(name: &ListingSourceName) -> impl Iterator<Item = Self> + use<> {
         let base = match slug::slugify(name.as_ref()) {
-            base if base.is_empty() => Self::FALLBACK_PREFIX.to_owned(),
+            base if base.is_empty() => Self::FALLBACK_BASE.to_owned(),
             base => base,
         };
         let disambiguated = (2_u32..).map({
@@ -90,6 +90,11 @@ mod tests {
             vec!["listing-source", "listing-source-2"],
             candidates("\u{10FFFF}", 2)
         );
+    }
+
+    #[test]
+    fn should_append_ordinal_even_when_slugified_name_ends_in_digits() {
+        assert_eq!(vec!["shop-2", "shop-2-2"], candidates("Shop 2", 2));
     }
 
     #[test]

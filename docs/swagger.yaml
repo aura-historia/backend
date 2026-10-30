@@ -5438,7 +5438,7 @@ paths:
         `operator` accepts either an existing Party reference (`EXISTING` with `partyId`) or a
         new Party with name and optional contact details (`NEW`). Ingestion configuration,
         provider uniqueness, presentation, and referral validation remain service-owned.
-        The ListingSource slug, and the slug of a `NEW` operator Party, is generated once from the
+        The ListingSource and a `NEW` operator Party each get a slug generated once from their own
         canonical name, such as `antiques-and-more`; when that slug is already taken, the first free
         of `antiques-and-more-2`, `antiques-and-more-3`, and so on is used. Slugs never change on
         rename.
@@ -14117,6 +14117,9 @@ paths:
         terminal replays retain their existing idempotent behavior. Approval atomically creates or finds
         the Party and Partnership, grants membership and
         ListingSource access, updates the application, and creates the applicant notification.
+        A Party and ListingSource created by approval each get a slug generated from their own name,
+        such as `antiques-and-more`; when that slug is already taken, the first free of
+        `antiques-and-more-2`, `antiques-and-more-3`, and so on is used.
         Rejection preserves the existing application and notification semantics. Responses always
         use `Cache-Control: no-store`.
       operationId: adminDecidePartnershipApplication
@@ -14201,7 +14204,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "409":
-          description: Conflict - the PartnershipApplication is not in a decisionable state or was changed concurrently.
+          description: Conflict - the PartnershipApplication is not in a decisionable state or was changed concurrently, or every generated slug candidate for the new Party or ListingSource name is already taken.
           headers:
             Cache-Control:
               description: Error responses are never stored.

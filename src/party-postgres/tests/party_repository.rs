@@ -106,6 +106,49 @@ async fn should_insert_same_named_party_under_next_slug_after_conflict_in_same_t
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_wait_for_uncommitted_slug_holder_and_take_next_slug_after_it_commits() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let parties = SqlxPartyRepositoryFactory::new();
+
+    let mut holder = begin(&unit_of_work).await;
+    let held = parties
+        .in_transaction(&mut holder)
+        .insert(&sample_party("concurrent-name"))
+        .await;
+    assert!(held.is_ok());
+
+    let mut waiter = begin(&unit_of_work).await;
+    let waiter_pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+        .fetch_one(waiter.connection())
+        .await
+        .unwrap_or_else(|error| panic!("read waiter backend: {error}"));
+    let waiting = test_api::spawn_owned(async move {
+        let inserted = insert_new_party(
+            &mut SqlxPartyRepositoryFactory::new().in_transaction(&mut waiter),
+            NewParty {
+                id: PartyId::new(),
+                name: party_name("Concurrent Name"),
+                contact: PartyContact::default(),
+            },
+        )
+        .await;
+        commit(waiter).await;
+        inserted
+    });
+    wait_until_backend_waits_for_lock(&pool, waiter_pid).await;
+    commit(holder).await;
+
+    let inserted = waiting
+        .await
+        .unwrap_or_else(|error| panic!("join waiting party insert: {error}"));
+    assert!(matches!(
+        inserted,
+        Ok(ref stored) if stored.party.slug_id().as_ref() == "concurrent-name-2"
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_retain_slug_when_renaming_party_and_replace_contact() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -647,6 +690,27 @@ async fn should_reject_stale_and_direct_delete_of_party_with_restrictive_referen
     match partnership_remains {
         Ok(count) => assert_eq!(1, count),
         Err(error) => panic!("failed to verify retained partnership: {error}"),
+    }
+}
+
+async fn wait_until_backend_waits_for_lock(pool: &sqlx::PgPool, backend_pid: i32) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let wait_event_type = sqlx::query_scalar::<_, String>(
+            "SELECT COALESCE(wait_event_type, '') FROM pg_stat_activity WHERE pid = $1",
+        )
+        .bind(backend_pid)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or_else(|error| panic!("inspect waiting backend state: {error}"));
+        if wait_event_type.as_deref() == Some("Lock") {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "concurrent party insert did not wait for the uncommitted slug holder"
+        );
+        tokio::task::yield_now().await;
     }
 }
 

@@ -1496,7 +1496,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_leave_transaction_uncommitted_when_party_slug_conflicts() {
+    async fn should_leave_transaction_uncommitted_when_every_party_slug_candidate_conflicts() {
         let application = proposed_application();
         let application_id = application.id();
         let mut fake_state = FakeState::with_application(application);

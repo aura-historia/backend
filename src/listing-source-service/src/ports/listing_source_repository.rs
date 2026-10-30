@@ -258,6 +258,8 @@ pub trait ListingSourceRepository: Send {
     /// Inserts a new ListingSource with its ingestion configuration. A slug another ListingSource
     /// already holds is reported as [`ListingSourceRepositoryError::SlugConflict`] before anything
     /// is written and leaves the transaction usable, so the caller can try the next slug candidate.
+    /// A slug a concurrent transaction has inserted but not yet committed is waited for, then
+    /// reported as taken only if that transaction commits.
     async fn insert(
         &mut self,
         source: &ListingSource,

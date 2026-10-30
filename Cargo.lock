@@ -4900,7 +4900,6 @@ dependencies = [
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
  "url",
- "uuid",
 ]
 
 [[package]]

@@ -21,7 +21,7 @@ pub async fn insert_new_party(
         }
     }
     Err(PartyRepositoryError::SlugConflict {
-        source: static_error("every party slug candidate is taken"),
+        source: static_error("every tried party slug candidate is taken"),
     })
 }
 

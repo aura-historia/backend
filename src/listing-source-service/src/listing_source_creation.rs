@@ -30,7 +30,7 @@ pub async fn insert_new_listing_source(
         }
     }
     Err(ListingSourceRepositoryError::SlugConflict {
-        source: static_error("every listing source slug candidate is taken"),
+        source: static_error("every tried listing source slug candidate is taken"),
     })
 }
 
