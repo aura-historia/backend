@@ -36,8 +36,15 @@ pub struct ChildOutput {
     pub stdout: Vec<u8>,
     /// The last line of its stderr, shortened, for a failure's log line.
     pub stderr_tail: String,
-    /// It outlived its timeout and was stopped.
-    pub timed_out: bool,
+    /// Why the runner stopped it before it ended, if it did.
+    pub stopped: Option<ChildStop>,
+}
+
+/// Why the runner stopped a child before it ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildStop {
+    /// It outlived its timeout.
+    Timeout,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -145,19 +152,20 @@ async fn run(
         read?;
         status
     };
-    let finished = tokio::time::timeout(timeout, exchange).await;
-    let timed_out = finished.is_err();
-    let exit_code = match finished {
-        Ok(Ok(status)) => status.code(),
+    let finished = tokio::time::timeout(timeout, exchange)
+        .await
+        .map_err(|_| ChildStop::Timeout);
+    let (exit_code, stopped) = match finished {
+        Ok(Ok(status)) => (status.code(), None),
         Ok(Err(error)) => return Err(ChildError::Io(error)),
-        Err(_) => {
+        Err(stop) => {
             stop_process_group(process_group, output.read_from(&mut stdout, &mut stderr)).await;
             let _ = child.kill().await;
-            None
+            (None, Some(stop))
         }
     };
     group_guard.disarm();
-    Ok(output.into_output(exit_code, timed_out))
+    Ok(output.into_output(exit_code, stopped))
 }
 
 /// The process group of a child that has not ended yet. Dropping it kills the whole group: a run
@@ -205,12 +213,12 @@ impl OutputTails {
         stdout.and(stderr)
     }
 
-    fn into_output(self, exit_code: Option<i32>, timed_out: bool) -> ChildOutput {
+    fn into_output(self, exit_code: Option<i32>, stopped: Option<ChildStop>) -> ChildOutput {
         ChildOutput {
             exit_code,
             stdout: self.stdout.into_bytes(),
             stderr_tail: stderr_tail(&self.stderr.into_bytes()),
-            timed_out,
+            stopped,
         }
     }
 }
@@ -410,7 +418,7 @@ mod tests {
         assert_eq!(output.exit_code, Some(0));
         assert_eq!(output.stdout, b"{\"type\":\"result\"}\n");
         assert_eq!(output.stderr_tail, "last words");
-        assert!(!output.timed_out);
+        assert_eq!(output.stopped, None);
     }
 
     /// A run that is dropped before its child ended, as the runner's stop signal drops it, stops
@@ -455,7 +463,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("{error}"));
 
-        assert!(!output.timed_out);
+        assert_eq!(output.stopped, None);
         assert_eq!(output.exit_code, Some(0));
         assert_eq!(output.stdout.len(), MAX_OUTPUT_TAIL_BYTES);
         assert!(output.stdout.ends_with(b"\n{\"type\":\"result\"}\n"));
@@ -492,7 +500,7 @@ while :; do sleep 0.1; done"#,
 
         for output in [ended_its_turn, ended_on_sigterm] {
             let output = output.unwrap_or_else(|error| panic!("{error}"));
-            assert!(output.timed_out);
+            assert_eq!(output.stopped, Some(ChildStop::Timeout));
             assert_eq!(output.exit_code, None);
             assert_eq!(
                 String::from_utf8_lossy(&output.stdout),
@@ -517,7 +525,7 @@ while :; do sleep 0.1; done"#,
         // stop returns two grace periods after the timeout.
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        assert!(output.timed_out);
+        assert_eq!(output.stopped, Some(ChildStop::Timeout));
         assert!(!marker.exists(), "the child's own child was stopped too");
     }
 }

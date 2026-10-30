@@ -11,7 +11,7 @@ use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
 use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
-use super::process::{ChildError, ChildOutput, run_agent};
+use super::process::{ChildError, ChildOutput, ChildStop, run_agent};
 use super::queue::{
     QueuedReview, review_events_since, review_queue, select_reviews, waits_for_human,
 };
@@ -316,15 +316,17 @@ impl Pass<'_> {
             }
         };
         let envelope = ResultEnvelope::parse(&output.stdout);
-        if output.timed_out {
+        if let Some(stop) = output.stopped {
             if let Some(envelope) = &envelope {
                 record.take_accounting(envelope);
             }
             self.charge_unreported_cost(record);
-            return record.failed(format!(
-                "stopped after its timeout of {} minutes",
-                self.settings.process_timeout.as_secs() / 60
-            ));
+            return match stop {
+                ChildStop::Timeout => record.failed(format!(
+                    "stopped after its timeout of {} minutes",
+                    self.settings.process_timeout.as_secs() / 60
+                )),
+            };
         }
         match envelope {
             Some(envelope) => self.read_envelope(record, role, review, &envelope),
