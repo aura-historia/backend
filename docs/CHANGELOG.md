@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-29 — WooCommerce deletion of backfilled products (#2606)
+
+- `product.deleted`, and `product.created`/`product.updated` with status `trash`, `draft`, `pending` or `private`, now withdraw the listing whose `sourceListingId` is the WooCommerce product `id`, even when it was so far only created or changed through the partner API, such as by the extension's catalogue backfill. Previously such a deletion was acknowledged with `204` but had no effect; only a deletion after an applied live product webhook withdrew the listing. Listings left `ACTIVE` by earlier deletions are not repaired; withdraw them through the partner API. Signed-request and `204` admission semantics are unchanged.
+
 ## 2026-10-28 — Mutable listing title and description (#2597)
 
 - Ordinary updates, existing/restoring upserts, admin and partner management PATCH, and synchronous/asynchronous partner batches accept localized `title` and `description`: omit to preserve, send `null` to clear, or send `{text, language}` to set. Invalid submitted titles remain errors. Identity and public slug stay stable. Shopify/WooCommerce descriptions remain ignored.

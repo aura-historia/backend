@@ -2589,6 +2589,10 @@ paths:
 
         `id` for a deleted variation as well, so deleting a variation never withdraws its parent's listing.
 
+        - every DELETE withdraws the listing whose `sourceListingId` equals the delivered `id`, including a listing
+
+        created only through the partner product-listing API
+
 
         The listing source identified by `listingSourceId` must have a WooCommerce ingestion configuration
 

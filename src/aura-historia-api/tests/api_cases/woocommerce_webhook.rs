@@ -441,6 +441,87 @@ async fn should_admit_delete_without_immediate_withdrawal() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_withdraw_backfilled_listing_when_deletion_is_its_first_webhook() {
+    let result: TestResult = async {
+        let (source, token) = webhook_auth().await?;
+        let source_id = source.parse::<ListingSourceId>()?;
+        let pool = get_postgres_client().await;
+        let processor = super::async_product_listing_ingestion::processor(&pool);
+        // The extension backfills through canonical async Create, which binds no raw stream.
+        let backfill = reqwest::Client::new()
+            .post(format!(
+                "{}/v1/listing-sources/{source}/product-listings/async",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(&token)
+            .header("Idempotency-Key", "woocommerce-backfill")
+            .body(
+                json!([{"sourceListingId": "236", "title": {"text": "Bronze Vase", "language": "en"},
+                    "url": "https://partner.example/products/236", "images": []}])
+                .to_string(),
+            )
+            .send()
+            .await?;
+        assert_eq!(reqwest::StatusCode::ACCEPTED, backfill.status());
+        let backfill_messages = woocommerce_ingestion_messages(source_id);
+        assert_eq!(1, backfill_messages.len());
+        for message in backfill_messages {
+            let envelope = codec::decode(&codec::encode(&message)?)?.into_service_envelope()?;
+            assert!(matches!(
+                processor.execute(envelope).await?,
+                ProductListingIngestionCompletion::Applied(ProductListingIngestionEffect::Created(_))
+            ));
+        }
+        let backfilled: uuid::Uuid = sqlx::query_scalar(
+            "SELECT product_listing_id FROM product_listings \
+             WHERE listing_source_id = $1 AND source_listing_id = '236'",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+
+        let deletion = json!({"id": 236}).to_string();
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(&source, &token, "product.deleted", &deletion, Some("first-delete"))
+                .await?
+                .status()
+        );
+        let messages = woocommerce_ingestion_messages(source_id);
+        let delete = messages.last().ok_or("missing deletion command")?;
+        let envelope = codec::decode(&codec::encode(delete)?)?.into_service_envelope()?;
+        let capture = processor.execute(envelope).await?;
+        normalize_captured_revision(&pool, &capture).await?;
+
+        let listing: (uuid::Uuid, String) = sqlx::query_as(
+            "SELECT product_listing_id, lifecycle FROM product_listings \
+             WHERE listing_source_id = $1 AND source_listing_id = '236'",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!((backfilled, "WITHDRAWN".to_owned()), listing);
+        let normalization: (String, bool, Option<uuid::Uuid>, Option<String>) = sqlx::query_as(
+            "SELECT n.outcome, n.product_listing_event_id IS NOT NULL, h.product_listing_id, \
+             h.source_listing_id FROM product_listing_raw_normalizations n \
+             JOIN product_listing_raw_normalization_heads h USING (product_listing_raw_stream_id) \
+             JOIN product_listing_raw_streams s USING (product_listing_raw_stream_id) \
+             WHERE s.listing_source_id = $1",
+        )
+        .bind(source_id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            ("APPLIED".to_owned(), true, Some(backfilled), Some("236".to_owned())),
+            normalization
+        );
+        Ok(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_keep_one_active_parent_listing_through_native_variation_events() {
     let result: TestResult = async {
         let (source, token) = webhook_auth().await?;
