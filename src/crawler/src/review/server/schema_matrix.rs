@@ -165,7 +165,7 @@ impl ReviewServer {
 /// refresh for the review.
 fn refused_matrix_store(actor: ReviewActor, error: ReviewRepositoryError) -> MatrixRefreshFailure {
     match error {
-        ReviewRepositoryError::HumanRequired { .. } => MatrixRefreshFailure::Actor {
+        ReviewRepositoryError::HumanRequired { .. } => MatrixRefreshFailure::HumanRequired {
             actor,
             response: review_error(error),
         },

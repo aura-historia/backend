@@ -29,10 +29,10 @@ pub(crate) enum MatrixRefreshFailure {
     /// The refresh failed for the review, such as on a page fetch: every request learns it until
     /// the next refresh starts.
     Review(HttpResponse),
-    /// The review refused the refresh because of the role of the `actor` who started it, such as
-    /// a review agent's refresh of a review that came to wait for a human while it ran. Only that
-    /// actor learns it; for every other actor the refresh stored nothing.
-    Actor {
+    /// The review refused a review agent's refresh because it came to wait for a human while the
+    /// refresh ran (`HUMAN_REQUIRED`). Only the `actor` who started it learns it; for every other
+    /// actor the refresh stored nothing.
+    HumanRequired {
         actor: ReviewActor,
         response: HttpResponse,
     },
@@ -49,7 +49,7 @@ impl MatrixRefreshFailure {
     fn answer_for(&self, asking: ReviewActor) -> Option<HttpResponse> {
         match self {
             Self::Review(response) => Some(response.clone()),
-            Self::Actor { actor, response } => (*actor == asking).then(|| response.clone()),
+            Self::HumanRequired { actor, response } => (*actor == asking).then(|| response.clone()),
         }
     }
 }
@@ -413,7 +413,7 @@ mod tests {
             &live_jobs,
             async move {
                 waiting.notified().await;
-                Err(MatrixRefreshFailure::Actor {
+                Err(MatrixRefreshFailure::HumanRequired {
                     actor: ReviewActor::AgentReviewer,
                     response: HttpResponse::json(
                         409,
