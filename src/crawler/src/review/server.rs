@@ -347,7 +347,7 @@ impl ReviewServer {
 
         // Preview responses, including their errors, are framed by the console.
         if request.method == "GET" && request.path == "/api/live-inspect" {
-            return match self.live_preview_url(&request, actor).await {
+            return match live_preview_url(&request) {
                 Ok(url) => match self.fetch_live_url(&url).await {
                     Ok(html) => HttpResponse::html(200, &instrument_live_html(url.as_str(), &html)),
                     Err(response) => response,
@@ -358,7 +358,7 @@ impl ReviewServer {
         }
 
         if request.method == "GET" && request.path == "/api/live-html" {
-            return match self.live_preview_url(&request, actor).await {
+            return match live_preview_url(&request) {
                 Ok(url) => match self.fetch_live_url(&url).await {
                     Ok(html) => HttpResponse::text(200, &html),
                     Err(response) => response,
@@ -700,6 +700,9 @@ impl ReviewServer {
             .map_err(review_error)
     }
 
+    /// Fetches the review page live for a human's preview (`/api/review-pages/{id}/inspect`,
+    /// `/html`), outside the console's cap on live jobs; the console refuses the review agents'
+    /// tokens on these routes (see [`ReviewAccess::authorize`]).
     async fn live_review_page(
         &self,
         review_page_id: CrawlerReviewPageId,
@@ -1035,6 +1038,25 @@ fn domain_configuration_error(error: CrawlerDomainConfigurationError) -> HttpRes
         }
         CrawlerDomainConfigurationError::Database { .. } => internal_error(error),
     }
+}
+
+/// The URL a live preview (`/api/live-inspect`, `/api/live-html`) fetches: any URL its `url` query
+/// names. Only humans reach the live previews: the console refuses the review agents' tokens on
+/// them (see [`ReviewAccess::authorize`]).
+fn live_preview_url(request: &ParsedRequest<'_>) -> Result<Url, HttpResponse> {
+    let Some(raw_url) = request.query.get("url") else {
+        return Err(HttpResponse::json(400, &json!({ "error": "missing url" })));
+    };
+    Url::parse(raw_url).map_err(|err| {
+        HttpResponse::json(
+            400,
+            &json!({
+                "error": "invalid live preview url",
+                "url": raw_url,
+                "details": err.to_string(),
+            }),
+        )
+    })
 }
 
 fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
@@ -1564,6 +1586,75 @@ mod tests {
         }
         assert!(!console.contains("sandbox"));
         assert!(console.contains("frame-ancestors 'none'\r\n"));
+        Ok(())
+    }
+
+    /// The live previews of any URL fetch it for a human outside the console's cap on live jobs, as
+    /// the browser console always did. They and the live previews of a review page refuse both
+    /// review agents' tokens with `401` before reading the review or page they name, so no agent
+    /// fetches a page through them, at the cap or on a review that waits for a human.
+    #[tokio::test]
+    async fn should_fetch_live_previews_for_humans_outside_the_live_job_cap_and_for_no_agent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN};
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        let mut human_fetches = MockHtmlFetcher::new();
+        human_fetches.expect_fetch().times(2).returning(|url| {
+            let final_url = url.clone();
+            Box::pin(async move {
+                Ok(FetchedHtml {
+                    html: "<h1>Chair</h1>".to_owned(),
+                    final_url,
+                    status: reqwest::StatusCode::OK,
+                })
+            })
+        });
+        let server = ReviewServer::new(
+            CrawlerReviewRepository::new(pool),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: Some(TOKEN.to_owned()),
+                agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                local_mutations_without_token: false,
+                max_concurrent_live_jobs: std::num::NonZeroU32::MIN,
+            },
+            Arc::new(human_fetches),
+        );
+        let _only_place = server
+            .live_jobs
+            .try_start()
+            .unwrap_or_else(|busy| panic!("the console's one live job place: {busy:?}"));
+        let query = format!(
+            "url=https%3A%2F%2Fshop.example%2Fitem%2Fchair&review={}",
+            CrawlerReviewId::new()
+        );
+
+        for route in ["/api/live-inspect", "/api/live-html"] {
+            let request = |token: &str| {
+                format!("GET {route}?{query} HTTP/1.1\r\nAuthorization: Bearer {token}\r\n\r\n")
+            };
+            for agent in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                let refused = server.route(&request(agent)).await.to_string();
+                assert!(refused.starts_with("HTTP/1.1 401"), "{route}: {refused}");
+            }
+            let fetched = server.route(&request(TOKEN)).await.to_string();
+            assert!(fetched.starts_with("HTTP/1.1 200"), "{route}: {fetched}");
+        }
+        let page_id = CrawlerReviewPageId::new();
+        for route in ["inspect", "html"] {
+            for agent in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                let refused = server
+                    .route(&format!(
+                        "GET /api/review-pages/{page_id}/{route} HTTP/1.1\r\nAuthorization: Bearer {agent}\r\n\r\n"
+                    ))
+                    .await
+                    .to_string();
+                assert!(refused.starts_with("HTTP/1.1 401"), "{route}: {refused}");
+            }
+        }
         Ok(())
     }
 
@@ -3539,7 +3630,8 @@ Origin: http://127.0.0.1:7878/x
         /// Once the agents' needs-repair rounds reached the cap, the review list and the review
         /// say the review waits for a human, every agent route on it, the live jobs that fetch
         /// shop pages without changing it among them, answers 409 `HUMAN_REQUIRED` before any page
-        /// is fetched and records nothing, and a human's verdict hands it back.
+        /// is fetched and records nothing, the live previews refuse the agents' tokens as on any
+        /// review, and a human's verdict hands it back.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_answer_human_required_on_every_agent_route_once_the_repair_cap_is_reached()
         {
@@ -3652,6 +3744,18 @@ Origin: http://127.0.0.1:7878/x
                 assert_eq!(refused["reason"], "HUMAN_REQUIRED", "{request}: {refused}");
                 assert_eq!(refused["agent_rounds"], 1, "{request}: {refused}");
                 assert_eq!(refused["limit"], 1, "{request}: {refused}");
+            }
+            for route in ["/api/live-inspect", "/api/live-html"] {
+                let request = format!(
+                    "GET {route}?url=https%3A%2F%2Fedited.example%2Fproducts%2F3&review={review_id}"
+                );
+                for token in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                    let (status, refused) = send_as(&server, token, &request, "").await;
+                    assert!(
+                        status.starts_with("HTTP/1.1 401"),
+                        "{request}: {status} {refused}"
+                    );
+                }
             }
             let (_, unchanged) = send_as(&server, TOKEN, &review, "").await;
             assert_eq!(unchanged["events"].as_array().map(Vec::len), Some(1));
@@ -4294,10 +4398,9 @@ Origin: http://127.0.0.1:7878/x
         }
     }
 
-    /// The console's page fetches for a review: a review agent's live previews stay on the
-    /// review's ListingSource, a page is projected as the schema prompt sees it, and a proposed
-    /// candidate is evaluated on the review's pages and on URLs of its ListingSource without being
-    /// stored.
+    /// The console's page fetches for a review: a review page is previewed live for a human only,
+    /// a page is projected as the schema prompt sees it, and a proposed candidate is evaluated on
+    /// the review's pages and on URLs of its ListingSource without being stored.
     mod review_source_pages {
         use super::matrix_refresh::schema;
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
@@ -4444,82 +4547,60 @@ Origin: http://127.0.0.1:7878/x
             }
         }
 
-        /// Sends a request with `token` as its bearer and returns its status line and body.
-        async fn send_raw(server: &ReviewServer, token: &str, request: &str) -> (String, String) {
-            let response = server
-                .route(&format!(
-                    "{request} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\n\r\n"
-                ))
-                .await
-                .to_string();
-            let (head, body) = response.split_once("\r\n\r\n").unwrap_or((&response, ""));
-            (
-                head.lines().next().unwrap_or_default().to_owned(),
-                body.to_owned(),
-            )
-        }
-
         fn encoded(url: &str) -> String {
             url::form_urlencoded::byte_serialize(url.as_bytes()).collect()
         }
 
+        /// A review page's live previews fetch it for a human, as the browser console always did,
+        /// and answer the review agents' tokens `401` without fetching it.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_fetch_an_agent_live_preview_only_of_the_named_review_source() {
+        async fn should_preview_a_review_page_live_for_a_human_and_for_no_agent() {
             let Fixture {
+                pool,
                 server,
                 shop,
                 review_id,
-                ..
             } = fixture(Shop::default(), Duration::from_secs(5)).await;
-            let foreign = encoded("https://elsewhere.example/item/chair");
-            let own = encoded(&format!("{SHOP}/item/table"));
+            let page_id: uuid::Uuid = sqlx::query_scalar(
+                "SELECT review_page_id FROM crawler_review_pages WHERE review_id = $1",
+            )
+            .bind(review_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("review page: {error}"));
+            let page_id = crate::CrawlerReviewPageId::try_from(page_id)
+                .unwrap_or_else(|error| panic!("{error}"));
 
-            for route in ["/api/live-html", "/api/live-inspect"] {
-                let fetched_before = shop.fetched().len();
-                for (token, query, status) in [
-                    (AUTHOR_TOKEN, format!("url={own}"), "HTTP/1.1 400"),
-                    (
-                        REVIEWER_TOKEN,
-                        format!("url={foreign}&review={review_id}"),
-                        "HTTP/1.1 400",
-                    ),
-                    (
-                        AUTHOR_TOKEN,
-                        format!("url={own}&review={}", CrawlerReviewId::new()),
-                        "HTTP/1.1 404",
-                    ),
-                ] {
-                    let (line, body) =
-                        send_raw(&server, token, &format!("GET {route}?{query}")).await;
-                    assert!(line.starts_with(status), "{route}?{query}: {line} {body}");
+            for route in ["inspect", "html"] {
+                let request = format!("GET /api/review-pages/{page_id}/{route}");
+                for agent in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                    let (status, refused) = send_as(&server, agent, &request, "").await;
+                    assert!(
+                        status.starts_with("HTTP/1.1 401"),
+                        "{request}: {status} {refused}"
+                    );
                 }
-                assert_eq!(
-                    shop.fetched().len(),
-                    fetched_before,
-                    "{route}: {:?}",
-                    shop.fetched()
+                assert!(shop.fetched().is_empty(), "{request}: {:?}", shop.fetched());
+                let previewed = server
+                    .route(&format!(
+                        "{request} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\n\r\n"
+                    ))
+                    .await
+                    .to_string();
+                assert!(
+                    previewed.starts_with("HTTP/1.1 200"),
+                    "{request}: {previewed}"
                 );
-
-                let (line, body) = send_raw(
-                    &server,
-                    REVIEWER_TOKEN,
-                    &format!("GET {route}?url={own}&review={review_id}"),
-                )
-                .await;
-                assert!(line.starts_with("HTTP/1.1 200"), "{route}: {line} {body}");
-                let (line, body) =
-                    send_raw(&server, TOKEN, &format!("GET {route}?url={foreign}")).await;
-                assert!(line.starts_with("HTTP/1.1 200"), "{route}: {line} {body}");
+                assert!(
+                    previewed.contains("<h1>chair</h1>"),
+                    "{request}: {previewed}"
+                );
+                assert_eq!(shop.fetched(), [format!("{SHOP}/item/chair")]);
+                shop.fetched
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clear();
             }
-            assert_eq!(
-                shop.fetched(),
-                [
-                    format!("{SHOP}/item/table"),
-                    "https://elsewhere.example/item/chair".to_owned(),
-                    format!("{SHOP}/item/table"),
-                    "https://elsewhere.example/item/chair".to_owned(),
-                ]
-            );
         }
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
