@@ -1,4 +1,4 @@
-use crate::ports::*;
+use crate::{listing_source_creation::insert_new_listing_source, ports::*};
 use application::{
     error::{BoxError, static_error},
     operation_context::{
@@ -7,10 +7,8 @@ use application::{
     transaction::{Transaction, UnitOfWork},
 };
 use listing_source_core::*;
-use party_core::{
-    party::{NewParty, Party},
-    party_id::PartyId,
-};
+use party_core::{party::NewParty, party_id::PartyId};
+use party_service::party_creation::insert_new_party;
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
 };
@@ -154,38 +152,33 @@ where
                     .ok_or(CreateListingSourceError::OperatorPartyNotFound)?;
                 id
             }
-            ListingSourceOperator::New(input) => self
-                .parties
-                .in_transaction(&mut tx)
-                .insert(&Party::create(input))
-                .await
-                .map_err(map_party)?
-                .party
-                .id(),
+            ListingSourceOperator::New(input) => {
+                insert_new_party(&mut self.parties.in_transaction(&mut tx), input)
+                    .await
+                    .map_err(map_party)?
+                    .party
+                    .id()
+            }
         };
         let ingestion_methods = command
             .ingestion_configuration
             .methods()
             .map_err(|_| CreateListingSourceError::ListingIngestionConfigurationMismatch)?;
-        let source = ListingSource::create(NewListingSource {
-            id: ListingSourceId::new(),
-            name: command.name,
-            operator_party_id,
-            ingestion_methods,
-            presentation: command.presentation,
-            platform_technology: command.platform_technology,
-            referral_configuration: command.referral_configuration,
-        });
-        command
-            .ingestion_configuration
-            .validate_for(&source)
-            .map_err(|_| CreateListingSourceError::ListingIngestionConfigurationMismatch)?;
-        let result = self
-            .sources
-            .in_transaction(&mut tx)
-            .insert(&source, &command.ingestion_configuration)
-            .await
-            .map_err(CreateListingSourceError::from)?;
+        let result = insert_new_listing_source(
+            &mut self.sources.in_transaction(&mut tx),
+            NewListingSource {
+                id: ListingSourceId::new(),
+                name: command.name,
+                operator_party_id,
+                ingestion_methods,
+                presentation: command.presentation,
+                platform_technology: command.platform_technology,
+                referral_configuration: command.referral_configuration,
+            },
+            &command.ingestion_configuration,
+        )
+        .await
+        .map_err(CreateListingSourceError::from)?;
         tx.commit().await.map_err(|source| {
             CreateListingSourceError::CommitTransactionFailed(Box::new(source))
         })?;
@@ -528,12 +521,16 @@ mod tests {
     }
     fn stored_party(id: PartyId) -> StoredParty {
         StoredParty {
-            party: Party::create(NewParty {
-                id,
-                name: PartyName::try_from("Operator")
-                    .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
-                contact: PartyContact::default(),
-            }),
+            party: Party::create(
+                NewParty {
+                    id,
+                    name: PartyName::try_from("Operator")
+                        .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
+                    contact: PartyContact::default(),
+                },
+                party_core::party_slug_id::PartySlugId::raw("operator")
+                    .unwrap_or_else(|error| panic!("invalid test party slug: {error}")),
+            ),
             version: party_service::ports::PartyStorageVersion::INITIAL,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,

@@ -1,5 +1,5 @@
 use crate::mapping::{PartyRow, party_columns, version_to_i64};
-use application::error::box_error;
+use application::error::{box_error, static_error};
 use party_core::{party::Party, party_id::PartyId, party_slug_id::PartySlugId};
 use party_service::ports::{
     PartyDeletionBlocker, PartyRepository, PartyRepositoryError, PartyRepositoryFactory,
@@ -162,6 +162,7 @@ impl PartyRepository for SqlxPartyRepository<'_> {
             r#"
             INSERT INTO parties (party_id, party_slug_id, name, phone, email)
             VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (party_slug_id) DO NOTHING
             RETURNING "#,
         );
         builder.push(party_columns());
@@ -172,9 +173,12 @@ impl PartyRepository for SqlxPartyRepository<'_> {
             .bind(party.name().as_ref())
             .bind(party.contact().phone.as_deref())
             .bind(party.contact().email.as_ref().map(ToString::to_string))
-            .fetch_one(&mut *self.connection)
+            .fetch_optional(&mut *self.connection)
             .await
-            .map_err(PartyWriteSqlxError)?;
+            .map_err(PartyWriteSqlxError)?
+            .ok_or_else(|| PartyRepositoryError::SlugConflict {
+                source: static_error("party slug already exists"),
+            })?;
 
         StoredParty::try_from(row).map_err(|source| PartyRepositoryError::InvalidPersistedState {
             source: box_error(source),
@@ -237,17 +241,8 @@ impl From<PartyLookupSqlxError> for PartyRepositoryError {
 impl From<PartyWriteSqlxError> for PartyRepositoryError {
     fn from(error: PartyWriteSqlxError) -> Self {
         let PartyWriteSqlxError(source) = error;
-        match &source {
-            sqlx::Error::Database(database_error)
-                if database_error.constraint() == Some("parties_slug_unique") =>
-            {
-                Self::SlugConflict {
-                    source: box_error(source),
-                }
-            }
-            _ => Self::Internal {
-                source: box_error(source),
-            },
+        Self::Internal {
+            source: box_error(source),
         }
     }
 }

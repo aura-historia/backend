@@ -7,9 +7,10 @@ use application::{
     operation_context::{CredentialCapability, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
-use listing_source_core::{ListingSource, ListingSourceId, NewListingSource};
-use listing_source_service::ports::{
-    ListingIngestionConfiguration, ListingSourceIngestionConfigurations,
+use listing_source_core::{ListingSourceId, NewListingSource};
+use listing_source_service::{
+    listing_source_creation::insert_new_listing_source,
+    ports::{ListingIngestionConfiguration, ListingSourceIngestionConfigurations},
 };
 use notification_core::notification::{
     Notification, NotificationContent, PartnershipApplicationDecision,
@@ -28,10 +29,8 @@ use partnership_core::{
     partnership_application_state::PartnershipApplicationState,
     partnership_id::PartnershipId,
 };
-use party_core::{
-    party::{NewParty, Party},
-    party_id::PartyId,
-};
+use party_core::{party::NewParty, party_id::PartyId};
+use party_service::party_creation::insert_new_party;
 use user_service::ports::UserAdminReaderFactory;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,17 +211,16 @@ where
                     party,
                     listing_source,
                 } => {
-                    let party = Party::create(NewParty {
-                        id: PartyId::new(),
-                        name: party.name,
-                        contact: party.contact,
-                    });
-                    let party = self
-                        .parties
-                        .in_transaction(&mut tx)
-                        .insert(&party)
-                        .await?
-                        .party;
+                    let party = insert_new_party(
+                        &mut self.parties.in_transaction(&mut tx),
+                        NewParty {
+                            id: PartyId::new(),
+                            name: party.name,
+                            contact: party.contact,
+                        },
+                    )
+                    .await?
+                    .party;
                     let config = ListingSourceIngestionConfigurations(
                         listing_source
                             .requested_ingestion_methods
@@ -239,25 +237,25 @@ where
                             })
                             .collect(),
                     );
-                    let source = ListingSource::create(NewListingSource {
-                        id: ListingSourceId::new(),
-                        name: listing_source.name,
-                        operator_party_id: party.id(),
-                        ingestion_methods: config.methods().map_err(|source| {
-                            ApprovePartnershipApplicationError::InvalidPersistedState {
-                                source: application::error::box_error(source),
-                            }
-                        })?,
-                        presentation: listing_source.presentation,
-                        platform_technology: None,
-                        referral_configuration: None,
-                    });
-                    let source = self
-                        .sources
-                        .in_transaction(&mut tx)
-                        .insert(&source, &config)
-                        .await?
-                        .source;
+                    let source = insert_new_listing_source(
+                        &mut self.sources.in_transaction(&mut tx),
+                        NewListingSource {
+                            id: ListingSourceId::new(),
+                            name: listing_source.name,
+                            operator_party_id: party.id(),
+                            ingestion_methods: config.methods().map_err(|source| {
+                                ApprovePartnershipApplicationError::InvalidPersistedState {
+                                    source: application::error::box_error(source),
+                                }
+                            })?,
+                            presentation: listing_source.presentation,
+                            platform_technology: None,
+                            referral_configuration: None,
+                        },
+                        &config,
+                    )
+                    .await?
+                    .source;
                     (
                         party.id(),
                         party.name().clone(),
@@ -458,7 +456,7 @@ mod tests {
     };
     use domain_primitives::versioned::Versioned;
     use listing_source_core::{
-        ListingIngestionMethod, ListingSourceName, ListingSourcePresentation,
+        ListingIngestionMethod, ListingSource, ListingSourceName, ListingSourcePresentation,
     };
     use listing_source_service::ports::{
         ListingIngestionConfiguration, ListingSourceIngestionConfigurations,
@@ -1273,28 +1271,36 @@ mod tests {
         listing_source_id: ListingSourceId,
         party_id: PartyId,
     ) -> (StoredParty, StoredListingSource) {
-        let party = Party::create(NewParty {
-            id: party_id,
-            name: PartyName::try_from("Existing Operator")
-                .unwrap_or_else(|error| panic!("valid test party name: {error}")),
-            contact: PartyContact {
-                phone: None,
-                email: None,
+        let party = Party::create(
+            NewParty {
+                id: party_id,
+                name: PartyName::try_from("Existing Operator")
+                    .unwrap_or_else(|error| panic!("valid test party name: {error}")),
+                contact: PartyContact {
+                    phone: None,
+                    email: None,
+                },
             },
-        });
-        let source = ListingSource::create(NewListingSource {
-            id: listing_source_id,
-            name: ListingSourceName::try_from("Existing Source")
-                .unwrap_or_else(|error| panic!("valid test source name: {error}")),
-            operator_party_id: party_id,
-            ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
-            presentation: ListingSourcePresentation {
-                url: None,
-                image: None,
+            party_core::party_slug_id::PartySlugId::raw("existing-operator")
+                .unwrap_or_else(|error| panic!("invalid test party slug: {error}")),
+        );
+        let source = ListingSource::create(
+            NewListingSource {
+                id: listing_source_id,
+                name: ListingSourceName::try_from("Existing Source")
+                    .unwrap_or_else(|error| panic!("valid test source name: {error}")),
+                operator_party_id: party_id,
+                ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
+                presentation: ListingSourcePresentation {
+                    url: None,
+                    image: None,
+                },
+                platform_technology: None,
+                referral_configuration: None,
             },
-            platform_technology: None,
-            referral_configuration: None,
-        });
+            listing_source_core::ListingSourceSlugId::raw("existing-source")
+                .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+        );
         let party_version = PartyStorageVersion::try_from(1_i64)
             .unwrap_or_else(|error| panic!("valid test party version: {error}"));
         let source_version = ListingSourceStorageVersion::try_from(1_i64)
@@ -1391,28 +1397,36 @@ mod tests {
     async fn should_approve_existing_source_without_creating_party_or_source() {
         let applicant_user_id = user_core::user_id::UserId::new();
         let party_id = PartyId::new();
-        let party = Party::create(NewParty {
-            id: party_id,
-            name: PartyName::try_from("Existing Operator")
-                .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
-            contact: PartyContact {
-                phone: None,
-                email: None,
+        let party = Party::create(
+            NewParty {
+                id: party_id,
+                name: PartyName::try_from("Existing Operator")
+                    .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
+                contact: PartyContact {
+                    phone: None,
+                    email: None,
+                },
             },
-        });
-        let source = ListingSource::create(NewListingSource {
-            id: ListingSourceId::new(),
-            name: ListingSourceName::try_from("Existing Source")
-                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-            operator_party_id: party_id,
-            ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
-            presentation: ListingSourcePresentation {
-                url: None,
-                image: None,
+            party_core::party_slug_id::PartySlugId::raw("existing-operator")
+                .unwrap_or_else(|error| panic!("invalid test party slug: {error}")),
+        );
+        let source = ListingSource::create(
+            NewListingSource {
+                id: ListingSourceId::new(),
+                name: ListingSourceName::try_from("Existing Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                operator_party_id: party_id,
+                ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
+                presentation: ListingSourcePresentation {
+                    url: None,
+                    image: None,
+                },
+                platform_technology: None,
+                referral_configuration: None,
             },
-            platform_technology: None,
-            referral_configuration: None,
-        });
+            listing_source_core::ListingSourceSlugId::raw("existing-source")
+                .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+        );
         let source_version = match ListingSourceStorageVersion::try_from(1_i64) {
             Ok(version) => version,
             Err(error) => panic!("test listing source version: {error}"),
@@ -1482,7 +1496,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_leave_transaction_uncommitted_when_party_slug_conflicts() {
+    async fn should_leave_transaction_uncommitted_when_every_party_slug_candidate_conflicts() {
         let application = proposed_application();
         let application_id = application.id();
         let mut fake_state = FakeState::with_application(application);

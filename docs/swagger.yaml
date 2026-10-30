@@ -5438,6 +5438,10 @@ paths:
         `operator` accepts either an existing Party reference (`EXISTING` with `partyId`) or a
         new Party with name and optional contact details (`NEW`). Ingestion configuration,
         provider uniqueness, presentation, and referral validation remain service-owned.
+        The ListingSource and a `NEW` operator Party each get a slug generated once from their own
+        canonical name, such as `antiques-and-more`; when that slug is already taken, the first free
+        of `antiques-and-more-2`, `antiques-and-more-3`, and so on is used. Slugs never change on
+        rename.
         A WooCommerce ingestion configuration carries its required `webhookSecret` as a write-only
         member; it is never returned or logged.
       operationId: adminCreateListingSource
@@ -5492,7 +5496,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "409":
-          description: ListingSource or provider configuration conflicts with current state.
+          description: ListingSource or provider configuration conflicts with current state, or every generated slug candidate for a name is already taken.
           content:
             application/problem+json:
               schema:
@@ -5568,7 +5572,7 @@ paths:
           description: Optional exact immutable ListingSource slug filter.
           schema:
             type: string
-          example: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+          example: antiques-and-more
         - name: operatorPartyId
           in: query
           required: false
@@ -5645,11 +5649,11 @@ paths:
               example:
                 items:
                   - listingSourceId: ls_6rd827eqfefsva9teecmwa3ate
-                    listingSourceSlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                    listingSourceSlugId: antiques-and-more
                     name: Antiques and More
                     operator:
                       partyId: pty_11bczr8va9ek4abckdkrqda538
-                      partySlugId: antiques-operator-550e8400-e29b-41d4-a716-446655440001
+                      partySlugId: antiques-operator
                       name: Antiques Operator
                     ingestionMethods:
                       - PARTNER_API
@@ -5758,8 +5762,10 @@ paths:
 
         The request accepts only the Party name and optional phone/email contact information.
         Party names trim outer Unicode whitespace, reject blank values, and reject values over 255
-        UTF-8 bytes. The Party slug is generated once from the canonical name and stable Party ID;
-        it remains immutable if the Party is renamed later.
+        UTF-8 bytes. The Party slug is generated once from the canonical name, such as
+        `antiques-and-more`; when another Party already holds it, the first free of
+        `antiques-and-more-2`, `antiques-and-more-3`, and so on is used. The slug remains immutable
+        if the Party is renamed later.
       operationId: adminCreateParty
       tags:
         - Party
@@ -5798,7 +5804,7 @@ paths:
                 $ref: "#/components/schemas/PartyData"
               example:
                 partyId: pty_4k4snxc3pkecc9yw66heemzyp0
-                partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                partySlugId: antiques-and-more
                 name: Antiques and More
                 contact:
                   phone: "+49 30 123456"
@@ -5847,7 +5853,7 @@ paths:
                 error: FORBIDDEN
                 detail: Operation is not permitted.
         "409":
-          description: Conflict - the generated Party slug conflicts with current state.
+          description: Conflict - every generated Party slug candidate for the name is already taken.
           content:
             application/problem+json:
               schema:
@@ -6019,7 +6025,7 @@ paths:
               example:
                 items:
                   - partyId: pty_4k4snxc3pkecc9yw66heemzyp0
-                    partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                    partySlugId: antiques-and-more
                     name: Antiques and More
                     contact:
                       phone: "+49 30 123456"
@@ -6265,7 +6271,7 @@ paths:
                 $ref: "#/components/schemas/PartyData"
               example:
                 partyId: pty_4k4snxc3pkecc9yw66heemzyp0
-                partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                partySlugId: antiques-and-more
                 name: Antiques and More
                 contact:
                   phone: "+49 30 123456"
@@ -6410,7 +6416,7 @@ paths:
                 $ref: "#/components/schemas/PartyData"
               example:
                 partyId: pty_4k4snxc3pkecc9yw66heemzyp0
-                partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                partySlugId: antiques-and-more
                 name: Antiques and More
                 contact:
                   phone: "+49 30 123456"
@@ -10182,7 +10188,7 @@ paths:
                 $ref: "#/components/schemas/ListingSourceReferenceData"
               example:
                 listingSourceId: ls_6rd827eqfefsva9teecmwa3ate
-                listingSourceSlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                listingSourceSlugId: antiques-and-more
         "400":
           description: Bad request - invalid ListingSource ID, empty/malformed body, invalid values, or ingestion configuration mismatch.
           content:
@@ -14111,6 +14117,9 @@ paths:
         terminal replays retain their existing idempotent behavior. Approval atomically creates or finds
         the Party and Partnership, grants membership and
         ListingSource access, updates the application, and creates the applicant notification.
+        A Party and ListingSource created by approval each get a slug generated from their own name,
+        such as `antiques-and-more`; when that slug is already taken, the first free of
+        `antiques-and-more-2`, `antiques-and-more-3`, and so on is used.
         Rejection preserves the existing application and notification semantics. Responses always
         use `Cache-Control: no-store`.
       operationId: adminDecidePartnershipApplication
@@ -14195,7 +14204,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "409":
-          description: Conflict - the PartnershipApplication is not in a decisionable state or was changed concurrently.
+          description: Conflict - the PartnershipApplication is not in a decisionable state or was changed concurrently, or every generated slug candidate for the new Party or ListingSource name is already taken.
           headers:
             Cache-Control:
               description: Error responses are never stored.

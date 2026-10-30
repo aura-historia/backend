@@ -450,14 +450,18 @@ mod tests {
     }
 
     fn seeded_state() -> Arc<Mutex<State>> {
-        let party = Party::create(NewParty {
-            id: PartyId::new(),
-            name: party_name("Original Party"),
-            contact: PartyContact {
-                phone: Some("+49 30 111111".to_owned()),
-                email: Some(party_email("original@example.com")),
+        let party = Party::create(
+            NewParty {
+                id: PartyId::new(),
+                name: party_name("Original Party"),
+                contact: PartyContact {
+                    phone: Some("+49 30 111111".to_owned()),
+                    email: Some(party_email("original@example.com")),
+                },
             },
-        });
+            party_core::party_slug_id::PartySlugId::raw("original-party")
+                .unwrap_or_else(|error| panic!("invalid test party slug: {error}")),
+        );
         Arc::new(Mutex::new(State {
             party: Some(StoredParty {
                 party,

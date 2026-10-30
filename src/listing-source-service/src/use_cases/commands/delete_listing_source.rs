@@ -447,16 +447,22 @@ mod tests {
         }
     }
     fn stored() -> StoredListingSource {
-        let source = ListingSource::create(NewListingSource {
-            id: ListingSourceId::new(),
-            name: ListingSourceName::try_from("Source")
-                .unwrap_or_else(|error| panic!("invalid test source: {error}")),
-            operator_party_id: PartyId::new(),
-            ingestion_methods: std::collections::HashSet::from([ListingIngestionMethod::WebCrawl]),
-            presentation: ListingSourcePresentation::default(),
-            platform_technology: None,
-            referral_configuration: None,
-        });
+        let source = ListingSource::create(
+            NewListingSource {
+                id: ListingSourceId::new(),
+                name: ListingSourceName::try_from("Source")
+                    .unwrap_or_else(|error| panic!("invalid test source: {error}")),
+                operator_party_id: PartyId::new(),
+                ingestion_methods: std::collections::HashSet::from([
+                    ListingIngestionMethod::WebCrawl,
+                ]),
+                presentation: ListingSourcePresentation::default(),
+                platform_technology: None,
+                referral_configuration: None,
+            },
+            listing_source_core::ListingSourceSlugId::raw("source")
+                .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+        );
         StoredListingSource {
             source,
             configuration: ListingSourceIngestionConfigurations(vec![

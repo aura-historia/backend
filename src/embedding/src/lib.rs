@@ -77,7 +77,9 @@ impl EmbeddingError {
     pub fn diagnostic_category(&self) -> &'static str {
         match self {
             Self::InvalidInput { .. } => "input_invalid",
+            Self::ClientInitializationFailed { .. } => "configuration",
             Self::AuthenticationFailed { .. } => "authentication",
+            Self::DeadlineExceeded { .. } => "timeout",
             Self::RequestFailed { source } if source.is_timeout() => "timeout",
             Self::RequestFailed { source } if source.is_decode() => "response_invalid",
             Self::RequestFailed { .. } => "request",
@@ -91,7 +93,9 @@ impl EmbeddingError {
             Self::ApiFailure { status } => Some(status.as_u16()),
             Self::RequestFailed { source } => source.status().map(|status| status.as_u16()),
             Self::InvalidInput { .. }
+            | Self::ClientInitializationFailed { .. }
             | Self::AuthenticationFailed { .. }
+            | Self::DeadlineExceeded { .. }
             | Self::InvalidResponse { .. } => None,
         }
     }

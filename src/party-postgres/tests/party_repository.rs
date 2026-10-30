@@ -6,7 +6,10 @@ use party_core::{
     party_slug_id::PartySlugId,
 };
 use party_postgres::SqlxPartyRepositoryFactory;
-use party_service::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory};
+use party_service::{
+    party_creation::insert_new_party,
+    ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory},
+};
 use platform_postgres::SqlxUnitOfWork;
 use serde_email::Email;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
@@ -52,6 +55,97 @@ async fn should_insert_and_find_party_by_id_and_slug() {
             .await
             .unwrap_or_else(|error| panic!("read repository-created party name search: {error}"));
     assert_eq!("insert-find", name_search);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_insert_same_named_party_under_next_slug_after_conflict_in_same_transaction() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let parties = SqlxPartyRepositoryFactory::new();
+    let existing = sample_party("shared-name");
+    let same_slug = Party::create(
+        NewParty {
+            id: PartyId::new(),
+            name: party_name("Shared Name"),
+            contact: PartyContact::default(),
+        },
+        existing.slug_id().clone(),
+    );
+
+    let mut tx = begin(&unit_of_work).await;
+    let mut repository = parties.in_transaction(&mut tx);
+    let first = repository.insert(&existing).await;
+    let conflict = repository.insert(&same_slug).await;
+    let disambiguated = insert_new_party(
+        &mut repository,
+        NewParty {
+            id: PartyId::new(),
+            name: party_name("Shared Name"),
+            contact: PartyContact::default(),
+        },
+    )
+    .await;
+    drop(repository);
+    commit(tx).await;
+
+    assert!(first.is_ok());
+    assert!(matches!(
+        conflict,
+        Err(PartyRepositoryError::SlugConflict { .. })
+    ));
+    assert!(matches!(
+        disambiguated,
+        Ok(ref stored) if stored.party.slug_id().as_ref() == "shared-name-2"
+    ));
+    let slugs =
+        sqlx::query_scalar::<_, String>("SELECT party_slug_id FROM parties ORDER BY party_slug_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("read committed party slugs: {error}"));
+    assert_eq!(vec!["shared-name", "shared-name-2"], slugs);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_wait_for_uncommitted_slug_holder_and_take_next_slug_after_it_commits() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let parties = SqlxPartyRepositoryFactory::new();
+
+    let mut holder = begin(&unit_of_work).await;
+    let held = parties
+        .in_transaction(&mut holder)
+        .insert(&sample_party("concurrent-name"))
+        .await;
+    assert!(held.is_ok());
+
+    let mut waiter = begin(&unit_of_work).await;
+    let waiter_pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+        .fetch_one(waiter.connection())
+        .await
+        .unwrap_or_else(|error| panic!("read waiter backend: {error}"));
+    let waiting = test_api::spawn_owned(async move {
+        let inserted = insert_new_party(
+            &mut SqlxPartyRepositoryFactory::new().in_transaction(&mut waiter),
+            NewParty {
+                id: PartyId::new(),
+                name: party_name("Concurrent Name"),
+                contact: PartyContact::default(),
+            },
+        )
+        .await;
+        commit(waiter).await;
+        inserted
+    });
+    wait_until_backend_waits_for_lock(&pool, waiter_pid).await;
+    commit(holder).await;
+
+    let inserted = waiting
+        .await
+        .unwrap_or_else(|error| panic!("join waiting party insert: {error}"));
+    assert!(matches!(
+        inserted,
+        Ok(ref stored) if stored.party.slug_id().as_ref() == "concurrent-name-2"
+    ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -599,6 +693,27 @@ async fn should_reject_stale_and_direct_delete_of_party_with_restrictive_referen
     }
 }
 
+async fn wait_until_backend_waits_for_lock(pool: &sqlx::PgPool, backend_pid: i32) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let wait_event_type = sqlx::query_scalar::<_, String>(
+            "SELECT COALESCE(wait_event_type, '') FROM pg_stat_activity WHERE pid = $1",
+        )
+        .bind(backend_pid)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or_else(|error| panic!("inspect waiting backend state: {error}"));
+        if wait_event_type.as_deref() == Some("Lock") {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "concurrent party insert did not wait for the uncommitted slug holder"
+        );
+        tokio::task::yield_now().await;
+    }
+}
+
 fn party_name(value: &str) -> PartyName {
     PartyName::try_from(value).unwrap_or_else(|error| panic!("invalid test party name: {error}"))
 }
@@ -608,14 +723,19 @@ fn sample_party(name: &str) -> Party {
         Ok(value) => value,
         Err(error) => panic!("invalid test email: {error}"),
     };
-    Party::create(NewParty {
-        id: PartyId::new(),
-        name: party_name(name),
-        contact: PartyContact {
-            phone: Some("+49 30 123456".to_owned()),
-            email: Some(email),
+    let slug_id =
+        PartySlugId::raw(name).unwrap_or_else(|error| panic!("invalid test party slug: {error}"));
+    Party::create(
+        NewParty {
+            id: PartyId::new(),
+            name: party_name(name),
+            contact: PartyContact {
+                phone: Some("+49 30 123456".to_owned()),
+                email: Some(email),
+            },
         },
-    })
+        slug_id,
+    )
 }
 
 async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {

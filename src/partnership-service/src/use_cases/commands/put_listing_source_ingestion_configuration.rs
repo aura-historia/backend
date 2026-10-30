@@ -304,16 +304,20 @@ mod tests {
 
     fn stored_source(id: ListingSourceId) -> StoredListingSource {
         StoredListingSource {
-            source: ListingSource::create(NewListingSource {
-                id,
-                name: ListingSourceName::try_from("Test ListingSource")
-                    .unwrap_or_else(|error| panic!("invalid test ListingSource name: {error}")),
-                operator_party_id: PartyId::new(),
-                ingestion_methods: Default::default(),
-                presentation: ListingSourcePresentation::default(),
-                platform_technology: None,
-                referral_configuration: None::<ReferralConfiguration>,
-            }),
+            source: ListingSource::create(
+                NewListingSource {
+                    id,
+                    name: ListingSourceName::try_from("Test ListingSource")
+                        .unwrap_or_else(|error| panic!("invalid test ListingSource name: {error}")),
+                    operator_party_id: PartyId::new(),
+                    ingestion_methods: Default::default(),
+                    presentation: ListingSourcePresentation::default(),
+                    platform_technology: None,
+                    referral_configuration: None::<ReferralConfiguration>,
+                },
+                listing_source_core::ListingSourceSlugId::raw("test-listingsource")
+                    .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+            ),
             configuration: ListingSourceIngestionConfigurations::default(),
             version: ListingSourceStorageVersion::INITIAL,
             created: OffsetDateTime::UNIX_EPOCH,
