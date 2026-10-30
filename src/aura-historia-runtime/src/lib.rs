@@ -40,7 +40,9 @@ pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
 pub use product_listing_config::ProductListingConfig;
 pub use product_listing_delivery::ProductListingDelivery;
-pub use product_listing_providers::ProductListingProviderError;
+pub use product_listing_providers::{
+    PRODUCT_LISTING_OPENSEARCH_TIMEOUT, ProductListingProviderError,
+};
 pub use public_auctions::PublicAuctions;
 pub use public_listing_source_read_budget::PublicListingSourceReadBudget;
 pub use public_listing_sources::PublicListingSources;
