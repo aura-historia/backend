@@ -210,9 +210,9 @@ pub trait ScraperCandidateService: Send + Sync {
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
     /// Lists the domains whose scraping only a pending review holds back: domains that pass
     /// the ListingSource and domain conditions of [`ScraperCandidateService::get_candidates`]
-    /// while their ListingSource has no product schema and its product-schema review is
-    /// pending, or while they have no product URL pattern and their URL-pattern review is
-    /// pending, so the spider classified none of their URLs as products.
+    /// while they have a product URL pattern and their ListingSource has no product schema and
+    /// a pending product-schema review, or while they have no product URL pattern and their
+    /// URL-pattern review is pending, so the spider classified none of their URLs as products.
     async fn domains_awaiting_review(&self) -> Result<Vec<DomainAwaitingReview>, sqlx::Error>;
     /// Returns a random sample of product URLs for a ListingSource, other than the stored URLs
     /// `excluded_urls` names, to seed first-time schema generation with additional page layouts.
@@ -691,8 +691,11 @@ const DUE_SCRAPER_URL_COUNT_QUERY: &str = concat!(
 /// Binds `$1`, the per-ListingSource LLM call cap, as the [`eligible_scraper_urls_cte`] does.
 /// A domain without a `MATCHED` pattern has no active product URL: the spider stores none of its
 /// URLs as a product, and every URL-pattern decision classifies the domain's stored active URLs with
-/// the live pattern. Reading the pattern state keeps the query off the domain's URLs, which a
-/// crawl waiting on its review may have stored by the hundred thousand.
+/// the live pattern. So the first product schema holds back only a domain with a `MATCHED`
+/// pattern, and a domain without one waits only on its own URL-pattern review; any other domain
+/// without product URLs is stuck on its crawl, not on a review. Reading the pattern state keeps
+/// the query off the domain's URLs, which a crawl waiting on its review may have stored by the
+/// hundred thousand.
 const DOMAINS_AWAITING_REVIEW_QUERY: &str = concat!(
     r#"
     SELECT sd.listing_source_id, sd.listing_source_domain
@@ -701,9 +704,10 @@ const DOMAINS_AWAITING_REVIEW_QUERY: &str = concat!(
     WHERE "#,
     scrapable_domain_conditions!(),
     r#"
-      AND ("#,
+      AND ((sd.url_pattern_state = 'MATCHED'
+            AND "#,
     awaits_first_product_schema!(),
-    r#"
+    r#")
            OR (sd.url_pattern_state <> 'MATCHED'
                AND EXISTS (
                    SELECT 1

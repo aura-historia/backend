@@ -975,14 +975,30 @@ async fn scraper_should_count_due_urls_by_the_candidate_eligibility_rule() {
 // domains_awaiting_review — the domains only a pending review keeps from scraping
 // ---------------------------------------------------------------------------
 
+async fn match_url_pattern(pool: &sqlx::PgPool, domain_id: CrawlerDomainId) {
+    sqlx::query(
+        "UPDATE listing_source_domains SET url_pattern = '/p/', url_pattern_state = 'MATCHED' \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_list_only_domains_whose_scraping_a_pending_review_holds_back() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     // The ListingSource waits on its first product schema.
     let first_schema = ListingSourceId::new();
-    insert_listing_source_with_domain(&pool, first_schema, "first-schema.example.com").await;
+    let first_schema_domain =
+        insert_listing_source_with_domain(&pool, first_schema, "first-schema.example.com").await;
+    match_url_pattern(&pool, first_schema_domain).await;
     insert_pending_product_schema_review(&pool, first_schema).await;
+    // Another domain of it has no product URL pattern and no URL-pattern review, so the first
+    // product schema would not get it scraped either.
+    insert_domain_for_listing_source(&pool, first_schema, "uncrawled.example.com").await;
     // The cached schema still extracts pages, so the scraper scrapes them.
     let cached_schema = ListingSourceId::new();
     insert_listing_source_with_domain(&pool, cached_schema, "cached-schema.example.com").await;
@@ -1003,14 +1019,7 @@ async fn scraper_should_list_only_domains_whose_scraping_a_pending_review_holds_
     let matched = ListingSourceId::new();
     let matched_domain =
         insert_listing_source_with_domain(&pool, matched, "matched-pattern.example.com").await;
-    sqlx::query(
-        "UPDATE listing_source_domains SET url_pattern = '/p/', url_pattern_state = 'MATCHED' \
-         WHERE domain_id = $1",
-    )
-    .bind(matched_domain.as_uuid())
-    .execute(&pool)
-    .await
-    .unwrap();
+    match_url_pattern(&pool, matched_domain).await;
     insert_pending_url_pattern_review(&pool, matched, matched_domain).await;
     // A disabled ListingSource is not scraped whatever its reviews.
     let disabled = ListingSourceId::new();
