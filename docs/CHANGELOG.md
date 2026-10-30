@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-30 — Bounded embedding and search-index requests (#2625)
+
+- A text search on `GET /v1/product-listings` no longer waits for a stalled embedding provider until the request times out with `408`. When the query embedding takes longer than about three seconds, a first page returns BM25 results, and a semantic continuation returns `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`; retry it with the unchanged cursor. Creating or updating a search filter whose text query needs an embedding returns `503` after the same deadline. Searches without text are unaffected.
+- `GET /v1/product-listings` and `GET /v1/product-listings/{productListingId}/similar` return `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE` when the search index does not answer within about four seconds, instead of waiting until the request times out with `408`.
+
 ## 2026-10-30 — Bounded Cognito signing-key refresh (#2621)
 
 - Cognito bearers naming a signing key the API has not cached are still rejected with `401`, but no longer refetch Cognito's signing keys on every request. A newly published Cognito key is accepted within about fifteen seconds.

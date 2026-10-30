@@ -31,6 +31,15 @@ pub(crate) const MAX_LOOPS_WEBHOOK_BODY_BYTES: usize = 64 * 1024;
 pub(crate) const PUBLICATION_REPORT_HEADROOM: Duration = Duration::from_millis(300);
 pub(crate) const NATIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const LAMBDA_REQUEST_TIMEOUT: Duration = Duration::from_secs(14);
+// An initial search page whose query embedding expires still runs its lexical search. Both
+// provider deadlines together must leave at least half of the shortest request budget for FX,
+// enrichment and the response.
+const _: () = assert!(
+    (embedding::SEARCH_QUERY_EMBEDDING_DEADLINE.as_millis()
+        + aura_historia_runtime::PRODUCT_LISTING_OPENSEARCH_TIMEOUT.as_millis())
+        * 2
+        <= LAMBDA_REQUEST_TIMEOUT.as_millis()
+);
 
 pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duration) -> Router {
     router

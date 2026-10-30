@@ -387,6 +387,10 @@ where
                             });
                         }
                         record_search_stage("query_embedding", embedding_started, "fallback");
+                        tracing::warn!(
+                            error = %source,
+                            "Query embedding failed; searching the initial page lexically"
+                        );
                         measure_search_stage(
                             "opensearch_query_embedding_fallback",
                             self.reader.search(&read_request),
