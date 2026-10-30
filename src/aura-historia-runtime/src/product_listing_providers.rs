@@ -107,10 +107,10 @@ impl LazyVertexAiEmbeddingGenerator {
     async fn generator(&self) -> Result<&VertexAiEmbeddingGenerator, EmbeddingError> {
         self.generator
             .get_or_try_init(|| async {
-                Ok(VertexAiEmbeddingGenerator::new(
+                VertexAiEmbeddingGenerator::new(
                     self.config.clone(),
                     self.adc_provider.credentials()?,
-                ))
+                )
             })
             .await
     }
