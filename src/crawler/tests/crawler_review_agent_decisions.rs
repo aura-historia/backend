@@ -2336,6 +2336,28 @@ async fn bulk_reviews(
     queue_order(reviews)
 }
 
+/// Records two needs-repair verdicts of the reviewer agent on each of `reviews`.
+async fn two_agent_rounds(pool: &PgPool, reviews: &[(OffsetDateTime, CrawlerReviewId)]) {
+    let review_ids: Vec<uuid::Uuid> = reviews.iter().map(|(_, id)| *id.as_uuid()).collect();
+    let rounds: Vec<uuid::Uuid> = review_ids.iter().chain(&review_ids).copied().collect();
+    sqlx::query(
+        "INSERT INTO crawler_review_events \
+         (event_id, review_id, actor, action, candidate_version, details) \
+         SELECT event_id, review_id, 'AGENT_REVIEWER', 'REPAIR_REQUESTED', 1, '{}' \
+         FROM UNNEST($1::uuid[], $2::uuid[]) AS t(event_id, review_id)",
+    )
+    .bind(
+        rounds
+            .iter()
+            .map(|_| uuid::Uuid::now_v7())
+            .collect::<Vec<_>>(),
+    )
+    .bind(&rounds)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 /// `reviews` in the agents' queue order: oldest first, and by review id among those created at
 /// the same time.
 fn queue_order(
@@ -2406,24 +2428,7 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
     })
     .await;
     // The cap is two agent needs-repair rounds; the 30 oldest reviews reached it.
-    let waiting_ids: Vec<uuid::Uuid> = waiting.iter().map(|(_, id)| *id.as_uuid()).collect();
-    let rounds: Vec<uuid::Uuid> = waiting_ids.iter().chain(&waiting_ids).copied().collect();
-    sqlx::query(
-        "INSERT INTO crawler_review_events \
-         (event_id, review_id, actor, action, candidate_version, details) \
-         SELECT event_id, review_id, 'AGENT_REVIEWER', 'REPAIR_REQUESTED', 1, '{}' \
-         FROM UNNEST($1::uuid[], $2::uuid[]) AS t(event_id, review_id)",
-    )
-    .bind(
-        rounds
-            .iter()
-            .map(|_| uuid::Uuid::now_v7())
-            .collect::<Vec<_>>(),
-    )
-    .bind(&rounds)
-    .execute(&pool)
-    .await
-    .unwrap();
+    two_agent_rounds(&pool, &waiting).await;
     let expected_totals = PendingReviewTotals {
         workable: 230,
         waiting_for_human: 30,
@@ -2521,4 +2526,51 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
         matches!(refused, Err(ReviewRepositoryError::NotFound(id)) if id == unknown),
         "{refused:?}"
     );
+}
+
+/// Outside `agent` mode a human decides every review, so the agents' queue counts none as waiting
+/// for a human and lists every pending review as workable, also those an earlier `agent` start's
+/// agents left at the cap, which under the `agent` mode policy wait for a human.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_every_pending_review_as_workable_outside_agent_mode() {
+    let pool = get_postgres_client().await;
+    let start = OffsetDateTime::now_utc() - Duration::from_secs(3_600);
+    let reviews = bulk_reviews(&pool, 4, true, STATUS_PENDING_REVIEW, |index| {
+        start + Duration::from_secs(u64::try_from(index).unwrap())
+    })
+    .await;
+    two_agent_rounds(&pool, &reviews[..2]).await;
+    let in_order: Vec<CrawlerReviewId> = reviews.iter().map(|(_, id)| *id).collect();
+    let in_review_mode =
+        CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy::new(
+            CrawlerAuthoringMode::Review,
+            AgentLimits {
+                max_repair_rounds: NonZeroU32::new(2).unwrap(),
+                ..AgentLimits::default()
+            },
+        ));
+
+    let (listed, totals) = every_page(&in_review_mode, Some(false), 100).await;
+    assert_eq!(ids(&listed), in_order);
+    assert_eq!(
+        totals,
+        vec![PendingReviewTotals {
+            workable: 4,
+            waiting_for_human: 0,
+        }]
+    );
+    let (waiting, _) = every_page(&in_review_mode, Some(true), 100).await;
+    assert_eq!(waiting, Vec::new());
+    assert_eq!(agent_rounds(&in_review_mode, in_order[0]).await, (2, false));
+
+    let in_agent_mode = capped(&pool, 2);
+    let (_, totals) = every_page(&in_agent_mode, None, 100).await;
+    assert_eq!(
+        totals,
+        vec![PendingReviewTotals {
+            workable: 2,
+            waiting_for_human: 2,
+        }]
+    );
+    assert_eq!(agent_rounds(&in_agent_mode, in_order[0]).await, (2, true));
 }

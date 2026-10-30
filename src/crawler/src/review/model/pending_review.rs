@@ -25,7 +25,8 @@ pub struct PendingReviewSummary {
     /// The needs-repair verdicts the review agents gave the review since a human last changed or
     /// judged it.
     pub agent_rounds: u32,
-    /// Whether `agent_rounds` reached the cap, so the review waits for a human.
+    /// Whether, in `agent` authoring mode, `agent_rounds` reached the cap, so the review waits for
+    /// a human. Always `false` in the other modes, where a human decides every review.
     pub human_required: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -48,6 +49,6 @@ pub struct PendingReviewPage {
 pub struct PendingReviewTotals {
     /// Those the review agents can work.
     pub workable: i64,
-    /// Those that wait for a human (`human_required`).
+    /// Those that wait for a human (`human_required`); none outside `agent` mode.
     pub waiting_for_human: i64,
 }
