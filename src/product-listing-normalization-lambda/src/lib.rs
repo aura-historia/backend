@@ -1,7 +1,9 @@
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{
+    Dependency, FailureDiagnostic, INVALID_PERSISTED_STATE, LambdaInvocationBudget,
+};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
@@ -97,22 +99,30 @@ async fn handler_with_budget(
     .await?;
     let record_count = results.record_count;
     let response = results.finish(|attempt| {
-        let (complete, category) = match &attempt.outcome {
+        let (complete, category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(disposition) => (
                 matches!(
                     disposition,
                     ProductListingRawNormalizationJobDisposition::Complete(_)
                 ),
                 disposition.category(),
+                disposition.failure_diagnostic(),
             ),
-            RecordOutcome::MissingBody => (false, "missing_message_body"),
-            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-            RecordOutcome::TimedOut => (false, "execution_timeout"),
-            RecordOutcome::Panicked => (false, "handler_panicked"),
+            RecordOutcome::MissingBody => (false, "missing_message_body", None),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget", None),
+            RecordOutcome::TimedOut => (false, "execution_timeout", None),
+            RecordOutcome::Panicked => (false, "handler_panicked", None),
         };
         if !complete {
-            warn!(message_id = %attempt.message_id, outcome = category,
-                "Raw normalization record retained for SQS retry or redrive");
+            warn!(
+                message_id = %attempt.message_id,
+                outcome = category,
+                stage = failure.map(FailureDiagnostic::stage),
+                dependency = failure.and_then(FailureDiagnostic::dependency),
+                error_category = failure.map(FailureDiagnostic::category),
+                sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
+                "Raw normalization record retained for SQS retry or redrive"
+            );
         }
         complete
     });
@@ -128,17 +138,30 @@ async fn handler_with_budget(
 pub enum ProductListingRawNormalizationJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
-    DependencyUnavailable(&'static str),
+    DependencyUnavailable(FailureDiagnostic),
+    /// A drained wake-up whose stream still failed; the diagnostic is the first failure's.
+    StreamFailed(FailureDiagnostic),
     Poison(&'static str),
+    /// Poison caused by stored state or configuration that cannot normalize until repaired.
+    StateInvalid(FailureDiagnostic),
 }
 
 impl ProductListingRawNormalizationJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
+            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::DependencyUnavailable(_) => "normalization_unavailable",
+            Self::StreamFailed(_) => "normalization_stream_failed",
+            Self::StateInvalid(_) => "normalization_state_invalid",
+        }
+    }
+
+    pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
+        match self {
+            Self::DependencyUnavailable(failure)
+            | Self::StreamFailed(failure)
+            | Self::StateInvalid(failure) => Some(failure),
+            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
         }
     }
 }
@@ -173,25 +196,77 @@ pub async fn process_product_listing_raw_normalization_job_for_command(
                 normalization_failures = result.stream_failures.len(),
                 "raw stream drain finished"
             );
-            if !result.stream_failures.is_empty() {
-                ProductListingRawNormalizationJobDisposition::DependencyUnavailable(
-                    "normalization_stream_failed",
-                )
+            if let Some(failure) = result.stream_failures.first() {
+                ProductListingRawNormalizationJobDisposition::StreamFailed(normalization_failure(
+                    &failure.error,
+                ))
             } else if !result.continuation_stream_ids.is_empty() {
                 ProductListingRawNormalizationJobDisposition::Retry("normalization_continuation")
             } else {
                 ProductListingRawNormalizationJobDisposition::Complete("stream_drained")
             }
         }
-        Err(
-            NormalizeProductListingRawRevisionError::InvalidLimit
-            | NormalizeProductListingRawRevisionError::InvalidPersistedState { .. }
-            | NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion
-            | NormalizeProductListingRawRevisionError::NormalizationConfigurationFailed { .. },
-        ) => ProductListingRawNormalizationJobDisposition::Poison("normalization_state_invalid"),
-        Err(_) => ProductListingRawNormalizationJobDisposition::DependencyUnavailable(
-            "normalization_unavailable",
+        Err(error) => normalization_error_disposition(&error),
+    }
+}
+
+fn normalization_error_disposition(
+    error: &NormalizeProductListingRawRevisionError,
+) -> ProductListingRawNormalizationJobDisposition {
+    use NormalizeProductListingRawRevisionError as E;
+    let failure = normalization_failure(error);
+    match error {
+        E::InvalidLimit
+        | E::InvalidPersistedState { .. }
+        | E::UnsupportedStoredSchemaVersion
+        | E::NormalizationConfigurationFailed { .. } => {
+            ProductListingRawNormalizationJobDisposition::StateInvalid(failure)
+        }
+        E::PendingStreamReadFailed { .. }
+        | E::BeginTransactionFailed { .. }
+        | E::PersistenceFailed { .. }
+        | E::CanonicalWriteFailed { .. }
+        | E::CommitTransactionFailed { .. }
+        | E::DiagnosticCaseRecordFailed { .. } => {
+            ProductListingRawNormalizationJobDisposition::DependencyUnavailable(failure)
+        }
+    }
+}
+
+/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
+fn normalization_failure(error: &NormalizeProductListingRawRevisionError) -> FailureDiagnostic {
+    use NormalizeProductListingRawRevisionError as E;
+    match error {
+        E::InvalidLimit => FailureDiagnostic::rejected("normalization", "invalid_limit"),
+        E::NormalizationConfigurationFailed { .. } => {
+            FailureDiagnostic::rejected("normalization", "configuration_invalid")
+        }
+        E::InvalidPersistedState { .. } => FailureDiagnostic::new(
+            "raw_revision_read",
+            Dependency::Postgres,
+            INVALID_PERSISTED_STATE,
+            None,
         ),
+        E::UnsupportedStoredSchemaVersion => FailureDiagnostic::new(
+            "raw_revision_read",
+            Dependency::Postgres,
+            "schema_version_unsupported",
+            None,
+        ),
+        E::PendingStreamReadFailed { .. } => {
+            FailureDiagnostic::postgres("pending_stream_read", error)
+        }
+        E::BeginTransactionFailed { .. } => {
+            FailureDiagnostic::postgres("normalization_begin", error)
+        }
+        E::PersistenceFailed { .. } => FailureDiagnostic::postgres("normalization_write", error),
+        E::CanonicalWriteFailed { .. } => FailureDiagnostic::postgres("canonical_write", error),
+        E::CommitTransactionFailed { .. } => {
+            FailureDiagnostic::postgres("normalization_commit", error)
+        }
+        E::DiagnosticCaseRecordFailed { .. } => {
+            FailureDiagnostic::postgres("diagnostic_case_record", error)
+        }
     }
 }
 
@@ -215,9 +290,11 @@ pub fn command_from_job(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::transaction::TransactionError;
     use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
     use product_listing_service::ports::ProductListingRawStreamId;
+    use product_service::ports::ProductListingRawNormalizationPortError;
     use product_service::use_cases::{
         NormalizeProductListingRawRevisionCommand, NormalizeProductListingRawRevisionError,
         NormalizeProductListingRawRevisionResult, ProductListingRawNormalizationStreamFailure,
@@ -230,6 +307,7 @@ mod tests {
         },
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
 
     #[tokio::test]
     async fn acknowledges_only_a_fully_drained_or_durably_rejected_stream() {
@@ -260,6 +338,78 @@ mod tests {
             ["capped", "failed-stream", "failure"]
         );
         assert_eq!(use_case.calls(), 6);
+    }
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_once_per_retained_record_without_its_cause() {
+        let use_case = FakeUseCase::new([
+            FakeResult::FailedStream,
+            FakeResult::CommitLost,
+            FakeResult::StateInvalid,
+        ]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(
+            events([
+                (Some("failed-stream"), valid_body()),
+                (Some("commit"), valid_body()),
+                (Some("state-invalid"), valid_body()),
+            ]),
+            &use_case,
+        )
+        .await
+        .expect("handler response");
+        drop(guard);
+
+        assert_eq!(
+            failure_ids(response),
+            ["failed-stream", "commit", "state-invalid"]
+        );
+        let retained = logs
+            .events_where(
+                "message",
+                "Raw normalization record retained for SQS retry or redrive",
+            )
+            .into_iter()
+            .map(|fields| {
+                (
+                    fields["outcome"].as_str().map(str::to_owned),
+                    fields["stage"].as_str().map(str::to_owned),
+                    fields["dependency"].as_str().map(str::to_owned),
+                    fields["error_category"].as_str().map(str::to_owned),
+                )
+            })
+            .collect::<Vec<_>>();
+        let expected = [
+            (
+                "normalization_stream_failed",
+                "normalization_write",
+                "postgres",
+                "pool_timed_out",
+            ),
+            (
+                "normalization_unavailable",
+                "normalization_commit",
+                "postgres",
+                "io",
+            ),
+            (
+                "normalization_state_invalid",
+                "raw_revision_read",
+                "postgres",
+                "invalid_persisted_state",
+            ),
+        ]
+        .map(|(outcome, stage, dependency, category)| {
+            (
+                Some(outcome.to_owned()),
+                Some(stage.to_owned()),
+                Some(dependency.to_owned()),
+                Some(category.to_owned()),
+            )
+        });
+        assert_eq!(expected.as_slice(), retained.as_slice());
+        assert!(!logs.text().contains("SENTINEL"));
     }
 
     #[tokio::test]
@@ -355,6 +505,8 @@ mod tests {
         Capped,
         FailedStream,
         Failure,
+        CommitLost,
+        StateInvalid,
         Pending,
         Panic,
     }
@@ -395,13 +547,33 @@ mod tests {
                 Some(FakeResult::FailedStream) => Ok(NormalizeProductListingRawRevisionResult {
                     stream_failures: vec![ProductListingRawNormalizationStreamFailure {
                         product_listing_raw_stream_id: stream_id(),
-                        error_code: "PERSISTENCE_FAILED",
+                        error: NormalizeProductListingRawRevisionError::PersistenceFailed {
+                            source: ProductListingRawNormalizationPortError::Persistence {
+                                source: Box::new(sqlx::Error::PoolTimedOut),
+                            },
+                        },
                     }],
                     ..Default::default()
                 }),
                 Some(FakeResult::Failure) => {
                     Err(NormalizeProductListingRawRevisionError::InvalidLimit)
                 }
+                Some(FakeResult::CommitLost) => Err(
+                    NormalizeProductListingRawRevisionError::CommitTransactionFailed {
+                        source: TransactionError::CommitFailed(Box::new(sqlx::Error::Io(
+                            std::io::Error::other("SENTINEL_PAYLOAD_TOKEN_person@example.com"),
+                        ))),
+                    },
+                ),
+                Some(FakeResult::StateInvalid) => Err(
+                    NormalizeProductListingRawRevisionError::InvalidPersistedState {
+                        source: ProductListingRawNormalizationPortError::InvalidPersistedState {
+                            source: application::error::static_error(
+                                "SENTINEL_PAYLOAD_TOKEN_person@example.com",
+                            ),
+                        },
+                    },
+                ),
                 Some(FakeResult::Pending) => std::future::pending().await,
                 Some(FakeResult::Panic) => panic!("test panic"),
                 None => Ok(Default::default()),
