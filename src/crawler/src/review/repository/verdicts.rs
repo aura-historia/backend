@@ -823,22 +823,42 @@ async fn reclassify_domain_urls(
 }
 
 /// Lets the scheduler crawl a domain again whose last crawl stopped at a URL-pattern review,
-/// now that the review is decided. Rows written before the review-wait outcome existed carry
-/// the wait as `last_crawl_error_kind` instead and are released the same way.
+/// now that the review is decided, and clears that crawl's review-wait outcome, so the domain
+/// reports no crawl outcome until its next crawl records one. A domain that still has a pending
+/// URL-pattern review keeps the outcome, which then reports its wait on that review; only a
+/// restore can find one, since a verdict has just closed the domain's one pending review. Rows
+/// written before the review-wait outcome existed carry the wait as `last_crawl_error_kind`
+/// instead and are released the same way. A released domain no longer matches, so releasing it
+/// again changes nothing.
+///
+/// The pending-review check takes no lock of its own: a review opened for the domain while the
+/// caller's transaction runs is either seen by it or commits after it. Opening a review locks
+/// the domain row `FOR KEY SHARE`, which waits for the `FOR UPDATE` lock approval and restore
+/// take on it first, and a rejection's closed review keeps the domain's one pending URL-pattern
+/// review slot in the unique index until it commits. A crawl that opens a review after the
+/// release records its own wait on it.
 async fn release_domain_waiting_for_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
     domain_id: CrawlerDomainId,
 ) -> Result<(), ReviewRepositoryError> {
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_source_domains AS d \
          SET next_crawl_at = NULL, \
              last_crawl_error_kind = CASE \
-                 WHEN last_crawl_error_kind = 'PendingUrlPatternReview' THEN NULL \
-                 ELSE last_crawl_error_kind \
+                 WHEN d.last_crawl_error_kind = 'PendingUrlPatternReview' THEN NULL \
+                 ELSE d.last_crawl_error_kind \
+             END, \
+             last_crawl_outcome = CASE \
+                 WHEN d.last_crawl_outcome = $3 AND NOT EXISTS ( \
+                     SELECT 1 FROM crawler_reviews r \
+                     WHERE r.domain_id = d.domain_id AND r.artifact_type = 'URL_PATTERN' \
+                       AND r.status = 'PENDING_REVIEW' \
+                 ) THEN NULL \
+                 ELSE d.last_crawl_outcome \
              END \
-         WHERE listing_source_id = $1 AND domain_id = $2 \
-           AND (last_crawl_error_kind = 'PendingUrlPatternReview' OR last_crawl_outcome = $3)",
+         WHERE d.listing_source_id = $1 AND d.domain_id = $2 \
+           AND (d.last_crawl_error_kind = 'PendingUrlPatternReview' OR d.last_crawl_outcome = $3)",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(domain_id.as_uuid())

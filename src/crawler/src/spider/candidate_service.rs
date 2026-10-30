@@ -12,7 +12,8 @@ pub const SPIDER_RECRAWL_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 
 pub const FAILED_CRAWL_OUTCOME: &str = "FAILED";
 
 /// Persisted `last_crawl_outcome` of a run that stopped classifying at a
-/// pending URL-pattern review. The review's decision releases the domain.
+/// pending URL-pattern review. The review's decision releases the domain and
+/// clears this outcome.
 pub const AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME: &str = "AWAITING_URL_PATTERN_REVIEW";
 
 /// Persisted `last_crawl_outcome` of a domain whose deterministic failures
