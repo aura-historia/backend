@@ -6,8 +6,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::Mutex;
+use tokio::time::Instant;
 use user_service::ports::{
     COGNITO_SESSION_CLOCK_SKEW_SECONDS, CognitoIdentity, CognitoIssuer, CognitoSubject,
 };
@@ -81,7 +82,7 @@ impl JwksProvider for ReqwestJwksProvider {
     }
 }
 
-const DEFAULT_JWKS_CACHE_TTL: Duration = Duration::from_secs(300);
+const JWKS_CACHE_TTL: Duration = Duration::from_secs(300);
 
 struct JwksCache {
     algorithms: HashMap<String, Arc<Algorithm>>,
@@ -94,22 +95,12 @@ pub struct CognitoJwtAuthenticator<P, R> {
     provider: P,
     resolve_user: R,
     verifier: Verifier,
-    cache_ttl: Duration,
     jwks_cache: Arc<RwLock<JwksCache>>,
     refresh_lock: Mutex<()>,
 }
 
 impl<P, R> CognitoJwtAuthenticator<P, R> {
     pub fn new(config: CognitoJwtConfig, provider: P, resolve_user: R) -> Result<Self, AuthError> {
-        Self::with_cache_ttl(config, provider, resolve_user, DEFAULT_JWKS_CACHE_TTL)
-    }
-
-    fn with_cache_ttl(
-        config: CognitoJwtConfig,
-        provider: P,
-        resolve_user: R,
-        cache_ttl: Duration,
-    ) -> Result<Self, AuthError> {
         let identity_issuer = CognitoIssuer::try_from(config.issuer.as_str())
             .map_err(|error| AuthError::Internal(error.to_string()))?;
         let verifier = Verifier::create()
@@ -122,7 +113,6 @@ impl<P, R> CognitoJwtAuthenticator<P, R> {
             provider,
             resolve_user,
             verifier,
-            cache_ttl,
             jwks_cache: Arc::new(RwLock::new(JwksCache {
                 algorithms: HashMap::new(),
                 refreshed_at: None,
@@ -175,7 +165,7 @@ where
     }
 
     fn is_cache_fresh(&self, refreshed_at: Option<Instant>) -> bool {
-        refreshed_at.is_some_and(|refreshed_at| refreshed_at.elapsed() < self.cache_ttl)
+        refreshed_at.is_some_and(|refreshed_at| refreshed_at.elapsed() < JWKS_CACHE_TTL)
     }
 
     async fn refresh_jwks(&self) -> Result<(), AuthError> {
@@ -184,18 +174,7 @@ where
             .fetch_jwks(&self.config.jwks_url)
             .await
             .map_err(|_| AuthError::TemporarilyUnavailable)?;
-        let algorithms = jwks
-            .keys
-            .into_iter()
-            .filter(|key| matches!(key.alg.as_deref(), None | Some("RS256")))
-            .map(|key| {
-                let mut algorithm =
-                    Algorithm::new_rsa_n_e_b64_verifier(AlgorithmID::RS256, &key.n, &key.e)
-                        .map_err(|error| AuthError::Internal(error.to_string()))?;
-                algorithm.set_kid(&key.kid);
-                Ok((key.kid, Arc::new(algorithm)))
-            })
-            .collect::<Result<HashMap<_, _>, AuthError>>()?;
+        let algorithms = verifier_algorithms(jwks)?;
         let mut cache = self
             .jwks_cache
             .write()
@@ -250,6 +229,20 @@ where
             capabilities: BTreeSet::new(),
         })
     }
+}
+
+fn verifier_algorithms(jwks: JsonWebKeySet) -> Result<HashMap<String, Arc<Algorithm>>, AuthError> {
+    jwks.keys
+        .into_iter()
+        .filter(|key| matches!(key.alg.as_deref(), None | Some("RS256")))
+        .map(|key| {
+            let mut algorithm =
+                Algorithm::new_rsa_n_e_b64_verifier(AlgorithmID::RS256, &key.n, &key.e)
+                    .map_err(|error| AuthError::Internal(error.to_string()))?;
+            algorithm.set_kid(&key.kid);
+            Ok((key.kid, Arc::new(algorithm)))
+        })
+        .collect()
 }
 
 fn map_resolve_user_error(error: ResolveCognitoUserError) -> AuthError {
@@ -496,17 +489,69 @@ mod tests {
         resolve_calls: ResolveCalls,
     ) -> Result<TestAuthenticator, AuthError> {
         CognitoJwtAuthenticator::new(
-            CognitoJwtConfig::new(
-                "https://issuer.example/pool",
-                "https://issuer.example/pool/.well-known/jwks.json",
-                ["audience-1"],
-            ),
+            test_config(),
             FakeJwksProvider { result, calls },
             FakeResolveCognitoUserUseCase {
                 outcome: Arc::new(Mutex::new(outcome)),
                 calls: resolve_calls,
             },
         )
+    }
+
+    fn authenticator_with_jwks_provider<P>(
+        provider: P,
+    ) -> Result<CognitoJwtAuthenticator<P, FakeResolveCognitoUserUseCase>, AuthError> {
+        CognitoJwtAuthenticator::new(
+            test_config(),
+            provider,
+            FakeResolveCognitoUserUseCase {
+                outcome: Arc::new(Mutex::new(ResolveOutcome::Found(UserId::new()))),
+                calls: Arc::new(Mutex::new(Vec::new())),
+            },
+        )
+    }
+
+    fn test_config() -> CognitoJwtConfig {
+        CognitoJwtConfig::new(
+            "https://issuer.example/pool",
+            "https://issuer.example/pool/.well-known/jwks.json",
+            ["audience-1"],
+        )
+    }
+
+    /// Authenticates `tokens` concurrently while the first token's JWKS fetch is blocked,
+    /// returning each outcome in order and the number of fetches made.
+    async fn authenticate_while_first_refresh_blocks(
+        jwks: JsonWebKeySet,
+        tokens: Vec<String>,
+    ) -> Result<(Vec<Result<TransportPrincipal, AuthError>>, usize), Box<dyn std::error::Error>>
+    {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let authenticator = Arc::new(authenticator_with_jwks_provider(BlockingJwksProvider {
+            jwks,
+            calls: calls.clone(),
+            entered: entered.clone(),
+            release: release.clone(),
+        })?);
+        let spawn_authentication = |token: String| {
+            let authenticator = authenticator.clone();
+            tokio::spawn(async move { authenticator.authenticate(&token, &metadata()).await })
+        };
+        let mut tokens = tokens.into_iter();
+        let first = tokens.next().ok_or("at least one token is required")?;
+        let mut authentications = vec![spawn_authentication(first)];
+        entered.notified().await;
+
+        authentications.extend(tokens.map(spawn_authentication));
+        release.notify_waiters();
+
+        let mut results = Vec::new();
+        for authentication in authentications {
+            results.push(authentication.await?);
+        }
+        Ok((results, lock(&calls).len()))
     }
 
     fn signed_jwt(key: &TestKey, claims: Value) -> Result<String, Box<dyn std::error::Error>> {
@@ -727,35 +772,24 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn should_keep_cached_key_when_refresh_temporarily_fails()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let authenticator = CognitoJwtAuthenticator::with_cache_ttl(
-            CognitoJwtConfig::new(
-                "https://issuer.example/pool",
-                "https://issuer.example/pool/.well-known/jwks.json",
-                ["audience-1"],
-            ),
-            SequencedJwksProvider {
-                results: Arc::new(Mutex::new(vec![
-                    Ok(JsonWebKeySet {
-                        keys: vec![jwk(&key)],
-                    }),
-                    Err(FakeJwksError::Fetch),
-                ])),
-                calls: calls.clone(),
-            },
-            FakeResolveCognitoUserUseCase {
-                outcome: Arc::new(Mutex::new(ResolveOutcome::Found(UserId::new()))),
-                calls: Arc::new(Mutex::new(Vec::new())),
-            },
-            Duration::ZERO,
-        )?;
+        let authenticator = authenticator_with_jwks_provider(SequencedJwksProvider {
+            results: Arc::new(Mutex::new(vec![
+                Ok(JsonWebKeySet {
+                    keys: vec![jwk(&key)],
+                }),
+                Err(FakeJwksError::Fetch),
+            ])),
+            calls: calls.clone(),
+        })?;
         let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
 
         let _ = authenticator.authenticate(&token, &metadata()).await?;
+        tokio::time::advance(JWKS_CACHE_TTL).await;
         let principal = authenticator.authenticate(&token, &metadata()).await?;
 
         assert!(matches!(principal, TransportPrincipal::User { .. }));
@@ -767,56 +801,22 @@ mod tests {
     async fn should_refresh_jwks_once_for_concurrent_unknown_kid()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let entered = Arc::new(Notify::new());
-        let release = Arc::new(Notify::new());
-        let authenticator = Arc::new(CognitoJwtAuthenticator::new(
-            CognitoJwtConfig::new(
-                "https://issuer.example/pool",
-                "https://issuer.example/pool/.well-known/jwks.json",
-                ["audience-1"],
-            ),
-            BlockingJwksProvider {
-                jwks: JsonWebKeySet {
-                    keys: vec![jwk(&key)],
-                },
-                calls: calls.clone(),
-                entered: entered.clone(),
-                release: release.clone(),
-            },
-            FakeResolveCognitoUserUseCase {
-                outcome: Arc::new(Mutex::new(ResolveOutcome::Found(UserId::new()))),
-                calls: Arc::new(Mutex::new(Vec::new())),
-            },
-        )?);
         let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
-        let first_authenticator = authenticator.clone();
-        let first_token = token.clone();
-        let first = tokio::spawn(async move {
-            first_authenticator
-                .authenticate(&first_token, &metadata())
-                .await
-        });
-        entered.notified().await;
 
-        let mut pending = Vec::new();
-        for _ in 0..4 {
-            let authenticator = authenticator.clone();
-            let token = token.clone();
-            pending.push(tokio::spawn(async move {
-                authenticator.authenticate(&token, &metadata()).await
-            }));
-        }
-        release.notify_waiters();
+        let (results, fetches) = authenticate_while_first_refresh_blocks(
+            JsonWebKeySet {
+                keys: vec![jwk(&key)],
+            },
+            vec![token; 5],
+        )
+        .await?;
 
-        assert!(matches!(first.await??, TransportPrincipal::User { .. }));
-        for pending_authentication in pending {
-            assert!(matches!(
-                pending_authentication.await??,
-                TransportPrincipal::User { .. }
-            ));
-        }
-        assert_eq!(1, lock(&calls).len());
+        assert!(
+            results
+                .iter()
+                .all(|result| matches!(result, Ok(TransportPrincipal::User { .. })))
+        );
+        assert_eq!(1, fetches);
         Ok(())
     }
 
