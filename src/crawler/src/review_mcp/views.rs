@@ -41,7 +41,7 @@ const MAX_PROJECTION_JSON_BYTES: usize = 40 * 1024;
 /// One page of the pending reviews the agents can work.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PendingReviews {
-    /// Pending reviews of crawl-enabled ListingSources that do not wait for a human, newest first:
+    /// Pending reviews of crawl-enabled ListingSources that do not wait for a human, oldest first:
     /// at most 50, those after the review `after` named.
     pub reviews: Vec<PendingReview>,
     /// How many pending reviews of crawl-enabled ListingSources the agents can work, on every page

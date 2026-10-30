@@ -65,7 +65,7 @@ pub struct HumanRequiredReview {
     pub repair_request: Option<RepairRequest>,
 }
 
-/// Every pending product-schema and URL-pattern review of crawl-enabled ListingSources, newest
+/// Every pending product-schema and URL-pattern review of crawl-enabled ListingSources, oldest
 /// first: those the agents can work and those that wait for a human. A review of a disabled
 /// ListingSource holds nothing back, so it waits until the source is crawled again.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

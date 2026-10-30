@@ -432,7 +432,7 @@ impl CrawlerReviewRepository {
     }
 
     /// A page of the review agents' queue, the pending reviews of crawl-enabled ListingSources,
-    /// newest first, with the totals of the whole queue; see [`PendingReviewQuery`].
+    /// oldest first, with the totals of the whole queue; see [`PendingReviewQuery`].
     pub async fn list_pending_reviews(
         &self,
         query: PendingReviewQuery,

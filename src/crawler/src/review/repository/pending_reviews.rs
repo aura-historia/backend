@@ -1,9 +1,11 @@
-//! The review agents' queue: the pending reviews of crawl-enabled ListingSources, newest first, read
+//! The review agents' queue: the pending reviews of crawl-enabled ListingSources, oldest first, read
 //! page by page, all of them or only those that do or do not wait for a human, with the totals of
-//! the whole queue counted in SQL. A page starts after the review the previous one ended with, by
-//! that review's creation time and id, which never change, so a review that closes or comes to wait
-//! for a human between two pages moves no other review across the page boundary. The contract is
-//! in `docs/crawler/operations.md` (review service).
+//! the whole queue counted in SQL. Oldest first, newer reviews never keep the longest-waiting one
+//! from the agents, and a review opened while a reader pages through joins the end. A page starts
+//! after the review the previous one ended with, by that review's creation time and id, which
+//! never change, so a review that closes or comes to wait for a human between two pages moves no
+//! other review across the page boundary. The contract is in `docs/crawler/operations.md` (review
+//! service).
 
 use super::repair_rounds::{agent_round_binds, agent_rounds_of_review};
 use super::{
@@ -85,13 +87,13 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
      page AS ( \
          SELECT * FROM queue \
          WHERE ($5::boolean IS NULL OR (agent_rounds >= $4) = $5) \
-           AND ($6::timestamptz IS NULL OR (created, review_id) < ($6, $7::uuid)) \
-         ORDER BY created DESC, review_id DESC \
+           AND ($6::timestamptz IS NULL OR (created, review_id) > ($6, $7::uuid)) \
+         ORDER BY created, review_id \
          LIMIT $8 \
      ) \
      SELECT t.workable, t.waiting_for_human, p.* \
      FROM totals t LEFT JOIN page p ON TRUE \
-     ORDER BY p.created DESC, p.review_id DESC"
+     ORDER BY p.created, p.review_id"
 );
 
 /// The page of the agents' queue `query` asks for. A review that `query.after` names but that does

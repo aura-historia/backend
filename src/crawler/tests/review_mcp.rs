@@ -423,7 +423,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
     assert_eq!(reject_elsewhere["kind"], "REVIEW_OUTSIDE_SCOPE");
     scoped.close().await;
 
-    // Reads: the queue page by page, newest first.
+    // Reads: the queue page by page, oldest first.
     let queue = author
         .call("list_pending_reviews", json!({}))
         .await
@@ -436,18 +436,18 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         ),
         (&json!(2), &json!(0), &json!(false))
     );
-    assert_eq!(queue["reviews"][0]["review_id"], url_pattern.to_string());
+    assert_eq!(queue["reviews"][0]["review_id"], product_schema.to_string());
     let after_first = author
         .call(
             "list_pending_reviews",
-            json!({ "after": url_pattern.to_string() }),
+            json!({ "after": product_schema.to_string() }),
         )
         .await
         .unwrap();
     assert_eq!(after_first["reviews"], json!([queue["reviews"][1].clone()]));
     assert_eq!(
         after_first["reviews"][0]["review_id"],
-        product_schema.to_string()
+        url_pattern.to_string()
     );
     let review = author
         .call(

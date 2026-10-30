@@ -33,7 +33,7 @@ pub struct PendingReviewSummary {
     pub updated: OffsetDateTime,
 }
 
-/// One page of the agents' queue, newest first, and the totals of the whole queue.
+/// One page of the agents' queue, oldest first, and the totals of the whole queue.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingReviewPage {
     pub reviews: Vec<PendingReviewSummary>,

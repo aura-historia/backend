@@ -2399,14 +2399,12 @@ async fn bulk_reviews(
     queue_order(reviews)
 }
 
-/// `reviews` in the agents' queue order: newest first, and by review id among those created at
+/// `reviews` in the agents' queue order: oldest first, and by review id among those created at
 /// the same time.
 fn queue_order(
     mut reviews: Vec<(OffsetDateTime, CrawlerReviewId)>,
 ) -> Vec<(OffsetDateTime, CrawlerReviewId)> {
-    reviews.sort_by(|(created, id), (other_created, other_id)| {
-        (other_created, other_id.as_uuid()).cmp(&(created, id.as_uuid()))
-    });
+    reviews.sort_by_key(|(created, id)| (*created, *id.as_uuid()));
     reviews
 }
 
@@ -2444,8 +2442,8 @@ fn ids(reviews: &[PendingReviewSummary]) -> Vec<CrawlerReviewId> {
 }
 
 /// More pending reviews of crawl-enabled ListingSources than the 200 rows of the browser console's
-/// `GET /api/reviews`, the newest of which wait for a human: the agents' queue lists every
-/// workable one page by page, newest first, and the ones that wait for a human apart, so they take
+/// `GET /api/reviews`, the oldest of which wait for a human: the agents' queue lists every
+/// workable one page by page, oldest first, and the ones that wait for a human apart, so they take
 /// no workable review's place; each page answers the totals of the whole queue, counted in SQL; a
 /// review that closes between two pages moves no other review across the page boundary; and
 /// neither a pending review of a disabled ListingSource nor a closed review is in the queue.
@@ -2455,7 +2453,7 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
     let repository = capped(&pool, 2);
     let start = OffsetDateTime::now_utc() - Duration::from_secs(86_400);
     // Two reviews share each time, so the order and the page boundaries also rest on the id.
-    let at = |offset: usize| start - Duration::from_secs(u64::try_from(offset / 2).unwrap());
+    let at = |offset: usize| start + Duration::from_secs(u64::try_from(offset / 2).unwrap());
     let waiting = bulk_reviews(&pool, 30, true, STATUS_PENDING_REVIEW, at).await;
     let workable = bulk_reviews(&pool, 230, true, STATUS_PENDING_REVIEW, |index| {
         at(30 + index)
@@ -2469,7 +2467,7 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
         start + Duration::from_secs(u64::try_from(index + 1).unwrap())
     })
     .await;
-    // The cap is two agent needs-repair rounds; the 30 newest reviews reached it.
+    // The cap is two agent needs-repair rounds; the 30 oldest reviews reached it.
     let waiting_ids: Vec<uuid::Uuid> = waiting.iter().map(|(_, id)| *id.as_uuid()).collect();
     let rounds: Vec<uuid::Uuid> = waiting_ids.iter().chain(&waiting_ids).copied().collect();
     sqlx::query(
