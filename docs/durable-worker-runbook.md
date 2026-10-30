@@ -163,7 +163,13 @@ refused the request itself and `unknown` when the service did not say which syst
 `unclassified` means the cause had no safe classification; inspect the dependency. Use these
 fields to choose a repair before a redrive: `invalid_persisted_state` and `document_invalid`
 point to data to repair, not an outage. They never carry error messages, provider bodies or
-payloads.
+payloads. Expected claim contention is retained without a failure event.
+
+A Lambda that cannot refresh its PostgreSQL credentials or build its pool records one
+`lambda.setup.failed` event with `component` and the same fields (for example
+`credential_refresh`/`secrets_manager`/`timeout`) before failing the invocation. The router's
+`worker SQS publication finished` and `worker SQS queue validation failed` events carry the SQS
+`error_category` (such as `throttled`, `access_denied` or `queue_missing`) and `http_status`.
 
 FIFO consumers park a record that can never succeed as delivered on its first redelivery
 instead of retaining it for the whole retry budget: they send the unchanged body to the
