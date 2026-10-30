@@ -107,13 +107,19 @@ pub enum RunnerError {
 /// a `--once` between two runs works.
 pub async fn run_every_interval(settings: &RunnerSettings, stop: &RunnerStop) {
     while !stop.is_requested() {
-        if let Err(run_error) = run(settings, stop).await {
-            error!(
+        match run(settings, stop).await {
+            Ok(_) => {}
+            Err(run_error) if stop.is_requested() => error!(
+                error = %run_error,
+                cause = ?std::error::Error::source(&run_error),
+                "Review agent run failed while the runner stops"
+            ),
+            Err(run_error) => error!(
                 error = %run_error,
                 cause = ?std::error::Error::source(&run_error),
                 interval_seconds = settings.interval.as_secs(),
                 "Review agent run failed; the next run follows after the interval"
-            );
+            ),
         }
         tokio::select! {
             () = tokio::time::sleep(settings.interval) => {}
