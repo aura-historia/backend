@@ -41,6 +41,7 @@ pub struct CleanupConsentWorkflowHandler<U, C, M, K> {
 
 #[derive(Clone, Copy)]
 enum CleanupTarget {
+    UnconfirmedChallenges,
     ConfirmedChallenges,
     CompletedIntents,
     WebhookReceipts,
@@ -49,6 +50,7 @@ enum CleanupTarget {
 impl CleanupTarget {
     const fn label(&self) -> &'static str {
         match self {
+            Self::UnconfirmedChallenges => "unconfirmed_challenges",
             Self::ConfirmedChallenges => "confirmed_challenges",
             Self::CompletedIntents => "completed_intents",
             Self::WebhookReceipts => "webhook_receipts",
@@ -83,31 +85,17 @@ where
             return Err(CleanupConsentWorkflowError::InvalidBatchSize);
         }
         let now = self.clock.now_utc();
-        let mut tx = self.begin().await?;
         let unconfirmed_challenges_deleted = self
-            .challenges
-            .in_transaction(&mut tx)
-            .cleanup_expired(now, batch_size)
-            .await
-            .map_err(|_| CleanupConsentWorkflowError::TemporarilyUnavailable)?;
-        tx.commit()
-            .await
-            .map_err(|source| CleanupConsentWorkflowError::TransactionFailed(Box::new(source)))?;
-        tracing::info!(
-            event = "consent_workflow.cleanup_target",
-            target = "unconfirmed_challenges",
-            outcome = "success",
-            deleted = unconfirmed_challenges_deleted,
-        );
-
+            .cleanup_target(now, batch_size, CleanupTarget::UnconfirmedChallenges)
+            .await?;
         let confirmed_challenges_deleted = self
-            .run_maintenance(now, batch_size, CleanupTarget::ConfirmedChallenges)
+            .cleanup_target(now, batch_size, CleanupTarget::ConfirmedChallenges)
             .await?;
         let completed_intents_deleted = self
-            .run_maintenance(now, batch_size, CleanupTarget::CompletedIntents)
+            .cleanup_target(now, batch_size, CleanupTarget::CompletedIntents)
             .await?;
         let webhook_receipts_deleted = self
-            .run_maintenance(now, batch_size, CleanupTarget::WebhookReceipts)
+            .cleanup_target(now, batch_size, CleanupTarget::WebhookReceipts)
             .await?;
         Ok(ConsentWorkflowCleanupCounts {
             unconfirmed_challenges_deleted,
@@ -121,6 +109,7 @@ where
 impl<U, C, M, K> CleanupConsentWorkflowHandler<U, C, M, K>
 where
     U: UnitOfWork,
+    C: NewsletterConfirmationChallengesFactory<U::Tx>,
     M: ConsentWorkflowCleanupFactory<U::Tx>,
 {
     async fn begin(&self) -> Result<U::Tx, CleanupConsentWorkflowError> {
@@ -130,27 +119,16 @@ where
             .map_err(|source| CleanupConsentWorkflowError::TransactionFailed(Box::new(source)))
     }
 
-    async fn run_maintenance(
+    /// Deletes one bounded batch of `target` in its own transaction, so a later target's
+    /// failure never rolls back batches that already committed.
+    async fn cleanup_target(
         &self,
         now: OffsetDateTime,
         batch_size: u16,
         target: CleanupTarget,
     ) -> Result<u64, CleanupConsentWorkflowError> {
         let mut tx = self.begin().await?;
-        let mut cleanup = self.maintenance.in_transaction(&mut tx);
-        let deleted = match target {
-            CleanupTarget::ConfirmedChallenges => {
-                cleanup.cleanup_confirmed_challenges(now, batch_size).await
-            }
-            CleanupTarget::CompletedIntents => {
-                cleanup.cleanup_completed_intents(now, batch_size).await
-            }
-            CleanupTarget::WebhookReceipts => {
-                cleanup.cleanup_webhook_receipts(now, batch_size).await
-            }
-        }
-        .map_err(|_| CleanupConsentWorkflowError::TemporarilyUnavailable)?;
-        drop(cleanup);
+        let deleted = self.delete_batch(&mut tx, now, batch_size, target).await?;
         tx.commit()
             .await
             .map_err(|source| CleanupConsentWorkflowError::TransactionFailed(Box::new(source)))?;
@@ -161,5 +139,37 @@ where
             deleted,
         );
         Ok(deleted)
+    }
+
+    async fn delete_batch(
+        &self,
+        tx: &mut U::Tx,
+        now: OffsetDateTime,
+        batch_size: u16,
+        target: CleanupTarget,
+    ) -> Result<u64, CleanupConsentWorkflowError> {
+        let deleted = match target {
+            CleanupTarget::UnconfirmedChallenges => {
+                return self
+                    .challenges
+                    .in_transaction(tx)
+                    .cleanup_expired(now, batch_size)
+                    .await
+                    .map_err(|_| CleanupConsentWorkflowError::TemporarilyUnavailable);
+            }
+            CleanupTarget::ConfirmedChallenges => {
+                let mut cleanup = self.maintenance.in_transaction(tx);
+                cleanup.cleanup_confirmed_challenges(now, batch_size).await
+            }
+            CleanupTarget::CompletedIntents => {
+                let mut cleanup = self.maintenance.in_transaction(tx);
+                cleanup.cleanup_completed_intents(now, batch_size).await
+            }
+            CleanupTarget::WebhookReceipts => {
+                let mut cleanup = self.maintenance.in_transaction(tx);
+                cleanup.cleanup_webhook_receipts(now, batch_size).await
+            }
+        };
+        deleted.map_err(|_| CleanupConsentWorkflowError::TemporarilyUnavailable)
     }
 }

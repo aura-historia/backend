@@ -12,9 +12,10 @@ use platform_opensearch::{
 };
 
 use money::Price;
-use opensearch::http::Method;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
+use opensearch::http::response::Response;
+use opensearch::http::{Method, StatusCode};
 use opensearch::{OpenSearch, SearchParts};
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
@@ -130,18 +131,7 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             .send()
             .await
             .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
-        let response = read_response(response)
-            .await
-            .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
-        if !response.status().is_success() {
-            return Err(ProductListingSearchReadError::ProductListingSearchQueryFailed);
-        }
-        let payload = response.into_body();
-        let search_response =
-            serde_json::from_str::<SearchResponse<ProductListingDocument>>(&payload)
-                .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?
-                .into_non_timed_out("product search")
-                .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
+        let search_response = read_search_response(response, "product search").await?;
 
         map_search_response(&request.compiled_search, search_response)
     }
@@ -171,21 +161,34 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             )
             .await
             .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
-        let response = read_response(response)
-            .await
-            .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
-        if !response.status().is_success() {
-            return Err(ProductListingSearchReadError::ProductListingSearchQueryFailed);
-        }
-        let payload = response.into_body();
-        let search_response =
-            serde_json::from_str::<SearchResponse<ProductListingDocument>>(&payload)
-                .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?
-                .into_non_timed_out("product hybrid search")
-                .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
+        let search_response = read_search_response(response, "product hybrid search").await?;
 
         map_hybrid_search_response(&request.compiled_search, search_response, &request.cursor)
     }
+}
+
+async fn read_search_response(
+    response: Response,
+    request_kind: &'static str,
+) -> Result<SearchResponse<ProductListingDocument>, ProductListingSearchReadError> {
+    let response = read_response(response)
+        .await
+        .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
+    decode_search_response(response.status(), response.body(), request_kind)
+}
+
+fn decode_search_response(
+    status: StatusCode,
+    payload: &str,
+    request_kind: &'static str,
+) -> Result<SearchResponse<ProductListingDocument>, ProductListingSearchReadError> {
+    if !status.is_success() {
+        return Err(ProductListingSearchReadError::ProductListingSearchQueryFailed);
+    }
+    serde_json::from_str::<SearchResponse<ProductListingDocument>>(payload)
+        .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?
+        .into_non_timed_out(request_kind)
+        .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)
 }
 
 pub(crate) fn map_search_response(
