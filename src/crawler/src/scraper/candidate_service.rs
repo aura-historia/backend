@@ -548,12 +548,48 @@ struct ScraperCandidateRow {
     schema_review_wait_streak: i32,
 }
 
+/// The ListingSource and domain conditions of scraper eligibility over `listing_sources s` and
+/// `listing_source_domains sd`: crawling is enabled, the ListingSource has LLM budget left
+/// (`$1`, the per-ListingSource LLM call cap) and the domain circuit is not cooling down.
+macro_rules! scrapable_domain_conditions {
+    () => {
+        r#"s.crawl_enabled = TRUE
+          AND s.llm_calls_count < $1
+          AND (sd.scrape_failure_streak = 0
+               OR sd.next_scrape_at IS NULL
+               OR sd.next_scrape_at <= NOW())"#
+    };
+}
+
+/// Whether the ListingSource of `listing_source_domains sd` waits on its first product schema:
+/// it has no product schema while its product-schema review is pending, so none of its URLs is
+/// scraped until the review is decided.
+macro_rules! awaits_first_product_schema {
+    () => {
+        r#"(NOT EXISTS (
+                  SELECT 1
+                  FROM listing_source_product_schemas ps
+                  WHERE ps.listing_source_id = sd.listing_source_id
+                    AND (jsonb_typeof(ps.product_schema) <> 'array'
+                         OR jsonb_array_length(ps.product_schema) > 0)
+              )
+              AND EXISTS (
+                  SELECT 1
+                  FROM crawler_reviews cr
+                  WHERE cr.listing_source_id = sd.listing_source_id
+                    AND cr.artifact_type = 'PRODUCT_SCHEMA'
+                    AND cr.status = 'PENDING_REVIEW'
+              ))"#
+    };
+}
+
 /// The URLs due for scraping, shared by every query that selects or counts them so their
 /// definitions cannot drift. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the
 /// domain IDs to leave out.
 macro_rules! eligible_scraper_urls_cte {
     () => {
-        r#"
+        concat!(
+            r#"
     WITH eligible_urls AS (
         SELECT
             su.listing_source_id, sd.domain_id, sd.listing_source_domain,
@@ -579,33 +615,19 @@ macro_rules! eligible_scraper_urls_cte {
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
         JOIN listing_source_domains sd
           ON sd.listing_source_id = su.listing_source_id AND sd.domain_id = su.domain_id
-        WHERE s.crawl_enabled = TRUE
-          AND s.llm_calls_count < $1
+        WHERE "#,
+            scrapable_domain_conditions!(),
+            r#"
           AND su.url_class = 'product'
           AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
           AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
           AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
-          AND (sd.scrape_failure_streak = 0
-               OR sd.next_scrape_at IS NULL
-               OR sd.next_scrape_at <= NOW())
-          AND (
-              EXISTS (
-                  SELECT 1
-                  FROM listing_source_product_schemas ps
-                  WHERE ps.listing_source_id = su.listing_source_id
-                    AND (jsonb_typeof(ps.product_schema) <> 'array'
-                         OR jsonb_array_length(ps.product_schema) > 0)
-              )
-              OR NOT EXISTS (
-                  SELECT 1
-                  FROM crawler_reviews cr
-                  WHERE cr.listing_source_id = su.listing_source_id
-                    AND cr.artifact_type = 'PRODUCT_SCHEMA'
-                    AND cr.status = 'PENDING_REVIEW'
-              )
-          )
+          AND NOT "#,
+            awaits_first_product_schema!(),
+            r#"
           AND NOT (sd.domain_id = ANY($2))
     )"#
+        )
     };
 }
 
