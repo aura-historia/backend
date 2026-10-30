@@ -75,20 +75,24 @@ async fn should_search_parties_with_filters_bounded_pages_and_stable_cursor() {
     assert_eq!(2, first_page.items.len());
     assert_eq!(first_id, first_page.items[0].party_id);
     assert_eq!(second_id, first_page.items[1].party_id);
-    assert_eq!(Some(second_id), first_page.cursor.search_after);
+    assert_eq!(
+        Some(second_id),
+        first_page
+            .cursor
+            .search_after
+            .as_ref()
+            .map(|cursor| cursor.id)
+    );
 
     let next_request = SearchPartiesRequest {
-        cursor: Some(Cursor {
-            size: first_page.cursor.size,
-            search_after: first_page.cursor.search_after,
-        }),
+        cursor: Some(first_page.cursor),
         ..request
     };
     let second_page = search(&unit_of_work, &reader_factory, &next_request).await;
 
     assert_eq!(1, second_page.items.len());
     assert_eq!(third_id, second_page.items[0].party_id);
-    assert_eq!(None, second_page.cursor.search_after);
+    assert!(second_page.cursor.search_after.is_none());
 
     let contact_request = SearchPartiesRequest {
         search: PartySearch {
@@ -146,7 +150,157 @@ async fn should_return_empty_party_search_result() {
     let result = search(&unit_of_work, &reader_factory, &request).await;
 
     assert!(result.items.is_empty());
-    assert_eq!(None, result.cursor.search_after);
+    assert!(result.cursor.search_after.is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_continue_after_the_anchor_is_deleted_or_leaves_the_filter() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let reader_factory = SqlxPartySearchReaderFactory::new();
+    let ids = [1, 2, 3, 4, 5].map(ordered_party_id);
+    for (party_id, name) in ids
+        .iter()
+        .zip(["Anchor A", "Anchor B", "Anchor C", "Anchor D", "Anchor E"])
+    {
+        insert_named_party(&pool, *party_id, name, None).await;
+    }
+    let first_request = SearchPartiesRequest {
+        search: PartySearch {
+            name_query: Some(text("anchor")),
+            ..Default::default()
+        },
+        sort: Some(Sort {
+            sort: SortPartyField::Name,
+            order: SortOrder::Asc,
+        }),
+        cursor: Some(Cursor {
+            size: 1,
+            search_after: None,
+        }),
+    };
+
+    let first_page = search(&unit_of_work, &reader_factory, &first_request).await;
+    assert_eq!(vec![ids[0]], party_ids(&first_page));
+    delete_party(&pool, ids[0]).await;
+
+    let second_page = search(
+        &unit_of_work,
+        &reader_factory,
+        &next(&first_request, first_page),
+    )
+    .await;
+    assert_eq!(vec![ids[1]], party_ids(&second_page));
+    rename_party(&pool, ids[1], "Renamed B").await;
+
+    let third_page = search(
+        &unit_of_work,
+        &reader_factory,
+        &next(&first_request, second_page),
+    )
+    .await;
+    assert_eq!(vec![ids[2]], party_ids(&third_page));
+    delete_party(&pool, ids[3]).await;
+
+    let last_page = search(
+        &unit_of_work,
+        &reader_factory,
+        &next(&first_request, third_page),
+    )
+    .await;
+    assert_eq!(vec![ids[4]], party_ids(&last_page));
+    assert!(last_page.cursor.search_after.is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_traverse_duplicate_and_missing_sort_values_deterministically_in_both_directions() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let reader_factory = SqlxPartySearchReaderFactory::new();
+    for (sequence, name, email) in [
+        (5, "Order Party", Some("same@example.test")),
+        (2, "Order Party", None),
+        (4, "Order Twin", Some("same@example.test")),
+        (1, "Order Twin", Some("first@example.test")),
+        (3, "Order Party", None),
+        (6, "Order Last", Some("zulu@example.test")),
+    ] {
+        insert_named_party(&pool, ordered_party_id(sequence), name, email).await;
+    }
+
+    for sort in [
+        SortPartyField::Name,
+        SortPartyField::Email,
+        SortPartyField::Phone,
+    ] {
+        for order in [SortOrder::Asc, SortOrder::Desc] {
+            let request = SearchPartiesRequest {
+                search: PartySearch {
+                    name_query: Some(text("order")),
+                    ..Default::default()
+                },
+                sort: Some(Sort { sort, order }),
+                cursor: Some(Cursor {
+                    size: 100,
+                    search_after: None,
+                }),
+            };
+            let whole = party_ids(&search(&unit_of_work, &reader_factory, &request).await);
+            let mut paged = Vec::new();
+            let mut page = search(&unit_of_work, &reader_factory, &with_size(&request, 1)).await;
+            loop {
+                paged.extend(party_ids(&page));
+                if page.cursor.search_after.is_none() {
+                    break;
+                }
+                page = search(&unit_of_work, &reader_factory, &next(&request, page)).await;
+            }
+
+            assert_eq!(6, whole.len(), "{sort:?} {order:?}");
+            assert_eq!(whole, paged, "{sort:?} {order:?}");
+        }
+    }
+    let email_desc = SearchPartiesRequest {
+        search: PartySearch {
+            name_query: Some(text("order")),
+            ..Default::default()
+        },
+        sort: Some(Sort {
+            sort: SortPartyField::Email,
+            order: SortOrder::Desc,
+        }),
+        cursor: None,
+    };
+    assert_eq!(
+        [6, 4, 5, 1, 2, 3].map(ordered_party_id).to_vec(),
+        party_ids(&search(&unit_of_work, &reader_factory, &email_desc).await)
+    );
+}
+
+fn next(
+    request: &SearchPartiesRequest,
+    page: party_service::use_cases::queries::search_parties::SearchPartiesResult,
+) -> SearchPartiesRequest {
+    SearchPartiesRequest {
+        cursor: Some(page.cursor),
+        ..request.clone()
+    }
+}
+
+fn with_size(request: &SearchPartiesRequest, size: u64) -> SearchPartiesRequest {
+    SearchPartiesRequest {
+        cursor: Some(Cursor {
+            size,
+            search_after: None,
+        }),
+        ..request.clone()
+    }
+}
+
+fn party_ids(
+    page: &party_service::use_cases::queries::search_parties::SearchPartiesResult,
+) -> Vec<PartyId> {
+    page.items.iter().map(|item| item.party_id).collect()
 }
 
 async fn search(
@@ -191,6 +345,45 @@ async fn insert_party(
     .await
     {
         panic!("failed to insert party fixture: {error}");
+    }
+}
+
+async fn insert_named_party(
+    pool: &sqlx::PgPool,
+    party_id: PartyId,
+    name: &str,
+    email: Option<&str>,
+) {
+    insert_party(
+        pool,
+        party_id,
+        name,
+        None,
+        email,
+        datetime!(2026-01-01 00:00 UTC),
+        datetime!(2026-01-01 00:00 UTC),
+    )
+    .await;
+}
+
+async fn delete_party(pool: &sqlx::PgPool, party_id: PartyId) {
+    if let Err(error) = sqlx::query("DELETE FROM parties WHERE party_id = $1")
+        .bind(party_id.into_uuid())
+        .execute(pool)
+        .await
+    {
+        panic!("failed to delete party fixture: {error}");
+    }
+}
+
+async fn rename_party(pool: &sqlx::PgPool, party_id: PartyId, name: &str) {
+    if let Err(error) = sqlx::query("UPDATE parties SET name = $2 WHERE party_id = $1")
+        .bind(party_id.into_uuid())
+        .bind(name)
+        .execute(pool)
+        .await
+    {
+        panic!("failed to rename party fixture: {error}");
     }
 }
 

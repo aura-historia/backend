@@ -3,9 +3,9 @@ use application::error::BoxError;
 use application::operation_context::{
     CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
 };
-use application::pagination::Cursor;
+use application::pagination::{Cursor, KeysetCursor, ScopeBinding, SortKey};
 use application::transaction::{Transaction, UnitOfWork};
-use domain_primitives::sort::Sort;
+use domain_primitives::sort::{Sort, SortOrder};
 use party_core::party::PartyContact;
 use party_core::party_id::PartyId;
 use party_core::party_name::PartyName;
@@ -22,7 +22,75 @@ use user_service::use_cases::queries::check_user_admin::{
 pub struct SearchPartiesRequest {
     pub search: PartySearch,
     pub sort: Option<Sort<SortPartyField>>,
-    pub cursor: Option<Cursor<PartyId>>,
+    pub cursor: Option<Cursor<PartySearchCursor>>,
+}
+
+impl SearchPartiesRequest {
+    /// The requested sort, or name ascending.
+    pub fn effective_sort(&self) -> Sort<SortPartyField> {
+        self.sort.unwrap_or(Sort {
+            sort: SortPartyField::default(),
+            order: SortOrder::Asc,
+        })
+    }
+
+    pub fn scope_binding(&self) -> ScopeBinding {
+        let search = &self.search;
+        let sort = self.effective_sort();
+        ScopeBinding::builder("party-search/v1")
+            .optional_part(search.query.as_deref())
+            .optional_part(search.name_query.as_deref())
+            .optional_part(search.phone_query.as_deref())
+            .optional_part(search.email_query.as_deref())
+            .timestamp_range(search.created)
+            .timestamp_range(search.updated)
+            .part(sort_field_code(sort.sort))
+            .part(sort.order.as_str())
+            .finish()
+    }
+
+    fn continuation_in_scope(&self) -> bool {
+        self.cursor
+            .as_ref()
+            .and_then(|cursor| cursor.search_after.as_ref())
+            .is_none_or(|after| after.continues(&self.scope_binding(), self.effective_sort().sort))
+    }
+}
+
+fn sort_field_code(field: SortPartyField) -> &'static str {
+    match field {
+        SortPartyField::Name => "name",
+        SortPartyField::Email => "email",
+        SortPartyField::Phone => "phone",
+        SortPartyField::Created => "created",
+        SortPartyField::Updated => "updated",
+    }
+}
+
+pub type PartySearchCursor = KeysetCursor<PartySortKey, PartyId>;
+
+/// Stored value of the sorted field; contact fields may be absent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PartySortKey {
+    Name(String),
+    Email(Option<String>),
+    Phone(Option<String>),
+    Created(OffsetDateTime),
+    Updated(OffsetDateTime),
+}
+
+impl SortKey for PartySortKey {
+    type Field = SortPartyField;
+
+    fn field(&self) -> SortPartyField {
+        match self {
+            Self::Name(_) => SortPartyField::Name,
+            Self::Email(_) => SortPartyField::Email,
+            Self::Phone(_) => SortPartyField::Phone,
+            Self::Created(_) => SortPartyField::Created,
+            Self::Updated(_) => SortPartyField::Updated,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,7 +106,7 @@ pub struct PartySummary {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchPartiesResult {
     pub items: Vec<PartySummary>,
-    pub cursor: Cursor<PartyId>,
+    pub cursor: Cursor<PartySearchCursor>,
     pub total: Option<u64>,
 }
 
@@ -48,6 +116,8 @@ pub enum SearchPartiesError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("party search cursor belongs to another filter or sort scope")]
+    CursorScopeMismatch,
     #[error("temporary party search failure")]
     TemporarilyUnavailable {
         #[source]
@@ -121,6 +191,9 @@ where
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
+        if !request.continuation_in_scope() {
+            return Err(SearchPartiesError::CursorScopeMismatch);
+        }
 
         let mut tx = self
             .unit_of_work
@@ -436,5 +509,103 @@ mod tests {
                 assert!(matches!(result, Err(SearchPartiesError::Forbidden)));
             }
         }
+    }
+
+    fn continuation(
+        request: &SearchPartiesRequest,
+        sort_key: PartySortKey,
+    ) -> SearchPartiesRequest {
+        SearchPartiesRequest {
+            cursor: Some(Cursor {
+                size: 2,
+                search_after: Some(PartySearchCursor {
+                    scope: request.scope_binding(),
+                    sort_key,
+                    id: PartyId::new(),
+                }),
+            }),
+            ..request.clone()
+        }
+    }
+
+    #[test]
+    fn should_bind_cursor_to_effective_filters_and_sort() {
+        let filtered = SearchPartiesRequest {
+            search: PartySearch {
+                name_query: Some(
+                    "antik"
+                        .to_owned()
+                        .try_into()
+                        .unwrap_or_else(|error| panic!("valid party name query: {error}")),
+                ),
+                ..PartySearch::default()
+            },
+            ..request()
+        };
+        let name_asc = SearchPartiesRequest {
+            sort: Some(Sort {
+                sort: SortPartyField::Name,
+                order: SortOrder::Asc,
+            }),
+            ..request()
+        };
+        let name_desc = SearchPartiesRequest {
+            sort: Some(Sort {
+                sort: SortPartyField::Name,
+                order: SortOrder::Desc,
+            }),
+            ..request()
+        };
+
+        assert_eq!(request().scope_binding(), name_asc.scope_binding());
+        assert_ne!(request().scope_binding(), filtered.scope_binding());
+        assert_ne!(request().scope_binding(), name_desc.scope_binding());
+        assert!(continuation(&filtered, PartySortKey::Name("A".into())).continuation_in_scope());
+        assert!(
+            !SearchPartiesRequest {
+                search: PartySearch::default(),
+                ..continuation(&filtered, PartySortKey::Name("A".into()))
+            }
+            .continuation_in_scope()
+        );
+        assert!(
+            !SearchPartiesRequest {
+                sort: name_desc.sort,
+                ..continuation(&name_asc, PartySortKey::Name("A".into()))
+            }
+            .continuation_in_scope()
+        );
+        assert!(!continuation(&name_asc, PartySortKey::Email(None)).continuation_in_scope());
+    }
+
+    #[tokio::test]
+    async fn should_reject_cross_scope_cursor_before_beginning_party_search_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let handler = SearchPartiesHandler::new(
+            FakeUnitOfWork(Arc::clone(&state)),
+            FakeReaderFactory(Arc::clone(&state)),
+            FakeAdmin { allowed: true },
+        );
+        let foreign = SearchPartiesRequest {
+            sort: Some(Sort {
+                sort: SortPartyField::Created,
+                order: SortOrder::Desc,
+            }),
+            ..continuation(&request(), PartySortKey::Name("A".into()))
+        };
+
+        let result = handler
+            .execute(&context(Principal::User(UserId::new())), foreign)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(SearchPartiesError::CursorScopeMismatch)
+        ));
+        let state = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(0, state.begins);
+        assert_eq!(0, state.searches);
     }
 }

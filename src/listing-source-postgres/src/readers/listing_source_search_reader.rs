@@ -1,6 +1,7 @@
-use application::error::box_error;
-use application::pagination::Cursor;
+use application::error::{box_error, static_error};
+use application::pagination::{Cursor, SortKey};
 use domain_primitives::object_id::ObjectIdError;
+use domain_primitives::sort::{Sort, SortOrder};
 
 use listing_source_core::{
     InvalidListingIngestionMethod, InvalidListingSourceSlug, ListingSourceId, ListingSourceName,
@@ -12,8 +13,8 @@ use listing_source_service::ports::{
     ListingSourceSearchReadError, ListingSourceSearchReader, ListingSourceSearchReaderFactory,
 };
 use listing_source_service::use_cases::queries::search_listing_sources::{
-    ListingSourceOperatorSummary, ListingSourceSearchSummary, SearchListingSourcesRequest,
-    SearchListingSourcesResult,
+    ListingSourceOperatorSummary, ListingSourceSearchCursor, ListingSourceSearchSummary,
+    ListingSourceSortKey, SearchListingSourcesRequest, SearchListingSourcesResult,
 };
 use party_core::{
     party_id::PartyId,
@@ -21,6 +22,7 @@ use party_core::{
     party_slug_id::{InvalidPartySlugId, PartySlugId},
 };
 use platform_postgres::SqlxTransaction;
+use platform_postgres::keyset::{self, KeysetColumn, KeysetValue};
 use sqlx::{Postgres, QueryBuilder};
 use time::OffsetDateTime;
 use url::Url;
@@ -165,7 +167,7 @@ impl ListingSourceSearchReader for SqlxListingSourceSearchReader<'_> {
         &mut self,
         request: &SearchListingSourcesRequest,
     ) -> Result<SearchListingSourcesResult, ListingSourceSearchReadError> {
-        let cursor = request.cursor.unwrap_or_default();
+        let cursor = request.cursor.clone().unwrap_or_default();
         let size = cursor.size.clamp(1, 100);
         let size_usize =
             usize::try_from(size).map_err(|source| ListingSourceSearchReadError::Internal {
@@ -175,33 +177,26 @@ impl ListingSourceSearchReader for SqlxListingSourceSearchReader<'_> {
             i64::try_from(size + 1).map_err(|source| ListingSourceSearchReadError::Internal {
                 source: box_error(source),
             })?;
-        let sort_field = request
-            .sort
-            .map_or(SortListingSourceField::default(), |sort| sort.sort);
-        let sort_order = request
-            .sort
-            .map_or("ASC", |sort| match sort.order.as_str() {
-                "asc" => "ASC",
-                "desc" => "DESC",
-                _ => "ASC",
-            });
+        let sort = request.effective_sort();
+        let columns = keyset_columns(sort);
 
         let mut builder = QueryBuilder::<Postgres>::new(
             "WITH filtered AS (SELECT s.listing_source_id, s.listing_source_slug_id, s.name AS listing_source_name, s.operator_party_id, p.party_slug_id AS operator_party_slug_id, p.name AS operator_party_name, COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS ingestion_methods, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id = s.listing_source_id WHERE TRUE",
         );
         push_filters(&mut builder, &request.search);
         builder.push(" GROUP BY s.listing_source_id, s.listing_source_slug_id, s.name, s.operator_party_id, p.party_slug_id, p.name, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated");
-        builder.push("), ranked AS (SELECT filtered.*, row_number() OVER (ORDER BY ");
-        push_sort_fields(&mut builder, sort_field, sort_order);
         builder.push(
-            ", listing_source_id ASC) AS rn FROM filtered) SELECT listing_source_id, listing_source_slug_id, listing_source_name, operator_party_id, operator_party_slug_id, operator_party_name, ingestion_methods, url, image, platform_technology, referral_configuration, created, updated FROM ranked WHERE TRUE",
+            ") SELECT listing_source_id, listing_source_slug_id, listing_source_name, operator_party_id, operator_party_slug_id, operator_party_name, ingestion_methods, url, image, platform_technology, referral_configuration, created, updated FROM filtered WHERE TRUE",
         );
-        if let Some(search_after) = cursor.search_after {
-            builder.push(" AND rn > (SELECT rn FROM ranked WHERE listing_source_id = ");
-            builder.push_bind(search_after.into_uuid());
-            builder.push(")");
+        if let Some(after) = cursor.search_after {
+            keyset::push_after(&mut builder, &columns, position(sort.sort, after)?).map_err(
+                |source| ListingSourceSearchReadError::Internal {
+                    source: box_error(source),
+                },
+            )?;
         }
-        builder.push(" ORDER BY rn LIMIT ").push_bind(limit);
+        keyset::push_order_by(&mut builder, &columns);
+        builder.push(" LIMIT ").push_bind(limit);
 
         let mut rows = builder
             .build_query_as::<ListingSourceSearchRow>()
@@ -214,9 +209,11 @@ impl ListingSourceSearchReader for SqlxListingSourceSearchReader<'_> {
             )?;
 
         let has_more = rows.len() > size_usize;
-        if has_more {
-            rows.truncate(size_usize);
-        }
+        rows.truncate(size_usize);
+        let next_sort_key = rows
+            .last()
+            .filter(|_| has_more)
+            .map(|row| row.sort_key(sort.sort));
         let items = rows
             .into_iter()
             .map(ListingSourceSearchSummary::try_from)
@@ -224,11 +221,14 @@ impl ListingSourceSearchReader for SqlxListingSourceSearchReader<'_> {
             .map_err(|source| ListingSourceSearchReadError::InvalidReadModel {
                 source: box_error(source),
             })?;
-        let search_after = if has_more {
-            items.last().map(|item| item.listing_source_id)
-        } else {
-            None
-        };
+        let search_after =
+            next_sort_key
+                .zip(items.last())
+                .map(|(sort_key, last)| ListingSourceSearchCursor {
+                    scope: request.scope_binding(),
+                    sort_key,
+                    id: last.listing_source_id,
+                });
 
         Ok(SearchListingSourcesResult {
             items,
@@ -236,6 +236,55 @@ impl ListingSourceSearchReader for SqlxListingSourceSearchReader<'_> {
             total: None,
         })
     }
+}
+
+impl ListingSourceSearchRow {
+    /// Stored value of `field`, exactly as PostgreSQL orders it.
+    fn sort_key(&self, field: SortListingSourceField) -> ListingSourceSortKey {
+        match field {
+            SortListingSourceField::Name => {
+                ListingSourceSortKey::Name(self.listing_source_name.clone())
+            }
+            SortListingSourceField::Slug => {
+                ListingSourceSortKey::Slug(self.listing_source_slug_id.clone())
+            }
+            SortListingSourceField::Created => ListingSourceSortKey::Created(self.created),
+            SortListingSourceField::Updated => ListingSourceSortKey::Updated(self.updated),
+        }
+    }
+}
+
+fn keyset_columns(sort: Sort<SortListingSourceField>) -> [KeysetColumn; 2] {
+    let column = match sort.sort {
+        SortListingSourceField::Name => "listing_source_name",
+        SortListingSourceField::Slug => "listing_source_slug_id",
+        SortListingSourceField::Created => "created",
+        SortListingSourceField::Updated => "updated",
+    };
+    [
+        KeysetColumn::required(column, sort.order),
+        KeysetColumn::required("listing_source_id", SortOrder::Asc),
+    ]
+}
+
+fn position(
+    field: SortListingSourceField,
+    after: ListingSourceSearchCursor,
+) -> Result<Vec<KeysetValue>, ListingSourceSearchReadError> {
+    if after.sort_key.field() != field {
+        return Err(ListingSourceSearchReadError::Internal {
+            source: static_error("listing source search cursor does not match the requested sort"),
+        });
+    }
+    let sort_value = match after.sort_key {
+        ListingSourceSortKey::Name(text) | ListingSourceSortKey::Slug(text) => {
+            KeysetValue::Text(text)
+        }
+        ListingSourceSortKey::Created(instant) | ListingSourceSortKey::Updated(instant) => {
+            KeysetValue::Timestamp(instant)
+        }
+    };
+    Ok(vec![sort_value, KeysetValue::Uuid(after.id.into_uuid())])
 }
 
 fn push_filters(builder: &mut QueryBuilder<Postgres>, search: &ListingSourceSearch) {
@@ -300,20 +349,6 @@ fn like_pattern(value: &str) -> String {
     }
     pattern.push('%');
     pattern
-}
-
-fn push_sort_fields(
-    builder: &mut QueryBuilder<Postgres>,
-    sort: SortListingSourceField,
-    order: &str,
-) {
-    let column = match sort {
-        SortListingSourceField::Name => "listing_source_name",
-        SortListingSourceField::Slug => "listing_source_slug_id",
-        SortListingSourceField::Created => "created",
-        SortListingSourceField::Updated => "updated",
-    };
-    builder.push(column).push(" ").push(order);
 }
 
 #[cfg(test)]

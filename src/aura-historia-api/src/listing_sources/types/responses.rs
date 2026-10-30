@@ -58,7 +58,7 @@ pub(crate) struct ListingSourceSearchCollectionData {
     pub(crate) items: Vec<ListingSourceSearchSummaryData>,
     pub(crate) size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) search_after: Option<ListingSourceId>,
+    pub(crate) search_after: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) total: Option<u64>,
 }
@@ -73,7 +73,10 @@ impl From<SearchListingSourcesResult> for ListingSourceSearchCollectionData {
         Self {
             size: items.len() as u64,
             items,
-            search_after: value.cursor.search_after,
+            search_after: value
+                .cursor
+                .search_after
+                .map(crate::listing_sources::search_listing_sources::encode_search_after),
             total: value.total,
         }
     }

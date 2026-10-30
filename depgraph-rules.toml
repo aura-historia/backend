@@ -15,7 +15,7 @@ platform-lambda-bootstrap = ["google-cloud-auth", "platform-google-adc", "platfo
 platform-lambda-sqs = ["platform-lambda-bootstrap"]
 platform-postgres-secretsmanager = ["platform-postgres"]
 platform-opensearch = []
-platform-postgres = ["application"]
+platform-postgres = ["application", "domain-primitives"]
 
 geo = []
 geo-service = ["application", "geo", "localization", "domain-primitives"]

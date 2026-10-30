@@ -23,7 +23,9 @@ use user_postgres::{SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory};
 use user_service::ports::{
     UserRepository, UserRepositoryFactory, UserSearchReader, UserSearchReaderFactory,
 };
-use user_service::use_cases::queries::search_users::{SearchUsersRequest, UserSummary};
+use user_service::use_cases::queries::search_users::{
+    SearchUsersRequest, SearchUsersResult, UserSummary,
+};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -331,6 +333,204 @@ async fn should_sort_users_by_each_user_sort_field() {
     commit(tx).await;
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_continue_after_the_anchor_is_deleted_or_leaves_the_filter() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let search = SqlxUserSearchReaderFactory::new();
+    let users = ["a", "b", "c", "d", "e"]
+        .map(|suffix| sample_user(&format!("keyset-anchor-{suffix}"), UserRole::User, None));
+    insert_users(&unit_of_work, &users).await;
+    let first_request = SearchUsersRequest {
+        search: UserSearch {
+            query: Some(text_query("keyset-anchor")),
+            role_query: std::collections::HashSet::from([UserRole::User]).into(),
+            ..Default::default()
+        },
+        sort: Some(Sort {
+            sort: SortUserField::Email,
+            order: SortOrder::Asc,
+        }),
+        cursor: Some(Cursor {
+            search_after: None,
+            size: 1,
+        }),
+    };
+
+    let first_page = search_page(&unit_of_work, &search, first_request.clone()).await;
+    assert_eq!(vec![users[0].id()], user_ids(&first_page.items));
+    delete_user(&pool, users[0].id()).await;
+
+    let second_page = search_page(&unit_of_work, &search, next(&first_request, first_page)).await;
+    assert_eq!(vec![users[1].id()], user_ids(&second_page.items));
+    set_user_role(&pool, users[1].id(), "ADMIN").await;
+
+    let third_page = search_page(&unit_of_work, &search, next(&first_request, second_page)).await;
+    assert_eq!(vec![users[2].id()], user_ids(&third_page.items));
+    delete_user(&pool, users[3].id()).await;
+
+    let last_page = search_page(&unit_of_work, &search, next(&first_request, third_page)).await;
+    assert_eq!(vec![users[4].id()], user_ids(&last_page.items));
+    assert!(last_page.cursor.search_after.is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_traverse_duplicate_and_missing_names_deterministically_in_both_directions() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let search = SqlxUserSearchReaderFactory::new();
+    let profiles = [
+        (Some("Ada"), Some("Lovelace")),
+        (Some("Ada"), None),
+        (None, Some("Byron")),
+        (None, None),
+        (Some("Ada"), Some("Lovelace")),
+        (None, None),
+    ];
+    let users = profiles
+        .iter()
+        .enumerate()
+        .map(|(index, (first_name, last_name))| {
+            sample_user_with_profile(
+                &format!("keyset-names-{index}"),
+                UserRole::User,
+                UserTier::Free,
+                None,
+                *first_name,
+                *last_name,
+            )
+        })
+        .collect::<Vec<_>>();
+    insert_users(&unit_of_work, &users).await;
+
+    for sort in [
+        SortUserField::Name,
+        SortUserField::FirstName,
+        SortUserField::LastName,
+        SortUserField::Tier,
+    ] {
+        for order in [SortOrder::Asc, SortOrder::Desc] {
+            let request = SearchUsersRequest {
+                search: UserSearch {
+                    query: Some(text_query("keyset-names")),
+                    ..Default::default()
+                },
+                sort: Some(Sort { sort, order }),
+                cursor: Some(Cursor {
+                    search_after: None,
+                    size: 100,
+                }),
+            };
+            let whole = user_ids(
+                &search_page(&unit_of_work, &search, request.clone())
+                    .await
+                    .items,
+            );
+            let mut paged = Vec::new();
+            let mut page = search_page(
+                &unit_of_work,
+                &search,
+                SearchUsersRequest {
+                    cursor: Some(Cursor {
+                        search_after: None,
+                        size: 1,
+                    }),
+                    ..request.clone()
+                },
+            )
+            .await;
+            loop {
+                paged.extend(user_ids(&page.items));
+                if page.cursor.search_after.is_none() {
+                    break;
+                }
+                page = search_page(&unit_of_work, &search, next(&request, page)).await;
+            }
+
+            assert_eq!(users.len(), whole.len(), "{sort:?} {order:?}");
+            assert_eq!(whole, paged, "{sort:?} {order:?}");
+        }
+    }
+
+    let id = |index: usize| users[index].id();
+    let ascending = |mut ids: Vec<UserId>| {
+        ids.sort();
+        ids
+    };
+    let expected_name_desc = [
+        ascending(vec![id(3), id(5)]),
+        vec![id(2)],
+        vec![id(1)],
+        ascending(vec![id(0), id(4)]),
+    ]
+    .concat();
+    let name_desc = SearchUsersRequest {
+        search: UserSearch {
+            query: Some(text_query("keyset-names")),
+            ..Default::default()
+        },
+        sort: Some(Sort {
+            sort: SortUserField::Name,
+            order: SortOrder::Desc,
+        }),
+        cursor: None,
+    };
+    assert_eq!(
+        expected_name_desc,
+        user_ids(&search_page(&unit_of_work, &search, name_desc).await.items)
+    );
+}
+
+async fn insert_users(unit_of_work: &SqlxUnitOfWork, users: &[User]) {
+    let repository = SqlxUserRepositoryFactory::new();
+    let mut tx = begin(unit_of_work).await;
+    for user in users {
+        if let Err(error) = repository.in_transaction(&mut tx).insert(user).await {
+            panic!("failed to insert search user: {error:?}");
+        }
+    }
+    commit(tx).await;
+}
+
+async fn search_page(
+    unit_of_work: &SqlxUnitOfWork,
+    search: &SqlxUserSearchReaderFactory,
+    request: SearchUsersRequest,
+) -> SearchUsersResult {
+    let mut tx = begin(unit_of_work).await;
+    let result = search_users(search, &mut tx, request).await;
+    commit(tx).await;
+    result
+}
+
+fn next(request: &SearchUsersRequest, page: SearchUsersResult) -> SearchUsersRequest {
+    SearchUsersRequest {
+        cursor: Some(page.cursor),
+        ..request.clone()
+    }
+}
+
+async fn delete_user(pool: &sqlx::PgPool, user_id: UserId) {
+    if let Err(error) = sqlx::query("DELETE FROM users WHERE user_id = $1")
+        .bind(user_id.into_uuid())
+        .execute(pool)
+        .await
+    {
+        panic!("failed to delete search user: {error}");
+    }
+}
+
+async fn set_user_role(pool: &sqlx::PgPool, user_id: UserId, role: &str) {
+    if let Err(error) = sqlx::query("UPDATE users SET role = $2 WHERE user_id = $1")
+        .bind(user_id.into_uuid())
+        .bind(role)
+        .execute(pool)
+        .await
+    {
+        panic!("failed to change search user role: {error}");
+    }
+}
+
 fn sample_user(slug: &str, role: UserRole, stripe_customer_id: Option<&str>) -> User {
     sample_user_with_profile(
         slug,
@@ -388,7 +588,7 @@ async fn search_users(
     search: &SqlxUserSearchReaderFactory,
     tx: &mut ::platform_postgres::SqlxTransaction,
     request: SearchUsersRequest,
-) -> user_service::use_cases::queries::search_users::SearchUsersResult {
+) -> SearchUsersResult {
     match search.in_transaction(tx).search(&request).await {
         Ok(result) => result,
         Err(error) => panic!("failed to search users: {error:?}"),
