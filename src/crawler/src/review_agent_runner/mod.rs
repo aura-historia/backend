@@ -338,7 +338,7 @@ mod tests {
     /// A review console that answers the review queue, a review, the event list and its agent
     /// limits to the author's token. The event list holds `events` and, as `AGENT_REVIEWER` events,
     /// the decisions the fake `claude` logged to its `decided.log`, as the review MCP server would
-    /// have recorded them. A review the fake's author handed to a human (`human/<review id>`)
+    /// have recorded them. A review a process of the fake handed to a human (`human/<review id>`)
     /// waits for a human, one marked `unreadable/<review id>` cannot be read, and the limits cannot
     /// be read once `limits_unreadable` exists.
     struct FakeConsole {
@@ -558,8 +558,9 @@ mod tests {
     /// logs the decision of its review, or of the role, to `decided.log`, as the console records it.
     /// A process told to hang waits after its stream until it is stopped: on SIGINT it logs that it
     /// was interrupted and prints the result envelope it was given for that, if any, as the CLI
-    /// ends its turn. One told to die kills itself. An author told to hand its review over gives
-    /// the needs-repair verdict that reaches the cap, which the fake console then shows.
+    /// ends its turn. One told to die kills itself. One told to hand its review over gives the
+    /// needs-repair verdict that reaches the cap, which the fake console then shows until a human
+    /// hands the review back.
     struct FakeClaude {
         directory: StateDirectory,
     }
@@ -577,7 +578,7 @@ printf '%s\n' "$@" > "$call/argv"
 printf '%s' "$prompt" > "$call/stdin"
 env > "$call/env"
 echo "start $role $review" >> "$dir/order.log"
-if [ "$role" = author ] && [ -f "$dir/hand_over/$review" ]; then touch "$dir/human/$review"; fi
+if [ -f "$dir/hand_over/$review-$role" ]; then touch "$dir/human/$review"; fi
 if [ "$role" = reviewer ]; then
   decision="$dir/decisions/$review"
   [ -f "$decision" ] || decision="$dir/decisions/reviewer"
@@ -649,16 +650,26 @@ echo "end $role $review" >> "$dir/order.log"
             .unwrap_or_default();
         }
 
-        /// Has the author of `review_id` give the needs-repair verdict that hands it to a human.
-        fn hand_to_human(&self, review_id: CrawlerReviewId) {
-            std::fs::write(
-                self.directory
-                    .path()
-                    .join("hand_over")
-                    .join(review_id.to_string()),
-                "",
-            )
-            .unwrap_or_default();
+        /// Has the process `<review id>-<role>` give the needs-repair verdict that hands its
+        /// review to a human.
+        fn hand_to_human(&self, name: &str) {
+            std::fs::write(self.directory.path().join("hand_over").join(name), "")
+                .unwrap_or_default();
+        }
+
+        /// Hands the review `review_id` back to the agents, as a human's change or verdict does:
+        /// it no longer waits for a human, and no process hands it over again.
+        fn hand_back(&self, review_id: CrawlerReviewId) {
+            let review_id = review_id.to_string();
+            let _ = std::fs::remove_file(self.directory.path().join("human").join(&review_id));
+            for role in ["author", "reviewer"] {
+                let _ = std::fs::remove_file(
+                    self.directory
+                        .path()
+                        .join("hand_over")
+                        .join(format!("{review_id}-{role}")),
+                );
+            }
         }
 
         /// Has the console fail to answer the review `review_id`.
@@ -1058,7 +1069,9 @@ echo "end $role $review" >> "$dir/order.log"
         let handed_over = review("PENDING_REVIEW", true);
         let unreadable = review("PENDING_REVIEW", true);
         let fixture = Fixture::new(vec![handed_over.clone(), unreadable.clone()]).await;
-        fixture.claude.hand_to_human(handed_over.review_id);
+        fixture
+            .claude
+            .hand_to_human(&format!("{}-author", handed_over.review_id));
         fixture.claude.unreadable(unreadable.review_id);
 
         let run = summary(&run_with(&fixture.settings(&[], &[])).await);
@@ -1078,6 +1091,76 @@ echo "end $role $review" >> "$dir/order.log"
                 format!("start reviewer {unreadable_id}"),
                 format!("end reviewer {unreadable_id}"),
             ]
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// An author process that ends without a decision after its own needs-repair verdict reached
+    /// the cap leaves its review waiting for a human, which gets no cooldown: the first run after a
+    /// human hands it back works it.
+    #[tokio::test]
+    async fn should_work_a_review_in_the_first_run_after_a_human_hands_it_back() {
+        let handed_over = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![handed_over.clone()]).await;
+        let author = format!("{}-author", handed_over.review_id);
+        fixture.claude.hand_to_human(&author);
+        fixture.claude.answer(
+            &author,
+            json!({
+                "type": "result", "subtype": "error_max_turns", "is_error": true,
+                "terminal_reason": "max_turns", "total_cost_usd": 0.75, "num_turns": 80,
+            }),
+        );
+        let settings = fixture.settings(&[], &[]);
+
+        let first_run = summary(&run_with(&settings).await);
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        fixture.claude.hand_back(handed_over.review_id);
+        let second_run = summary(&run_with(&settings).await);
+
+        assert_eq!(
+            (
+                first_run.worked,
+                first_run.processes,
+                first_run.handed_to_human
+            ),
+            (1, 1, 1)
+        );
+        assert!(state.cooldowns.is_empty(), "{state:?}");
+        assert_eq!(
+            (second_run.cooling_down, second_run.worked),
+            (0, 1),
+            "the run after the hand-back works the review"
+        );
+        let id = handed_over.review_id;
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {id}"),
+                format!("end author {id}"),
+                format!("start author {id}"),
+                format!("end author {id}"),
+            ]
+        );
+    }
+
+    /// A reviewer process that leaves its review waiting for a human gives it no cooldown, also
+    /// when the event trail the runner reads does not show the verdict that reached the cap.
+    #[tokio::test]
+    async fn should_not_cool_down_a_review_that_waits_for_a_human_after_the_reviewer() {
+        let handed_over = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![handed_over.clone()]).await;
+        fixture
+            .claude
+            .hand_to_human(&format!("{}-reviewer", handed_over.review_id));
+        fixture.claude.decide("reviewer", "");
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(
+            (run.worked, run.processes, run.decided, run.handed_to_human),
+            (1, 2, 0, 0)
         );
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
         assert!(state.cooldowns.is_empty(), "{state:?}");
