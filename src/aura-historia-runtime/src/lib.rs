@@ -454,7 +454,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .clone()
-                .ok_or(PostgresCredentialRefreshError)
+                .ok_or(PostgresCredentialRefreshError::Unavailable)
         }
     }
 

@@ -4,8 +4,9 @@ use large_language_model::{
     ClaudeReducedThinkingEffort,
 };
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease, log_cold_start,
-    log_invocation_start, logging_config_from_env, required_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease,
+    current_postgres_credentials, log_cold_start, log_invocation_start, logging_config_from_env,
+    required_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
@@ -52,18 +53,13 @@ async fn async_main(initialization_started_at: Instant) -> Result<(), Error> {
             async move {
                 log_invocation_start(COMPONENT, &event.context);
                 handle_invocation(event, move || async move {
-                    let credentials = credentials
-                        .current()
-                        .await
-                        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
+                    let credentials =
+                        current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                     use_cases
                         .get_or_try_build(credentials.version_id(), || async {
                             let pool = postgres
-                                .pool_config(credentials.credentials())
-                                .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
-                                .connect()
-                                .await
-                                .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                                .connect(COMPONENT, credentials.credentials())
+                                .await?;
                             let model = anthropic.large_language_model()?;
                             Ok::<_, Error>(compose_product_translation_use_case(pool, model))
                         })

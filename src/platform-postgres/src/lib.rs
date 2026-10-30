@@ -120,9 +120,29 @@ pub enum VersionedPostgresCredentialsError {
     Credentials(#[source] PostgresCredentialsError),
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("PostgreSQL credential refresh unavailable")]
-pub struct PostgresCredentialRefreshError;
+/// Why the current PostgreSQL credentials could not be loaded. The provider's own error text
+/// never leaves its adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PostgresCredentialRefreshError {
+    #[error("PostgreSQL credential refresh unavailable")]
+    Timeout,
+    #[error("PostgreSQL credential refresh unavailable")]
+    Unavailable,
+    /// The provider answered with a secret that holds no valid credentials.
+    #[error("PostgreSQL credential refresh unavailable")]
+    InvalidSecret,
+}
+
+impl PostgresCredentialRefreshError {
+    /// The lower-case class used by failure diagnostics.
+    pub const fn diagnostic_category(self) -> &'static str {
+        match self {
+            Self::Timeout => "timeout",
+            Self::Unavailable => "unavailable",
+            Self::InvalidSecret => "invalid_secret",
+        }
+    }
+}
 
 #[async_trait]
 pub trait PostgresCredentialsProvider: Send + Sync {

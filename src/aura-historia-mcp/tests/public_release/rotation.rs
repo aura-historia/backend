@@ -68,7 +68,7 @@ impl PostgresCredentialsProvider for Credentials {
             .version
             .lock()
             .unwrap()
-            .ok_or(PostgresCredentialRefreshError)?;
+            .ok_or(PostgresCredentialRefreshError::Unavailable)?;
         Ok(VersionedPostgresCredentials::new(
             version.into(),
             "fixture".into(),

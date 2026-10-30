@@ -125,7 +125,7 @@ impl PostgresCredentialsProvider for AwsSecretsManagerPostgresCredentialsProvide
         .await?;
 
         parse_current_secret(result.version_id(), result.secret_string())
-            .map_err(|_| PostgresCredentialRefreshError)
+            .map_err(|_| PostgresCredentialRefreshError::InvalidSecret)
     }
 }
 
@@ -138,8 +138,8 @@ where
 {
     tokio::time::timeout(timeout, request)
         .await
-        .map_err(|_| PostgresCredentialRefreshError)?
-        .map_err(|_| PostgresCredentialRefreshError)
+        .map_err(|_| PostgresCredentialRefreshError::Timeout)?
+        .map_err(|_| PostgresCredentialRefreshError::Unavailable)
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -271,6 +271,7 @@ mod tests {
             Err(error) => error,
         };
 
+        assert_eq!(PostgresCredentialRefreshError::Timeout, error);
         assert_eq!(
             error.to_string(),
             "PostgreSQL credential refresh unavailable"

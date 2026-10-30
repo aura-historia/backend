@@ -10,12 +10,13 @@ lambda_runtime = { workspace = true }
 platform-google-adc = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 serial_test = { workspace = true }
-sqlx = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 url = { workspace = true }

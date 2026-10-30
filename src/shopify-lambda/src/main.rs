@@ -3,8 +3,8 @@ use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use listing_source_postgres::SqlxListingSourceReaders;
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
-    logging_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, current_postgres_credentials, log_cold_start,
+    log_invocation_start, logging_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
@@ -17,6 +17,8 @@ use product_listing_service::use_cases::commands::process_shopify_product_listin
 use product_listing_shopify::ShopifyProductPayloadDecoder;
 use shopify_lambda::{handler, publication_deadline};
 use std::{sync::Arc, time::Instant};
+
+const COMPONENT: &str = "shopify-lambda";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -33,7 +35,7 @@ async fn main() -> Result<(), Error> {
         .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
     let processors = Arc::new(VersionedCompositionCache::new());
 
-    log_cold_start("shopify-lambda", initialization_started_at);
+    log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let postgres = postgres.clone();
         let credentials = Arc::clone(&credentials);
@@ -41,21 +43,16 @@ async fn main() -> Result<(), Error> {
         let sqs_client = sqs_client.clone();
         let queue_url = queue_url.clone();
         async move {
-            log_invocation_start("shopify-lambda", &event.context);
+            log_invocation_start(COMPONENT, &event.context);
             let deadline = publication_deadline(&event.context);
             with_publication_deadline(deadline, async move {
-                let credentials = credentials
-                    .current()
-                    .await
-                    .map_err(|_| Error::from("PostgreSQL credential refresh unavailable"))?;
+                let credentials =
+                    current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 let processor = processors
                     .get_or_try_build(credentials.version_id(), || async {
                         let pool = postgres
-                            .pool_config(credentials.credentials())
-                            .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
-                            .connect()
-                            .await
-                            .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                            .connect(COMPONENT, credentials.credentials())
+                            .await?;
                         Ok::<_, Error>(ProcessShopifyProductListingHandler::new(
                             SqlxListingSourceReaders::new(pool),
                             SubmitInternalProductListingIngestionHandler::new(

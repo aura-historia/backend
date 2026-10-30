@@ -1,8 +1,8 @@
 use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
-    LambdaInvocationBudget, LambdaPostgresConfig, VersionedCompositionCache, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    LambdaInvocationBudget, LambdaPostgresConfig, VersionedCompositionCache,
+    current_postgres_credentials, log_cold_start, log_invocation_start, logging_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
@@ -16,6 +16,8 @@ use user_postgres::SqlxUserIdentityDeletionStoreFactory;
 use user_service::use_cases::commands::delete_user_identity::{
     DeleteUserIdentityHandler, DeleteUserIdentityUseCase,
 };
+
+const COMPONENT: &str = "user-identity-deletion-lambda";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -41,7 +43,7 @@ async fn main() -> Result<(), Error> {
     let cache = Arc::new(VersionedCompositionCache::<
         Arc<dyn DeleteUserIdentityUseCase>,
     >::new());
-    log_cold_start("user-identity-deletion-lambda", started);
+    log_cold_start(COMPONENT, started);
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let postgres = postgres.clone();
         let credentials = Arc::clone(&credentials);
@@ -49,24 +51,17 @@ async fn main() -> Result<(), Error> {
         let cognito = cognito.clone();
         let user_pool_id = user_pool_id.clone();
         async move {
-            log_invocation_start("user-identity-deletion-lambda", &event.context);
+            log_invocation_start(COMPONENT, &event.context);
             let budget = LambdaInvocationBudget::from_context(
                 &event.context,
                 Duration::from_secs(45),
                 Duration::from_secs(5),
             );
             tokio::time::timeout(budget.remaining(), async move {
-                let current = credentials
-                    .current()
-                    .await
-                    .map_err(|_| Error::from("PostgreSQL credentials unavailable"))?;
+                let current = current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 let use_case = cache
                     .get_or_try_build(current.version_id(), || async {
-                        let pool = postgres
-                            .pool_config(current.credentials())?
-                            .connect()
-                            .await
-                            .map_err(|_| Error::from("PostgreSQL pool unavailable"))?;
+                        let pool = postgres.connect(COMPONENT, current.credentials()).await?;
                         Ok::<_, Error>(Arc::new(DeleteUserIdentityHandler::new(
                             SqlxUnitOfWork::new(pool),
                             SqlxUserIdentityDeletionStoreFactory,
