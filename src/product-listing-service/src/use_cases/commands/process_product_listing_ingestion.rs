@@ -106,6 +106,9 @@ pub enum ProductListingIngestionFailureClass {
     Unprocessable,
     /// Technical or temporary failures keep retry custody.
     Retryable,
+    /// A concurrent writer won a uniqueness or version race. It keeps retry custody like
+    /// `Retryable`, but no dependency failed: a later attempt sees the winner's result.
+    Contended,
 }
 
 impl ProductListingIngestionError {
@@ -138,7 +141,8 @@ impl ProductListingIngestionError {
                 CreateProductListingError::ProductListingTitleSlugGenerationExhausted => "CREATE_TITLE_SLUG_GENERATION_EXHAUSTED",
                 CreateProductListingError::InvalidProductListing => "CREATE_INVALID_PRODUCT_LISTING",
                 CreateProductListingError::CreatedEventMissing => "CREATE_CREATED_EVENT_MISSING",
-                CreateProductListingError::PersistenceFailed => "CREATE_PERSISTENCE_FAILED",
+                CreateProductListingError::PersistenceFailed { .. } => "CREATE_PERSISTENCE_FAILED",
+                CreateProductListingError::ConcurrencyConflict => "CREATE_CONCURRENCY_CONFLICT",
                 CreateProductListingError::InvalidDeliveryPersisted { .. } => {
                     "CREATE_INVALID_DELIVERY_PERSISTED"
                 }
@@ -159,7 +163,8 @@ impl ProductListingIngestionError {
                 UpdateProductListingError::ListingWithdrawn => "UPDATE_LISTING_WITHDRAWN",
                 UpdateProductListingError::UrlRequired => "UPDATE_URL_REQUIRED",
                 UpdateProductListingError::InvalidProductListing => "UPDATE_INVALID_PRODUCT_LISTING",
-                UpdateProductListingError::PersistenceFailed => "UPDATE_PERSISTENCE_FAILED",
+                UpdateProductListingError::PersistenceFailed { .. } => "UPDATE_PERSISTENCE_FAILED",
+                UpdateProductListingError::ConcurrencyConflict => "UPDATE_CONCURRENCY_CONFLICT",
                 UpdateProductListingError::InvalidDeliveryPersisted { .. } => {
                     "UPDATE_INVALID_DELIVERY_PERSISTED"
                 }
@@ -179,7 +184,8 @@ impl ProductListingIngestionError {
                 UpsertProductListingError::ListingWithdrawn => "UPSERT_LISTING_WITHDRAWN",
                 UpsertProductListingError::InvalidProductListing { .. } => "UPSERT_INVALID_PRODUCT_LISTING",
                 UpsertProductListingError::ProductListingTitleSlugGenerationExhausted => "UPSERT_TITLE_SLUG_GENERATION_EXHAUSTED",
-                UpsertProductListingError::PersistenceFailed => "UPSERT_PERSISTENCE_FAILED",
+                UpsertProductListingError::PersistenceFailed { .. } => "UPSERT_PERSISTENCE_FAILED",
+                UpsertProductListingError::ConcurrencyConflict => "UPSERT_CONCURRENCY_CONFLICT",
                 UpsertProductListingError::InvalidDeliveryPersisted { .. } => {
                     "UPSERT_INVALID_DELIVERY_PERSISTED"
                 }
@@ -194,7 +200,8 @@ impl ProductListingIngestionError {
                 WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. } => "WITHDRAW_PARTNER_AUTHORIZATION_TEMPORARILY_UNAVAILABLE",
                 WithdrawProductListingError::PartnerAuthorizationInternal { .. } => "WITHDRAW_PARTNER_AUTHORIZATION_INTERNAL",
                 WithdrawProductListingError::NotFound => "WITHDRAW_NOT_FOUND",
-                WithdrawProductListingError::PersistenceFailed => "WITHDRAW_PERSISTENCE_FAILED",
+                WithdrawProductListingError::PersistenceFailed { .. } => "WITHDRAW_PERSISTENCE_FAILED",
+                WithdrawProductListingError::ConcurrencyConflict => "WITHDRAW_CONCURRENCY_CONFLICT",
                 WithdrawProductListingError::InvalidDeliveryPersisted { .. } => {
                     "WITHDRAW_INVALID_DELIVERY_PERSISTED"
                 }
@@ -246,8 +253,8 @@ impl ProductListingIngestionError {
             Self::Receipt(error) => match error {
                 ProductListingCommandReceiptError::InvalidIdentity
                 | ProductListingCommandReceiptError::InvalidPersistedState => Class::Unprocessable,
-                ProductListingCommandReceiptError::AlreadyExists
-                | ProductListingCommandReceiptError::OperationFailed { .. } => Class::Retryable,
+                ProductListingCommandReceiptError::AlreadyExists => Class::Contended,
+                ProductListingCommandReceiptError::OperationFailed { .. } => Class::Retryable,
             },
             Self::Create(error) => match error {
                 CreateProductListingError::AuthenticatedActorRequired
@@ -261,13 +268,14 @@ impl ProductListingIngestionError {
                 CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | CreateProductListingError::PartnerAuthorizationInternal { .. }
                 | CreateProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
-                | CreateProductListingError::ProductListingTitleSlugAlreadyExists
-                | CreateProductListingError::ProductListingTitleSlugGenerationExhausted
                 | CreateProductListingError::CreatedEventMissing
-                | CreateProductListingError::PersistenceFailed
+                | CreateProductListingError::PersistenceFailed { .. }
                 | CreateProductListingError::EventAppenderFailed { .. }
                 | CreateProductListingError::BeginTransactionFailed(_)
                 | CreateProductListingError::CommitTransactionFailed(_) => Class::Retryable,
+                CreateProductListingError::ProductListingTitleSlugAlreadyExists
+                | CreateProductListingError::ProductListingTitleSlugGenerationExhausted
+                | CreateProductListingError::ConcurrencyConflict => Class::Contended,
             },
             Self::Update(error) => match error {
                 UpdateProductListingError::AuthenticatedActorRequired
@@ -283,10 +291,11 @@ impl ProductListingIngestionError {
                 UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | UpdateProductListingError::PartnerAuthorizationInternal { .. }
                 | UpdateProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
-                | UpdateProductListingError::PersistenceFailed
+                | UpdateProductListingError::PersistenceFailed { .. }
                 | UpdateProductListingError::EventAppenderFailed { .. }
                 | UpdateProductListingError::BeginTransactionFailed(_)
                 | UpdateProductListingError::CommitTransactionFailed(_) => Class::Retryable,
+                UpdateProductListingError::ConcurrencyConflict => Class::Contended,
             },
             Self::Upsert(error) => match error {
                 UpsertProductListingError::AuthenticatedActorRequired
@@ -300,11 +309,12 @@ impl ProductListingIngestionError {
                 UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | UpsertProductListingError::PartnerAuthorizationInternal { .. }
                 | UpsertProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
-                | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
-                | UpsertProductListingError::PersistenceFailed
+                | UpsertProductListingError::PersistenceFailed { .. }
                 | UpsertProductListingError::EventAppenderFailed { .. }
                 | UpsertProductListingError::BeginTransactionFailed(_)
                 | UpsertProductListingError::CommitTransactionFailed(_) => Class::Retryable,
+                UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
+                | UpsertProductListingError::ConcurrencyConflict => Class::Contended,
             },
             Self::Withdraw(error) => match error {
                 WithdrawProductListingError::AuthenticatedActorRequired
@@ -314,10 +324,11 @@ impl ProductListingIngestionError {
                 WithdrawProductListingError::InvalidDeliveryPersisted { .. } => Class::Unprocessable,
                 WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | WithdrawProductListingError::PartnerAuthorizationInternal { .. }
-                | WithdrawProductListingError::PersistenceFailed
+                | WithdrawProductListingError::PersistenceFailed { .. }
                 | WithdrawProductListingError::EventAppenderFailed { .. }
                 | WithdrawProductListingError::BeginTransactionFailed(_)
                 | WithdrawProductListingError::CommitTransactionFailed(_) => Class::Retryable,
+                WithdrawProductListingError::ConcurrencyConflict => Class::Contended,
             },
             Self::CaptureRaw(error) => match error {
                 CaptureProductListingRawObservationError::AuthenticatedActorRequired
@@ -620,7 +631,7 @@ where
                             continue;
                         }
                         Err(UpsertProductListingApplyError::SourceRace) => {
-                            return Err(UpsertProductListingError::PersistenceFailed.into());
+                            return Err(UpsertProductListingError::ConcurrencyConflict.into());
                         }
                         Err(UpsertProductListingApplyError::SlugCollision) => {
                             slug_attempts += 1;
@@ -734,13 +745,14 @@ mod diagnostic_tests {
             ProductListingIngestionError::CommitTransactionFailed(
                 application::error::static_error("test transaction failure"),
             ),
-            ProductListingIngestionError::Receipt(ProductListingCommandReceiptError::AlreadyExists),
             ProductListingIngestionError::Receipt(
                 ProductListingCommandReceiptError::OperationFailed {
                     source: box_error(StaticError("unavailable")),
                 },
             ),
-            ProductListingIngestionError::Create(CreateProductListingError::PersistenceFailed),
+            ProductListingIngestionError::Create(CreateProductListingError::PersistenceFailed {
+                source: box_error(StaticError("unavailable")),
+            }),
             ProductListingIngestionError::Update(
                 UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable {
                     source: box_error(StaticError("unavailable")),
@@ -749,6 +761,20 @@ mod diagnostic_tests {
             ProductListingIngestionError::Delivery(ProductListingDeliveryError::Import(
                 shipping_service::ShippingError::ImportDependencyMissing,
             )),
+        ];
+
+        let contended = [
+            ProductListingIngestionError::Receipt(ProductListingCommandReceiptError::AlreadyExists),
+            ProductListingIngestionError::Create(
+                CreateProductListingError::ProductListingTitleSlugAlreadyExists,
+            ),
+            ProductListingIngestionError::Update(UpdateProductListingError::ConcurrencyConflict),
+            ProductListingIngestionError::Upsert(
+                UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
+            ),
+            ProductListingIngestionError::Withdraw(
+                WithdrawProductListingError::ConcurrencyConflict,
+            ),
         ];
 
         for (class, errors) in [
@@ -763,6 +789,10 @@ mod diagnostic_tests {
             (
                 ProductListingIngestionFailureClass::Retryable,
                 &retryable[..],
+            ),
+            (
+                ProductListingIngestionFailureClass::Contended,
+                &contended[..],
             ),
         ] {
             for error in errors {

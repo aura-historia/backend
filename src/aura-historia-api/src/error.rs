@@ -1314,7 +1314,8 @@ impl From<CreateProductListingError> for ApiError {
                     .with_detail("Auction reference validation is temporarily unavailable.")
             }
             CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
-            | CreateProductListingError::PersistenceFailed
+            | CreateProductListingError::PersistenceFailed { .. }
+            | CreateProductListingError::ConcurrencyConflict
             | CreateProductListingError::InvalidDeliveryPersisted { .. }
             | CreateProductListingError::EventAppenderFailed { .. }
             | CreateProductListingError::BeginTransactionFailed(_)
@@ -1368,7 +1369,8 @@ impl From<UpdateProductListingError> for ApiError {
                     .with_detail("Auction reference validation is temporarily unavailable.")
             }
             UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
-            | UpdateProductListingError::PersistenceFailed
+            | UpdateProductListingError::PersistenceFailed { .. }
+            | UpdateProductListingError::ConcurrencyConflict
             | UpdateProductListingError::InvalidDeliveryPersisted { .. }
             | UpdateProductListingError::EventAppenderFailed { .. }
             | UpdateProductListingError::BeginTransactionFailed(_)
@@ -1402,7 +1404,8 @@ impl From<WithdrawProductListingError> for ApiError {
             WithdrawProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
             WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
-            | WithdrawProductListingError::PersistenceFailed
+            | WithdrawProductListingError::PersistenceFailed { .. }
+            | WithdrawProductListingError::ConcurrencyConflict
             | WithdrawProductListingError::InvalidDeliveryPersisted { .. }
             | WithdrawProductListingError::EventAppenderFailed { .. }
             | WithdrawProductListingError::BeginTransactionFailed(_)
@@ -1590,7 +1593,8 @@ impl From<UpsertProductListingError> for ApiError {
             }
             UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
-            | UpsertProductListingError::PersistenceFailed
+            | UpsertProductListingError::PersistenceFailed { .. }
+            | UpsertProductListingError::ConcurrencyConflict
             | UpsertProductListingError::InvalidDeliveryPersisted { .. }
             | UpsertProductListingError::EventAppenderFailed { .. }
             | UpsertProductListingError::BeginTransactionFailed(_)

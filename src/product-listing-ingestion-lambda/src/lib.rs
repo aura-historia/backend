@@ -151,6 +151,9 @@ async fn handler_with_budget(
                 RecordOutcome::Completed(JobDisposition::Failed(failure)) => {
                     (AttemptDisposition::Retained, failure.stage(), Some(failure))
                 }
+                RecordOutcome::Completed(JobDisposition::Contended(category)) => {
+                    (AttemptDisposition::Contended, *category, None)
+                }
                 RecordOutcome::MissingBody => {
                     (AttemptDisposition::Retained, "missing_message_body", None)
                 }
@@ -199,6 +202,8 @@ enum AttemptDisposition {
     /// on redelivery so later commands of its group can continue.
     Unprocessable,
     Retained,
+    /// Retained because a concurrent writer won a race; no dependency failed.
+    Contended,
 }
 
 impl AttemptDisposition {
@@ -206,7 +211,7 @@ impl AttemptDisposition {
         match self {
             Self::Completed | Self::Rejected => FifoDisposition::Complete,
             Self::Unprocessable => FifoDisposition::Park,
-            Self::Retained => FifoDisposition::Retain,
+            Self::Retained | Self::Contended => FifoDisposition::Retain,
         }
     }
 
@@ -215,7 +220,7 @@ impl AttemptDisposition {
             Self::Completed => IngestionMetricOutcome::Completed,
             Self::Rejected => IngestionMetricOutcome::Rejected,
             Self::Unprocessable => IngestionMetricOutcome::Unprocessable,
-            Self::Retained => IngestionMetricOutcome::Failed,
+            Self::Retained | Self::Contended => IngestionMetricOutcome::Failed,
         }
     }
 }
@@ -283,6 +288,13 @@ fn log_attempt(
         }
         AttemptDisposition::Retained => {
             log_with_command!(warn, error_code, "Ingestion command retained for retry")
+        }
+        AttemptDisposition::Contended => {
+            log_with_command!(
+                info,
+                error_code,
+                "Ingestion command retained after a concurrent write"
+            )
         }
     }
 }
@@ -353,6 +365,8 @@ enum JobDisposition {
     Unprocessable(&'static str),
     /// A retryable failure; its stage is the error's stage-level diagnostic code.
     Failed(FailureDiagnostic),
+    /// A concurrent writer won a race; retried without a failure diagnostic.
+    Contended(&'static str),
 }
 
 async fn process_ingestion_job(
@@ -387,10 +401,12 @@ async fn process_ingestion_job(
             ProductListingIngestionFailureClass::Unprocessable => {
                 JobDisposition::Unprocessable(error.diagnostic_code())
             }
-            // Every retryable ingestion step reads or writes PostgreSQL. A failure without an
-            // SQLx cause, such as slug contention, is recorded as unclassified.
+            // Every retryable ingestion step reads or writes PostgreSQL.
             ProductListingIngestionFailureClass::Retryable => {
                 JobDisposition::Failed(FailureDiagnostic::postgres(error.diagnostic_code(), &error))
+            }
+            ProductListingIngestionFailureClass::Contended => {
+                JobDisposition::Contended(error.diagnostic_code())
             }
         },
     }
@@ -405,9 +421,9 @@ mod tests {
     use product_listing_service::{
         ports::{ProductListingCommandReceiptError, ProductListingRawStreamId},
         use_cases::{
-            CaptureProductListingRawObservationResult, ProductListingIngestionEffect,
-            ProductListingIngestionEnvelope, ProductListingIngestionError,
-            UpdateProductListingError,
+            CaptureProductListingRawObservationResult, CreateProductListingError,
+            ProductListingIngestionEffect, ProductListingIngestionEnvelope,
+            ProductListingIngestionError, UpdateProductListingError,
         },
     };
     use std::{
@@ -435,6 +451,7 @@ mod tests {
         Failure,
         CommitUnknown,
         CommitConnectionLost,
+        SlugContention,
         MissingTarget,
         Forbidden,
         ReceiptFailure,
@@ -500,6 +517,9 @@ mod tests {
                         sqlx::Error::Io(std::io::Error::other("SENTINEL_ERROR_TEXT")),
                     )),
                 ),
+                Mode::SlugContention => Err(ProductListingIngestionError::Create(
+                    CreateProductListingError::ProductListingTitleSlugAlreadyExists,
+                )),
                 Mode::MissingTarget => Err(ProductListingIngestionError::Update(
                     UpdateProductListingError::NotFound,
                 )),
@@ -863,6 +883,45 @@ mod tests {
             Some(codec::decode(&body).unwrap().command_id())
         );
         assert!(!format!("{records:?}").contains("not-json"));
+    }
+
+    #[tokio::test]
+    async fn retains_a_contended_command_without_a_dependency_failure() {
+        let body = golden_body(0);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
+        let use_case = FakeUseCase::new([Mode::SlugContention]);
+
+        let response = handler(
+            event(&[(Some("contended"), Some(&body))]),
+            &use_case,
+            &RecordingCustody::default(),
+        )
+        .await
+        .unwrap();
+        drop(guard);
+
+        assert_eq!(failure_ids(response), ["contended"]);
+        let records = events.lock().unwrap();
+        let contended = records
+            .iter()
+            .find(|fields| {
+                fields.get("message").is_some_and(|message| {
+                    message == "Ingestion command retained after a concurrent write"
+                })
+            })
+            .expect("contended command event");
+        assert_eq!(
+            contended.get("error_code").map(String::as_str),
+            Some("CREATE_TITLE_SLUG_ALREADY_EXISTS")
+        );
+        assert!(!contended.contains_key("dependency"));
+        assert!(!contended.contains_key("error_category"));
+        assert!(!records.iter().any(|fields| {
+            fields
+                .get("message")
+                .is_some_and(|message| message == "Ingestion command retained for retry")
+        }));
     }
 
     #[tokio::test]

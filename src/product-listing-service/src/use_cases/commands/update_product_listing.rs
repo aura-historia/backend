@@ -93,7 +93,13 @@ pub enum UpdateProductListingError {
     #[error("product listing is invalid")]
     InvalidProductListing,
     #[error("product listing persistence failed")]
-    PersistenceFailed,
+    PersistenceFailed {
+        #[source]
+        source: BoxError,
+    },
+    /// Another writer changed the listing first; a later attempt sees its result.
+    #[error("product listing changed concurrently")]
+    ConcurrencyConflict,
     #[error("persisted listing delivery is invalid")]
     InvalidDeliveryPersisted {
         #[source]
@@ -416,8 +422,8 @@ impl From<AuctionReferenceValidationError> for UpdateProductListingError {
             AuctionReferenceValidationError::TemporarilyUnavailable { source } => {
                 Self::AuctionReferenceTemporarilyUnavailable { source }
             }
-            AuctionReferenceValidationError::InvalidPersistedState { .. } => {
-                Self::PersistenceFailed
+            AuctionReferenceValidationError::InvalidPersistedState { source } => {
+                Self::PersistenceFailed { source }
             }
         }
     }
@@ -441,7 +447,10 @@ impl From<ProductListingRepositoryError> for UpdateProductListingError {
             ProductListingRepositoryError::InvalidDeliveryPersisted { source } => {
                 Self::InvalidDeliveryPersisted { source }
             }
-            _ => Self::PersistenceFailed,
+            ProductListingRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
+            error => Self::PersistenceFailed {
+                source: Box::new(error),
+            },
         }
     }
 }
