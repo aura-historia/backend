@@ -1,9 +1,9 @@
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
-use embedding::{EmbeddingGenerator, VertexAiEmbeddingGenerator};
+use embedding::{EmbeddingError, EmbeddingGenerator, VertexAiEmbeddingGenerator};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
@@ -98,15 +98,16 @@ async fn handler_with_budget(
     let mut guard_rejection_count = 0_usize;
     let mut retry_count = 0_usize;
     let response = results.finish(|attempt| {
-        let (complete, category) = match &attempt.outcome {
+        let (complete, category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(disposition) => (
                 matches!(disposition, ProductEmbeddingJobDisposition::Complete(_)),
                 disposition.category(),
+                disposition.failure_diagnostic(),
             ),
-            RecordOutcome::MissingBody => (false, "missing_message_body"),
-            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-            RecordOutcome::TimedOut => (false, "execution_timeout"),
-            RecordOutcome::Panicked => (false, "handler_panicked"),
+            RecordOutcome::MissingBody => (false, "missing_message_body", None),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget", None),
+            RecordOutcome::TimedOut => (false, "execution_timeout", None),
+            RecordOutcome::Panicked => (false, "handler_panicked", None),
         };
         if is_guard_rejection(&attempt.outcome) {
             guard_rejection_count += 1;
@@ -123,6 +124,11 @@ async fn handler_with_budget(
             warn!(
                 message_id = %attempt.message_id,
                 outcome = category,
+                stage = failure.map(FailureDiagnostic::stage),
+                dependency = failure.map(FailureDiagnostic::dependency),
+                error_category = failure.map(FailureDiagnostic::category),
+                http_status = failure.and_then(FailureDiagnostic::http_status),
+                sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
                 processing_duration_ms = attempt.duration.as_millis(),
                 "Product embedding record retained for SQS retry or redrive"
             );
@@ -153,17 +159,22 @@ fn is_guard_rejection(outcome: &RecordOutcome<ProductEmbeddingJobDisposition>) -
 pub enum ProductEmbeddingJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
-    DependencyUnavailable(&'static str),
+    DependencyUnavailable(FailureDiagnostic),
     Poison(&'static str),
 }
 
 impl ProductEmbeddingJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
+            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::DependencyUnavailable(_) => "embedding_unavailable",
+        }
+    }
+
+    pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
+        match self {
+            Self::DependencyUnavailable(failure) => Some(failure),
+            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
         }
     }
 }
@@ -192,16 +203,49 @@ pub async fn execute_job(
     };
     match use_case.execute(&context, command).await {
         Ok(result) => embedding_disposition(result.outcome),
-        Err(EmbedProductListingEventError::ServiceOrSystemPrincipalRequired) => {
-            ProductEmbeddingJobDisposition::Poison("system_principal_required")
-        }
-        Err(EmbedProductListingEventError::InvalidInput { .. }) => {
-            ProductEmbeddingJobDisposition::Poison("embedding_input_invalid")
-        }
-        // Provider, source, write, and commit failures leave the job retryable. In particular,
-        // a provider result does not prove that the guarded PostgreSQL commit completed.
-        Err(_) => ProductEmbeddingJobDisposition::DependencyUnavailable("embedding_unavailable"),
+        Err(error) => embedding_error_disposition(&error),
     }
+}
+
+/// Provider, source, write, and commit failures leave the job retryable. In particular, a
+/// provider result does not prove that the guarded PostgreSQL commit completed. Only the failed
+/// stage and safe cause facts are kept; the error chain itself is never logged.
+fn embedding_error_disposition(
+    error: &EmbedProductListingEventError,
+) -> ProductEmbeddingJobDisposition {
+    use EmbedProductListingEventError as E;
+    use ProductEmbeddingJobDisposition as D;
+    match error {
+        E::ServiceOrSystemPrincipalRequired => D::Poison("system_principal_required"),
+        E::InvalidInput { .. } => D::Poison("embedding_input_invalid"),
+        E::SourceReadFailed { .. } => {
+            D::DependencyUnavailable(FailureDiagnostic::postgres("source_read", error))
+        }
+        E::GenerationFailed { .. } => D::DependencyUnavailable(generation_failure(error)),
+        E::BeginTransactionFailed { .. } => {
+            D::DependencyUnavailable(FailureDiagnostic::postgres("write_begin", error))
+        }
+        E::EmbeddingWriteFailed { .. } => {
+            D::DependencyUnavailable(FailureDiagnostic::postgres("embedding_write", error))
+        }
+        E::CommitTransactionFailed { .. } => {
+            D::DependencyUnavailable(FailureDiagnostic::postgres("write_commit", error))
+        }
+    }
+}
+
+fn generation_failure(error: &EmbedProductListingEventError) -> FailureDiagnostic {
+    let failure =
+        std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |error| {
+            (*error).source()
+        })
+        .find_map(|error| error.downcast_ref::<EmbeddingError>());
+    FailureDiagnostic::new(
+        "generation",
+        "vertex_ai",
+        failure.map_or(UNCLASSIFIED_FAILURE, EmbeddingError::diagnostic_category),
+        failure.and_then(EmbeddingError::http_status),
+    )
 }
 
 pub fn embedding_disposition(
@@ -240,6 +284,7 @@ mod tests {
         EmbedProductListingCommand, EmbedProductListingEventError, EmbedProductListingEventOutcome,
         EmbedProductListingEventResult,
     };
+    use serde_json::{Map, Value, json};
     use std::{
         collections::VecDeque,
         sync::{
@@ -248,6 +293,10 @@ mod tests {
         },
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
+
+    const RETAINED: &str = "Product embedding record retained for SQS retry or redrive";
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
 
     #[tokio::test]
     async fn acknowledges_committed_outcomes_and_retries_all_unfinished_records() {
@@ -323,6 +372,67 @@ mod tests {
         assert_eq!(failure_ids(response), ["first", "second"]);
     }
 
+    #[tokio::test]
+    async fn should_distinguish_provider_and_postgres_failures_without_logging_their_causes() {
+        let use_case = FakeUseCase::new([
+            FakeResult::ProviderAuthenticationFailed,
+            FakeResult::ProviderThrottled,
+            FakeResult::SourceReadTimedOut,
+            FakeResult::CommitUnconfirmed,
+        ]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(
+            events([
+                (Some("authentication"), valid_body()),
+                (Some("throttled"), valid_body()),
+                (Some("source-read"), valid_body()),
+                (Some("commit"), valid_body()),
+            ]),
+            &use_case,
+        )
+        .await
+        .expect("handler response");
+        drop(guard);
+
+        assert_eq!(
+            failure_ids(response),
+            ["authentication", "throttled", "source-read", "commit"]
+        );
+        assert_eq!(
+            retained_diagnostics(&logs),
+            [
+                json!({"message_id": "authentication", "outcome": "embedding_unavailable",
+                    "stage": "generation", "dependency": "vertex_ai",
+                    "error_category": "authentication"}),
+                json!({"message_id": "throttled", "outcome": "embedding_unavailable",
+                    "stage": "generation", "dependency": "vertex_ai",
+                    "error_category": "http_status", "http_status": 429}),
+                json!({"message_id": "source-read", "outcome": "embedding_unavailable",
+                    "stage": "source_read", "dependency": "postgres",
+                    "error_category": "pool_timed_out"}),
+                json!({"message_id": "commit", "outcome": "embedding_unavailable",
+                    "stage": "write_commit", "dependency": "postgres", "error_category": "io"}),
+            ]
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
+    /// The diagnostic fields of each retained-record event; timing varies between runs.
+    fn retained_diagnostics(logs: &CapturedLogs) -> Vec<Value> {
+        logs.events_where("message", RETAINED)
+            .into_iter()
+            .map(|fields| {
+                Value::Object(
+                    fields
+                        .into_iter()
+                        .filter(|(name, _)| name != "message" && name != "processing_duration_ms")
+                        .collect::<Map<_, _>>(),
+                )
+            })
+            .collect()
+    }
+
     fn valid_body() -> String {
         r#"{"schema_version":1,"scope":"product-embedding","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:evt_01h455vb4pex5vy7enb1p677vn","ordering_key":"product:pl_01h455vb4pex5vy7enb1p677vn","payload":{"event_id":"evt_01h455vb4pex5vy7enb1p677vn","product_listing_id":"pl_01h455vb4pex5vy7enb1p677vn"}}"#.to_owned()
     }
@@ -361,6 +471,10 @@ mod tests {
     enum FakeResult {
         Outcome(EmbedProductListingEventOutcome),
         Unavailable,
+        ProviderAuthenticationFailed,
+        ProviderThrottled,
+        SourceReadTimedOut,
+        CommitUnconfirmed,
         Pending,
     }
 
@@ -398,6 +512,26 @@ mod tests {
                 Some(FakeResult::Unavailable) => {
                     Err(EmbedProductListingEventError::GenerationFailed {
                         source: Box::new(std::io::Error::other("unavailable")),
+                    })
+                }
+                Some(FakeResult::ProviderAuthenticationFailed) => {
+                    Err(EmbeddingError::AuthenticationFailed {
+                        source: Box::new(std::io::Error::other(SENTINEL)),
+                    }
+                    .into())
+                }
+                Some(FakeResult::ProviderThrottled) => Err(EmbeddingError::ApiFailure {
+                    status: 429_u16.try_into().expect("valid HTTP status"),
+                }
+                .into()),
+                Some(FakeResult::SourceReadTimedOut) => {
+                    Err(EmbedProductListingEventError::SourceReadFailed {
+                        source: Box::new(sqlx::Error::PoolTimedOut),
+                    })
+                }
+                Some(FakeResult::CommitUnconfirmed) => {
+                    Err(EmbedProductListingEventError::CommitTransactionFailed {
+                        source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
                     })
                 }
                 Some(FakeResult::Pending) => std::future::pending().await,

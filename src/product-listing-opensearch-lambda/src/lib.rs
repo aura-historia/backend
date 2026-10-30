@@ -3,8 +3,9 @@ use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent};
 use opensearch::OpenSearch;
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
+use platform_opensearch::failure::OpenSearchFailure;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_opensearch::OpenSearchProductListingSearchProjection;
 use product_listing_postgres::SqlxProductListingSearchFilterMatchSourceReaderFactory;
@@ -87,22 +88,31 @@ async fn handler_with_budget(
     .await?;
     let record_count = results.record_count;
     let response = results.finish(|attempt| {
-        let (complete, category) = match &attempt.outcome {
+        let (complete, category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(disposition) => (
                 matches!(
                     disposition,
                     ProductListingOpenSearchJobDisposition::Complete(_)
                 ),
                 disposition.category(),
+                disposition.failure_diagnostic(),
             ),
-            RecordOutcome::MissingBody => (false, "missing_message_body"),
-            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-            RecordOutcome::TimedOut => (false, "execution_timeout"),
-            RecordOutcome::Panicked => (false, "handler_panicked"),
+            RecordOutcome::MissingBody => (false, "missing_message_body", None),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget", None),
+            RecordOutcome::TimedOut => (false, "execution_timeout", None),
+            RecordOutcome::Panicked => (false, "handler_panicked", None),
         };
         if !complete {
-            warn!(message_id = %attempt.message_id, outcome = category,
-                "ProductListing projection record retained for SQS retry or redrive");
+            warn!(
+                message_id = %attempt.message_id,
+                outcome = category,
+                stage = failure.map(FailureDiagnostic::stage),
+                dependency = failure.map(FailureDiagnostic::dependency),
+                error_category = failure.map(FailureDiagnostic::category),
+                http_status = failure.and_then(FailureDiagnostic::http_status),
+                sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
+                "ProductListing projection record retained for SQS retry or redrive"
+            );
         }
         complete
     });
@@ -118,17 +128,22 @@ async fn handler_with_budget(
 pub enum ProductListingOpenSearchJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
-    DependencyUnavailable(&'static str),
+    DependencyUnavailable(FailureDiagnostic),
     Poison(&'static str),
 }
 
 impl ProductListingOpenSearchJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
+            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::DependencyUnavailable(_) => "projection_unavailable",
+        }
+    }
+
+    pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
+        match self {
+            Self::DependencyUnavailable(failure) => Some(failure),
+            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
         }
     }
 }
@@ -158,16 +173,43 @@ pub async fn execute_job(
         .await
     {
         Ok(result) => projection_disposition(result.outcome),
-        Err(ProjectProductListingError::SaleObservationFxSnapshotMissing) => {
-            ProductListingOpenSearchJobDisposition::Retry("sale_snapshot_missing")
-        }
-        Err(ProjectProductListingError::SaleObservationFxSnapshotInvalid { .. }) => {
-            ProductListingOpenSearchJobDisposition::Poison("sale_snapshot_invalid")
-        }
-        Err(_) => {
-            ProductListingOpenSearchJobDisposition::DependencyUnavailable("projection_unavailable")
-        }
+        Err(error) => projection_error_disposition(&error),
     }
+}
+
+/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
+fn projection_error_disposition(
+    error: &ProjectProductListingError,
+) -> ProductListingOpenSearchJobDisposition {
+    use ProductListingOpenSearchJobDisposition as D;
+    use ProjectProductListingError as E;
+    match error {
+        E::SaleObservationFxSnapshotMissing => D::Retry("sale_snapshot_missing"),
+        E::SaleObservationFxSnapshotInvalid { .. } => D::Poison("sale_snapshot_invalid"),
+        E::BeginFailed { .. } => {
+            D::DependencyUnavailable(FailureDiagnostic::postgres("source_begin", error))
+        }
+        E::SourceReadFailed { .. } => {
+            D::DependencyUnavailable(FailureDiagnostic::postgres("source_read", error))
+        }
+        E::SaleObservationFxSnapshotReadFailed { .. } => {
+            D::DependencyUnavailable(FailureDiagnostic::postgres("sale_snapshot_read", error))
+        }
+        E::CommitFailed { .. } => {
+            D::DependencyUnavailable(FailureDiagnostic::postgres("source_commit", error))
+        }
+        E::WriteFailed { .. } => D::DependencyUnavailable(target_write_failure(error)),
+    }
+}
+
+fn target_write_failure(error: &ProjectProductListingError) -> FailureDiagnostic {
+    let failure = OpenSearchFailure::find(error);
+    FailureDiagnostic::new(
+        "target_write",
+        "opensearch",
+        failure.map_or(UNCLASSIFIED_FAILURE, |failure| failure.kind()),
+        failure.and_then(|failure| failure.http_status()),
+    )
 }
 
 pub fn projection_disposition(
@@ -196,12 +238,16 @@ mod tests {
     use aws_lambda_events::sqs::SqsMessage;
     use domain_primitives::event_id::EventId;
     use lambda_runtime::Context;
+    use platform_opensearch::response::OpenSearchStatusError;
     use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_service::use_cases::{
         ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingOutcome,
         ProjectProductListingResult,
     };
+    use serde_json::{Map, Value, json};
+    use sqlx::error::{DatabaseError, ErrorKind};
     use std::{
+        borrow::Cow,
         collections::VecDeque,
         sync::{
             Mutex,
@@ -209,9 +255,12 @@ mod tests {
         },
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
 
     const EVENT_ID: &str = "evt_01h455vb4pex5vy7enb1p677vn";
     const PRODUCT_LISTING_ID: &str = "pl_01h455vb4pex5vy7enb1p677vn";
+    const RETAINED: &str = "ProductListing projection record retained for SQS retry or redrive";
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
 
     #[tokio::test]
     async fn should_acknowledge_completed_duplicate_and_stale_projection_results() {
@@ -439,6 +488,67 @@ mod tests {
         assert_eq!(processor.calls(), 0);
     }
 
+    #[tokio::test]
+    async fn should_record_the_failed_stage_and_only_safe_cause_facts_once_per_retained_record() {
+        let processor = FakeUseCase::new([
+            FakeResult::SourceDatabaseFailure,
+            FakeResult::TargetForbidden,
+            FakeResult::CommitConnectionLost,
+            FakeResult::SaleObservationFxSnapshotInvalid,
+        ]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = match handler(
+            events([
+                (Some("source-read"), valid_body()),
+                (Some("target-write"), valid_body()),
+                (Some("commit"), valid_body()),
+                (Some("invalid-fx"), valid_body()),
+            ]),
+            &processor,
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(error) => panic!("handler failed: {error}"),
+        };
+        drop(guard);
+
+        assert_eq!(
+            message_ids(response),
+            ["source-read", "target-write", "commit", "invalid-fx"]
+        );
+        assert_eq!(
+            retained_diagnostics(&logs),
+            [
+                json!({"message_id": "source-read", "outcome": "projection_unavailable",
+                    "stage": "source_read", "dependency": "postgres",
+                    "error_category": "database", "sqlstate": "08006"}),
+                json!({"message_id": "target-write", "outcome": "projection_unavailable",
+                    "stage": "target_write", "dependency": "opensearch",
+                    "error_category": "http_status", "http_status": 403}),
+                json!({"message_id": "commit", "outcome": "projection_unavailable",
+                    "stage": "source_commit", "dependency": "postgres", "error_category": "io"}),
+                json!({"message_id": "invalid-fx", "outcome": "sale_snapshot_invalid"}),
+            ]
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
+    fn retained_diagnostics(logs: &CapturedLogs) -> Vec<Value> {
+        logs.events_where("message", RETAINED)
+            .into_iter()
+            .map(|fields| {
+                Value::Object(
+                    fields
+                        .into_iter()
+                        .filter(|(name, _)| name != "message")
+                        .collect::<Map<_, _>>(),
+                )
+            })
+            .collect()
+    }
+
     fn valid_body() -> String {
         format!(
             r#"{{"schema_version":1,"scope":"product-listing-opensearch","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:{EVENT_ID}","ordering_key":"product:{PRODUCT_LISTING_ID}","payload":{{"event_id":"{EVENT_ID}","product_listing_id":"{PRODUCT_LISTING_ID}"}}}}"#,
@@ -486,6 +596,9 @@ mod tests {
         SaleObservationFxSnapshotMissing,
         SaleObservationFxSnapshotInvalid,
         Unavailable,
+        SourceDatabaseFailure,
+        TargetForbidden,
+        CommitConnectionLost,
         Pending,
         Panic,
     }
@@ -531,7 +644,7 @@ mod tests {
                 }
                 Some(FakeResult::SaleObservationFxSnapshotInvalid) => Err(
                     ProjectProductListingError::SaleObservationFxSnapshotInvalid {
-                        source: Box::new(std::io::Error::other("invalid FX snapshot")),
+                        source: Box::new(std::io::Error::other(SENTINEL)),
                     },
                 ),
                 Some(FakeResult::Unavailable) => {
@@ -539,10 +652,64 @@ mod tests {
                         source: Box::new(std::io::Error::other("projection source unavailable")),
                     })
                 }
+                Some(FakeResult::SourceDatabaseFailure) => {
+                    Err(ProjectProductListingError::SourceReadFailed {
+                        source: Box::new(sqlx::Error::Database(Box::new(FakeDatabaseError))),
+                    })
+                }
+                Some(FakeResult::TargetForbidden) => Err(ProjectProductListingError::WriteFailed {
+                    source: Box::new(OpenSearchStatusError {
+                        status: opensearch::http::StatusCode::FORBIDDEN,
+                        body: SENTINEL.to_owned(),
+                    }),
+                }),
+                Some(FakeResult::CommitConnectionLost) => {
+                    Err(ProjectProductListingError::CommitFailed {
+                        source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
+                    })
+                }
                 Some(FakeResult::Pending) => std::future::pending().await,
                 Some(FakeResult::Panic) => panic!("projection handler panic"),
                 None => panic!("missing fake projection result"),
             }
+        }
+    }
+
+    /// A PostgreSQL error whose server message repeats a persisted value.
+    #[derive(Debug)]
+    struct FakeDatabaseError;
+
+    impl std::fmt::Display for FakeDatabaseError {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(formatter, "connection failure for {SENTINEL}")
+        }
+    }
+
+    impl std::error::Error for FakeDatabaseError {}
+
+    impl DatabaseError for FakeDatabaseError {
+        fn message(&self) -> &str {
+            SENTINEL
+        }
+
+        fn code(&self) -> Option<Cow<'_, str>> {
+            Some(Cow::Borrowed("08006"))
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> ErrorKind {
+            ErrorKind::Other
         }
     }
 

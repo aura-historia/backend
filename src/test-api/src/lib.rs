@@ -6,6 +6,8 @@ pub mod aws;
 pub mod context;
 pub use context::{Isolation, TestContext, TestSession, reserve_exclusive};
 pub mod environment;
+mod logs;
+pub use logs::CapturedLogs;
 mod owned_task;
 pub use owned_task::{OwnedTask, spawn_owned};
 #[cfg(feature = "eventbridge")]

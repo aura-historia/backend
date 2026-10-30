@@ -1,8 +1,9 @@
 use application::operation_context::{OperationContext, Principal};
 use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
-use geo_service::resolution::{ResolutionWork, ResolveOutcome, ResolveUseCase};
+use geo_service::resolution::{ResolutionError, ResolutionWork, ResolveOutcome, ResolveUseCase};
 use lambda_runtime::{Error, LambdaEvent};
+use platform_lambda_bootstrap::FailureDiagnostic;
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use std::time::Duration;
 
@@ -20,18 +21,53 @@ pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> bool {
     let DomainJobPayload::GeoResolution(job) = job.payload else {
         return false;
     };
-    matches!(
-        use_case
-            .execute(
-                &context(),
-                ResolutionWork {
-                    id: job.resolution_id,
-                    generation: job.generation
-                }
-            )
-            .await,
-        Ok(ResolveOutcome::Complete)
-    )
+    let work = ResolutionWork {
+        id: job.resolution_id,
+        generation: job.generation,
+    };
+    match use_case.execute(&context(), work).await {
+        Ok(outcome) => outcome == ResolveOutcome::Complete,
+        Err(error) => {
+            let failure = resolution_failure(&error);
+            tracing::warn!(
+                event = "geo_resolution.work_failed",
+                resolution_id = %job.resolution_id,
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
+            );
+            false
+        }
+    }
+}
+
+/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
+fn resolution_failure(error: &ResolutionError) -> FailureDiagnostic {
+    match error {
+        ResolutionError::Provider(provider) => {
+            FailureDiagnostic::new("geocoding", "amazon_location", provider.kind.as_str(), None)
+        }
+        ResolutionError::Storage(_) => FailureDiagnostic::postgres("resolution_storage", error),
+        ResolutionError::Transaction(_) => {
+            FailureDiagnostic::postgres("resolution_transaction", error)
+        }
+        ResolutionError::InvalidState(_) => FailureDiagnostic::new(
+            "resolution_storage",
+            "postgres",
+            "invalid_persisted_state",
+            None,
+        ),
+        ResolutionError::InvalidInput => rejected("invalid_input"),
+        ResolutionError::Forbidden => rejected("forbidden"),
+        ResolutionError::Conflict => rejected("conflict"),
+        ResolutionError::Missing => rejected("missing"),
+    }
+}
+
+/// The use case refused the request itself; no dependency was involved.
+fn rejected(category: &'static str) -> FailureDiagnostic {
+    FailureDiagnostic::new("resolution", "none", category, None)
 }
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
@@ -56,6 +92,7 @@ mod tests {
     use super::*;
     use geo_service::resolution::ResolutionError;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use test_api::CapturedLogs;
     struct Stub {
         calls: AtomicUsize,
         result: ResolveOutcome,
@@ -93,5 +130,38 @@ mod tests {
             result: ResolveOutcome::Deferred,
         };
         assert!(!process_job(JOB, &deferred).await);
+    }
+
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    struct FailingStorage;
+
+    #[async_trait::async_trait]
+    impl ResolveUseCase for FailingStorage {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            _: ResolutionWork,
+        ) -> Result<ResolveOutcome, ResolutionError> {
+            Err(ResolutionError::Storage(Box::new(sqlx::Error::Tls(
+                Box::new(std::io::Error::other(SENTINEL)),
+            ))))
+        }
+    }
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let completed = process_job(JOB, &FailingStorage).await;
+        drop(guard);
+
+        assert!(!completed);
+        let failures = logs.events_where("event", "geo_resolution.work_failed");
+        assert_eq!(1, failures.len());
+        assert_eq!(Some("resolution_storage"), failures[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), failures[0]["dependency"].as_str());
+        assert_eq!(Some("tls"), failures[0]["error_category"].as_str());
+        assert!(!logs.text().contains("SENTINEL"));
     }
 }

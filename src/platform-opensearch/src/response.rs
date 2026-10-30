@@ -19,6 +19,26 @@ impl OpenSearchResponse {
     pub fn into_body(self) -> String {
         self.body
     }
+
+    /// Converts a response its caller does not accept into an error that keeps the status
+    /// separately from the body.
+    pub fn into_status_error(self) -> OpenSearchStatusError {
+        OpenSearchStatusError {
+            status: self.status,
+            body: self.body,
+        }
+    }
+}
+
+/// OpenSearch answered with a status the caller does not accept.
+///
+/// The message names only the status. Rejection bodies can quote document fields, so the body
+/// stays a separate field for local diagnosis and never becomes part of the error text.
+#[derive(Debug, thiserror::Error)]
+#[error("OpenSearch returned unsuccessful status {status}")]
+pub struct OpenSearchStatusError {
+    pub status: StatusCode,
+    pub body: String,
 }
 
 #[derive(Debug, thiserror::Error)]

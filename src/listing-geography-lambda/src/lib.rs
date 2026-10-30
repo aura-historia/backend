@@ -1,8 +1,9 @@
 use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
+use platform_lambda_bootstrap::FailureDiagnostic;
 use platform_lambda_sqs::{RecordOutcome, process_batch};
-use product_listing_service::geography::ProjectListingGeographyUseCase;
+use product_listing_service::geography::{GeographyError, ProjectListingGeographyUseCase};
 use std::time::Duration;
 pub async fn process_job(body: &str, use_case: &dyn ProjectListingGeographyUseCase) -> bool {
     let Ok(job) = decode(body, WorkerScope::ListingGeography) else {
@@ -13,7 +14,37 @@ pub async fn process_job(body: &str, use_case: &dyn ProjectListingGeographyUseCa
     };
     // Wake-ups identify work, never frozen geography. Current authority/claim fences
     // govern even old generations and duplicate messages.
-    use_case.execute(Some(job.work_id), 100).await.is_ok()
+    let Err(error) = use_case.execute(Some(job.work_id), 100).await else {
+        return true;
+    };
+    let (category, failure) = geography_failure(&error);
+    tracing::warn!(
+        event = "listing_geography.work_failed",
+        work_id = %job.work_id,
+        category,
+        stage = failure.as_ref().map(FailureDiagnostic::stage),
+        dependency = failure.as_ref().map(FailureDiagnostic::dependency),
+        error_category = failure.as_ref().map(FailureDiagnostic::category),
+        sqlstate = failure.as_ref().and_then(FailureDiagnostic::sqlstate),
+    );
+    false
+}
+
+/// Claim outcomes are expected contention and invalid input is the worker's own request; only
+/// dependency failures carry safe cause facts.
+fn geography_failure(error: &GeographyError) -> (&'static str, Option<FailureDiagnostic>) {
+    let stage = match error {
+        GeographyError::Deferred => return ("DEFERRED", None),
+        GeographyError::Superseded => return ("SUPERSEDED", None),
+        GeographyError::InvalidInput => return ("INVALID_INPUT", None),
+        GeographyError::Storage(_) => "geography_projection",
+        GeographyError::Transaction(_) => "geography_transaction",
+        GeographyError::Resolution(_) => "geography_resolution",
+    };
+    (
+        "DEPENDENCY_OR_STORAGE",
+        Some(FailureDiagnostic::postgres(stage, error)),
+    )
 }
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
@@ -32,6 +63,7 @@ mod tests {
     use super::*;
     use product_listing_service::geography::{GeographyError, GeographyWorkId};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use test_api::CapturedLogs;
 
     struct Stub {
         calls: AtomicUsize,
@@ -82,5 +114,38 @@ mod tests {
         };
         assert!(!process_job(JOB, &stub).await);
         assert_eq!(1, stub.calls.load(Ordering::SeqCst));
+    }
+
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    struct FailingStorage;
+
+    #[async_trait::async_trait]
+    impl ProjectListingGeographyUseCase for FailingStorage {
+        async fn execute(
+            &self,
+            _work: Option<GeographyWorkId>,
+            _limit: u16,
+        ) -> Result<u32, GeographyError> {
+            Err(GeographyError::Storage(Box::new(sqlx::Error::Io(
+                std::io::Error::other(SENTINEL),
+            ))))
+        }
+    }
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let completed = process_job(JOB, &FailingStorage).await;
+        drop(guard);
+
+        assert!(!completed);
+        let failures = logs.events_where("event", "listing_geography.work_failed");
+        assert_eq!(1, failures.len());
+        assert_eq!(Some("geography_projection"), failures[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), failures[0]["dependency"].as_str());
+        assert_eq!(Some("io"), failures[0]["error_category"].as_str());
+        assert!(!logs.text().contains("SENTINEL"));
     }
 }

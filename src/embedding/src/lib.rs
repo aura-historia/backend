@@ -53,6 +53,32 @@ pub enum EmbeddingError {
     InvalidResponse { reason: &'static str },
 }
 
+impl EmbeddingError {
+    /// An allowlisted label for terminal diagnostics. Unlike the error text, it never includes
+    /// request URLs, credentials or provider response content.
+    pub fn diagnostic_category(&self) -> &'static str {
+        match self {
+            Self::InvalidInput { .. } => "input_invalid",
+            Self::AuthenticationFailed { .. } => "authentication",
+            Self::RequestFailed { source } if source.is_timeout() => "timeout",
+            Self::RequestFailed { source } if source.is_decode() => "response_invalid",
+            Self::RequestFailed { .. } => "request",
+            Self::ApiFailure { .. } => "http_status",
+            Self::InvalidResponse { .. } => "response_invalid",
+        }
+    }
+
+    pub fn http_status(&self) -> Option<u16> {
+        match self {
+            Self::ApiFailure { status } => Some(status.as_u16()),
+            Self::RequestFailed { source } => source.status().map(|status| status.as_u16()),
+            Self::InvalidInput { .. }
+            | Self::AuthenticationFailed { .. }
+            | Self::InvalidResponse { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EmbeddingText(String);
 
@@ -398,6 +424,36 @@ struct ProviderEmbedding {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_classify_provider_failures_by_variant() {
+        for (error, category, status) in [
+            (
+                EmbeddingError::AuthenticationFailed {
+                    source: Box::new(std::io::Error::other("token refresh failed")),
+                },
+                "authentication",
+                None,
+            ),
+            (
+                EmbeddingError::ApiFailure {
+                    status: reqwest::StatusCode::TOO_MANY_REQUESTS,
+                },
+                "http_status",
+                Some(429),
+            ),
+            (
+                EmbeddingError::InvalidResponse {
+                    reason: "missing embedding values",
+                },
+                "response_invalid",
+                None,
+            ),
+        ] {
+            assert_eq!(category, error.diagnostic_category());
+            assert_eq!(status, error.http_status());
+        }
+    }
 
     #[test]
     fn should_build_vertex_endpoint_for_regional_and_global_locations() {

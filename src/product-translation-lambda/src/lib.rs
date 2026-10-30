@@ -2,8 +2,8 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
-use large_language_model::{AnthropicClaude, LargeLanguageModel};
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use large_language_model::{AnthropicClaude, LargeLanguageModel, LargeLanguageModelError};
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
@@ -100,15 +100,16 @@ async fn handler_with_budget(
     let mut guard_rejection_count = 0_usize;
     let mut retry_count = 0_usize;
     let response = results.finish(|attempt| {
-        let (complete, category) = match &attempt.outcome {
+        let (complete, category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(disposition) => (
                 matches!(disposition, ProductTranslationJobDisposition::Complete(_)),
                 disposition.category(),
+                disposition.failure_diagnostic(),
             ),
-            RecordOutcome::MissingBody => (false, "missing_message_body"),
-            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-            RecordOutcome::TimedOut => (false, "execution_timeout"),
-            RecordOutcome::Panicked => (false, "handler_panicked"),
+            RecordOutcome::MissingBody => (false, "missing_message_body", None),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget", None),
+            RecordOutcome::TimedOut => (false, "execution_timeout", None),
+            RecordOutcome::Panicked => (false, "handler_panicked", None),
         };
         if is_guard_rejection(&attempt.outcome) {
             guard_rejection_count += 1;
@@ -125,6 +126,11 @@ async fn handler_with_budget(
             warn!(
                 message_id = %attempt.message_id,
                 outcome = category,
+                stage = failure.map(FailureDiagnostic::stage),
+                dependency = failure.map(FailureDiagnostic::dependency),
+                error_category = failure.map(FailureDiagnostic::category),
+                http_status = failure.and_then(FailureDiagnostic::http_status),
+                sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
                 processing_duration_ms = attempt.duration.as_millis(),
                 "Product translation record retained for SQS retry or redrive"
             );
@@ -155,17 +161,22 @@ fn is_guard_rejection(outcome: &RecordOutcome<ProductTranslationJobDisposition>)
 pub enum ProductTranslationJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
-    DependencyUnavailable(&'static str),
+    DependencyUnavailable(FailureDiagnostic),
     Poison(&'static str),
 }
 
 impl ProductTranslationJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
+            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::DependencyUnavailable(_) => "translation_unavailable",
+        }
+    }
+
+    pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
+        match self {
+            Self::DependencyUnavailable(failure) => Some(failure),
+            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
         }
     }
 }
@@ -194,15 +205,44 @@ pub async fn execute_job(
     };
     match use_case.execute(&context, command).await {
         Ok(result) => translation_disposition(result.outcome),
-        Err(TranslateProductListingEventError::ServiceOrSystemPrincipalRequired) => {
-            ProductTranslationJobDisposition::Poison("system_principal_required")
-        }
-        // Source, provider, write, and commit failures retain the job. A completed provider call
-        // is deliberately indistinguishable from unknown unfinished work until the guarded commit.
-        Err(_) => {
-            ProductTranslationJobDisposition::DependencyUnavailable("translation_unavailable")
-        }
+        Err(error) => translation_error_disposition(&error),
     }
+}
+
+/// Source, provider, write, and commit failures retain the job. A completed provider call is
+/// deliberately indistinguishable from unknown unfinished work until the guarded commit. Only the
+/// failed stage and safe cause facts are kept; the error chain itself is never logged.
+fn translation_error_disposition(
+    error: &TranslateProductListingEventError,
+) -> ProductTranslationJobDisposition {
+    use ProductTranslationJobDisposition as D;
+    use TranslateProductListingEventError as E;
+    let stage = match error {
+        E::ServiceOrSystemPrincipalRequired => return D::Poison("system_principal_required"),
+        E::TranslationFailed { .. } => return D::DependencyUnavailable(translation_failure(error)),
+        E::SourceReadFailed { .. } => "source_read",
+        E::BeginTransactionFailed { .. } => "write_begin",
+        E::TranslationWriteFailed { .. } => "translation_write",
+        E::CommitTransactionFailed { .. } => "write_commit",
+    };
+    D::DependencyUnavailable(FailureDiagnostic::postgres(stage, error))
+}
+
+fn translation_failure(error: &TranslateProductListingEventError) -> FailureDiagnostic {
+    let failure =
+        std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |error| {
+            (*error).source()
+        })
+        .find_map(|error| error.downcast_ref::<LargeLanguageModelError>());
+    FailureDiagnostic::new(
+        "translation",
+        "anthropic",
+        failure.map_or(
+            UNCLASSIFIED_FAILURE,
+            LargeLanguageModelError::diagnostic_category,
+        ),
+        None,
+    )
 }
 
 pub fn translation_disposition(
@@ -253,6 +293,7 @@ mod tests {
         },
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
 
     #[tokio::test]
     async fn acknowledges_committed_and_authoritative_noop_outcomes_but_retries_unfinished_work() {
@@ -332,6 +373,33 @@ mod tests {
         assert_eq!(failure_ids(response), ["first", "second"]);
     }
 
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let use_case = FakeUseCase::new([FakeResult::Unavailable]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(events([(Some("unavailable"), valid_body())]), &use_case)
+            .await
+            .expect("handler response");
+        drop(guard);
+
+        assert_eq!(failure_ids(response), ["unavailable"]);
+        let retained = logs.events_where(
+            "message",
+            "Product translation record retained for SQS retry or redrive",
+        );
+        assert_eq!(1, retained.len());
+        assert_eq!(Some("translation"), retained[0]["stage"].as_str());
+        assert_eq!(Some("anthropic"), retained[0]["dependency"].as_str());
+        assert_eq!(
+            Some("authentication"),
+            retained[0]["error_category"].as_str()
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
     fn valid_body() -> String {
         r#"{"schema_version":1,"scope":"product-translation","job_type":"PRODUCT_LISTING_EVENT","idempotency_key":"product-event:evt_01h455vb4pex5vy7enb1p677vn","ordering_key":"product:pl_01h455vb4pex5vy7enb1p677vn","payload":{"event_id":"evt_01h455vb4pex5vy7enb1p677vn","product_listing_id":"pl_01h455vb4pex5vy7enb1p677vn"}}"#.to_owned()
     }
@@ -405,8 +473,10 @@ mod tests {
                     Ok(TranslateProductListingEventResult { outcome })
                 }
                 Some(FakeResult::Unavailable) => {
-                    Err(TranslateProductListingEventError::CommitTransactionFailed {
-                        source: Box::new(std::io::Error::other("commit result unknown")),
+                    Err(TranslateProductListingEventError::TranslationFailed {
+                        source: Box::new(LargeLanguageModelError::Authentication {
+                            source: Box::new(std::io::Error::other(SENTINEL)),
+                        }),
                     })
                 }
                 Some(FakeResult::Pending) => std::future::pending().await,

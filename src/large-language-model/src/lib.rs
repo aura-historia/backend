@@ -183,6 +183,19 @@ pub enum LargeLanguageModelError {
 }
 
 impl LargeLanguageModelError {
+    /// An allowlisted label for terminal diagnostics. Unlike the error text, it never includes
+    /// prompts, provider response content or credentials.
+    pub fn diagnostic_category(&self) -> &'static str {
+        match self {
+            Self::InvalidRequest { .. } => "invalid_request",
+            Self::Authentication { .. } => "authentication",
+            Self::Timeout { .. } => "timeout",
+            Self::Retryable { .. } => "retryable",
+            Self::Permanent { .. } => "rejected",
+            Self::InvalidResponse { .. } => "response_invalid",
+        }
+    }
+
     /// Return the safe structured-response failure category, when this error
     /// came from provider response parsing.
     pub fn structured_response_failure_kind(&self) -> Option<StructuredResponseFailureKind> {

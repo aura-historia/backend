@@ -154,6 +154,14 @@ other groups in the batch continue. Records without a group ID, and records afte
 exhausted invocation budget, are all retained. Partial failures need not increment Lambda `Errors`;
 monitor outcome counts, age/backlog, DLQs and provider failures too.
 
+The worker or scheduled-job boundary logs a technical failure once, beside its custody
+`outcome`: `stage` names the failed step, `dependency` the system it called (`none` when the
+use case refused the request itself) and `error_category` a bounded cause class such as
+`pool_timed_out`, `authentication` or `http_status`, with `http_status` or `sqlstate` when the
+cause carries one. Use them to choose what to repair before a redrive. `unclassified` means the
+cause had no safe classification; inspect the dependency instead. Error messages, provider
+bodies and payloads are never logged.
+
 FIFO consumers park a record that can never succeed as delivered on its first redelivery
 instead of retaining it for the whole retry budget: they send the unchanged body to the
 source queue's own DLQ under the original message group, deduplicated by the original SQS

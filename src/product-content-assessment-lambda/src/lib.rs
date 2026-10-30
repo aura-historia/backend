@@ -2,7 +2,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
@@ -80,21 +80,29 @@ async fn handler_with_budget(
     let record_count = results.record_count;
     let started_at = results.started_at;
     let response = results.finish(|attempt| {
-        let (complete, category) = match &attempt.outcome {
+        let (complete, category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(disposition) => (
                 matches!(
                     disposition,
                     ProductContentAssessmentJobDisposition::Complete(_)
                 ),
                 disposition.category(),
+                disposition.failure_diagnostic(),
             ),
-            RecordOutcome::MissingBody => (false, "missing_message_body"),
-            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-            RecordOutcome::TimedOut => (false, "execution_timeout"),
-            RecordOutcome::Panicked => (false, "handler_panicked"),
+            RecordOutcome::MissingBody => (false, "missing_message_body", None),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget", None),
+            RecordOutcome::TimedOut => (false, "execution_timeout", None),
+            RecordOutcome::Panicked => (false, "handler_panicked", None),
         };
         if !complete {
-            warn!(message_id = %attempt.message_id, outcome = category,
+            warn!(
+                message_id = %attempt.message_id,
+                outcome = category,
+                stage = failure.map(FailureDiagnostic::stage),
+                dependency = failure.map(FailureDiagnostic::dependency),
+                error_category = failure.map(FailureDiagnostic::category),
+                http_status = failure.and_then(FailureDiagnostic::http_status),
+                sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
                 "Product content-assessment record retained for SQS retry or redrive");
         }
         complete
@@ -112,17 +120,22 @@ async fn handler_with_budget(
 pub enum ProductContentAssessmentJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
-    DependencyUnavailable(&'static str),
+    DependencyUnavailable(FailureDiagnostic),
     Poison(&'static str),
 }
 
 impl ProductContentAssessmentJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
+            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::DependencyUnavailable(_) => "assessment_unavailable",
+        }
+    }
+
+    pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
+        match self {
+            Self::DependencyUnavailable(failure) => Some(failure),
+            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
         }
     }
 }
@@ -151,15 +164,26 @@ pub async fn execute_job(
     };
     match use_case.execute(&context, command).await {
         Ok(result) => assessment_disposition(result.outcome),
-        Err(AssessProductListingContentEventError::ServiceOrSystemPrincipalRequired) => {
-            ProductContentAssessmentJobDisposition::Poison("system_principal_required")
-        }
-        // A provider is intentionally not part of this scope. Source, write, commit, and
-        // unknown completion errors must remain retryable rather than being acknowledged.
-        Err(_) => {
-            ProductContentAssessmentJobDisposition::DependencyUnavailable("assessment_unavailable")
-        }
+        Err(error) => assessment_error_disposition(&error),
     }
+}
+
+/// A provider is intentionally not part of this scope. Source, write, commit, and unknown
+/// completion errors must remain retryable rather than being acknowledged. Only the failed stage
+/// and safe cause facts are kept; the error chain itself is never logged.
+fn assessment_error_disposition(
+    error: &AssessProductListingContentEventError,
+) -> ProductContentAssessmentJobDisposition {
+    use AssessProductListingContentEventError as E;
+    use ProductContentAssessmentJobDisposition as D;
+    let stage = match error {
+        E::ServiceOrSystemPrincipalRequired => return D::Poison("system_principal_required"),
+        E::SourceReadFailed { .. } => "source_read",
+        E::BeginTransactionFailed { .. } => "write_begin",
+        E::AssessmentWriteFailed { .. } => "assessment_write",
+        E::CommitTransactionFailed { .. } => "write_commit",
+    };
+    D::DependencyUnavailable(FailureDiagnostic::postgres(stage, error))
 }
 
 pub fn assessment_disposition(
@@ -207,6 +231,7 @@ mod tests {
         },
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
 
     #[tokio::test]
     async fn acknowledges_committed_guarded_outcomes_and_retries_all_unfinished_records() {
@@ -280,6 +305,30 @@ mod tests {
         ]))
         .expect("partial batch response");
         assert_eq!(failure_ids(response), ["first", "second"]);
+    }
+
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let use_case = FakeUseCase::new([FakeResult::Unavailable]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(events([(Some("unavailable"), valid_body())]), &use_case)
+            .await
+            .expect("handler response");
+        drop(guard);
+
+        assert_eq!(failure_ids(response), ["unavailable"]);
+        let retained = logs.events_where(
+            "message",
+            "Product content-assessment record retained for SQS retry or redrive",
+        );
+        assert_eq!(1, retained.len());
+        assert_eq!(Some("source_read"), retained[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), retained[0]["dependency"].as_str());
+        assert_eq!(Some("io"), retained[0]["error_category"].as_str());
+        assert!(!logs.text().contains("SENTINEL"));
     }
 
     fn valid_body() -> String {
@@ -357,7 +406,7 @@ mod tests {
                 }
                 Some(FakeResult::Unavailable) => {
                     Err(AssessProductListingContentEventError::SourceReadFailed {
-                        source: Box::new(std::io::Error::other("unavailable")),
+                        source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
                     })
                 }
                 Some(FakeResult::Pending) => std::future::pending().await,

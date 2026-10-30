@@ -1,4 +1,7 @@
+mod failure;
 pub mod keyset;
+
+pub use failure::{PostgresFailure, SqlState};
 
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
 use async_trait::async_trait;
