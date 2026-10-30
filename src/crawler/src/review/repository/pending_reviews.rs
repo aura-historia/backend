@@ -65,17 +65,21 @@ impl Default for PendingReviewQuery {
 /// The totals of the agents' queue and one page of it. A pending review waits for a human once its
 /// agent rounds reach the policy's [repair-round cap](AgentDecisionPolicy::repair_rounds_cap), as
 /// [`AgentDecisionPolicy::waits_for_human`] decides, so with no cap, outside `agent` mode, none
-/// does. Binds `$1` to `$3` of [`agent_rounds_of_review`], `$4`, the repair-round cap or null,
-/// `$5`, the `human_required` filter or null, `$6` and `$7`, the creation time and id of the review
-/// the page starts after or null, and `$8`, the most rows to answer. Every row carries the totals;
-/// an empty page is one row with the totals and no review.
+/// does. Each review also carries the time of its latest `HUMAN` event, which handed it back to the
+/// agents. Binds `$1` to `$3` of [`agent_rounds_of_review`], `$3` also as the human actor of that
+/// event, `$4`, the repair-round cap or null, `$5`, the `human_required` filter or null, `$6` and
+/// `$7`, the creation time and id of the review the page starts after or null, and `$8`, the most
+/// rows to answer. Every row carries the totals; an empty page is one row with the totals and no
+/// review.
 const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     "WITH queue AS ( \
          SELECT q.*, (q.agent_rounds >= $4::bigint) IS TRUE AS waits_for_human \
          FROM ( \
              SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, \
                     r.artifact_type, r.reason, r.candidate_version, r.repair_requested, \
-                    r.repair_note, r.created, r.updated, ",
+                    r.repair_note, r.created, r.updated, \
+                    (SELECT MAX(h.created) FROM crawler_review_events h \
+                     WHERE h.review_id = r.review_id AND h.actor = $3) AS handed_back, ",
     agent_rounds_of_review!(),
     " AS agent_rounds \
              FROM crawler_reviews r \
@@ -191,6 +195,7 @@ fn row_to_summary(
         repair_request: row_to_repair_request(row)?,
         agent_rounds,
         human_required: agent_decisions.waits_for_human(STATUS_PENDING_REVIEW, agent_rounds),
+        handed_back: row.try_get("handed_back")?,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
     })

@@ -6,7 +6,8 @@
 //! not what its report says the console answered. A review that waits for a human is no agent
 //! work: the pass starts no process for it, nor a further process once an agent's pass handed it
 //! to a human, so it neither fails nor cools down, whichever process's needs-repair verdict
-//! brought it to the cap, and the agents work it in the first pass after a human hands it back.
+//! brought it to the cap. Once a human hands it back it is workable at once, and the pass picks it
+//! as a review no agent worked ([`select_reviews`]).
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 

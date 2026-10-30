@@ -339,7 +339,8 @@ mod tests {
     /// limits to the author's token. The event list holds `events` and, as `AGENT_REVIEWER` events,
     /// the decisions the fake `claude` logged to its `decided.log`, as the review MCP server would
     /// have recorded them. A review a process of the fake handed to a human (`human/<review id>`)
-    /// waits for a human, one marked `unreadable/<review id>` cannot be read, and the limits cannot
+    /// waits for a human, one a human handed back lists the time of it (`handed_back/<review
+    /// id>`) in the queue, one marked `unreadable/<review id>` cannot be read, and the limits cannot
     /// be read once `limits_unreadable` exists.
     struct FakeConsole {
         url: String,
@@ -377,7 +378,7 @@ mod tests {
                     let (status, body) = if !authorized {
                         (401, "{\"error\":\"unauthorized\"}".to_owned())
                     } else if let Some(query) = path.strip_prefix("/api/pending-reviews?") {
-                        (200, pending_page(&reviews, query))
+                        (200, pending_page(&reviews, query, &claude_dir))
                     } else if path.starts_with("/api/review-events?since=") {
                         let decided_log = claude_dir.join("decided.log");
                         (200, with_decisions(&events, &decided_log).to_string())
@@ -413,7 +414,7 @@ mod tests {
 
     /// `GET /api/pending-reviews?<query>` of `reviews`, one review a page, so the runner reads the
     /// agents' queue page by page as it must however long the queue is.
-    fn pending_page(reviews: &[CrawlerReview], query: &str) -> String {
+    fn pending_page(reviews: &[CrawlerReview], query: &str, claude_dir: &Path) -> String {
         let query: HashMap<String, String> = url::form_urlencoded::parse(query.as_bytes())
             .into_owned()
             .collect();
@@ -465,6 +466,19 @@ mod tests {
                 repair_request: review.repair_request.clone(),
                 agent_rounds: review.agent_rounds,
                 human_required: review.human_required,
+                handed_back: std::fs::read_to_string(
+                    claude_dir
+                        .join("handed_back")
+                        .join(review.review_id.to_string()),
+                )
+                .ok()
+                .and_then(|handed_back| {
+                    OffsetDateTime::parse(
+                        &handed_back,
+                        &time::format_description::well_known::Rfc3339,
+                    )
+                    .ok()
+                }),
                 created: review.created,
                 updated: review.updated,
             })
@@ -613,6 +627,7 @@ echo "end $role $review" >> "$dir/order.log"
                 "die",
                 "hand_over",
                 "human",
+                "handed_back",
                 "unreadable",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
@@ -657,11 +672,19 @@ echo "end $role $review" >> "$dir/order.log"
                 .unwrap_or_default();
         }
 
-        /// Hands the review `review_id` back to the agents, as a human's change or verdict does:
-        /// it no longer waits for a human, and no process hands it over again.
+        /// Hands the review `review_id` back to the agents now, as a human's change or verdict
+        /// does: it no longer waits for a human, the queue lists when it was handed back, and no
+        /// process hands it over again.
         fn hand_back(&self, review_id: CrawlerReviewId) {
             let review_id = review_id.to_string();
             let _ = std::fs::remove_file(self.directory.path().join("human").join(&review_id));
+            std::fs::write(
+                self.directory.path().join("handed_back").join(&review_id),
+                OffsetDateTime::now_utc()
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default(),
+            )
+            .unwrap_or_default();
             for role in ["author", "reviewer"] {
                 let _ = std::fs::remove_file(
                     self.directory
@@ -1098,11 +1121,12 @@ echo "end $role $review" >> "$dir/order.log"
 
     /// An author process that ends without a decision after its own needs-repair verdict reached
     /// the cap leaves its review waiting for a human, which gets no cooldown: the first run after a
-    /// human hands it back works it.
+    /// human hands it back works it, ahead of a review no agent process worked yet.
     #[tokio::test]
     async fn should_work_a_review_in_the_first_run_after_a_human_hands_it_back() {
         let handed_over = review("PENDING_REVIEW", true);
-        let fixture = Fixture::new(vec![handed_over.clone()]).await;
+        let never_worked = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![handed_over.clone(), never_worked]).await;
         let author = format!("{}-author", handed_over.review_id);
         fixture.claude.hand_to_human(&author);
         fixture.claude.answer(
@@ -1112,7 +1136,10 @@ echo "end $role $review" >> "$dir/order.log"
                 "terminal_reason": "max_turns", "total_cost_usd": 0.75, "num_turns": 80,
             }),
         );
-        let settings = fixture.settings(&[], &[]);
+        let settings = fixture.settings(
+            &[],
+            &[("CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN", "1")],
+        );
 
         let first_run = summary(&run_with(&settings).await);
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
@@ -1129,8 +1156,12 @@ echo "end $role $review" >> "$dir/order.log"
         );
         assert!(state.cooldowns.is_empty(), "{state:?}");
         assert_eq!(
-            (second_run.cooling_down, second_run.worked),
-            (0, 1),
+            (
+                second_run.pending,
+                second_run.cooling_down,
+                second_run.worked
+            ),
+            (2, 0, 1),
             "the run after the hand-back works the review"
         );
         let id = handed_over.review_id;

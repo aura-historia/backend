@@ -1777,12 +1777,20 @@ fn capped(pool: &PgPool, max_repair_rounds: u32) -> CrawlerReviewRepository {
 }
 
 /// The review's agent rounds and whether it waits for a human, as its detail, the review list and,
-/// while it is pending, the agents' queue report them; all must agree.
+/// while it is pending, the agents' queue report them; all must agree, and the queue names the
+/// review's latest `HUMAN` event as when a human handed it back.
 async fn agent_rounds(
     repository: &CrawlerReviewRepository,
     review_id: CrawlerReviewId,
 ) -> (u32, bool) {
-    let detail = repository.get_review(review_id).await.unwrap().review;
+    let detail = repository.get_review(review_id).await.unwrap();
+    let handed_back = detail
+        .events
+        .iter()
+        .rev()
+        .find(|event| event.actor == ReviewActor::Human)
+        .map(|event| event.created);
+    let detail = detail.review;
     let listed = repository
         .list_reviews(200)
         .await
@@ -1799,8 +1807,12 @@ async fn agent_rounds(
     if detail.status == STATUS_PENDING_REVIEW {
         let queued = queued.unwrap_or_else(|| panic!("review {review_id} is not in the queue"));
         assert_eq!(
-            (queued.agent_rounds, queued.human_required),
-            (detail.agent_rounds, detail.human_required),
+            (
+                queued.agent_rounds,
+                queued.human_required,
+                queued.handed_back
+            ),
+            (detail.agent_rounds, detail.human_required, handed_back),
             "the agents' queue and the detail disagree"
         );
     } else {
@@ -2094,6 +2106,10 @@ async fn should_hand_the_review_back_to_the_agents_with_a_human_change_or_verdic
         .await
         .unwrap();
     assert_eq!(agent_rounds(&repository, review_id).await, (0, false));
+    let handed_back = queued_review(&repository, review_id)
+        .await
+        .and_then(|queued| queued.handed_back);
+    assert!(handed_back.is_some(), "the queue names the hand-back");
     repository
         .update_schema_field(
             review_id,

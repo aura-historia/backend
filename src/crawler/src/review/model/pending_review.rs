@@ -28,6 +28,10 @@ pub struct PendingReviewSummary {
     /// Whether, in `agent` authoring mode, `agent_rounds` reached the cap, so the review waits for
     /// a human. Always `false` in the other modes, where a human decides every review.
     pub human_required: bool,
+    /// When a human last changed or judged the review, which handed it back to the agents and from
+    /// which `agent_rounds` count; `None` while no human acted on it.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub handed_back: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
