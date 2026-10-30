@@ -9,7 +9,7 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 
@@ -105,21 +105,29 @@ async fn handler_with_budget(
     .await?;
     let record_count = results.record_count;
     let response = results.finish(|attempt| {
-        let (complete, category) = match &attempt.outcome {
+        let (complete, category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(disposition) => (
                 matches!(
                     disposition,
                     SearchFilterMatchNotificationJobDisposition::Complete(_)
                 ),
                 disposition.category(),
+                disposition.failure_diagnostic(),
             ),
-            RecordOutcome::MissingBody => (false, "missing_message_body"),
-            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
-            RecordOutcome::TimedOut => (false, "execution_timeout"),
-            RecordOutcome::Panicked => (false, "handler_panicked"),
+            RecordOutcome::MissingBody => (false, "missing_message_body", None),
+            RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget", None),
+            RecordOutcome::TimedOut => (false, "execution_timeout", None),
+            RecordOutcome::Panicked => (false, "handler_panicked", None),
         };
         if !complete {
-            warn!(message_id = %attempt.message_id, outcome = category,
+            warn!(
+                message_id = %attempt.message_id,
+                outcome = category,
+                stage = failure.map(FailureDiagnostic::stage),
+                dependency = failure.and_then(FailureDiagnostic::dependency),
+                error_category = failure.map(FailureDiagnostic::category),
+                http_status = failure.and_then(FailureDiagnostic::http_status),
+                sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
                 "Saved-filter match-notification record retained for SQS retry or redrive");
         }
         complete
@@ -136,17 +144,22 @@ async fn handler_with_budget(
 pub enum SearchFilterMatchNotificationJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
-    DependencyUnavailable(&'static str),
+    DependencyUnavailable(FailureDiagnostic),
     Poison(&'static str),
 }
 
 impl SearchFilterMatchNotificationJobDisposition {
     pub const fn category(self) -> &'static str {
         match self {
-            Self::Complete(category)
-            | Self::Retry(category)
-            | Self::DependencyUnavailable(category)
-            | Self::Poison(category) => category,
+            Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
+            Self::DependencyUnavailable(_) => "match_notification_unavailable",
+        }
+    }
+
+    pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
+        match self {
+            Self::DependencyUnavailable(failure) => Some(failure),
+            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
         }
     }
 }
@@ -170,23 +183,34 @@ pub async fn execute_job(
     };
     match use_case.execute(command).await {
         Ok(result) => notification_outcome(result),
-        Err(error) => {
-            use GenerateSearchFilterMatchNotificationError as E;
-            match error {
-                E::MatchSourceStateInvalid { .. }
-                | E::ProductListingSourceStateInvalid { .. }
-                | E::ProductListingSourceMismatch
-                | E::ContentAssessmentStateInvalid { .. } => {
-                    SearchFilterMatchNotificationJobDisposition::Poison(
-                        "match_notification_state_invalid",
-                    )
-                }
-                _ => SearchFilterMatchNotificationJobDisposition::DependencyUnavailable(
-                    "match_notification_unavailable",
-                ),
-            }
-        }
+        Err(error) => notification_error_disposition(&error),
     }
+}
+
+/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
+fn notification_error_disposition(
+    error: &GenerateSearchFilterMatchNotificationError,
+) -> SearchFilterMatchNotificationJobDisposition {
+    use GenerateSearchFilterMatchNotificationError as E;
+    use SearchFilterMatchNotificationJobDisposition as D;
+    let stage = match error {
+        E::MatchSourceStateInvalid { .. }
+        | E::ProductListingSourceStateInvalid { .. }
+        | E::ProductListingSourceMismatch
+        | E::ContentAssessmentStateInvalid { .. } => {
+            return D::Poison("match_notification_state_invalid");
+        }
+        E::BeginTransactionFailed { .. } => "selection_begin",
+        E::MatchSourceReadFailed { .. } => "match_source_read",
+        E::ProductListingSourceReadFailed { .. } => "product_source_read",
+        E::ContentAssessmentReadFailed { .. } => "content_assessment_read",
+        E::UserTierEntitlementsLockFailed { .. } => "tier_entitlements_lock",
+        E::MonthlyMatchQuotaReadFailed { .. } => "monthly_quota_read",
+        E::CommitTransactionFailed { .. } => "selection_commit",
+        E::DigestFinalizationFailed { .. } => "digest_finalization",
+        E::NotificationCreateFailed { .. } => "notification_create",
+    };
+    D::DependencyUnavailable(FailureDiagnostic::postgres(stage, error))
 }
 pub fn notification_outcome(
     result: GenerateSearchFilterMatchNotificationResult,
@@ -247,6 +271,7 @@ mod tests {
         },
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
 
     #[tokio::test]
     async fn acknowledges_semantic_completion_and_retries_unfinished_or_poisoned_records() {
@@ -343,6 +368,30 @@ mod tests {
         assert_eq!(failure_ids(response), ["first", "second"]);
     }
 
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let use_case = FakeUseCase::new([FakeResult::Unavailable]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(events([(Some("unavailable"), valid_body())]), &use_case)
+            .await
+            .expect("handler response");
+        drop(guard);
+
+        assert_eq!(failure_ids(response), ["unavailable"]);
+        let retained = logs.events_where(
+            "message",
+            "Saved-filter match-notification record retained for SQS retry or redrive",
+        );
+        assert_eq!(1, retained.len());
+        assert_eq!(Some("match_source_read"), retained[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), retained[0]["dependency"].as_str());
+        assert_eq!(Some("tls"), retained[0]["error_category"].as_str());
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
     fn valid_body() -> String {
         r#"{"schema_version":1,"scope":"search-filter-match-notification","job_type":"SEARCH_FILTER_MATCH_CREATED","idempotency_key":"search-filter-match:usr_01h455vb4pex5vy7enb1p677vn:sf_01h455vb4pex5vy7enb1p677vn:pl_01h455vb4pex5vy7enb1p677vn:evt_01h455vb4pex5vy7enb1p677vn","ordering_key":"user:usr_01h455vb4pex5vy7enb1p677vn","payload":{"user_id":"usr_01h455vb4pex5vy7enb1p677vn","user_search_filter_id":"sf_01h455vb4pex5vy7enb1p677vn","product_listing_id":"pl_01h455vb4pex5vy7enb1p677vn","origin_event_id":"evt_01h455vb4pex5vy7enb1p677vn"}}"#.to_owned()
     }
@@ -421,7 +470,9 @@ mod tests {
                 }
                 Some(FakeResult::Unavailable) => Err(
                     GenerateSearchFilterMatchNotificationError::MatchSourceReadFailed {
-                        source: Box::new(std::io::Error::other("unavailable")),
+                        source: Box::new(sqlx::Error::Tls(Box::new(std::io::Error::other(
+                            SENTINEL,
+                        )))),
                     },
                 ),
                 Some(FakeResult::Pending) => std::future::pending().await,

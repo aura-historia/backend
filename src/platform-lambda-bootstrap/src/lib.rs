@@ -1,5 +1,7 @@
+mod failure_diagnostic;
 mod google_adc;
 
+pub use failure_diagnostic::{FailureDiagnostic, UNCLASSIFIED_FAILURE};
 pub use google_adc::{
     google_application_default_credentials, materialize_google_application_credentials_from_env,
 };

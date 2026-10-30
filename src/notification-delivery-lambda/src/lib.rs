@@ -12,9 +12,10 @@ use notification_service::{
     use_cases::commands::deliver_notification::{
         DeliverNotificationCommand, DeliverNotificationError, DeliverNotificationHandler,
         DeliverNotificationResult, DeliverNotificationTiming, DeliverNotificationUseCase,
+        DeliveryAttemptPhase,
     },
 };
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
@@ -177,10 +178,17 @@ pub async fn process_notification_delivery_job(
             disposition
         }
         Err(error) => {
+            let failure = delivery_failure(&error);
+            let code = provider_code(&error);
             let disposition = delivery_error_disposition(error);
             warn!(
                 notification_delivery_id = %notification_delivery_id,
                 outcome = disposition.category(),
+                stage = failure.as_ref().map(FailureDiagnostic::stage),
+                dependency = failure.as_ref().and_then(FailureDiagnostic::dependency),
+                error_category = failure.as_ref().map(FailureDiagnostic::category),
+                sqlstate = failure.as_ref().and_then(FailureDiagnostic::sqlstate),
+                provider_code = code,
                 "notification delivery attempt remains unfinished"
             );
             disposition
@@ -250,6 +258,53 @@ pub fn delivery_error_disposition(
         }
     }
 }
+/// The channel adapter's own static code for a failed send, logged beside the shared category.
+fn provider_code(error: &DeliverNotificationError) -> Option<&'static str> {
+    match error {
+        DeliverNotificationError::RetryableSend(send)
+        | DeliverNotificationError::AmbiguousSend(send) => Some(send.code()),
+        _ => None,
+    }
+}
+
+/// Safe cause facts for dependency failures; the error chain itself is never logged. Lease,
+/// channel-registration and invalid-state outcomes are fully named by their category.
+fn delivery_failure(error: &DeliverNotificationError) -> Option<FailureDiagnostic> {
+    match error {
+        DeliverNotificationError::Repository(NotificationDeliveryError::OperationFailed {
+            ..
+        }) => Some(FailureDiagnostic::postgres("delivery_repository", error)),
+        DeliverNotificationError::FinalizationExhausted { .. } => {
+            Some(FailureDiagnostic::postgres("finalization", error))
+        }
+        DeliverNotificationError::RetryableSend(_) => Some(FailureDiagnostic::new(
+            "provider_send",
+            "notification_channel",
+            "retryable",
+            None,
+        )),
+        DeliverNotificationError::AmbiguousSend(_) => Some(FailureDiagnostic::new(
+            "provider_send",
+            "notification_channel",
+            "acceptance_unknown",
+            None,
+        )),
+        DeliverNotificationError::AttemptTimedOut { phase } => {
+            let (stage, dependency) = match phase {
+                DeliveryAttemptPhase::Claim => ("claim", "postgres"),
+                DeliveryAttemptPhase::Provider => ("provider_send", "notification_channel"),
+                DeliveryAttemptPhase::Finalization => ("finalization", "postgres"),
+            };
+            Some(FailureDiagnostic::new(stage, dependency, "timeout", None))
+        }
+        DeliverNotificationError::Repository(
+            NotificationDeliveryError::InvalidPersistedState { .. },
+        )
+        | DeliverNotificationError::UnregisteredChannel { .. }
+        | DeliverNotificationError::LeaseLost => None,
+    }
+}
+
 pub fn command_from_job(
     job: DomainJob,
 ) -> Result<DeliverNotificationCommand, aura_historia_jobs::InvalidJob> {
@@ -267,14 +322,84 @@ mod tests {
     use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
 
-    use notification_service::use_cases::commands::deliver_notification::{
-        DeliverNotificationCommand, DeliverNotificationError, DeliverNotificationResult,
+    use notification_service::{
+        ports::notification_channel_sender::NotificationChannelSendError,
+        use_cases::commands::deliver_notification::{
+            DeliverNotificationCommand, DeliverNotificationError, DeliverNotificationResult,
+        },
     };
     use std::{
         collections::VecDeque,
         sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
+
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    #[tokio::test]
+    async fn should_distinguish_repository_and_provider_failures_without_logging_causes() {
+        let use_case = FakeUseCase::new([
+            Err(DeliverNotificationError::Repository(
+                NotificationDeliveryError::OperationFailed {
+                    source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
+                },
+            )),
+            Err(DeliverNotificationError::RetryableSend(
+                NotificationChannelSendError::Retryable {
+                    code: "THROTTLED",
+                    source: Box::new(std::io::Error::other(SENTINEL)),
+                },
+            )),
+        ]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(
+            events([
+                (Some("repository"), valid_body()),
+                (Some("provider"), valid_body()),
+            ]),
+            &use_case,
+        )
+        .await
+        .expect("handler response");
+        drop(guard);
+
+        assert_eq!(failure_ids(response), ["repository", "provider"]);
+        let failures = logs.events_where(
+            "message",
+            "notification delivery attempt remains unfinished",
+        );
+        let diagnostics = failures
+            .iter()
+            .map(|fields| {
+                (
+                    fields["stage"].as_str(),
+                    fields["dependency"].as_str(),
+                    fields["error_category"].as_str(),
+                    fields.get("provider_code").and_then(|code| code.as_str()),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            diagnostics,
+            [
+                (
+                    Some("delivery_repository"),
+                    Some("postgres"),
+                    Some("io"),
+                    None
+                ),
+                (
+                    Some("provider_send"),
+                    Some("notification_channel"),
+                    Some("retryable"),
+                    Some("THROTTLED")
+                ),
+            ]
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
 
     #[tokio::test]
     async fn acknowledges_only_durable_terminal_delivery_results() {

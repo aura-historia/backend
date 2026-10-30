@@ -61,7 +61,7 @@ pub enum ConsentWorkflowCleanupTarget {
 }
 
 impl ConsentWorkflowCleanupTarget {
-    const fn label(&self) -> &'static str {
+    pub const fn label(&self) -> &'static str {
         match self {
             Self::UnconfirmedChallenges => "unconfirmed_challenges",
             Self::ConfirmedChallenges => "confirmed_challenges",

@@ -1,8 +1,11 @@
 use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
+use platform_lambda_bootstrap::FailureDiagnostic;
 use platform_lambda_sqs::{RecordOutcome, process_batch};
-use product_listing_service::shipping_projection::ProjectListingShippingUseCase;
+use product_listing_service::shipping_projection::{
+    ProjectListingShippingUseCase, ShippingProjectionError,
+};
 use std::time::Duration;
 pub async fn process_job(body: &str, use_case: &dyn ProjectListingShippingUseCase) -> bool {
     let Ok(job) = decode(body, WorkerScope::ListingShipping) else {
@@ -16,15 +19,44 @@ pub async fn process_job(body: &str, use_case: &dyn ProjectListingShippingUseCas
     match use_case.execute(job.work_id, 100).await {
         Ok(_) => true,
         Err(error) => {
-            let category=match error {
-                product_listing_service::shipping_projection::ShippingProjectionError::Deferred=>"DEFERRED",
-                product_listing_service::shipping_projection::ShippingProjectionError::Superseded=>"SUPERSEDED",
-                _=>"DEPENDENCY_OR_STORAGE",
-            };
-            tracing::warn!(event="listing_shipping.work_failed",work_id=%job.work_id,category);
+            let (category, failure) = shipping_failure(&error);
+            tracing::warn!(
+                event = "listing_shipping.work_failed",
+                work_id = %job.work_id,
+                category,
+                stage = failure.as_ref().map(FailureDiagnostic::stage),
+                dependency = failure.as_ref().and_then(FailureDiagnostic::dependency),
+                error_category = failure.as_ref().map(FailureDiagnostic::category),
+                sqlstate = failure.as_ref().and_then(FailureDiagnostic::sqlstate),
+            );
             false
         }
     }
+}
+
+/// Claim outcomes are expected contention and carry no diagnostic. Invalid input is the worker's
+/// own request, so it names no dependency.
+fn shipping_failure(error: &ShippingProjectionError) -> (&'static str, Option<FailureDiagnostic>) {
+    let stage = match error {
+        ShippingProjectionError::Deferred => return ("DEFERRED", None),
+        ShippingProjectionError::Superseded => return ("SUPERSEDED", None),
+        ShippingProjectionError::InvalidInput => {
+            return (
+                "INVALID_INPUT",
+                Some(FailureDiagnostic::rejected(
+                    "shipping_projection",
+                    "invalid_input",
+                )),
+            );
+        }
+        ShippingProjectionError::Storage(_) => "shipping_projection",
+        ShippingProjectionError::Transaction(_) => "shipping_transaction",
+        ShippingProjectionError::Assessment(_) => "shipping_assessment",
+    };
+    (
+        "DEPENDENCY_OR_STORAGE",
+        Some(FailureDiagnostic::postgres(stage, error)),
+    )
 }
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
@@ -43,6 +75,7 @@ mod tests {
     use super::*;
     use product_listing_service::shipping_projection::{ShippingProjectionError, ShippingWorkId};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use test_api::CapturedLogs;
 
     struct Stub {
         calls: AtomicUsize,
@@ -92,5 +125,38 @@ mod tests {
         };
         assert!(!process_job(JOB, &stub).await);
         assert_eq!(1, stub.calls.load(Ordering::SeqCst));
+    }
+
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    struct FailingStorage;
+
+    #[async_trait::async_trait]
+    impl ProjectListingShippingUseCase for FailingStorage {
+        async fn execute(
+            &self,
+            _work: ShippingWorkId,
+            _limit: u16,
+        ) -> Result<u32, ShippingProjectionError> {
+            Err(ShippingProjectionError::Storage(Box::new(
+                sqlx::Error::Protocol(SENTINEL.to_owned()),
+            )))
+        }
+    }
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let completed = process_job(JOB, &FailingStorage).await;
+        drop(guard);
+
+        assert!(!completed);
+        let failures = logs.events_where("event", "listing_shipping.work_failed");
+        assert_eq!(1, failures.len());
+        assert_eq!(Some("shipping_projection"), failures[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), failures[0]["dependency"].as_str());
+        assert_eq!(Some("protocol"), failures[0]["error_category"].as_str());
+        assert!(!logs.text().contains("SENTINEL"));
     }
 }

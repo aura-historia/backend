@@ -341,6 +341,20 @@ impl GeocodingFailure {
             Self::StorageNotPermitted => "STORAGE_NOT_PERMITTED",
         }
     }
+    /// The lower-case class used by worker failure diagnostics, which share their category
+    /// vocabulary across dependencies; `as_str` stays the persisted code.
+    pub fn diagnostic_category(self) -> &'static str {
+        match self {
+            Self::Timeout => "timeout",
+            Self::Throttled => "throttled",
+            Self::Unavailable => "unavailable",
+            Self::Authentication => "authentication",
+            Self::Configuration => "configuration",
+            Self::UnsupportedInput => "input_invalid",
+            Self::InvalidResponse => "response_invalid",
+            Self::StorageNotPermitted => "storage_not_permitted",
+        }
+    }
     pub fn from_code(value: &str) -> Option<Self> {
         match value {
             "TIMEOUT" => Some(Self::Timeout),

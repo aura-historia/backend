@@ -1,14 +1,19 @@
 use application::operation_context::{OperationContext, Principal};
-use geo_service::resolution::MaintainResolutionsUseCase;
+use geo_service::resolution::{MaintainResolutionsUseCase, ResolutionError};
 use lambda_runtime::Error;
+use oauth_service::ports::ExpiredCredentialCleanupError;
 use oauth_service::use_cases::{
     CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
     ExpiryCleanupBatchSizeError,
 };
-use product_listing_service::use_cases::RefreshPublicCatalogueOverviewUseCase;
+use platform_lambda_bootstrap::FailureDiagnostic;
+use product_listing_service::geography::{GeographyError, ProjectListingGeographyUseCase};
+use product_listing_service::use_cases::{
+    RefreshPublicCatalogueOverviewError, RefreshPublicCatalogueOverviewUseCase,
+};
 use std::env;
 use std::time::Instant;
-use user_service::use_cases::CleanupConsentWorkflowUseCase;
+use user_service::use_cases::{CleanupConsentWorkflowError, CleanupConsentWorkflowUseCase};
 
 pub const EXPIRY_CLEANUP_BATCH_SIZE_ENV: &str = "EXPIRY_CLEANUP_BATCH_SIZE";
 /// Runs last in the hourly maintenance invocation; the use case recalculates only once the
@@ -37,13 +42,72 @@ pub async fn run_public_catalogue_overview_refresh(
             );
             Ok(())
         }
-        Err(_) => {
+        Err(error) => {
+            let failure = overview_refresh_failure(&error);
             tracing::warn!(
                 event = "backend_cleanup.public_catalogue_overview.refreshed",
                 outcome = "failure",
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
                 duration_ms = started_at.elapsed().as_millis(),
             );
             Err(Error::from("public catalogue overview refresh failed"))
+        }
+    }
+}
+
+fn overview_refresh_failure(error: &RefreshPublicCatalogueOverviewError) -> FailureDiagnostic {
+    use RefreshPublicCatalogueOverviewError as E;
+    match error {
+        E::RefresherTemporarilyUnavailable { .. } => {
+            FailureDiagnostic::postgres("overview_calculation", error)
+        }
+        E::RefresherInvalidReadModel { .. } => FailureDiagnostic::new(
+            "overview_calculation",
+            "postgres",
+            "invalid_read_model",
+            None,
+        ),
+        E::BeginTransaction { .. } => FailureDiagnostic::postgres("overview_begin", error),
+        E::CommitTransaction { .. } => FailureDiagnostic::postgres("overview_commit", error),
+    }
+}
+
+/// Runs one unscoped recovery page so geography work does not depend on wake-up delivery alone.
+pub async fn run_listing_geography_recovery(
+    recovery: &dyn ProjectListingGeographyUseCase,
+) -> Result<(), Error> {
+    let Err(error) = recovery.execute(None, 100).await else {
+        return Ok(());
+    };
+    let failure = listing_geography_failure(&error);
+    tracing::warn!(
+        event = "backend_cleanup.listing_geography.failed",
+        stage = failure.stage(),
+        dependency = failure.dependency(),
+        error_category = failure.category(),
+        sqlstate = failure.sqlstate(),
+    );
+    Err(Error::from(error))
+}
+
+fn listing_geography_failure(error: &GeographyError) -> FailureDiagnostic {
+    match error {
+        GeographyError::Storage(_) => FailureDiagnostic::postgres("geography_projection", error),
+        GeographyError::Transaction(_) => {
+            FailureDiagnostic::postgres("geography_transaction", error)
+        }
+        GeographyError::Resolution(error) => resolution_failure("geography_resolution", error),
+        GeographyError::Superseded => {
+            FailureDiagnostic::rejected("geography_projection", "claim_superseded")
+        }
+        GeographyError::Deferred => {
+            FailureDiagnostic::rejected("geography_projection", "claimed_elsewhere")
+        }
+        GeographyError::InvalidInput => {
+            FailureDiagnostic::rejected("geography_projection", "invalid_input")
         }
     }
 }
@@ -109,11 +173,16 @@ pub async fn run_cleanup(
                 duration_ms = started_at.elapsed().as_millis(),
             );
         }
-        Err(_) => {
+        Err(error) => {
+            let failure = expired_credential_failure(error);
             tracing::warn!(
                 event = "backend_cleanup.expired_credentials.completed",
                 outcome = "failure",
                 batch_size = batch_size.get(),
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
                 duration_ms = started_at.elapsed().as_millis(),
             );
         }
@@ -130,12 +199,19 @@ pub async fn run_cleanup(
             webhook_receipts_deleted = counts.webhook_receipts_deleted,
             duration_ms = started_at.elapsed().as_millis(),
         ),
-        Err(_) => tracing::warn!(
-            event = "backend_cleanup.consent_workflow.completed",
-            outcome = "failure",
-            batch_size = batch_size.get(),
-            duration_ms = started_at.elapsed().as_millis(),
-        ),
+        Err(error) => {
+            let failure = consent_cleanup_failure(error);
+            tracing::warn!(
+                event = "backend_cleanup.consent_workflow.completed",
+                outcome = "failure",
+                batch_size = batch_size.get(),
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
+                duration_ms = started_at.elapsed().as_millis(),
+            )
+        }
     }
     let context = OperationContext {
         principal: Principal::Service("backend-cleanup-worker".into()),
@@ -153,12 +229,19 @@ pub async fn run_cleanup(
             requeued = counts.requeued,
             duration_ms = started_at.elapsed().as_millis(),
         ),
-        Err(_) => tracing::warn!(
-            event = "backend_cleanup.geographic_resolution.completed",
-            outcome = "failure",
-            batch_size = geography_limit,
-            duration_ms = started_at.elapsed().as_millis(),
-        ),
+        Err(error) => {
+            let failure = resolution_failure("resolution_maintenance", error);
+            tracing::warn!(
+                event = "backend_cleanup.geographic_resolution.completed",
+                outcome = "failure",
+                batch_size = geography_limit,
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                sqlstate = failure.sqlstate(),
+                duration_ms = started_at.elapsed().as_millis(),
+            )
+        }
     }
     if credential_result.is_err() || consent_result.is_err() || geography_result.is_err() {
         Err(Error::from("backend cleanup failed"))
@@ -167,20 +250,89 @@ pub async fn run_cleanup(
     }
 }
 
+fn expired_credential_failure(error: &ExpiredCredentialCleanupError) -> FailureDiagnostic {
+    match error {
+        ExpiredCredentialCleanupError::TemporarilyUnavailable { .. } => {
+            FailureDiagnostic::postgres("expired_credentials", error)
+        }
+    }
+}
+
+fn consent_cleanup_failure(error: &CleanupConsentWorkflowError) -> FailureDiagnostic {
+    match error {
+        CleanupConsentWorkflowError::TransactionFailed { target, .. }
+        | CleanupConsentWorkflowError::TemporarilyUnavailable { target, .. } => {
+            FailureDiagnostic::postgres(target.label(), error)
+        }
+        CleanupConsentWorkflowError::InvalidBatchSize => {
+            FailureDiagnostic::rejected("consent_workflow", "invalid_batch_size")
+        }
+    }
+}
+
+fn resolution_failure(stage: &'static str, error: &ResolutionError) -> FailureDiagnostic {
+    match error {
+        ResolutionError::Provider(provider) => FailureDiagnostic::new(
+            stage,
+            "amazon_location",
+            provider.kind.diagnostic_category(),
+            None,
+        ),
+        ResolutionError::Storage(_) | ResolutionError::Transaction(_) => {
+            FailureDiagnostic::postgres(stage, error)
+        }
+        ResolutionError::InvalidState(_) => {
+            FailureDiagnostic::new(stage, "postgres", "invalid_persisted_state", None)
+        }
+        ResolutionError::InvalidInput => FailureDiagnostic::rejected(stage, "invalid_input"),
+        ResolutionError::Forbidden => FailureDiagnostic::rejected(stage, "forbidden"),
+        ResolutionError::Conflict => FailureDiagnostic::rejected(stage, "conflict"),
+        ResolutionError::Missing => FailureDiagnostic::rejected(stage, "missing"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::{error::box_error, transaction::TransactionError};
     use geo_service::resolution::{ResolutionError, ResolutionMaintenanceCounts};
     use oauth_service::ports::ExpiredCredentialCleanupError;
     use oauth_service::use_cases::CleanupCounts;
+    use product_listing_service::geography::GeographyWorkId;
     use product_listing_service::use_cases::{
         PublicCatalogueOverview, PublicCatalogueOverviewRefresh,
         RefreshPublicCatalogueOverviewError,
     };
+    use serde_json::{Map, Value, json};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use test_api::CapturedLogs;
     use user_service::use_cases::{
         CleanupConsentWorkflowError, ConsentWorkflowCleanupCounts, ConsentWorkflowCleanupTarget,
     };
+
+    const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
+
+    /// The safe diagnostic fields of the one event named `event`.
+    fn failure_diagnostic(logs: &CapturedLogs, event: &str) -> Value {
+        let events = logs.events_where("event", event);
+        assert_eq!(1, events.len(), "{event}");
+        Value::Object(
+            events[0]
+                .iter()
+                .filter(|(name, _)| {
+                    [
+                        "stage",
+                        "dependency",
+                        "error_category",
+                        "http_status",
+                        "sqlstate",
+                    ]
+                    .contains(&name.as_str())
+                })
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect::<Map<_, _>>(),
+        )
+    }
 
     struct RecordingOverviewRefresh {
         calls: AtomicUsize,
@@ -198,7 +350,7 @@ mod tests {
             if self.fail {
                 return Err(
                     RefreshPublicCatalogueOverviewError::RefresherTemporarilyUnavailable {
-                        source: Box::new(std::io::Error::other("fixture failure")),
+                        source: Box::new(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
                     },
                 );
             }
@@ -232,6 +384,59 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn should_record_the_failed_overview_refresh_stage_without_its_cause() {
+        let refresh = RecordingOverviewRefresh {
+            calls: AtomicUsize::new(0),
+            due: true,
+            fail: true,
+        };
+        let (logs, guard) = CapturedLogs::start();
+
+        let result = run_public_catalogue_overview_refresh(&refresh).await;
+        drop(guard);
+
+        assert!(result.is_err());
+        assert_eq!(
+            json!({"stage": "overview_calculation", "dependency": "postgres",
+                "error_category": "io"}),
+            failure_diagnostic(&logs, "backend_cleanup.public_catalogue_overview.refreshed")
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
+    struct FailingGeographyRecovery;
+
+    #[async_trait::async_trait]
+    impl ProjectListingGeographyUseCase for FailingGeographyRecovery {
+        async fn execute(
+            &self,
+            work: Option<GeographyWorkId>,
+            _limit: u16,
+        ) -> Result<u32, GeographyError> {
+            assert!(work.is_none());
+            Err(GeographyError::Transaction(TransactionError::CommitFailed(
+                box_error(sqlx::Error::Io(std::io::Error::other(SENTINEL))),
+            )))
+        }
+    }
+
+    #[tokio::test]
+    async fn should_record_and_return_a_failed_listing_geography_recovery() {
+        let (logs, guard) = CapturedLogs::start();
+
+        let result = run_listing_geography_recovery(&FailingGeographyRecovery).await;
+        drop(guard);
+
+        assert!(result.is_err());
+        assert_eq!(
+            json!({"stage": "geography_transaction", "dependency": "postgres",
+                "error_category": "io"}),
+            failure_diagnostic(&logs, "backend_cleanup.listing_geography.failed")
+        );
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
     struct RecordingCleanup {
         calls: AtomicUsize,
         fail: bool,
@@ -258,9 +463,9 @@ mod tests {
             assert_eq!(100, limit);
             self.calls.fetch_add(1, Ordering::Relaxed);
             if self.fail {
-                return Err(ResolutionError::Storage(Box::new(std::io::Error::other(
-                    "fixture failure",
-                ))));
+                return Err(ResolutionError::Storage(Box::new(
+                    sqlx::Error::PoolTimedOut,
+                )));
             }
             Ok(ResolutionMaintenanceCounts {
                 expired: 1,
@@ -278,7 +483,7 @@ mod tests {
             self.calls.fetch_add(1, Ordering::Relaxed);
             if self.fail {
                 return Err(ExpiredCredentialCleanupError::TemporarilyUnavailable {
-                    source: Box::new(std::io::Error::other("fixture failure")),
+                    source: Box::new(sqlx::Error::Protocol(SENTINEL.to_owned())),
                 });
             }
             Ok(CleanupCounts {
@@ -300,7 +505,7 @@ mod tests {
             if self.fail {
                 return Err(CleanupConsentWorkflowError::TemporarilyUnavailable {
                     target: ConsentWorkflowCleanupTarget::WebhookReceipts,
-                    source: Box::new(std::io::Error::other("fixture failure")),
+                    source: Box::new(sqlx::Error::Tls(Box::new(std::io::Error::other(SENTINEL)))),
                 });
             }
             Ok(ConsentWorkflowCleanupCounts {
@@ -356,6 +561,45 @@ mod tests {
         assert_eq!(cleanup.calls.load(Ordering::Relaxed), 1);
         assert_eq!(consent.calls.load(Ordering::Relaxed), 1);
         assert_eq!(geography.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn should_record_each_failed_cleanup_step_with_only_safe_cause_facts() {
+        let cleanup = RecordingCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let consent = RecordingConsentCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let geography = RecordingGeographyCleanup {
+            calls: AtomicUsize::new(0),
+            fail: true,
+        };
+        let batch_size = ExpiryCleanupBatchSize::try_from(100).unwrap();
+        let (logs, guard) = CapturedLogs::start();
+
+        let result = run_cleanup(&cleanup, &consent, &geography, batch_size).await;
+        drop(guard);
+
+        assert!(result.is_err());
+        assert_eq!(
+            json!({"stage": "expired_credentials", "dependency": "postgres",
+                "error_category": "protocol"}),
+            failure_diagnostic(&logs, "backend_cleanup.expired_credentials.completed")
+        );
+        assert_eq!(
+            json!({"stage": "webhook_receipts", "dependency": "postgres",
+                "error_category": "tls"}),
+            failure_diagnostic(&logs, "backend_cleanup.consent_workflow.completed")
+        );
+        assert_eq!(
+            json!({"stage": "resolution_maintenance", "dependency": "postgres",
+                "error_category": "pool_timed_out"}),
+            failure_diagnostic(&logs, "backend_cleanup.geographic_resolution.completed")
+        );
+        assert!(!logs.text().contains("SENTINEL"));
     }
 
     #[tokio::test]

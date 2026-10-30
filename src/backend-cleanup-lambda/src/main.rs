@@ -1,5 +1,6 @@
 use backend_cleanup_lambda::{
-    cleanup_batch_size_from_env, run_cleanup, run_public_catalogue_overview_refresh,
+    cleanup_batch_size_from_env, run_cleanup, run_listing_geography_recovery,
+    run_public_catalogue_overview_refresh,
 };
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::resolution::MaintainResolutionsHandler;
@@ -28,9 +29,7 @@ use product_listing_postgres::{
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
     SqlxPublicCatalogueOverviewRefresherFactory,
 };
-use product_listing_service::geography::{
-    ProjectListingGeographyHandler, ProjectListingGeographyUseCase,
-};
+use product_listing_service::geography::ProjectListingGeographyHandler;
 use product_listing_service::use_cases::RefreshPublicCatalogueOverviewHandler;
 use search_filter_postgres::{
     SqlxPendingSavedSearchNotificationReader, SqlxSearchFilterMatchNotificationSourceReaderFactory,
@@ -132,10 +131,7 @@ async fn main() -> Result<(), Error> {
                 batch_size,
             )
             .await;
-            let recovery_result = cleanup.value().3.execute(None, 100).await;
-            if recovery_result.is_err() {
-                tracing::warn!(event = "backend_cleanup.listing_geography.failed");
-            }
+            let recovery_result = run_listing_geography_recovery(&cleanup.value().3).await;
             let notification_recovery = cleanup.value().4.execute(batch_size.get() as usize).await;
             let digest_recovery = cleanup.value().5.execute(batch_size.get() as usize).await;
             // Last: when due, the full aggregate must not delay bounded maintenance work.
