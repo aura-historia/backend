@@ -7,7 +7,7 @@ use crate::network::policy::{
 };
 use crate::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, FAILED_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
-    SPIDER_RECRAWL_INTERVAL, SpiderCandidate, SpiderCandidateService,
+    SPIDER_RECRAWL_INTERVAL, SpiderCandidate, SpiderCandidateService, UrlPatternReviewWaitWrite,
 };
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::discovery::website_spider::{
@@ -148,6 +148,9 @@ enum SpiderSlotStatus {
     Truncated,
     /// The crawl stopped classifying at a pending URL-pattern review.
     AwaitingReview,
+    /// The crawl waited on a URL-pattern review that was decided before the run recorded the
+    /// wait. The decision released the domain, so the run records no outcome over it.
+    ReviewDecided,
     Failed,
     /// Repeated deterministic failures; the domain is not retried until an
     /// operator acts.
@@ -185,7 +188,9 @@ async fn record_completed_run(
 }
 
 /// Neither a success nor a failure: failure and truncation metadata stay
-/// untouched, and the reviewer's decision releases the domain.
+/// untouched, and the reviewer's decision releases the domain. A decision
+/// that came first, such as a rejection while the crawl ran, already
+/// released it; the domain keeps the crawl state that decision left.
 async fn record_review_wait_run(
     spider_candidates: &dyn SpiderCandidateService,
     candidate: &SpiderCandidate,
@@ -193,15 +198,26 @@ async fn record_review_wait_run(
     review_id: CrawlerReviewId,
 ) -> SpiderSlotStatus {
     let next_crawl_at = next_crawl_after(URL_PATTERN_REVIEW_WAIT);
-    if let Err(err) = spider_candidates
-        .mark_crawl_awaiting_url_pattern_review(&candidate.domain_id, next_crawl_at)
+    match spider_candidates
+        .mark_crawl_awaiting_url_pattern_review(&candidate.domain_id, &review_id, next_crawl_at)
         .await
     {
-        warn!(
+        Ok(UrlPatternReviewWaitWrite::Recorded) => {}
+        Ok(UrlPatternReviewWaitWrite::ReviewNotPending) => {
+            info!(
+                domain = %candidate.listing_source_domain,
+                review_id = %review_id,
+                completion = %result.completion,
+                total_crawled = result.total_links,
+                "URL pattern review was decided before the spider run recorded its wait; the domain keeps the crawl state the decision left"
+            );
+            return SpiderSlotStatus::ReviewDecided;
+        }
+        Err(err) => warn!(
             error = ?err,
             domain = %candidate.listing_source_domain,
             "Failed to persist crawl review-wait metadata"
-        );
+        ),
     }
     info!(
         domain = %candidate.listing_source_domain,
@@ -477,7 +493,9 @@ fn persisted_crawl_outcome(
         (SpiderSlotStatus::AwaitingReview, _) => Some(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME),
         (SpiderSlotStatus::Failed, _) => Some(FAILED_CRAWL_OUTCOME),
         (SpiderSlotStatus::StoppedForOperator, _) => Some(NEEDS_OPERATOR_CRAWL_OUTCOME),
-        (SpiderSlotStatus::Succeeded, Err(_)) | (SpiderSlotStatus::Deferred, _) => None,
+        (SpiderSlotStatus::Succeeded, Err(_))
+        | (SpiderSlotStatus::ReviewDecided, _)
+        | (SpiderSlotStatus::Deferred, _) => None,
     }
 }
 
@@ -599,6 +617,7 @@ impl CrawlerCronJob {
         let mut succeeded = 0usize;
         let mut truncated = 0usize;
         let mut awaiting_review = 0usize;
+        let mut review_decided = 0usize;
         let mut failed = 0usize;
         let mut stopped_for_operator = 0usize;
         let mut started = false;
@@ -682,6 +701,7 @@ impl CrawlerCronJob {
                         SpiderSlotStatus::Succeeded => succeeded += 1,
                         SpiderSlotStatus::Truncated => truncated += 1,
                         SpiderSlotStatus::AwaitingReview => awaiting_review += 1,
+                        SpiderSlotStatus::ReviewDecided => review_decided += 1,
                         SpiderSlotStatus::Failed => failed += 1,
                         SpiderSlotStatus::StoppedForOperator => stopped_for_operator += 1,
                         SpiderSlotStatus::Deferred => deferred += 1,
@@ -701,6 +721,7 @@ impl CrawlerCronJob {
             succeeded,
             truncated,
             awaiting_review,
+            review_decided,
             failed,
             stopped_for_operator,
             deferred,
@@ -1976,10 +1997,33 @@ mod tests {
         job.run_spider_once().await;
     }
 
-    #[tokio::test]
-    async fn should_record_review_wait_without_failure_or_completion_state() {
+    /// A spider service whose one run waits on the URL-pattern review `review_id`.
+    fn spider_service_waiting_on(review_id: CrawlerReviewId) -> MockSpiderService {
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(move |_, _, _, _| {
+                Box::pin(async move {
+                    Ok(SpiderRunResult {
+                        pending_url_pattern_review: Some(review_id),
+                        product_urls_count: 0,
+                        product_pattern: None,
+                        ..run_result(CrawlCompletion::HardTimeoutTruncated)
+                    })
+                })
+            });
+        spider_service
+    }
+
+    /// A candidate service with one due domain that records no outcome but a review wait, which
+    /// its write reports as `wait_write`.
+    fn candidate_service_recording_review_wait(
+        domain_id: CrawlerDomainId,
+        review_id: CrawlerReviewId,
+        wait_write: UrlPatternReviewWaitWrite,
+    ) -> MockSpiderCandidateService {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, excluded| {
@@ -1988,7 +2032,7 @@ mod tests {
                     if !first_call {
                         return Ok(vec![]);
                     }
-                    let mut candidate = spider_candidate(expected_domain_id);
+                    let mut candidate = spider_candidate(domain_id);
                     candidate.crawl_failure_count = 2;
                     candidate.last_crawl_error_kind = Some("RateLimited".to_string());
                     Ok(vec![candidate])
@@ -1997,31 +2041,31 @@ mod tests {
         spider_candidates
             .expect_mark_crawl_awaiting_url_pattern_review()
             .times(1)
-            .withf(move |domain_id, next_crawl_at| {
-                *domain_id == expected_domain_id
+            .withf(move |written_domain_id, written_review_id, next_crawl_at| {
+                *written_domain_id == domain_id
+                    && *written_review_id == review_id
                     && next_crawl_at_is_about(*next_crawl_at, URL_PATTERN_REVIEW_WAIT)
             })
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(move |_, _, _| Box::pin(async move { Ok(wait_write) }));
         spider_candidates.expect_mark_crawl_failure().times(0);
         spider_candidates.expect_mark_crawl_completed().times(0);
         spider_candidates.expect_mark_crawl_truncated().times(0);
+        spider_candidates
+            .expect_mark_crawl_needs_operator()
+            .times(0);
+        spider_candidates
+    }
 
-        let mut spider_service = MockSpiderService::new();
-        spider_service
-            .expect_run()
-            .times(1)
-            .returning(|_, _, _, _| {
-                Box::pin(async {
-                    Ok(SpiderRunResult {
-                        pending_url_pattern_review: Some(CrawlerReviewId::new()),
-                        product_urls_count: 0,
-                        product_pattern: None,
-                        ..run_result(CrawlCompletion::HardTimeoutTruncated)
-                    })
-                })
-            });
+    #[tokio::test]
+    async fn should_record_review_wait_without_failure_or_completion_state() {
+        let review_id = CrawlerReviewId::new();
+        let spider_candidates = candidate_service_recording_review_wait(
+            CrawlerDomainId::new(),
+            review_id,
+            UrlPatternReviewWaitWrite::Recorded,
+        );
 
-        spider_job(spider_candidates, spider_service, 1)
+        spider_job(spider_candidates, spider_service_waiting_on(review_id), 1)
             .run_spider_once()
             .await;
     }
@@ -2190,6 +2234,29 @@ mod tests {
             let durations = metrics.values(CrawlerMetric::SpiderPassDuration);
             assert_eq!(durations.len(), 1);
             assert!(durations[0].0.is_empty(), "pass duration is crawler-wide");
+        }
+
+        /// A review decided before the run records its wait, such as one rejected while the
+        /// crawl ran, leaves the domain's crawl state as the decision left it: the run writes
+        /// nothing else and reports no crawl outcome.
+        #[tokio::test]
+        async fn should_record_no_outcome_when_the_url_pattern_review_is_decided_before_the_wait() {
+            let (metrics, _guard) = capture_metrics();
+            let review_id = CrawlerReviewId::new();
+            let spider_candidates = candidate_service_recording_review_wait(
+                CrawlerDomainId::new(),
+                review_id,
+                UrlPatternReviewWaitWrite::ReviewNotPending,
+            );
+
+            spider_job(spider_candidates, spider_service_waiting_on(review_id), 1)
+                .run_spider_once()
+                .await;
+
+            assert!(
+                metrics.values(CrawlerMetric::CrawlOutcome).is_empty(),
+                "the run persisted no crawl outcome"
+            );
         }
 
         #[test]

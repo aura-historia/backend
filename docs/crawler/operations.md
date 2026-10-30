@@ -326,7 +326,7 @@ All metrics use the namespace `AuraHistoria/Crawler`. Dimension values are Listi
 | `DomainCircuitOpened` | Count | `listing_source_id`, `domain` | Per scraper domain batch: 1 when the batch opened the [domain circuit](scheduling-and-retries.md#scraper-domain-circuits), else 0. |
 | `UrlFailures` | Count | `listing_source_id`, `domain`, `failure_kind` | Per scraper domain batch and failure kind: the URL failures that recorded that `last_error_kind`, such as `HTTP_503` or `Timeout`. |
 | `ProductsCaptured` | Count | `listing_source_id`, `domain` | Per raw-capture batch: observations raw capture persisted durably; 0 when every capture of the domain failed. |
-| `CrawlOutcome` | Count | `listing_source_id`, `domain`, `crawl_outcome` | 1 per spider crawl, with the `last_crawl_outcome` it [recorded](scheduling-and-retries.md#spider-crawl-completion). |
+| `CrawlOutcome` | Count | `listing_source_id`, `domain`, `crawl_outcome` | 1 per spider crawl that [recorded](scheduling-and-retries.md#spider-crawl-completion) a `last_crawl_outcome`, with that outcome. |
 | `CrawlProductUrls`, `CrawlTruncated` | Count | `listing_source_id`, `domain` | Per spider crawl that classified its URLs with a product pattern, including a pattern that matched nothing: the product URLs found, and 1 when the crawl was cut short, else 0. |
 | `ScraperDueUrls` | Count | none | URLs due for scraping when a scraper pass starts. |
 | `ScraperPassDuration`, `SpiderPassDuration` | Milliseconds | none | Per scheduler pass, including a pass that finds no work. |
