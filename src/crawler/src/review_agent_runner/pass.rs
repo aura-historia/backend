@@ -4,10 +4,12 @@
 //! A process that ends without a decision cools its review down, and a usage limit pauses the
 //! runner until its reset. Whether a reviewer decided is what the review's event trail records,
 //! not what its report says the console answered. A review that waits for a human is no agent
-//! work: the pass starts no process for it, nor a reviewer process once the author's pass handed
-//! it to a human, so it neither fails nor cools down. Once the runner stops, the pass starts no
-//! process and stops the running ones, which it records with their cost; their reviews do not
-//! cool down.
+//! work: the pass starts no process for it, nor a further process once an agent's pass handed it
+//! to a human, so it neither fails nor cools down, whichever process's needs-repair verdict
+//! brought it to the cap. Once a human hands it back it is workable at once, and the pass picks it
+//! as a review no agent worked ([`select_reviews`]).
+//! Once the runner stops, the pass starts no process and stops the running ones, which it records
+//! with their cost; their reviews do not cool down.
 
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
@@ -184,23 +186,20 @@ impl Pass<'_> {
         Ok(())
     }
 
-    /// The author's pass, then the reviewer's when the author left a candidate to decide.
+    /// The author's pass, then the reviewer's when the author left a candidate to decide. A review
+    /// that waits for a human after either pass, whichever process's needs-repair verdict brought
+    /// it to the cap, gets no further process and no cooldown.
     async fn work_review(&self, review: QueuedReview) {
         let author_report = match self.run_process(AgentRole::Author, &review).await {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return,
-            Step::NoDecision => {
-                self.cool_down(&review);
-                return;
-            }
-            Step::Reported(report) => report,
+            Step::NoDecision => None,
+            Step::Reported(report) => Some(report),
         };
-        if self.handed_to_human(&review).await {
+        if self.waits_for_human_after(AgentRole::Author, &review).await {
             self.with(|shared| shared.summary.handed_to_human += 1);
             return;
         }
-        if let AgentReport::Author(report) = &author_report
-            && report.action == AuthorAction::Skipped
-        {
+        if !leaves_a_candidate_to_decide(author_report.as_ref()) {
             self.cool_down(&review);
             return;
         }
@@ -210,23 +209,29 @@ impl Pass<'_> {
             Step::Reported(_) | Step::NoDecision => {
                 if self.reviewer_decided(&review, reviewer_started).await {
                     self.with(|shared| shared.summary.decided += 1);
-                } else {
+                } else if !self
+                    .waits_for_human_after(AgentRole::Reviewer, &review)
+                    .await
+                {
                     self.cool_down(&review);
                 }
             }
         }
     }
 
-    /// Whether `review` waits for a human after the author's pass, such as after the author's own
-    /// needs-repair verdict reached the cap: the console would refuse everything a reviewer
-    /// process did on it with `HUMAN_REQUIRED`. A review the runner cannot read gets its
-    /// reviewer; should it wait for a human, the console refuses that reviewer's verdicts.
-    async fn handed_to_human(&self, review: &QueuedReview) -> bool {
+    /// Whether `review` waits for a human after `role`'s pass, such as after a needs-repair
+    /// verdict that reached the cap, also of a process that ended without a decision: the console
+    /// would refuse everything a further process did on it with `HUMAN_REQUIRED`, and a cooldown
+    /// would keep the agents from it after a human hands it back. A review the runner cannot read
+    /// does not wait: it gets its reviewer, whose verdicts the console refuses should it wait, or
+    /// its cooldown.
+    async fn waits_for_human_after(&self, role: AgentRole, review: &QueuedReview) -> bool {
         match waits_for_human(self.console, review.review_id).await {
             Ok(true) => {
                 info!(
                     review_id = %review.review_id,
-                    "The review waits for a human after the author's pass; no reviewer process starts and it does not cool down"
+                    role = role.as_str(),
+                    "The review waits for a human after the agent's pass; no further process starts and it does not cool down"
                 );
                 true
             }
@@ -234,9 +239,10 @@ impl Pass<'_> {
             Err(error) => {
                 warn!(
                     review_id = %review.review_id,
+                    role = role.as_str(),
                     error = %error,
                     cause = ?std::error::Error::source(&error),
-                    "Cannot read whether the review waits for a human; its reviewer process starts"
+                    "Cannot read whether the review waits for a human after the agent's pass; it goes on as if it did not"
                 );
                 false
             }
@@ -523,6 +529,14 @@ impl Pass<'_> {
     fn with<T>(&self, change: impl FnOnce(&mut Shared) -> T) -> T {
         change(&mut self.shared.lock().unwrap_or_else(PoisonError::into_inner))
     }
+}
+
+/// Whether the author's pass left a candidate for the reviewer to decide: the author reported
+/// that it staged one or found nothing to stage, not that it skipped the review.
+fn leaves_a_candidate_to_decide(author_report: Option<&AgentReport>) -> bool {
+    author_report.is_some_and(|report| {
+        !matches!(report, AgentReport::Author(report) if report.action == AuthorAction::Skipped)
+    })
 }
 
 impl ProcessRecord {

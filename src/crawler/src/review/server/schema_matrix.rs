@@ -8,7 +8,7 @@ use crate::CrawlerReviewId;
 use crate::network::robots::MAX_CRAWL_DELAY;
 use crate::review::http::HttpResponse;
 use crate::review::matrix_refresh::{
-    MatrixRefreshFailure, MatrixRefreshOutcome, MatrixRefreshStatus,
+    HandBack, HumanRequiredRefusal, MatrixRefreshFailure, MatrixRefreshOutcome, MatrixRefreshStatus,
 };
 use crate::review::model::{
     ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, ReviewActor, ReviewDetail, ReviewSchemaMatrix,
@@ -27,22 +27,30 @@ const MATRIX_REFRESH_PAGE_BUDGET: Duration =
 
 impl ReviewServer {
     /// `GET /api/reviews/{id}/matrix`: the running refresh, the last refresh's failure as `actor`
-    /// learns it, or the stored matrix. A plain read never fetches the shop: without a stored
-    /// matrix it answers `404` with `reason` `NO_MATRIX`, and the reader asks for a refresh.
+    /// learns it, or the stored matrix. An agent's own refresh refused with `HUMAN_REQUIRED` is
+    /// answered only while the review still waits for that human. A plain read never fetches the
+    /// shop: without a stored matrix it answers `404` with `reason` `NO_MATRIX`, and the reader
+    /// asks for a refresh.
     pub(super) async fn read_schema_matrix(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
     ) -> HttpResponse {
-        match self.matrix_refreshes.status(review_id, actor) {
+        let refusal = match self.matrix_refreshes.status(review_id, actor) {
             MatrixRefreshStatus::Running => return matrix_refreshing(review_id),
             MatrixRefreshStatus::Failed(response) => return response,
-            MatrixRefreshStatus::Idle => {}
-        }
+            MatrixRefreshStatus::RefusedForHuman(refusal) => Some(refusal),
+            MatrixRefreshStatus::Idle => None,
+        };
+        // The review is read after the refresh's status, so a refusal found there is judged on the
+        // review as it is since the refusal, never on one read before it came to wait.
         let detail = match self.product_schema_review(review_id).await {
             Ok(detail) => detail,
             Err(response) => return response,
         };
+        if let Some(refused) = refusal.and_then(|refusal| refusal.answer_while_waiting(&detail)) {
+            return refused;
+        }
         match cached_schema_matrix(&detail) {
             Some(matrix) => HttpResponse::json(200, &ReviewSchemaMatrix::of(matrix, &detail.pages)),
             None => no_matrix_yet(review_id),
@@ -101,18 +109,14 @@ impl ReviewServer {
         Ok(detail)
     }
 
-    /// Fetches every review page live within a deadline sized for the shop's pacing.
+    /// Fetches each of the review's `pages` live within a deadline sized for the shop's pacing.
     async fn live_review_pages(
         &self,
         review_id: CrawlerReviewId,
+        pages: Vec<CrawlerReviewPage>,
     ) -> Result<Vec<(CrawlerReviewPage, String)>, HttpResponse> {
-        let detail = self
-            .repository
-            .get_review(review_id)
-            .await
-            .map_err(review_error)?;
-        let deadline = matrix_refresh_deadline(detail.pages.len());
-        tokio::time::timeout(deadline, self.fetch_review_pages(detail.pages))
+        let deadline = matrix_refresh_deadline(pages.len());
+        tokio::time::timeout(deadline, self.fetch_review_pages(pages))
             .await
             .unwrap_or_else(|_| Err(matrix_refresh_timeout(review_id, deadline)))
     }
@@ -146,7 +150,13 @@ impl ReviewServer {
         actor: ReviewActor,
     ) -> MatrixRefreshOutcome {
         let fetched_at = time::OffsetDateTime::now_utc();
-        let pages = self.live_review_pages(review_id).await?;
+        let review = self
+            .repository
+            .get_review(review_id)
+            .await
+            .map_err(review_error)?;
+        let hand_back = HandBack::of(&review);
+        let pages = self.live_review_pages(review_id, review.pages).await?;
         let evaluated = self
             .repository
             .evaluate_schema_matrix_for_live_pages(review_id, pages, fetched_at)
@@ -155,20 +165,27 @@ impl ReviewServer {
         self.repository
             .store_schema_matrix_if_current(review_id, actor, evaluated)
             .await
-            .map_err(|error| refused_matrix_store(actor, error))
+            .map_err(|error| refused_matrix_store(actor, hand_back, error))
     }
 }
 
-/// Why the review refused to store `actor`'s refreshed matrix. A review agent's refresh of a review
-/// that came to wait for a human while it ran is refused because of the agent's role, so the
-/// refusal and its words for the agents reach that agent only; any other refusal fails the
-/// refresh for the review.
-fn refused_matrix_store(actor: ReviewActor, error: ReviewRepositoryError) -> MatrixRefreshFailure {
+/// Why the review refused to store `actor`'s refreshed matrix, which started after `hand_back`. A
+/// review agent's refresh of a review that came to wait for a human while it ran is refused
+/// because of the agent's role, so the refusal and its words for the agents reach that agent only,
+/// until a human hands the review back; any other refusal fails the refresh for the review.
+fn refused_matrix_store(
+    actor: ReviewActor,
+    hand_back: HandBack,
+    error: ReviewRepositoryError,
+) -> MatrixRefreshFailure {
     match error {
-        ReviewRepositoryError::HumanRequired { .. } => MatrixRefreshFailure::Actor {
-            actor,
-            response: review_error(error),
-        },
+        ReviewRepositoryError::HumanRequired { .. } => {
+            MatrixRefreshFailure::HumanRequired(HumanRequiredRefusal {
+                actor,
+                response: review_error(error),
+                hand_back,
+            })
+        }
         error => MatrixRefreshFailure::Review(review_error(error)),
     }
 }

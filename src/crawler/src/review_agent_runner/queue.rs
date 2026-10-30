@@ -50,6 +50,8 @@ pub struct QueuedReview {
     pub review_id: CrawlerReviewId,
     pub artifact_type: ReviewArtifact,
     pub listing_source_name: Option<String>,
+    /// When a human last changed or judged the review, which handed it back to the agents.
+    pub handed_back: Option<OffsetDateTime>,
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -144,6 +146,7 @@ impl ReviewQueue {
                         review_id: review.review_id,
                         artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
                         listing_source_name: Some(review.listing_source_name),
+                        handed_back: review.handed_back,
                     })
                 })
                 .collect(),
@@ -185,8 +188,10 @@ pub async fn waits_for_human(
 /// The `max` reviews of `queue` this pass works, and how many of the others are cooling down.
 /// A review whose cooldown has not passed by `now` waits. Of the others, those no agent process
 /// worked within the ledger's window come first, in the console's order, then those worked
-/// longest ago, by `last_worked`: a review handed back and forth with needs-repair verdicts never
-/// keeps the rest of the queue waiting.
+/// longest ago, by `last_worked`: a review the agents hand back and forth with needs-repair
+/// verdicts never keeps the rest of the queue waiting. A review a human handed back after its
+/// last process, such as one that waited for a human at the repair cap, counts as not worked:
+/// the agents answer the human ahead of the reviews they worked since.
 pub fn select_reviews(
     queue: Vec<QueuedReview>,
     cooldowns: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
@@ -199,7 +204,12 @@ pub fn select_reviews(
             .get(&review.review_id)
             .is_some_and(|until| *until > now)
     });
-    ready.sort_by_key(|review| last_worked.get(&review.review_id).copied());
+    ready.sort_by_key(|review| {
+        last_worked
+            .get(&review.review_id)
+            .copied()
+            .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked))
+    });
     (ready.into_iter().take(max).collect(), cooling.len())
 }
 
@@ -302,6 +312,7 @@ mod tests {
                 review_id: CrawlerReviewId::new(),
                 artifact_type: ReviewArtifact::ProductSchema,
                 listing_source_name: None,
+                handed_back: None,
             })
             .collect()
     }
@@ -342,6 +353,34 @@ mod tests {
         );
     }
 
+    /// A review a human handed back after its last process counts as not worked, in the
+    /// console's order, so the agents answer the human ahead of the reviews they worked since;
+    /// one handed back before its last process keeps its place.
+    #[test]
+    fn should_work_a_review_a_human_handed_back_since_its_last_process_as_not_worked() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let mut queue = queued(4);
+        queue[0].handed_back = Some(now - Duration::minutes(10));
+        queue[1].handed_back = Some(now - Duration::hours(6));
+        let last_worked = BTreeMap::from([
+            (queue[0].review_id, now - Duration::hours(2)),
+            (queue[1].review_id, now - Duration::hours(5)),
+            (queue[2].review_id, now - Duration::hours(1)),
+        ]);
+
+        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 4);
+
+        assert_eq!(
+            selected,
+            vec![
+                queue[0].clone(),
+                queue[3].clone(),
+                queue[1].clone(),
+                queue[2].clone()
+            ]
+        );
+    }
+
     fn summary(human_required: bool) -> PendingReviewSummary {
         let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
         PendingReviewSummary {
@@ -355,6 +394,7 @@ mod tests {
             repair_request: None,
             agent_rounds: if human_required { 3 } else { 0 },
             human_required,
+            handed_back: None,
             created: now,
             updated: now,
         }
@@ -435,7 +475,10 @@ mod tests {
 
     #[test]
     fn should_keep_a_review_that_came_to_wait_for_a_human_between_the_reads_from_the_agents() {
-        let workable = summary(false);
+        let workable = PendingReviewSummary {
+            handed_back: Some(OffsetDateTime::UNIX_EPOCH + Duration::days(9_999)),
+            ..summary(false)
+        };
         let handed_over = summary(false);
         let waiting = summary(true);
         let handed_over_now = PendingReviewSummary {
@@ -453,9 +496,9 @@ mod tests {
             queue
                 .workable
                 .iter()
-                .map(|review| review.review_id)
+                .map(|review| (review.review_id, review.handed_back))
                 .collect::<Vec<_>>(),
-            [workable.review_id]
+            [(workable.review_id, workable.handed_back)]
         );
         assert_eq!(
             queue
