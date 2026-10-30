@@ -168,12 +168,12 @@ impl ReviewAccess {
 
     /// Authorizes a request and resolves who it acts as, or `None` when it is refused as
     /// unauthorized. An agent token reads the console API and makes review mutations as its
-    /// role, never opens or closes a browser session and never administers domains; what each
-    /// role may change is the repository's to refuse. The review token, a browser session (reads
-    /// and logout only) and the `dev` binary's local same-origin mutations act as
-    /// [`ReviewActor::Human`]. Without a configured review token the API is open to reads, which
-    /// record nothing; only a generated agent token is ever resolved as an agent. An
-    /// `Authorization` header that matches no token is refused on every API route: a supplied
+    /// role, never opens or closes a browser session, never administers domains and never fetches
+    /// a live preview; what each role may change is the repository's to refuse. The review token,
+    /// a browser session (reads and logout only) and the `dev` binary's local same-origin
+    /// mutations act as [`ReviewActor::Human`]. Without a configured review token the API is open
+    /// to reads, which record nothing; only a generated agent token is ever resolved as an agent.
+    /// An `Authorization` header that matches no token is refused on every API route: a supplied
     /// credential that fails is never downgraded to a session or to tokenless access.
     pub(super) fn authorize(&self, request: &ParsedRequest<'_>) -> Option<ReviewActor> {
         if !request.path.starts_with("/api/") {
@@ -202,9 +202,9 @@ impl ReviewAccess {
                 Bearer::Absent => local_mutation().then_some(ReviewActor::Human),
                 Bearer::Invalid => None,
             },
-            _ => match bearer {
+            (_, path) => match bearer {
                 Bearer::ReviewToken => Some(ReviewActor::Human),
-                Bearer::Agent(agent) => Some(agent),
+                Bearer::Agent(agent) => (!is_live_preview_route(path)).then_some(agent),
                 Bearer::Absent => {
                     (session() || self.config.auth_token.is_none()).then_some(ReviewActor::Human)
                 }
@@ -364,6 +364,13 @@ fn is_mutation_method(method: &str) -> bool {
 /// administration or sessions.
 fn is_review_route(path: &str) -> bool {
     path.starts_with("/api/reviews/") || path.starts_with("/api/review-pages/")
+}
+
+/// The live previews of any URL, which only the browser console uses. They fetch a page outside the
+/// console's cap on live jobs and for no review, so no review that waits for a human stops them;
+/// the agents read a page as a review's page projection, a live job, instead.
+fn is_live_preview_route(path: &str) -> bool {
+    matches!(path, "/api/live-inspect" | "/api/live-html")
 }
 
 /// Browsers send `Origin` on every cross-origin mutation, so requiring it to equal
@@ -651,6 +658,21 @@ mod tests {
         "DELETE /api/listing-sources/ls_1/domains/cd_1",
         Some(REVIEWER_TOKEN),
         None
+    )]
+    #[case::author_token_fetches_no_live_preview(
+        "GET /api/live-inspect?url=https%3A%2F%2Fshop.example%2Fitem&review=cr_1",
+        Some(AUTHOR_TOKEN),
+        None
+    )]
+    #[case::reviewer_token_fetches_no_live_html(
+        "GET /api/live-html?url=https%3A%2F%2Fshop.example%2Fitem&review=cr_1",
+        Some(REVIEWER_TOKEN),
+        None
+    )]
+    #[case::review_token_fetches_a_live_preview(
+        "GET /api/live-inspect?url=https%3A%2F%2Fshop.example%2Fitem",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
     )]
     #[case::review_token_opens_a_browser_session(
         "POST /api/session",
