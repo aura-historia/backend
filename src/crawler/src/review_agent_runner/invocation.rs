@@ -528,7 +528,7 @@ mod tests {
         assert!(
             role_contract(AgentRole::Reviewer)
                 .prompt(&review(), &AgentLimits::default())
-                .contains("whose reason is manual_schema_required, as the crawler opens them in agent mode, classifies its seed and triggering pages as non-product pages for good")
+                .contains("whose reason is manual_schema_required, as the crawler opens them in agent mode, classifies its seed and triggering pages as non-product pages until a human revokes the rejection")
         );
         assert_eq!(
             [
