@@ -9,8 +9,8 @@ mod user_authentication;
 pub use aura_access_token::AuraAccessTokenAuthenticator;
 pub use bearer::{OptionalAuthExtractor, ProtectedAuthExtractor};
 pub use cognito_jwt::{
-    CognitoJwtAuthenticator, CognitoJwtConfig, JsonWebKey, JsonWebKeySet, JwksProvider,
-    ReqwestJwksProvider,
+    CognitoJwtAuthenticator, CognitoJwtConfig, JsonWebKey, JsonWebKeySet, JwksFetchError,
+    JwksProvider, ReqwestJwksProvider,
 };
 pub use composite::ApiAuthService;
 pub use context::{protected_context, request_metadata};

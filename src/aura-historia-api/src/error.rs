@@ -453,7 +453,6 @@ impl From<AuthError> for ApiError {
             | AuthError::MissingClaim(_)
             | AuthError::InvalidClaimType(_)
             | AuthError::JwksKeyNotFound
-            | AuthError::JwksFetch(_)
             | AuthError::AuraAccessToken(
                 AccessTokenAuthenticationError::MalformedCredentials { .. }
                 | AccessTokenAuthenticationError::InvalidCredentials,

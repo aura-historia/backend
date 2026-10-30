@@ -1,6 +1,7 @@
 use crate::auth::core::{
     AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
 };
+use application::error::{BoxError, box_error};
 use jsonwebtokens::{Algorithm, AlgorithmID, Verifier, raw};
 use serde::Deserialize;
 use serde_json::Value;
@@ -52,8 +53,13 @@ pub struct JsonWebKey {
 
 #[async_trait::async_trait]
 pub trait JwksProvider: Send + Sync {
-    async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, AuthError>;
+    async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, JwksFetchError>;
 }
+
+/// The JWKS endpoint could not be reached or did not return a readable key set.
+#[derive(Debug, thiserror::Error)]
+#[error("failed to fetch JWKS: {0}")]
+pub struct JwksFetchError(#[source] pub BoxError);
 
 #[derive(Clone)]
 pub struct ReqwestJwksProvider {
@@ -68,17 +74,18 @@ impl ReqwestJwksProvider {
 
 #[async_trait::async_trait]
 impl JwksProvider for ReqwestJwksProvider {
-    async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
+    async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, JwksFetchError> {
+        let fetch_error = |error: reqwest::Error| JwksFetchError(box_error(error));
         self.client
             .get(jwks_url)
             .send()
             .await
-            .map_err(|error| AuthError::JwksFetch(error.to_string()))?
+            .map_err(fetch_error)?
             .error_for_status()
-            .map_err(|error| AuthError::JwksFetch(error.to_string()))?
+            .map_err(fetch_error)?
             .json()
             .await
-            .map_err(|error| AuthError::JwksFetch(error.to_string()))
+            .map_err(fetch_error)
     }
 }
 
@@ -177,7 +184,7 @@ impl Drop for UnfinishedRefresh<'_> {
 #[derive(Debug, thiserror::Error)]
 enum JwksRefreshError {
     #[error(transparent)]
-    Fetch(AuthError),
+    Fetch(JwksFetchError),
     #[error("JWKS key `{kid}` has invalid RSA parameters: {source}")]
     InvalidKey {
         kid: String,
@@ -383,7 +390,7 @@ fn claim_string<'a>(claims: &'a Value, claim: &'static str) -> Result<&'a str, A
 #[cfg(test)]
 mod tests {
     use super::*;
-    use application::error::box_error;
+    use application::error::static_error;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use jsonwebtokens as jwt;
     use openssl::rsa::Rsa;
@@ -409,11 +416,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl JwksProvider for FakeJwksProvider {
-        async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
+        async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, JwksFetchError> {
             lock(&self.calls).push(jwks_url.to_owned());
             self.result
                 .clone()
-                .map_err(|_| AuthError::JwksFetch("boom".to_owned()))
+                .map_err(|_| JwksFetchError(static_error("boom")))
         }
     }
 
@@ -425,15 +432,15 @@ mod tests {
 
     #[async_trait::async_trait]
     impl JwksProvider for SequencedJwksProvider {
-        async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
+        async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, JwksFetchError> {
             lock(&self.calls).push(jwks_url.to_owned());
             let mut results = lock(&self.results);
             if results.is_empty() {
-                return Err(AuthError::JwksFetch("no configured response".to_owned()));
+                return Err(JwksFetchError(static_error("no configured response")));
             }
             results
                 .remove(0)
-                .map_err(|_| AuthError::JwksFetch("boom".to_owned()))
+                .map_err(|_| JwksFetchError(static_error("boom")))
         }
     }
 
@@ -449,7 +456,7 @@ mod tests {
     /// is not shared shows up as an extra call instead of a hang.
     #[async_trait::async_trait]
     impl JwksProvider for BlockingJwksProvider {
-        async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
+        async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, JwksFetchError> {
             let first_fetch = {
                 let mut calls = lock(&self.calls);
                 calls.push(jwks_url.to_owned());
