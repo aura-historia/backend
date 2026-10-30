@@ -6,7 +6,7 @@ use crawler::scraper::candidate_service::{
 };
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
-    SpiderCandidateService, SpiderCandidateServiceImpl,
+    SpiderCandidateService, SpiderCandidateServiceImpl, UrlPatternReviewWaitWrite,
 };
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -528,6 +528,25 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
     assert_eq!(error_kind.as_deref(), Some("RateLimited"));
 }
 
+async fn insert_pending_url_pattern_review(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    domain_id: CrawlerDomainId,
+) -> CrawlerReviewId {
+    let review_id = CrawlerReviewId::new();
+    sqlx::query(
+        "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload) \
+         VALUES ($1, $2, $3, 'URL_PATTERN', 'PENDING_REVIEW', 'manual_url_pattern_required', '{}'::jsonb)",
+    )
+    .bind(review_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
+    .bind(domain_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    review_id
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state_and_defer() {
     let pool = get_postgres_client().await;
@@ -540,6 +559,7 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
         "spider-review-wait.example.com",
     )
     .await;
+    let review_id = insert_pending_url_pattern_review(&pool, listing_source_id, domain_id).await;
     let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
     service
         .mark_crawl_failure(&domain_id, "RateLimited", 2, past)
@@ -547,11 +567,12 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
         .unwrap();
 
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::days(7);
-    service
-        .mark_crawl_awaiting_url_pattern_review(&domain_id, next_crawl_at)
+    let wait_write = service
+        .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, next_crawl_at)
         .await
         .unwrap();
 
+    assert_eq!(wait_write, UrlPatternReviewWaitWrite::Recorded);
     let (failure_count, error_kind, stored_next, outcome, truncations, last_crawled) =
         crawl_state(&pool, domain_id).await;
     assert_eq!(failure_count, 2, "a review wait is not a failure");
@@ -572,6 +593,47 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
             .any(|c| c.domain_id == domain_id),
         "a domain waiting for a review is not crawled until the review is decided"
     );
+}
+
+/// A domain waits only on a pending URL-pattern review of its own; a wait on any other review
+/// leaves its crawl state as it was.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_should_record_a_url_pattern_review_wait_only_on_a_pending_review_of_the_domain() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "spider-wait-guard.example.com",
+    )
+    .await;
+    let other_domain_id = insert_domain_for_listing_source(
+        &pool,
+        listing_source_id,
+        "spider-other-guard.example.com",
+    )
+    .await;
+    let other_domain_review_id =
+        insert_pending_url_pattern_review(&pool, listing_source_id, other_domain_id).await;
+    let crawl_state_before = crawl_state(&pool, domain_id).await;
+    let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::days(7);
+
+    for (review_id, case) in [
+        (CrawlerReviewId::new(), "an unknown review"),
+        (other_domain_review_id, "another domain's review"),
+    ] {
+        assert_eq!(
+            service
+                .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, next_crawl_at)
+                .await
+                .unwrap(),
+            UrlPatternReviewWaitWrite::ReviewNotPending,
+            "a domain must not wait on {case}"
+        );
+    }
+
+    assert_eq!(crawl_state(&pool, domain_id).await, crawl_state_before);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

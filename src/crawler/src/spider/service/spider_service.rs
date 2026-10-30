@@ -31,7 +31,9 @@ pub struct SpiderRunResult {
     pub completion: CrawlCompletion,
     /// The pending URL-pattern review the crawl stopped classifying for. Its
     /// URLs are stored without a product class until the review is decided,
-    /// so the run is neither a success nor a failure.
+    /// so the run is neither a success nor a failure. A rejection stores no
+    /// decision for the crawl's re-reads to find, so the scheduler records the
+    /// wait only while the review is still pending.
     pub pending_url_pattern_review: Option<CrawlerReviewId>,
 }
 
