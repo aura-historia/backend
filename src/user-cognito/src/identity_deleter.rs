@@ -1,7 +1,11 @@
 use application::error::{box_error, static_error};
-use aws_sdk_cognitoidentityprovider::{Client, types::UserType};
+use aws_sdk_cognitoidentityprovider::{
+    Client,
+    error::{ProvideErrorMetadata, SdkError},
+    types::UserType,
+};
 use user_service::ports::user_identity_deletion::{
-    UserIdentityDeleter, UserIdentityDeletionError, UserIdentityUsername,
+    IdentityProviderFailure, UserIdentityDeleter, UserIdentityDeletionError, UserIdentityUsername,
 };
 use user_service::ports::{CognitoIdentity, CognitoSubject};
 
@@ -47,12 +51,15 @@ impl UserIdentityDeleter for CognitoUserIdentityDeleter {
                 .set_pagination_token(pagination_token)
                 .send()
                 .await
-                .map_err(|source| UserIdentityDeletionError(box_error(source)))?;
+                .map_err(provider_error)?;
             if let Some(found) = deletion_username(response.users(), &identity.subject)? {
                 if username.is_some() {
                     return Err(invalid("ambiguous identity deletion lookup"));
                 }
-                username = Some(UserIdentityUsername::try_from(found.to_owned())?);
+                username = Some(
+                    UserIdentityUsername::try_from(found.to_owned())
+                        .map_err(|source| invalid_response(box_error(source)))?,
+                );
             }
             pagination_token = response.pagination_token().map(str::to_owned);
             if pagination_token.is_none() {
@@ -82,7 +89,7 @@ impl UserIdentityDeleter for CognitoUserIdentityDeleter {
             {
                 return Ok(());
             }
-            Err(source) => return Err(UserIdentityDeletionError(box_error(source))),
+            Err(source) => return Err(provider_error(source)),
         };
         if !exact_subject(current.user_attributes(), &identity.subject) {
             return Err(invalid("identity deletion subject changed"));
@@ -103,16 +110,18 @@ impl UserIdentityDeleter for CognitoUserIdentityDeleter {
             {
                 Ok(())
             }
-            Err(source) => Err(UserIdentityDeletionError(box_error(source))),
+            Err(source) => Err(provider_error(source)),
         }
     }
 }
 impl CognitoUserIdentityDeleter {
     fn validate_issuer(&self, identity: &CognitoIdentity) -> Result<(), UserIdentityDeletionError> {
         if self.issuer.as_deref() != Some(identity.issuer.as_str()) {
-            return Err(invalid(
-                "identity deletion issuer does not match configured pool",
-            ));
+            return Err(UserIdentityDeletionError::IdentityProvider {
+                failure: IdentityProviderFailure::Configuration,
+                http_status: None,
+                source: static_error("identity deletion issuer does not match configured pool"),
+            });
         }
         Ok(())
     }
@@ -152,7 +161,63 @@ fn exact_subject(
 }
 
 fn invalid(message: &'static str) -> UserIdentityDeletionError {
-    UserIdentityDeletionError(static_error(message))
+    invalid_response(static_error(message))
+}
+
+fn invalid_response(source: application::error::BoxError) -> UserIdentityDeletionError {
+    UserIdentityDeletionError::IdentityProvider {
+        failure: IdentityProviderFailure::InvalidResponse,
+        http_status: None,
+        source,
+    }
+}
+
+/// Classifies an SDK failure by its transport outcome, HTTP status and standardized error code.
+/// The message, raw response and any other code stay in the source chain.
+fn provider_error<E>(source: SdkError<E>) -> UserIdentityDeletionError
+where
+    E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
+{
+    let http_status = source
+        .raw_response()
+        .map(|response| response.status().as_u16());
+    let failure = match &source {
+        SdkError::TimeoutError(_) => IdentityProviderFailure::Timeout,
+        SdkError::DispatchFailure(error) if error.is_timeout() => IdentityProviderFailure::Timeout,
+        SdkError::DispatchFailure(error) if error.is_io() => IdentityProviderFailure::Unavailable,
+        SdkError::ConstructionFailure(_) | SdkError::DispatchFailure(_) => {
+            IdentityProviderFailure::Configuration
+        }
+        SdkError::ServiceError(error) => match (http_status, error.err().code()) {
+            (Some(429), _) | (_, Some("TooManyRequestsException" | "ThrottlingException")) => {
+                IdentityProviderFailure::Throttled
+            }
+            (Some(401 | 403), _)
+            | (
+                _,
+                Some(
+                    "NotAuthorizedException"
+                    | "AccessDeniedException"
+                    | "UnrecognizedClientException"
+                    | "ExpiredTokenException",
+                ),
+            ) => IdentityProviderFailure::Authentication,
+            (Some(500..=599), _) | (_, Some("InternalErrorException")) => {
+                IdentityProviderFailure::Unavailable
+            }
+            _ => IdentityProviderFailure::Configuration,
+        },
+        SdkError::ResponseError(_) => match http_status {
+            Some(500..=599) => IdentityProviderFailure::Unavailable,
+            _ => IdentityProviderFailure::InvalidResponse,
+        },
+        _ => IdentityProviderFailure::Unavailable,
+    };
+    UserIdentityDeletionError::IdentityProvider {
+        failure,
+        http_status,
+        source: box_error(source),
+    }
 }
 
 #[cfg(test)]
@@ -393,12 +458,72 @@ mod tests {
         .await;
         run_deletion(&deleter, &identity()).await.unwrap();
         task.await.unwrap();
-        for code in ["TooManyRequestsException", "NotAuthorizedException"] {
-            let (deleter, task) = server(vec![("ListUsers", 400, json!({"__type": code}))]).await;
+        for (code, expected) in [
+            (
+                "TooManyRequestsException",
+                IdentityProviderFailure::Throttled,
+            ),
+            (
+                "NotAuthorizedException",
+                IdentityProviderFailure::Authentication,
+            ),
+            (
+                "ResourceNotFoundException",
+                IdentityProviderFailure::Configuration,
+            ),
+        ] {
+            let (deleter, task) = server(vec![(
+                "ListUsers",
+                400,
+                json!({"__type": code, "message": "SENTINEL_PROVIDER_MESSAGE"}),
+            )])
+            .await;
             let error = run_deletion(&deleter, &identity()).await.unwrap_err();
+            let UserIdentityDeletionError::IdentityProvider {
+                failure,
+                http_status,
+                ..
+            } = &error
+            else {
+                panic!("expected an identity provider failure: {error:?}");
+            };
+            assert_eq!((expected, Some(400)), (*failure, *http_status));
             assert!(std::error::Error::source(&error).is_some());
             task.await.unwrap();
         }
+        let (deleter, task) = server(vec![("ListUsers", 503, json!({}))]).await;
+        let error = run_deletion(&deleter, &identity()).await.unwrap_err();
+        assert!(matches!(
+            error,
+            UserIdentityDeletionError::IdentityProvider {
+                failure: IdentityProviderFailure::Unavailable,
+                http_status: Some(503),
+                ..
+            }
+        ));
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn classifies_an_unexpected_identity_as_an_invalid_provider_response() {
+        let (deleter, task) = server(vec![(
+            "ListUsers",
+            200,
+            json!({"Users": [listed_user(), listed_user()]}),
+        )])
+        .await;
+
+        let error = run_deletion(&deleter, &identity()).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            UserIdentityDeletionError::IdentityProvider {
+                failure: IdentityProviderFailure::InvalidResponse,
+                http_status: None,
+                ..
+            }
+        ));
+        task.await.unwrap();
     }
 
     #[tokio::test]
@@ -423,9 +548,18 @@ mod tests {
         let mut wrong = identity();
         wrong.issuer = CognitoIssuer::try_from("https://another-pool").unwrap();
         let error = run_deletion(&deleter, &wrong).await.unwrap_err();
+        assert!(matches!(
+            error,
+            UserIdentityDeletionError::IdentityProvider {
+                failure: IdentityProviderFailure::Configuration,
+                ..
+            }
+        ));
         assert_eq!(
-            "identity deletion issuer does not match configured pool",
-            error.0.to_string()
+            Some("identity deletion issuer does not match configured pool"),
+            std::error::Error::source(&error)
+                .map(ToString::to_string)
+                .as_deref()
         );
         assert!(task.await.unwrap().is_empty());
     }

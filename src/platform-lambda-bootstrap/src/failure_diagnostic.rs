@@ -18,6 +18,7 @@ pub enum Dependency {
     VertexAi,
     Anthropic,
     NotificationChannel,
+    Cognito,
     /// The service did not say which system failed.
     Unknown,
 }
@@ -32,6 +33,7 @@ impl Dependency {
             Self::VertexAi => "vertex_ai",
             Self::Anthropic => "anthropic",
             Self::NotificationChannel => "notification_channel",
+            Self::Cognito => "cognito",
             Self::Unknown => "unknown",
         }
     }

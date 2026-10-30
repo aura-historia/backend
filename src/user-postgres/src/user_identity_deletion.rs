@@ -84,7 +84,10 @@ impl UserIdentityDeletionStore for SqlxUserIdentityDeletionStore<'_> {
                         issuer: CognitoIssuer::try_from(issuer).map_err(invalid_state)?,
                         subject: CognitoSubject::try_from(subject).map_err(invalid_state)?,
                     },
-                    username: username.map(UserIdentityUsername::try_from).transpose()?,
+                    username: username
+                        .map(UserIdentityUsername::try_from)
+                        .transpose()
+                        .map_err(invalid_state)?,
                     version: u64::try_from(version).map_err(invalid_state)?,
                 },
             ));
@@ -120,7 +123,7 @@ impl UserIdentityDeletionStore for SqlxUserIdentityDeletionStore<'_> {
         .await
         .map_err(storage_error)?;
         if result.rows_affected() != 1 {
-            return Err(invalid("stale identity deletion claim"));
+            return Err(UserIdentityDeletionError::ClaimLost);
         }
         Ok(())
     }
@@ -139,22 +142,22 @@ impl UserIdentityDeletionStore for SqlxUserIdentityDeletionStore<'_> {
         .await
         .map_err(storage_error)?;
         if result.rows_affected() != 1 {
-            return Err(invalid("stale identity deletion claim"));
+            return Err(UserIdentityDeletionError::ClaimLost);
         }
         Ok(())
     }
 }
 
 fn storage_error(source: sqlx::Error) -> UserIdentityDeletionError {
-    UserIdentityDeletionError(box_error(source))
+    UserIdentityDeletionError::Storage(box_error(source))
 }
 
 fn invalid_state(
     source: impl std::error::Error + Send + Sync + 'static,
 ) -> UserIdentityDeletionError {
-    UserIdentityDeletionError(box_error(source))
+    UserIdentityDeletionError::InvalidPersistedState(box_error(source))
 }
 
 fn invalid(message: &'static str) -> UserIdentityDeletionError {
-    UserIdentityDeletionError(static_error(message))
+    UserIdentityDeletionError::InvalidPersistedState(static_error(message))
 }

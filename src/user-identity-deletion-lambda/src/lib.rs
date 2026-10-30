@@ -1,16 +1,18 @@
 use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
+use platform_lambda_bootstrap::{Dependency, FailureDiagnostic, INVALID_PERSISTED_STATE};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use std::time::Duration;
+use user_service::ports::user_identity_deletion::UserIdentityDeletionError;
 use user_service::use_cases::commands::delete_user_identity::{
-    DeleteUserIdentityResult, DeleteUserIdentityUseCase,
+    DeleteUserIdentityError, DeleteUserIdentityResult, DeleteUserIdentityUseCase,
 };
 
 enum JobOutcome {
     Completed,
     Deferred,
-    Retry,
+    Retry(FailureDiagnostic),
     Invalid,
 }
 
@@ -24,9 +26,49 @@ async fn process_job(body: &str, use_case: &dyn DeleteUserIdentityUseCase) -> Jo
     match use_case.execute(job.user_id).await {
         Ok(DeleteUserIdentityResult::Completed) => JobOutcome::Completed,
         Ok(DeleteUserIdentityResult::Deferred) => JobOutcome::Deferred,
-        Err(_) => JobOutcome::Retry,
+        Err(error) => JobOutcome::Retry(deletion_failure(&error)),
     }
 }
+
+/// Keeps the failed step and safe cause facts; the error chain itself is never logged.
+fn deletion_failure(error: &DeleteUserIdentityError) -> FailureDiagnostic {
+    use DeleteUserIdentityError as E;
+    let (stage, cause) = match error {
+        E::Claim(cause) => ("claim", cause),
+        E::TargetLookup(cause) => ("target_lookup", cause),
+        E::TargetNotYetObserved => {
+            return FailureDiagnostic::new(
+                "target_lookup",
+                Dependency::Cognito,
+                "not_yet_observed",
+                None,
+            );
+        }
+        E::TargetSave(cause) => ("target_save", cause),
+        E::IdentityRemoval(cause) => ("identity_removal", cause),
+        E::Completion(cause) => ("completion", cause),
+    };
+    match cause {
+        UserIdentityDeletionError::Storage(_) => FailureDiagnostic::postgres(stage, error),
+        UserIdentityDeletionError::InvalidPersistedState(_) => {
+            FailureDiagnostic::new(stage, Dependency::Postgres, INVALID_PERSISTED_STATE, None)
+        }
+        UserIdentityDeletionError::ClaimLost => {
+            FailureDiagnostic::new(stage, Dependency::Postgres, "claim_lost", None)
+        }
+        UserIdentityDeletionError::IdentityProvider {
+            failure,
+            http_status,
+            ..
+        } => FailureDiagnostic::new(
+            stage,
+            Dependency::Cognito,
+            failure.diagnostic_category(),
+            *http_status,
+        ),
+    }
+}
+
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
     use_case: &dyn DeleteUserIdentityUseCase,
@@ -37,20 +79,27 @@ pub async fn handler(
     })
     .await?;
     Ok(results.finish(|attempt| {
-        let category = match attempt.outcome {
+        let (category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(JobOutcome::Completed) => return true,
-            RecordOutcome::Completed(JobOutcome::Deferred) => "active_lease",
-            RecordOutcome::Completed(JobOutcome::Retry) => "deletion_unconfirmed",
-            RecordOutcome::Completed(JobOutcome::Invalid) => "invalid_job",
-            RecordOutcome::MissingBody => "missing_body",
-            RecordOutcome::InsufficientBudget => "insufficient_budget",
-            RecordOutcome::TimedOut => "timed_out",
-            RecordOutcome::Panicked => "panicked",
+            RecordOutcome::Completed(JobOutcome::Deferred) => ("active_lease", None),
+            RecordOutcome::Completed(JobOutcome::Retry(failure)) => {
+                ("deletion_unconfirmed", Some(failure))
+            }
+            RecordOutcome::Completed(JobOutcome::Invalid) => ("invalid_job", None),
+            RecordOutcome::MissingBody => ("missing_body", None),
+            RecordOutcome::InsufficientBudget => ("insufficient_budget", None),
+            RecordOutcome::TimedOut => ("timed_out", None),
+            RecordOutcome::Panicked => ("panicked", None),
         };
         tracing::warn!(
             event = "user.identity_deletion.retained",
             message_id = %attempt.message_id,
             outcome = category,
+            stage = failure.map(FailureDiagnostic::stage),
+            dependency = failure.and_then(FailureDiagnostic::dependency),
+            error_category = failure.map(FailureDiagnostic::category),
+            http_status = failure.and_then(FailureDiagnostic::http_status),
+            sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
             "User identity deletion retained for SQS retry or redrive",
         );
         false
@@ -62,8 +111,9 @@ mod tests {
     use super::*;
     use aws_lambda_events::sqs::SqsMessage;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use test_api::CapturedLogs;
     use user_core::user_id::UserId;
-    use user_service::ports::user_identity_deletion::UserIdentityDeletionError;
+    use user_service::ports::user_identity_deletion::IdentityProviderFailure;
     const JOB: &str = r#"{"schema_version":1,"scope":"user-identity-deletion","idempotency_key":"user-identity-deletion:usr_01h455vb4pex5vy7enb1p677vn","ordering_key":"user-identity-deletion:usr_01h455vb4pex5vy7enb1p677vn","job_type":"USER_IDENTITY_DELETION","payload":{"user_id":"usr_01h455vb4pex5vy7enb1p677vn"}}"#;
     struct Stub {
         outcome: u8,
@@ -74,14 +124,18 @@ mod tests {
         async fn execute(
             &self,
             _: UserId,
-        ) -> Result<DeleteUserIdentityResult, UserIdentityDeletionError> {
+        ) -> Result<DeleteUserIdentityResult, DeleteUserIdentityError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             match self.outcome {
                 0 => Ok(DeleteUserIdentityResult::Completed),
                 1 => Ok(DeleteUserIdentityResult::Deferred),
-                2 => Err(UserIdentityDeletionError(application::error::static_error(
-                    "provider unavailable",
-                ))),
+                2 => Err(DeleteUserIdentityError::IdentityRemoval(
+                    UserIdentityDeletionError::IdentityProvider {
+                        failure: IdentityProviderFailure::Unavailable,
+                        http_status: Some(503),
+                        source: application::error::static_error("provider unavailable"),
+                    },
+                )),
                 3 => std::future::pending().await,
                 _ => panic!("worker panic"),
             }
@@ -141,5 +195,92 @@ mod tests {
             assert_eq!(1, response.batch_item_failures.len());
         }
         assert_eq!(0, stub.calls.load(Ordering::SeqCst));
+    }
+
+    /// A use case that fails once with the given error.
+    struct Failing(std::sync::Mutex<Option<DeleteUserIdentityError>>);
+    #[async_trait::async_trait]
+    impl DeleteUserIdentityUseCase for Failing {
+        async fn execute(
+            &self,
+            _: UserId,
+        ) -> Result<DeleteUserIdentityResult, DeleteUserIdentityError> {
+            Err(self.0.lock().unwrap().take().expect("one execution"))
+        }
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("SENTINEL_PAYLOAD_TOKEN_person@example.com")]
+    struct Sentinel;
+
+    #[tokio::test]
+    async fn should_record_the_failed_step_and_system_without_logging_the_cause() {
+        let sentinel = || application::error::box_error(Sentinel);
+        let cases = [
+            (
+                DeleteUserIdentityError::Claim(UserIdentityDeletionError::Storage(Box::new(
+                    sqlx::Error::PoolTimedOut,
+                ))),
+                ("claim", "postgres", "pool_timed_out", None),
+            ),
+            (
+                DeleteUserIdentityError::TargetLookup(
+                    UserIdentityDeletionError::IdentityProvider {
+                        failure: IdentityProviderFailure::Throttled,
+                        http_status: Some(400),
+                        source: sentinel(),
+                    },
+                ),
+                ("target_lookup", "cognito", "throttled", Some(400)),
+            ),
+            (
+                DeleteUserIdentityError::TargetNotYetObserved,
+                ("target_lookup", "cognito", "not_yet_observed", None),
+            ),
+            (
+                DeleteUserIdentityError::TargetSave(UserIdentityDeletionError::ClaimLost),
+                ("target_save", "postgres", "claim_lost", None),
+            ),
+            (
+                DeleteUserIdentityError::IdentityRemoval(
+                    UserIdentityDeletionError::IdentityProvider {
+                        failure: IdentityProviderFailure::Authentication,
+                        http_status: Some(400),
+                        source: sentinel(),
+                    },
+                ),
+                ("identity_removal", "cognito", "authentication", Some(400)),
+            ),
+            (
+                DeleteUserIdentityError::Completion(
+                    UserIdentityDeletionError::InvalidPersistedState(sentinel()),
+                ),
+                ("completion", "postgres", "invalid_persisted_state", None),
+            ),
+        ];
+        for (error, (stage, dependency, category, http_status)) in cases {
+            let use_case = Failing(std::sync::Mutex::new(Some(error)));
+            let (logs, guard) = CapturedLogs::start();
+
+            let response = handler(event(Some(JOB.into())), &use_case, Duration::from_secs(30))
+                .await
+                .unwrap();
+            drop(guard);
+
+            assert_eq!(1, response.batch_item_failures.len());
+            let events = logs.events_where("event", "user.identity_deletion.retained");
+            assert_eq!(1, events.len(), "{stage}");
+            assert_eq!(Some("deletion_unconfirmed"), events[0]["outcome"].as_str());
+            assert_eq!(Some(stage), events[0]["stage"].as_str());
+            assert_eq!(Some(dependency), events[0]["dependency"].as_str());
+            assert_eq!(Some(category), events[0]["error_category"].as_str());
+            assert_eq!(
+                http_status,
+                events[0]
+                    .get("http_status")
+                    .and_then(|status| status.as_u64())
+            );
+            assert!(!logs.text().contains("SENTINEL"), "{stage}");
+        }
     }
 }

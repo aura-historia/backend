@@ -384,9 +384,9 @@ mod tests {
         ) -> Result<(), UserIdentityDeletionError> {
             let mut state = lock(&self.state);
             if state.identity_schedule_error {
-                return Err(UserIdentityDeletionError(application::error::static_error(
-                    "identity persistence unavailable",
-                )));
+                return Err(UserIdentityDeletionError::Storage(
+                    application::error::static_error("identity persistence unavailable"),
+                ));
             }
             state.identity_deletions.push(user_id);
             Ok(())
