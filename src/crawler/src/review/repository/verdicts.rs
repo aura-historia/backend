@@ -830,6 +830,13 @@ async fn reclassify_domain_urls(
 /// written before the review-wait outcome existed carry the wait as `last_crawl_error_kind`
 /// instead and are released the same way. A released domain no longer matches, so releasing it
 /// again changes nothing.
+///
+/// The pending-review check takes no lock of its own: a review opened for the domain while the
+/// caller's transaction runs is either seen by it or commits after it. Opening a review locks
+/// the domain row `FOR KEY SHARE`, which waits for the `FOR UPDATE` lock approval and restore
+/// take on it first, and a rejection's closed review keeps the domain's one pending URL-pattern
+/// review slot in the unique index until it commits. A crawl that opens a review after the
+/// release records its own wait on it.
 async fn release_domain_waiting_for_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
