@@ -45,8 +45,6 @@ pub enum SyncMarketingConsentIntentError {
     ConcurrentChange,
     #[error("marketing consent provider state read failed")]
     ProviderReadFailed(#[source] MarketingEmailConsentError),
-    #[error("marketing consent provider write failed")]
-    ProviderWriteFailed(#[source] MarketingEmailConsentError),
     /// The provider read succeeded but does not yet confirm an idempotent revoke.
     #[error("marketing consent revoke is not yet confirmed by the provider")]
     RevokeUnconfirmed,
@@ -251,16 +249,16 @@ where
                 )
                 .await
             }
-            Err(MarketingEmailConsentError::AcceptanceUnknown)
-            | Err(MarketingEmailConsentError::Protocol { .. }) => {
-                self.reconcile_ambiguous_write(&claim, &ready).await
-            }
-            Err(error) => match definite_no_write_reason(error) {
-                Some(reason_code) => self.release_for_retry(&claim, reason_code).await,
-                None if error == MarketingEmailConsentError::IneligibleIntent => {
+            Err(error) => match write_failure(error) {
+                WriteFailure::AcceptanceUnknown => {
+                    self.reconcile_ambiguous_write(&claim, &ready).await
+                }
+                WriteFailure::NotWritten(reason_code) => {
+                    self.release_for_retry(&claim, reason_code).await
+                }
+                WriteFailure::IneligibleIntent => {
                     Err(SyncMarketingConsentIntentError::InvalidPersistedState)
                 }
-                None => Err(SyncMarketingConsentIntentError::ProviderWriteFailed(error)),
             },
         }
     }
@@ -585,17 +583,33 @@ fn map_provider_error(error: MarketingEmailConsentError) -> SyncMarketingConsent
     SyncMarketingConsentIntentError::ProviderReadFailed(error)
 }
 
-fn definite_no_write_reason(error: MarketingEmailConsentError) -> Option<&'static str> {
+/// What a failed grant or revoke says about whether the provider applied it.
+enum WriteFailure {
+    /// The provider may have applied the write; only a state read can settle it.
+    AcceptanceUnknown,
+    /// The provider certainly did not apply the write, for this persisted reason code.
+    NotWritten(&'static str),
+    /// The persisted intent should never have reached the provider.
+    IneligibleIntent,
+}
+
+fn write_failure(error: MarketingEmailConsentError) -> WriteFailure {
     match error {
-        MarketingEmailConsentError::NotSent => Some("NOT_SENT"),
-        MarketingEmailConsentError::Rejected { .. } => Some("PROVIDER_REJECTED"),
-        MarketingEmailConsentError::Throttled { .. } => Some("THROTTLED"),
-        MarketingEmailConsentError::ReadUnavailable => Some("PREWRITE_READ_UNAVAILABLE"),
-        MarketingEmailConsentError::PreWriteProtocol { .. } => Some("PREWRITE_PROTOCOL"),
-        MarketingEmailConsentError::InvalidEmail => Some("INVALID_EMAIL"),
+        MarketingEmailConsentError::NotSent => WriteFailure::NotWritten("NOT_SENT"),
+        MarketingEmailConsentError::Rejected { .. } => {
+            WriteFailure::NotWritten("PROVIDER_REJECTED")
+        }
+        MarketingEmailConsentError::Throttled { .. } => WriteFailure::NotWritten("THROTTLED"),
+        MarketingEmailConsentError::ReadUnavailable => {
+            WriteFailure::NotWritten("PREWRITE_READ_UNAVAILABLE")
+        }
+        MarketingEmailConsentError::PreWriteProtocol { .. } => {
+            WriteFailure::NotWritten("PREWRITE_PROTOCOL")
+        }
+        MarketingEmailConsentError::InvalidEmail => WriteFailure::NotWritten("INVALID_EMAIL"),
         MarketingEmailConsentError::AcceptanceUnknown
-        | MarketingEmailConsentError::Protocol { .. }
-        | MarketingEmailConsentError::IneligibleIntent => None,
+        | MarketingEmailConsentError::Protocol { .. } => WriteFailure::AcceptanceUnknown,
+        MarketingEmailConsentError::IneligibleIntent => WriteFailure::IneligibleIntent,
     }
 }
 

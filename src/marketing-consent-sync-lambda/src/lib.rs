@@ -221,12 +221,6 @@ fn sync_failure(error: &SyncMarketingConsentIntentError) -> FailureDiagnostic {
             provider.diagnostic_category(),
             provider.http_status(),
         ),
-        E::ProviderWriteFailed(provider) => FailureDiagnostic::new(
-            "provider_write",
-            Dependency::Loops,
-            provider.diagnostic_category(),
-            provider.http_status(),
-        ),
         E::RevokeUnconfirmed => FailureDiagnostic::new(
             "revoke_reconciliation",
             Dependency::Loops,
