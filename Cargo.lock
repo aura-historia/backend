@@ -111,6 +111,7 @@ dependencies = [
  "credential-core",
  "domain-primitives",
  "fake",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -6340,6 +6341,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "domain-primitives",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
