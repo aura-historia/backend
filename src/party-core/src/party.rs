@@ -43,8 +43,9 @@ pub enum RehydratePartyError {
 }
 
 impl Party {
-    pub fn create(input: NewParty) -> Self {
-        let slug_id = PartySlugId::derive(input.name.as_ref(), input.id);
+    /// Creates a Party under `slug_id`, which callers pick from [`PartySlugId::candidates`] for
+    /// its name. The slug never changes afterwards, not even when the Party is renamed.
+    pub fn create(input: NewParty, slug_id: PartySlugId) -> Self {
         Self {
             id: input.id,
             slug_id,
@@ -106,58 +107,24 @@ mod tests {
             .unwrap_or_else(|error| panic!("invalid test party name: {error}"))
     }
 
-    fn party_id() -> Result<PartyId, domain_primitives::object_id::ObjectIdError> {
-        PartyId::try_from("pty_01h455vb4pex5vy7enb1p677vn")
-    }
-
-    #[test]
-    fn should_always_disambiguate_slug_when_creating_party()
-    -> Result<(), domain_primitives::object_id::ObjectIdError> {
-        let party_id = party_id()?;
-        let party = Party::create(NewParty {
-            id: party_id,
-            name: party_name("Antik und Stil"),
-            contact: PartyContact::default(),
-        });
-
-        assert_eq!(
-            "antik-und-stil-01890a5d-ac96-774b-bf1d-d5586c639f75",
-            party.slug_id().as_ref()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_disambiguate_fallback_slug_when_name_has_no_slug_characters()
-    -> Result<(), domain_primitives::object_id::ObjectIdError> {
-        let party_id = party_id()?;
-        let party = Party::create(NewParty {
-            id: party_id,
-            name: party_name("\u{10FFFF}"),
-            contact: PartyContact::default(),
-        });
-
-        assert_eq!(
-            "party-01890a5d-ac96-774b-bf1d-d5586c639f75",
-            party.slug_id().as_ref()
-        );
-        Ok(())
-    }
-
     #[test]
     fn should_preserve_slug_when_renaming_party() {
-        let mut party = Party::create(NewParty {
-            id: PartyId::new(),
-            name: party_name("Antik und Stil"),
-            contact: PartyContact::default(),
-        });
+        let name = party_name("Antik und Stil");
+        let slug_id = PartySlugId::candidates(&name)
+            .next()
+            .unwrap_or_else(|| panic!("party name has no slug candidate"));
+        let mut party = Party::create(
+            NewParty {
+                id: PartyId::new(),
+                name,
+                contact: PartyContact::default(),
+            },
+            slug_id,
+        );
 
         assert!(party.rename(party_name("Neue Identität")).changed());
 
-        assert_eq!(
-            format!("antik-und-stil-{}", party.id().as_uuid()),
-            party.slug_id().as_ref()
-        );
+        assert_eq!("antik-und-stil", party.slug_id().as_ref());
         assert_eq!("Neue Identität", party.name().as_ref());
     }
 

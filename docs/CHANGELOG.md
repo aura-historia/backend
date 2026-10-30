@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-30 — Readable Party and ListingSource slugs (#2654)
+
+- Parties and ListingSources created from now on get their slugified name as `partySlugId` or `listingSourceSlugId`, such as `antiques-and-more`, instead of the name followed by the full UUID. This covers `POST /v1/admin/parties`, `POST /v1/admin/listing-sources` (including a `NEW` operator Party) and the Party and ListingSource created when a proposed-source partnership application is approved. When another Party or ListingSource already holds that slug, the first free of `antiques-and-more-2`, `antiques-and-more-3`, and so on is used, so slugs stay unique.
+- Slugs remain immutable: renaming never changes them, and existing slugs, including the UUID-suffixed ones, are kept and keep resolving. Creation returns `409 CONFLICT` only when the first 100 slug candidates for the name are all taken.
+
 ## 2026-10-30 — Bounded embedding and search-index requests (#2625)
 
 - A text search on `GET /v1/product-listings` no longer waits for a stalled embedding provider until the request times out with `408`. When the query embedding takes longer than about three seconds, a first page returns BM25 results, and a semantic continuation returns `503 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE`; retry it with the unchanged cursor. Creating or updating a search filter whose text query needs an embedding returns `503` after the same deadline. Searches without text are unaffected.

@@ -631,16 +631,20 @@ mod tests {
         operator_party_id: PartyId,
     ) -> StoredListingSource {
         StoredListingSource {
-            source: ListingSource::create(NewListingSource {
-                id: listing_source_id,
-                name: ListingSourceName::try_from("Source")
-                    .unwrap_or_else(|error| panic!("invalid test ListingSource name: {error}")),
-                operator_party_id,
-                ingestion_methods: std::collections::HashSet::new(),
-                presentation: ListingSourcePresentation::default(),
-                platform_technology: None,
-                referral_configuration: None,
-            }),
+            source: ListingSource::create(
+                NewListingSource {
+                    id: listing_source_id,
+                    name: ListingSourceName::try_from("Source")
+                        .unwrap_or_else(|error| panic!("invalid test ListingSource name: {error}")),
+                    operator_party_id,
+                    ingestion_methods: std::collections::HashSet::new(),
+                    presentation: ListingSourcePresentation::default(),
+                    platform_technology: None,
+                    referral_configuration: None,
+                },
+                listing_source_core::ListingSourceSlugId::raw("source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+            ),
             configuration: ListingSourceIngestionConfigurations::default(),
             version: ListingSourceStorageVersion::INITIAL,
             created: time::OffsetDateTime::UNIX_EPOCH,

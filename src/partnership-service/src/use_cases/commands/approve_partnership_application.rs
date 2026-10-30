@@ -1271,28 +1271,36 @@ mod tests {
         listing_source_id: ListingSourceId,
         party_id: PartyId,
     ) -> (StoredParty, StoredListingSource) {
-        let party = Party::create(NewParty {
-            id: party_id,
-            name: PartyName::try_from("Existing Operator")
-                .unwrap_or_else(|error| panic!("valid test party name: {error}")),
-            contact: PartyContact {
-                phone: None,
-                email: None,
+        let party = Party::create(
+            NewParty {
+                id: party_id,
+                name: PartyName::try_from("Existing Operator")
+                    .unwrap_or_else(|error| panic!("valid test party name: {error}")),
+                contact: PartyContact {
+                    phone: None,
+                    email: None,
+                },
             },
-        });
-        let source = ListingSource::create(NewListingSource {
-            id: listing_source_id,
-            name: ListingSourceName::try_from("Existing Source")
-                .unwrap_or_else(|error| panic!("valid test source name: {error}")),
-            operator_party_id: party_id,
-            ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
-            presentation: ListingSourcePresentation {
-                url: None,
-                image: None,
+            party_core::party_slug_id::PartySlugId::raw("existing-operator")
+                .unwrap_or_else(|error| panic!("invalid test party slug: {error}")),
+        );
+        let source = ListingSource::create(
+            NewListingSource {
+                id: listing_source_id,
+                name: ListingSourceName::try_from("Existing Source")
+                    .unwrap_or_else(|error| panic!("valid test source name: {error}")),
+                operator_party_id: party_id,
+                ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
+                presentation: ListingSourcePresentation {
+                    url: None,
+                    image: None,
+                },
+                platform_technology: None,
+                referral_configuration: None,
             },
-            platform_technology: None,
-            referral_configuration: None,
-        });
+            listing_source_core::ListingSourceSlugId::raw("existing-source")
+                .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+        );
         let party_version = PartyStorageVersion::try_from(1_i64)
             .unwrap_or_else(|error| panic!("valid test party version: {error}"));
         let source_version = ListingSourceStorageVersion::try_from(1_i64)
@@ -1389,28 +1397,36 @@ mod tests {
     async fn should_approve_existing_source_without_creating_party_or_source() {
         let applicant_user_id = user_core::user_id::UserId::new();
         let party_id = PartyId::new();
-        let party = Party::create(NewParty {
-            id: party_id,
-            name: PartyName::try_from("Existing Operator")
-                .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
-            contact: PartyContact {
-                phone: None,
-                email: None,
+        let party = Party::create(
+            NewParty {
+                id: party_id,
+                name: PartyName::try_from("Existing Operator")
+                    .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
+                contact: PartyContact {
+                    phone: None,
+                    email: None,
+                },
             },
-        });
-        let source = ListingSource::create(NewListingSource {
-            id: ListingSourceId::new(),
-            name: ListingSourceName::try_from("Existing Source")
-                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-            operator_party_id: party_id,
-            ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
-            presentation: ListingSourcePresentation {
-                url: None,
-                image: None,
+            party_core::party_slug_id::PartySlugId::raw("existing-operator")
+                .unwrap_or_else(|error| panic!("invalid test party slug: {error}")),
+        );
+        let source = ListingSource::create(
+            NewListingSource {
+                id: ListingSourceId::new(),
+                name: ListingSourceName::try_from("Existing Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                operator_party_id: party_id,
+                ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
+                presentation: ListingSourcePresentation {
+                    url: None,
+                    image: None,
+                },
+                platform_technology: None,
+                referral_configuration: None,
             },
-            platform_technology: None,
-            referral_configuration: None,
-        });
+            listing_source_core::ListingSourceSlugId::raw("existing-source")
+                .unwrap_or_else(|error| panic!("invalid test listing source slug: {error}")),
+        );
         let source_version = match ListingSourceStorageVersion::try_from(1_i64) {
             Ok(version) => version,
             Err(error) => panic!("test listing source version: {error}"),

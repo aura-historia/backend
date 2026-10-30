@@ -1,5 +1,5 @@
-use crate::party_id::PartyId;
-use std::{fmt::Display, ops::Deref};
+use crate::party_name::PartyName;
+use std::{fmt::Display, iter, ops::Deref};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 #[error("invalid party slug '{value}'")]
@@ -31,15 +31,19 @@ impl PartySlugId {
         }
     }
 
-    pub(crate) fn derive(name: &str, party_id: PartyId) -> Self {
-        let prefix = slug::slugify(name);
-        let prefix = if prefix.is_empty() {
-            Self::FALLBACK_PREFIX
-        } else {
-            prefix.as_str()
+    /// Slugs a new Party named `name` may take, in preference order: the slugified name
+    /// ([`Self::FALLBACK_PREFIX`] when nothing of it survives slugification), then that base
+    /// followed by `-2`, `-3` and so on for when the earlier candidates are already taken.
+    pub fn candidates(name: &PartyName) -> impl Iterator<Item = Self> + use<> {
+        let base = match slug::slugify(name.as_ref()) {
+            base if base.is_empty() => Self::FALLBACK_PREFIX.to_owned(),
+            base => base,
         };
-
-        Self(format!("{prefix}-{}", party_id.as_uuid()))
+        let disambiguated = (2_u32..).map({
+            let base = base.clone();
+            move |ordinal| Self(format!("{base}-{ordinal}"))
+        });
+        iter::once(Self(base)).chain(disambiguated)
     }
 }
 
@@ -60,5 +64,42 @@ impl Deref for PartySlugId {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidates(name: &str, count: usize) -> Vec<String> {
+        let name = PartyName::try_from(name)
+            .unwrap_or_else(|error| panic!("invalid test party name: {error}"));
+        PartySlugId::candidates(&name)
+            .take(count)
+            .map(|slug_id| slug_id.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn should_offer_slugified_name_then_numbered_variants() {
+        assert_eq!(
+            vec!["antik-und-stil", "antik-und-stil-2", "antik-und-stil-3"],
+            candidates("  Antik und Stil ", 3)
+        );
+    }
+
+    #[test]
+    fn should_fall_back_to_party_base_when_name_has_no_slug_characters() {
+        assert_eq!(vec!["party", "party-2"], candidates("\u{10FFFF}", 2));
+    }
+
+    #[test]
+    fn should_offer_only_valid_persistable_slugs() {
+        for candidate in candidates("Müller & Söhne – Antiquitäten", 3) {
+            assert_eq!(
+                Ok(candidate.as_str()),
+                PartySlugId::raw(&candidate).as_deref()
+            );
+        }
     }
 }

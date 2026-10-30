@@ -63,8 +63,10 @@ pub struct ListingSource {
 }
 
 impl ListingSource {
-    pub fn create(input: NewListingSource) -> Self {
-        let slug_id = ListingSourceSlugId::derive(input.name.as_ref(), input.id);
+    /// Creates a ListingSource under `slug_id`, which callers pick from
+    /// [`ListingSourceSlugId::candidates`] for its name. The slug never changes afterwards, not
+    /// even when the ListingSource is renamed.
+    pub fn create(input: NewListingSource, slug_id: ListingSourceSlugId) -> Self {
         Self {
             slug_id,
             id: input.id,
@@ -181,60 +183,38 @@ fn replace<T: PartialEq>(current: &mut T, replacement: T) -> ChangeOutcome {
 mod tests {
     use super::*;
 
-    fn listing_source_id() -> ListingSourceId {
-        ListingSourceId::try_from(uuid::uuid!("01890a5d-ac96-774b-bf1d-d5586c639f75"))
-            .unwrap_or_else(|error| panic!("valid test listing source ID: {error}"))
-    }
-
     fn listing_source_name(value: &str) -> ListingSourceName {
         ListingSourceName::try_from(value)
             .unwrap_or_else(|error| panic!("invalid test listing source name: {error}"))
     }
 
     #[test]
-    fn should_always_disambiguate_slug_when_creating_listing_source() {
-        let mut source = ListingSource::create(NewListingSource {
-            id: listing_source_id(),
-            name: listing_source_name("Antik und Stil"),
-            operator_party_id: PartyId::new(),
-            ingestion_methods: HashSet::new(),
-            presentation: ListingSourcePresentation::default(),
-            platform_technology: None,
-            referral_configuration: None,
-        });
-
-        assert_eq!(
-            "antik-und-stil-01890a5d-ac96-774b-bf1d-d5586c639f75",
-            source.slug_id().as_ref()
+    fn should_preserve_slug_when_renaming_listing_source() {
+        let name = listing_source_name("Antik und Stil");
+        let slug_id = ListingSourceSlugId::candidates(&name)
+            .next()
+            .unwrap_or_else(|| panic!("listing source name has no slug candidate"));
+        let mut source = ListingSource::create(
+            NewListingSource {
+                id: ListingSourceId::new(),
+                name,
+                operator_party_id: PartyId::new(),
+                ingestion_methods: HashSet::new(),
+                presentation: ListingSourcePresentation::default(),
+                platform_technology: None,
+                referral_configuration: None,
+            },
+            slug_id,
         );
+
         assert!(
             source
                 .rename(listing_source_name("Neue Identität"))
                 .changed()
         );
-        assert_eq!(
-            "antik-und-stil-01890a5d-ac96-774b-bf1d-d5586c639f75",
-            source.slug_id().as_ref()
-        );
-    }
 
-    #[test]
-    fn should_disambiguate_fallback_slug_when_listing_source_name_has_no_slug_characters() {
-        let listing_source_id = listing_source_id();
-        let source = ListingSource::create(NewListingSource {
-            id: listing_source_id,
-            name: listing_source_name("\u{10FFFF}"),
-            operator_party_id: PartyId::new(),
-            ingestion_methods: HashSet::new(),
-            presentation: ListingSourcePresentation::default(),
-            platform_technology: None,
-            referral_configuration: None,
-        });
-
-        assert_eq!(
-            "listing-source-01890a5d-ac96-774b-bf1d-d5586c639f75",
-            source.slug_id().as_ref()
-        );
+        assert_eq!("antik-und-stil", source.slug_id().as_ref());
+        assert_eq!("Neue Identität", source.name().as_ref());
     }
 
     #[test]

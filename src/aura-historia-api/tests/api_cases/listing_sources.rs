@@ -1064,7 +1064,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
         location
     );
     assert_eq!(json!(listing_source_id.as_str()), body["listingSourceId"]);
-    assert!(body["listingSourceSlugId"].is_string());
+    assert_eq!(json!("created-listing-source"), body["listingSourceSlugId"]);
 
     let response = client
         .get(&url)

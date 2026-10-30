@@ -298,10 +298,7 @@ async fn should_create_party_with_identity_location_and_contact() {
         json!("created-party@example.test"),
         body["contact"]["email"]
     );
-    assert_eq!(
-        json!(format!("created-party-{}", party_id.as_uuid())),
-        body["partySlugId"]
-    );
+    assert_eq!(json!("created-party"), body["partySlugId"]);
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

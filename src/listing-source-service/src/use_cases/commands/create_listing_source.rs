@@ -521,12 +521,16 @@ mod tests {
     }
     fn stored_party(id: PartyId) -> StoredParty {
         StoredParty {
-            party: Party::create(NewParty {
-                id,
-                name: PartyName::try_from("Operator")
-                    .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
-                contact: PartyContact::default(),
-            }),
+            party: Party::create(
+                NewParty {
+                    id,
+                    name: PartyName::try_from("Operator")
+                        .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
+                    contact: PartyContact::default(),
+                },
+                party_core::party_slug_id::PartySlugId::raw("operator")
+                    .unwrap_or_else(|error| panic!("invalid test party slug: {error}")),
+            ),
             version: party_service::ports::PartyStorageVersion::INITIAL,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,

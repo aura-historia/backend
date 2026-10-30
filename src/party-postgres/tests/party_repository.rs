@@ -6,7 +6,10 @@ use party_core::{
     party_slug_id::PartySlugId,
 };
 use party_postgres::SqlxPartyRepositoryFactory;
-use party_service::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory};
+use party_service::{
+    party_creation::insert_new_party,
+    ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory},
+};
 use platform_postgres::SqlxUnitOfWork;
 use serde_email::Email;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
@@ -52,6 +55,54 @@ async fn should_insert_and_find_party_by_id_and_slug() {
             .await
             .unwrap_or_else(|error| panic!("read repository-created party name search: {error}"));
     assert_eq!("insert-find", name_search);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_insert_same_named_party_under_next_slug_after_conflict_in_same_transaction() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let parties = SqlxPartyRepositoryFactory::new();
+    let existing = sample_party("shared-name");
+    let same_slug = Party::create(
+        NewParty {
+            id: PartyId::new(),
+            name: party_name("Shared Name"),
+            contact: PartyContact::default(),
+        },
+        existing.slug_id().clone(),
+    );
+
+    let mut tx = begin(&unit_of_work).await;
+    let mut repository = parties.in_transaction(&mut tx);
+    let first = repository.insert(&existing).await;
+    let conflict = repository.insert(&same_slug).await;
+    let disambiguated = insert_new_party(
+        &mut repository,
+        NewParty {
+            id: PartyId::new(),
+            name: party_name("Shared Name"),
+            contact: PartyContact::default(),
+        },
+    )
+    .await;
+    drop(repository);
+    commit(tx).await;
+
+    assert!(first.is_ok());
+    assert!(matches!(
+        conflict,
+        Err(PartyRepositoryError::SlugConflict { .. })
+    ));
+    assert!(matches!(
+        disambiguated,
+        Ok(ref stored) if stored.party.slug_id().as_ref() == "shared-name-2"
+    ));
+    let slugs =
+        sqlx::query_scalar::<_, String>("SELECT party_slug_id FROM parties ORDER BY party_slug_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("read committed party slugs: {error}"));
+    assert_eq!(vec!["shared-name", "shared-name-2"], slugs);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -608,14 +659,19 @@ fn sample_party(name: &str) -> Party {
         Ok(value) => value,
         Err(error) => panic!("invalid test email: {error}"),
     };
-    Party::create(NewParty {
-        id: PartyId::new(),
-        name: party_name(name),
-        contact: PartyContact {
-            phone: Some("+49 30 123456".to_owned()),
-            email: Some(email),
+    let slug_id =
+        PartySlugId::raw(name).unwrap_or_else(|error| panic!("invalid test party slug: {error}"));
+    Party::create(
+        NewParty {
+            id: PartyId::new(),
+            name: party_name(name),
+            contact: PartyContact {
+                phone: Some("+49 30 123456".to_owned()),
+                email: Some(email),
+            },
         },
-    })
+        slug_id,
+    )
 }
 
 async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {

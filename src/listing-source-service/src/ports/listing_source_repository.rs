@@ -255,6 +255,9 @@ pub trait ListingSourceRepository: Send {
         id: ListingSourceId,
         expected: ListingSourceStorageVersion,
     ) -> Result<(), ListingSourceRepositoryError>;
+    /// Inserts a new ListingSource with its ingestion configuration. A slug another ListingSource
+    /// already holds is reported as [`ListingSourceRepositoryError::SlugConflict`] before anything
+    /// is written and leaves the transaction usable, so the caller can try the next slug candidate.
     async fn insert(
         &mut self,
         source: &ListingSource,

@@ -73,6 +73,9 @@ pub trait PartyRepository: Send {
         expected_version: PartyStorageVersion,
     ) -> Result<(), PartyRepositoryError>;
 
+    /// Inserts a new Party. A slug another Party already holds is reported as
+    /// [`PartyRepositoryError::SlugConflict`] and leaves the transaction usable, so the caller can
+    /// try the next slug candidate.
     async fn insert(&mut self, party: &Party) -> Result<StoredParty, PartyRepositoryError>;
 
     async fn update(
