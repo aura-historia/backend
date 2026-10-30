@@ -89,7 +89,9 @@ pub enum RunnerError {
     NotAgentMode(#[source] ConsoleClientError),
     #[error("the runner refuses to start: {0}")]
     Login(#[from] LoginError),
-    #[error("cannot read the limits of the agents' decisions from the review console")]
+    #[error(
+        "cannot read the limits of the agents' decisions from the review console's {AGENT_LIMITS_ROUTE}; a console of an older build does not answer them, so deploy the runner and review-mcp from the crawler server's build"
+    )]
     AgentLimits(#[source] ConsoleError),
     #[error("the review agents' pass failed")]
     Pass(#[from] PassError),
