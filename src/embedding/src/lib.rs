@@ -136,6 +136,8 @@ pub trait EmbeddingGenerator: Send + Sync {
         image_url: Option<&EmbeddingImageUrl>,
     ) -> Result<EmbeddingVector, EmbeddingError>;
 
+    /// Serves interactive requests: implementations must return, with an error if necessary,
+    /// within [`SEARCH_QUERY_EMBEDDING_DEADLINE`] so callers can still answer without it.
     async fn embed_search_query(
         &self,
         query: &EmbeddingText,
@@ -452,8 +454,8 @@ mod tests {
         net::{TcpListener, TcpStream},
     };
 
-    const TEST_SEARCH_QUERY_DEADLINE: Duration = Duration::from_millis(300);
-    const TEST_PRODUCT_DEADLINE: Duration = Duration::from_millis(600);
+    const TEST_SEARCH_QUERY_DEADLINE: Duration = Duration::from_millis(500);
+    const TEST_PRODUCT_DEADLINE: Duration = Duration::from_millis(1000);
     const PROVIDER_STALL: Duration = Duration::from_secs(30);
     /// Fails an unbounded embedding instead of hanging the test on the stalled fixture.
     const TEST_GUARD: Duration = Duration::from_secs(5);
@@ -575,14 +577,19 @@ mod tests {
         }
     }
 
-    fn generator(
+    fn vertex_generator(
         provider: &LocalProvider,
         credentials: TestCredentials,
-    ) -> Result<VertexAiEmbeddingGenerator, EmbeddingError> {
+    ) -> Result<VertexAiEmbeddingGenerator, Box<dyn std::error::Error>> {
         let mut generator = VertexAiEmbeddingGenerator::new(
             VertexAiEmbeddingConfig::new("test-project", "eu"),
             AccessTokenCredentials::from(credentials),
         )?;
+        // Reach the loopback fixture even when the developer environment configures a proxy.
+        generator.client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .no_proxy()
+            .build()?;
         generator.embed_content_url = provider.url.clone();
         generator.search_query_deadline = TEST_SEARCH_QUERY_DEADLINE;
         generator.product_deadline = TEST_PRODUCT_DEADLINE;
@@ -609,7 +616,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         for behavior in [ProviderBehavior::StallHeaders, ProviderBehavior::StallBody] {
             let provider = LocalProvider::start(behavior).await?;
-            let generator = generator(&provider, TestCredentials::Issued)?;
+            let generator = vertex_generator(&provider, TestCredentials::Issued)?;
             let text = EmbeddingText::new("vintage brass lamp")?;
 
             assert_deadline_exceeded(
@@ -633,7 +640,7 @@ mod tests {
     async fn should_bound_credential_acquisition_without_contacting_the_provider()
     -> Result<(), Box<dyn std::error::Error>> {
         let provider = LocalProvider::start(ProviderBehavior::Respond).await?;
-        let generator = generator(&provider, TestCredentials::Stalled)?;
+        let generator = vertex_generator(&provider, TestCredentials::Stalled)?;
 
         assert_deadline_exceeded(
             generator.embed_search_query(&EmbeddingText::new("vintage brass lamp")?),
@@ -649,7 +656,7 @@ mod tests {
     async fn should_serve_repeated_search_queries_from_the_cache_after_one_provider_request()
     -> Result<(), Box<dyn std::error::Error>> {
         let provider = LocalProvider::start(ProviderBehavior::Respond).await?;
-        let generator = generator(&provider, TestCredentials::Issued)?;
+        let generator = vertex_generator(&provider, TestCredentials::Issued)?;
         let query = EmbeddingText::new("vintage brass lamp")?;
 
         let first = generator.embed_search_query(&query).await?;

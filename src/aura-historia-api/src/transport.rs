@@ -32,7 +32,7 @@ pub(crate) const PUBLICATION_REPORT_HEADROOM: Duration = Duration::from_millis(3
 pub(crate) const NATIVE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const LAMBDA_REQUEST_TIMEOUT: Duration = Duration::from_secs(14);
 // An initial search page answers without its optional query embedding, so the provider deadline
-// must leave most of the shortest request budget for the lexical fallback.
+// must leave at least half of the shortest request budget for the lexical fallback.
 const _: () = assert!(
     embedding::SEARCH_QUERY_EMBEDDING_DEADLINE.as_millis() * 2 < LAMBDA_REQUEST_TIMEOUT.as_millis()
 );
