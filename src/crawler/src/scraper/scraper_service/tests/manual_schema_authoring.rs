@@ -1288,11 +1288,30 @@ async fn new_manual_review_page_urls(
     domain_id: crate::CrawlerDomainId,
     url: &Url,
 ) -> Vec<String> {
+    let review_id = open_manual_review(scraper, listing_source_id, domain_id, url).await;
+    review_page_urls(repository, review_id).await
+}
+
+/// Scrapes the product page `url` of the domain `domain_id` until it opens a manual review, and
+/// returns that review.
+async fn open_manual_review(
+    scraper: &ScraperServiceImpl,
+    listing_source_id: &ListingSourceId,
+    domain_id: crate::CrawlerDomainId,
+    url: &Url,
+) -> crate::CrawlerReviewId {
     let request = ScrapeRequest {
         domain_id: Some(domain_id),
         ..normal_request(listing_source_id, url)
     };
-    let review_id = pending_review_id(scraper.scrape(request).await.result);
+    pending_review_id(scraper.scrape(request).await.result)
+}
+
+/// The URLs of the review's pages, sorted.
+async fn review_page_urls(
+    repository: &CrawlerReviewRepository,
+    review_id: crate::CrawlerReviewId,
+) -> Vec<String> {
     let mut urls: Vec<String> = repository
         .get_review_pages(review_id)
         .await
