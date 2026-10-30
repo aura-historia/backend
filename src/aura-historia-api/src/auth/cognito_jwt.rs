@@ -154,6 +154,38 @@ impl JwksCache {
     }
 }
 
+/// Records a failed refresh when dropped before `finish`, so a request cancelled mid-fetch
+/// still starts the cooldown instead of letting the next request fetch at once.
+struct UnfinishedRefresh<'a>(Option<&'a RwLock<JwksCache>>);
+
+impl UnfinishedRefresh<'_> {
+    fn finish(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for UnfinishedRefresh<'_> {
+    fn drop(&mut self) {
+        if let Some(cache) = self.0
+            && let Ok(mut cache) = cache.write()
+        {
+            cache.record_failed_refresh();
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum JwksRefreshError {
+    #[error(transparent)]
+    Fetch(AuthError),
+    #[error("JWKS key `{kid}` has invalid RSA parameters: {source}")]
+    InvalidKey {
+        kid: String,
+        #[source]
+        source: jsonwebtokens::error::Error,
+    },
+}
+
 pub struct CognitoJwtAuthenticator<P, R> {
     config: CognitoJwtConfig,
     identity_issuer: CognitoIssuer,
@@ -208,25 +240,26 @@ where
     }
 
     async fn refresh_jwks(&self) -> Result<(), AuthError> {
-        let refreshed = self
-            .provider
-            .fetch_jwks(&self.config.jwks_url)
-            .await
+        let unfinished = UnfinishedRefresh(Some(&self.jwks_cache));
+        let fetched = self.provider.fetch_jwks(&self.config.jwks_url).await;
+        unfinished.finish();
+        let refreshed = fetched
+            .map_err(JwksRefreshError::Fetch)
             .and_then(verifier_algorithms);
+        if let Err(error) = &refreshed {
+            tracing::warn!(
+                event = "cognito_jwks.refresh_failed",
+                error = %error,
+                "Cognito JWKS refresh failed"
+            );
+        }
         let mut cache = self
             .jwks_cache
             .write()
             .map_err(|error| AuthError::Internal(error.to_string()))?;
         match refreshed {
             Ok(algorithms) => cache.record_refresh(algorithms),
-            Err(error) => {
-                tracing::warn!(
-                    event = "cognito_jwks.refresh_failed",
-                    error = %error,
-                    "Cognito JWKS refresh failed"
-                );
-                cache.record_failed_refresh();
-            }
+            Err(_) => cache.record_failed_refresh(),
         }
         Ok(())
     }
@@ -278,14 +311,20 @@ where
     }
 }
 
-fn verifier_algorithms(jwks: JsonWebKeySet) -> Result<HashMap<String, Arc<Algorithm>>, AuthError> {
+fn verifier_algorithms(
+    jwks: JsonWebKeySet,
+) -> Result<HashMap<String, Arc<Algorithm>>, JwksRefreshError> {
     jwks.keys
         .into_iter()
         .filter(|key| matches!(key.alg.as_deref(), None | Some("RS256")))
         .map(|key| {
             let mut algorithm =
-                Algorithm::new_rsa_n_e_b64_verifier(AlgorithmID::RS256, &key.n, &key.e)
-                    .map_err(|error| AuthError::JwksFetch(error.to_string()))?;
+                Algorithm::new_rsa_n_e_b64_verifier(AlgorithmID::RS256, &key.n, &key.e).map_err(
+                    |source| JwksRefreshError::InvalidKey {
+                        kid: key.kid.clone(),
+                        source,
+                    },
+                )?;
             algorithm.set_kid(&key.kid);
             Ok((key.kid, Arc::new(algorithm)))
         })
@@ -600,7 +639,7 @@ mod tests {
         entered.notified().await;
 
         authentications.extend(tokens.map(spawn_authentication));
-        release.notify_waiters();
+        release.notify_one();
 
         let mut results = Vec::new();
         for authentication in authentications {
@@ -909,6 +948,36 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn should_start_cooldown_when_refreshing_request_is_cancelled()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let entered = Arc::new(Notify::new());
+        let authenticator = Arc::new(authenticator_with_jwks_provider(BlockingJwksProvider {
+            jwks: JsonWebKeySet { keys: Vec::new() },
+            calls: calls.clone(),
+            entered: entered.clone(),
+            release: Arc::new(Notify::new()),
+        })?);
+        let refreshing_authenticator = authenticator.clone();
+        let cancelled = tokio::spawn(async move {
+            refreshing_authenticator
+                .authenticate(&forged_token("unknown-1"), &metadata())
+                .await
+        });
+        entered.notified().await;
+        cancelled.abort();
+        assert!(cancelled.await.is_err_and(|error| error.is_cancelled()));
+
+        let result = authenticator
+            .authenticate(&forged_token("unknown-2"), &metadata())
+            .await;
+
+        assert!(matches!(result, Err(AuthError::TemporarilyUnavailable)));
+        assert_eq!(1, lock(&calls).len());
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn should_fetch_jwks_once_per_cooldown_for_sequential_unknown_kids()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
@@ -918,15 +987,20 @@ mod tests {
         let _ = authenticator.authenticate(&token, &metadata()).await?;
         tokio::time::advance(JWKS_REFRESH_COOLDOWN).await;
 
-        for kid in ["unknown-1", "unknown-1", "unknown-2", "unknown-3"] {
+        for kid in ["unknown-1", "unknown-1", "unknown-2"] {
             let result = authenticator
                 .authenticate(&forged_token(kid), &metadata())
                 .await;
             assert!(matches!(result, Err(AuthError::JwksKeyNotFound)));
         }
+        tokio::time::advance(JWKS_REFRESH_COOLDOWN - Duration::from_millis(1)).await;
+        let result = authenticator
+            .authenticate(&forged_token("unknown-3"), &metadata())
+            .await;
+        assert!(matches!(result, Err(AuthError::JwksKeyNotFound)));
         assert_eq!(2, lock(&calls).len());
 
-        tokio::time::advance(JWKS_REFRESH_COOLDOWN).await;
+        tokio::time::advance(Duration::from_millis(1)).await;
         let result = authenticator
             .authenticate(&forged_token("unknown-4"), &metadata())
             .await;

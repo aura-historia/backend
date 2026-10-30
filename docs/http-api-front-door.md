@@ -31,13 +31,16 @@ A session authenticated at or before its stored cutoff is rejected. Token refres
 preserves `auth_time`, so it cannot restore a revoked session. Cutoffs are never cached.
 Ordinary requests make no live Cognito status call. No additional Cognito scope is required.
 
-Each API instance caches Cognito signing keys for five minutes. Any JWKS fetch,
-successful or failed, starts a ten-second cooldown in which unknown key IDs are rejected
-and expired keys are served without fetching, so neither forged key IDs nor provider
-failures cause more than one fetch per cooldown; concurrent misses share one fetch.
-A key Cognito publishes is therefore accepted within one cooldown. While refreshes fail,
-previously fetched keys stay usable; a successful refresh that omits a key stops accepting
-it. Fetch and key-material failures fail closed with `503` for keys not already cached.
+Each API instance caches Cognito signing keys for five minutes. When a JWKS fetch
+completes, fails or is abandoned by a cancelled request, a ten-second cooldown starts in
+which unknown key IDs are rejected and expired keys are served without fetching, so
+neither forged key IDs nor provider failures cause more than one fetch per cooldown;
+concurrent misses share one fetch. A key Cognito publishes is therefore accepted within
+about fifteen seconds: the cooldown plus the five-second fetch timeout of a fetch that
+started just before publication. While refreshes fail, previously fetched keys stay
+usable; a successful refresh that omits a key stops accepting it. Bearers whose key is not
+cached fail closed with `503` until the cooldown after a failed fetch ends, including on a
+newly started instance. Malformed key material counts as a failed fetch.
 
 Administrator session revocation commits a local cutoff before Cognito global sign-out,
 then advances it again after the provider call returns, including when the provider

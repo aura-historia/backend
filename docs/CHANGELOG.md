@@ -4,7 +4,8 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-10-30 — Bounded Cognito signing-key refresh (#2621)
 
-- A Cognito bearer naming a signing key the API has not cached no longer causes a JWKS fetch on every request. Each API instance fetches at most once per ten seconds, whether the previous fetch succeeded or failed; such bearers are still rejected with `401`, or `503` while Cognito's JWKS is unavailable. A newly published Cognito key is accepted within ten seconds. Malformed key material in Cognito's JWKS now yields `503` like an unreachable JWKS instead of `500`. See the [front-door contract](http-api-front-door.md#route-and-authentication-boundary).
+- Cognito bearers naming a signing key the API has not cached are still rejected with `401`, but no longer refetch Cognito's signing keys on every request. A newly published Cognito key is accepted within about fifteen seconds.
+- After a failed signing-key fetch, bearers whose key the API instance has not cached get `503` for up to ten seconds instead of retrying the fetch on each request; already cached keys keep working. Malformed key material in Cognito's JWKS now yields `503` like an unreachable JWKS instead of `500`. See the [front-door contract](http-api-front-door.md#route-and-authentication-boundary).
 
 ## 2026-10-29 — WooCommerce deletion of backfilled products (#2606)
 
