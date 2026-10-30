@@ -1170,7 +1170,8 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::Database(_)
         | ReviewRepositoryError::Json(_)
-        | ReviewRepositoryError::Regex(_) => internal_error(error),
+        | ReviewRepositoryError::Regex(_)
+        | ReviewRepositoryError::MatrixEvaluationStopped { .. } => internal_error(error),
     }
 }
 
@@ -1960,7 +1961,7 @@ Origin: http://127.0.0.1:7878/x
         use std::num::NonZeroU32;
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
         use test_api::IntegrationTestService as _;
         use tokio::sync::Semaphore;
         use url::Url;
@@ -1974,6 +1975,7 @@ Origin: http://127.0.0.1:7878/x
             requested: AtomicUsize,
             fetched: AtomicUsize,
             failure: Option<&'static str>,
+            html: String,
         }
 
         impl PacedFetcher {
@@ -1983,6 +1985,18 @@ Origin: http://127.0.0.1:7878/x
                     requested: AtomicUsize::new(0),
                     fetched: AtomicUsize::new(0),
                     failure,
+                    html: PAGE_HTML.to_owned(),
+                })
+            }
+
+            /// A shop that serves `html` for every page.
+            fn serving(html: String) -> Arc<Self> {
+                Arc::new(Self {
+                    released: Semaphore::new(0),
+                    requested: AtomicUsize::new(0),
+                    fetched: AtomicUsize::new(0),
+                    failure: None,
+                    html,
                 })
             }
 
@@ -2024,11 +2038,19 @@ Origin: http://127.0.0.1:7878/x
                     });
                 }
                 Ok(FetchedHtml {
-                    html: PAGE_HTML.to_string(),
+                    html: self.html.clone(),
                     final_url: url.clone(),
                     status: reqwest::StatusCode::OK,
                 })
             }
+        }
+
+        /// The product page nested in `depth` `div`s, which html5ever parses ever more slowly as
+        /// the nesting deepens.
+        fn deeply_nested_page(depth: usize) -> String {
+            PAGE_HTML
+                .replace("<body>", &format!("<body>{}", "<div>".repeat(depth)))
+                .replace("</body>", &format!("{}</body>", "</div>".repeat(depth)))
         }
 
         struct NoDomainAdministration;
@@ -2598,6 +2620,95 @@ Origin: http://127.0.0.1:7878/x
             );
             assert_eq!(author["reason"], "NO_MATRIX", "{author}");
             assert!(stored_matrix(&fixture.pool, review_id).await.is_none());
+        }
+
+        /// A refresh and a candidate evaluation each evaluate their pages on a blocking thread
+        /// within the place their live job holds, so with a limit of one neither refuses its own
+        /// evaluation, and each frees its place once it answered.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_evaluate_within_the_live_jobs_own_place_when_the_limit_is_one() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture_with(
+                fetcher.clone(),
+                ReviewServerConfig {
+                    max_concurrent_live_jobs: NonZeroU32::MIN,
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    ..paced_console()
+                },
+            )
+            .await;
+            let server = ReviewServer {
+                matrix_refresh_wait: Duration::from_secs(30),
+                ..fixture.server.clone()
+            };
+            let review_id = fixture.review_id;
+            fetcher.release(2 * PAGE_COUNT);
+
+            let refreshed = get_matrix(&server, review_id, true).await;
+            let refresh_freed_its_place = server.live_jobs.try_start().is_ok();
+            let (status, evaluated) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/evaluate"),
+                &json!({ "schemas": [schema("h1")] }).to_string(),
+            )
+            .await;
+            let evaluation_freed_its_place = server.live_jobs.try_start().is_ok();
+
+            assert!(refreshed.starts_with("HTTP/1.1 200"), "{refreshed}");
+            assert!(stored_matrix(&fixture.pool, review_id).await.is_some());
+            assert!(refresh_freed_its_place);
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {evaluated}");
+            assert_eq!(
+                evaluated["candidates"][0]["pages"][0]["apply_ok"], true,
+                "{evaluated}"
+            );
+            assert!(evaluation_freed_its_place);
+            assert_eq!(fetcher.fetched.load(Ordering::SeqCst), 2 * PAGE_COUNT);
+        }
+
+        /// Parsing a deeply nested page holds up whatever thread parses it. A refresh parses on a
+        /// blocking thread, so the console keeps answering other requests while it evaluates: no
+        /// request waits for a sizeable part of the refresh, as each would on the one async worker
+        /// of this test's runtime if the refresh parsed there.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_other_requests_while_a_refresh_evaluates_a_deeply_nested_page() {
+            let fetcher = PacedFetcher::serving(deeply_nested_page(4_000));
+            let fixture = fixture(fetcher.clone()).await;
+            fetcher.release(PAGE_COUNT);
+            let reviews = "GET /api/reviews HTTP/1.1\r\nHost: localhost\r\n\r\n";
+
+            let refresh_started = Instant::now();
+            let refreshing = get_matrix(&fixture.server, fixture.review_id, true).await;
+            // The refresh request counts as one of the waits: with the sleeps between them, the
+            // waits cover the whole refresh, so a parse on the async worker lands in one of them,
+            // usually the refresh request's own short wait for the outcome.
+            let mut longest_wait = refresh_started.elapsed();
+            while matches!(
+                fixture
+                    .server
+                    .matrix_refreshes
+                    .status(fixture.review_id, ReviewActor::Human),
+                MatrixRefreshStatus::Running
+            ) {
+                let asked = Instant::now();
+                let listed = fixture.server.route(reviews).await.to_string();
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                longest_wait = longest_wait.max(asked.elapsed());
+                assert!(listed.starts_with("HTTP/1.1 200"), "{listed}");
+            }
+            let refresh_took = refresh_started.elapsed();
+            let settled = get_matrix(&fixture.server, fixture.review_id, false).await;
+
+            assert!(
+                refreshing.starts_with("HTTP/1.1 202") || refreshing.starts_with("HTTP/1.1 200"),
+                "{refreshing}"
+            );
+            assert!(settled.starts_with("HTTP/1.1 200"), "{settled}");
+            assert!(
+                longest_wait < refresh_took / 4,
+                "a request waited {longest_wait:?} of the refresh's {refresh_took:?}"
+            );
         }
     }
 

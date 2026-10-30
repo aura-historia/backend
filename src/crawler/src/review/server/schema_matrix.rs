@@ -136,6 +136,10 @@ impl ReviewServer {
         Ok(fetched)
     }
 
+    /// `actor`'s refresh of the review's matrix, run as a live job: fetches the review's pages,
+    /// evaluates them on a blocking thread and stores the matrix. The job's place under the
+    /// console's limit lasts until this future ends, so the evaluation runs under it and takes
+    /// none of its own (see [`LiveJobPermit`](crate::review::live_jobs::LiveJobPermit)).
     async fn evaluate_live_schema_matrix(
         self,
         review_id: CrawlerReviewId,

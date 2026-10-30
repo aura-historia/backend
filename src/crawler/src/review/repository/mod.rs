@@ -227,6 +227,11 @@ pub enum ReviewRepositoryError {
         "the live configuration changed since review {0} was approved; a restore would overwrite that newer change"
     )]
     LiveConfigurationChangedSinceApproval(CrawlerReviewId),
+    #[error("the schema matrix evaluation stopped before it finished")]
+    MatrixEvaluationStopped {
+        #[source]
+        source: tokio::task::JoinError,
+    },
 }
 
 /// Upper bound on the pages a reviewer adds to one review. A live schema-matrix refresh refetches
