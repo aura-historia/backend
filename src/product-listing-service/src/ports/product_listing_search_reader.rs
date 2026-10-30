@@ -4,6 +4,7 @@ use crate::{
     ports::{NativePriceRange, ProductListingPriceFilterPlan},
     use_cases::queries::search_product_listings::ProductListingSearchReadResult,
 };
+use application::error::BoxError;
 use application::pagination::Cursor;
 use domain_primitives::sort::Sort;
 use product_listing_core::{
@@ -67,9 +68,15 @@ pub enum ProductListingSearchReadError {
     #[error("invalid product search continuation cursor")]
     InvalidCursor,
     #[error("product search query failed")]
-    ProductListingSearchQueryFailed,
+    ProductListingSearchQueryFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product search read model is invalid")]
-    ProductListingSearchReadModelInvalid,
+    ProductListingSearchReadModelInvalid {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

@@ -1,5 +1,6 @@
 use crate::product_listing_document::{ProductListingDocument, ProductListingDocumentSerdeField};
 
+use application::error::{BoxError, box_error, static_error};
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
@@ -123,14 +124,14 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             order: SortOrder::Desc,
         });
         let body = build_search_request(request, &sort)
-            .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?;
+            .map_err(|error| read_model_invalid(box_error(error)))?;
         let response = self
             .client
             .search(SearchParts::Index(&[self.index.as_str()]))
             .body(body)
             .send()
             .await
-            .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
+            .map_err(|error| query_failed(box_error(error)))?;
         let search_response = read_search_response(response, "product search").await?;
 
         map_search_response(&request.compiled_search, search_response)
@@ -147,7 +148,7 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
         }
         self.validate_continuation_mode(request, ProductListingSearchMode::Hybrid)?;
         let body = build_hybrid_search_request(request, embedding)
-            .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?;
+            .map_err(|error| read_model_invalid(box_error(error)))?;
         let pipeline = [("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
         let response = self
             .client
@@ -160,7 +161,7 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
                 None,
             )
             .await
-            .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
+            .map_err(|error| query_failed(box_error(error)))?;
         let search_response = read_search_response(response, "product hybrid search").await?;
 
         map_hybrid_search_response(&request.compiled_search, search_response, &request.cursor)
@@ -173,22 +174,42 @@ async fn read_search_response(
 ) -> Result<SearchResponse<ProductListingDocument>, ProductListingSearchReadError> {
     let response = read_response(response)
         .await
-        .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
+        .map_err(|error| query_failed(box_error(error)))?;
     decode_search_response(response.status(), response.body(), request_kind)
 }
 
+/// Classifies a fully read search response. An unsuccessful status keeps only its status as
+/// context so the provider body never enters the error chain.
 fn decode_search_response(
     status: StatusCode,
     payload: &str,
     request_kind: &'static str,
 ) -> Result<SearchResponse<ProductListingDocument>, ProductListingSearchReadError> {
     if !status.is_success() {
-        return Err(ProductListingSearchReadError::ProductListingSearchQueryFailed);
+        return Err(query_failed(box_error(UnsuccessfulSearchStatus {
+            request_kind,
+            status,
+        })));
     }
     serde_json::from_str::<SearchResponse<ProductListingDocument>>(payload)
-        .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?
+        .map_err(|error| read_model_invalid(box_error(error)))?
         .into_non_timed_out(request_kind)
-        .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)
+        .map_err(|error| query_failed(box_error(error)))
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("OpenSearch {request_kind} returned unsuccessful status {status}")]
+struct UnsuccessfulSearchStatus {
+    request_kind: &'static str,
+    status: StatusCode,
+}
+
+fn query_failed(source: BoxError) -> ProductListingSearchReadError {
+    ProductListingSearchReadError::ProductListingSearchQueryFailed { source }
+}
+
+fn read_model_invalid(source: BoxError) -> ProductListingSearchReadError {
+    ProductListingSearchReadError::ProductListingSearchReadModelInvalid { source }
 }
 
 pub(crate) fn map_search_response(
@@ -303,7 +324,9 @@ fn price_valuation(
         });
     }
     if document.has_sale_observation() {
-        return Err(ProductListingSearchReadError::ProductListingSearchReadModelInvalid);
+        return Err(read_model_invalid(static_error(
+            "sale observation lacks its FX rate or observation time",
+        )));
     }
     Ok(ProductListingSummaryPriceValuation::Current {
         fx_rate_id: price_filter.fx_rate_id,
@@ -317,7 +340,7 @@ fn resolve_price(
 ) -> Result<Option<ProductListingPrice>, ProductListingSearchReadError> {
     document
         .validate()
-        .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?;
+        .map_err(|error| read_model_invalid(box_error(error)))?;
 
     if document.has_sale_observation() {
         return match document.source_price() {
@@ -331,7 +354,11 @@ fn resolve_price(
                         price_filter.target_currency,
                     )))
                 })
-                .ok_or(ProductListingSearchReadError::ProductListingSearchReadModelInvalid),
+                .ok_or_else(|| {
+                    read_model_invalid(static_error(
+                        "sale observation lacks a price in the target currency",
+                    ))
+                }),
         };
     }
 
@@ -346,7 +373,7 @@ fn resolve_price(
                     price_filter.target_currency,
                 )))
             })
-            .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid),
+            .map_err(|error| read_model_invalid(box_error(error))),
     }
 }
 
@@ -885,40 +912,48 @@ fn discovery_dimension(
     product_listing_service::geographic_search::ListingDiscoveryGeography,
     ProductListingSearchReadError,
 > {
-    let invalid = || ProductListingSearchReadError::ProductListingSearchReadModelInvalid;
-    let release =
-        geo::reference::ReferenceRelease::from_code(&d.reference_release).map_err(|_| invalid())?;
+    let invalid = |reason: &'static str| read_model_invalid(static_error(reason));
+    let release = geo::reference::ReferenceRelease::from_code(&d.reference_release)
+        .map_err(|error| read_model_invalid(box_error(error)))?;
     let country = d
         .country
         .as_deref()
         .map(|c| geo::country_from_code(c, release))
         .transpose()
-        .map_err(|_| invalid())?;
+        .map_err(|error| read_model_invalid(box_error(error)))?;
     let subdivision = d
         .subdivision
         .as_deref()
         .map(|s| geo::SubdivisionCode::from_code(s, release))
         .transpose()
-        .map_err(|_| invalid())?;
+        .map_err(|error| read_model_invalid(box_error(error)))?;
     if d.basis != product_listing_service::geography::GeographicDimension::BASIS {
-        return Err(invalid());
+        return Err(invalid("geographic dimension basis is unsupported"));
     }
     geo::GeographicDescription::new_in_release(release, None, country, subdivision, None)
-        .map_err(|_| invalid())?;
+        .map_err(|error| read_model_invalid(box_error(error)))?;
     if country.is_none() && subdivision.is_none() && d.point.is_none() {
-        return Err(invalid());
+        return Err(invalid(
+            "geographic dimension has no country, subdivision or point",
+        ));
     }
     let position = match (d.point, d.precision) {
         (None, None) => None,
         (Some(p), Some(precision)) => Some(
             geo::SpatialPosition::new(
-                geo::GeoPoint::new(p.lat, p.lon).map_err(|_| invalid())?,
-                geo::SpatialPrecision::from_code(&precision).ok_or_else(invalid)?,
+                geo::GeoPoint::new(p.lat, p.lon)
+                    .map_err(|error| read_model_invalid(box_error(error)))?,
+                geo::SpatialPrecision::from_code(&precision)
+                    .ok_or_else(|| invalid("geographic point precision is unknown"))?,
                 None,
             )
-            .map_err(|_| invalid())?,
+            .map_err(|error| read_model_invalid(box_error(error)))?,
         ),
-        _ => return Err(invalid()),
+        _ => {
+            return Err(invalid(
+                "geographic point and precision must be set together",
+            ));
+        }
     };
     Ok(
         product_listing_service::geographic_search::ListingDiscoveryGeography {
@@ -945,6 +980,7 @@ mod tests {
     use listing_source_core::ListingSourceId;
     use money::MonetaryAmount;
     use opensearch::http::transport::Transport;
+    use platform_opensearch::search_response::OpenSearchTimedOutError;
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
         product_listing_id::ProductListingId, product_listing_search::ListingAvailabilityQuery,
@@ -1959,8 +1995,89 @@ mod tests {
 
         assert!(matches!(
             resolve_price(&document, &price_filter(Currency::Usd, None)?),
-            Err(ProductListingSearchReadError::ProductListingSearchReadModelInvalid)
+            Err(ProductListingSearchReadError::ProductListingSearchReadModelInvalid { .. })
         ));
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_preserve_transport_failure_when_lexical_or_hybrid_search_cannot_connect()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let reader = local_reader()?;
+        let request = search_request(None)?;
+        let timeout = std::time::Duration::from_secs(5);
+
+        for result in [
+            tokio::time::timeout(timeout, reader.search(&request)).await?,
+            tokio::time::timeout(timeout, reader.search_hybrid(&request, &[0.1; 4])).await?,
+        ] {
+            let Err(ProductListingSearchReadError::ProductListingSearchQueryFailed { source }) =
+                result
+            else {
+                panic!("an unreachable search engine must fail the query");
+            };
+            assert!(source.downcast_ref::<opensearch::Error>().is_some());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_keep_only_status_context_when_search_response_is_unsuccessful() {
+        let result = decode_search_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            r#"{"error":"PRIVATE_PROVIDER_BODY"}"#,
+            "product search",
+        );
+
+        let Err(ProductListingSearchReadError::ProductListingSearchQueryFailed { source }) = result
+        else {
+            panic!("an unsuccessful status must fail the query");
+        };
+        assert_eq!(
+            "OpenSearch product search returned unsuccessful status 503 Service Unavailable",
+            source.to_string()
+        );
+        assert!(source.source().is_none());
+    }
+
+    #[test]
+    fn should_preserve_decoding_cause_when_search_response_is_malformed() {
+        let result = decode_search_response(StatusCode::OK, "{", "product search");
+
+        let Err(ProductListingSearchReadError::ProductListingSearchReadModelInvalid { source }) =
+            result
+        else {
+            panic!("a malformed payload must invalidate the read model");
+        };
+        assert!(source.downcast_ref::<serde_json::Error>().is_some());
+    }
+
+    #[test]
+    fn should_preserve_timeout_details_when_search_engine_times_out() {
+        let payload = json!({
+            "took": 30,
+            "timed_out": true,
+            "_shards": {"total": 2, "successful": 1, "skipped": 0, "failed": 1},
+            "hits": {"total": {"value": 0, "relation": "eq"}, "max_score": null, "hits": []}
+        })
+        .to_string();
+
+        let result = decode_search_response(StatusCode::OK, &payload, "product hybrid search");
+
+        let Err(ProductListingSearchReadError::ProductListingSearchQueryFailed { source }) = result
+        else {
+            panic!("an engine timeout must fail the query");
+        };
+        assert_eq!(
+            Some(&OpenSearchTimedOutError {
+                request_kind: "product hybrid search",
+                took: 30,
+                total_shards: 2,
+                successful_shards: 1,
+                skipped_shards: 0,
+                failed_shards: 1,
+            }),
+            source.downcast_ref::<OpenSearchTimedOutError>()
+        );
     }
 }

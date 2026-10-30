@@ -173,9 +173,15 @@ pub enum SearchProductListingsError {
         source: BoxError,
     },
     #[error("product search query failed")]
-    ProductListingSearchQueryFailed,
+    ProductListingSearchQueryFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product search read model is invalid")]
-    ProductListingSearchReadModelInvalid,
+    ProductListingSearchReadModelInvalid {
+        #[source]
+        source: BoxError,
+    },
     #[error("pinned FX rate snapshot is missing")]
     FxRateSnapshotMissing,
     #[error("FX rate snapshot read failed")]
@@ -717,11 +723,11 @@ impl From<ProductListingSearchReadError> for SearchProductListingsError {
     fn from(error: ProductListingSearchReadError) -> Self {
         match error {
             ProductListingSearchReadError::InvalidCursor => Self::InvalidCursor,
-            ProductListingSearchReadError::ProductListingSearchQueryFailed => {
-                Self::ProductListingSearchQueryFailed
+            ProductListingSearchReadError::ProductListingSearchQueryFailed { source } => {
+                Self::ProductListingSearchQueryFailed { source }
             }
-            ProductListingSearchReadError::ProductListingSearchReadModelInvalid => {
-                Self::ProductListingSearchReadModelInvalid
+            ProductListingSearchReadError::ProductListingSearchReadModelInvalid { source } => {
+                Self::ProductListingSearchReadModelInvalid { source }
             }
         }
     }
@@ -752,8 +758,8 @@ impl From<ProductListingSummaryPersonalizationError> for SearchProductListingsEr
             ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
                 listing_source_id,
             } => Self::ListingSourceSummaryMissing { listing_source_id },
-            ProductListingSummaryPersonalizationError::ViewUrlInvalid { .. } => {
-                Self::ProductListingSearchReadModelInvalid
+            ProductListingSummaryPersonalizationError::ViewUrlInvalid { source } => {
+                Self::ProductListingSearchReadModelInvalid { source }
             }
             ProductListingSummaryPersonalizationError::UserStateQueryFailed { source } => {
                 Self::ProductListingUserStateQueryFailed { source }
@@ -2932,38 +2938,65 @@ mod tests {
         Ok(())
     }
 
+    fn source_message(error: &dyn std::error::Error) -> Option<String> {
+        error.source().map(ToString::to_string)
+    }
+
     #[tokio::test]
-    async fn should_map_reader_error_when_search_products_read_fails() {
+    async fn should_preserve_reader_failure_source_when_search_products_read_fails() {
         let state = state();
         lock_state(&state).search_result = Some(Err(
-            ProductListingSearchReadError::ProductListingSearchQueryFailed,
+            ProductListingSearchReadError::ProductListingSearchQueryFailed {
+                source: box_error(std::io::Error::other("connection reset by peer")),
+            },
         ));
 
         let result = handler(&state).execute(&context(), request()).await;
 
-        assert!(matches!(
-            result,
-            Err(SearchProductListingsError::ProductListingSearchQueryFailed)
-        ));
+        let Err(error @ SearchProductListingsError::ProductListingSearchQueryFailed { .. }) =
+            result
+        else {
+            panic!("expected a product search query failure, got {result:?}");
+        };
+        assert_eq!(
+            Some("connection reset by peer".to_owned()),
+            source_message(&error)
+        );
     }
 
     #[test]
-    fn should_map_all_search_products_read_errors() {
+    fn should_map_all_search_products_read_errors_with_their_sources() {
         assert!(matches!(
             SearchProductListingsError::from(ProductListingSearchReadError::InvalidCursor),
             SearchProductListingsError::InvalidCursor
         ));
+
+        let query_failed = SearchProductListingsError::from(
+            ProductListingSearchReadError::ProductListingSearchQueryFailed {
+                source: box_error(std::io::Error::other("search engine timed out")),
+            },
+        );
         assert!(matches!(
-            SearchProductListingsError::from(
-                ProductListingSearchReadError::ProductListingSearchQueryFailed
-            ),
-            SearchProductListingsError::ProductListingSearchQueryFailed
+            query_failed,
+            SearchProductListingsError::ProductListingSearchQueryFailed { .. }
         ));
+        assert_eq!(
+            Some("search engine timed out".to_owned()),
+            source_message(&query_failed)
+        );
+
+        let read_model_invalid = SearchProductListingsError::from(
+            ProductListingSearchReadError::ProductListingSearchReadModelInvalid {
+                source: box_error(std::io::Error::other("invalid search payload")),
+            },
+        );
         assert!(matches!(
-            SearchProductListingsError::from(
-                ProductListingSearchReadError::ProductListingSearchReadModelInvalid
-            ),
-            SearchProductListingsError::ProductListingSearchReadModelInvalid
+            read_model_invalid,
+            SearchProductListingsError::ProductListingSearchReadModelInvalid { .. }
         ));
+        assert_eq!(
+            Some("invalid search payload".to_owned()),
+            source_message(&read_model_invalid)
+        );
     }
 }
