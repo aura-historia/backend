@@ -194,9 +194,15 @@ pub enum RunPeriodicSearchFilterMatchingError {
         source: BoxError,
     },
     #[error("ProductListing search failed")]
-    ProductListingSearchFailed,
+    ProductListingSearchFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("ProductListing search result is invalid")]
-    ProductListingSearchResultInvalid,
+    ProductListingSearchResultInvalid {
+        #[source]
+        source: BoxError,
+    },
     #[error("existing search-filter match read failed")]
     ExistingMatchReadFailed {
         #[source]
@@ -1074,7 +1080,7 @@ enum FilterRetryClass {
 impl RunPeriodicSearchFilterMatchingError {
     const fn retry_class(&self) -> FilterRetryClass {
         match self {
-            Self::ProductListingSearchFailed
+            Self::ProductListingSearchFailed { .. }
             | Self::ExistingMatchReadFailed { .. }
             | Self::BeginProductListingSourceTransactionFailed { .. }
             | Self::ProductListingSourceReadFailed { .. }
@@ -1095,7 +1101,7 @@ impl RunPeriodicSearchFilterMatchingError {
             | Self::CommitFxSnapshotTransactionFailed { .. }
             | Self::CandidateReadFailed { .. }
             | Self::CandidateStateInvalid { .. }
-            | Self::ProductListingSearchResultInvalid
+            | Self::ProductListingSearchResultInvalid { .. }
             | Self::ProductListingSourceStateInvalid { .. }
             | Self::ProductListingSourceMismatch
             | Self::MatchStateInvalid { .. } => FilterRetryClass::Permanent,
@@ -1269,12 +1275,16 @@ fn product_search_error(
     error: ProductListingSearchReadError,
 ) -> RunPeriodicSearchFilterMatchingError {
     match error {
-        ProductListingSearchReadError::ProductListingSearchQueryFailed => {
-            RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed
+        ProductListingSearchReadError::ProductListingSearchQueryFailed { source } => {
+            RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed { source }
         }
-        ProductListingSearchReadError::InvalidCursor
-        | ProductListingSearchReadError::ProductListingSearchReadModelInvalid => {
-            RunPeriodicSearchFilterMatchingError::ProductListingSearchResultInvalid
+        ProductListingSearchReadError::ProductListingSearchReadModelInvalid { source } => {
+            RunPeriodicSearchFilterMatchingError::ProductListingSearchResultInvalid { source }
+        }
+        error @ ProductListingSearchReadError::InvalidCursor => {
+            RunPeriodicSearchFilterMatchingError::ProductListingSearchResultInvalid {
+                source: box_error(error),
+            }
         }
     }
 }
@@ -1549,7 +1559,11 @@ mod tests {
                     Some(result) => result.clone(),
                     None => Default::default(),
                 })
-                .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)
+                .map_err(
+                    |_| ProductListingSearchReadError::ProductListingSearchQueryFailed {
+                        source: application::error::static_error("fake search state poisoned"),
+                    },
+                )
         }
     }
 
@@ -2860,5 +2874,55 @@ mod tests {
                 filter_embedding(&filter)
             );
         }
+    }
+
+    #[test]
+    fn should_preserve_product_search_failure_sources_when_mapping_reader_errors() {
+        let source_message = |error: &RunPeriodicSearchFilterMatchingError| {
+            std::error::Error::source(error).map(ToString::to_string)
+        };
+
+        let query_failed = product_search_error(
+            ProductListingSearchReadError::ProductListingSearchQueryFailed {
+                source: box_error(std::io::Error::other("connection refused")),
+            },
+        );
+        assert!(matches!(
+            query_failed,
+            RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed { .. }
+        ));
+        assert_eq!(FilterRetryClass::Retryable, query_failed.retry_class());
+        assert_eq!(
+            Some("connection refused".to_owned()),
+            source_message(&query_failed)
+        );
+
+        let read_model_invalid = product_search_error(
+            ProductListingSearchReadError::ProductListingSearchReadModelInvalid {
+                source: box_error(std::io::Error::other("invalid search payload")),
+            },
+        );
+        assert!(matches!(
+            read_model_invalid,
+            RunPeriodicSearchFilterMatchingError::ProductListingSearchResultInvalid { .. }
+        ));
+        assert_eq!(
+            FilterRetryClass::Permanent,
+            read_model_invalid.retry_class()
+        );
+        assert_eq!(
+            Some("invalid search payload".to_owned()),
+            source_message(&read_model_invalid)
+        );
+
+        let invalid_cursor = product_search_error(ProductListingSearchReadError::InvalidCursor);
+        assert!(matches!(
+            invalid_cursor,
+            RunPeriodicSearchFilterMatchingError::ProductListingSearchResultInvalid { .. }
+        ));
+        assert_eq!(
+            Some("invalid product search continuation cursor".to_owned()),
+            source_message(&invalid_cursor)
+        );
     }
 }

@@ -239,7 +239,7 @@ fn map_consent_error(error: CoordinateMarketingConsentError) -> ConfirmNewslette
         | CoordinateMarketingConsentError::InvalidIdentity => {
             ConfirmNewsletterSubscriptionError::InvalidPersistedState
         }
-        CoordinateMarketingConsentError::TemporarilyUnavailable
+        CoordinateMarketingConsentError::TemporarilyUnavailable(_)
         | CoordinateMarketingConsentError::ConcurrencyConflict
         | CoordinateMarketingConsentError::UserNotFound
         | CoordinateMarketingConsentError::BeginTransactionFailed(_)

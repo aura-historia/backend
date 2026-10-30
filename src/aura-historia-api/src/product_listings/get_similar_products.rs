@@ -211,9 +211,11 @@ mod tests {
                 FakeSimilarProductListingsResult::NotFound => {
                     Err(GetSimilarProductListingsError::NotFound)
                 }
-                FakeSimilarProductListingsResult::Unavailable => {
-                    Err(GetSimilarProductListingsError::SimilaritySearchUnavailable)
-                }
+                FakeSimilarProductListingsResult::Unavailable => Err(
+                    GetSimilarProductListingsError::SimilaritySearchUnavailable {
+                        source: application::error::static_error("PRIVATE_OPENSEARCH_SENTINEL"),
+                    },
+                ),
             }
         }
     }
@@ -424,10 +426,9 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
-        assert_eq!(
-            "PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE",
-            body_json(response).await?["error"]
-        );
+        let body = body_json(response).await?;
+        assert_eq!("PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE", body["error"]);
+        assert!(!body.to_string().contains("PRIVATE_OPENSEARCH_SENTINEL"));
         Ok(())
     }
 

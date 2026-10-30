@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use aura_historia_jobs::{PreparedJob, WorkerQueueType};
 use aws_sdk_sqs::{Client, config::Region, types::QueueAttributeName};
 use aws_smithy_types::{retry::RetryConfig, timeout::TimeoutConfig};
+use platform_aws::AwsSdkFailure;
 
 use crate::queue_config::validate_attributes;
 pub use crate::queue_config::{CdcRouterQueueConfig, QueueError, SqsQueueConfig};
@@ -64,7 +65,17 @@ impl SqsQueue {
         )
         .await
         .map_err(|_| QueueError::Timeout)?
-        .map_err(|_| QueueError::Unavailable)?;
+        .map_err(|error| {
+            let failure = AwsSdkFailure::classify(&error);
+            tracing::warn!(
+                scope = self.config.scope().as_str(),
+                queue = if dlq { "dlq" } else { "source" },
+                error_category = failure.kind().diagnostic_category(),
+                http_status = failure.http_status(),
+                "worker SQS queue validation failed"
+            );
+            QueueError::Unavailable
+        })?;
         let attributes = response.attributes.ok_or(QueueError::InvalidResponse)?;
         validate_attributes(&self.config, &attributes, dlq)
     }
@@ -97,6 +108,7 @@ impl SqsQueue {
             bytes: usize,
             started: Instant,
             outcome: &'static str,
+            failure: Option<AwsSdkFailure>,
         }
         impl Drop for Observation<'_> {
             fn drop(&mut self) {
@@ -105,6 +117,10 @@ impl SqsQueue {
                     encoded_bytes = self.bytes,
                     publication_duration_ms = self.started.elapsed().as_secs_f64() * 1000.0,
                     outcome = self.outcome,
+                    error_category = self
+                        .failure
+                        .map(|failure| failure.kind().diagnostic_category()),
+                    http_status = self.failure.and_then(|failure| failure.http_status()),
                     "worker SQS publication finished"
                 );
             }
@@ -114,6 +130,7 @@ impl SqsQueue {
             bytes: job.body().len(),
             started: Instant::now(),
             outcome: "cancelled_acceptance_unknown",
+            failure: None,
         };
         if job.body().len() > aura_historia_jobs::wire::MAX_JOB_BYTES {
             observation.outcome = "rejected_size";
@@ -129,8 +146,9 @@ impl SqsQueue {
         // A timed-out or missing SQS confirmation is never an acknowledgment.
         let result = match tokio::time::timeout(API_TIMEOUT, request.send()).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => {
+            Ok(Err(error)) => {
                 observation.outcome = "failed_acceptance_unknown";
+                observation.failure = Some(AwsSdkFailure::classify(&error));
                 return Err(QueueError::Unavailable);
             }
             Err(_) => {

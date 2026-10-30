@@ -29,4 +29,8 @@ user-service = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+search-filter-core = { workspace = true }
+sqlx = { workspace = true }
+test-api = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
+user-core = { workspace = true }

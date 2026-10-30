@@ -41,7 +41,13 @@ pub enum WithdrawProductListingError {
     #[error("product listing not found")]
     NotFound,
     #[error("product listing persistence failed")]
-    PersistenceFailed,
+    PersistenceFailed {
+        #[source]
+        source: BoxError,
+    },
+    /// Another writer changed the listing first; a later attempt sees its result.
+    #[error("product listing changed concurrently")]
+    ConcurrencyConflict,
     #[error("persisted listing delivery is invalid")]
     InvalidDeliveryPersisted {
         #[source]
@@ -161,9 +167,11 @@ where
         };
         let expected_version = loaded.version;
         let mut product = loaded.value;
-        let outcome = product
-            .withdraw()
-            .map_err(|_| WithdrawProductListingError::PersistenceFailed)?;
+        let outcome = product.withdraw().map_err(|source| {
+            WithdrawProductListingError::PersistenceFailed {
+                source: box_error(source),
+            }
+        })?;
         let event = product.take_pending_event_payload().map(|payload| {
             stamp_product_listing_event(product.id(), time::OffsetDateTime::now_utc(), payload)
         });
@@ -263,13 +271,13 @@ impl From<ProductListingRepositoryError> for WithdrawProductListingError {
             ProductListingRepositoryError::InvalidDeliveryPersisted { source } => {
                 Self::InvalidDeliveryPersisted { source }
             }
-            ProductListingRepositoryError::TemporarilyUnavailable { .. }
-            | ProductListingRepositoryError::QueryFailed { .. } => Self::PersistenceFailed,
-            ProductListingRepositoryError::ProductListingLookupByIdFailed
+            ProductListingRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
+            error @ (ProductListingRepositoryError::TemporarilyUnavailable { .. }
+            | ProductListingRepositoryError::QueryFailed { .. }
+            | ProductListingRepositoryError::ProductListingLookupByIdFailed
             | ProductListingRepositoryError::ProductListingLookupByKeyFailed { .. }
             | ProductListingRepositoryError::ProductListingInsertFailed
             | ProductListingRepositoryError::ProductListingUpdateFailed
-            | ProductListingRepositoryError::ConcurrencyConflict
             | ProductListingRepositoryError::SourceListingAlreadyExists
             | ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists
             | ProductListingRepositoryError::InvalidProductListingSlugPersisted
@@ -288,8 +296,10 @@ impl From<ProductListingRepositoryError> for WithdrawProductListingError {
             | ProductListingRepositoryError::InvalidProductListingUrlPersisted
             | ProductListingRepositoryError::InvalidProductListingImagesPersisted
             | ProductListingRepositoryError::InvalidProductListingImageUrlPersisted
-            | ProductListingRepositoryError::InvalidAggregateStatePersisted => {
-                Self::PersistenceFailed
+            | ProductListingRepositoryError::InvalidAggregateStatePersisted) => {
+                Self::PersistenceFailed {
+                    source: box_error(error),
+                }
             }
         }
     }

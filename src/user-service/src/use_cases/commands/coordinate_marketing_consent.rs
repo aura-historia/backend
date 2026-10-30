@@ -71,7 +71,7 @@ pub enum CoordinateMarketingConsentError {
     #[error("invalid persisted consent state")]
     InvalidPersistedState,
     #[error("consent persistence unavailable")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable(#[source] application::error::BoxError),
     #[error("failed to begin consent transaction")]
     BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit consent transaction")]
@@ -912,8 +912,8 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
 
 fn map_identity_error(error: UserCognitoIdentityRegistryError) -> CoordinateMarketingConsentError {
     match error {
-        UserCognitoIdentityRegistryError::TemporarilyUnavailable { .. } => {
-            CoordinateMarketingConsentError::TemporarilyUnavailable
+        UserCognitoIdentityRegistryError::TemporarilyUnavailable { source } => {
+            CoordinateMarketingConsentError::TemporarilyUnavailable(source)
         }
         UserCognitoIdentityRegistryError::InvalidPersistedIdentity { .. } => {
             CoordinateMarketingConsentError::InvalidPersistedState
@@ -930,8 +930,8 @@ impl From<MarketingConsentIntentError> for CoordinateMarketingConsentError {
             MarketingConsentIntentError::RegisteredEmail => Self::EmailMismatch,
             MarketingConsentIntentError::InvalidInput => Self::InvalidIdentity,
             MarketingConsentIntentError::InvalidPersistedState => Self::InvalidPersistedState,
-            MarketingConsentIntentError::TemporarilyUnavailable { .. } => {
-                Self::TemporarilyUnavailable
+            MarketingConsentIntentError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable(source)
             }
         }
     }

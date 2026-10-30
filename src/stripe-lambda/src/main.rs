@@ -2,8 +2,8 @@ use aws_lambda_events::eventbridge::EventBridgeEvent;
 use billing_stripe::StripeSubscriptionReader;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
-    logging_config_from_env, required_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, current_postgres_credentials, log_cold_start,
+    log_invocation_start, logging_config_from_env, required_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
@@ -16,6 +16,8 @@ use user_postgres::{
     SqlxUserTierEntitlementsFactory,
 };
 use user_service::use_cases::ApplyStripeSubscriptionHandler;
+
+const COMPONENT: &str = "stripe-lambda";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -33,7 +35,7 @@ async fn main() -> Result<(), Error> {
     )?;
     let subscriptions = Arc::new(VersionedCompositionCache::new());
 
-    log_cold_start("stripe-lambda", initialization_started_at);
+    log_cold_start(COMPONENT, initialization_started_at);
 
     run(service_fn(
         move |event: LambdaEvent<EventBridgeEvent<Value>>| {
@@ -42,19 +44,14 @@ async fn main() -> Result<(), Error> {
             let provider = provider.clone();
             let subscriptions = Arc::clone(&subscriptions);
             async move {
-                log_invocation_start("stripe-lambda", &event.context);
-                let credentials = credentials
-                    .current()
-                    .await
-                    .map_err(|_| Error::from("PostgreSQL credential refresh unavailable"))?;
+                log_invocation_start(COMPONENT, &event.context);
+                let credentials =
+                    current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 let subscriptions = subscriptions
                     .get_or_try_build(credentials.version_id(), || async {
                         let pool = postgres
-                            .pool_config(credentials.credentials())
-                            .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
-                            .connect()
-                            .await
-                            .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                            .connect(COMPONENT, credentials.credentials())
+                            .await?;
                         Ok::<_, Error>(ApplyStripeSubscriptionHandler::new(
                             SqlxUnitOfWork::new(pool),
                             SqlxUserRepositoryFactory::new(),

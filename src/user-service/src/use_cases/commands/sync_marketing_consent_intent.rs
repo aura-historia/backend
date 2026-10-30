@@ -39,7 +39,15 @@ impl SyncMarketingConsentIntentResult {
 #[derive(Debug, thiserror::Error)]
 pub enum SyncMarketingConsentIntentError {
     #[error("consent intent persistence unavailable")]
-    Persistence,
+    PersistenceFailed(#[source] application::error::BoxError),
+    /// The recipient's consent changed concurrently; a later attempt sees the new state.
+    #[error("consent intent changed concurrently")]
+    ConcurrentChange,
+    #[error("marketing consent provider state read failed")]
+    ProviderReadFailed(#[source] MarketingEmailConsentError),
+    /// The provider read succeeded but does not yet confirm an idempotent revoke.
+    #[error("marketing consent revoke is not yet confirmed by the provider")]
+    RevokeUnconfirmed,
     #[error("consent intent transaction outcome is unconfirmed")]
     Transaction(#[source] application::error::BoxError),
     #[error("consent intent reconciliation retry limit reached")]
@@ -241,16 +249,16 @@ where
                 )
                 .await
             }
-            Err(MarketingEmailConsentError::AcceptanceUnknown)
-            | Err(MarketingEmailConsentError::Protocol { .. }) => {
-                self.reconcile_ambiguous_write(&claim, &ready).await
-            }
-            Err(error) => match definite_no_write_reason(error) {
-                Some(reason_code) => self.release_for_retry(&claim, reason_code).await,
-                None if error == MarketingEmailConsentError::IneligibleIntent => {
+            Err(error) => match write_failure(error) {
+                WriteFailure::AcceptanceUnknown => {
+                    self.reconcile_ambiguous_write(&claim, &ready).await
+                }
+                WriteFailure::NotWritten(reason_code) => {
+                    self.release_for_retry(&claim, reason_code).await
+                }
+                WriteFailure::IneligibleIntent => {
                     Err(SyncMarketingConsentIntentError::InvalidPersistedState)
                 }
-                None => Err(SyncMarketingConsentIntentError::Persistence),
             },
         }
     }
@@ -281,7 +289,7 @@ where
                 .await
         } else {
             // A revoke remains safe to retry; never convert an unresolved read into success.
-            Err(SyncMarketingConsentIntentError::Persistence)
+            Err(SyncMarketingConsentIntentError::RevokeUnconfirmed)
         }
     }
 
@@ -550,7 +558,10 @@ fn map_persistence_error(error: MarketingConsentIntentError) -> SyncMarketingCon
         | MarketingConsentIntentError::InvalidInput => {
             SyncMarketingConsentIntentError::InvalidPersistedState
         }
-        _ => SyncMarketingConsentIntentError::Persistence,
+        MarketingConsentIntentError::ConcurrencyConflict => {
+            SyncMarketingConsentIntentError::ConcurrentChange
+        }
+        error => SyncMarketingConsentIntentError::PersistenceFailed(Box::new(error)),
     }
 }
 
@@ -561,25 +572,44 @@ fn map_coordinator_error(
         CoordinateMarketingConsentError::InvalidPersistedState => {
             SyncMarketingConsentIntentError::InvalidPersistedState
         }
-        _ => SyncMarketingConsentIntentError::Persistence,
+        CoordinateMarketingConsentError::ConcurrencyConflict => {
+            SyncMarketingConsentIntentError::ConcurrentChange
+        }
+        error => SyncMarketingConsentIntentError::PersistenceFailed(Box::new(error)),
     }
 }
 
-fn map_provider_error(_: MarketingEmailConsentError) -> SyncMarketingConsentIntentError {
-    SyncMarketingConsentIntentError::Persistence
+fn map_provider_error(error: MarketingEmailConsentError) -> SyncMarketingConsentIntentError {
+    SyncMarketingConsentIntentError::ProviderReadFailed(error)
 }
 
-fn definite_no_write_reason(error: MarketingEmailConsentError) -> Option<&'static str> {
+/// What a failed grant or revoke says about whether the provider applied it.
+enum WriteFailure {
+    /// The provider may have applied the write; only a state read can settle it.
+    AcceptanceUnknown,
+    /// The provider certainly did not apply the write, for this persisted reason code.
+    NotWritten(&'static str),
+    /// The persisted intent should never have reached the provider.
+    IneligibleIntent,
+}
+
+fn write_failure(error: MarketingEmailConsentError) -> WriteFailure {
     match error {
-        MarketingEmailConsentError::NotSent => Some("NOT_SENT"),
-        MarketingEmailConsentError::Rejected { .. } => Some("PROVIDER_REJECTED"),
-        MarketingEmailConsentError::Throttled { .. } => Some("THROTTLED"),
-        MarketingEmailConsentError::ReadUnavailable => Some("PREWRITE_READ_UNAVAILABLE"),
-        MarketingEmailConsentError::PreWriteProtocol { .. } => Some("PREWRITE_PROTOCOL"),
-        MarketingEmailConsentError::InvalidEmail => Some("INVALID_EMAIL"),
+        MarketingEmailConsentError::NotSent => WriteFailure::NotWritten("NOT_SENT"),
+        MarketingEmailConsentError::Rejected { .. } => {
+            WriteFailure::NotWritten("PROVIDER_REJECTED")
+        }
+        MarketingEmailConsentError::Throttled { .. } => WriteFailure::NotWritten("THROTTLED"),
+        MarketingEmailConsentError::ReadUnavailable => {
+            WriteFailure::NotWritten("PREWRITE_READ_UNAVAILABLE")
+        }
+        MarketingEmailConsentError::PreWriteProtocol { .. } => {
+            WriteFailure::NotWritten("PREWRITE_PROTOCOL")
+        }
+        MarketingEmailConsentError::InvalidEmail => WriteFailure::NotWritten("INVALID_EMAIL"),
         MarketingEmailConsentError::AcceptanceUnknown
-        | MarketingEmailConsentError::Protocol { .. }
-        | MarketingEmailConsentError::IneligibleIntent => None,
+        | MarketingEmailConsentError::Protocol { .. } => WriteFailure::AcceptanceUnknown,
+        MarketingEmailConsentError::IneligibleIntent => WriteFailure::IneligibleIntent,
     }
 }
 
@@ -874,6 +904,7 @@ mod tests {
     }
 
     struct TestProvider {
+        state_failure: Mutex<Option<MarketingEmailConsentError>>,
         states: Mutex<Vec<MarketingEmailSubscriptionState>>,
         grant_results: Mutex<Vec<Result<MarketingEmailConsentOutcome, MarketingEmailConsentError>>>,
         grants: AtomicUsize,
@@ -888,6 +919,7 @@ mod tests {
             grant: Result<MarketingEmailConsentOutcome, MarketingEmailConsentError>,
         ) -> Self {
             Self {
+                state_failure: Mutex::new(None),
                 states: Mutex::new(states.into_iter().collect()),
                 grant_results: Mutex::new(vec![grant]),
                 grants: AtomicUsize::new(0),
@@ -904,6 +936,7 @@ mod tests {
             >,
         ) -> Self {
             Self {
+                state_failure: Mutex::new(None),
                 states: Mutex::new(states.into_iter().collect()),
                 grant_results: Mutex::new(grant_results.into_iter().collect()),
                 grants: AtomicUsize::new(0),
@@ -921,6 +954,9 @@ mod tests {
             _: &Email,
         ) -> Result<MarketingEmailSubscriptionState, MarketingEmailConsentError> {
             self.state_reads.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = self.state_failure.lock().unwrap().take() {
+                return Err(error);
+            }
             let mut states = self.states.lock().unwrap();
             Ok(states.remove(0))
         }
@@ -1109,6 +1145,33 @@ mod tests {
         assert_eq!(claim.lease_token, release_calls[0].lease_token);
         assert_eq!(claim.attempt_count, release_calls[0].attempt_count);
         assert_eq!("THROTTLED", release_calls[0].reason_code);
+    }
+
+    #[tokio::test]
+    async fn should_keep_the_provider_cause_when_the_ambiguity_read_fails() {
+        let claim = test_claim(2);
+        let worker = TestWorker::new(
+            [ConsentWorkerClaimOutcome::Claimed(claim.clone())],
+            [ConsentWorkerRecheckOutcome::Ready(claim.intent.clone())],
+        );
+        let provider = TestProvider::new(
+            [],
+            Ok(MarketingEmailConsentOutcome::Applied {
+                contact_id: "unexpected".into(),
+            }),
+        );
+        *provider.state_failure.lock().unwrap() = Some(MarketingEmailConsentError::ReadUnavailable);
+        let use_case = handler(worker, provider);
+
+        let error = use_case.execute(claim.intent.intent_id).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            SyncMarketingConsentIntentError::ProviderReadFailed(
+                MarketingEmailConsentError::ReadUnavailable
+            )
+        ));
+        assert_eq!(0, use_case.provider.grants.load(Ordering::SeqCst));
     }
 
     #[tokio::test]

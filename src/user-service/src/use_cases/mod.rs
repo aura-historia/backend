@@ -27,7 +27,7 @@ pub use commands::change_user_tier::{
 };
 pub use commands::cleanup_consent_workflow::{
     CleanupConsentWorkflowError, CleanupConsentWorkflowHandler, CleanupConsentWorkflowUseCase,
-    ConsentWorkflowCleanupCounts,
+    ConsentWorkflowCleanupCounts, ConsentWorkflowCleanupTarget,
 };
 pub use commands::confirm_newsletter_subscription::{
     ConfirmNewsletterSubscriptionError, ConfirmNewsletterSubscriptionHandler,

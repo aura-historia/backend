@@ -85,17 +85,18 @@ pub struct NormalizedRawRevisionResult {
     pub outcome: ProductListingRawNormalizationOutcome,
 }
 
-/// Safe metadata for a reconciliation stream that remains pending after a retryable failure.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A reconciliation stream that remains pending after a retryable failure. The error keeps its
+/// cause for the boundary that records the failure.
+#[derive(Debug)]
 pub struct ProductListingRawNormalizationStreamFailure {
     pub product_listing_raw_stream_id: ProductListingRawStreamId,
-    pub error_code: &'static str,
+    pub error: NormalizeProductListingRawRevisionError,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Default)]
 pub struct NormalizeProductListingRawRevisionResult {
     pub revisions: Vec<NormalizedRawRevisionResult>,
-    /// Per-stream reconciliation failures. Source errors remain internal to the handler.
+    /// Per-stream reconciliation failures.
     pub stream_failures: Vec<ProductListingRawNormalizationStreamFailure>,
     /// Present for bounded reconciliation only; it is the scanned page, not an unbounded count.
     pub pending_stream_page_count: Option<usize>,
@@ -883,7 +884,7 @@ where
                     .into_iter()
                     .map(|error| ProductListingRawNormalizationStreamFailure {
                         product_listing_raw_stream_id,
-                        error_code: normalization_failure_code(&error),
+                        error,
                     })
                     .collect();
                 return Ok(NormalizeProductListingRawRevisionResult {
@@ -948,7 +949,7 @@ where
                     .stream_failures
                     .push(ProductListingRawNormalizationStreamFailure {
                         product_listing_raw_stream_id: stream.product_listing_raw_stream_id,
-                        error_code: normalization_failure_code(&error),
+                        error,
                     });
             }
         }
@@ -976,53 +977,30 @@ where
         let started = Instant::now();
         let result = self.execute_inner(command).await;
 
-        match &result {
-            Ok(result) => {
-                for failure in &result.stream_failures {
-                    tracing::warn!(
-                        metric = "product_listing_raw_normalization",
-                        normalization_revisions = 0_u64,
-                        normalization_failures = 1_u64,
-                        normalization_batch_latency_ms = started.elapsed().as_millis() as u64,
-                        product_listing_raw_stream_id = %failure.product_listing_raw_stream_id,
-                        outcome = "stream_failure",
-                        error_code = failure.error_code,
-                        "raw product listing reconciliation stream failed"
-                    );
-                }
-                for revision in &result.revisions {
-                    tracing::info!(
-                        metric = "product_listing_raw_normalization",
-                        normalization_revisions = 1_u64,
-                        normalization_failures = 0_u64,
-                        normalization_batch_latency_ms = started.elapsed().as_millis() as u64,
-                        product_listing_raw_stream_id = %revision.product_listing_raw_stream_id,
-                        revision = revision.revision,
-                        outcome = revision.outcome.as_str(),
-                        "raw product listing normalization metric"
-                    );
-                }
-                if let Some(pending_stream_page_count) = result.pending_stream_page_count {
-                    tracing::info!(
-                        metric = "product_listing_raw_normalization_backlog",
-                        pending_stream_page_count,
-                        oldest_pending_age_seconds = result.oldest_pending_age_seconds,
-                        reconciliation_continuation_stream_count =
-                            result.continuation_stream_ids.len(),
-                        reconciliation_runs = 1_u64,
-                        "raw product listing normalization backlog metric"
-                    );
-                }
+        // The worker boundary records failures, with the safe cause facts only it can classify.
+        if let Ok(result) = &result {
+            for revision in &result.revisions {
+                tracing::info!(
+                    metric = "product_listing_raw_normalization",
+                    normalization_revisions = 1_u64,
+                    normalization_failures = 0_u64,
+                    normalization_batch_latency_ms = started.elapsed().as_millis() as u64,
+                    product_listing_raw_stream_id = %revision.product_listing_raw_stream_id,
+                    revision = revision.revision,
+                    outcome = revision.outcome.as_str(),
+                    "raw product listing normalization metric"
+                );
             }
-            Err(error) => tracing::warn!(
-                metric = "product_listing_raw_normalization",
-                normalization_revisions = 0_u64,
-                normalization_failures = 1_u64,
-                normalization_batch_latency_ms = started.elapsed().as_millis() as u64,
-                outcome = "failure",
-                error_code = normalization_failure_code(error),
-                "raw product listing normalization metric"
-            ),
+            if let Some(pending_stream_page_count) = result.pending_stream_page_count {
+                tracing::info!(
+                    metric = "product_listing_raw_normalization_backlog",
+                    pending_stream_page_count,
+                    oldest_pending_age_seconds = result.oldest_pending_age_seconds,
+                    reconciliation_continuation_stream_count = result.continuation_stream_ids.len(),
+                    reconciliation_runs = 1_u64,
+                    "raw product listing normalization backlog metric"
+                );
+            }
         }
 
         result
@@ -1034,33 +1012,20 @@ fn pending_age_seconds(oldest_pending_at: OffsetDateTime) -> Option<u64> {
     u64::try_from(age.whole_seconds()).ok()
 }
 
-fn normalization_failure_code(error: &NormalizeProductListingRawRevisionError) -> &'static str {
-    match error {
-        NormalizeProductListingRawRevisionError::InvalidLimit => "INVALID_LIMIT",
-        NormalizeProductListingRawRevisionError::PendingStreamReadFailed { .. } => {
-            "PENDING_STREAM_READ_FAILED"
-        }
-        NormalizeProductListingRawRevisionError::BeginTransactionFailed { .. } => {
-            "BEGIN_TRANSACTION_FAILED"
-        }
-        NormalizeProductListingRawRevisionError::PersistenceFailed { .. } => "PERSISTENCE_FAILED",
-        NormalizeProductListingRawRevisionError::InvalidPersistedState { .. } => {
-            "INVALID_PERSISTED_STATE"
-        }
-        NormalizeProductListingRawRevisionError::UnsupportedStoredSchemaVersion => {
-            "UNSUPPORTED_STORED_SCHEMA_VERSION"
-        }
-        NormalizeProductListingRawRevisionError::NormalizationConfigurationFailed { .. } => {
-            "NORMALIZATION_CONFIGURATION_FAILED"
-        }
-        NormalizeProductListingRawRevisionError::CanonicalWriteFailed { .. } => {
-            "CANONICAL_WRITE_FAILED"
-        }
-        NormalizeProductListingRawRevisionError::CommitTransactionFailed { .. } => {
-            "COMMIT_TRANSACTION_FAILED"
-        }
-        NormalizeProductListingRawRevisionError::DiagnosticCaseRecordFailed { .. } => {
-            "DIAGNOSTIC_CASE_RECORD_FAILED"
+impl NormalizeProductListingRawRevisionError {
+    /// Bounded, payload-free code of the failed step.
+    pub fn diagnostic_code(&self) -> &'static str {
+        match self {
+            Self::InvalidLimit => "INVALID_LIMIT",
+            Self::PendingStreamReadFailed { .. } => "PENDING_STREAM_READ_FAILED",
+            Self::BeginTransactionFailed { .. } => "BEGIN_TRANSACTION_FAILED",
+            Self::PersistenceFailed { .. } => "PERSISTENCE_FAILED",
+            Self::InvalidPersistedState { .. } => "INVALID_PERSISTED_STATE",
+            Self::UnsupportedStoredSchemaVersion => "UNSUPPORTED_STORED_SCHEMA_VERSION",
+            Self::NormalizationConfigurationFailed { .. } => "NORMALIZATION_CONFIGURATION_FAILED",
+            Self::CanonicalWriteFailed { .. } => "CANONICAL_WRITE_FAILED",
+            Self::CommitTransactionFailed { .. } => "COMMIT_TRANSACTION_FAILED",
+            Self::DiagnosticCaseRecordFailed { .. } => "DIAGNOSTIC_CASE_RECORD_FAILED",
         }
     }
 }
@@ -1884,7 +1849,7 @@ mod tests {
             first.stream_failures.as_slice(),
             [failure]
                 if failure.product_listing_raw_stream_id == blocked_stream_id
-                    && failure.error_code == "PERSISTENCE_FAILED"
+                    && failure.error.diagnostic_code() == "PERSISTENCE_FAILED"
         ));
 
         let continuation = normalizer

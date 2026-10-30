@@ -10,7 +10,7 @@ use geo::{
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::{geocoding::*, resolution::*};
 use party_core::{
-    party::{NewParty, Party, PartyContact},
+    party::{NewParty, PartyContact},
     party_id::PartyId,
     party_location::{PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle},
     party_name::PartyName,
@@ -19,7 +19,8 @@ use party_postgres::{
     SqlxPartyLocationAccessFactory, SqlxPartyLocationRepositoryFactory, SqlxPartyRepositoryFactory,
 };
 use party_service::{
-    ports::{PartyRepository, PartyRepositoryFactory, party_location::*},
+    party_creation::insert_new_party,
+    ports::{PartyRepositoryFactory, party_location::*},
     use_cases::party_locations::*,
 };
 use platform_postgres::SqlxUnitOfWork;
@@ -466,19 +467,19 @@ async fn batch_read_waits_for_provider_control_before_locking_resolution() {
     assert!(views[0].as_ref().unwrap().accepted_geography().is_some());
 }
 async fn party(pool: &PgPool) -> PartyId {
-    let p = Party::create(NewParty {
-        id: PartyId::new(),
-        name: PartyName::try_from("Geography test").unwrap(),
-        contact: PartyContact::default(),
-    });
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
-    SqlxPartyRepositoryFactory
-        .in_transaction(&mut tx)
-        .insert(&p)
-        .await
-        .unwrap();
+    let stored = insert_new_party(
+        &mut SqlxPartyRepositoryFactory.in_transaction(&mut tx),
+        NewParty {
+            id: PartyId::new(),
+            name: PartyName::try_from("Geography test").unwrap(),
+            contact: PartyContact::default(),
+        },
+    )
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
-    p.id()
+    stored.party.id()
 }
 async fn create(pool: &PgPool, owner: PartyId, label: &str) -> PartyLocationView {
     CreatePartyLocationHandler::new(

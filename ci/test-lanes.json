@@ -96,6 +96,7 @@
     "partnership-service",
     "party-core",
     "party-service",
+    "platform-aws",
     "platform-google-adc",
     "platform-observability",
     "product-listing-core",

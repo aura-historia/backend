@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 type MainError = application::error::BoxError;
 
+/// The Lambda component named in setup diagnostics.
+const LAMBDA_COMPONENT: &str = "aura-historia-mcp";
+
 fn main() -> Result<(), MainError> {
     let is_lambda = std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some();
     if is_lambda {
@@ -22,7 +25,7 @@ fn main() -> Result<(), MainError> {
         .block_on(async move {
             if is_lambda {
                 let app = Arc::new(RotatingMcpRouter::new(
-                    RotatingRuntime::from_env().await?,
+                    RotatingRuntime::from_env(LAMBDA_COMPONENT).await?,
                     transport,
                     listing_config,
                 ));

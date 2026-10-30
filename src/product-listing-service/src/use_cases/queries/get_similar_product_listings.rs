@@ -54,7 +54,10 @@ pub enum GetSimilarProductListingsError {
         source: BoxError,
     },
     #[error("similarity search is unavailable")]
-    SimilaritySearchUnavailable,
+    SimilaritySearchUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin get similar products transaction")]
     BeginTransactionFailed(#[source] application::error::BoxError),
     #[error("failed to commit get similar products transaction")]
@@ -278,8 +281,12 @@ impl From<ProductListingEmbeddingReadError> for GetSimilarProductListingsError {
 }
 
 impl From<ProductListingSimilarProductListingsReadError> for GetSimilarProductListingsError {
-    fn from(_: ProductListingSimilarProductListingsReadError) -> Self {
-        Self::SimilaritySearchUnavailable
+    fn from(error: ProductListingSimilarProductListingsReadError) -> Self {
+        match error {
+            ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
+                source,
+            } => Self::SimilaritySearchUnavailable { source },
+        }
     }
 }
 
@@ -1005,10 +1012,15 @@ mod tests {
 
         let result = handler(&state).execute(&context(), request()).await;
 
-        assert!(matches!(
-            result,
-            Err(GetSimilarProductListingsError::SimilaritySearchUnavailable)
-        ));
+        let Err(error @ GetSimilarProductListingsError::SimilaritySearchUnavailable { .. }) =
+            result
+        else {
+            panic!("a similar products reader failure must make similarity search unavailable");
+        };
+        assert_eq!(
+            Some("boom".to_owned()),
+            std::error::Error::source(&error).map(ToString::to_string)
+        );
         assert_eq!(1, lock_state(&state).commit_count);
     }
 

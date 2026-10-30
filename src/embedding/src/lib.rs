@@ -2,13 +2,24 @@ use google_cloud_auth::credentials::AccessTokenCredentials;
 use image_fetcher::{FetchedImage, ImageFetcher};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use url::Url;
 
 const GEMINI_EMBEDDING_MODEL: &str = "gemini-embedding-2";
 const QUERY_CACHE_CAPACITY: usize = 4096;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// Product embeddings run in the background worker, after its separately bounded image fetch.
+const PRODUCT_EMBEDDING_DEADLINE: Duration = Duration::from_secs(30);
 pub const EMBEDDING_DIMENSIONS: usize = 768;
+
+/// Upper bound for one uncached search-query embedding, from credential acquisition to the
+/// decoded response body.
+///
+/// Query embeddings serve interactive requests. The bound stays well below the shortest public
+/// request budget so callers can still answer without the embedding, for example by falling
+/// back to lexical search on an initial search page.
+pub const SEARCH_QUERY_EMBEDDING_DEADLINE: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VertexAiEmbeddingConfig {
@@ -37,6 +48,11 @@ impl VertexAiEmbeddingConfig {
 pub enum EmbeddingError {
     #[error("embedding input is invalid: {reason}")]
     InvalidInput { reason: &'static str },
+    #[error("embedding HTTP client could not be initialized")]
+    ClientInitializationFailed {
+        #[source]
+        source: reqwest::Error,
+    },
     #[error("embedding authentication failed")]
     AuthenticationFailed {
         #[source]
@@ -47,10 +63,42 @@ pub enum EmbeddingError {
         #[source]
         source: reqwest::Error,
     },
+    #[error("embedding request did not complete within {deadline:?}")]
+    DeadlineExceeded { deadline: Duration },
     #[error("embedding provider returned HTTP {status}")]
     ApiFailure { status: reqwest::StatusCode },
     #[error("embedding provider response is invalid: {reason}")]
     InvalidResponse { reason: &'static str },
+}
+
+impl EmbeddingError {
+    /// An allowlisted label for terminal diagnostics. Unlike the error text, it never includes
+    /// request URLs, credentials or provider response content.
+    pub fn diagnostic_category(&self) -> &'static str {
+        match self {
+            Self::InvalidInput { .. } => "input_invalid",
+            Self::ClientInitializationFailed { .. } => "configuration",
+            Self::AuthenticationFailed { .. } => "authentication",
+            Self::DeadlineExceeded { .. } => "timeout",
+            Self::RequestFailed { source } if source.is_timeout() => "timeout",
+            Self::RequestFailed { source } if source.is_decode() => "response_invalid",
+            Self::RequestFailed { .. } => "request",
+            Self::ApiFailure { .. } => "http_status",
+            Self::InvalidResponse { .. } => "response_invalid",
+        }
+    }
+
+    pub fn http_status(&self) -> Option<u16> {
+        match self {
+            Self::ApiFailure { status } => Some(status.as_u16()),
+            Self::RequestFailed { source } => source.status().map(|status| status.as_u16()),
+            Self::InvalidInput { .. }
+            | Self::ClientInitializationFailed { .. }
+            | Self::AuthenticationFailed { .. }
+            | Self::DeadlineExceeded { .. }
+            | Self::InvalidResponse { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -118,6 +166,8 @@ pub trait EmbeddingGenerator: Send + Sync {
         image_url: Option<&EmbeddingImageUrl>,
     ) -> Result<EmbeddingVector, EmbeddingError>;
 
+    /// Serves interactive requests: implementations must return, with an error if necessary,
+    /// within [`SEARCH_QUERY_EMBEDDING_DEADLINE`] so callers can still answer without it.
     async fn embed_search_query(
         &self,
         query: &EmbeddingText,
@@ -151,26 +201,40 @@ where
 /// Vertex AI Gemini Embedding implementation of [`EmbeddingGenerator`].
 ///
 /// Callers supply semantic product or search fields. This adapter owns Google prompt
-/// format, provider protocol, image retrieval, response validation, and query cache.
+/// format, provider protocol, image retrieval, response validation, query cache, and
+/// deadlines. Each provider exchange, including credential acquisition and the response body,
+/// is bounded by [`SEARCH_QUERY_EMBEDDING_DEADLINE`] for search queries and by a longer
+/// background deadline for products; expiry yields [`EmbeddingError::DeadlineExceeded`].
 pub struct VertexAiEmbeddingGenerator {
     embed_content_url: String,
     client: reqwest::Client,
     image_fetcher: ImageFetcher,
     credentials: AccessTokenCredentials,
     query_cache: Mutex<LruCache<EmbeddingText, EmbeddingVector>>,
+    search_query_deadline: Duration,
+    product_deadline: Duration,
 }
 
 impl VertexAiEmbeddingGenerator {
-    pub fn new(config: VertexAiEmbeddingConfig, credentials: AccessTokenCredentials) -> Self {
-        Self {
+    pub fn new(
+        config: VertexAiEmbeddingConfig,
+        credentials: AccessTokenCredentials,
+    ) -> Result<Self, EmbeddingError> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .map_err(|source| EmbeddingError::ClientInitializationFailed { source })?;
+        Ok(Self {
             embed_content_url: build_embed_content_url(&config),
-            client: reqwest::Client::new(),
+            client,
             image_fetcher: ImageFetcher::new(),
             credentials,
             query_cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(QUERY_CACHE_CAPACITY).unwrap_or(NonZeroUsize::MIN),
             )),
-        }
+            search_query_deadline: SEARCH_QUERY_EMBEDDING_DEADLINE,
+            product_deadline: PRODUCT_EMBEDDING_DEADLINE,
+        })
     }
 
     async fn embed_search_query(
@@ -182,7 +246,10 @@ impl VertexAiEmbeddingGenerator {
         }
 
         let vector = self
-            .request_embedding(EmbedContentRequest::for_search_query(query))
+            .request_embedding(
+                EmbedContentRequest::for_search_query(query),
+                self.search_query_deadline,
+            )
             .await?;
         self.query_cache
             .lock()
@@ -201,15 +268,24 @@ impl VertexAiEmbeddingGenerator {
             Some(image_url) => self.fetch_image(image_url).await,
             None => None,
         };
-        self.request_embedding(EmbedContentRequest::for_product(
-            title,
-            additional_text,
-            image,
-        ))
+        self.request_embedding(
+            EmbedContentRequest::for_product(title, additional_text, image),
+            self.product_deadline,
+        )
         .await
     }
 
     async fn request_embedding(
+        &self,
+        request: EmbedContentRequest,
+        deadline: Duration,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        tokio::time::timeout(deadline, self.call_embed_content(request))
+            .await
+            .map_err(|_| EmbeddingError::DeadlineExceeded { deadline })?
+    }
+
+    async fn call_embed_content(
         &self,
         request: EmbedContentRequest,
     ) -> Result<EmbeddingVector, EmbeddingError> {
@@ -398,6 +474,265 @@ struct ProviderEmbedding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use google_cloud_auth::credentials::{
+        AccessToken, AccessTokenCredentialsProvider, CacheableResource, CredentialsProvider,
+    };
+    use google_cloud_auth::errors::CredentialsError;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpListener, TcpStream},
+    };
+
+    const TEST_SEARCH_QUERY_DEADLINE: Duration = Duration::from_millis(500);
+    const TEST_PRODUCT_DEADLINE: Duration = Duration::from_millis(1000);
+    const PROVIDER_STALL: Duration = Duration::from_secs(30);
+    /// Fails an unbounded embedding instead of hanging the test on the stalled fixture.
+    const TEST_GUARD: Duration = Duration::from_secs(5);
+
+    #[derive(Debug)]
+    enum TestCredentials {
+        Issued,
+        Stalled,
+    }
+
+    impl CredentialsProvider for TestCredentials {
+        async fn headers(
+            &self,
+            _: http::Extensions,
+        ) -> Result<CacheableResource<http::HeaderMap>, CredentialsError> {
+            Err(CredentialsError::from_msg(
+                false,
+                "test credentials issue access tokens only",
+            ))
+        }
+
+        async fn universe_domain(&self) -> Option<String> {
+            None
+        }
+    }
+
+    impl AccessTokenCredentialsProvider for TestCredentials {
+        async fn access_token(&self) -> Result<AccessToken, CredentialsError> {
+            match self {
+                Self::Issued => Ok(AccessToken {
+                    token: "test-access-token".to_owned(),
+                }),
+                Self::Stalled => std::future::pending().await,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum ProviderBehavior {
+        Respond,
+        StallHeaders,
+        StallBody,
+    }
+
+    /// Local Vertex stand-in counting the requests it has read completely.
+    struct LocalProvider {
+        url: String,
+        requests: Arc<AtomicUsize>,
+    }
+
+    impl LocalProvider {
+        async fn start(behavior: ProviderBehavior) -> std::io::Result<Self> {
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let url = format!("http://{}/v1/embedContent", listener.local_addr()?);
+            let requests = Arc::new(AtomicUsize::new(0));
+            let served = Arc::clone(&requests);
+            tokio::spawn(async move {
+                while let Ok((stream, _)) = listener.accept().await {
+                    let served = Arc::clone(&served);
+                    tokio::spawn(async move {
+                        let _ = respond(stream, behavior, &served).await;
+                    });
+                }
+            });
+            Ok(Self { url, requests })
+        }
+
+        fn requests(&self) -> usize {
+            self.requests.load(Ordering::SeqCst)
+        }
+    }
+
+    async fn respond(
+        mut stream: TcpStream,
+        behavior: ProviderBehavior,
+        requests: &AtomicUsize,
+    ) -> std::io::Result<()> {
+        read_request(&mut stream).await?;
+        requests.fetch_add(1, Ordering::SeqCst);
+        let body =
+            serde_json::json!({"embedding": {"values": vec![2.0_f32; EMBEDDING_DIMENSIONS]}})
+                .to_string();
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        if matches!(behavior, ProviderBehavior::StallHeaders) {
+            tokio::time::sleep(PROVIDER_STALL).await;
+        }
+        stream.write_all(head.as_bytes()).await?;
+        stream.flush().await?;
+        if matches!(behavior, ProviderBehavior::StallBody) {
+            tokio::time::sleep(PROVIDER_STALL).await;
+        }
+        stream.write_all(body.as_bytes()).await
+    }
+
+    async fn read_request(stream: &mut TcpStream) -> std::io::Result<()> {
+        let mut bytes = Vec::new();
+        let mut buffer = [0; 4096];
+        loop {
+            let count = stream.read(&mut buffer).await?;
+            if count == 0 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            bytes.extend_from_slice(&buffer[..count]);
+            let Some(header_end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") else {
+                continue;
+            };
+            let content_length = String::from_utf8_lossy(&bytes[..header_end])
+                .to_ascii_lowercase()
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|length| length.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if bytes.len() >= header_end + 4 + content_length {
+                return Ok(());
+            }
+        }
+    }
+
+    fn vertex_generator(
+        provider: &LocalProvider,
+        credentials: TestCredentials,
+    ) -> Result<VertexAiEmbeddingGenerator, Box<dyn std::error::Error>> {
+        let mut generator = VertexAiEmbeddingGenerator::new(
+            VertexAiEmbeddingConfig::new("test-project", "eu"),
+            AccessTokenCredentials::from(credentials),
+        )?;
+        // Reach the loopback fixture even when the developer environment configures a proxy.
+        generator.client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .no_proxy()
+            .build()?;
+        generator.embed_content_url = provider.url.clone();
+        generator.search_query_deadline = TEST_SEARCH_QUERY_DEADLINE;
+        generator.product_deadline = TEST_PRODUCT_DEADLINE;
+        Ok(generator)
+    }
+
+    async fn assert_deadline_exceeded(
+        embedding: impl Future<Output = Result<EmbeddingVector, EmbeddingError>>,
+        expected_deadline: Duration,
+    ) {
+        let result = tokio::time::timeout(TEST_GUARD, embedding).await;
+
+        assert!(
+            matches!(
+                result,
+                Ok(Err(EmbeddingError::DeadlineExceeded { deadline })) if deadline == expected_deadline
+            ),
+            "expected the {expected_deadline:?} deadline to expire, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_bound_query_and_product_embeddings_when_provider_stalls_headers_or_body()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for behavior in [ProviderBehavior::StallHeaders, ProviderBehavior::StallBody] {
+            let provider = LocalProvider::start(behavior).await?;
+            let generator = vertex_generator(&provider, TestCredentials::Issued)?;
+            let text = EmbeddingText::new("vintage brass lamp")?;
+
+            assert_deadline_exceeded(
+                generator.embed_search_query(&text),
+                TEST_SEARCH_QUERY_DEADLINE,
+            )
+            .await;
+            assert_deadline_exceeded(
+                generator.embed_product(&text, None, None),
+                TEST_PRODUCT_DEADLINE,
+            )
+            .await;
+
+            assert_eq!(2, provider.requests(), "{behavior:?}");
+            assert!(generator.query_cache.lock().await.is_empty());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_bound_credential_acquisition_without_contacting_the_provider()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let provider = LocalProvider::start(ProviderBehavior::Respond).await?;
+        let generator = vertex_generator(&provider, TestCredentials::Stalled)?;
+
+        assert_deadline_exceeded(
+            generator.embed_search_query(&EmbeddingText::new("vintage brass lamp")?),
+            TEST_SEARCH_QUERY_DEADLINE,
+        )
+        .await;
+
+        assert_eq!(0, provider.requests());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_serve_repeated_search_queries_from_the_cache_after_one_provider_request()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let provider = LocalProvider::start(ProviderBehavior::Respond).await?;
+        let generator = vertex_generator(&provider, TestCredentials::Issued)?;
+        let query = EmbeddingText::new("vintage brass lamp")?;
+
+        let first = generator.embed_search_query(&query).await?;
+        let second = generator.embed_search_query(&query).await?;
+
+        assert_eq!(first, second);
+        assert_eq!(1, provider.requests());
+        Ok(())
+    }
+
+    #[test]
+    fn should_classify_provider_failures_by_variant() {
+        for (error, category, status) in [
+            (
+                EmbeddingError::AuthenticationFailed {
+                    source: Box::new(std::io::Error::other("token refresh failed")),
+                },
+                "authentication",
+                None,
+            ),
+            (
+                EmbeddingError::ApiFailure {
+                    status: reqwest::StatusCode::TOO_MANY_REQUESTS,
+                },
+                "http_status",
+                Some(429),
+            ),
+            (
+                EmbeddingError::InvalidResponse {
+                    reason: "missing embedding values",
+                },
+                "response_invalid",
+                None,
+            ),
+            (
+                EmbeddingError::DeadlineExceeded {
+                    deadline: Duration::from_secs(2),
+                },
+                "timeout",
+                None,
+            ),
+        ] {
+            assert_eq!(category, error.diagnostic_category());
+            assert_eq!(status, error.http_status());
+        }
+    }
 
     #[test]
     fn should_build_vertex_endpoint_for_regional_and_global_locations() {

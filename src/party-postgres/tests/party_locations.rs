@@ -7,7 +7,7 @@ use geo::{
     AddressText, CountryCode, GeoPoint, GeographicDescription, SpatialPosition, SpatialPrecision,
 };
 use party_core::{
-    party::{NewParty, Party, PartyContact},
+    party::{NewParty, PartyContact},
     party_id::PartyId,
     party_location::{
         PartyLocationContent, PartyLocationLabel, PartyLocationLifecycle, PartyLocationRole,
@@ -20,8 +20,7 @@ use party_postgres::{
     SqlxPartyLocationRepositoryFactory, SqlxPartyRepositoryFactory,
 };
 use party_service::{
-    ports::party_location::*,
-    ports::{PartyRepository, PartyRepositoryFactory},
+    party_creation::insert_new_party, ports::PartyRepositoryFactory, ports::party_location::*,
     use_cases::party_locations::*,
 };
 use platform_postgres::SqlxUnitOfWork;
@@ -256,19 +255,19 @@ fn list(pool: &PgPool) -> impl ListPartyLocationsUseCase {
 async fn party(pool: &PgPool) -> PartyId {
     sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES ('AMAZON_LOCATION_PLACES_V2_DEFAULT_FRANKFURT_2026_10',true) ON CONFLICT DO NOTHING")
         .execute(pool).await.unwrap();
-    let p = Party::create(NewParty {
-        id: PartyId::new(),
-        name: PartyName::try_from("Location test").unwrap(),
-        contact: PartyContact::default(),
-    });
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
-    SqlxPartyRepositoryFactory
-        .in_transaction(&mut tx)
-        .insert(&p)
-        .await
-        .unwrap();
+    let stored = insert_new_party(
+        &mut SqlxPartyRepositoryFactory.in_transaction(&mut tx),
+        NewParty {
+            id: PartyId::new(),
+            name: PartyName::try_from("Location test").unwrap(),
+            contact: PartyContact::default(),
+        },
+    )
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
-    p.id()
+    stored.party.id()
 }
 fn command(party_id: PartyId, label: &str) -> CreatePartyLocationCommand {
     CreatePartyLocationCommand {

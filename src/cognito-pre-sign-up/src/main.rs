@@ -3,8 +3,8 @@ use aws_lambda_events::cognito::CognitoEventUserPoolsPreSignup;
 use cognito_pre_sign_up::{handler, is_external_provider_signup, parse_provider_signup_policy};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
-    logging_config_from_env, required_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, current_postgres_credentials, log_cold_start,
+    log_invocation_start, logging_config_from_env, required_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
@@ -16,6 +16,8 @@ use tokio::time::timeout;
 use user_cognito::CognitoAccountLinker;
 use user_postgres::SqlxFederatedAccountReader;
 use user_service::use_cases::ResolveFederatedAccountHandler;
+
+const COMPONENT: &str = "cognito-pre-sign-up";
 
 const INVOCATION_DEADLINE: Duration = Duration::from_millis(4_200);
 
@@ -40,7 +42,7 @@ async fn main() -> Result<(), Error> {
         aws_sdk_cognitoidentityprovider::Client::new(&aws_config),
     ));
 
-    log_cold_start("cognito-pre-sign-up", initialization_started_at);
+    log_cold_start(COMPONENT, initialization_started_at);
 
     run(service_fn(
         move |event: LambdaEvent<CognitoEventUserPoolsPreSignup>| {
@@ -50,7 +52,7 @@ async fn main() -> Result<(), Error> {
             let services = Arc::clone(&services);
             let linker = Arc::clone(&linker);
             async move {
-                log_invocation_start("cognito-pre-sign-up", &event.context);
+                log_invocation_start(COMPONENT, &event.context);
                 let request_id = event.context.request_id.clone();
                 let invocation_started_at = Instant::now();
                 if !is_external_provider_signup(&event.payload) {
@@ -64,18 +66,13 @@ async fn main() -> Result<(), Error> {
                 }
 
                 let invocation = timeout(INVOCATION_DEADLINE, async {
-                    let credentials = credentials
-                        .current()
-                        .await
-                        .map_err(|_| Error::from("PostgreSQL credential refresh unavailable"))?;
+                    let credentials =
+                        current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                     let service = services
                         .get_or_try_build(credentials.version_id(), || async {
                             let pool = postgres
-                                .pool_config(credentials.credentials())
-                                .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
-                                .connect()
-                                .await
-                                .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                                .connect(COMPONENT, credentials.credentials())
+                                .await?;
                             Ok::<_, Error>(ResolveFederatedAccountHandler::new(
                                 SqlxFederatedAccountReader::new(pool),
                             ))

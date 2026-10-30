@@ -5,9 +5,9 @@ use application::error::BoxError;
 use application::operation_context::{
     CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
 };
-use application::pagination::Cursor;
+use application::pagination::{Cursor, KeysetCursor, ScopeBinding, SortKey};
 use application::transaction::{Transaction, UnitOfWork};
-use domain_primitives::sort::Sort;
+use domain_primitives::sort::{Sort, SortOrder};
 use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
     ListingSourceSearch, ListingSourceSlugId, PlatformTechnology, ReferralConfiguration,
@@ -23,7 +23,91 @@ use user_service::use_cases::queries::check_user_admin::{
 pub struct SearchListingSourcesRequest {
     pub search: ListingSourceSearch,
     pub sort: Option<Sort<SortListingSourceField>>,
-    pub cursor: Option<Cursor<ListingSourceId>>,
+    pub cursor: Option<Cursor<ListingSourceSearchCursor>>,
+}
+
+impl SearchListingSourcesRequest {
+    /// The requested sort, or name ascending.
+    pub fn effective_sort(&self) -> Sort<SortListingSourceField> {
+        self.sort.unwrap_or(Sort {
+            sort: SortListingSourceField::default(),
+            order: SortOrder::Asc,
+        })
+    }
+
+    pub fn scope_binding(&self) -> ScopeBinding {
+        let search = &self.search;
+        let sort = self.effective_sort();
+        ScopeBinding::builder("listing-source-search/v1")
+            .optional_part(search.query.as_deref())
+            .optional_part(search.name_query.as_deref())
+            .optional_part(
+                search
+                    .listing_source_id
+                    .map(|id| id.into_uuid().into_bytes()),
+            )
+            .optional_part(
+                search
+                    .listing_source_slug_id
+                    .as_ref()
+                    .map(AsRef::<str>::as_ref),
+            )
+            .optional_part(
+                search
+                    .operator_party_id
+                    .map(|id| id.into_uuid().into_bytes()),
+            )
+            .optional_part(
+                search
+                    .platform_technology
+                    .as_ref()
+                    .map(AsRef::<str>::as_ref),
+            )
+            .optional_part(search.ingestion_method.map(ListingIngestionMethod::as_str))
+            .part(sort_field_code(sort.sort))
+            .part(sort.order.as_str())
+            .finish()
+    }
+
+    fn continuation_in_scope(&self) -> bool {
+        self.cursor
+            .as_ref()
+            .and_then(|cursor| cursor.search_after.as_ref())
+            .is_none_or(|after| after.continues(&self.scope_binding(), self.effective_sort().sort))
+    }
+}
+
+fn sort_field_code(field: SortListingSourceField) -> &'static str {
+    match field {
+        SortListingSourceField::Name => "name",
+        SortListingSourceField::Slug => "slug",
+        SortListingSourceField::Created => "created",
+        SortListingSourceField::Updated => "updated",
+    }
+}
+
+pub type ListingSourceSearchCursor = KeysetCursor<ListingSourceSortKey, ListingSourceId>;
+
+/// Stored value of the sorted field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListingSourceSortKey {
+    Name(String),
+    Slug(String),
+    Created(OffsetDateTime),
+    Updated(OffsetDateTime),
+}
+
+impl SortKey for ListingSourceSortKey {
+    type Field = SortListingSourceField;
+
+    fn field(&self) -> SortListingSourceField {
+        match self {
+            Self::Name(_) => SortListingSourceField::Name,
+            Self::Slug(_) => SortListingSourceField::Slug,
+            Self::Created(_) => SortListingSourceField::Created,
+            Self::Updated(_) => SortListingSourceField::Updated,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +134,7 @@ pub struct ListingSourceSearchSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchListingSourcesResult {
     pub items: Vec<ListingSourceSearchSummary>,
-    pub cursor: Cursor<ListingSourceId>,
+    pub cursor: Cursor<ListingSourceSearchCursor>,
     pub total: Option<u64>,
 }
 
@@ -60,6 +144,8 @@ pub enum SearchListingSourcesError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("listing source search cursor belongs to another filter or sort scope")]
+    CursorScopeMismatch,
     #[error("temporary listing source search failure")]
     TemporarilyUnavailable {
         #[source]
@@ -133,6 +219,9 @@ where
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
+        if !request.continuation_in_scope() {
+            return Err(SearchListingSourcesError::CursorScopeMismatch);
+        }
 
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             SearchListingSourcesError::BeginTransactionFailed(Box::new(source))
@@ -450,5 +539,106 @@ mod tests {
                 assert!(matches!(result, Err(SearchListingSourcesError::Forbidden)));
             }
         }
+    }
+
+    fn continuation(
+        request: &SearchListingSourcesRequest,
+        sort_key: ListingSourceSortKey,
+    ) -> SearchListingSourcesRequest {
+        SearchListingSourcesRequest {
+            cursor: Some(Cursor {
+                size: 2,
+                search_after: Some(ListingSourceSearchCursor {
+                    scope: request.scope_binding(),
+                    sort_key,
+                    id: ListingSourceId::new(),
+                }),
+            }),
+            ..request.clone()
+        }
+    }
+
+    #[test]
+    fn should_bind_cursor_to_effective_filters_and_sort() {
+        let name = ListingSourceSortKey::Name("Antik".to_owned());
+        let operator = SearchListingSourcesRequest {
+            search: ListingSourceSearch {
+                operator_party_id: Some(PartyId::new()),
+                ..ListingSourceSearch::default()
+            },
+            ..request()
+        };
+        let slug_desc = SearchListingSourcesRequest {
+            sort: Some(Sort {
+                sort: SortListingSourceField::Slug,
+                order: SortOrder::Desc,
+            }),
+            ..request()
+        };
+
+        assert_eq!(
+            request().scope_binding(),
+            SearchListingSourcesRequest {
+                sort: Some(Sort {
+                    sort: SortListingSourceField::Name,
+                    order: SortOrder::Asc,
+                }),
+                ..request()
+            }
+            .scope_binding()
+        );
+        assert!(continuation(&operator, name.clone()).continuation_in_scope());
+        assert!(
+            !SearchListingSourcesRequest {
+                search: ListingSourceSearch {
+                    operator_party_id: Some(PartyId::new()),
+                    ..ListingSourceSearch::default()
+                },
+                ..continuation(&operator, name.clone())
+            }
+            .continuation_in_scope()
+        );
+        assert!(
+            !SearchListingSourcesRequest {
+                sort: slug_desc.sort,
+                ..continuation(&request(), name)
+            }
+            .continuation_in_scope()
+        );
+        assert!(
+            !continuation(&slug_desc, ListingSourceSortKey::Name("Antik".to_owned()))
+                .continuation_in_scope()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_cross_scope_cursor_before_beginning_listing_source_search_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let handler = SearchListingSourcesHandler::new(
+            FakeUnitOfWork(Arc::clone(&state)),
+            FakeReaderFactory(Arc::clone(&state)),
+            FakeAdmin { allowed: true },
+        );
+        let foreign = SearchListingSourcesRequest {
+            sort: Some(Sort {
+                sort: SortListingSourceField::Created,
+                order: SortOrder::Desc,
+            }),
+            ..continuation(&request(), ListingSourceSortKey::Name("Antik".to_owned()))
+        };
+
+        let result = handler
+            .execute(&context(Principal::User(UserId::new())), foreign)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(SearchListingSourcesError::CursorScopeMismatch)
+        ));
+        let state = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(0, state.begins);
+        assert_eq!(0, state.searches);
     }
 }

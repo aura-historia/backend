@@ -1,8 +1,8 @@
 use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease,
+    current_postgres_credentials, log_cold_start, log_invocation_start, logging_config_from_env,
 };
 use platform_lambda_sqs::{SqsDeadLetterCustody, handle_fifo_sqs_invocation};
 use platform_observability::init;
@@ -14,6 +14,8 @@ use user_service::use_cases::SyncMarketingConsentIntentUseCase;
 use marketing_consent_sync_lambda::{
     compose_marketing_consent_sync_use_case, handler_with_invocation_budget, invocation_budget,
 };
+
+const COMPONENT: &str = "marketing-consent-sync-lambda";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -28,7 +30,7 @@ async fn main() -> Result<(), Error> {
     let custody = SqsDeadLetterCustody::from_env().await?;
     let use_cases = Arc::new(VersionedCompositionCache::new());
 
-    log_cold_start("marketing-consent-sync-lambda", initialization_started_at);
+    log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let postgres = postgres.clone();
         let loops = loops.clone();
@@ -36,20 +38,15 @@ async fn main() -> Result<(), Error> {
         let use_cases = Arc::clone(&use_cases);
         let custody = custody.clone();
         async move {
-            log_invocation_start("marketing-consent-sync-lambda", &event.context);
+            log_invocation_start(COMPONENT, &event.context);
             handle_invocation(event, &custody, move || async move {
-                let credentials = credentials
-                    .current()
-                    .await
-                    .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
+                let credentials =
+                    current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 use_cases
                     .get_or_try_build(credentials.version_id(), || async {
                         let pool = postgres
-                            .pool_config(credentials.credentials())
-                            .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
-                            .connect()
-                            .await
-                            .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                            .connect(COMPONENT, credentials.credentials())
+                            .await?;
                         compose_marketing_consent_sync_use_case(pool, loops)
                     })
                     .await
@@ -74,7 +71,7 @@ where
 {
     handle_fifo_sqs_invocation(
         event,
-        "marketing-consent-sync-lambda",
+        COMPONENT,
         invocation_budget,
         setup,
         |event, use_case, budget| async move {

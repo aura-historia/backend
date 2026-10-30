@@ -40,7 +40,9 @@ pub use postgres::PostgresConfigError;
 pub use private_addresses::PrivateAddresses;
 pub use product_listing_config::ProductListingConfig;
 pub use product_listing_delivery::ProductListingDelivery;
-pub use product_listing_providers::ProductListingProviderError;
+pub use product_listing_providers::{
+    PRODUCT_LISTING_OPENSEARCH_TIMEOUT, ProductListingProviderError,
+};
 pub use public_auctions::PublicAuctions;
 pub use public_listing_source_read_budget::PublicListingSourceReadBudget;
 pub use public_listing_sources::PublicListingSources;
@@ -336,7 +338,7 @@ mod tests {
     #[ignore = "invoked by the anonymous startup test in a clean subprocess"]
     async fn anonymous_bootstrap_probe() -> Result<(), TestError> {
         let native = Runtime::from_env().await?;
-        let lambda = RotatingRuntime::from_env().await?;
+        let lambda = RotatingRuntime::from_env("aura-historia-runtime-test").await?;
         let lease = lambda.current().await?;
         for runtime in [&native, lease.value()] {
             let profile = runtime.user_profile();
@@ -396,6 +398,7 @@ mod tests {
     async fn rotation_probe() -> Result<(), TestError> {
         let credentials = Arc::new(FixtureCredentials(Mutex::new(Some(version("version-1")?))));
         let runtime = RotatingRuntime::new(
+            "aura-historia-runtime-test",
             platform_lambda_bootstrap::LambdaPostgresConfig::from_env()?,
             credentials.clone(),
         );
@@ -422,12 +425,22 @@ mod tests {
         assert!(!new.value().postgres_pool().is_closed());
 
         *credentials.0.lock().unwrap() = None;
+        let (logs, guard) = test_api::CapturedLogs::start();
         let error = match runtime.current().await {
             Err(error) => error,
             Ok(_) => panic!("failed credential refresh must not return a stale composition"),
         };
+        drop(guard);
         assert!(matches!(error, RuntimeError::CredentialsRefresh(_)));
         assert!(error.source().is_some());
+        let setup = logs.events_where("event", "lambda.setup.failed");
+        assert_eq!(1, setup.len());
+        assert_eq!(
+            Some("aura-historia-runtime-test"),
+            setup[0]["component"].as_str()
+        );
+        assert_eq!(Some("credential_refresh"), setup[0]["stage"].as_str());
+        assert_eq!(Some("unavailable"), setup[0]["error_category"].as_str());
         *credentials.0.lock().unwrap() = Some(version("version-2")?);
         assert!(std::ptr::eq(new.value(), runtime.current().await?.value()));
         old.value().postgres_pool().close().await;
@@ -454,7 +467,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .clone()
-                .ok_or(PostgresCredentialRefreshError)
+                .ok_or(PostgresCredentialRefreshError::Unavailable)
         }
     }
 

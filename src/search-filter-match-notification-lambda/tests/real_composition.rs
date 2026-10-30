@@ -6,11 +6,13 @@ use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent, SqsMessage};
 use domain_primitives::event_id::EventId;
 use lambda_runtime::{Context, LambdaEvent};
 use listing_source_core::ListingSourceId;
+use notification_service::saved_search_digest::MaintainSavedSearchDigestsUseCase;
 use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_match_notification_lambda::{
     compose_search_filter_match_notification_use_case, handler,
 };
+use search_filter_service::use_cases::RecoverSavedSearchNotificationsUseCase;
 use serde_json::{Value, json};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -226,7 +228,7 @@ async fn digest_waits_for_filters_and_selection_recovers_persisted_matches_and_f
         terminal_filter(&pool, end, second).await?;
         assert_eq!(0, maintenance.execute(10).await?.digests_created);
         let recovery = search_filter_service::use_cases::RecoverSavedSearchNotificationsHandler::new(search_filter_postgres::SqlxPendingSavedSearchNotificationReader::new(pool.clone()), use_case.clone());
-        assert_eq!(0, recovery.execute(100).await?);
+        assert!(recovery.execute(100).await?.failures.is_empty());
         let deliveries: i64 = sqlx::query_scalar("SELECT count(*) FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) WHERE g.user_id = $1")
             .bind(user.as_uuid()).fetch_one(&pool).await?;
         assert_eq!(1, deliveries); // Selection recovery itself finalized the ready group.

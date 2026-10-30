@@ -185,12 +185,14 @@ pub async fn spin_up_aws_emulator(
         "managed test processes cannot start Floci containers"
     );
     install_cleanup();
-    let _ = tracing_subscriber::fmt()
-        .json()
-        .with_max_level(tracing::Level::INFO)
-        .with_current_span(true)
-        .with_ansi(false)
-        .try_init();
+    crate::logs::install_global_subscriber(
+        tracing_subscriber::fmt()
+            .json()
+            .with_max_level(tracing::Level::INFO)
+            .with_current_span(true)
+            .with_ansi(false)
+            .finish(),
+    );
 
     let port = find_free_port();
     let request = GenericImage::new("floci/floci", IMAGE_TAG)

@@ -1,7 +1,9 @@
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::LambdaInvocationBudget;
+use platform_lambda_bootstrap::{
+    Dependency, FailureDiagnostic, INVALID_PERSISTED_STATE, LambdaInvocationBudget,
+};
 use platform_lambda_sqs::{
     FailureCustody, FifoDisposition, RecordOutcome, process_fifo_batch, safe_message_id,
 };
@@ -10,7 +12,8 @@ use tracing::{info, warn};
 use user_loops::{LoopsMarketingEmailConsentWriter, LoopsNewsletterConfig};
 use user_postgres::{SqlxMarketingConsentIntentRepository, SqlxMarketingConsentIntentWorker};
 use user_service::use_cases::{
-    SyncMarketingConsentIntentHandler, SyncMarketingConsentIntentUseCase,
+    SyncMarketingConsentIntentError, SyncMarketingConsentIntentHandler,
+    SyncMarketingConsentIntentUseCase,
 };
 
 pub const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
@@ -187,14 +190,51 @@ pub async fn process_marketing_consent_sync_job(
             );
             disposition
         }
-        Err(_) => {
+        Err(error) => {
+            let failure = sync_failure(&error);
             warn!(
                 intent_id = %intent_id,
                 outcome = "sync_unconfirmed",
+                stage = failure.stage(),
+                dependency = failure.dependency(),
+                error_category = failure.category(),
+                http_status = failure.http_status(),
+                sqlstate = failure.sqlstate(),
                 "Marketing consent sync intent remains unfinished"
             );
             MarketingConsentSyncJobDisposition::Retry
         }
+    }
+}
+
+/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
+fn sync_failure(error: &SyncMarketingConsentIntentError) -> FailureDiagnostic {
+    use SyncMarketingConsentIntentError as E;
+    match error {
+        E::PersistenceFailed(_) => FailureDiagnostic::postgres("intent_persistence", error),
+        E::ConcurrentChange => {
+            FailureDiagnostic::rejected("intent_persistence", "concurrency_conflict")
+        }
+        E::ProviderReadFailed(provider) => FailureDiagnostic::new(
+            "provider_read",
+            Dependency::Loops,
+            provider.diagnostic_category(),
+            provider.http_status(),
+        ),
+        E::RevokeUnconfirmed => FailureDiagnostic::new(
+            "revoke_reconciliation",
+            Dependency::Loops,
+            "revoke_unconfirmed",
+            None,
+        ),
+        E::Transaction(_) => FailureDiagnostic::postgres("intent_transaction", error),
+        E::ReconciliationExhausted { .. } => FailureDiagnostic::postgres("reconciliation", error),
+        E::InvalidPersistedState => FailureDiagnostic::new(
+            "intent_read",
+            Dependency::Postgres,
+            INVALID_PERSISTED_STATE,
+            None,
+        ),
     }
 }
 
@@ -232,10 +272,94 @@ mod tests {
         sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
+    use test_api::CapturedLogs;
     use user_core::marketing_consent_sync_intent_id::MarketingConsentSyncIntentId;
+    use user_service::ports::MarketingEmailConsentError;
     use user_service::use_cases::{
         SyncMarketingConsentIntentError, SyncMarketingConsentIntentResult,
     };
+
+    #[tokio::test]
+    async fn should_record_the_failed_stage_without_logging_its_cause() {
+        let use_case = FakeUseCase::new([Err(SyncMarketingConsentIntentError::Transaction(
+            Box::new(sqlx::Error::Io(std::io::Error::other(
+                "SENTINEL_PAYLOAD_TOKEN_person@example.com",
+            ))),
+        ))]);
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(
+            events([(Some("retry"), valid_body())]),
+            &use_case,
+            &RecordingCustody::default(),
+        )
+        .await
+        .expect("batch response");
+        drop(guard);
+
+        assert_eq!(failure_ids(response), ["retry"]);
+        let failures = logs.events_where(
+            "message",
+            "Marketing consent sync intent remains unfinished",
+        );
+        assert_eq!(1, failures.len());
+        assert_eq!(Some("intent_transaction"), failures[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), failures[0]["dependency"].as_str());
+        assert_eq!(Some("io"), failures[0]["error_category"].as_str());
+        assert!(!logs.text().contains("SENTINEL"));
+    }
+
+    #[tokio::test]
+    async fn should_attribute_provider_and_persistence_failures_to_their_system() {
+        let cases = [
+            (
+                SyncMarketingConsentIntentError::ProviderReadFailed(
+                    MarketingEmailConsentError::Throttled { status: Some(429) },
+                ),
+                ("provider_read", "loops", "throttled", Some(429)),
+            ),
+            (
+                SyncMarketingConsentIntentError::RevokeUnconfirmed,
+                ("revoke_reconciliation", "loops", "revoke_unconfirmed", None),
+            ),
+            (
+                SyncMarketingConsentIntentError::PersistenceFailed(Box::new(sqlx::Error::Io(
+                    std::io::Error::other("SENTINEL_PAYLOAD_TOKEN_person@example.com"),
+                ))),
+                ("intent_persistence", "postgres", "io", None),
+            ),
+        ];
+        for (error, (stage, dependency, category, http_status)) in cases {
+            let use_case = FakeUseCase::new([Err(error)]);
+            let (logs, guard) = CapturedLogs::start();
+
+            let response = handler(
+                events([(Some("retry"), valid_body())]),
+                &use_case,
+                &RecordingCustody::default(),
+            )
+            .await
+            .expect("batch response");
+            drop(guard);
+
+            assert_eq!(failure_ids(response), ["retry"]);
+            let failures = logs.events_where(
+                "message",
+                "Marketing consent sync intent remains unfinished",
+            );
+            assert_eq!(1, failures.len(), "{stage}");
+            assert_eq!(Some(stage), failures[0]["stage"].as_str());
+            assert_eq!(Some(dependency), failures[0]["dependency"].as_str());
+            assert_eq!(Some(category), failures[0]["error_category"].as_str());
+            assert_eq!(
+                http_status,
+                failures[0]
+                    .get("http_status")
+                    .and_then(|status| status.as_u64())
+            );
+            assert!(!logs.text().contains("SENTINEL"), "{stage}");
+        }
+    }
 
     #[tokio::test]
     async fn acknowledges_only_confirmed_terminal_results() {

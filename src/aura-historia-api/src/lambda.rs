@@ -322,7 +322,7 @@ mod tests {
         use std::error::Error;
         let result = compose_router_with_budget(Some(Duration::from_secs(1)), || async {
             Err::<Router, _>(aura_historia_runtime::RuntimeError::CredentialsRefresh(
-                platform_postgres::PostgresCredentialRefreshError,
+                platform_postgres::PostgresCredentialRefreshError::Unavailable,
             ))
         })
         .await;
