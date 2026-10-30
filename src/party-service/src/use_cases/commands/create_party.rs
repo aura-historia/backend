@@ -1,11 +1,12 @@
-use crate::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory};
+use crate::party_creation::insert_new_party;
+use crate::ports::{PartyRepositoryError, PartyRepositoryFactory};
 use application::error::{BoxError, static_error};
 use application::operation_context::{
     CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
 };
 use application::transaction::{Transaction, UnitOfWork};
 use party_core::{
-    party::{NewParty, Party, PartyContact},
+    party::{NewParty, PartyContact},
     party_id::PartyId,
     party_name::PartyName,
 };
@@ -107,35 +108,21 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let party = Party::create(NewParty {
-            id: PartyId::new(),
-            name: command.name,
-            contact: command.contact,
-        });
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|source| CreatePartyError::BeginTransactionFailed(Box::new(source)))?;
 
-        if self
-            .parties
-            .in_transaction(&mut tx)
-            .find_by_slug(party.slug_id())
-            .await?
-            .is_some()
-        {
-            return Err(CreatePartyError::SlugConflict {
-                source: static_error("party slug already exists"),
-            });
-        }
-
-        let result = self
-            .parties
-            .in_transaction(&mut tx)
-            .insert(&party)
-            .await?
-            .into();
+        let stored = insert_new_party(
+            &mut self.parties.in_transaction(&mut tx),
+            NewParty {
+                id: PartyId::new(),
+                name: command.name,
+                contact: command.contact,
+            },
+        )
+        .await?;
 
         tx.commit()
             .await
@@ -145,12 +132,12 @@ where
             event = "party.created",
             actor_type = context.principal.kind(),
             actor_id = %context.principal.label(),
-            party_id = %party.id(),
-            party_slug_id = %party.slug_id(),
+            party_id = %stored.party.id(),
+            party_slug_id = %stored.party.slug_id(),
             outcome = "success",
         );
 
-        Ok(result)
+        Ok(stored.into())
     }
 }
 
@@ -224,9 +211,10 @@ use crate::use_cases::queries::get_party::PartyDetailsView;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{PartyStorageVersion, StoredParty};
+    use crate::ports::{PartyRepository, PartyStorageVersion, StoredParty};
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
+    use party_core::party::Party;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
     use user_service::use_cases::queries::check_user_admin::CheckUserAdminResult;

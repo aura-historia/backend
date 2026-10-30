@@ -7,9 +7,10 @@ use application::{
     operation_context::{CredentialCapability, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
-use listing_source_core::{ListingSource, ListingSourceId, NewListingSource};
-use listing_source_service::ports::{
-    ListingIngestionConfiguration, ListingSourceIngestionConfigurations,
+use listing_source_core::{ListingSourceId, NewListingSource};
+use listing_source_service::{
+    listing_source_creation::insert_new_listing_source,
+    ports::{ListingIngestionConfiguration, ListingSourceIngestionConfigurations},
 };
 use notification_core::notification::{
     Notification, NotificationContent, PartnershipApplicationDecision,
@@ -28,10 +29,8 @@ use partnership_core::{
     partnership_application_state::PartnershipApplicationState,
     partnership_id::PartnershipId,
 };
-use party_core::{
-    party::{NewParty, Party},
-    party_id::PartyId,
-};
+use party_core::{party::NewParty, party_id::PartyId};
+use party_service::party_creation::insert_new_party;
 use user_service::ports::UserAdminReaderFactory;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,17 +211,16 @@ where
                     party,
                     listing_source,
                 } => {
-                    let party = Party::create(NewParty {
-                        id: PartyId::new(),
-                        name: party.name,
-                        contact: party.contact,
-                    });
-                    let party = self
-                        .parties
-                        .in_transaction(&mut tx)
-                        .insert(&party)
-                        .await?
-                        .party;
+                    let party = insert_new_party(
+                        &mut self.parties.in_transaction(&mut tx),
+                        NewParty {
+                            id: PartyId::new(),
+                            name: party.name,
+                            contact: party.contact,
+                        },
+                    )
+                    .await?
+                    .party;
                     let config = ListingSourceIngestionConfigurations(
                         listing_source
                             .requested_ingestion_methods
@@ -239,25 +237,25 @@ where
                             })
                             .collect(),
                     );
-                    let source = ListingSource::create(NewListingSource {
-                        id: ListingSourceId::new(),
-                        name: listing_source.name,
-                        operator_party_id: party.id(),
-                        ingestion_methods: config.methods().map_err(|source| {
-                            ApprovePartnershipApplicationError::InvalidPersistedState {
-                                source: application::error::box_error(source),
-                            }
-                        })?,
-                        presentation: listing_source.presentation,
-                        platform_technology: None,
-                        referral_configuration: None,
-                    });
-                    let source = self
-                        .sources
-                        .in_transaction(&mut tx)
-                        .insert(&source, &config)
-                        .await?
-                        .source;
+                    let source = insert_new_listing_source(
+                        &mut self.sources.in_transaction(&mut tx),
+                        NewListingSource {
+                            id: ListingSourceId::new(),
+                            name: listing_source.name,
+                            operator_party_id: party.id(),
+                            ingestion_methods: config.methods().map_err(|source| {
+                                ApprovePartnershipApplicationError::InvalidPersistedState {
+                                    source: application::error::box_error(source),
+                                }
+                            })?,
+                            presentation: listing_source.presentation,
+                            platform_technology: None,
+                            referral_configuration: None,
+                        },
+                        &config,
+                    )
+                    .await?
+                    .source;
                     (
                         party.id(),
                         party.name().clone(),
@@ -458,7 +456,7 @@ mod tests {
     };
     use domain_primitives::versioned::Versioned;
     use listing_source_core::{
-        ListingIngestionMethod, ListingSourceName, ListingSourcePresentation,
+        ListingIngestionMethod, ListingSource, ListingSourceName, ListingSourcePresentation,
     };
     use listing_source_service::ports::{
         ListingIngestionConfiguration, ListingSourceIngestionConfigurations,
