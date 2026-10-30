@@ -10,15 +10,18 @@
 //! Its settings are environment variables, listed with their defaults in
 //! `docs/crawler/operations.md#review-agent-runner`; it exits with 2 on a setting it does not
 //! accept. The service logs a failed pass and tries again after the interval; `--once` exits with
-//! 1 when it refuses to run or its pass fails. SIGTERM or SIGINT stops it at once with its agent
-//! processes (exit code 143 or 130); the cooldowns and pauses it set are already written. The JSON
-//! log goes to stdout.
+//! 1 when it refuses to run or its pass fails. SIGTERM or SIGINT stops it: it starts no further
+//! agent process, stops the running ones as at their timeout, SIGINT first, and records their
+//! cost, then exits with 143 or 130 within [`STOP_DEADLINE`]; what still runs then is killed, and
+//! a second signal does not shorten the stop. The cooldowns and pauses it set are already written.
+//! The JSON log goes to stdout.
 
 use crawler::review_agent_runner::{
-    RunMode, RunnerSettings, current_location, run, run_every_interval,
+    RunMode, RunnerError, RunnerSettings, RunnerStop, STOP_DEADLINE, current_location, run,
+    run_every_interval,
 };
 use std::process::ExitCode;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -42,38 +45,68 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let stop = RunnerStop::default();
     let work = async {
         match settings.mode {
-            RunMode::Once => run(&settings).await.map(drop),
+            RunMode::Once => run(&settings, &stop).await.map(drop),
             RunMode::Loop => {
-                run_every_interval(&settings).await;
+                run_every_interval(&settings, &stop).await;
                 Ok(())
             }
         }
     };
-    tokio::select! {
-        outcome = work => match outcome {
-            Ok(_) => ExitCode::SUCCESS,
+    tokio::pin!(work);
+    let (signal, exit_code) = tokio::select! {
+        outcome = &mut work => return match outcome {
+            Ok(()) => ExitCode::SUCCESS,
             Err(run_error) => {
-                error!(
-                    error = %run_error,
-                    cause = ?std::error::Error::source(&run_error),
-                    "Review agent runner stopped"
-                );
+                log_failed_run(&run_error);
                 ExitCode::FAILURE
             }
         },
-        (signal, exit_code) = stop_signal() => {
-            // Leaving the select drops the run: each agent process it waits for is killed, and
-            // its `review-mcp` ends with the CLI's stdio.
-            warn!(signal, "Review agent runner stopped by a signal, with its agent processes");
-            ExitCode::from(exit_code)
-        }
+        stopped_by = stop_signal() => stopped_by,
+    };
+    stop_work(&stop, work, signal).await;
+    warn!(signal, "Review agent runner stopped by a signal");
+    ExitCode::from(exit_code)
+}
+
+/// Requests `stop` on `signal` and waits for `work` to stop its agent processes and record them,
+/// for at most [`STOP_DEADLINE`]. Work still running then is dropped as the runner exits, which
+/// kills every agent process group left.
+async fn stop_work(
+    stop: &RunnerStop,
+    work: impl Future<Output = Result<(), RunnerError>>,
+    signal: &str,
+) {
+    info!(
+        signal,
+        stop_deadline_seconds = STOP_DEADLINE.as_secs(),
+        "Review agent runner stopping: no agent process starts, and the running ones are stopped and recorded"
+    );
+    stop.request();
+    match tokio::time::timeout(STOP_DEADLINE, work).await {
+        Ok(Ok(())) => {}
+        Ok(Err(run_error)) => log_failed_run(&run_error),
+        Err(_) => warn!(
+            stop_deadline_seconds = STOP_DEADLINE.as_secs(),
+            "Review agent runner's stop outlasted its deadline; what still runs is killed"
+        ),
     }
 }
 
+fn log_failed_run(run_error: &RunnerError) {
+    error!(
+        error = %run_error,
+        cause = ?std::error::Error::source(run_error),
+        "Review agent runner stopped"
+    );
+}
+
 /// The first stop signal and the exit code it ends the runner with. Without the handlers it
-/// never comes, and the signals keep their default action.
+/// never comes, and the signals keep their default action. Once installed, the handlers stay for
+/// the process: a later signal, such as `dev`'s SIGTERM after the Ctrl+C that reached its whole
+/// terminal, is ignored and does not shorten the stop.
 async fn stop_signal() -> (&'static str, u8) {
     #[cfg(unix)]
     {

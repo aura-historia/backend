@@ -5,7 +5,9 @@
 //! runner until its reset. Whether a reviewer decided is what the review's event trail records,
 //! not what its report says the console answered. A review that waits for a human is no agent
 //! work: the pass starts no process for it, nor a reviewer process once the author's pass handed
-//! it to a human, so it neither fails nor cools down.
+//! it to a human, so it neither fails nor cools down. Once the runner stops, the pass starts no
+//! process and stops the running ones, which it records with their cost; their reviews do not
+//! cool down.
 
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
@@ -18,6 +20,7 @@ use super::queue::{
 use super::reports::{AgentReport, AuthorAction};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, RunnerState, save_state};
+use super::stop::RunnerStop;
 use super::wire_name as name;
 use crate::review::agent_decisions::AgentLimits;
 use crate::review::model::{ReviewActor, ReviewEventAction};
@@ -52,6 +55,8 @@ pub struct PassSummary {
 pub enum PassStop {
     /// A usage limit of the CLI's login pauses the runner until then.
     Paused(OffsetDateTime),
+    /// The runner stops.
+    RunnerStop,
 }
 
 /// What a pass works with and changes: the runner's state and ledger.
@@ -60,6 +65,7 @@ struct Pass<'a> {
     console: &'a ConsoleClient,
     /// The limits of the agents' decisions the console applies, which the prompts tell them.
     limits: AgentLimits,
+    runner_stop: &'a RunnerStop,
     shared: Mutex<Shared>,
 }
 
@@ -72,22 +78,25 @@ struct Shared {
 
 /// How one agent process of a review ended, for the review's next step.
 enum Step {
-    /// The pass started no process: it is paused.
+    /// The pass started no process: it is paused or the runner stops.
     NotStarted,
     Reported(AgentReport),
     /// It ended without a decision; its review cools down.
     NoDecision,
     /// The CLI's login ran into a usage limit; the runner pauses.
     UsageLimit,
+    /// The runner's stop stopped it; its review neither goes on nor cools down.
+    RunnerStop,
 }
 
 /// Works the pending reviews `console` lists with the author token, telling the agents the
-/// console's `limits`. The state and ledger come back changed even when the pass fails, so a pause
-/// or cooldown it set is kept.
+/// console's `limits`, until `runner_stop` is requested. The state and ledger come back changed
+/// even when the pass fails, so a pause or cooldown it set is kept.
 pub async fn work_pending_reviews(
     settings: &RunnerSettings,
     console: &ConsoleClient,
     limits: AgentLimits,
+    runner_stop: &RunnerStop,
     state: RunnerState,
     ledger: ProcessLedger,
 ) -> (Result<PassSummary, PassError>, RunnerState, ProcessLedger) {
@@ -95,6 +104,7 @@ pub async fn work_pending_reviews(
         settings,
         console,
         limits,
+        runner_stop,
         shared: Mutex::new(Shared {
             state,
             ledger,
@@ -168,13 +178,16 @@ impl Pass<'_> {
             .buffer_unordered(concurrency)
             .collect::<Vec<()>>()
             .await;
+        if self.runner_stop.is_requested() {
+            self.with(|shared| shared.summary.stopped = Some(PassStop::RunnerStop));
+        }
         Ok(())
     }
 
     /// The author's pass, then the reviewer's when the author left a candidate to decide.
     async fn work_review(&self, review: QueuedReview) {
         let author_report = match self.run_process(AgentRole::Author, &review).await {
-            Step::NotStarted | Step::UsageLimit => return,
+            Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return,
             Step::NoDecision => {
                 self.cool_down(&review);
                 return;
@@ -193,7 +206,7 @@ impl Pass<'_> {
         }
         let reviewer_started = OffsetDateTime::now_utc();
         match self.run_process(AgentRole::Reviewer, &review).await {
-            Step::NotStarted | Step::UsageLimit => {}
+            Step::NotStarted | Step::UsageLimit | Step::RunnerStop => {}
             Step::Reported(_) | Step::NoDecision => {
                 if self.reviewer_decided(&review, reviewer_started).await {
                     self.with(|shared| shared.summary.decided += 1);
@@ -284,7 +297,12 @@ impl Pass<'_> {
         let mut record = ProcessRecord::started(review, role, contract.version);
         let step = match agent_command(self.settings, &self.limits, role, review) {
             Ok(command) => {
-                let output = run_agent(&command, self.settings.process_timeout).await;
+                let output = run_agent(
+                    &command,
+                    self.settings.process_timeout,
+                    self.runner_stop.requested(),
+                )
+                .await;
                 self.read_output(&mut record, role, review, output)
             }
             Err(error) => record.failed(error.to_string()),
@@ -326,6 +344,10 @@ impl Pass<'_> {
                     "stopped after its timeout of {} minutes",
                     self.settings.process_timeout.as_secs() / 60
                 )),
+                ChildStop::RunnerStop => {
+                    record.failed("stopped when the runner stopped".to_owned());
+                    Step::RunnerStop
+                }
             };
         }
         match envelope {
@@ -349,10 +371,11 @@ impl Pass<'_> {
         }
     }
 
-    /// Charges a process that was stopped at its timeout, or killed by a signal, and reported no
-    /// cost the highest cost a process reported in the ledger's window, so the rolling sums count
-    /// it. The CLI reports a cost only in its result envelope; the charge is an estimate, which a
-    /// process that ran longer than any that reported may exceed, and zero while none reported.
+    /// Charges a process that was stopped at its timeout or by the runner's stop, or killed by a
+    /// signal, and reported no cost the highest cost a process reported in the ledger's window, so
+    /// the rolling sums count it. The CLI reports a cost only in its result envelope; the charge is
+    /// an estimate, which a process that ran longer than any that reported may exceed, and zero
+    /// while none reported.
     fn charge_unreported_cost(&self, record: &mut ProcessRecord) {
         if record.total_cost_usd > 0.0 {
             return;
@@ -486,6 +509,9 @@ impl Pass<'_> {
 
     /// Why no further process may start at `now`, if any.
     fn stop(&self, now: OffsetDateTime) -> Option<PassStop> {
+        if self.runner_stop.is_requested() {
+            return Some(PassStop::RunnerStop);
+        }
         self.with(|shared| {
             shared
                 .state
@@ -548,6 +574,7 @@ impl PassStop {
     pub fn describe(stop: Option<Self>) -> String {
         match stop {
             Some(Self::Paused(until)) => format!("paused until {}", timestamp(until)),
+            Some(Self::RunnerStop) => "the runner stops".to_owned(),
             None => String::new(),
         }
     }
