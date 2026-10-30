@@ -12,10 +12,14 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::OnceCell;
 
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
+
+/// Bounds each listing read on the shared OpenSearch client (search, similar listings and
+/// readiness), from connecting until the response body has been read.
+pub const PRODUCT_LISTING_OPENSEARCH_TIMEOUT: Duration = Duration::from_secs(4);
 
 impl ProductListingDependencies {
     pub fn from_env(config: &ProductListingConfig) -> Result<Self, ProductListingProviderError> {
@@ -53,11 +57,13 @@ where
         }
     })?;
     let stage = get("STAGE").unwrap_or_else(|| "prod".to_owned());
+    let builder = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint))
+        .timeout(PRODUCT_LISTING_OPENSEARCH_TIMEOUT);
     let transport = if stage == "ephemeral" {
-        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint)).build()
+        builder.build()
     } else {
         let mut required = |name| get(name).ok_or(ProductListingProviderError::MissingEnv { name });
-        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint))
+        builder
             .auth(Credentials::Basic(
                 required("OPENSEARCH_USERNAME")?,
                 required("OPENSEARCH_PASSWORD")?,
@@ -107,10 +113,10 @@ impl LazyVertexAiEmbeddingGenerator {
     async fn generator(&self) -> Result<&VertexAiEmbeddingGenerator, EmbeddingError> {
         self.generator
             .get_or_try_init(|| async {
-                Ok(VertexAiEmbeddingGenerator::new(
+                VertexAiEmbeddingGenerator::new(
                     self.config.clone(),
                     self.adc_provider.credentials()?,
-                ))
+                )
             })
             .await
     }
@@ -184,6 +190,30 @@ mod tests {
             _ => panic!("unexpected configuration read: {name}"),
         });
         assert!(client.is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_fail_listing_reads_at_the_opensearch_timeout_when_opensearch_stalls()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // A listener that never accepts completes the TCP handshake but never answers.
+        let stalled = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let endpoint = format!("http://{}", stalled.local_addr()?);
+        let client = opensearch_client(|name| match name {
+            "OPENSEARCH_ENDPOINT_URL" => Some(endpoint.clone()),
+            "STAGE" => Some("ephemeral".to_owned()),
+            _ => None,
+        })?;
+        let started = tokio::time::Instant::now();
+
+        let result = tokio::time::timeout(
+            PRODUCT_LISTING_OPENSEARCH_TIMEOUT * 2,
+            client.search(opensearch::SearchParts::None).send(),
+        )
+        .await?;
+
+        assert!(result.is_err_and(|error| error.is_timeout()));
+        assert!(started.elapsed() >= PRODUCT_LISTING_OPENSEARCH_TIMEOUT);
+        Ok(())
     }
 
     #[test]

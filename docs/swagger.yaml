@@ -3553,7 +3553,7 @@ paths:
       summary: Simple product search via query parameters
       description:
         "Performs canonical ProductListing search with query parameters. Text queries combine BM25 and embedding
-        KNN retrieval when embedding generation succeeds; otherwise the backend falls back to BM25. Explicit non-score sorts
+        KNN retrieval when embedding generation succeeds within a few seconds; otherwise the backend falls back to BM25. Explicit non-score sorts
         use BM25. Any request with an Authorization header is private and not stored, including valid credentials that add
         user state. Anonymous successful 200 responses use `public, max-age=0, s-maxage=60, stale-if-error=0`; errors use `private, no-store`.
         Geographic predicates are AND; values in each country or subdivision set are OR.

@@ -109,6 +109,6 @@ impl VertexConfig {
         Ok(VertexAiEmbeddingGenerator::new(
             VertexAiEmbeddingConfig::new(self.project_id.clone(), self.location.clone()),
             credentials,
-        ))
+        )?)
     }
 }
