@@ -1,11 +1,13 @@
-//! What the review agents may decide on their own: whether the reviewer agent's approvals and
-//! rejections are taken at all, which only `agent` authoring mode turns on, how many of them per
-//! hour, how recent the live matrix a product-schema approval rests on must be, how many sample
-//! URLs of each label a URL-pattern approval needs, and how many needs-repair rounds the agents
-//! give one review before it waits for a human. The operator contract is in
-//! `docs/crawler/operations.md` (review agents); the checks a guarded approval passes are in
-//! [`crate::review::approval_guard`].
+//! What the review agents may decide on their own in `agent` authoring mode: how many approvals
+//! and rejections per hour, how recent the live matrix a product-schema approval rests on must
+//! be, how many sample URLs of each label a URL-pattern approval needs, and how many needs-repair
+//! rounds the agents give one review before it waits for a human. The composition root builds the
+//! one [`AgentDecisionPolicy`] of a start from the authoring mode and these settings, and the
+//! review console, the scraper's review gate and the spider share it through the one review
+//! repository. The operator contract is in `docs/crawler/operations.md` (review agents); the
+//! checks an agent approval passes are in [`crate::review::approval_guard`].
 
+use crate::authoring::CrawlerAuthoringMode;
 use crate::review::access::{ReviewServerConfigError, positive_number};
 use crate::review::model::STATUS_PENDING_REVIEW;
 use std::num::NonZeroU32;
@@ -20,26 +22,6 @@ const DEFAULT_MAX_DECISIONS_PER_HOUR: NonZeroU32 = NonZeroU32::new(20).unwrap();
 const DEFAULT_MATRIX_MAX_AGE_MINUTES: NonZeroU32 = NonZeroU32::new(30).unwrap();
 pub const DEFAULT_MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 const DEFAULT_MAX_REPAIR_ROUNDS: NonZeroU32 = NonZeroU32::new(3).unwrap();
-
-/// Whether the review agents' approvals and rejections are taken.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AgentApprovals {
-    /// Refused: a human decides every review.
-    #[default]
-    Off,
-    /// Taken when the server's deterministic checks pass: the review console of `agent` authoring
-    /// mode.
-    Guarded,
-}
-
-impl AgentApprovals {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::Guarded => "guarded",
-        }
-    }
-}
 
 /// The limits of the review agents' own decisions, approvals and rejections alike: the
 /// `CRAWLER_REVIEW_AGENT_*` settings.
@@ -99,38 +81,32 @@ impl AgentLimits {
     }
 }
 
-/// What the review agents may decide on their own.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The review agents' decision policy of one crawler start, which the composition root builds
+/// once from the authoring mode and the [`AgentLimits`] settings and every component shares. Only
+/// `agent` mode has review agents. In every other mode no request acts as an agent, so the limits
+/// bind nobody, and no review waits for a human, since a human decides every review.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AgentDecisionPolicy {
-    pub approvals: AgentApprovals,
-    pub limits: AgentLimits,
-}
-
-impl Default for AgentDecisionPolicy {
-    /// Agent decisions off: the agent decides nothing until an operator opts in.
-    fn default() -> Self {
-        Self {
-            approvals: AgentApprovals::Off,
-            limits: AgentLimits::default(),
-        }
-    }
+    authoring: CrawlerAuthoringMode,
+    limits: AgentLimits,
 }
 
 impl AgentDecisionPolicy {
-    /// Reads the limits of agent decisions, which are off until the review console of `agent`
-    /// authoring mode turns them on.
-    pub fn from_env() -> Result<Self, ReviewServerConfigError> {
-        Ok(Self {
-            approvals: AgentApprovals::Off,
-            limits: AgentLimits::from_env()?,
-        })
+    pub const fn new(authoring: CrawlerAuthoringMode, limits: AgentLimits) -> Self {
+        Self { authoring, limits }
+    }
+
+    pub const fn limits(&self) -> &AgentLimits {
+        &self.limits
     }
 
     /// Whether a review in `status` that the agents gave `agent_rounds` needs-repair verdicts
-    /// since a human last changed or judged it waits for a human: it is pending and their
-    /// back-and-forth on it reached the cap.
+    /// since a human last changed or judged it waits for a human: the review agents work the
+    /// reviews, it is pending and their back-and-forth on it reached the cap.
     pub fn waits_for_human(&self, status: &str, agent_rounds: u32) -> bool {
-        status == STATUS_PENDING_REVIEW && agent_rounds >= self.limits.max_repair_rounds.get()
+        self.authoring.has_review_agents()
+            && status == STATUS_PENDING_REVIEW
+            && agent_rounds >= self.limits.max_repair_rounds.get()
     }
 }
 
@@ -147,7 +123,7 @@ mod tests {
 
     // Tests that touch the process environment are serialized, so no test reads the
     // environment while another one changes it.
-    fn policy_from(env: &[(&str, &str)]) -> Result<AgentDecisionPolicy, ReviewServerConfigError> {
+    fn limits_from(env: &[(&str, &str)]) -> Result<AgentLimits, ReviewServerConfigError> {
         let set = |name: &str, value: Option<&str>| match value {
             Some(value) => unsafe { std::env::set_var(name, value) },
             None => unsafe { std::env::remove_var(name) },
@@ -158,16 +134,16 @@ mod tests {
         for (name, value) in env {
             set(name, Some(value));
         }
-        let policy = AgentDecisionPolicy::from_env();
+        let limits = AgentLimits::from_env();
         for name in SETTINGS {
             set(name, None);
         }
-        policy
+        limits
     }
 
     #[test]
     #[serial_test::serial]
-    fn should_turn_agent_decisions_off_with_twenty_per_hour_when_nothing_is_set() {
+    fn should_take_twenty_decisions_per_hour_and_the_other_defaults_when_nothing_is_set() {
         for env in [
             &[][..],
             &[
@@ -177,22 +153,20 @@ mod tests {
                 (AGENT_MAX_REPAIR_ROUNDS_ENV, "  "),
             ][..],
         ] {
-            let policy = policy_from(env).unwrap_or_else(|error| panic!("{env:?}: {error}"));
+            let limits = limits_from(env).unwrap_or_else(|error| panic!("{env:?}: {error}"));
 
-            assert_eq!(policy, AgentDecisionPolicy::default(), "{env:?}");
-            assert_eq!(policy.approvals, AgentApprovals::Off);
-            assert_eq!(policy.limits.max_decisions_per_hour.get(), 20);
-            assert_eq!(policy.limits.max_matrix_age(), Duration::from_secs(30 * 60));
-            assert_eq!(policy.limits.min_labelled_urls.get(), 3);
-            assert_eq!(policy.limits.max_repair_rounds.get(), 3);
+            assert_eq!(limits, AgentLimits::default(), "{env:?}");
+            assert_eq!(limits.max_decisions_per_hour.get(), 20);
+            assert_eq!(limits.max_matrix_age(), Duration::from_secs(30 * 60));
+            assert_eq!(limits.min_labelled_urls.get(), 3);
+            assert_eq!(limits.max_repair_rounds.get(), 3);
         }
     }
 
-    /// The limits are read from the environment; whether agents decide at all is not.
     #[test]
     #[serial_test::serial]
-    fn should_read_the_limits_of_agent_decisions_and_leave_them_off() {
-        let policy = policy_from(&[
+    fn should_read_the_limits_of_agent_decisions() {
+        let limits = limits_from(&[
             (AGENT_MAX_DECISIONS_PER_HOUR_ENV, "5"),
             (AGENT_MATRIX_MAX_AGE_MINUTES_ENV, "10"),
             (AGENT_MIN_LABELLED_URLS_ENV, " 4 "),
@@ -201,15 +175,12 @@ mod tests {
         .unwrap_or_else(|error| panic!("agent decision limits: {error}"));
 
         assert_eq!(
-            policy,
-            AgentDecisionPolicy {
-                approvals: AgentApprovals::Off,
-                limits: AgentLimits {
-                    max_decisions_per_hour: NonZeroU32::new(5).unwrap(),
-                    matrix_max_age_minutes: NonZeroU32::new(10).unwrap(),
-                    min_labelled_urls: NonZeroU32::new(4).unwrap(),
-                    max_repair_rounds: NonZeroU32::new(2).unwrap(),
-                },
+            limits,
+            AgentLimits {
+                max_decisions_per_hour: NonZeroU32::new(5).unwrap(),
+                matrix_max_age_minutes: NonZeroU32::new(10).unwrap(),
+                min_labelled_urls: NonZeroU32::new(4).unwrap(),
+                max_repair_rounds: NonZeroU32::new(2).unwrap(),
             }
         );
     }
@@ -253,24 +224,28 @@ mod tests {
         #[case] value: &'static str,
         #[case] message: &str,
     ) {
-        let error = policy_from(&[(name, value)])
+        let error = limits_from(&[(name, value)])
             .err()
             .unwrap_or_else(|| panic!("{name}={value} must fail startup"));
 
         assert_eq!(error.to_string(), message);
     }
 
+    fn capped_at_three(authoring: CrawlerAuthoringMode) -> AgentDecisionPolicy {
+        AgentDecisionPolicy::new(
+            authoring,
+            AgentLimits {
+                max_repair_rounds: NonZeroU32::new(3).unwrap(),
+                ..AgentLimits::default()
+            },
+        )
+    }
+
     /// The verdict that reaches the cap is still taken; from then on the pending review waits for a
     /// human, and a decided review waits for nobody.
     #[test]
     fn should_hand_a_review_to_a_human_once_the_agents_reached_the_cap() {
-        let policy = AgentDecisionPolicy {
-            limits: AgentLimits {
-                max_repair_rounds: NonZeroU32::new(3).unwrap(),
-                ..AgentLimits::default()
-            },
-            ..AgentDecisionPolicy::default()
-        };
+        let policy = capped_at_three(CrawlerAuthoringMode::Agent);
 
         assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, 0));
         assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, 2));
@@ -279,5 +254,22 @@ mod tests {
         for decided in ["APPROVED", "REJECTED", "SUPERSEDED"] {
             assert!(!policy.waits_for_human(decided, 3), "{decided}");
         }
+    }
+
+    /// Outside `agent` mode a human decides every review, so none waits for a human, not even one
+    /// that an earlier start's agents sent back and forth up to the cap.
+    #[test]
+    fn should_hand_no_review_to_a_human_where_no_agent_works_the_reviews() {
+        for authoring in [
+            CrawlerAuthoringMode::Auto,
+            CrawlerAuthoringMode::Review,
+            CrawlerAuthoringMode::Manual,
+        ] {
+            assert!(
+                !capped_at_three(authoring).waits_for_human(STATUS_PENDING_REVIEW, 3),
+                "{authoring:?}"
+            );
+        }
+        assert!(!AgentDecisionPolicy::default().waits_for_human(STATUS_PENDING_REVIEW, 3));
     }
 }

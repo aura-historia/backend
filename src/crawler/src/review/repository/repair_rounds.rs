@@ -70,7 +70,7 @@ pub(super) async fn refuse_agent_while_human_required(
         return Err(ReviewRepositoryError::HumanRequired {
             review_id,
             agent_rounds,
-            max_repair_rounds: agent_decisions.limits.max_repair_rounds.get(),
+            max_repair_rounds: agent_decisions.limits().max_repair_rounds.get(),
         });
     }
     Ok(())

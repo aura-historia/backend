@@ -171,10 +171,6 @@ pub enum ReviewRepositoryError {
         acknowledged: ReviewPageCoverage,
     },
     #[error(
-        "the review agents' approvals and rejections are taken only with CRAWLER_AUTHORING_MODE=agent; stage the candidate and leave the decision to a human"
-    )]
-    AgentDecisionsOff,
-    #[error(
         "a review agent cannot acknowledge incomplete coverage; only a human approves a candidate that does not cover every review page"
     )]
     AgentCoverageAcknowledgement,
@@ -251,8 +247,9 @@ pub const MAX_WAITING_PAGES: usize = 6;
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
     pool: PgPool,
-    /// What the review agents may decide; agent decisions are off unless the review console of
-    /// `agent` authoring mode configures them.
+    /// The review agents' decision policy of the start, which every copy of the repository the
+    /// crawler wires shares: whether a review waits for a human and the limits of the agents'
+    /// decisions. Without review agents unless [`Self::with_agent_decisions`] sets it.
     agent_decisions: AgentDecisionPolicy,
     /// How a URL-pattern review's sample and, once a decision goes live, the domain's stored URLs
     /// are classified: as the spider classifies them in the configured authoring mode.
@@ -286,12 +283,19 @@ impl CrawlerReviewRepository {
         }
     }
 
-    /// This repository deciding the review agents' approvals and rejections by `agent_decisions`.
+    /// This repository under the review agents' decision policy `agent_decisions`. The
+    /// composition root sets it once, before it hands copies to the console, the scraper's review
+    /// gate and the spider.
     pub fn with_agent_decisions(self, agent_decisions: AgentDecisionPolicy) -> Self {
         Self {
             agent_decisions,
             ..self
         }
+    }
+
+    /// The review agents' decision policy this repository applies.
+    pub fn agent_decisions(&self) -> AgentDecisionPolicy {
+        self.agent_decisions
     }
 
     pub async fn has_pending_review(

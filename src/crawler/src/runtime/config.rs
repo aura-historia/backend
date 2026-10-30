@@ -3,6 +3,8 @@
 use super::shutdown::DEFAULT_SHUTDOWN_GRACE_PERIOD;
 use crate::authoring::CrawlerAuthoringMode;
 use crate::llm_runtime::CrawlerLlmRateLimitConfig;
+use crate::review::agent_decisions::AgentLimits;
+use crate::review::server::ReviewServerConfigError;
 use crate::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiConfigError, CrawlerVertexAiModels};
 use std::time::Duration;
 use tracing::info;
@@ -20,6 +22,9 @@ const REMOVED_ENV: [&str; 3] = [
 /// Environment settings shared by every crawler entry point.
 pub struct CrawlerRuntimeConfig {
     pub authoring: CrawlerAuthoringMode,
+    /// The limits of the review agents' decisions, which bind the agents in `agent` mode; with
+    /// the authoring mode they make the one agent decision policy [`build`](super::build) wires.
+    pub agent_limits: AgentLimits,
     pub llm: CrawlerLlmConfig,
     /// How long running work may take to finish after the first SIGTERM or SIGINT.
     pub shutdown_grace_period: Duration,
@@ -67,11 +72,14 @@ pub enum CrawlerRuntimeConfigError {
     RemovedSetting { name: &'static str },
     #[error(transparent)]
     VertexAi(#[from] CrawlerVertexAiConfigError),
+    #[error(transparent)]
+    AgentLimits(#[from] ReviewServerConfigError),
 }
 
 impl CrawlerRuntimeConfig {
-    /// Reads the authoring mode and, unless it is `manual` or `agent`, the Vertex AI selection and
-    /// LLM rate limits, then logs the effective configuration that [`build`](super::build) applies.
+    /// Reads the authoring mode, the limits of the review agents' decisions and, unless the mode is
+    /// `manual` or `agent`, the Vertex AI selection and LLM rate limits, then logs the effective
+    /// configuration that [`build`](super::build) applies.
     /// The shutdown grace period is no environment setting; it starts at
     /// [`DEFAULT_SHUTDOWN_GRACE_PERIOD`].
     pub fn from_env() -> Result<Self, CrawlerRuntimeConfigError> {
@@ -86,6 +94,7 @@ impl CrawlerRuntimeConfig {
             CrawlerAuthoringMode::parse,
             &CrawlerAuthoringMode::ALL.map(CrawlerAuthoringMode::as_str),
         )?;
+        let agent_limits = AgentLimits::from_env()?;
         let llm = if authoring.uses_llm() {
             CrawlerLlmConfig::VertexAi(CrawlerVertexAiLlmConfig::from_env()?)
         } else {
@@ -111,6 +120,7 @@ impl CrawlerRuntimeConfig {
         }
         Ok(Self {
             authoring,
+            agent_limits,
             llm,
             shutdown_grace_period: DEFAULT_SHUTDOWN_GRACE_PERIOD,
         })

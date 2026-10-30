@@ -185,7 +185,6 @@ fn remove_token_file(path: &Path) -> io::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
     use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
 
     fn console_config(auth_token: Option<&str>) -> ReviewServerConfig {
@@ -193,7 +192,6 @@ mod tests {
             bind_addr: "127.0.0.1:7878".parse().unwrap(),
             auth_token: auth_token.map(str::to_owned),
             agent_tokens: None,
-            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
             max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
         }
@@ -298,7 +296,6 @@ mod tests {
         assert!(is_token(&second_file["author"]) && is_token(&second_file["reviewer"]));
         assert_ne!(first_file, second_file, "a restart rotates the tokens");
         assert_ne!(first.agent_tokens, second.agent_tokens);
-        assert_eq!(second.agent_decisions.approvals, AgentApprovals::Guarded);
         assert_eq!(state.entries(), vec![REVIEW_AGENT_TOKEN_FILE.to_owned()]);
         #[cfg(unix)]
         {
@@ -311,8 +308,8 @@ mod tests {
         }
     }
 
-    /// Outside `agent` mode no agent acts: nothing is written, a token file an earlier start left
-    /// is removed, and the agents' decisions stay off.
+    /// Outside `agent` mode no agent acts: nothing is written and a token file an earlier start
+    /// left is removed.
     #[rstest::rstest]
     #[case::manual(CrawlerAuthoringMode::Manual)]
     #[case::review(CrawlerAuthoringMode::Review)]
@@ -337,7 +334,6 @@ mod tests {
         assert!(state.entries().is_empty(), "{:?}", state.entries());
         for config in [config, again] {
             assert_eq!(config.agent_tokens, None);
-            assert_eq!(config.agent_decisions, AgentDecisionPolicy::default());
         }
     }
 

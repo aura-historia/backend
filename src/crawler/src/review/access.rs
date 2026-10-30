@@ -4,7 +4,6 @@
 //! contract is in `docs/crawler/operations.md` (review service, review agents and review console
 //! access).
 
-use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crate::review::agent_tokens::ReviewAgentTokens;
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::live_jobs::{DEFAULT_MAX_CONCURRENT_LIVE_JOBS, MAX_CONCURRENT_LIVE_JOBS_ENV};
@@ -42,8 +41,6 @@ pub struct ReviewServerConfig {
     /// [`ReviewActor::AgentAuthor`] or [`ReviewActor::AgentReviewer`]. `None` in every other mode,
     /// where nothing acts as an agent.
     pub(super) agent_tokens: Option<ReviewAgentTokens>,
-    /// What the agents may decide on their own; with the default they decide nothing.
-    pub agent_decisions: AgentDecisionPolicy,
     /// How many live jobs (live matrix refreshes, candidate evaluations and page projections) the
     /// console runs at once, for all reviews and actors together.
     pub max_concurrent_live_jobs: NonZeroU32,
@@ -63,7 +60,6 @@ impl ReviewServerConfig {
             bind_addr,
             auth_token: token_from_env("CRAWLER_REVIEW_AUTH_TOKEN"),
             agent_tokens: None,
-            agent_decisions: AgentDecisionPolicy::from_env()?,
             max_concurrent_live_jobs: positive_number(MAX_CONCURRENT_LIVE_JOBS_ENV)?
                 .unwrap_or(DEFAULT_MAX_CONCURRENT_LIVE_JOBS),
             local_mutations_without_token: false,
@@ -90,8 +86,8 @@ impl ReviewServerConfig {
         Ok(self)
     }
 
-    /// This console opened to the author and reviewer agents with `tokens`, the reviewer agent
-    /// deciding within the approval guard: the review console of `agent` authoring mode. The
+    /// This console opened to the author and reviewer agents with `tokens`: the review console of
+    /// `agent` authoring mode, where the reviewer agent decides within the approval guard. The
     /// agents work next to a human credential for mutations, the review token or the `dev`
     /// binary's tokenless local console, so a human can always reject, restore and override what
     /// they do; without one it is refused. An unauthenticated request never acts as an agent.
@@ -104,10 +100,6 @@ impl ReviewServerConfig {
         }
         Ok(Self {
             agent_tokens: Some(tokens),
-            agent_decisions: AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
-                ..self.agent_decisions
-            },
             ..self
         })
     }
@@ -172,11 +164,6 @@ impl ReviewAccess {
     /// Whether the review agents can act on the console, which the startup log reports.
     pub(super) fn agent_access(&self) -> bool {
         self.config.agent_tokens.is_some()
-    }
-
-    /// What the review agents may decide, which the startup log reports.
-    pub(super) fn agent_decisions(&self) -> &AgentDecisionPolicy {
-        &self.config.agent_decisions
     }
 
     /// Authorizes a request and resolves who it acts as, or `None` when it is refused as
@@ -422,7 +409,6 @@ mod tests {
             bind_addr: bind_addr.parse().unwrap(),
             auth_token: auth_token.map(str::to_owned),
             agent_tokens: None,
-            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
             max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
         }
@@ -554,8 +540,8 @@ mod tests {
         }
     }
 
-    /// No console reads agent tokens or turns agent decisions on from its settings: only `agent`
-    /// authoring mode opens it to the agents it generated tokens for.
+    /// No console reads agent tokens from its settings: only `agent` authoring mode opens it to the
+    /// agents it generated tokens for.
     #[test]
     #[serial_test::serial]
     fn should_open_the_console_read_from_its_settings_to_no_agent() {
@@ -563,7 +549,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("review config: {error}"));
 
         assert_eq!(config.agent_tokens, None);
-        assert_eq!(config.agent_decisions.approvals, AgentApprovals::Off);
     }
 
     /// The agents work next to a human credential for mutations, so a human can always decide
@@ -582,7 +567,6 @@ mod tests {
 
         for opened in [&with_review_token, &local_console] {
             assert_eq!(opened.agent_tokens, Some(agent_tokens()));
-            assert_eq!(opened.agent_decisions.approvals, AgentApprovals::Guarded);
         }
         let error = refused
             .err()

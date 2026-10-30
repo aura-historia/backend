@@ -1,13 +1,12 @@
-//! The review agents' decisions and a human's restore: the reviewer agent approves and rejects
-//! only while agent decisions are `guarded`, as in `agent` authoring mode, and the author agent
-//! never; the reviewer agent changes no candidate; every approval names the candidate version it
+//! The review agents' decisions in `agent` authoring mode and a human's restore: the reviewer agent
+//! approves and rejects, and the author agent never; the reviewer agent changes no candidate; every approval names the candidate version it
 //! was based on; an agent approval passes the four-eyes rule and the approval guard on the
 //! server's own live evaluation; the agents' decisions of an hour are capped from the event trail;
 //! a review the agents sent back and forth through needs-repair up to the cap waits for a human,
 //! who hands it back; and a human restores what an approval replaced while it is still live.
 
 use crawler::authoring::CrawlerAuthoringMode;
-use crawler::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy, AgentLimits};
+use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
 use crawler::review::model::{
     PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_APPROVED, STATUS_PENDING_REVIEW,
@@ -92,21 +91,18 @@ fn page(slug: &str) -> SchemaReviewPageInput {
     }
 }
 
-fn guarded_policy(max_decisions_per_hour: u32) -> AgentDecisionPolicy {
-    AgentDecisionPolicy {
-        approvals: AgentApprovals::Guarded,
-        limits: AgentLimits {
-            max_decisions_per_hour: NonZeroU32::new(max_decisions_per_hour)
-                .unwrap_or(NonZeroU32::MIN),
-            ..AgentLimits::default()
-        },
-    }
+/// The decision policy of `agent` authoring mode with `limits`, as the crawler builds it.
+fn agent_mode(limits: AgentLimits) -> AgentDecisionPolicy {
+    AgentDecisionPolicy::new(CrawlerAuthoringMode::Agent, limits)
 }
 
-/// A repository taking the review agent's guarded decisions, at most `max_decisions_per_hour`.
+/// A repository of `agent` authoring mode taking the review agent's guarded decisions, at most
+/// `max_decisions_per_hour`.
 fn guarded(pool: &PgPool, max_decisions_per_hour: u32) -> CrawlerReviewRepository {
-    CrawlerReviewRepository::new(pool.clone())
-        .with_agent_decisions(guarded_policy(max_decisions_per_hour))
+    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(agent_mode(AgentLimits {
+        max_decisions_per_hour: NonZeroU32::new(max_decisions_per_hour).unwrap_or(NonZeroU32::MIN),
+        ..AgentLimits::default()
+    }))
 }
 
 /// A crawl-enabled ListingSource on `example.com` and its domain.
@@ -286,69 +282,6 @@ fn failed_checks(refusal: Result<(), ReviewRepositoryError>) -> Vec<FailedApprov
         Err(ReviewRepositoryError::AgentApprovalRefused { failed_checks, .. }) => failed_checks,
         other => panic!("expected the approval guard to refuse: {other:?}"),
     }
-}
-
-/// With agent decisions off, as outside `agent` authoring mode, the author agent's staging is kept
-/// and every agent decision is left to a human.
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_the_agent_verdicts_but_keep_its_staging_while_agent_decisions_are_off() {
-    let pool = get_postgres_client().await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
-    let (listing_source_id, _) = listing_source(&pool).await;
-    let review_id = pending_review(
-        &repository,
-        &listing_source_id,
-        "manual_schema_required",
-        &[schema("h1")],
-        vec![page("chair")],
-    )
-    .await;
-
-    let edited = repository
-        .update_candidate_payload(
-            review_id,
-            ReviewActor::AgentAuthor,
-            1,
-            json!({ "schemas": [schema("h1.agent")] }),
-        )
-        .await
-        .unwrap();
-    repository
-        .request_repair(
-            review_id,
-            ReviewActor::AgentAuthor,
-            Some("title selector too loose"),
-        )
-        .await
-        .unwrap();
-    let approved = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(edited))
-        .await;
-    let rejected = repository
-        .reject_review(
-            review_id,
-            ReviewActor::AgentReviewer,
-            Some("not a product page"),
-        )
-        .await;
-
-    assert!(
-        matches!(approved, Err(ReviewRepositoryError::AgentDecisionsOff)),
-        "{approved:?}"
-    );
-    assert!(
-        matches!(rejected, Err(ReviewRepositoryError::AgentDecisionsOff)),
-        "{rejected:?}"
-    );
-    let detail = repository.get_review(review_id).await.unwrap();
-    assert_eq!(detail.review.status, STATUS_PENDING_REVIEW);
-    assert_eq!(
-        trail(&repository, review_id).await,
-        vec![
-            (ReviewActor::AgentAuthor, ReviewEventAction::CandidateEdited),
-            (ReviewActor::AgentAuthor, ReviewEventAction::RepairRequested),
-        ]
-    );
 }
 
 /// An approval names the version its approver read: an edit made since is never approved
@@ -1829,17 +1762,13 @@ async fn should_refuse_an_agent_approval_of_a_version_the_approving_agent_change
     );
 }
 
-/// A repository taking the agents' guarded decisions that hands a review to a human after
-/// `max_repair_rounds` agent needs-repair verdicts.
+/// A repository of `agent` authoring mode taking the agents' guarded decisions that hands a review
+/// to a human after `max_repair_rounds` agent needs-repair verdicts.
 fn capped(pool: &PgPool, max_repair_rounds: u32) -> CrawlerReviewRepository {
-    let guarded = guarded_policy(20);
-    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy {
-        limits: AgentLimits {
-            max_repair_rounds: NonZeroU32::new(max_repair_rounds).unwrap_or(NonZeroU32::MIN),
-            ..guarded.limits
-        },
-        ..guarded
-    })
+    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(agent_mode(AgentLimits {
+        max_repair_rounds: NonZeroU32::new(max_repair_rounds).unwrap_or(NonZeroU32::MIN),
+        ..AgentLimits::default()
+    }))
 }
 
 /// The review's agent rounds and whether it waits for a human, as its detail and the review list

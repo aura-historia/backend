@@ -7,6 +7,7 @@
 
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
+use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::agent_tokens::{REVIEW_AGENT_TOKEN_FILE, provision_review_agents};
 use crawler::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput, UrlPatternDecision};
 use crawler::review::repository::CrawlerReviewRepository;
@@ -155,15 +156,20 @@ async fn reviews(pool: &PgPool) -> Reviews {
 }
 
 /// A console of `agent` authoring mode as the crawler starts it, serving on `listener`: its
-/// configuration from the review settings, the agents' tokens provisioned into the token file in
-/// `state_directory`, the reviewer agent deciding within the approval guard.
+/// configuration and the agents' limits from the review settings, the agents' tokens provisioned
+/// into the token file in `state_directory`, the reviewer agent deciding within the approval guard.
 fn start_console(pool: &PgPool, state_directory: &Path, listener: TcpListener) -> JoinHandle<()> {
     let config = ReviewServerConfig::from_env().unwrap();
     let config =
         provision_review_agents(config, CrawlerAuthoringMode::Agent, state_directory).unwrap();
+    let agent_decisions = AgentDecisionPolicy::new(
+        CrawlerAuthoringMode::Agent,
+        AgentLimits::from_env().unwrap(),
+    );
     let server = ReviewServer::new(
         CrawlerReviewRepository::new(pool.clone())
-            .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent)),
+            .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent))
+            .with_agent_decisions(agent_decisions),
         Arc::new(CrawlerDomainAdministrationHandler::new(Arc::new(
             CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
         ))),
