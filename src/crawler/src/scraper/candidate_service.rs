@@ -177,6 +177,14 @@ pub fn next_domain_failure_streak(
     }
 }
 
+/// A domain whose scraping only a pending review holds back, so it has no scraper batch to
+/// record its scrapes until the review is decided.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainAwaitingReview {
+    pub listing_source_id: ListingSourceId,
+    pub listing_source_domain: String,
+}
+
 /// Per-ListingSource LLM usage snapshot for operational logging.
 pub struct ListingSourceLlmUsage {
     pub listing_source_id: ListingSourceId,
@@ -200,6 +208,12 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Counts the URLs due for scraping, by the same eligibility rule as
     /// [`ScraperCandidateService::get_candidates`].
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
+    /// Lists the domains whose scraping only a pending review holds back: domains that pass
+    /// the ListingSource and domain conditions of [`ScraperCandidateService::get_candidates`]
+    /// while their ListingSource has no product schema and its product-schema review is
+    /// pending, or while they have no product URL pattern and their URL-pattern review is
+    /// pending, so the spider classified none of their URLs as products.
+    async fn domains_awaiting_review(&self) -> Result<Vec<DomainAwaitingReview>, sqlx::Error>;
     /// Returns a random sample of product URLs for a ListingSource, other than the stored URLs
     /// `excluded_urls` names, to seed first-time schema generation with additional page layouts.
     /// A URL is drawn only while its retry is due and it recorded no fetch failure or
@@ -674,6 +688,34 @@ const DUE_SCRAPER_URL_COUNT_QUERY: &str = concat!(
     "\n    SELECT COUNT(*) FROM eligible_urls"
 );
 
+/// Binds `$1`, the per-ListingSource LLM call cap, as the [`eligible_scraper_urls_cte`] does.
+/// A domain without a `MATCHED` pattern has no active product URL: the spider stores none of its
+/// URLs as a product, and every URL-pattern decision classifies the domain's stored active URLs with
+/// the live pattern. Reading the pattern state keeps the query off the domain's URLs, which a
+/// crawl waiting on its review may have stored by the hundred thousand.
+const DOMAINS_AWAITING_REVIEW_QUERY: &str = concat!(
+    r#"
+    SELECT sd.listing_source_id, sd.listing_source_domain
+    FROM listing_source_domains sd
+    JOIN listing_sources s ON s.listing_source_id = sd.listing_source_id
+    WHERE "#,
+    scrapable_domain_conditions!(),
+    r#"
+      AND ("#,
+    awaits_first_product_schema!(),
+    r#"
+           OR (sd.url_pattern_state <> 'MATCHED'
+               AND EXISTS (
+                   SELECT 1
+                   FROM crawler_reviews cr
+                   WHERE cr.domain_id = sd.domain_id
+                     AND cr.artifact_type = 'URL_PATTERN'
+                     AND cr.status = 'PENDING_REVIEW'
+               )))
+    ORDER BY sd.listing_source_domain
+    "#
+);
+
 #[async_trait]
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(
@@ -749,6 +791,22 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             .fetch_one(&self.pool)
             .await?;
         u64::try_from(count).map_err(|error| sqlx::Error::Decode(Box::new(error)))
+    }
+
+    async fn domains_awaiting_review(&self) -> Result<Vec<DomainAwaitingReview>, sqlx::Error> {
+        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(DOMAINS_AWAITING_REVIEW_QUERY)
+            .bind(self.max_llm_calls_per_listing_source)
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter()
+            .map(|(listing_source_id, listing_source_domain)| {
+                Ok(DomainAwaitingReview {
+                    listing_source_id: ListingSourceId::try_from(listing_source_id)
+                        .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+                    listing_source_domain,
+                })
+            })
+            .collect()
     }
 
     async fn get_random_product_urls_for_schema_seed(

@@ -204,6 +204,10 @@ impl DomainBatchMetrics {
                 outcome.awaiting_schema_review as u64,
             )
             .with_value(
+                CrawlerMetric::ScrapedOrAwaitingReview,
+                u64::from(outcome.succeeded > 0 || outcome.awaiting_schema_review > 0),
+            )
+            .with_value(
                 CrawlerMetric::DomainCircuitOpened,
                 u64::from(self.circuit_opened),
             )
@@ -1730,6 +1734,7 @@ impl CrawlerCronJob {
 
         let pass_start = tokio::time::Instant::now();
         self.emit_due_scraper_urls().await;
+        self.emit_domains_awaiting_review().await;
         info!(
             concurrency = scraper_concurrency,
             push_batch_size = self.config.effective_push_batch_size(),
@@ -1958,13 +1963,32 @@ impl CrawlerCronJob {
             Err(error) => warn!(error = %error, "Failed to count due scraper URLs"),
         }
     }
+
+    /// A domain whose scraping only a pending review holds back has no batch to record that it
+    /// waits, so the pass records it in the metric the no-successful-scrape alarm reads.
+    async fn emit_domains_awaiting_review(&self) {
+        match self.scraper_candidates.domains_awaiting_review().await {
+            Ok(domains) => {
+                for domain in domains {
+                    MetricRecord::for_listing_source_domain(
+                        &domain.listing_source_id,
+                        &domain.listing_source_domain,
+                    )
+                    .with_value(CrawlerMetric::ScrapedOrAwaitingReview, 1)
+                    .emit();
+                }
+            }
+            Err(error) => warn!(error = %error, "Failed to list the domains awaiting a review"),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::scraper::candidate_service::{
-        DomainCircuitOpenOutcome, DomainHealthSnapshot, MockScraperCandidateService,
+        DomainAwaitingReview, DomainCircuitOpenOutcome, DomainHealthSnapshot,
+        MockScraperCandidateService,
     };
     use crate::scraper::scraper_service::domain::product::record_transport_failure;
     use crate::scraper::scraper_service::{MockScraperService, ScrapedProduct};
@@ -2451,12 +2475,25 @@ mod tests {
             .returning(move || Box::pin(async move { Ok(due_urls) }));
     }
 
+    fn expect_domains_awaiting_review(
+        scraper_candidates: &mut MockScraperCandidateService,
+        domains: Vec<DomainAwaitingReview>,
+    ) {
+        scraper_candidates
+            .expect_domains_awaiting_review()
+            .returning(move || {
+                let domains = domains.clone();
+                Box::pin(async move { Ok(domains) })
+            });
+    }
+
     fn scraper_job(
         config: CrawlerCronConfig,
         mut scraper_candidates: MockScraperCandidateService,
         scraper_service: MockScraperService,
     ) -> CrawlerCronJob {
         expect_due_url_count(&mut scraper_candidates, 0);
+        expect_domains_awaiting_review(&mut scraper_candidates, Vec::new());
         let (spider_candidates, spider_service) = empty_spider_dependencies();
 
         CrawlerCronJob::new(
@@ -3407,6 +3444,7 @@ mod tests {
             });
         let (spider_candidates, spider_service) = empty_spider_dependencies();
         expect_due_url_count(&mut scraper_candidates, 0);
+        expect_domains_awaiting_review(&mut scraper_candidates, Vec::new());
         let job = CrawlerCronJob::new(
             CrawlerCronConfig {
                 scraper_domain_delay: Duration::ZERO,
@@ -4571,6 +4609,7 @@ mod tests {
         let (spider_candidates, spider_service) = empty_spider_dependencies();
 
         expect_due_url_count(&mut scraper_candidates, 0);
+        expect_domains_awaiting_review(&mut scraper_candidates, Vec::new());
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
             Arc::clone(&lock_manager),
@@ -5047,6 +5086,7 @@ mod tests {
             };
             assert_eq!(source(CrawlerMetric::ScrapesSucceeded), vec![1]);
             assert_eq!(source(CrawlerMetric::ScrapesFailed), vec![1]);
+            assert_eq!(source(CrawlerMetric::ScrapedOrAwaitingReview), vec![1]);
             assert_eq!(source(CrawlerMetric::DomainCircuitOpened), vec![0]);
             assert_eq!(
                 metrics.values_with(
@@ -5123,6 +5163,7 @@ mod tests {
             };
             assert_eq!(source(CrawlerMetric::ScrapesFailed), vec![1]);
             assert_eq!(source(CrawlerMetric::ScrapesAwaitingSchemaReview), vec![1]);
+            assert_eq!(source(CrawlerMetric::ScrapedOrAwaitingReview), vec![1]);
             let url_failures = |kind| {
                 metrics.values_with(
                     CrawlerMetric::UrlFailures,
@@ -5132,6 +5173,52 @@ mod tests {
             };
             assert_eq!(url_failures("HTTP_500"), vec![1]);
             assert!(url_failures("PendingSchemaReview").is_empty());
+        }
+
+        /// A batch whose pages only fail neither scraped nor waited on a review, so the
+        /// no-successful-scrape alarm reads 0 for its domain.
+        #[tokio::test]
+        async fn should_record_neither_a_scrape_nor_a_review_wait_when_every_page_fails() {
+            let (metrics, _guard) = capture_metrics();
+            let (candidates, domain_id) = domain_batch("failing.example.com", 1);
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_fetch_failure()
+                .once()
+                .returning(|_, _, _, _, _, _, _| {
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
+            let mut scraper_service = MockScraperService::new();
+            scraper_service.expect_scrape().once().returning(|request| {
+                let url = request.url;
+                Box::pin(async move {
+                    scrape_outcome(Err(ScraperError::HttpError {
+                        url,
+                        kind: NetworkErrorKind::HttpStatus(500),
+                        details: "internal server error".to_owned(),
+                    }))
+                })
+            });
+
+            scrape_domain_candidates(
+                candidates,
+                domain_context(
+                    scraper_candidates,
+                    scraper_service,
+                    domain_id,
+                    CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+                ),
+            )
+            .await;
+
+            assert_eq!(
+                metrics.values_with(
+                    CrawlerMetric::ScrapedOrAwaitingReview,
+                    MetricDimension::Domain,
+                    "failing.example.com"
+                ),
+                vec![0]
+            );
         }
 
         #[tokio::test]
@@ -5261,6 +5348,7 @@ mod tests {
                 .expect_get_candidates()
                 .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
             expect_due_url_count(&mut scraper_candidates, 7);
+            expect_domains_awaiting_review(&mut scraper_candidates, Vec::new());
             let (spider_candidates, spider_service) = empty_spider_dependencies();
             let job = CrawlerCronJob::new(
                 CrawlerCronConfig::default(),
@@ -5280,6 +5368,62 @@ mod tests {
                 vec![(vec![], 7)]
             );
             assert_eq!(metrics.values(CrawlerMetric::ScraperPassDuration).len(), 1);
+        }
+
+        /// A domain whose scraping only a pending review holds back has no batch, so each pass
+        /// records its wait in the metric the no-successful-scrape alarm reads.
+        #[tokio::test]
+        async fn should_record_a_review_wait_for_each_domain_a_pending_review_holds_back() {
+            let (metrics, _guard) = capture_metrics();
+            let waiting_source = ListingSourceId::new();
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_get_candidates()
+                .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+            expect_due_url_count(&mut scraper_candidates, 0);
+            expect_domains_awaiting_review(
+                &mut scraper_candidates,
+                vec![
+                    DomainAwaitingReview {
+                        listing_source_id: waiting_source,
+                        listing_source_domain: "pattern-review.example.com".to_owned(),
+                    },
+                    DomainAwaitingReview {
+                        listing_source_id: waiting_source,
+                        listing_source_domain: "schema-review.example.com".to_owned(),
+                    },
+                ],
+            );
+            let (spider_candidates, spider_service) = empty_spider_dependencies();
+            let job = CrawlerCronJob::new(
+                CrawlerCronConfig::default(),
+                Arc::new(LocalLockManager::new()),
+                Box::new(spider_candidates),
+                Box::new(spider_service),
+                Box::new(scraper_candidates),
+                Box::new(MockScraperService::new()),
+                noop_listing_source_registration(),
+                no_raw_capture_service(),
+            );
+
+            job.run_scraper_once().await;
+
+            let domain = |name: &str| {
+                (
+                    vec![
+                        ("listing_source_id".to_owned(), waiting_source.to_string()),
+                        ("domain".to_owned(), name.to_owned()),
+                    ],
+                    1,
+                )
+            };
+            assert_eq!(
+                metrics.values(CrawlerMetric::ScrapedOrAwaitingReview),
+                vec![
+                    domain("pattern-review.example.com"),
+                    domain("schema-review.example.com"),
+                ]
+            );
         }
     }
 }

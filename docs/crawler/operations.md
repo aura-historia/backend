@@ -325,6 +325,7 @@ All metrics use the namespace `AuraHistoria/Crawler`. Dimension values are Listi
 | Metric | Unit | Dimensions | Recorded |
 |---|---|---|---|
 | `ScrapesSucceeded`, `ScrapesFailed`, `ScrapesAwaitingSchemaReview` | Count | `listing_source_id`, `domain` | Per scraper domain batch: URLs whose scrape completed (changed or not), URLs whose scrape failed, and URLs whose page [waits on a product-schema review](scheduling-and-retries.md#fetch-retries), which is no failure and counts in neither `ScrapesFailed` nor `UrlFailures`. |
+| `ScrapedOrAwaitingReview` | Count | `listing_source_id`, `domain` | Per scraper domain batch: 1 when the batch completed a scrape or a page of it waited on a product-schema review, else 0. Per scraper pass, also 1 for each domain whose scraping only a pending review holds back, which has no batch: its ListingSource has no product schema while its product-schema review is pending, or the domain has no product URL pattern while its URL-pattern review is pending ([manual authoring](#manual-authoring)). A domain of a crawl-disabled ListingSource or of one out of LLM budget, or with an open [domain circuit](scheduling-and-retries.md#scraper-domain-circuits), is not held back by the review alone and records no such 1. |
 | `DomainCircuitOpened` | Count | `listing_source_id`, `domain` | Per scraper domain batch: 1 when the batch opened the [domain circuit](scheduling-and-retries.md#scraper-domain-circuits), else 0. |
 | `UrlFailures` | Count | `listing_source_id`, `domain`, `failure_kind` | Per scraper domain batch and failure kind: the URL failures that recorded that `last_error_kind`, such as `HTTP_503` or `Timeout`. |
 | `ProductsCaptured` | Count | `listing_source_id`, `domain` | Per raw-capture batch: observations raw capture persisted durably; 0 when every capture of the domain failed. |
@@ -337,12 +338,12 @@ Create these alarms from the metrics; each is an operator requirement, not a dep
 
 | Alarm | Metric and statistic | Period and threshold | Missing data |
 |---|---|---|---|
-| A ListingSource domain made no successful scrape in 24 hours | `ScrapesSucceeded` Sum per `listing_source_id`, `domain` | 1 day, `<= 0` | Breaching: a domain that is never scraped records nothing. |
+| A ListingSource domain made no successful scrape in 24 hours and waits on no review | `ScrapedOrAwaitingReview` Maximum per `listing_source_id`, `domain` | 1 day, `<= 0` | Breaching: a domain that is never scraped and waits on no review records nothing. |
 | A product pattern matched no URL | `CrawlProductUrls` Maximum per `listing_source_id`, `domain` | 1 hour, `<= 0` | Ignore: the alarm holds until the next crawl records a count. |
 | A scraper pass took more than 15 minutes, or none finished | `ScraperPassDuration` Maximum | 15 minutes, `> 900000` | Breaching: every pass records a duration, so silence means a stall. |
 | The LLM governor made a call wait more than 60 seconds | Not recorded yet | 1 minute, `> 60000` | Not breaching |
 
-The crawler does not record the LLM governor wait yet; with `CRAWLER_AUTHORING_MODE` `manual` or `agent` it makes no LLM call. The per-domain alarms need one alarm per configured domain, or one CloudWatch Metrics Insights alarm grouped by `listing_source_id` and `domain`.
+The crawler does not record the LLM governor wait yet; with `CRAWLER_AUTHORING_MODE` `manual` or `agent` it makes no LLM call. The per-domain alarms need one alarm per configured domain. One CloudWatch Metrics Insights alarm grouped by `listing_source_id` and `domain` can replace the product-pattern alarms, but not the scrape alarms: a Metrics Insights alarm evaluates only the latest three hours of data ([limits](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/alarm-limits.html#metrics-insights-alarm-limits)).
 
 ## Validation
 

@@ -1,8 +1,8 @@
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
-    DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, RedirectUrlMove,
-    SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCompletion, ScraperCandidateService,
-    ScraperCandidateServiceImpl,
+    DomainAwaitingReview, DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest,
+    RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCompletion,
+    ScraperCandidateService, ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
@@ -969,6 +969,92 @@ async fn scraper_should_count_due_urls_by_the_candidate_eligibility_rule() {
 
     assert_eq!(due, 2);
     assert_eq!(due, candidates.len() as u64);
+}
+
+// ---------------------------------------------------------------------------
+// domains_awaiting_review — the domains only a pending review keeps from scraping
+// ---------------------------------------------------------------------------
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_list_only_domains_whose_scraping_a_pending_review_holds_back() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    // The ListingSource waits on its first product schema.
+    let first_schema = ListingSourceId::new();
+    insert_listing_source_with_domain(&pool, first_schema, "first-schema.example.com").await;
+    insert_pending_product_schema_review(&pool, first_schema).await;
+    // The cached schema still extracts pages, so the scraper scrapes them.
+    let cached_schema = ListingSourceId::new();
+    insert_listing_source_with_domain(&pool, cached_schema, "cached-schema.example.com").await;
+    insert_cached_product_schemas(
+        &pool,
+        cached_schema,
+        serde_json::json!([{ "title": { "type": "text", "selector": "h1", "cardinality": "first" } }]),
+    )
+    .await;
+    insert_pending_product_schema_review(&pool, cached_schema).await;
+    // Without a pattern the domain has no product URL until its review is decided.
+    let pattern_review = ListingSourceId::new();
+    let pattern_review_domain =
+        insert_listing_source_with_domain(&pool, pattern_review, "pattern-review.example.com")
+            .await;
+    insert_pending_url_pattern_review(&pool, pattern_review, pattern_review_domain).await;
+    // A restored pattern is live while a newer URL-pattern review is pending.
+    let matched = ListingSourceId::new();
+    let matched_domain =
+        insert_listing_source_with_domain(&pool, matched, "matched-pattern.example.com").await;
+    sqlx::query(
+        "UPDATE listing_source_domains SET url_pattern = '/p/', url_pattern_state = 'MATCHED' \
+         WHERE domain_id = $1",
+    )
+    .bind(matched_domain.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    insert_pending_url_pattern_review(&pool, matched, matched_domain).await;
+    // A disabled ListingSource is not scraped whatever its reviews.
+    let disabled = ListingSourceId::new();
+    let disabled_domain =
+        insert_listing_source_with_domain(&pool, disabled, "disabled.example.com").await;
+    insert_pending_url_pattern_review(&pool, disabled, disabled_domain).await;
+    sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
+        .bind(disabled.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    // An open domain circuit keeps the domain from scraping as well.
+    let cooling = ListingSourceId::new();
+    let cooling_domain =
+        insert_listing_source_with_domain(&pool, cooling, "cooling-circuit.example.com").await;
+    insert_pending_url_pattern_review(&pool, cooling, cooling_domain).await;
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET scrape_failure_streak = 3, last_scrape_error_kind = 'HTTP_503', \
+             next_scrape_at = NOW() + INTERVAL '1 hour' \
+         WHERE domain_id = $1",
+    )
+    .bind(cooling_domain.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    // No review is pending.
+    insert_listing_source_with_domain(&pool, ListingSourceId::new(), "no-review.example.com").await;
+
+    let domains = service.domains_awaiting_review().await.unwrap();
+
+    assert_eq!(
+        domains,
+        vec![
+            DomainAwaitingReview {
+                listing_source_id: first_schema,
+                listing_source_domain: "first-schema.example.com".to_owned(),
+            },
+            DomainAwaitingReview {
+                listing_source_id: pattern_review,
+                listing_source_domain: "pattern-review.example.com".to_owned(),
+            },
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------

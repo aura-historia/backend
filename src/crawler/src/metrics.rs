@@ -51,6 +51,11 @@ pub(crate) enum CrawlerMetric {
     /// Scraper URLs whose page waits on a pending product-schema review, per domain batch: no
     /// failure, so neither in `ScrapesFailed` nor in `UrlFailures`.
     ScrapesAwaitingSchemaReview,
+    /// 1 when a scraper domain batch completed a scrape or a page of it waited on a
+    /// product-schema review, else 0; and 1 per scraper pass for each domain whose scraping only
+    /// a pending review holds back, which has no batch. The no-successful-scrape alarm reads it
+    /// alone, so a domain that only waits on a reviewer does not alarm.
+    ScrapedOrAwaitingReview,
     /// Raw observations raw capture persisted durably, per capture batch.
     ProductsCaptured,
     /// Scraper URL failures of one `failure_kind`, per domain batch.
@@ -75,6 +80,7 @@ impl CrawlerMetric {
             Self::ScrapesSucceeded => "ScrapesSucceeded",
             Self::ScrapesFailed => "ScrapesFailed",
             Self::ScrapesAwaitingSchemaReview => "ScrapesAwaitingSchemaReview",
+            Self::ScrapedOrAwaitingReview => "ScrapedOrAwaitingReview",
             Self::ProductsCaptured => "ProductsCaptured",
             Self::UrlFailures => "UrlFailures",
             Self::DomainCircuitOpened => "DomainCircuitOpened",
@@ -405,6 +411,21 @@ mod tests {
             json!([{ "Name": "ScraperPassDuration", "Unit": "Milliseconds" }])
         );
         assert_eq!(record["ScraperPassDuration"], 1_500);
+    }
+
+    /// Operators define the no-successful-scrape alarm on this name, so it is a contract.
+    #[test]
+    fn should_publish_the_scrape_alarm_metric_under_its_documented_name() {
+        let record =
+            MetricRecord::for_listing_source_domain(&ListingSourceId::new(), "shop.example")
+                .with_value(CrawlerMetric::ScrapedOrAwaitingReview, 1)
+                .to_emf(time::OffsetDateTime::now_utc());
+
+        assert_eq!(
+            record["_aws"]["CloudWatchMetrics"][0]["Metrics"],
+            json!([{ "Name": "ScrapedOrAwaitingReview", "Unit": "Count" }])
+        );
+        assert_eq!(record["ScrapedOrAwaitingReview"], 1);
     }
 
     #[derive(Clone, Default)]
