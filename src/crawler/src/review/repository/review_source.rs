@@ -1,6 +1,5 @@
 //! The ListingSource a review belongs to, as far as the console fetches pages for the review: its
-//! domains, and the URLs on them a page inspection, a candidate evaluation or a review agent's live
-//! fetch may name.
+//! domains, and the URLs on them a page projection or a candidate evaluation may name.
 
 use super::reviewer_page_url::{reviewer_page_url, without_credentials};
 use super::{CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, ReviewRepositoryError};

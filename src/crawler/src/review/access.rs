@@ -366,11 +366,14 @@ fn is_review_route(path: &str) -> bool {
     path.starts_with("/api/reviews/") || path.starts_with("/api/review-pages/")
 }
 
-/// The live previews of any URL, which only the browser console uses. They fetch a page outside the
-/// console's cap on live jobs and for no review, so no review that waits for a human stops them;
-/// the agents read a page as a review's page projection, a live job, instead.
+/// The live previews, of any URL (`/api/live-inspect`, `/api/live-html`) and of a review page
+/// (`/api/review-pages/{id}/inspect`, `/html`), which only the browser console uses. They fetch a
+/// page outside the console's cap on live jobs and without asking whether its review waits for a
+/// human; the agents read a page as a review's page projection, a live job, instead.
 fn is_live_preview_route(path: &str) -> bool {
     matches!(path, "/api/live-inspect" | "/api/live-html")
+        || (path.starts_with("/api/review-pages/")
+            && (path.ends_with("/inspect") || path.ends_with("/html")))
 }
 
 /// Browsers send `Origin` on every cross-origin mutation, so requiring it to equal
@@ -671,6 +674,21 @@ mod tests {
     )]
     #[case::review_token_fetches_a_live_preview(
         "GET /api/live-inspect?url=https%3A%2F%2Fshop.example%2Fitem",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::author_token_previews_no_review_page(
+        "GET /api/review-pages/crp_1/inspect",
+        Some(AUTHOR_TOKEN),
+        None
+    )]
+    #[case::reviewer_token_fetches_no_review_page_html(
+        "GET /api/review-pages/crp_1/html",
+        Some(REVIEWER_TOKEN),
+        None
+    )]
+    #[case::review_token_previews_a_review_page(
+        "GET /api/review-pages/crp_1/inspect",
         Some(REVIEW_TOKEN),
         Some(ReviewActor::Human)
     )]
