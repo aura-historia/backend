@@ -11,8 +11,8 @@ pub use google_adc::{
 use lambda_runtime::Context;
 use platform_observability::{LogLevel, LoggingConfig};
 use platform_postgres::{
-    PostgresCredentials, PostgresCredentialsProvider, PostgresPoolConfig,
-    VersionedPostgresCredentials,
+    PostgresCredentialRefreshError, PostgresCredentials, PostgresCredentialsProvider,
+    PostgresPoolConfig, VersionedPostgresCredentials,
 };
 use std::{
     env,
@@ -188,17 +188,26 @@ pub async fn current_postgres_credentials(
     provider: &dyn PostgresCredentialsProvider,
 ) -> Result<VersionedPostgresCredentials, lambda_runtime::Error> {
     provider.current().await.map_err(|error| {
-        setup_failed(
-            component,
-            FailureDiagnostic::new(
-                "credential_refresh",
-                Dependency::SecretsManager,
-                error.diagnostic_category(),
-                None,
-            ),
-            "PostgreSQL credential refresh unavailable",
-        )
+        record_credential_refresh_failure(component, error);
+        lambda_runtime::Error::from("PostgreSQL credential refresh unavailable")
     })
+}
+
+/// Records a failed credential refresh once as a setup diagnostic, for a caller that keeps its
+/// own typed error.
+pub fn record_credential_refresh_failure(
+    component: &'static str,
+    error: PostgresCredentialRefreshError,
+) {
+    record_setup_failure(
+        component,
+        FailureDiagnostic::new(
+            "credential_refresh",
+            Dependency::SecretsManager,
+            error.diagnostic_category(),
+            None,
+        ),
+    );
 }
 
 /// Records a failed composition step with only its bounded labels and standardized codes, and
@@ -208,6 +217,11 @@ fn setup_failed(
     failure: FailureDiagnostic,
     message: &'static str,
 ) -> lambda_runtime::Error {
+    record_setup_failure(component, failure);
+    lambda_runtime::Error::from(message)
+}
+
+fn record_setup_failure(component: &'static str, failure: FailureDiagnostic) {
     tracing::warn!(
         event = "lambda.setup.failed",
         component,
@@ -216,7 +230,6 @@ fn setup_failed(
         error_category = failure.category(),
         sqlstate = failure.sqlstate(),
     );
-    lambda_runtime::Error::from(message)
 }
 
 pub fn required_config_from_env(name: &'static str) -> Result<String, LambdaBootstrapConfigError> {

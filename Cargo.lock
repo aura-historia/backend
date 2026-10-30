@@ -606,6 +606,7 @@ dependencies = [
  "shipping-postgres",
  "shipping-service",
  "sqlx",
+ "test-api",
  "thiserror 2.0.21",
  "tokio",
  "url",

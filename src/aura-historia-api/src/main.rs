@@ -29,7 +29,7 @@ fn main() -> Result<(), MainError> {
         .block_on(async move {
             if is_lambda {
                 let config = ApiConfig::from_env()?;
-                let runtime = Arc::new(RotatingRuntime::from_env().await?);
+                let runtime = Arc::new(RotatingRuntime::from_env(LAMBDA_COMPONENT).await?);
                 let routers = Arc::new(VersionedCompositionCache::new());
 
                 log_cold_start(LAMBDA_COMPONENT, initialization_started_at);

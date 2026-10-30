@@ -85,7 +85,11 @@ async fn rotation_probe() -> Result<(), TestError> {
         version: Mutex::new(Some("version-1")),
         calls: AtomicUsize::new(0),
     });
-    let runtime = RotatingRuntime::new(LambdaPostgresConfig::from_env()?, credentials.clone());
+    let runtime = RotatingRuntime::new(
+        "aura-historia-mcp",
+        LambdaPostgresConfig::from_env()?,
+        credentials.clone(),
+    );
     let app = RotatingMcpRouter::new(
         runtime,
         TransportConfig {
