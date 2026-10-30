@@ -25,9 +25,10 @@ pub struct CrawlerReview {
     /// The needs-repair verdicts the review agents gave the review since a human last changed or
     /// judged it, from its event trail: the rounds of their back-and-forth on it.
     pub agent_rounds: u32,
-    /// Whether the review is pending and its `agent_rounds` reached the cap
-    /// (`CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS`): it waits for a human, who hands it back to the
-    /// agents by changing or judging it, and the agents may change or decide nothing on it.
+    /// Whether, in `agent` authoring mode, the review is pending and its `agent_rounds` reached the
+    /// cap (`CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS`): it waits for a human, who hands it back to
+    /// the agents by changing or judging it, and the agents may change or decide nothing on it.
+    /// Always `false` in the other modes, where no agent acts and a human decides every review.
     pub human_required: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,

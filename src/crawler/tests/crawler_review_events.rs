@@ -1,7 +1,8 @@
 //! The review event trail: every accepted review mutation appends exactly one event, with its
 //! actor, in the mutation's own transaction, and a refused mutation appends none.
 
-use crawler::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+use crawler::authoring::CrawlerAuthoringMode;
+use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::FailedApprovalCheck;
 use crawler::review::model::{
     CrawlerReviewEvent, PAGE_ROLE_PRIMARY, ReviewActor, ReviewEventAction, STATUS_PENDING_REVIEW,
@@ -64,12 +65,12 @@ fn url(raw: &str) -> Url {
     Url::parse(raw).unwrap()
 }
 
-/// A repository that takes the review agent's guarded approvals and rejections.
+/// The review repository of `agent` authoring mode, whose reviewer agent approves and rejects.
 fn deciding_agent_repository(pool: &PgPool) -> CrawlerReviewRepository {
-    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy {
-        approvals: AgentApprovals::Guarded,
-        ..AgentDecisionPolicy::default()
-    })
+    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy::new(
+        CrawlerAuthoringMode::Agent,
+        AgentLimits::default(),
+    ))
 }
 
 /// A ListingSource on `example.com` and its domain.

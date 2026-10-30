@@ -63,30 +63,34 @@ impl Default for PendingReviewQuery {
 }
 
 /// The totals of the agents' queue and one page of it. A pending review waits for a human once its
-/// agent rounds reach the repair cap, as [`AgentDecisionPolicy::waits_for_human`] decides. Binds
-/// `$1` to `$3` of [`agent_rounds_of_review`], `$4`, the repair cap, `$5`, the `human_required`
-/// filter or null, `$6` and `$7`, the creation time and id of the review the page starts after or
-/// null, and `$8`, the most rows to answer. Every row carries the totals; an empty page is one row
-/// with the totals and no review.
+/// agent rounds reach the policy's [repair-round cap](AgentDecisionPolicy::repair_rounds_cap), as
+/// [`AgentDecisionPolicy::waits_for_human`] decides, so with no cap, outside `agent` mode, none
+/// does. Binds `$1` to `$3` of [`agent_rounds_of_review`], `$4`, the repair-round cap or null,
+/// `$5`, the `human_required` filter or null, `$6` and `$7`, the creation time and id of the review
+/// the page starts after or null, and `$8`, the most rows to answer. Every row carries the totals;
+/// an empty page is one row with the totals and no review.
 const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     "WITH queue AS ( \
-         SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, \
-                r.artifact_type, r.reason, r.candidate_version, r.repair_requested, \
-                r.repair_note, r.created, r.updated, ",
+         SELECT q.*, (q.agent_rounds >= $4::bigint) IS TRUE AS waits_for_human \
+         FROM ( \
+             SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, \
+                    r.artifact_type, r.reason, r.candidate_version, r.repair_requested, \
+                    r.repair_note, r.created, r.updated, ",
     agent_rounds_of_review!(),
     " AS agent_rounds \
-         FROM crawler_reviews r \
-         JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
-         WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled \
+             FROM crawler_reviews r \
+             JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
+             WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled \
+         ) q \
      ), \
      totals AS ( \
-         SELECT COUNT(*) FILTER (WHERE agent_rounds < $4) AS workable, \
-                COUNT(*) FILTER (WHERE agent_rounds >= $4) AS waiting_for_human \
+         SELECT COUNT(*) FILTER (WHERE NOT waits_for_human) AS workable, \
+                COUNT(*) FILTER (WHERE waits_for_human) AS waiting_for_human \
          FROM queue \
      ), \
      page AS ( \
          SELECT * FROM queue \
-         WHERE ($5::boolean IS NULL OR (agent_rounds >= $4) = $5) \
+         WHERE ($5::boolean IS NULL OR waits_for_human = $5) \
            AND ($6::timestamptz IS NULL OR (created, review_id) > ($6, $7::uuid)) \
          ORDER BY created, review_id \
          LIMIT $8 \
@@ -114,7 +118,11 @@ pub(super) async fn fetch_pending_review_page(
         .bind(agents)
         .bind(repair_requested)
         .bind(human)
-        .bind(i64::from(agent_decisions.max_repair_rounds.get()))
+        .bind(
+            agent_decisions
+                .repair_rounds_cap()
+                .map(|cap| i64::from(cap.get())),
+        )
         .bind(query.human_required)
         .bind(cursor.map(|(created, _)| created))
         .bind(cursor.map(|(_, review_id)| *review_id.as_uuid()))

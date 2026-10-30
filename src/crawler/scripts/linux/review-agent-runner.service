@@ -17,7 +17,8 @@ Type=simple
 User=crawler
 Group=crawler
 # Runner settings only. Never the crawler's environment file: the agents must not inherit the
-# console's human token or database credentials.
+# console's human token or database credentials. The limits of the agents' decisions are the
+# crawler's; each run reads them from the review console.
 EnvironmentFile=-/etc/crawler/review-agent-runner.env
 # The runner's own state: lock, state, process ledger, digests and the crawler-only CLI login.
 StateDirectory=crawler-review-agents

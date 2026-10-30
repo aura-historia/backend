@@ -19,6 +19,7 @@ use super::reports::{AgentReport, AuthorAction};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, RunnerState, save_state};
 use super::wire_name as name;
+use crate::review::agent_decisions::AgentLimits;
 use crate::review::model::{ReviewActor, ReviewEventAction};
 use crate::review_mcp::{AgentRole, ConsoleClient, ConsoleError};
 use futures::StreamExt;
@@ -57,6 +58,8 @@ pub enum PassStop {
 struct Pass<'a> {
     settings: &'a RunnerSettings,
     console: &'a ConsoleClient,
+    /// The limits of the agents' decisions the console applies, which the prompts tell them.
+    limits: AgentLimits,
     shared: Mutex<Shared>,
 }
 
@@ -78,17 +81,20 @@ enum Step {
     UsageLimit,
 }
 
-/// Works the pending reviews `console` lists with the author token. The state and ledger come
-/// back changed even when the pass fails, so a pause or cooldown it set is kept.
+/// Works the pending reviews `console` lists with the author token, telling the agents the
+/// console's `limits`. The state and ledger come back changed even when the pass fails, so a pause
+/// or cooldown it set is kept.
 pub async fn work_pending_reviews(
     settings: &RunnerSettings,
     console: &ConsoleClient,
+    limits: AgentLimits,
     state: RunnerState,
     ledger: ProcessLedger,
 ) -> (Result<PassSummary, PassError>, RunnerState, ProcessLedger) {
     let pass = Pass {
         settings,
         console,
+        limits,
         shared: Mutex::new(Shared {
             state,
             ledger,
@@ -276,7 +282,7 @@ impl Pass<'_> {
             "Starting a review agent process"
         );
         let mut record = ProcessRecord::started(review, role, contract.version);
-        let step = match agent_command(self.settings, role, review) {
+        let step = match agent_command(self.settings, &self.limits, role, review) {
             Ok(command) => {
                 let output = run_agent(&command, self.settings.process_timeout).await;
                 self.read_output(&mut record, role, review, output)

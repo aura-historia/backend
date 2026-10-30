@@ -39,6 +39,7 @@ use pass::{PassError, usage_limit_name, work_pending_reviews};
 use queue::{HumanRequiredReview, ReviewEventsSince, review_events_since, review_queue};
 use state::{RunnerLock, RunnerState, StateError, load_state, save_state};
 
+use crate::review::agent_decisions::{AGENT_LIMITS_ROUTE, AgentLimits};
 use crate::review_mcp::{
     AgentRole, ConsoleClient, ConsoleClientError, ConsoleError, RoleTokenFile,
 };
@@ -88,6 +89,10 @@ pub enum RunnerError {
     NotAgentMode(#[source] ConsoleClientError),
     #[error("the runner refuses to start: {0}")]
     Login(#[from] LoginError),
+    #[error(
+        "cannot read the limits of the agents' decisions from the review console's {AGENT_LIMITS_ROUTE}; a console of an older build does not answer them, so deploy the runner and review-mcp from the crawler server's build"
+    )]
+    AgentLimits(#[source] ConsoleError),
     #[error("the review agents' pass failed")]
     Pass(#[from] PassError),
 }
@@ -112,8 +117,9 @@ pub async fn run_every_interval(settings: &RunnerSettings) {
 }
 
 /// One run: takes the lock, checks that the crawler is in `agent` mode and that the CLI is
-/// logged in with a Claude subscription, works the pending reviews, and writes the digest when it
-/// is due (the service) or right away (`--once`).
+/// logged in with a Claude subscription, reads the limits of the agents' decisions from the
+/// console, works the pending reviews, and writes the digest when it is due (the service) or right
+/// away (`--once`).
 pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
     std::fs::create_dir_all(&settings.state_dir).map_err(|source| RunnerError::StateDirectory {
         path: settings.state_dir.clone(),
@@ -132,6 +138,9 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
     )
     .map_err(RunnerError::NotAgentMode)?;
     let login = probe_login(&settings.claude_bin, &settings.child_env).await?;
+    let limits = agent_limits(&console)
+        .await
+        .map_err(RunnerError::AgentLimits)?;
     info!(
         mode = ?settings.mode,
         auth_method = %login.method,
@@ -139,6 +148,7 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
         subscription = login.subscription.as_deref().unwrap_or(""),
         console_url = %settings.console.console_url,
         state_dir = %settings.state_dir.display(),
+        agent_min_labelled_urls = limits.min_labelled_urls.get(),
         "Review agent runner started with the CLI's Claude login"
     );
     let started = OffsetDateTime::now_utc();
@@ -147,7 +157,8 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
     let mut ledger = ProcessLedger::open(&settings.state_dir)?;
     ledger.prune(started - LEDGER_RETENTION)?;
 
-    let (pass, mut state, ledger) = work_pending_reviews(settings, &console, state, ledger).await;
+    let (pass, mut state, ledger) =
+        work_pending_reviews(settings, &console, limits, state, ledger).await;
     save_state(&settings.state_dir, &state)?;
     let summary = pass?;
     let now = OffsetDateTime::now_utc();
@@ -169,6 +180,12 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
         save_state(&settings.state_dir, &state)?;
     }
     Ok(RunOutcome::Ran { summary, digest })
+}
+
+/// The limits of the agents' decisions the console applies, which the prompts tell the agents:
+/// the runner keeps no copy of the console's settings that could disagree with them.
+async fn agent_limits(console: &ConsoleClient) -> Result<AgentLimits, ConsoleError> {
+    console.get(AGENT_LIMITS_ROUTE).await?.decode()
 }
 
 /// Writes the digest a run owes: the service's once a day has passed since the last one, a `--once`
@@ -296,11 +313,15 @@ mod tests {
         ("NODE_OPTIONS", "--require /tmp/decoy.js"),
     ];
 
-    /// A review console that answers the review queue, a review and the event list to the
-    /// author's token. The event list holds `events` and, as `AGENT_REVIEWER` events, the
-    /// decisions the fake `claude` logged to its `decided.log`, as the review MCP server would
+    /// The label minimum the fake console applies, which no runner setting names.
+    const CONSOLE_MIN_LABELLED_URLS: u32 = 5;
+
+    /// A review console that answers the review queue, a review, the event list and its agent
+    /// limits to the author's token. The event list holds `events` and, as `AGENT_REVIEWER` events,
+    /// the decisions the fake `claude` logged to its `decided.log`, as the review MCP server would
     /// have recorded them. A review the fake's author handed to a human (`human/<review id>`)
-    /// waits for a human, and one marked `unreadable/<review id>` cannot be read.
+    /// waits for a human, one marked `unreadable/<review id>` cannot be read, and the limits cannot
+    /// be read once `limits_unreadable` exists.
     struct FakeConsole {
         url: String,
     }
@@ -347,6 +368,15 @@ mod tests {
                             .find(|review| review.review_id.to_string() == id)
                     }) {
                         review_detail(review, &claude_dir)
+                    } else if path == AGENT_LIMITS_ROUTE
+                        && !claude_dir.join("limits_unreadable").exists()
+                    {
+                        let limits = AgentLimits {
+                            min_labelled_urls: std::num::NonZeroU32::new(CONSOLE_MIN_LABELLED_URLS)
+                                .unwrap_or(std::num::NonZeroU32::MIN),
+                            ..AgentLimits::default()
+                        };
+                        (200, json!(limits).to_string())
                     } else {
                         (404, "{\"error\":\"not found\"}".to_owned())
                     };
@@ -1227,6 +1257,41 @@ echo "end $role $review" >> "$dir/order.log"
             most = most.max(running);
         }
         assert!((1..=2).contains(&most), "{most}");
+    }
+
+    /// The author's prompt asks for the label minimum the console applies, not for one in the
+    /// runner's own environment; a run that cannot read the console's limits starts no agent.
+    #[tokio::test]
+    async fn should_tell_the_agents_the_console_s_limits_and_run_none_without_them() {
+        let fixture = Fixture::new(vec![review("PENDING_REVIEW", true)]).await;
+        let settings = fixture.settings(
+            &["--once"],
+            &[("CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS", "4")],
+        );
+
+        run_with(&settings).await;
+        std::fs::write(
+            fixture.claude.directory.path().join("limits_unreadable"),
+            "",
+        )
+        .unwrap_or_default();
+        let without_limits = run(&settings).await;
+
+        let calls = fixture.claude.calls();
+        assert_eq!(
+            calls.len(),
+            2,
+            "one author and one reviewer of the first run"
+        );
+        let minimum = format!(
+            "at least {CONSOLE_MIN_LABELLED_URLS} URLs PRODUCT and at least {CONSOLE_MIN_LABELLED_URLS} NOT_PRODUCT"
+        );
+        assert!(
+            calls[0]["stdin"].contains(&minimum),
+            "{}",
+            calls[0]["stdin"]
+        );
+        assert!(matches!(without_limits, Err(RunnerError::AgentLimits(_))));
     }
 
     #[tokio::test]

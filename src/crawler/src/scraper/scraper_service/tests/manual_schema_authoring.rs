@@ -1,6 +1,6 @@
 use super::*;
 use crate::authoring::CrawlerAuthoringMode;
-use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crate::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
     SchemaReviewPageInput,
@@ -360,10 +360,10 @@ async fn should_classify_rejected_triggering_page_as_other_when_it_was_captured_
 
 /// The review repository of `agent` authoring mode, whose reviewer agent rejects reviews.
 fn agent_deciding_repository(pool: &PgPool) -> CrawlerReviewRepository {
-    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy {
-        approvals: AgentApprovals::Guarded,
-        ..AgentDecisionPolicy::default()
-    })
+    CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(AgentDecisionPolicy::new(
+        CrawlerAuthoringMode::Agent,
+        AgentLimits::default(),
+    ))
 }
 
 /// Rejects the review as the reviewer agent that took its pages for non-product pages, then

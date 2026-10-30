@@ -1,6 +1,7 @@
 use crate::network::policy::NetworkErrorKind;
 use crate::review::access::ReviewAccess;
 pub use crate::review::access::{ReviewServerConfig, ReviewServerConfigError};
+use crate::review::agent_decisions::AGENT_LIMITS_ROUTE;
 use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
@@ -67,7 +68,8 @@ pub struct ReviewServer {
 
 impl ReviewServer {
     /// `html_fetcher` serves live inspection; pass the scraper's fetcher so
-    /// both count against the same robots.txt cache and per-domain pacing.
+    /// both count against the same robots.txt cache and per-domain pacing. `repository` carries
+    /// the review agents' decision policy the composition root built for the whole crawler.
     pub fn new(
         repository: CrawlerReviewRepository,
         domain_administration: Arc<dyn CrawlerDomainAdministration>,
@@ -75,8 +77,7 @@ impl ReviewServer {
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
         Self {
-            // The console decides the review agents' approvals and rejections by its settings.
-            repository: repository.with_agent_decisions(config.agent_decisions.clone()),
+            repository,
             domain_administration,
             live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
             access: ReviewAccess::new(config),
@@ -96,15 +97,14 @@ impl ReviewServer {
     /// Serves the console on `listener`, such as one bound to an ephemeral port in a test.
     pub async fn serve(self, listener: TcpListener) -> std::io::Result<()> {
         let bind_addr = listener.local_addr()?;
-        let agent_decisions = self.access.agent_decisions();
+        let agent_limits = *self.repository.agent_decisions().limits();
         info!(
             bind_addr = %bind_addr,
             agent_access = self.access.agent_access(),
-            agent_approvals = agent_decisions.approvals.as_str(),
-            agent_max_decisions_per_hour = agent_decisions.max_decisions_per_hour.get(),
-            agent_matrix_max_age_minutes = agent_decisions.max_matrix_age.as_secs() / 60,
-            agent_min_labelled_urls = agent_decisions.min_labelled_urls.get(),
-            agent_max_repair_rounds = agent_decisions.max_repair_rounds.get(),
+            agent_max_decisions_per_hour = agent_limits.max_decisions_per_hour.get(),
+            agent_matrix_max_age_minutes = agent_limits.matrix_max_age_minutes.get(),
+            agent_min_labelled_urls = agent_limits.min_labelled_urls.get(),
+            agent_max_repair_rounds = agent_limits.max_repair_rounds.get(),
             max_concurrent_live_jobs = self.live_jobs.limit().get(),
             "Crawler review console listening"
         );
@@ -208,6 +208,9 @@ impl ReviewServer {
             }
             ("GET", "/api/raw-attribute-keys") => {
                 HttpResponse::json(200, &RawAttributeKey::registry())
+            }
+            ("GET", AGENT_LIMITS_ROUTE) => {
+                HttpResponse::json(200, self.repository.agent_decisions().limits())
             }
             ("GET", "/api/reviews") => match self.repository.list_reviews(200).await {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
@@ -1112,7 +1115,6 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "REVIEWER_CANNOT_CHANGE_CANDIDATES")
         }
         ReviewRepositoryError::AuthorMayNotDecide => forbidden(&error, "AUTHOR_CANNOT_DECIDE"),
-        ReviewRepositoryError::AgentDecisionsOff => forbidden(&error, "AGENT_DECISIONS_OFF"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
         }
@@ -1247,7 +1249,9 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::agent_decisions::AgentDecisionPolicy;
+    use crate::authoring::CrawlerAuthoringMode;
+    use crate::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
+    use crate::review::agent_tokens::ReviewAgentTokens;
     use crate::review::approval_guard::FailedApprovalCheck;
     use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
     use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
@@ -1255,6 +1259,12 @@ mod tests {
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };
     use std::net::SocketAddr;
+
+    /// The review agents' decision policy of `agent` authoring mode with `limits`, as the crawler
+    /// builds it for a console open to the agents.
+    fn agent_mode(limits: AgentLimits) -> AgentDecisionPolicy {
+        AgentDecisionPolicy::new(CrawlerAuthoringMode::Agent, limits)
+    }
 
     struct RejectingDomainAdministration;
 
@@ -1325,7 +1335,6 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: auth_token.map(str::to_owned),
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
                 max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
@@ -1419,6 +1428,56 @@ mod tests {
         Ok(())
     }
 
+    /// The console answers the limits of the agent decision policy its repository applies to
+    /// whoever may read it, a human and the author agent whose token the review agent runner
+    /// reads them with, so the runner tells the agents those limits.
+    #[tokio::test]
+    async fn should_answer_the_agents_limits_the_console_applies()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        let limits = AgentLimits {
+            min_labelled_urls: std::num::NonZeroU32::new(5).ok_or("five is not zero")?,
+            ..AgentLimits::default()
+        };
+        let server = ReviewServer::new(
+            CrawlerReviewRepository::new(pool).with_agent_decisions(agent_mode(limits)),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: Some("review-token".to_owned()),
+                agent_tokens: Some(ReviewAgentTokens::of("author-token", "reviewer-token")),
+                local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+            },
+            Arc::new(MockHtmlFetcher::new()),
+        );
+        let read = |authorization: &str| {
+            format!("GET {AGENT_LIMITS_ROUTE} HTTP/1.1\r\nHost: 127.0.0.1\r\n{authorization}\r\n")
+        };
+
+        for token in ["review-token", "author-token"] {
+            let answered = server
+                .route(&read(&format!("Authorization: Bearer {token}\r\n")))
+                .await
+                .to_string();
+
+            assert!(answered.starts_with("HTTP/1.1 200"), "{token}: {answered}");
+            let body = answered
+                .split_once("\r\n\r\n")
+                .map(|(_, body)| body)
+                .ok_or("answer without body")?;
+            assert_eq!(
+                serde_json::from_str::<AgentLimits>(body)?,
+                limits,
+                "{token}"
+            );
+        }
+        let refused = server.route(&read("")).await.to_string();
+        assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
+        Ok(())
+    }
+
     #[tokio::test]
     async fn should_reject_header_overshoot() -> Result<(), Box<dyn std::error::Error>> {
         let prefix = "GET / HTTP/1.1\r\nX-Long: ";
@@ -1447,7 +1506,6 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
                 max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
@@ -1478,7 +1536,6 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
                 max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
@@ -1561,7 +1618,6 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_string()),
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
                 max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
@@ -1647,7 +1703,6 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
                 max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             }
@@ -1841,10 +1896,6 @@ Origin: http://127.0.0.1:7878/x
 
         for (error, reason) in [
             (
-                ReviewRepositoryError::AgentDecisionsOff,
-                "AGENT_DECISIONS_OFF",
-            ),
-            (
                 ReviewRepositoryError::AgentCoverageAcknowledgement,
                 "AGENT_COVERAGE_ACKNOWLEDGEMENT",
             ),
@@ -1936,9 +1987,9 @@ Origin: http://127.0.0.1:7878/x
 
     mod matrix_refresh {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, send_as};
-        use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig};
+        use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig, agent_mode};
         use crate::network::policy::NetworkErrorKind;
-        use crate::review::agent_decisions::AgentApprovals;
+        use crate::review::agent_decisions::AgentLimits;
         use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::matrix_refresh::MatrixRefreshStatus;
@@ -2125,17 +2176,22 @@ Origin: http://127.0.0.1:7878/x
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 local_mutations_without_token: false,
             }
         }
 
         async fn fixture(fetcher: Arc<PacedFetcher>) -> Fixture {
-            fixture_with(fetcher, paced_console()).await
+            fixture_with(fetcher, paced_console(), AgentDecisionPolicy::default()).await
         }
 
-        async fn fixture_with(fetcher: Arc<PacedFetcher>, console: ReviewServerConfig) -> Fixture {
+        /// A paced review over [`PAGE_COUNT`] pages on a `console` whose repository applies
+        /// `agent_decisions`.
+        async fn fixture_with(
+            fetcher: Arc<PacedFetcher>,
+            console: ReviewServerConfig,
+            agent_decisions: AgentDecisionPolicy,
+        ) -> Fixture {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -2147,7 +2203,8 @@ Origin: http://127.0.0.1:7878/x
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("insert listing source: {error}"));
-            let repository = CrawlerReviewRepository::new(pool.clone());
+            let repository =
+                CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(agent_decisions);
             let pages = (1..=PAGE_COUNT)
                 .map(|index| SchemaReviewPageInput {
                     url: format!("https://paced.example/products/{index}"),
@@ -2512,6 +2569,7 @@ Origin: http://127.0.0.1:7878/x
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
                     ..paced_console()
                 },
+                agent_mode(AgentLimits::default()),
             )
             .await;
             let review_id = fixture.review_id;
@@ -2566,13 +2624,12 @@ Origin: http://127.0.0.1:7878/x
                 fetcher.clone(),
                 ReviewServerConfig {
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
-                    agent_decisions: AgentDecisionPolicy {
-                        approvals: AgentApprovals::Guarded,
-                        max_repair_rounds: NonZeroU32::MIN,
-                        ..AgentDecisionPolicy::default()
-                    },
                     ..paced_console()
                 },
+                agent_mode(AgentLimits {
+                    max_repair_rounds: NonZeroU32::MIN,
+                    ..AgentLimits::default()
+                }),
             )
             .await;
             let review_id = fixture.review_id;
@@ -2637,6 +2694,7 @@ Origin: http://127.0.0.1:7878/x
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
                     ..paced_console()
                 },
+                agent_mode(AgentLimits::default()),
             )
             .await;
             let server = ReviewServer {
@@ -2716,9 +2774,7 @@ Origin: http://127.0.0.1:7878/x
 
     mod needs_repair {
         use super::matrix_refresh::schema;
-        use super::{
-            AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
-        };
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
@@ -2794,7 +2850,6 @@ Origin: http://127.0.0.1:7878/x
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
                     agent_tokens: None,
-                    agent_decisions: AgentDecisionPolicy::default(),
                     local_mutations_without_token: false,
                     max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
@@ -2847,8 +2902,10 @@ Origin: http://127.0.0.1:7878/x
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send};
         use super::{
             AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
+            agent_mode,
         };
         use crate::CrawlerReviewId;
+        use crate::review::agent_decisions::AgentLimits;
         use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::repository::CrawlerReviewRepository;
@@ -2859,12 +2916,13 @@ Origin: http://127.0.0.1:7878/x
         use std::sync::Arc;
         use test_api::IntegrationTestService as _;
 
-        /// A review server over a pending manual schema review, and that review.
+        /// A review server of `agent` authoring mode over a pending manual schema review, and that
+        /// review.
         pub(super) async fn pending_review_server() -> (ReviewServer, CrawlerReviewId) {
-            pending_review_server_deciding(AgentDecisionPolicy::default()).await
+            pending_review_server_deciding(agent_mode(AgentLimits::default())).await
         }
 
-        /// As [`pending_review_server`], taking the agent's decisions by `agent_decisions`.
+        /// As [`pending_review_server`], taking the agents' decisions by `agent_decisions`.
         pub(super) async fn pending_review_server_deciding(
             agent_decisions: AgentDecisionPolicy,
         ) -> (ReviewServer, CrawlerReviewId) {
@@ -2879,7 +2937,8 @@ Origin: http://127.0.0.1:7878/x
             .execute(&pool)
             .await
             .unwrap_or_else(|error| panic!("insert listing source: {error}"));
-            let repository = CrawlerReviewRepository::new(pool);
+            let repository =
+                CrawlerReviewRepository::new(pool).with_agent_decisions(agent_decisions);
             let review_id = repository
                 .create_schema_review(
                     &listing_source_id,
@@ -2897,7 +2956,6 @@ Origin: http://127.0.0.1:7878/x
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
-                    agent_decisions,
                     local_mutations_without_token: false,
                     max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
@@ -3320,31 +3378,18 @@ Origin: http://127.0.0.1:7878/x
 
     /// The console takes the agents' verdicts by its own settings, and only a human restores.
     mod agent_decisions {
+        use super::agent_mode;
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::schema_editing::pending_review_server_deciding;
-        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use super::schema_editing::{pending_review_server, pending_review_server_deciding};
+        use crate::review::agent_decisions::AgentLimits;
         use serde_json::json;
         use test_api::IntegrationTestService as _;
 
+        /// The console of `agent` mode takes the reviewer agent's approval only within the approval
+        /// guard.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_take_the_agent_verdicts_by_the_console_settings() {
-            let (off, off_review) =
-                pending_review_server_deciding(AgentDecisionPolicy::default()).await;
-            let (status, refused) = send_as(
-                &off,
-                REVIEWER_TOKEN,
-                &format!("POST /api/reviews/{off_review}/reject"),
-                &json!({ "notes": "not a product page" }).to_string(),
-            )
-            .await;
-            assert!(status.starts_with("HTTP/1.1 403"), "{status} {refused}");
-            assert_eq!(refused["reason"], "AGENT_DECISIONS_OFF");
-
-            let (guarded, guarded_review) = pending_review_server_deciding(AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
-                ..AgentDecisionPolicy::default()
-            })
-            .await;
+        async fn should_decide_the_reviewer_agent_s_approval_by_the_approval_guard() {
+            let (guarded, guarded_review) = pending_review_server().await;
             let (status, refused) = send_as(
                 &guarded,
                 REVIEWER_TOKEN,
@@ -3369,8 +3414,7 @@ Origin: http://127.0.0.1:7878/x
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_restore_an_approval_for_a_human_only() {
-            let (server, review_id) =
-                pending_review_server_deciding(AgentDecisionPolicy::default()).await;
+            let (server, review_id) = pending_review_server().await;
             let approve = format!("POST /api/reviews/{review_id}/approve");
             let restore = format!("POST /api/reviews/{review_id}/restore");
             let (_, incomplete) = send_as(
@@ -3429,11 +3473,7 @@ Origin: http://127.0.0.1:7878/x
         /// a rejection.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_revoke_a_rejection_for_a_human_only() {
-            let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
-                ..AgentDecisionPolicy::default()
-            })
-            .await;
+            let (server, review_id) = pending_review_server().await;
             let revoke = format!("POST /api/reviews/{review_id}/revoke-rejection");
             let (pending_status, pending) = send_as(&server, TOKEN, &revoke, "").await;
             let (status, rejected) = send_as(
@@ -3503,11 +3543,10 @@ Origin: http://127.0.0.1:7878/x
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_answer_human_required_on_every_agent_route_once_the_repair_cap_is_reached()
         {
-            let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
+            let (server, review_id) = pending_review_server_deciding(agent_mode(AgentLimits {
                 max_repair_rounds: std::num::NonZeroU32::MIN,
-                ..AgentDecisionPolicy::default()
-            })
+                ..AgentLimits::default()
+            }))
             .await;
             let review = format!("GET /api/reviews/{review_id}");
             let needs_repair = format!("POST /api/reviews/{review_id}/needs-repair");
@@ -3655,18 +3694,13 @@ Origin: http://127.0.0.1:7878/x
     /// each refusal names its reason and records nothing.
     mod agent_roles {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::schema_editing::pending_review_server_deciding;
-        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use super::schema_editing::pending_review_server;
         use serde_json::json;
         use test_api::IntegrationTestService as _;
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_refuse_each_role_what_the_other_role_does_with_its_reason() {
-            let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
-                ..AgentDecisionPolicy::default()
-            })
-            .await;
+            let (server, review_id) = pending_review_server().await;
             let title_edit = json!({
                 "expected_candidate_version": 1,
                 "schema_index": 0,
@@ -3769,8 +3803,8 @@ Origin: http://127.0.0.1:7878/x
     /// a URL-pattern review has no live matrix to evaluate.
     mod sample_labels {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
-        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig, agent_mode};
+        use crate::review::agent_decisions::AgentLimits;
         use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::model::UrlPatternDecision;
@@ -3833,7 +3867,8 @@ Origin: http://127.0.0.1:7878/x
                 .await
                 .unwrap_or_else(|error| panic!("insert domain {domain}: {error}"));
             }
-            let repository = CrawlerReviewRepository::new(pool.clone());
+            let repository = CrawlerReviewRepository::new(pool.clone())
+                .with_agent_decisions(agent_mode(AgentLimits::default()));
             let review_id = repository
                 .create_url_pattern_review(
                     &listing_source_id,
@@ -3854,10 +3889,6 @@ Origin: http://127.0.0.1:7878/x
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
-                    agent_decisions: AgentDecisionPolicy {
-                        approvals: AgentApprovals::Guarded,
-                        ..AgentDecisionPolicy::default()
-                    },
                     local_mutations_without_token: false,
                     max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
@@ -4270,9 +4301,7 @@ Origin: http://127.0.0.1:7878/x
     mod review_source_pages {
         use super::matrix_refresh::schema;
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::{
-            AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
-        };
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
         use crate::CrawlerReviewId;
         use crate::network::policy::NetworkErrorKind;
         use crate::review::agent_tokens::ReviewAgentTokens;
@@ -4401,7 +4430,6 @@ Origin: http://127.0.0.1:7878/x
                         bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                         auth_token: Some(TOKEN.to_owned()),
                         agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
-                        agent_decisions: AgentDecisionPolicy::default(),
                         local_mutations_without_token: false,
                         max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                     },
