@@ -1,3 +1,4 @@
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use time::{Duration, OffsetDateTime};
 use user_service::ports::consent_workflow_cleanup::{
@@ -48,7 +49,7 @@ impl ConsentWorkflowCleanup for SqlxConsentWorkflowCleanupTransaction<'_> {
         .bind(i64::from(batch_size))
         .execute(self.tx.connection())
         .await
-        .map_err(|_| ConsentWorkflowCleanupError)?;
+        .map_err(unavailable)?;
         Ok(result.rows_affected())
     }
 
@@ -71,7 +72,7 @@ impl ConsentWorkflowCleanup for SqlxConsentWorkflowCleanupTransaction<'_> {
         .bind(i64::from(batch_size))
         .execute(self.tx.connection())
         .await
-        .map_err(|_| ConsentWorkflowCleanupError)?;
+        .map_err(unavailable)?;
         Ok(result.rows_affected())
     }
 
@@ -95,7 +96,7 @@ impl ConsentWorkflowCleanup for SqlxConsentWorkflowCleanupTransaction<'_> {
         .bind(i64::from(batch_size))
         .execute(self.tx.connection())
         .await
-        .map_err(|_| ConsentWorkflowCleanupError)?;
+        .map_err(unavailable)?;
         Ok(result.rows_affected())
     }
 }
@@ -104,6 +105,30 @@ fn validate_batch_size(batch_size: u16) -> Result<(), ConsentWorkflowCleanupErro
     if (1..=1_000).contains(&batch_size) {
         Ok(())
     } else {
-        Err(ConsentWorkflowCleanupError)
+        Err(ConsentWorkflowCleanupError::InvalidBatchSize)
+    }
+}
+
+fn unavailable(source: sqlx::Error) -> ConsentWorkflowCleanupError {
+    ConsentWorkflowCleanupError::TemporarilyUnavailable {
+        source: box_error(source),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_reject_out_of_range_batch_sizes_as_invalid_batch_size() {
+        for batch_size in [0, 1_001] {
+            assert!(matches!(
+                validate_batch_size(batch_size),
+                Err(ConsentWorkflowCleanupError::InvalidBatchSize)
+            ));
+        }
+        for batch_size in [1, 1_000] {
+            assert!(validate_batch_size(batch_size).is_ok());
+        }
     }
 }

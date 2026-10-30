@@ -1663,7 +1663,7 @@ impl From<GetSimilarProductListingsError> for ApiError {
                     .with_detail("ProductListing was not found.")
             }
             GetSimilarProductListingsError::ProductListingEmbeddingQueryFailed { .. }
-            | GetSimilarProductListingsError::SimilaritySearchUnavailable
+            | GetSimilarProductListingsError::SimilaritySearchUnavailable { .. }
             | GetSimilarProductListingsError::BeginTransactionFailed(_)
             | GetSimilarProductListingsError::CommitTransactionFailed(_)
             | GetSimilarProductListingsError::PricingFxSnapshotMissing
@@ -1702,7 +1702,7 @@ impl From<SearchProductListingsError> for ApiError {
             SearchProductListingsError::InvalidGeographicQuery => {
                 Self::bad_request(BAD_QUERY_PARAMETER_VALUE)
             }
-            SearchProductListingsError::ProductListingSearchQueryFailed
+            SearchProductListingsError::ProductListingSearchQueryFailed { .. }
             | SearchProductListingsError::QueryEmbeddingFailed { .. }
             | SearchProductListingsError::FxRateSnapshotMissing
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
@@ -1712,7 +1712,7 @@ impl From<SearchProductListingsError> for ApiError {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing search is temporarily unavailable.")
             }
-            SearchProductListingsError::ProductListingSearchReadModelInvalid
+            SearchProductListingsError::ProductListingSearchReadModelInvalid { .. }
             | SearchProductListingsError::FxRateSnapshotInvalid { .. }
             | SearchProductListingsError::ListingSourceSummaryReadModelInvalid { .. }
             | SearchProductListingsError::ListingSourceSummaryMissing { .. }
@@ -3563,6 +3563,42 @@ mod tests {
             }),
             body
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_keep_product_search_failure_sources_out_of_public_problems()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (error, expected) in [
+            (
+                SearchProductListingsError::ProductListingSearchQueryFailed {
+                    source: application::error::static_error("PRIVATE_OPENSEARCH_SENTINEL"),
+                },
+                json!({
+                    "status": 503,
+                    "title": "Service Unavailable",
+                    "error": PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE.to_string(),
+                    "detail": "ProductListing search is temporarily unavailable."
+                }),
+            ),
+            (
+                SearchProductListingsError::ProductListingSearchReadModelInvalid {
+                    source: application::error::static_error("PRIVATE_OPENSEARCH_SENTINEL"),
+                },
+                json!({
+                    "status": 500,
+                    "title": "Internal Server Error",
+                    "error": PRODUCT_LISTING_INTERNAL_ERROR.to_string(),
+                    "detail": "ProductListing search failed internally."
+                }),
+            ),
+        ] {
+            let response = ApiError::from(error).into_response();
+
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+            assert_eq!(expected, body);
+        }
         Ok(())
     }
 

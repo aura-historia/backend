@@ -1,3 +1,4 @@
+use application::error::BoxError;
 use time::OffsetDateTime;
 
 pub const CONFIRMED_CHALLENGE_REPLAY_DAYS: i64 = 7;
@@ -5,8 +6,15 @@ pub const CONSENT_WORKFLOW_RECEIPT_RETENTION_DAYS: i64 = 120;
 
 /// Operational retention only. A missing receipt never authorizes a new grant.
 #[derive(Debug, thiserror::Error)]
-#[error("consent workflow cleanup unavailable")]
-pub struct ConsentWorkflowCleanupError;
+pub enum ConsentWorkflowCleanupError {
+    #[error("consent workflow cleanup batch size must be between 1 and 1000")]
+    InvalidBatchSize,
+    #[error("consent workflow cleanup unavailable")]
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
+}
 
 #[async_trait::async_trait]
 pub trait ConsentWorkflowCleanup: Send {
