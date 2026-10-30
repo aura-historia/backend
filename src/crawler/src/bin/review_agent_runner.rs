@@ -57,6 +57,10 @@ async fn main() -> ExitCode {
     };
     tokio::pin!(work);
     let (signal, exit_code) = tokio::select! {
+        // The signal handlers are installed when `stop_signal` is first polled: before the run
+        // starts any child, so a stop signal never ends the runner with its default action.
+        biased;
+        stopped_by = stop_signal() => stopped_by,
         outcome = &mut work => return match outcome {
             Ok(()) => ExitCode::SUCCESS,
             Err(run_error) => {
@@ -64,7 +68,6 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        stopped_by = stop_signal() => stopped_by,
     };
     stop_work(&stop, work, signal).await;
     warn!(signal, "Review agent runner stopped by a signal");
