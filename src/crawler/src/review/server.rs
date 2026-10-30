@@ -46,6 +46,7 @@ const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 /// event's time, as the review agents' daily digest does.
 const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 
+mod pending_reviews;
 mod schema_matrix;
 mod source_pages;
 
@@ -212,6 +213,7 @@ impl ReviewServer {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
                 Err(err) => internal_error(err),
             },
+            ("GET", "/api/pending-reviews") => self.pending_reviews(&parsed).await,
             ("GET", "/api/review-events") => self.review_events_since(&parsed).await,
             _ => self.route_dynamic(parsed, actor).await,
         }

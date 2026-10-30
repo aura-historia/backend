@@ -26,6 +26,7 @@ macro_rules! agent_rounds_of_review {
                 '-infinity'::timestamptz))"
     };
 }
+pub(super) use agent_rounds_of_review;
 
 /// The values of `$1` to `$3` of [`agent_rounds_of_review`]: the agent actors, the needs-repair
 /// action and the human actor.
