@@ -53,8 +53,8 @@
 //!
 //! Ctrl+C (SIGINT) or SIGTERM stops the binary gracefully: no new spider or scraper work starts,
 //! running work gets 30 seconds to finish and the raw observations captured so far are written,
-//! the review agent runner is stopped with its agent processes, then the process exits 0. A
-//! second Ctrl+C exits at once. The contract is in
+//! the review agent runner stops its agent processes and records their cost, then the process
+//! exits 0. A second Ctrl+C exits at once. The contract is in
 //! `docs/crawler/operations.md#stopping-the-crawler`.
 
 use listing_source_core::ListingSourceId;

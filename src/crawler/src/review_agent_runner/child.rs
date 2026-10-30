@@ -8,6 +8,7 @@
 
 use super::invocation::{PASSED_ENV, PASSED_PLATFORM_ENV};
 use super::settings::{INTERVAL_SECONDS_ENV, STATE_DIR_ENV};
+use super::stop::STOP_DEADLINE;
 use crate::review_mcp::REVIEW_CONSOLE_URL_ENV;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -27,8 +28,9 @@ const DEV_INTERVAL_SECONDS: &str = "30";
 /// Where `dev`'s runner keeps its lock, state, ledger and digests unless set, relative to `dev`'s
 /// working directory: under the git-ignored build directory.
 const DEV_STATE_DIR: &str = "target/review-agents";
-/// How long the runner has to stop its agent processes after `dev` asks it to stop.
-const STOP_GRACE: Duration = Duration::from_secs(10);
+/// How long the runner has to stop after `dev` asks it to: its own stop deadline, within which it
+/// stops its agent processes and records their cost, and a margin.
+const STOP_GRACE: Duration = Duration::from_secs(STOP_DEADLINE.as_secs() + 10);
 
 /// The runner executable next to `executable`, where Cargo builds every binary of the crate.
 pub fn runner_executable_next_to(executable: &Path) -> PathBuf {
@@ -141,10 +143,12 @@ impl RunnerChild {
     }
 }
 
-/// Asks the runner to stop as `systemctl stop` does, with SIGTERM, so it stops its agent processes
-/// first, and kills it if it has not ended after [`STOP_GRACE`]. Windows has no SIGTERM: a Ctrl+C
-/// in `dev`'s console reaches the runner too, and a runner still running after the grace is
-/// killed.
+/// Asks the runner to stop as `systemctl stop` does, with SIGTERM to it alone, so it stops its
+/// agent processes and records their cost, and kills it if it has not ended after [`STOP_GRACE`].
+/// After a Ctrl+C in `dev`'s terminal, which reaches the runner too, the runner is stopping already
+/// and ignores this SIGTERM.
+/// Windows has no SIGTERM: a Ctrl+C in `dev`'s console reaches the runner too, and a runner still
+/// running after the grace is killed.
 async fn terminate(child: &mut Child) {
     #[cfg(unix)]
     if let Some(pid) = child.id().and_then(|id| libc::pid_t::try_from(id).ok()) {

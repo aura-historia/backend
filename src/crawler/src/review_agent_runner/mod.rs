@@ -9,7 +9,8 @@
 //!
 //! One run is one pass over the pending reviews, under a lock so one runner works at a time. The
 //! runner starts a run every interval until it is stopped, as a systemd service in production and
-//! as a child of `dev` in development; `--once` starts a single run by hand. The contract is in
+//! as a child of `dev` in development; `--once` starts a single run by hand. Stopped, it stops its
+//! running agent processes and records their cost before it exits. The contract is in
 //! `docs/crawler/operations.md` (review agent runner).
 
 mod child;
@@ -24,6 +25,7 @@ mod queue;
 mod reports;
 mod settings;
 mod state;
+mod stop;
 
 pub use child::{RunnerChild, runner_env, runner_executable_next_to};
 pub use pass::{PassStop, PassSummary};
@@ -31,6 +33,7 @@ pub use settings::{
     AgentProcessSettings, RunMode, RunnerLocation, RunnerSettings, RunnerSettingsError,
     current_location,
 };
+pub use stop::{RunnerStop, STOP_DEADLINE};
 
 use digest::{Digest, RollingCost};
 use ledger::{FIVE_HOURS, LEDGER_RETENTION, ONE_WEEK, ProcessLedger};
@@ -97,30 +100,40 @@ pub enum RunnerError {
     Pass(#[from] PassError),
 }
 
-/// The service: a run, then `settings.interval` of rest after it ends, until the process is
-/// stopped. A run that fails is logged and the next one follows after the interval, so a console
-/// that is not up yet or an expired login never ends the service; a state or ledger it cannot read
-/// keeps failing each run, so nothing runs on a forgotten pause. The lock is held only
-/// during a run, so a `--once` between two runs works.
-pub async fn run_every_interval(settings: &RunnerSettings) {
-    loop {
-        if let Err(run_error) = run(settings).await {
-            error!(
+/// The service: a run, then `settings.interval` of rest after it ends, until `stop` is requested.
+/// A run that fails is logged and the next one follows after the interval, so a console that is
+/// not up yet or an expired login never ends the service; a state or ledger it cannot read keeps
+/// failing each run, so nothing runs on a forgotten pause. The lock is held only during a run, so
+/// a `--once` between two runs works.
+pub async fn run_every_interval(settings: &RunnerSettings, stop: &RunnerStop) {
+    while !stop.is_requested() {
+        match run(settings, stop).await {
+            Ok(_) => {}
+            Err(run_error) if stop.is_requested() => error!(
+                error = %run_error,
+                cause = ?std::error::Error::source(&run_error),
+                "Review agent run failed while the runner stops"
+            ),
+            Err(run_error) => error!(
                 error = %run_error,
                 cause = ?std::error::Error::source(&run_error),
                 interval_seconds = settings.interval.as_secs(),
                 "Review agent run failed; the next run follows after the interval"
-            );
+            ),
         }
-        tokio::time::sleep(settings.interval).await;
+        tokio::select! {
+            () = tokio::time::sleep(settings.interval) => {}
+            () = stop.requested() => {}
+        }
     }
 }
 
 /// One run: takes the lock, checks that the crawler is in `agent` mode and that the CLI is
 /// logged in with a Claude subscription, reads the limits of the agents' decisions from the
-/// console, works the pending reviews, and writes the digest when it is due (the service) or right
-/// away (`--once`).
-pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
+/// console, works the pending reviews until `stop` is requested, and writes the digest when it is
+/// due (the service) or right away (`--once`). A run that `stop` ended writes no digest; the next
+/// run of the service writes it.
+pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutcome, RunnerError> {
     std::fs::create_dir_all(&settings.state_dir).map_err(|source| RunnerError::StateDirectory {
         path: settings.state_dir.clone(),
         source,
@@ -158,7 +171,7 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
     ledger.prune(started - LEDGER_RETENTION)?;
 
     let (pass, mut state, ledger) =
-        work_pending_reviews(settings, &console, limits, state, ledger).await;
+        work_pending_reviews(settings, &console, limits, stop, state, ledger).await;
     save_state(&settings.state_dir, &state)?;
     let summary = pass?;
     let now = OffsetDateTime::now_utc();
@@ -175,6 +188,12 @@ pub async fn run(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
         weekly_cost_usd = ledger.cost_within(ONE_WEEK, now),
         "Review agents pass finished"
     );
+    if stop.is_requested() {
+        return Ok(RunOutcome::Ran {
+            summary,
+            digest: None,
+        });
+    }
     let digest = write_digest(settings, &console, &mut state, &ledger, now).await;
     if digest.is_some() {
         save_state(&settings.state_dir, &state)?;
@@ -537,9 +556,10 @@ mod tests {
     /// A `claude` executable that records each call's arguments, input and environment and
     /// answers the canned envelope of its role, or of its review and role. A reviewer process
     /// logs the decision of its review, or of the role, to `decided.log`, as the console records it.
-    /// A process told to hang waits after its stream until it is stopped; one told to die kills
-    /// itself. An author told to hand its review over gives the needs-repair verdict that reaches
-    /// the cap, which the fake console then shows.
+    /// A process told to hang waits after its stream until it is stopped: on SIGINT it logs that it
+    /// was interrupted and prints the result envelope it was given for that, if any, as the CLI
+    /// ends its turn. One told to die kills itself. An author told to hand its review over gives
+    /// the needs-repair verdict that reaches the cap, which the fake console then shows.
     struct FakeClaude {
         directory: StateDirectory,
     }
@@ -567,7 +587,12 @@ sleep 0.2
 envelope="$dir/envelopes/$review-$role.json"
 [ -f "$envelope" ] || envelope="$dir/envelopes/$role.json"
 sed "s/__REVIEW_ID__/$review/g" "$envelope"
-if [ -f "$dir/hang/$review-$role" ]; then sleep 30; fi
+if [ -f "$dir/hang/$review-$role" ]; then
+  trap 'echo "interrupted $role $review" >> "$dir/order.log"; [ -f "$dir/interrupted/$review-$role.json" ] && { echo; sed "s/__REVIEW_ID__/$review/g" "$dir/interrupted/$review-$role.json"; }; exit 130' INT
+  echo "hang $role $review" >> "$dir/order.log"
+  sleep 30 >/dev/null 2>&1 &
+  wait $!
+fi
 if [ -f "$dir/die/$review-$role" ]; then kill -KILL $$; fi
 echo "end $role $review" >> "$dir/order.log"
 "#;
@@ -583,6 +608,7 @@ echo "end $role $review" >> "$dir/order.log"
                 "envelopes",
                 "decisions",
                 "hang",
+                "interrupted",
                 "die",
                 "hand_over",
                 "human",
@@ -650,6 +676,29 @@ echo "end $role $review" >> "$dir/order.log"
         /// Has the process `<review id>-<role>` hang after its stream until it is stopped.
         fn hang(&self, name: &str) {
             std::fs::write(self.directory.path().join("hang").join(name), "").unwrap_or_default();
+        }
+
+        /// Has the hanging process `<review id>-<role>` print `envelope` when SIGINT interrupts it.
+        fn report_on_interrupt(&self, name: &str, envelope: &Value) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("interrupted")
+                    .join(format!("{name}.json")),
+                envelope.to_string(),
+            )
+            .unwrap_or_default();
+        }
+
+        /// Waits until the fake logged `line` to its order log.
+        async fn logged(&self, line: &str) {
+            for _ in 0..200 {
+                if self.order().iter().any(|logged| logged == line) {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            panic!("the fake claude never logged {line}: {:?}", self.order());
         }
 
         /// Has the process `<review id>-<role>` kill itself after its stream.
@@ -825,7 +874,7 @@ echo "end $role $review" >> "$dir/order.log"
     }
 
     async fn run_with(settings: &RunnerSettings) -> RunOutcome {
-        run(settings)
+        run(settings, &RunnerStop::default())
             .await
             .unwrap_or_else(|error| panic!("{error}: {error:?}"))
     }
@@ -1196,6 +1245,112 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(state.cooldowns.contains_key(&killed.review_id));
     }
 
+    /// The runner's stop, which `systemctl stop` sends to the runner alone, starts no further
+    /// process and stops the running one as its timeout does: SIGINT first, on which the CLI ends
+    /// its turn with its envelope and the cost so far, which the ledger records. The review does
+    /// not cool down, and the stopped run writes no digest.
+    #[tokio::test]
+    async fn should_stop_the_running_process_and_record_its_cost_when_the_runner_stops() {
+        let running = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![running.clone(), review("PENDING_REVIEW", true)]).await;
+        let author = format!("{}-author", running.review_id);
+        fixture.claude.stream(
+            &author,
+            &[json!({ "type": "system", "subtype": "init", "model": "claude-opus-5-5" })],
+        );
+        fixture.claude.hang(&author);
+        fixture.claude.report_on_interrupt(
+            &author,
+            &json!({
+                "type": "result", "subtype": "error_during_execution", "is_error": true,
+                "num_turns": 7, "total_cost_usd": 0.3,
+                "usage": { "input_tokens": 70, "output_tokens": 30 },
+            }),
+        );
+        let settings = fixture.settings(&[], &[]);
+        let stop = RunnerStop::default();
+
+        let (outcome, ()) = tokio::join!(
+            tokio::time::timeout(STOP_DEADLINE, run(&settings, &stop)),
+            async {
+                fixture
+                    .claude
+                    .logged(&format!("hang author {}", running.review_id))
+                    .await;
+                stop.request();
+            }
+        );
+
+        let outcome = outcome
+            .unwrap_or_else(|_| panic!("the stopped run outlasted the stop deadline"))
+            .unwrap_or_else(|error| panic!("{error}: {error:?}"));
+        let RunOutcome::Ran { summary, digest } = outcome else {
+            panic!("the run found the lock held");
+        };
+        assert_eq!(
+            (summary.worked, summary.processes, summary.stopped),
+            (1, 1, Some(PassStop::RunnerStop))
+        );
+        assert_eq!(digest, None);
+        let id = running.review_id;
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {id}"),
+                format!("hang author {id}"),
+                format!("interrupted author {id}"),
+            ]
+        );
+        let ledger = fixture.ledger();
+        assert_eq!(ledger.len(), 1, "{ledger:?}");
+        assert_eq!(ledger[0]["review_id"], id.to_string());
+        assert_eq!(ledger[0]["end"], "FAILED");
+        assert_eq!(ledger[0]["failure"], "stopped when the runner stopped");
+        assert_eq!(ledger[0]["num_turns"], 7);
+        assert_eq!(ledger[0]["total_cost_usd"], 0.3);
+        assert_eq!(
+            ledger[0]
+                .get("cost_charged")
+                .cloned()
+                .unwrap_or(json!(false)),
+            json!(false)
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    #[tokio::test]
+    async fn should_end_the_service_between_runs_when_the_runner_stops() {
+        let fixture = Fixture::new(vec![]).await;
+        let settings = fixture.settings(&[], &[]);
+        let stop = RunnerStop::default();
+
+        let (service, ()) = tokio::join!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                run_every_interval(&settings, &stop)
+            ),
+            async {
+                for _ in 0..100 {
+                    let state = load_state(fixture.state.path()).ok();
+                    if state.and_then(|state| state.last_digest).is_some() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                stop.request();
+            }
+        );
+
+        assert!(
+            service.is_ok(),
+            "the service rested its interval of {} seconds",
+            settings.interval.as_secs()
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.last_digest.is_some(), "the first run worked");
+    }
+
     /// The event trail, not the reviewer's report, says whether the console took a decision: a
     /// reviewer that reports its refused approval although its needs-repair verdict was accepted
     /// decided, and one that reports an acceptance the trail lacks did not.
@@ -1275,7 +1430,7 @@ echo "end $role $review" >> "$dir/order.log"
             "",
         )
         .unwrap_or_default();
-        let without_limits = run(&settings).await;
+        let without_limits = run(&settings, &RunnerStop::default()).await;
 
         let calls = fixture.claude.calls();
         assert_eq!(
@@ -1302,9 +1457,9 @@ echo "end $role $review" >> "$dir/order.log"
             .claude
             .login(json!({ "loggedIn": false, "authMethod": "none" }));
 
-        let logged_out = run(&settings).await;
+        let logged_out = run(&settings, &RunnerStop::default()).await;
         std::fs::remove_file(&settings.console.token_file).unwrap_or_default();
-        let no_token_file = run(&settings).await;
+        let no_token_file = run(&settings, &RunnerStop::default()).await;
 
         assert!(matches!(
             logged_out,
@@ -1339,11 +1494,12 @@ echo "end $role $review" >> "$dir/order.log"
         let token_file = settings.console.token_file.clone();
         let moved_away = token_file.with_extension("moved");
         std::fs::rename(&token_file, &moved_away).unwrap_or_else(|e| panic!("{e}"));
+        let never_stopped = RunnerStop::default();
 
         let (service, ()) = tokio::join!(
             tokio::time::timeout(
                 std::time::Duration::from_millis(2500),
-                run_every_interval(&settings)
+                run_every_interval(&settings, &never_stopped)
             ),
             async {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;

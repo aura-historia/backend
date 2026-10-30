@@ -3,10 +3,10 @@
 //! empty environment with only its [`ChildEnvironment`]: the few variables the CLI needs, taken
 //! from the runner's, plus the variables a pinned CLI runs with. The end of its stdout is kept up
 //! to a bound, where an agent process's stream ends with its result envelope, and its stderr only
-//! as a short tail for a failure's log line. A child that outlives its timeout is stopped with
-//! everything it started, such as its `review-mcp`: first asked to end its turn, which the CLI
-//! ends with its result envelope, and its output is what it printed until it stopped, so the
-//! runner still reads a cost it reported.
+//! as a short tail for a failure's log line. A child that outlives its timeout, or runs when the
+//! runner stops, is stopped with everything it started, such as its `review-mcp`: first asked to
+//! end its turn, which the CLI ends with its result envelope, and its output is what it printed
+//! until it stopped, so the runner still reads a cost it reported.
 
 use super::invocation::{AgentCommand, ChildEnvironment};
 use std::collections::VecDeque;
@@ -26,6 +26,8 @@ const MAX_STDERR_TAIL_CHARS: usize = 300;
 /// How long a stopped child has to end its turn after SIGINT, and then its process group to exit
 /// after SIGTERM before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(5);
+/// The longest stopping a child takes: a grace after SIGINT and one after SIGTERM.
+pub const LONGEST_CHILD_STOP: Duration = Duration::from_secs(2 * STOP_GRACE.as_secs());
 
 /// What a finished or stopped child left.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,8 +38,17 @@ pub struct ChildOutput {
     pub stdout: Vec<u8>,
     /// The last line of its stderr, shortened, for a failure's log line.
     pub stderr_tail: String,
-    /// It outlived its timeout and was stopped.
-    pub timed_out: bool,
+    /// Why the runner stopped it before it ended, if it did.
+    pub stopped: Option<ChildStop>,
+}
+
+/// Why the runner stopped a child before it ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildStop {
+    /// It outlived its timeout.
+    Timeout,
+    /// It ran when the runner stopped.
+    RunnerStop,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -59,10 +70,11 @@ pub enum ChildError {
 }
 
 /// Runs the agent process `command` with its prompt on stdin, in a new empty directory, for at
-/// most `timeout`.
+/// most `timeout`, or until `runner_stop` resolves.
 pub async fn run_agent(
     command: &AgentCommand,
     timeout: Duration,
+    runner_stop: impl Future<Output = ()>,
 ) -> Result<ChildOutput, ChildError> {
     let working_dir = EmptyDirectory::create()?;
     let mut child = cli_command(&command.program, working_dir.path(), &command.env);
@@ -72,12 +84,14 @@ pub async fn run_agent(
         Some(command.prompt.as_bytes()),
         &command.program,
         timeout,
+        runner_stop,
     )
     .await
 }
 
 /// Runs the CLI with `args` and no input, in a new empty directory with `env`, for at most
-/// `timeout`.
+/// `timeout`. The runner's stop does not end it: it spends nothing, and the stop's deadline bounds
+/// it.
 pub async fn run_cli(
     program: &Path,
     args: &[&str],
@@ -87,7 +101,7 @@ pub async fn run_cli(
     let working_dir = EmptyDirectory::create()?;
     let mut child = cli_command(program, working_dir.path(), env);
     child.args(args);
-    run(child, None, program, timeout).await
+    run(child, None, program, timeout, std::future::pending()).await
 }
 
 fn cli_command(program: &Path, working_dir: &Path, env: &ChildEnvironment) -> Command {
@@ -123,6 +137,7 @@ async fn run(
     input: Option<&[u8]>,
     program: &Path,
     timeout: Duration,
+    runner_stop: impl Future<Output = ()>,
 ) -> Result<ChildOutput, ChildError> {
     let mut child = command.spawn().map_err(|source| ChildError::Spawn {
         program: program.to_path_buf(),
@@ -145,19 +160,22 @@ async fn run(
         read?;
         status
     };
-    let finished = tokio::time::timeout(timeout, exchange).await;
-    let timed_out = finished.is_err();
-    let exit_code = match finished {
-        Ok(Ok(status)) => status.code(),
+    let finished = tokio::select! {
+        finished = exchange => Ok(finished),
+        () = tokio::time::sleep(timeout) => Err(ChildStop::Timeout),
+        () = runner_stop => Err(ChildStop::RunnerStop),
+    };
+    let (exit_code, stopped) = match finished {
+        Ok(Ok(status)) => (status.code(), None),
         Ok(Err(error)) => return Err(ChildError::Io(error)),
-        Err(_) => {
+        Err(stop) => {
             stop_process_group(process_group, output.read_from(&mut stdout, &mut stderr)).await;
             let _ = child.kill().await;
-            None
+            (None, Some(stop))
         }
     };
     group_guard.disarm();
-    Ok(output.into_output(exit_code, timed_out))
+    Ok(output.into_output(exit_code, stopped))
 }
 
 /// The process group of a child that has not ended yet. Dropping it kills the whole group: a run
@@ -205,12 +223,12 @@ impl OutputTails {
         stdout.and(stderr)
     }
 
-    fn into_output(self, exit_code: Option<i32>, timed_out: bool) -> ChildOutput {
+    fn into_output(self, exit_code: Option<i32>, stopped: Option<ChildStop>) -> ChildOutput {
         ChildOutput {
             exit_code,
             stdout: self.stdout.into_bytes(),
             stderr_tail: stderr_tail(&self.stderr.into_bytes()),
-            timed_out,
+            stopped,
         }
     }
 }
@@ -372,9 +390,13 @@ mod tests {
         );
         assert!(std::env::var_os("CARGO_PKG_NAME").is_some());
 
-        let output = run_agent(&command(program), Duration::from_secs(30))
-            .await
-            .unwrap_or_else(|error| panic!("{error}"));
+        let output = run_agent(
+            &command(program),
+            Duration::from_secs(30),
+            std::future::pending(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{error}"));
 
         let recorded = std::fs::read_to_string(&record).unwrap_or_default();
         let lines: Vec<&str> = recorded.lines().collect();
@@ -410,7 +432,7 @@ mod tests {
         assert_eq!(output.exit_code, Some(0));
         assert_eq!(output.stdout, b"{\"type\":\"result\"}\n");
         assert_eq!(output.stderr_tail, "last words");
-        assert!(!output.timed_out);
+        assert_eq!(output.stopped, None);
     }
 
     /// A run that is dropped before its child ended, as the runner's stop signal drops it, stops
@@ -426,7 +448,11 @@ mod tests {
 
         let cancelled = tokio::time::timeout(
             Duration::from_millis(500),
-            run_agent(&command(program), Duration::from_secs(60)),
+            run_agent(
+                &command(program),
+                Duration::from_secs(60),
+                std::future::pending(),
+            ),
         )
         .await;
         tokio::time::sleep(Duration::from_secs(4)).await;
@@ -451,11 +477,15 @@ mod tests {
             ),
         );
 
-        let output = run_agent(&command(program), Duration::from_secs(30))
-            .await
-            .unwrap_or_else(|error| panic!("{error}"));
+        let output = run_agent(
+            &command(program),
+            Duration::from_secs(30),
+            std::future::pending(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{error}"));
 
-        assert!(!output.timed_out);
+        assert_eq!(output.stopped, None);
         assert_eq!(output.exit_code, Some(0));
         assert_eq!(output.stdout.len(), MAX_OUTPUT_TAIL_BYTES);
         assert!(output.stdout.ends_with(b"\n{\"type\":\"result\"}\n"));
@@ -486,13 +516,21 @@ while :; do sleep 0.1; done"#,
         let (ends_its_turn, ends_on_sigterm) = (command(ends_its_turn), command(ends_on_sigterm));
 
         let (ended_its_turn, ended_on_sigterm) = tokio::join!(
-            run_agent(&ends_its_turn, Duration::from_millis(500)),
-            run_agent(&ends_on_sigterm, Duration::from_millis(500)),
+            run_agent(
+                &ends_its_turn,
+                Duration::from_millis(500),
+                std::future::pending()
+            ),
+            run_agent(
+                &ends_on_sigterm,
+                Duration::from_millis(500),
+                std::future::pending()
+            ),
         );
 
         for output in [ended_its_turn, ended_on_sigterm] {
             let output = output.unwrap_or_else(|error| panic!("{error}"));
-            assert!(output.timed_out);
+            assert_eq!(output.stopped, Some(ChildStop::Timeout));
             assert_eq!(output.exit_code, None);
             assert_eq!(
                 String::from_utf8_lossy(&output.stdout),
@@ -510,14 +548,58 @@ while :; do sleep 0.1; done"#,
             &format!("(sleep 8; touch '{}') & sleep 30", marker.display()),
         );
 
-        let output = run_agent(&command(program), Duration::from_millis(300))
-            .await
-            .unwrap_or_else(|error| panic!("{error}"));
+        let output = run_agent(
+            &command(program),
+            Duration::from_millis(300),
+            std::future::pending(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{error}"));
         // The shell ends on SIGINT, its children only on SIGTERM, a grace period later, and the
         // stop returns two grace periods after the timeout.
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        assert!(output.timed_out);
+        assert_eq!(output.stopped, Some(ChildStop::Timeout));
+        assert!(!marker.exists(), "the child's own child was stopped too");
+    }
+
+    /// The runner's stop stops a child long before its timeout, as the timeout does: SIGINT first,
+    /// on which the CLI prints its result envelope, then its process group with what it started.
+    #[tokio::test]
+    async fn should_stop_a_child_as_at_its_timeout_when_the_runner_stops() {
+        let directory = StateDirectory::new();
+        let marker = directory.path().join("grandchild-alive");
+        let program = script(
+            &directory,
+            &format!(
+                r#"trap 'echo "{{\"type\":\"result\",\"total_cost_usd\":0.3}}"; exit 130' INT
+(sleep 3; touch '{}') >/dev/null 2>&1 &
+while :; do sleep 0.1; done"#,
+                marker.display()
+            ),
+        );
+        let started = tokio::time::Instant::now();
+
+        let output = tokio::time::timeout(
+            LONGEST_CHILD_STOP + Duration::from_secs(5),
+            run_agent(
+                &command(program),
+                Duration::from_secs(3600),
+                tokio::time::sleep(Duration::from_millis(300)),
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("the stop waited for the child's timeout"))
+        .unwrap_or_else(|error| panic!("{error}"));
+        // Past the moment a grandchild the stop missed would have left its marker.
+        tokio::time::sleep_until(started + Duration::from_secs(4)).await;
+
+        assert_eq!(output.stopped, Some(ChildStop::RunnerStop));
+        assert_eq!(output.exit_code, None);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "{\"type\":\"result\",\"total_cost_usd\":0.3}\n"
+        );
         assert!(!marker.exists(), "the child's own child was stopped too");
     }
 }
