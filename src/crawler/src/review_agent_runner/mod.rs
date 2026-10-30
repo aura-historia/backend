@@ -269,7 +269,9 @@ async fn digest_reads(
 mod tests {
     use super::*;
     use crate::CrawlerReviewId;
-    use crate::review::model::CrawlerReview;
+    use crate::review::model::{
+        CrawlerReview, PendingReviewPage, PendingReviewSummary, PendingReviewTotals,
+    };
     use crate::review_agent_runner::ledger::LEDGER_FILE;
     use crate::review_agent_runner::ledger::tests::StateDirectory;
     use crate::review_agent_runner::settings::RunnerLocation;
@@ -314,7 +316,6 @@ mod tests {
                     .local_addr()
                     .unwrap_or_else(|error| panic!("{error}"))
             );
-            let listed = Arc::new(serde_json::to_string(&reviews).unwrap_or_default());
             let reviews = Arc::new(reviews);
             let events = Arc::new(events);
             let claude_dir = Arc::new(claude_dir);
@@ -335,8 +336,8 @@ mod tests {
                     let path = request.split_whitespace().nth(1).unwrap_or_default();
                     let (status, body) = if !authorized {
                         (401, "{\"error\":\"unauthorized\"}".to_owned())
-                    } else if path == "/api/reviews" {
-                        (200, listed.to_string())
+                    } else if let Some(query) = path.strip_prefix("/api/pending-reviews?") {
+                        (200, pending_page(&reviews, query))
                     } else if path.starts_with("/api/review-events?since=") {
                         let decided_log = claude_dir.join("decided.log");
                         (200, with_decisions(&events, &decided_log).to_string())
@@ -359,6 +360,75 @@ mod tests {
             });
             Self { url }
         }
+    }
+
+    /// `GET /api/pending-reviews?<query>` of `reviews`, one review a page, so the runner reads the
+    /// agents' queue page by page as it must however long the queue is.
+    fn pending_page(reviews: &[CrawlerReview], query: &str) -> String {
+        let query: HashMap<String, String> = url::form_urlencoded::parse(query.as_bytes())
+            .into_owned()
+            .collect();
+        let queue: Vec<&CrawlerReview> = reviews
+            .iter()
+            .filter(|review| {
+                review.status == "PENDING_REVIEW" && review.listing_source_crawl_enabled
+            })
+            .collect();
+        let count = |human_required: bool| {
+            i64::try_from(
+                queue
+                    .iter()
+                    .filter(|review| review.human_required == human_required)
+                    .count(),
+            )
+            .unwrap_or(i64::MAX)
+        };
+        let totals = PendingReviewTotals {
+            workable: count(false),
+            waiting_for_human: count(true),
+        };
+        let selected: Vec<&CrawlerReview> = queue
+            .into_iter()
+            .filter(|review| {
+                query
+                    .get("human_required")
+                    .is_none_or(|wanted| review.human_required.to_string() == *wanted)
+            })
+            .collect();
+        let start = query.get("after").map_or(0, |after| {
+            selected
+                .iter()
+                .position(|review| review.review_id.to_string() == *after)
+                .map_or(selected.len(), |index| index + 1)
+        });
+        let page: Vec<PendingReviewSummary> = selected
+            .iter()
+            .skip(start)
+            .take(1)
+            .map(|review| PendingReviewSummary {
+                review_id: review.review_id,
+                listing_source_id: review.listing_source_id,
+                listing_source_name: review.listing_source_name.clone().unwrap_or_default(),
+                domain_id: review.domain_id,
+                artifact_type: review.artifact_type.clone(),
+                reason: review.reason.clone(),
+                candidate_version: review.candidate_version,
+                repair_request: review.repair_request.clone(),
+                agent_rounds: review.agent_rounds,
+                human_required: review.human_required,
+                created: review.created,
+                updated: review.updated,
+            })
+            .collect();
+        let next_after = (start + page.len() < selected.len())
+            .then(|| page.last().map(|review| review.review_id))
+            .flatten();
+        serde_json::to_string(&PendingReviewPage {
+            reviews: page,
+            next_after,
+            totals,
+        })
+        .unwrap_or_default()
     }
 
     /// `GET /api/reviews/{id}` of `review`, as the fake `claude` in `claude_dir` left it.
