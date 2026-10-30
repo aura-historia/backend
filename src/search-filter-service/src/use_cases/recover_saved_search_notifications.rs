@@ -27,6 +27,9 @@ pub struct SavedSearchNotificationRecoveryFailure {
 pub struct SavedSearchNotificationRecoveryReport {
     pub recovered: usize,
     pub failures: Vec<SavedSearchNotificationRecoveryFailure>,
+    /// Deferring the last failed selection failed, so the remaining selections were not
+    /// attempted. The failures before it are still reported.
+    pub defer_failure: Option<SavedSearchNotificationRecoveryError>,
 }
 
 #[async_trait::async_trait]
@@ -47,7 +50,7 @@ pub trait PendingSavedSearchNotificationReader: Send + Sync {
 #[async_trait::async_trait]
 pub trait RecoverSavedSearchNotificationsUseCase: Send + Sync {
     /// Generates up to `limit` pending notifications. A failed selection is deferred and
-    /// reported while the others continue.
+    /// reported while the others continue; only a failed pending read is an error.
     async fn execute(
         &self,
         limit: usize,
@@ -86,7 +89,6 @@ impl<R: PendingSavedSearchNotificationReader> RecoverSavedSearchNotificationsUse
                     tracing::info!(%user_id, %filter_id, ?outcome, "saved_search.notification.recovered")
                 }
                 Err(error) => {
-                    self.pending.defer(&command).await?;
                     report
                         .failures
                         .push(SavedSearchNotificationRecoveryFailure {
@@ -94,6 +96,10 @@ impl<R: PendingSavedSearchNotificationReader> RecoverSavedSearchNotificationsUse
                             search_filter_id: filter_id,
                             error,
                         });
+                    if let Err(error) = self.pending.defer(&command).await {
+                        report.defer_failure = Some(error);
+                        break;
+                    }
                 }
             }
         }
@@ -110,6 +116,7 @@ mod tests {
     struct Pending {
         commands: Vec<GenerateSearchFilterMatchNotificationCommand>,
         deferred: Arc<Mutex<Vec<UserSearchFilterId>>>,
+        defer_fails: bool,
     }
     #[async_trait::async_trait]
     impl PendingSavedSearchNotificationReader for Pending {
@@ -126,6 +133,11 @@ mod tests {
             &self,
             command: &GenerateSearchFilterMatchNotificationCommand,
         ) -> Result<(), SavedSearchNotificationRecoveryError> {
+            if self.defer_fails {
+                return Err(SavedSearchNotificationRecoveryError {
+                    source: application::error::static_error("defer unavailable"),
+                });
+            }
             self.deferred.lock().unwrap().push(command.search_filter_id);
             Ok(())
         }
@@ -173,6 +185,7 @@ mod tests {
             Pending {
                 commands: vec![failed.clone(), successful.clone()],
                 deferred: deferred.clone(),
+                defer_fails: false,
             },
             Arc::new(Generator {
                 failed_filter: failed.search_filter_id,
@@ -194,5 +207,39 @@ mod tests {
             vec![failed.search_filter_id, successful.search_filter_id],
             *executed.lock().unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn should_report_earlier_failures_and_stop_when_a_deferral_fails() {
+        let command = || GenerateSearchFilterMatchNotificationCommand {
+            user_id: user_core::user_id::UserId::new(),
+            search_filter_id: UserSearchFilterId::new(),
+            product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
+            origin_event_id: domain_primitives::event_id::EventId::new(),
+        };
+        let failed = command();
+        let unattempted = command();
+        let executed = Arc::new(Mutex::new(Vec::new()));
+        let handler = RecoverSavedSearchNotificationsHandler::new(
+            Pending {
+                commands: vec![failed.clone(), unattempted],
+                deferred: Arc::new(Mutex::new(Vec::new())),
+                defer_fails: true,
+            },
+            Arc::new(Generator {
+                failed_filter: failed.search_filter_id,
+                executed: executed.clone(),
+            }),
+        );
+
+        let report = handler.execute(2).await.unwrap();
+
+        assert_eq!(0, report.recovered);
+        assert!(matches!(
+            report.failures.as_slice(),
+            [failure] if failure.search_filter_id == failed.search_filter_id
+        ));
+        assert!(report.defer_failure.is_some());
+        assert_eq!(vec![failed.search_filter_id], *executed.lock().unwrap());
     }
 }

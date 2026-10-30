@@ -40,6 +40,9 @@ impl SyncMarketingConsentIntentResult {
 pub enum SyncMarketingConsentIntentError {
     #[error("consent intent persistence unavailable")]
     PersistenceFailed(#[source] application::error::BoxError),
+    /// The recipient's consent changed concurrently; a later attempt sees the new state.
+    #[error("consent intent changed concurrently")]
+    ConcurrentChange,
     #[error("marketing consent provider state read failed")]
     ProviderReadFailed(#[source] MarketingEmailConsentError),
     #[error("marketing consent provider write failed")]
@@ -557,6 +560,9 @@ fn map_persistence_error(error: MarketingConsentIntentError) -> SyncMarketingCon
         | MarketingConsentIntentError::InvalidInput => {
             SyncMarketingConsentIntentError::InvalidPersistedState
         }
+        MarketingConsentIntentError::ConcurrencyConflict => {
+            SyncMarketingConsentIntentError::ConcurrentChange
+        }
         error => SyncMarketingConsentIntentError::PersistenceFailed(Box::new(error)),
     }
 }
@@ -567,6 +573,9 @@ fn map_coordinator_error(
     match error {
         CoordinateMarketingConsentError::InvalidPersistedState => {
             SyncMarketingConsentIntentError::InvalidPersistedState
+        }
+        CoordinateMarketingConsentError::ConcurrencyConflict => {
+            SyncMarketingConsentIntentError::ConcurrentChange
         }
         error => SyncMarketingConsentIntentError::PersistenceFailed(Box::new(error)),
     }

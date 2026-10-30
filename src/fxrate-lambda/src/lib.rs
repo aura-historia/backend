@@ -82,12 +82,9 @@ fn capture_failure(error: &CaptureFxRateSnapshotError) -> FailureDiagnostic {
         ),
         E::BeginTransactionFailed { .. } => FailureDiagnostic::postgres("snapshot_begin", error),
         E::SnapshotInsertFailed { .. } => FailureDiagnostic::postgres("snapshot_insert", error),
-        E::CapturedAtNotMonotonic => FailureDiagnostic::new(
-            "snapshot_insert",
-            Dependency::Postgres,
-            "captured_at_not_monotonic",
-            None,
-        ),
+        E::CapturedAtNotMonotonic => {
+            FailureDiagnostic::rejected("snapshot_insert", "captured_at_not_monotonic")
+        }
         E::CommitTransactionFailed { .. } => FailureDiagnostic::postgres("snapshot_commit", error),
     }
 }

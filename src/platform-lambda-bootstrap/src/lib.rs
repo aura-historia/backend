@@ -71,7 +71,8 @@ impl LambdaPostgresConfig {
     }
 
     /// Creates the invocation's runtime pool for `credentials`. Invalid configuration fails with a
-    /// static error; a pool failure is also recorded once as a setup diagnostic.
+    /// static error; a pool failure is also recorded once as a setup diagnostic. The pool connects
+    /// lazily, so a refused login surfaces on first use, in the failing work's own diagnostic.
     pub async fn connect(
         &self,
         component: &'static str,

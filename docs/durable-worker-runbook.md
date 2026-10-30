@@ -165,9 +165,11 @@ fields to choose a repair before a redrive: `invalid_persisted_state` and `docum
 point to data to repair, not an outage. They never carry error messages, provider bodies or
 payloads. Expected claim contention is retained without a failure event.
 
-A Lambda that cannot refresh its PostgreSQL credentials or build its pool records one
+A worker or scheduled Lambda that cannot refresh its PostgreSQL credentials records one
 `lambda.setup.failed` event with `component` and the same fields (for example
-`credential_refresh`/`secrets_manager`/`timeout`) before failing the invocation. The router's
+`credential_refresh`/`secrets_manager`/`timeout`) before failing the invocation. Pools connect
+lazily, so a login refused after a rotation appears in the first record's own diagnostic, such
+as `database` with SQLSTATE `28P01`. The router's
 `worker SQS publication finished` and `worker SQS queue validation failed` events carry the SQS
 `error_category` (such as `throttled`, `access_denied` or `queue_missing`) and `http_status`.
 

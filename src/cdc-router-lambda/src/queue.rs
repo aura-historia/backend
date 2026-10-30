@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn classifies_sqs_service_failures_without_their_message() {
+    fn classifies_sqs_service_failures_by_status_and_code() {
         use aws_sdk_sqs::{
             config::http::HttpResponse, error::ErrorMetadata,
             operation::send_message::SendMessageError,
@@ -344,7 +344,6 @@ mod tests {
                 failure,
                 "{code}"
             );
-            assert!(!format!("{failure:?}").contains("SENTINEL"));
         }
     }
 

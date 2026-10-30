@@ -212,6 +212,9 @@ fn sync_failure(error: &SyncMarketingConsentIntentError) -> FailureDiagnostic {
     use SyncMarketingConsentIntentError as E;
     match error {
         E::PersistenceFailed(_) => FailureDiagnostic::postgres("intent_persistence", error),
+        E::ConcurrentChange => {
+            FailureDiagnostic::rejected("intent_persistence", "concurrency_conflict")
+        }
         E::ProviderReadFailed(provider) => FailureDiagnostic::new(
             "provider_read",
             Dependency::Loops,
@@ -326,10 +329,10 @@ mod tests {
                 ("revoke_reconciliation", "loops", "revoke_unconfirmed", None),
             ),
             (
-                SyncMarketingConsentIntentError::PersistenceFailed(Box::new(
-                    sqlx::Error::PoolTimedOut,
-                )),
-                ("intent_persistence", "postgres", "pool_timed_out", None),
+                SyncMarketingConsentIntentError::PersistenceFailed(Box::new(sqlx::Error::Io(
+                    std::io::Error::other("SENTINEL_PAYLOAD_TOKEN_person@example.com"),
+                ))),
+                ("intent_persistence", "postgres", "io", None),
             ),
         ];
         for (error, (stage, dependency, category, http_status)) in cases {
@@ -360,6 +363,7 @@ mod tests {
                     .get("http_status")
                     .and_then(|status| status.as_u64())
             );
+            assert!(!logs.text().contains("SENTINEL"), "{stage}");
         }
     }
 

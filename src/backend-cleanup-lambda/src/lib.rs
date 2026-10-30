@@ -112,7 +112,7 @@ pub async fn run_saved_search_notification_recovery(
     let report = match recovery.execute(limit).await {
         Ok(report) => report,
         Err(error) => {
-            let failure = FailureDiagnostic::postgres("saved_search_notification_recovery", &error);
+            let failure = FailureDiagnostic::postgres("saved_search_notification_read", &error);
             tracing::warn!(
                 event = "backend_cleanup.saved_search_notification_recovery.completed",
                 outcome = "failure",
@@ -141,6 +141,21 @@ pub async fn run_saved_search_notification_recovery(
             error_category = failure.category(),
             sqlstate = failure.sqlstate(),
         );
+    }
+    if let Some(error) = &report.defer_failure {
+        let failure = FailureDiagnostic::postgres("saved_search_notification_defer", error);
+        tracing::warn!(
+            event = "backend_cleanup.saved_search_notification_recovery.completed",
+            outcome = "failure",
+            recovered = report.recovered,
+            failed = report.failures.len(),
+            stage = failure.stage(),
+            dependency = failure.dependency(),
+            error_category = failure.category(),
+            sqlstate = failure.sqlstate(),
+            duration_ms = started_at.elapsed().as_millis(),
+        );
+        return Err(Error::from("saved-search notification recovery failed"));
     }
     tracing::info!(
         event = "backend_cleanup.saved_search_notification_recovery.completed",
@@ -519,6 +534,7 @@ mod tests {
                             source: Box::new(sqlx::Error::PoolTimedOut),
                         },
                 }],
+                defer_failure: None,
             })
         }
     }
@@ -590,7 +606,7 @@ mod tests {
         assert!(notifications.is_err());
         assert!(digests.is_err());
         assert_eq!(
-            json!({"stage": "saved_search_notification_recovery", "dependency": "postgres",
+            json!({"stage": "saved_search_notification_read", "dependency": "postgres",
                 "error_category": "io"}),
             failure_diagnostic(
                 &logs,

@@ -139,8 +139,8 @@ pub enum ProductListingRawNormalizationJobDisposition {
     Complete(&'static str),
     Retry(&'static str),
     DependencyUnavailable(FailureDiagnostic),
-    /// A drained wake-up whose stream still failed; the diagnostic is the first failure's.
-    StreamFailed(FailureDiagnostic),
+    /// Reconciliation streams failed; each failure is recorded with its stream ID.
+    StreamFailed,
     Poison(&'static str),
     /// Poison caused by stored state or configuration that cannot normalize until repaired.
     StateInvalid(FailureDiagnostic),
@@ -151,17 +151,15 @@ impl ProductListingRawNormalizationJobDisposition {
         match self {
             Self::Complete(category) | Self::Retry(category) | Self::Poison(category) => category,
             Self::DependencyUnavailable(_) => "normalization_unavailable",
-            Self::StreamFailed(_) => "normalization_stream_failed",
+            Self::StreamFailed => "normalization_stream_failed",
             Self::StateInvalid(_) => "normalization_state_invalid",
         }
     }
 
     pub const fn failure_diagnostic(&self) -> Option<&FailureDiagnostic> {
         match self {
-            Self::DependencyUnavailable(failure)
-            | Self::StreamFailed(failure)
-            | Self::StateInvalid(failure) => Some(failure),
-            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) => None,
+            Self::DependencyUnavailable(failure) | Self::StateInvalid(failure) => Some(failure),
+            Self::Complete(_) | Self::Retry(_) | Self::Poison(_) | Self::StreamFailed => None,
         }
     }
 }
@@ -196,10 +194,19 @@ pub async fn process_product_listing_raw_normalization_job_for_command(
                 normalization_failures = result.stream_failures.len(),
                 "raw stream drain finished"
             );
-            if let Some(failure) = result.stream_failures.first() {
-                ProductListingRawNormalizationJobDisposition::StreamFailed(normalization_failure(
-                    &failure.error,
-                ))
+            for stream in &result.stream_failures {
+                let failure = normalization_failure(&stream.error);
+                warn!(
+                    product_listing_raw_stream_id = %stream.product_listing_raw_stream_id,
+                    stage = failure.stage(),
+                    dependency = failure.dependency(),
+                    error_category = failure.category(),
+                    sqlstate = failure.sqlstate(),
+                    "Raw normalization stream failed"
+                );
+            }
+            if !result.stream_failures.is_empty() {
+                ProductListingRawNormalizationJobDisposition::StreamFailed
             } else if !result.continuation_stream_ids.is_empty() {
                 ProductListingRawNormalizationJobDisposition::Retry("normalization_continuation")
             } else {
@@ -242,7 +249,7 @@ fn normalization_failure(error: &NormalizeProductListingRawRevisionError) -> Fai
             FailureDiagnostic::rejected("normalization", "configuration_invalid")
         }
         E::InvalidPersistedState { .. } => FailureDiagnostic::new(
-            "raw_revision_read",
+            "normalization_persistence",
             Dependency::Postgres,
             INVALID_PERSISTED_STATE,
             None,
@@ -259,7 +266,9 @@ fn normalization_failure(error: &NormalizeProductListingRawRevisionError) -> Fai
         E::BeginTransactionFailed { .. } => {
             FailureDiagnostic::postgres("normalization_begin", error)
         }
-        E::PersistenceFailed { .. } => FailureDiagnostic::postgres("normalization_write", error),
+        E::PersistenceFailed { .. } => {
+            FailureDiagnostic::postgres("normalization_persistence", error)
+        }
         E::CanonicalWriteFailed { .. } => FailureDiagnostic::postgres("canonical_write", error),
         E::CommitTransactionFailed { .. } => {
             FailureDiagnostic::postgres("normalization_commit", error)
@@ -365,50 +374,56 @@ mod tests {
             failure_ids(response),
             ["failed-stream", "commit", "state-invalid"]
         );
+        let field = |fields: &serde_json::Map<String, serde_json::Value>, name: &str| {
+            fields
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        let diagnostic = |fields: &serde_json::Map<String, serde_json::Value>| {
+            ["outcome", "stage", "dependency", "error_category"].map(|name| field(fields, name))
+        };
         let retained = logs
             .events_where(
                 "message",
                 "Raw normalization record retained for SQS retry or redrive",
             )
-            .into_iter()
-            .map(|fields| {
-                (
-                    fields["outcome"].as_str().map(str::to_owned),
-                    fields["stage"].as_str().map(str::to_owned),
-                    fields["dependency"].as_str().map(str::to_owned),
-                    fields["error_category"].as_str().map(str::to_owned),
-                )
-            })
+            .iter()
+            .map(diagnostic)
             .collect::<Vec<_>>();
         let expected = [
-            (
-                "normalization_stream_failed",
-                "normalization_write",
-                "postgres",
-                "pool_timed_out",
-            ),
-            (
-                "normalization_unavailable",
-                "normalization_commit",
-                "postgres",
-                "io",
-            ),
-            (
-                "normalization_state_invalid",
-                "raw_revision_read",
-                "postgres",
-                "invalid_persisted_state",
-            ),
+            [Some("normalization_stream_failed"), None, None, None],
+            [
+                Some("normalization_unavailable"),
+                Some("normalization_commit"),
+                Some("postgres"),
+                Some("io"),
+            ],
+            [
+                Some("normalization_state_invalid"),
+                Some("normalization_persistence"),
+                Some("postgres"),
+                Some("invalid_persisted_state"),
+            ],
         ]
-        .map(|(outcome, stage, dependency, category)| {
-            (
-                Some(outcome.to_owned()),
-                Some(stage.to_owned()),
-                Some(dependency.to_owned()),
-                Some(category.to_owned()),
-            )
-        });
+        .map(|fields| fields.map(|value| value.map(str::to_owned)));
         assert_eq!(expected.as_slice(), retained.as_slice());
+        let streams = logs.events_where("message", "Raw normalization stream failed");
+        assert_eq!(1, streams.len());
+        assert_eq!(
+            Some(stream_id().to_string()),
+            field(&streams[0], "product_listing_raw_stream_id")
+        );
+        assert_eq!(
+            [
+                None,
+                Some("normalization_persistence"),
+                Some("postgres"),
+                Some("pool_timed_out")
+            ]
+            .map(|value| value.map(str::to_owned)),
+            diagnostic(&streams[0])
+        );
         assert!(!logs.text().contains("SENTINEL"));
     }
 

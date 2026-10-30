@@ -80,18 +80,32 @@ pub async fn handler(
             RecordOutcome::TimedOut => ("timed_out", None, None),
             RecordOutcome::Panicked => ("panicked", None, None),
         };
-        tracing::warn!(
-            event = "geo_resolution.record_retained",
-            metric = "geo_resolution_record",
-            outcome = "RETRY",
-            message_id = %attempt.message_id,
-            reason = category,
-            resolution_id = resolution_id.map(tracing::field::display),
-            stage = failure.map(FailureDiagnostic::stage),
-            dependency = failure.and_then(FailureDiagnostic::dependency),
-            error_category = failure.map(FailureDiagnostic::category),
-            sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
-        );
+        // tracing needs a literal level per call site; both levels record the same fields.
+        macro_rules! retained {
+            ($level:ident) => {
+                tracing::$level!(
+                    event = "geo_resolution.record_retained",
+                    metric = "geo_resolution_record",
+                    outcome = "RETRY",
+                    message_id = %attempt.message_id,
+                    reason = category,
+                    resolution_id = resolution_id.map(tracing::field::display),
+                    stage = failure.map(FailureDiagnostic::stage),
+                    dependency = failure.and_then(FailureDiagnostic::dependency),
+                    error_category = failure.map(FailureDiagnostic::category),
+                    sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
+                )
+            };
+        }
+        // Another attempt owning the claim is expected contention, not a failure.
+        if matches!(
+            attempt.outcome,
+            RecordOutcome::Completed(JobOutcome::Deferred(_))
+        ) {
+            retained!(info);
+        } else {
+            retained!(warn);
+        }
         false
     }))
 }
