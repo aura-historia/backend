@@ -101,22 +101,34 @@ async fn handler_with_budget(
     let mut retry_count = 0_usize;
     let response = results.finish(|attempt| {
         let (complete, category) = match &attempt.outcome {
-            RecordOutcome::Completed(disposition) => (matches!(disposition, ProductTranslationJobDisposition::Complete(_)), disposition.category()),
+            RecordOutcome::Completed(disposition) => (
+                matches!(disposition, ProductTranslationJobDisposition::Complete(_)),
+                disposition.category(),
+            ),
             RecordOutcome::MissingBody => (false, "missing_message_body"),
             RecordOutcome::InsufficientBudget => (false, "insufficient_invocation_budget"),
             RecordOutcome::TimedOut => (false, "execution_timeout"),
             RecordOutcome::Panicked => (false, "handler_panicked"),
         };
-        if matches!(&attempt.outcome, RecordOutcome::Completed(ProductTranslationJobDisposition::Complete("duplicate" | "stale" | "ignored_event"))) {
+        if is_guard_rejection(&attempt.outcome) {
             guard_rejection_count += 1;
         }
-        if !complete { retry_count += 1; }
-        if !complete {
-            warn!(message_id = %attempt.message_id, outcome = category,
-        processing_duration_ms = attempt.duration.as_millis(),
-                "Product translation record retained for SQS retry or redrive");
+        if complete {
+            info!(
+                message_id = %attempt.message_id,
+                outcome = category,
+                processing_duration_ms = attempt.duration.as_millis(),
+                "Product translation record completed"
+            );
+        } else {
+            retry_count += 1;
+            warn!(
+                message_id = %attempt.message_id,
+                outcome = category,
+                processing_duration_ms = attempt.duration.as_millis(),
+                "Product translation record retained for SQS retry or redrive"
+            );
         }
-        if complete { info!(message_id = %attempt.message_id, outcome = category, processing_duration_ms = attempt.duration.as_millis(), "Product translation record completed"); }
         complete
     });
     info!(
@@ -128,6 +140,15 @@ async fn handler_with_budget(
         "Finished ProductListing translation batch"
     );
     Ok(response)
+}
+
+fn is_guard_rejection(outcome: &RecordOutcome<ProductTranslationJobDisposition>) -> bool {
+    matches!(
+        outcome,
+        RecordOutcome::Completed(ProductTranslationJobDisposition::Complete(
+            "duplicate" | "stale" | "ignored_event"
+        ))
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
