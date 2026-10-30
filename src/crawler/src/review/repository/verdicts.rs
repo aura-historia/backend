@@ -1,9 +1,10 @@
 //! The verdicts a pending review takes: approval, which makes its candidate the live
 //! configuration, rejection and the needs-repair verdict. Each locks the review first, so
 //! verdicts, edits and page joins on it apply one after the other. The review agents' approvals
-//! and rejections pass the actor's role, the limits of the [`AgentDecisionPolicy`] and, for approvals, the four-eyes
-//! rule and the [approval guard](crate::review::approval_guard) here, and no agent verdict is
-//! taken on a review that waits for a human, so no caller decides for an agent without them.
+//! and rejections pass the actor's role, the limits of the [`AgentDecisionPolicy`] and, for
+//! approvals, the four-eyes rule and the [approval guard](crate::review::approval_guard) here, and
+//! no agent verdict is taken on a review that waits for a human, so no caller decides for an agent
+//! without them.
 
 use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_events::{

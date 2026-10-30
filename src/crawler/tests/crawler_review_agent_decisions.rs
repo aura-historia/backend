@@ -1,9 +1,10 @@
 //! The review agents' decisions in `agent` authoring mode and a human's restore: the reviewer agent
-//! approves and rejects, and the author agent never; the reviewer agent changes no candidate; every approval names the candidate version it
-//! was based on; an agent approval passes the four-eyes rule and the approval guard on the
-//! server's own live evaluation; the agents' decisions of an hour are capped from the event trail;
-//! a review the agents sent back and forth through needs-repair up to the cap waits for a human,
-//! who hands it back; and a human restores what an approval replaced while it is still live.
+//! approves and rejects, and the author agent never; the reviewer agent changes no candidate;
+//! every approval names the candidate version it was based on; an agent approval passes the
+//! four-eyes rule and the approval guard on the server's own live evaluation; the agents'
+//! decisions of an hour are capped from the event trail; a review the agents sent back and forth
+//! through needs-repair up to the cap waits for a human, who hands it back; and a human restores
+//! what an approval replaced while it is still live.
 
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};

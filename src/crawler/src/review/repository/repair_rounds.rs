@@ -3,7 +3,8 @@
 //! reached the cap of
 //! [`AgentLimits::max_repair_rounds`](crate::review::agent_decisions::AgentLimits::max_repair_rounds)
 //! it waits for a human, and every agent change and verdict on it is refused until a human's own
-//! change or verdict hands it back and the count restarts. The contract is in `docs/crawler/operations.md` (review agents).
+//! change or verdict hands it back and the count restarts. The contract is in
+//! `docs/crawler/operations.md` (review agents).
 
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::CrawlerReviewId;
