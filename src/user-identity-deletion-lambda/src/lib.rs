@@ -11,7 +11,8 @@ use user_service::use_cases::commands::delete_user_identity::{
 
 enum JobOutcome {
     Completed,
-    Deferred,
+    /// Another attempt owns the deletion: its lease is active, or it took over this claim.
+    Contended(&'static str),
     Retry(FailureDiagnostic),
     Invalid,
 }
@@ -25,37 +26,36 @@ async fn process_job(body: &str, use_case: &dyn DeleteUserIdentityUseCase) -> Jo
     };
     match use_case.execute(job.user_id).await {
         Ok(DeleteUserIdentityResult::Completed) => JobOutcome::Completed,
-        Ok(DeleteUserIdentityResult::Deferred) => JobOutcome::Deferred,
-        Err(error) => JobOutcome::Retry(deletion_failure(&error)),
+        Ok(DeleteUserIdentityResult::Deferred) => JobOutcome::Contended("active_lease"),
+        Err(error) => failure_outcome(&error),
     }
 }
 
 /// Keeps the failed step and safe cause facts; the error chain itself is never logged.
-fn deletion_failure(error: &DeleteUserIdentityError) -> FailureDiagnostic {
+fn failure_outcome(error: &DeleteUserIdentityError) -> JobOutcome {
     use DeleteUserIdentityError as E;
     let (stage, cause) = match error {
         E::Claim(cause) => ("claim", cause),
         E::TargetLookup(cause) => ("target_lookup", cause),
         E::TargetNotYetObserved => {
-            return FailureDiagnostic::new(
+            return JobOutcome::Retry(FailureDiagnostic::new(
                 "target_lookup",
                 Dependency::Cognito,
                 "not_yet_observed",
                 None,
-            );
+            ));
         }
         E::TargetSave(cause) => ("target_save", cause),
         E::IdentityRemoval(cause) => ("identity_removal", cause),
         E::Completion(cause) => ("completion", cause),
     };
-    match cause {
+    JobOutcome::Retry(match cause {
         UserIdentityDeletionError::Storage(_) => FailureDiagnostic::postgres(stage, error),
         UserIdentityDeletionError::InvalidPersistedState(_) => {
             FailureDiagnostic::new(stage, Dependency::Postgres, INVALID_PERSISTED_STATE, None)
         }
-        UserIdentityDeletionError::ClaimLost => {
-            FailureDiagnostic::new(stage, Dependency::Postgres, "claim_lost", None)
-        }
+        // Another attempt took over the lease and completes the deletion.
+        UserIdentityDeletionError::ClaimLost => return JobOutcome::Contended("claim_lost"),
         UserIdentityDeletionError::IdentityProvider {
             failure,
             http_status,
@@ -66,7 +66,7 @@ fn deletion_failure(error: &DeleteUserIdentityError) -> FailureDiagnostic {
             failure.diagnostic_category(),
             *http_status,
         ),
-    }
+    })
 }
 
 pub async fn handler(
@@ -81,7 +81,16 @@ pub async fn handler(
     Ok(results.finish(|attempt| {
         let (category, failure) = match &attempt.outcome {
             RecordOutcome::Completed(JobOutcome::Completed) => return true,
-            RecordOutcome::Completed(JobOutcome::Deferred) => ("active_lease", None),
+            RecordOutcome::Completed(JobOutcome::Contended(category)) => {
+                // Expected contention, not a failure: the other attempt completes the deletion.
+                tracing::info!(
+                    event = "user.identity_deletion.retained",
+                    message_id = %attempt.message_id,
+                    outcome = *category,
+                    "User identity deletion retained while another attempt owns it",
+                );
+                return false;
+            }
             RecordOutcome::Completed(JobOutcome::Retry(failure)) => {
                 ("deletion_unconfirmed", Some(failure))
             }
@@ -238,10 +247,6 @@ mod tests {
                 ("target_lookup", "cognito", "not_yet_observed", None),
             ),
             (
-                DeleteUserIdentityError::TargetSave(UserIdentityDeletionError::ClaimLost),
-                ("target_save", "postgres", "claim_lost", None),
-            ),
-            (
                 DeleteUserIdentityError::IdentityRemoval(
                     UserIdentityDeletionError::IdentityProvider {
                         failure: IdentityProviderFailure::Authentication,
@@ -280,7 +285,42 @@ mod tests {
                     .get("http_status")
                     .and_then(|status| status.as_u64())
             );
+            assert!(logs.text().contains(r#""level":"WARN""#), "{stage}");
             assert!(!logs.text().contains("SENTINEL"), "{stage}");
+        }
+    }
+
+    #[tokio::test]
+    async fn should_retain_contended_deletions_without_a_failure_warning() {
+        let cases = [
+            (
+                DeleteUserIdentityError::TargetSave(UserIdentityDeletionError::ClaimLost),
+                "claim_lost",
+            ),
+            (
+                DeleteUserIdentityError::Completion(UserIdentityDeletionError::ClaimLost),
+                "claim_lost",
+            ),
+        ];
+        for (error, outcome) in cases {
+            let use_case = Failing(std::sync::Mutex::new(Some(error)));
+            let (logs, guard) = CapturedLogs::start();
+
+            let response = handler(event(Some(JOB.into())), &use_case, Duration::from_secs(30))
+                .await
+                .unwrap();
+            drop(guard);
+
+            assert_eq!(1, response.batch_item_failures.len());
+            let retained = logs.events_where("event", "user.identity_deletion.retained");
+            assert_eq!(1, retained.len());
+            assert_eq!(Some(outcome), retained[0]["outcome"].as_str());
+            assert!(retained[0].get("stage").is_none());
+            assert!(
+                logs.text()
+                    .lines()
+                    .all(|line| !line.contains(r#""level":"WARN""#))
+            );
         }
     }
 }
