@@ -1663,7 +1663,7 @@ impl From<GetSimilarProductListingsError> for ApiError {
                     .with_detail("ProductListing was not found.")
             }
             GetSimilarProductListingsError::ProductListingEmbeddingQueryFailed { .. }
-            | GetSimilarProductListingsError::SimilaritySearchUnavailable
+            | GetSimilarProductListingsError::SimilaritySearchUnavailable { .. }
             | GetSimilarProductListingsError::BeginTransactionFailed(_)
             | GetSimilarProductListingsError::CommitTransactionFailed(_)
             | GetSimilarProductListingsError::PricingFxSnapshotMissing

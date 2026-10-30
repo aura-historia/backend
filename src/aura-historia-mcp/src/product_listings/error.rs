@@ -49,7 +49,7 @@ pub(super) fn similar(error: GetSimilarProductListingsError) -> OperationError {
         Shipping(error) => shipping(error),
         NotFound => OperationError::NotFound,
         error @ (ProductListingEmbeddingQueryFailed { .. }
-        | SimilaritySearchUnavailable
+        | SimilaritySearchUnavailable { .. }
         | BeginTransactionFailed(_)
         | CommitTransactionFailed(_)
         | PricingFxSnapshotMissing

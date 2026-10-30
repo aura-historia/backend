@@ -640,7 +640,7 @@ mod tests {
         ));
     }
     #[test]
-    fn should_keep_product_search_failure_sources_out_of_protocol_errors() {
+    fn should_keep_product_search_and_similarity_sources_out_of_protocol_errors() {
         use std::error::Error;
         let unavailable = error::search(
             SearchProductListingsError::ProductListingSearchQueryFailed {
@@ -664,6 +664,28 @@ mod tests {
         assert!(matches!(internal, OperationError::Internal(_)));
         let response = format!("{:?}", internal.into_protocol());
         assert!(response.contains("Operation failed"));
+        assert!(!response.contains("PRIVATE_OPENSEARCH_SENTINEL"));
+
+        let similar_unavailable = error::similar(
+            GetSimilarProductListingsError::SimilaritySearchUnavailable {
+                source: application::error::static_error("PRIVATE_OPENSEARCH_SENTINEL"),
+            },
+        );
+        assert!(matches!(
+            similar_unavailable,
+            OperationError::Unavailable(_)
+        ));
+        assert_eq!(
+            "PRIVATE_OPENSEARCH_SENTINEL",
+            similar_unavailable
+                .source()
+                .unwrap()
+                .source()
+                .unwrap()
+                .to_string()
+        );
+        let response = format!("{:?}", similar_unavailable.into_protocol());
+        assert!(response.contains("TEMPORARILY_UNAVAILABLE"));
         assert!(!response.contains("PRIVATE_OPENSEARCH_SENTINEL"));
     }
     fn source() -> ListingSourceSummary {
