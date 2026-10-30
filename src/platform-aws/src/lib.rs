@@ -239,16 +239,34 @@ mod tests {
     }
 
     #[test]
-    fn should_classify_transport_failures_without_a_status() {
-        let error: SdkError<ErrorMetadata, HttpResponse> =
-            SdkError::timeout_error(std::io::Error::other("SENTINEL"));
-
-        assert_eq!(
-            AwsSdkFailure {
-                kind: AwsSdkFailureKind::Timeout,
-                http_status: None
-            },
-            AwsSdkFailure::classify(&error)
-        );
+    fn should_classify_transport_and_client_failures_without_a_status() {
+        use AwsSdkFailureKind as K;
+        use aws_smithy_runtime_api::client::result::ConnectorError;
+        let sentinel = || Box::new(std::io::Error::other("SENTINEL"));
+        let cases: [(SdkError<ErrorMetadata, HttpResponse>, AwsSdkFailureKind); 5] = [
+            (SdkError::timeout_error(sentinel()), K::Timeout),
+            (
+                SdkError::dispatch_failure(ConnectorError::timeout(sentinel())),
+                K::Timeout,
+            ),
+            (
+                SdkError::dispatch_failure(ConnectorError::io(sentinel())),
+                K::Transport,
+            ),
+            (
+                SdkError::dispatch_failure(ConnectorError::user(sentinel())),
+                K::Configuration,
+            ),
+            (SdkError::construction_failure(sentinel()), K::Configuration),
+        ];
+        for (error, kind) in cases {
+            assert_eq!(
+                AwsSdkFailure {
+                    kind,
+                    http_status: None
+                },
+                AwsSdkFailure::classify(&error)
+            );
+        }
     }
 }

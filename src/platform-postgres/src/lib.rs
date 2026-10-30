@@ -128,9 +128,15 @@ pub enum PostgresCredentialRefreshError {
     Timeout,
     #[error("PostgreSQL credential refresh unavailable")]
     Throttled,
-    /// The provider refused the caller's identity, its permissions or the secret's key.
+    /// The provider refused the caller's identity or its permissions.
     #[error("PostgreSQL credential refresh unavailable")]
     AccessDenied,
+    /// The key that encrypts the secret is disabled, missing or unusable.
+    #[error("PostgreSQL credential refresh unavailable")]
+    KeyUnavailable,
+    /// The client could not build the request, for example without resolvable AWS credentials.
+    #[error("PostgreSQL credential refresh unavailable")]
+    Configuration,
     /// The provider rejected the request, for example because the secret does not exist.
     #[error("PostgreSQL credential refresh unavailable")]
     Rejected,
@@ -148,6 +154,8 @@ impl PostgresCredentialRefreshError {
             Self::Timeout => "timeout",
             Self::Throttled => "throttled",
             Self::AccessDenied => "access_denied",
+            Self::KeyUnavailable => "kms_unavailable",
+            Self::Configuration => "configuration",
             Self::Rejected => "rejected",
             Self::Unavailable => "unavailable",
             Self::InvalidSecret => "invalid_secret",

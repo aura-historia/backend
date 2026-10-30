@@ -151,12 +151,12 @@ fn refresh_failure(error: &SdkError<GetSecretValueError>) -> PostgresCredentialR
     match AwsSdkFailure::classify(error).kind() {
         AwsSdkFailureKind::Timeout => PostgresCredentialRefreshError::Timeout,
         AwsSdkFailureKind::Throttled => PostgresCredentialRefreshError::Throttled,
-        AwsSdkFailureKind::AccessDenied | AwsSdkFailureKind::KeyUnavailable => {
-            PostgresCredentialRefreshError::AccessDenied
+        AwsSdkFailureKind::AccessDenied => PostgresCredentialRefreshError::AccessDenied,
+        AwsSdkFailureKind::KeyUnavailable => PostgresCredentialRefreshError::KeyUnavailable,
+        AwsSdkFailureKind::Configuration => PostgresCredentialRefreshError::Configuration,
+        AwsSdkFailureKind::NotFound | AwsSdkFailureKind::Rejected => {
+            PostgresCredentialRefreshError::Rejected
         }
-        AwsSdkFailureKind::NotFound
-        | AwsSdkFailureKind::Configuration
-        | AwsSdkFailureKind::Rejected => PostgresCredentialRefreshError::Rejected,
         AwsSdkFailureKind::Transport
         | AwsSdkFailureKind::Unavailable
         | AwsSdkFailureKind::InvalidResponse => PostgresCredentialRefreshError::Unavailable,
@@ -316,7 +316,7 @@ mod tests {
             (
                 400,
                 "DecryptionFailure",
-                PostgresCredentialRefreshError::AccessDenied,
+                PostgresCredentialRefreshError::KeyUnavailable,
             ),
             (
                 400,

@@ -106,8 +106,9 @@ pub enum ProductListingIngestionFailureClass {
     Unprocessable,
     /// Technical or temporary failures keep retry custody.
     Retryable,
-    /// A concurrent writer won a uniqueness or version race. It keeps retry custody like
-    /// `Retryable`, but no dependency failed: a later attempt sees the winner's result.
+    /// A concurrent writer won a receipt or version race. It keeps retry custody like
+    /// `Retryable`, but no dependency failed: a later attempt sees the winner's result. Slug
+    /// exhaustion stays `Retryable`: after every candidate collides it signals a defect.
     Contended,
 }
 
@@ -268,14 +269,14 @@ impl ProductListingIngestionError {
                 CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | CreateProductListingError::PartnerAuthorizationInternal { .. }
                 | CreateProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
+                | CreateProductListingError::ProductListingTitleSlugAlreadyExists
+                | CreateProductListingError::ProductListingTitleSlugGenerationExhausted
                 | CreateProductListingError::CreatedEventMissing
                 | CreateProductListingError::PersistenceFailed { .. }
                 | CreateProductListingError::EventAppenderFailed { .. }
                 | CreateProductListingError::BeginTransactionFailed(_)
                 | CreateProductListingError::CommitTransactionFailed(_) => Class::Retryable,
-                CreateProductListingError::ProductListingTitleSlugAlreadyExists
-                | CreateProductListingError::ProductListingTitleSlugGenerationExhausted
-                | CreateProductListingError::ConcurrencyConflict => Class::Contended,
+                CreateProductListingError::ConcurrencyConflict => Class::Contended,
             },
             Self::Update(error) => match error {
                 UpdateProductListingError::AuthenticatedActorRequired
@@ -309,12 +310,12 @@ impl ProductListingIngestionError {
                 UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
                 | UpsertProductListingError::PartnerAuthorizationInternal { .. }
                 | UpsertProductListingError::AuctionReferenceTemporarilyUnavailable { .. }
+                | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
                 | UpsertProductListingError::PersistenceFailed { .. }
                 | UpsertProductListingError::EventAppenderFailed { .. }
                 | UpsertProductListingError::BeginTransactionFailed(_)
                 | UpsertProductListingError::CommitTransactionFailed(_) => Class::Retryable,
-                UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
-                | UpsertProductListingError::ConcurrencyConflict => Class::Contended,
+                UpsertProductListingError::ConcurrencyConflict => Class::Contended,
             },
             Self::Withdraw(error) => match error {
                 WithdrawProductListingError::AuthenticatedActorRequired
@@ -753,6 +754,9 @@ mod diagnostic_tests {
             ProductListingIngestionError::Create(CreateProductListingError::PersistenceFailed {
                 source: box_error(StaticError("unavailable")),
             }),
+            ProductListingIngestionError::Upsert(
+                UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
+            ),
             ProductListingIngestionError::Update(
                 UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable {
                     source: box_error(StaticError("unavailable")),
@@ -765,13 +769,9 @@ mod diagnostic_tests {
 
         let contended = [
             ProductListingIngestionError::Receipt(ProductListingCommandReceiptError::AlreadyExists),
-            ProductListingIngestionError::Create(
-                CreateProductListingError::ProductListingTitleSlugAlreadyExists,
-            ),
+            ProductListingIngestionError::Create(CreateProductListingError::ConcurrencyConflict),
             ProductListingIngestionError::Update(UpdateProductListingError::ConcurrencyConflict),
-            ProductListingIngestionError::Upsert(
-                UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
-            ),
+            ProductListingIngestionError::Upsert(UpsertProductListingError::ConcurrencyConflict),
             ProductListingIngestionError::Withdraw(
                 WithdrawProductListingError::ConcurrencyConflict,
             ),

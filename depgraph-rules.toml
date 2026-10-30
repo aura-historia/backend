@@ -20,7 +20,7 @@ platform-postgres = ["application", "domain-primitives"]
 
 geo = []
 geo-service = ["application", "geo", "localization", "domain-primitives"]
-geo-amazon-location = ["platform-aws", "application", "geo", "geo-service", "localization"]
+geo-amazon-location = ["application", "geo", "geo-service", "localization"]
 
 test-api-macros = []
 aura-historia-jobs = ["domain-primitives", "notification-core", "product-listing-core", "search-filter-core", "user-core", "geo-service", "product-listing-service"]

@@ -421,9 +421,9 @@ mod tests {
     use product_listing_service::{
         ports::{ProductListingCommandReceiptError, ProductListingRawStreamId},
         use_cases::{
-            CaptureProductListingRawObservationResult, CreateProductListingError,
-            ProductListingIngestionEffect, ProductListingIngestionEnvelope,
-            ProductListingIngestionError, UpdateProductListingError,
+            CaptureProductListingRawObservationResult, ProductListingIngestionEffect,
+            ProductListingIngestionEnvelope, ProductListingIngestionError,
+            UpdateProductListingError,
         },
     };
     use std::{
@@ -451,7 +451,7 @@ mod tests {
         Failure,
         CommitUnknown,
         CommitConnectionLost,
-        SlugContention,
+        VersionConflict,
         MissingTarget,
         Forbidden,
         ReceiptFailure,
@@ -517,8 +517,8 @@ mod tests {
                         sqlx::Error::Io(std::io::Error::other("SENTINEL_ERROR_TEXT")),
                     )),
                 ),
-                Mode::SlugContention => Err(ProductListingIngestionError::Create(
-                    CreateProductListingError::ProductListingTitleSlugAlreadyExists,
+                Mode::VersionConflict => Err(ProductListingIngestionError::Update(
+                    UpdateProductListingError::ConcurrencyConflict,
                 )),
                 Mode::MissingTarget => Err(ProductListingIngestionError::Update(
                     UpdateProductListingError::NotFound,
@@ -887,10 +887,10 @@ mod tests {
 
     #[tokio::test]
     async fn retains_a_contended_command_without_a_dependency_failure() {
-        let body = golden_body(0);
+        let body = golden_body(1);
         let events = Arc::new(Mutex::new(Vec::new()));
         let guard = tracing::subscriber::set_default(TraceSink(events.clone()));
-        let use_case = FakeUseCase::new([Mode::SlugContention]);
+        let use_case = FakeUseCase::new([Mode::VersionConflict]);
 
         let response = handler(
             event(&[(Some("contended"), Some(&body))]),
@@ -913,7 +913,7 @@ mod tests {
             .expect("contended command event");
         assert_eq!(
             contended.get("error_code").map(String::as_str),
-            Some("CREATE_TITLE_SLUG_ALREADY_EXISTS")
+            Some("UPDATE_CONCURRENCY_CONFLICT")
         );
         assert!(!contended.contains_key("dependency"));
         assert!(!contended.contains_key("error_category"));

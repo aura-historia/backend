@@ -291,6 +291,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_retain_an_actively_leased_deletion_without_a_failure_warning() {
+        let stub = Stub {
+            outcome: 1,
+            calls: AtomicUsize::new(0),
+        };
+        let (logs, guard) = CapturedLogs::start();
+
+        let response = handler(event(Some(JOB.into())), &stub, Duration::from_secs(30))
+            .await
+            .unwrap();
+        drop(guard);
+
+        assert_eq!(1, response.batch_item_failures.len());
+        let retained = logs.events_where("event", "user.identity_deletion.retained");
+        assert_eq!(1, retained.len());
+        assert_eq!(Some("active_lease"), retained[0]["outcome"].as_str());
+        assert!(
+            logs.text()
+                .lines()
+                .all(|line| !line.contains(r#""level":"WARN""#))
+        );
+    }
+
+    #[tokio::test]
     async fn should_retain_contended_deletions_without_a_failure_warning() {
         let cases = [
             (
