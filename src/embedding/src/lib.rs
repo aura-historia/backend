@@ -721,6 +721,13 @@ mod tests {
                 "response_invalid",
                 None,
             ),
+            (
+                EmbeddingError::DeadlineExceeded {
+                    deadline: Duration::from_secs(2),
+                },
+                "timeout",
+                None,
+            ),
         ] {
             assert_eq!(category, error.diagnostic_category());
             assert_eq!(status, error.http_status());

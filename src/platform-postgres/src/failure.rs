@@ -1,3 +1,4 @@
+use application::error::find_source;
 use std::{error::Error, fmt};
 
 /// The five-character SQLSTATE that PostgreSQL reported for a failed statement.
@@ -47,9 +48,7 @@ impl PostgresFailure {
     /// Returns `None` when the chain holds no SQLx error, for example when an adapter rejected a
     /// persisted value it had already read successfully.
     pub fn find(error: &(dyn Error + 'static)) -> Option<Self> {
-        std::iter::successors(Some(error), |error| (*error).source())
-            .find_map(|error| error.downcast_ref::<sqlx::Error>())
-            .map(Self::classify)
+        find_source::<sqlx::Error>(error).map(Self::classify)
     }
 
     pub fn kind(&self) -> &'static str {

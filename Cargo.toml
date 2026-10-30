@@ -79,6 +79,7 @@ members = [
     "src/platform-observability",
     "src/platform-google-adc",
     "src/platform-lambda-bootstrap",
+    "src/platform-aws",
     "src/platform-opensearch",
     "src/platform-postgres",
     "src/platform-postgres-secretsmanager",
@@ -188,6 +189,7 @@ auction-postgres = { path = "src/auction-postgres" }
 platform-observability = { path = "src/platform-observability" }
 platform-google-adc = { path = "src/platform-google-adc" }
 platform-lambda-bootstrap = { path = "src/platform-lambda-bootstrap" }
+platform-aws = { path = "src/platform-aws" }
 platform-opensearch = { path = "src/platform-opensearch" }
 platform-postgres = { path = "src/platform-postgres" }
 platform-postgres-secretsmanager = { path = "src/platform-postgres-secretsmanager" }

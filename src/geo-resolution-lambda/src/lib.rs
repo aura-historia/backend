@@ -1,9 +1,9 @@
 use application::operation_context::{OperationContext, Principal};
 use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
-use geo_service::resolution::{ResolutionError, ResolutionWork, ResolveOutcome, ResolveUseCase};
+use geo_service::resolution::{ResolutionId, ResolutionWork, ResolveOutcome, ResolveUseCase};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::FailureDiagnostic;
+use platform_lambda_bootstrap::{Dependency, FailureDiagnostic};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use std::time::Duration;
 
@@ -14,55 +14,47 @@ fn context() -> OperationContext {
         correlation_id: "geo-resolution".into(),
     }
 }
-pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> bool {
+/// How one wake-up left the use case. Only `Complete` acknowledges the record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobOutcome {
+    Complete,
+    /// Another attempt holds the resolution's claim, or this attempt lost it before completing.
+    Deferred(ResolutionId),
+    Failed {
+        resolution_id: ResolutionId,
+        failure: FailureDiagnostic,
+    },
+    Invalid,
+}
+
+pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> JobOutcome {
     let Ok(job) = decode(body, WorkerScope::GeoResolution) else {
-        return false;
+        return JobOutcome::Invalid;
     };
     let DomainJobPayload::GeoResolution(job) = job.payload else {
-        return false;
+        return JobOutcome::Invalid;
     };
     let work = ResolutionWork {
         id: job.resolution_id,
         generation: job.generation,
     };
     match use_case.execute(&context(), work).await {
-        Ok(outcome) => outcome == ResolveOutcome::Complete,
-        Err(error) => {
-            let failure = resolution_failure("resolution", &error);
-            tracing::warn!(
-                event = "geo_resolution.work_failed",
-                resolution_id = %job.resolution_id,
-                stage = failure.stage(),
-                dependency = failure.dependency(),
-                error_category = failure.category(),
-                sqlstate = failure.sqlstate(),
-            );
-            false
-        }
+        Ok(ResolveOutcome::Complete) => JobOutcome::Complete,
+        Ok(ResolveOutcome::Deferred) => JobOutcome::Deferred(job.resolution_id),
+        Err(error) => JobOutcome::Failed {
+            resolution_id: job.resolution_id,
+            failure: FailureDiagnostic::from_kind(
+                "resolution",
+                error.failure_kind(),
+                Some(Dependency::AmazonLocation),
+                &error,
+            ),
+        },
     }
 }
 
-/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
-fn resolution_failure(stage: &'static str, error: &ResolutionError) -> FailureDiagnostic {
-    match error {
-        ResolutionError::Provider(provider) => FailureDiagnostic::new(
-            stage,
-            "amazon_location",
-            provider.kind.diagnostic_category(),
-            None,
-        ),
-        ResolutionError::Storage(_) | ResolutionError::Transaction(_) => {
-            FailureDiagnostic::postgres(stage, error)
-        }
-        ResolutionError::InvalidState(_) => {
-            FailureDiagnostic::new(stage, "postgres", "invalid_persisted_state", None)
-        }
-        ResolutionError::InvalidInput => FailureDiagnostic::rejected(stage, "invalid_input"),
-        ResolutionError::Forbidden => FailureDiagnostic::rejected(stage, "forbidden"),
-        ResolutionError::Conflict => FailureDiagnostic::rejected(stage, "conflict"),
-        ResolutionError::Missing => FailureDiagnostic::rejected(stage, "missing"),
-    }
-}
+/// Records each retained record once, keyed by its message ID; the error chain itself is never
+/// logged.
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
     use_case: &dyn ResolveUseCase,
@@ -73,11 +65,48 @@ pub async fn handler(
     })
     .await?;
     Ok(results.finish(|attempt| {
-        let complete = matches!(attempt.outcome, RecordOutcome::Completed(true));
-        if !complete {
-            tracing::warn!(metric = "geo_resolution_record", outcome = "RETRY");
+        let (category, resolution_id, failure) = match &attempt.outcome {
+            RecordOutcome::Completed(JobOutcome::Complete) => return true,
+            RecordOutcome::Completed(JobOutcome::Deferred(resolution_id)) => {
+                ("resolution_deferred", Some(resolution_id), None)
+            }
+            RecordOutcome::Completed(JobOutcome::Failed {
+                resolution_id,
+                failure,
+            }) => ("resolution_failed", Some(resolution_id), Some(failure)),
+            RecordOutcome::Completed(JobOutcome::Invalid) => ("invalid_job", None, None),
+            RecordOutcome::MissingBody => ("missing_body", None, None),
+            RecordOutcome::InsufficientBudget => ("insufficient_budget", None, None),
+            RecordOutcome::TimedOut => ("timed_out", None, None),
+            RecordOutcome::Panicked => ("panicked", None, None),
+        };
+        // tracing needs a literal level per call site; both levels record the same fields.
+        macro_rules! retained {
+            ($level:ident) => {
+                tracing::$level!(
+                    event = "geo_resolution.record_retained",
+                    metric = "geo_resolution_record",
+                    outcome = "RETRY",
+                    message_id = %attempt.message_id,
+                    reason = category,
+                    resolution_id = resolution_id.map(tracing::field::display),
+                    stage = failure.map(FailureDiagnostic::stage),
+                    dependency = failure.and_then(FailureDiagnostic::dependency),
+                    error_category = failure.map(FailureDiagnostic::category),
+                    sqlstate = failure.and_then(FailureDiagnostic::sqlstate),
+                )
+            };
         }
-        complete
+        // Another attempt owning the claim is expected contention, not a failure.
+        if matches!(
+            attempt.outcome,
+            RecordOutcome::Completed(JobOutcome::Deferred(_))
+        ) {
+            retained!(info);
+        } else {
+            retained!(warn);
+        }
+        false
     }))
 }
 
@@ -115,15 +144,18 @@ mod tests {
             JOB.replace("\"generation\":1", "\"generation\":0"),
             JOB.replace("gres_", "usr_"),
         ] {
-            assert!(!process_job(&body, &stub).await);
+            assert_eq!(JobOutcome::Invalid, process_job(&body, &stub).await);
         }
         assert_eq!(0, stub.calls.load(Ordering::SeqCst));
-        assert!(process_job(JOB, &stub).await);
+        assert_eq!(JobOutcome::Complete, process_job(JOB, &stub).await);
         let deferred = Stub {
             calls: AtomicUsize::new(0),
             result: ResolveOutcome::Deferred,
         };
-        assert!(!process_job(JOB, &deferred).await);
+        assert!(matches!(
+            process_job(JOB, &deferred).await,
+            JobOutcome::Deferred(_)
+        ));
     }
 
     const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";
@@ -144,18 +176,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_record_the_failed_stage_without_logging_its_cause() {
+    async fn should_record_one_retained_event_per_failed_record_without_its_cause() {
         let (logs, guard) = CapturedLogs::start();
 
-        let completed = process_job(JOB, &FailingStorage).await;
+        let response = handler(event(), &FailingStorage, Duration::from_secs(30))
+            .await
+            .unwrap();
         drop(guard);
 
-        assert!(!completed);
-        let failures = logs.events_where("event", "geo_resolution.work_failed");
-        assert_eq!(1, failures.len());
-        assert_eq!(Some("resolution"), failures[0]["stage"].as_str());
-        assert_eq!(Some("postgres"), failures[0]["dependency"].as_str());
-        assert_eq!(Some("tls"), failures[0]["error_category"].as_str());
+        assert_eq!(1, response.batch_item_failures.len());
+        assert_eq!(
+            1,
+            logs.events_where("metric", "geo_resolution_record").len()
+        );
+        let retained = logs.events_where("event", "geo_resolution.record_retained");
+        assert_eq!(1, retained.len());
+        assert_eq!(Some("message-1"), retained[0]["message_id"].as_str());
+        assert_eq!(Some("resolution_failed"), retained[0]["reason"].as_str());
+        assert_eq!(
+            Some("gres_01h455vb4pex5vy7enb1p677vn"),
+            retained[0]["resolution_id"].as_str()
+        );
+        assert_eq!(Some("resolution"), retained[0]["stage"].as_str());
+        assert_eq!(Some("postgres"), retained[0]["dependency"].as_str());
+        assert_eq!(Some("tls"), retained[0]["error_category"].as_str());
         assert!(!logs.text().contains("SENTINEL"));
+    }
+
+    fn event() -> LambdaEvent<SqsEvent> {
+        let mut message = aws_lambda_events::sqs::SqsMessage::default();
+        message.message_id = Some("message-1".into());
+        message.body = Some(JOB.into());
+        let mut event = SqsEvent::default();
+        event.records.push(message);
+        LambdaEvent::new(event, lambda_runtime::Context::default())
     }
 }

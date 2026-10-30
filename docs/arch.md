@@ -1230,6 +1230,9 @@ Avoid logging the same failure at every layer.
   until then and logs only allowlisted stage, dependency and category labels plus standardized
   codes such as HTTP status or SQLSTATE, never the error chain, whose messages can carry provider
   payloads, persisted values or credentials.
+- A use-case error that more than one boundary records states its own bounded stage and kind, in
+  technology-neutral terms, so the boundaries cannot classify it differently. The composition
+  root names the system behind each port.
 - Expected domain errors SHOULD NOT be logged as infrastructure failures.
 - Retries SHOULD emit structured events with attempt and delay fields.
 

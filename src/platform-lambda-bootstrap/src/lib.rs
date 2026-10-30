@@ -1,14 +1,19 @@
 mod failure_diagnostic;
 mod google_adc;
 
-pub use failure_diagnostic::{FailureDiagnostic, UNCLASSIFIED_FAILURE};
+pub use failure_diagnostic::{
+    Dependency, FailureDiagnostic, INVALID_PERSISTED_STATE, UNCLASSIFIED_FAILURE,
+};
 pub use google_adc::{
     google_application_default_credentials, materialize_google_application_credentials_from_env,
 };
 
 use lambda_runtime::Context;
 use platform_observability::{LogLevel, LoggingConfig};
-use platform_postgres::{PostgresCredentials, PostgresPoolConfig};
+use platform_postgres::{
+    PostgresCredentialRefreshError, PostgresCredentials, PostgresCredentialsProvider,
+    PostgresPoolConfig, VersionedPostgresCredentials,
+};
 use std::{
     env,
     future::Future,
@@ -63,6 +68,27 @@ impl LambdaPostgresConfig {
             self.root_certificate.clone(),
         )
         .map_err(|_| LambdaBootstrapConfigError::InvalidPostgres)
+    }
+
+    /// Creates the invocation's runtime pool for `credentials`. Invalid configuration fails with a
+    /// static error; a pool failure is also recorded once as a setup diagnostic. The pool connects
+    /// lazily, so a refused login surfaces on first use, in the failing work's own diagnostic.
+    pub async fn connect(
+        &self,
+        component: &'static str,
+        credentials: &PostgresCredentials,
+    ) -> Result<sqlx::PgPool, lambda_runtime::Error> {
+        self.pool_config(credentials)
+            .map_err(|_| lambda_runtime::Error::from("invalid PostgreSQL configuration"))?
+            .connect()
+            .await
+            .map_err(|error| {
+                setup_failed(
+                    component,
+                    FailureDiagnostic::postgres("pool_connect", &error),
+                    "failed to create PostgreSQL pool",
+                )
+            })
     }
 
     pub fn migration_pool_config(
@@ -153,6 +179,57 @@ impl<T> Default for VersionedCompositionCache<T> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Loads the PostgreSQL credentials current for this invocation. A failure is recorded once as a
+/// setup diagnostic, so a failed rotation names its class rather than only a static message.
+pub async fn current_postgres_credentials(
+    component: &'static str,
+    provider: &dyn PostgresCredentialsProvider,
+) -> Result<VersionedPostgresCredentials, lambda_runtime::Error> {
+    provider.current().await.map_err(|error| {
+        record_credential_refresh_failure(component, error);
+        lambda_runtime::Error::from("PostgreSQL credential refresh unavailable")
+    })
+}
+
+/// Records a failed credential refresh once as a setup diagnostic, for a caller that keeps its
+/// own typed error.
+pub fn record_credential_refresh_failure(
+    component: &'static str,
+    error: PostgresCredentialRefreshError,
+) {
+    record_setup_failure(
+        component,
+        FailureDiagnostic::new(
+            "credential_refresh",
+            Dependency::SecretsManager,
+            error.diagnostic_category(),
+            None,
+        ),
+    );
+}
+
+/// Records a failed composition step with only its bounded labels and standardized codes, and
+/// returns the static error the Lambda runtime reports for it.
+fn setup_failed(
+    component: &'static str,
+    failure: FailureDiagnostic,
+    message: &'static str,
+) -> lambda_runtime::Error {
+    record_setup_failure(component, failure);
+    lambda_runtime::Error::from(message)
+}
+
+fn record_setup_failure(component: &'static str, failure: FailureDiagnostic) {
+    tracing::warn!(
+        event = "lambda.setup.failed",
+        component,
+        stage = failure.stage(),
+        dependency = failure.dependency(),
+        error_category = failure.category(),
+        sqlstate = failure.sqlstate(),
+    );
 }
 
 pub fn required_config_from_env(name: &'static str) -> Result<String, LambdaBootstrapConfigError> {
@@ -371,6 +448,41 @@ mod tests {
         assert_eq!(right.version_id(), "version-2");
         assert_eq!(*left.value(), *right.value());
         assert_eq!(builds.load(Ordering::Acquire), 2);
+    }
+
+    struct FailingCredentials(platform_postgres::PostgresCredentialRefreshError);
+
+    #[async_trait::async_trait]
+    impl PostgresCredentialsProvider for FailingCredentials {
+        async fn current(
+            &self,
+        ) -> Result<VersionedPostgresCredentials, platform_postgres::PostgresCredentialRefreshError>
+        {
+            Err(self.0)
+        }
+    }
+
+    #[tokio::test]
+    async fn should_record_a_failed_credential_refresh_as_a_setup_diagnostic() {
+        let (logs, guard) = test_api::CapturedLogs::start();
+
+        let result = current_postgres_credentials(
+            "test-lambda",
+            &FailingCredentials(platform_postgres::PostgresCredentialRefreshError::Timeout),
+        )
+        .await;
+        drop(guard);
+
+        assert_eq!(
+            Some("PostgreSQL credential refresh unavailable".to_owned()),
+            result.err().map(|error| error.to_string())
+        );
+        let events = logs.events_where("event", "lambda.setup.failed");
+        assert_eq!(1, events.len());
+        assert_eq!(Some("test-lambda"), events[0]["component"].as_str());
+        assert_eq!(Some("credential_refresh"), events[0]["stage"].as_str());
+        assert_eq!(Some("secrets_manager"), events[0]["dependency"].as_str());
+        assert_eq!(Some("timeout"), events[0]["error_category"].as_str());
     }
 
     #[test]

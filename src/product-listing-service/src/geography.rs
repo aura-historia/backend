@@ -1,6 +1,6 @@
 //! Rebuildable effective geography. No listing is geocoded and no address is copied.
 use application::{
-    error::BoxError,
+    error::{BoxError, FailureKind},
     transaction::{Transaction, UnitOfWork},
 };
 use geo::{CountryCode, GeographicDescription, SpatialPosition, SubdivisionCode};
@@ -93,6 +93,29 @@ pub enum GeographyError {
     Deferred,
     #[error("invalid effective geography input")]
     InvalidInput,
+}
+impl GeographyError {
+    /// The bounded label of the step that failed, shared by every worker boundary.
+    pub fn failure_stage(&self) -> &'static str {
+        match self {
+            Self::Storage(_) | Self::Superseded | Self::Deferred | Self::InvalidInput => {
+                "geography_projection"
+            }
+            Self::Transaction(_) => "geography_transaction",
+            Self::Resolution(_) => "geography_resolution",
+        }
+    }
+
+    /// The bounded kind every worker boundary records for this failure.
+    pub fn failure_kind(&self) -> FailureKind {
+        match self {
+            Self::Storage(_) | Self::Transaction(_) => FailureKind::Storage,
+            Self::Resolution(error) => error.failure_kind(),
+            Self::Superseded => FailureKind::Rejected("claim_superseded"),
+            Self::Deferred => FailureKind::Rejected("claimed_elsewhere"),
+            Self::InvalidInput => FailureKind::Rejected("invalid_input"),
+        }
+    }
 }
 #[async_trait::async_trait]
 pub trait GeographyProjectionStore: Send {

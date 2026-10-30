@@ -15,7 +15,7 @@ use notification_service::{
         DeliveryAttemptPhase,
     },
 };
-use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
+use platform_lambda_bootstrap::{Dependency, FailureDiagnostic, LambdaInvocationBudget};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
@@ -279,21 +279,23 @@ fn delivery_failure(error: &DeliverNotificationError) -> Option<FailureDiagnosti
         }
         DeliverNotificationError::RetryableSend(_) => Some(FailureDiagnostic::new(
             "provider_send",
-            "notification_channel",
+            Dependency::NotificationChannel,
             "retryable",
             None,
         )),
         DeliverNotificationError::AmbiguousSend(_) => Some(FailureDiagnostic::new(
             "provider_send",
-            "notification_channel",
+            Dependency::NotificationChannel,
             "acceptance_unknown",
             None,
         )),
         DeliverNotificationError::AttemptTimedOut { phase } => {
             let (stage, dependency) = match phase {
-                DeliveryAttemptPhase::Claim => ("claim", "postgres"),
-                DeliveryAttemptPhase::Provider => ("provider_send", "notification_channel"),
-                DeliveryAttemptPhase::Finalization => ("finalization", "postgres"),
+                DeliveryAttemptPhase::Claim => ("claim", Dependency::Postgres),
+                DeliveryAttemptPhase::Provider => {
+                    ("provider_send", Dependency::NotificationChannel)
+                }
+                DeliveryAttemptPhase::Finalization => ("finalization", Dependency::Postgres),
             };
             Some(FailureDiagnostic::new(stage, dependency, "timeout", None))
         }

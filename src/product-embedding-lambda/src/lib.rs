@@ -1,9 +1,12 @@
+use application::error::find_source;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use embedding::{EmbeddingError, EmbeddingGenerator, VertexAiEmbeddingGenerator};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE};
+use platform_lambda_bootstrap::{
+    Dependency, FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE,
+};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
@@ -235,14 +238,10 @@ fn embedding_error_disposition(
 }
 
 fn generation_failure(error: &EmbedProductListingEventError) -> FailureDiagnostic {
-    let failure =
-        std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |error| {
-            (*error).source()
-        })
-        .find_map(|error| error.downcast_ref::<EmbeddingError>());
+    let failure = find_source::<EmbeddingError>(error);
     FailureDiagnostic::new(
         "generation",
-        "vertex_ai",
+        Dependency::VertexAi,
         failure.map_or(UNCLASSIFIED_FAILURE, EmbeddingError::diagnostic_category),
         failure.and_then(EmbeddingError::http_status),
     )

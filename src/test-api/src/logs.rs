@@ -4,9 +4,13 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, Once},
 };
 use tracing::{
-    Event, Metadata, Subscriber,
-    span::{Attributes, Id, Record},
-    subscriber::{DefaultGuard, Interest},
+    Metadata, Subscriber,
+    level_filters::LevelFilter,
+    subscriber::{DefaultGuard, Interest, NoSubscriber},
+};
+use tracing_subscriber::{
+    layer::{Layer, SubscriberExt},
+    util::SubscriberInitExt,
 };
 
 /// Captures `tracing` events on the current thread in the production JSON log shape.
@@ -70,36 +74,32 @@ impl CapturedLogs {
 fn reevaluate_callsites_per_event() {
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
-        // If another global subscriber is already installed, callsites at the levels it enables
-        // keep a non-"never" interest; captures below those levels can then still be missed.
-        let _ = tracing::subscriber::set_global_default(ReevaluatePerEvent);
+        // Another test-api fixture may already have installed its global subscriber through
+        // `install_global_subscriber`, which re-evaluates callsites the same way.
+        let _ =
+            tracing::subscriber::set_global_default(NoSubscriber::new().with(ReevaluatePerEvent));
     });
 }
 
+/// Installs `subscriber` as the process-wide default, with `log` records forwarded to it, unless
+/// one is already installed. Callsites are re-evaluated per event, so a `CapturedLogs` capture
+/// still sees events below the levels `subscriber` enables, whichever is installed first.
+pub(crate) fn install_global_subscriber(subscriber: impl Subscriber + Send + Sync + 'static) {
+    let _ = subscriber.with(ReevaluatePerEvent).try_init();
+}
+
+/// Keeps every callsite's interest at "sometimes" and claims no level ceiling, so the wrapped
+/// subscriber cannot cache a decision that hides an event from a thread-local capture.
 struct ReevaluatePerEvent;
 
-impl Subscriber for ReevaluatePerEvent {
+impl<S: Subscriber> Layer<S> for ReevaluatePerEvent {
     fn register_callsite(&self, _: &'static Metadata<'static>) -> Interest {
         Interest::sometimes()
     }
 
-    fn enabled(&self, _: &Metadata<'_>) -> bool {
-        false
+    fn max_level_hint(&self) -> Option<LevelFilter> {
+        Some(LevelFilter::TRACE)
     }
-
-    fn new_span(&self, _: &Attributes<'_>) -> Id {
-        Id::from_u64(1)
-    }
-
-    fn record(&self, _: &Id, _: &Record<'_>) {}
-
-    fn record_follows_from(&self, _: &Id, _: &Id) {}
-
-    fn event(&self, _: &Event<'_>) {}
-
-    fn enter(&self, _: &Id) {}
-
-    fn exit(&self, _: &Id) {}
 }
 
 impl io::Write for CapturedLogs {
@@ -133,5 +133,39 @@ mod tests {
         assert_eq!(1, events.len());
         assert_eq!(Some("source_read"), events[0]["stage"].as_str());
         assert_eq!(Some(503), events[0]["status"].as_u64());
+    }
+
+    #[test]
+    fn should_keep_callsites_reevaluated_below_a_wrapped_subscriber_level() {
+        let wrapped = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .finish()
+            .with(ReevaluatePerEvent);
+
+        assert!(wrapped.register_callsite(&DEBUG_METADATA).is_sometimes());
+        assert_eq!(Some(LevelFilter::TRACE), wrapped.max_level_hint());
+        assert!(!wrapped.enabled(&DEBUG_METADATA));
+    }
+
+    struct DebugCallsite;
+
+    static DEBUG_CALLSITE: DebugCallsite = DebugCallsite;
+    static DEBUG_METADATA: Metadata<'static> = tracing::metadata::Metadata::new(
+        "debug event",
+        module_path!(),
+        tracing::Level::DEBUG,
+        None,
+        None,
+        None,
+        tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&DEBUG_CALLSITE)),
+        tracing::metadata::Kind::EVENT,
+    );
+
+    impl tracing::Callsite for DebugCallsite {
+        fn set_interest(&self, _: Interest) {}
+
+        fn metadata(&self) -> &Metadata<'_> {
+            &DEBUG_METADATA
+        }
     }
 }

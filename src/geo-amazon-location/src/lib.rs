@@ -120,6 +120,8 @@ impl GeocodingProvider for AmazonLocationGeocoder {
     }
 }
 
+// Not `platform_aws::AwsSdkFailure`: this class is persisted and decides whether a resolution is
+// blocked or retried, so it must not move when the shared vocabulary grows for other services.
 fn map_sdk_error(source: SdkError<GeocodeError>) -> GeocodingError {
     let kind = match &source {
         SdkError::TimeoutError(_) => GeocodingFailure::Timeout,

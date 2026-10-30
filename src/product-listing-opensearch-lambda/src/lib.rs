@@ -3,7 +3,9 @@ use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent};
 use opensearch::OpenSearch;
-use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
+use platform_lambda_bootstrap::{
+    Dependency, FailureDiagnostic, INVALID_PERSISTED_STATE, LambdaInvocationBudget,
+};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_opensearch::failure::OpenSearchFailure;
 use platform_postgres::SqlxUnitOfWork;
@@ -199,8 +201,17 @@ fn projection_error_disposition(
             category: "sale_snapshot_invalid",
             failure: FailureDiagnostic::new(
                 "sale_snapshot_read",
-                "postgres",
-                "invalid_persisted_state",
+                Dependency::Postgres,
+                INVALID_PERSISTED_STATE,
+                None,
+            ),
+        },
+        E::SourceStateInvalid { .. } => D::InvalidPersistedState {
+            category: "source_state_invalid",
+            failure: FailureDiagnostic::new(
+                "source_read",
+                Dependency::Postgres,
+                INVALID_PERSISTED_STATE,
                 None,
             ),
         },
@@ -226,7 +237,7 @@ fn target_write_failure(error: &ProjectProductListingError) -> FailureDiagnostic
     let failure = OpenSearchFailure::find(error);
     FailureDiagnostic::new(
         "target_write",
-        "opensearch",
+        Dependency::OpenSearch,
         failure.map_or("document_invalid", |failure| failure.kind()),
         failure.and_then(|failure| failure.http_status()),
     )
@@ -515,6 +526,7 @@ mod tests {
             FakeResult::TargetForbidden,
             FakeResult::CommitConnectionLost,
             FakeResult::SaleObservationFxSnapshotInvalid,
+            FakeResult::SourceStateInvalid,
         ]);
         let (logs, guard) = CapturedLogs::start();
 
@@ -524,6 +536,7 @@ mod tests {
                 (Some("target-write"), valid_body()),
                 (Some("commit"), valid_body()),
                 (Some("invalid-fx"), valid_body()),
+                (Some("invalid-source"), valid_body()),
             ]),
             &processor,
         )
@@ -536,7 +549,13 @@ mod tests {
 
         assert_eq!(
             message_ids(response),
-            ["source-read", "target-write", "commit", "invalid-fx"]
+            [
+                "source-read",
+                "target-write",
+                "commit",
+                "invalid-fx",
+                "invalid-source"
+            ]
         );
         assert_eq!(
             retained_diagnostics(&logs),
@@ -551,6 +570,9 @@ mod tests {
                     "stage": "source_commit", "dependency": "postgres", "error_category": "io"}),
                 json!({"message_id": "invalid-fx", "outcome": "sale_snapshot_invalid",
                     "stage": "sale_snapshot_read", "dependency": "postgres",
+                    "error_category": "invalid_persisted_state"}),
+                json!({"message_id": "invalid-source", "outcome": "source_state_invalid",
+                    "stage": "source_read", "dependency": "postgres",
                     "error_category": "invalid_persisted_state"}),
             ]
         );
@@ -617,6 +639,7 @@ mod tests {
         MissingSource,
         SaleObservationFxSnapshotMissing,
         SaleObservationFxSnapshotInvalid,
+        SourceStateInvalid,
         Unavailable,
         SourceDatabaseFailure,
         TargetForbidden,
@@ -669,6 +692,11 @@ mod tests {
                         source: Box::new(std::io::Error::other(SENTINEL)),
                     },
                 ),
+                Some(FakeResult::SourceStateInvalid) => {
+                    Err(ProjectProductListingError::SourceStateInvalid {
+                        source: Box::new(std::io::Error::other(SENTINEL)),
+                    })
+                }
                 Some(FakeResult::Unavailable) => {
                     Err(ProjectProductListingError::SourceReadFailed {
                         source: Box::new(std::io::Error::other("projection source unavailable")),

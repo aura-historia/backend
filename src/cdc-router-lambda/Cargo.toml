@@ -18,6 +18,7 @@ lambda_runtime = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
+platform-aws = { workspace = true }
 platform-observability = { workspace = true }
 platform-worker-queue-contract = { path = "../platform-worker-queue-contract" }
 product-listing-core = { workspace = true }

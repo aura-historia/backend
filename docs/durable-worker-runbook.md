@@ -163,7 +163,16 @@ refused the request itself and `unknown` when the service did not say which syst
 `unclassified` means the cause had no safe classification; inspect the dependency. Use these
 fields to choose a repair before a redrive: `invalid_persisted_state` and `document_invalid`
 point to data to repair, not an outage. They never carry error messages, provider bodies or
-payloads.
+payloads. Expected claim, lease or version contention carries no failure diagnostic; identity
+deletion, geo resolution and ingestion record it at INFO.
+
+A Lambda, including the API and MCP, that cannot refresh its PostgreSQL credentials records one
+`lambda.setup.failed` event with `component` and the same fields (for example
+`credential_refresh`/`secrets_manager`/`throttled` or `access_denied`) before failing the
+invocation. Pools connect lazily, so a login refused after a rotation appears in the first
+record's own diagnostic, such as `database` with SQLSTATE `28P01`. The router's `worker SQS
+publication finished` and `worker SQS queue validation failed` events carry the AWS SDK class
+(such as `throttled`, `access_denied`, `not_found` or `kms_unavailable`) and `http_status`.
 
 FIFO consumers park a record that can never succeed as delivered on its first redelivery
 instead of retaining it for the whole retry budget: they send the unchanged body to the

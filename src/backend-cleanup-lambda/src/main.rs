@@ -1,6 +1,7 @@
 use backend_cleanup_lambda::{
     cleanup_batch_size_from_env, run_cleanup, run_listing_geography_recovery,
-    run_public_catalogue_overview_refresh,
+    run_public_catalogue_overview_refresh, run_saved_search_digest_maintenance,
+    run_saved_search_notification_recovery,
 };
 use geo_postgres::SqlxResolutionRepositoryFactory;
 use geo_service::resolution::MaintainResolutionsHandler;
@@ -17,8 +18,8 @@ use notification_service::{
 use oauth_postgres::SqlxExpiredCredentialCleanup;
 use oauth_service::use_cases::CleanupExpiredCredentialsAndProviderReceiptsHandler;
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, log_cold_start, log_invocation_start,
-    logging_config_from_env,
+    LambdaPostgresConfig, VersionedCompositionCache, current_postgres_credentials, log_cold_start,
+    log_invocation_start, logging_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
@@ -45,6 +46,8 @@ use user_postgres::{SqlxConsentWorkflowCleanup, SqlxNewsletterConfirmationChalle
 use user_service::ports::SystemNewsletterConfirmationClock;
 use user_service::use_cases::CleanupConsentWorkflowHandler;
 
+const COMPONENT: &str = "backend-cleanup-lambda";
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
@@ -57,25 +60,19 @@ async fn main() -> Result<(), Error> {
         .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
     let cleanup = Arc::new(VersionedCompositionCache::new());
 
-    log_cold_start("backend-cleanup-lambda", initialization_started_at);
+    log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(move |event: LambdaEvent<Value>| {
         let postgres = postgres.clone();
         let credentials = Arc::clone(&credentials);
         let cleanup = Arc::clone(&cleanup);
         async move {
-            log_invocation_start("backend-cleanup-lambda", &event.context);
-            let credentials = credentials
-                .current()
-                .await
-                .map_err(|_| Error::from("PostgreSQL credential refresh unavailable"))?;
+            log_invocation_start(COMPONENT, &event.context);
+            let credentials = current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
             let cleanup = cleanup
                 .get_or_try_build(credentials.version_id(), || async {
                     let pool = postgres
-                        .pool_config(credentials.credentials())
-                        .map_err(|_| Error::from("invalid PostgreSQL configuration"))?
-                        .connect()
-                        .await
-                        .map_err(|_| Error::from("failed to create PostgreSQL pool"))?;
+                        .connect(COMPONENT, credentials.credentials())
+                        .await?;
                     Ok::<_, Error>((
                         CleanupExpiredCredentialsAndProviderReceiptsHandler::new(
                             SqlxExpiredCredentialCleanup::new(pool.clone()),
@@ -132,16 +129,19 @@ async fn main() -> Result<(), Error> {
             )
             .await;
             let recovery_result = run_listing_geography_recovery(&cleanup.value().3).await;
-            let notification_recovery = cleanup.value().4.execute(batch_size.get() as usize).await;
-            let digest_recovery = cleanup.value().5.execute(batch_size.get() as usize).await;
+            let notification_recovery = run_saved_search_notification_recovery(
+                &cleanup.value().4,
+                batch_size.get() as usize,
+            )
+            .await;
+            let digest_recovery =
+                run_saved_search_digest_maintenance(&cleanup.value().5, batch_size.get() as usize)
+                    .await;
             // Last: when due, the full aggregate must not delay bounded maintenance work.
             let overview_refresh = run_public_catalogue_overview_refresh(&cleanup.value().6).await;
             cleanup_result?;
-            let failed_notifications = notification_recovery?;
+            notification_recovery?;
             digest_recovery?;
-            if failed_notifications > 0 {
-                return Err(Error::from("saved-search notification recovery incomplete"));
-            }
             recovery_result?;
             overview_refresh?;
             Ok::<(), Error>(())

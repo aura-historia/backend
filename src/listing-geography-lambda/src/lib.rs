@@ -1,8 +1,7 @@
 use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
-use geo_service::resolution::ResolutionError;
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::FailureDiagnostic;
+use platform_lambda_bootstrap::{Dependency, FailureDiagnostic};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use product_listing_service::geography::{GeographyError, ProjectListingGeographyUseCase};
 use std::time::Duration;
@@ -22,7 +21,12 @@ pub async fn process_job(body: &str, use_case: &dyn ProjectListingGeographyUseCa
     if matches!(error, GeographyError::Deferred | GeographyError::Superseded) {
         return false;
     }
-    let failure = listing_geography_failure(&error);
+    let failure = FailureDiagnostic::from_kind(
+        error.failure_stage(),
+        error.failure_kind(),
+        Some(Dependency::AmazonLocation),
+        &error,
+    );
     tracing::warn!(
         event = "listing_geography.work_failed",
         work_id = %job.work_id,
@@ -34,46 +38,6 @@ pub async fn process_job(body: &str, use_case: &dyn ProjectListingGeographyUseCa
     false
 }
 
-/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
-fn listing_geography_failure(error: &GeographyError) -> FailureDiagnostic {
-    match error {
-        GeographyError::Storage(_) => FailureDiagnostic::postgres("geography_projection", error),
-        GeographyError::Transaction(_) => {
-            FailureDiagnostic::postgres("geography_transaction", error)
-        }
-        GeographyError::Resolution(error) => resolution_failure("geography_resolution", error),
-        GeographyError::Superseded => {
-            FailureDiagnostic::rejected("geography_projection", "claim_superseded")
-        }
-        GeographyError::Deferred => {
-            FailureDiagnostic::rejected("geography_projection", "claimed_elsewhere")
-        }
-        GeographyError::InvalidInput => {
-            FailureDiagnostic::rejected("geography_projection", "invalid_input")
-        }
-    }
-}
-
-fn resolution_failure(stage: &'static str, error: &ResolutionError) -> FailureDiagnostic {
-    match error {
-        ResolutionError::Provider(provider) => FailureDiagnostic::new(
-            stage,
-            "amazon_location",
-            provider.kind.diagnostic_category(),
-            None,
-        ),
-        ResolutionError::Storage(_) | ResolutionError::Transaction(_) => {
-            FailureDiagnostic::postgres(stage, error)
-        }
-        ResolutionError::InvalidState(_) => {
-            FailureDiagnostic::new(stage, "postgres", "invalid_persisted_state", None)
-        }
-        ResolutionError::InvalidInput => FailureDiagnostic::rejected(stage, "invalid_input"),
-        ResolutionError::Forbidden => FailureDiagnostic::rejected(stage, "forbidden"),
-        ResolutionError::Conflict => FailureDiagnostic::rejected(stage, "conflict"),
-        ResolutionError::Missing => FailureDiagnostic::rejected(stage, "missing"),
-    }
-}
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
     use_case: &dyn ProjectListingGeographyUseCase,

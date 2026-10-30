@@ -120,9 +120,48 @@ pub enum VersionedPostgresCredentialsError {
     Credentials(#[source] PostgresCredentialsError),
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("PostgreSQL credential refresh unavailable")]
-pub struct PostgresCredentialRefreshError;
+/// Why the current PostgreSQL credentials could not be loaded. The provider's own error text
+/// never leaves its adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PostgresCredentialRefreshError {
+    #[error("PostgreSQL credential refresh unavailable")]
+    Timeout,
+    #[error("PostgreSQL credential refresh unavailable")]
+    Throttled,
+    /// The provider refused the caller's identity or its permissions.
+    #[error("PostgreSQL credential refresh unavailable")]
+    AccessDenied,
+    /// The key that encrypts the secret is disabled, missing or unusable.
+    #[error("PostgreSQL credential refresh unavailable")]
+    KeyUnavailable,
+    /// The client could not build the request, for example without resolvable AWS credentials.
+    #[error("PostgreSQL credential refresh unavailable")]
+    Configuration,
+    /// The provider rejected the request, for example because the secret does not exist.
+    #[error("PostgreSQL credential refresh unavailable")]
+    Rejected,
+    #[error("PostgreSQL credential refresh unavailable")]
+    Unavailable,
+    /// The provider answered with a secret that holds no valid credentials.
+    #[error("PostgreSQL credential refresh unavailable")]
+    InvalidSecret,
+}
+
+impl PostgresCredentialRefreshError {
+    /// The lower-case class used by failure diagnostics.
+    pub const fn diagnostic_category(self) -> &'static str {
+        match self {
+            Self::Timeout => "timeout",
+            Self::Throttled => "throttled",
+            Self::AccessDenied => "access_denied",
+            Self::KeyUnavailable => "kms_unavailable",
+            Self::Configuration => "configuration",
+            Self::Rejected => "rejected",
+            Self::Unavailable => "unavailable",
+            Self::InvalidSecret => "invalid_secret",
+        }
+    }
+}
 
 #[async_trait]
 pub trait PostgresCredentialsProvider: Send + Sync {

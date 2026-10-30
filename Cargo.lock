@@ -606,6 +606,7 @@ dependencies = [
  "shipping-postgres",
  "shipping-service",
  "sqlx",
+ "test-api",
  "thiserror 2.0.21",
  "tokio",
  "url",
@@ -1453,6 +1454,7 @@ dependencies = [
  "platform-postgres-secretsmanager",
  "product-listing-postgres",
  "product-listing-service",
+ "search-filter-core",
  "search-filter-postgres",
  "search-filter-service",
  "serde_json",
@@ -1461,6 +1463,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "user-core",
  "user-postgres",
  "user-service",
 ]
@@ -1841,6 +1844,7 @@ dependencies = [
  "localization",
  "money",
  "notification-core",
+ "platform-aws",
  "platform-observability",
  "platform-worker-queue-contract",
  "product-listing-core",
@@ -6281,6 +6285,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
+name = "platform-aws"
+version = "0.1.0"
+dependencies = [
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+]
+
+[[package]]
 name = "platform-google-adc"
 version = "0.1.0"
 dependencies = [
@@ -6293,6 +6305,8 @@ dependencies = [
 name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
+ "application",
+ "async-trait",
  "google-cloud-auth",
  "lambda_runtime",
  "platform-google-adc",
@@ -6335,6 +6349,7 @@ dependencies = [
 name = "platform-opensearch"
 version = "0.1.0"
 dependencies = [
+ "application",
  "opensearch",
  "serde",
  "serde_json",
@@ -6361,6 +6376,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-secretsmanager",
+ "platform-aws",
  "platform-postgres",
  "serde",
  "serde_json",
@@ -9863,6 +9879,7 @@ dependencies = [
  "application",
  "async-trait",
  "aws-sdk-cognitoidentityprovider",
+ "platform-aws",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
@@ -9934,6 +9951,9 @@ dependencies = [
  "platform-observability",
  "platform-postgres",
  "platform-postgres-secretsmanager",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "user-cognito",

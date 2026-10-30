@@ -2,7 +2,7 @@
 //! the owning service; adapters own codecs, leases and database uniqueness.
 use crate::geocoding::*;
 use application::{
-    error::{BoxError, static_error},
+    error::{BoxError, FailureKind, static_error},
     operation_context::{OperationContext, Principal},
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
@@ -538,6 +538,20 @@ pub enum ResolutionError {
         #[source]
         TransactionError,
     ),
+}
+impl ResolutionError {
+    /// The bounded kind every worker boundary records for this failure.
+    pub fn failure_kind(&self) -> FailureKind {
+        match self {
+            Self::Provider(provider) => FailureKind::Provider(provider.kind.diagnostic_category()),
+            Self::Storage(_) | Self::Transaction(_) => FailureKind::Storage,
+            Self::InvalidState(_) => FailureKind::InvalidPersistedState,
+            Self::InvalidInput => FailureKind::Rejected("invalid_input"),
+            Self::Forbidden => FailureKind::Rejected("forbidden"),
+            Self::Conflict => FailureKind::Rejected("conflict"),
+            Self::Missing => FailureKind::Rejected("missing"),
+        }
+    }
 }
 #[async_trait::async_trait]
 pub trait ResolutionRepository: Send {

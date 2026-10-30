@@ -47,6 +47,11 @@ pub enum ProjectProductListingError {
         #[source]
         source: BoxError,
     },
+    #[error("ProductListing projection source persisted state is invalid")]
+    SourceStateInvalid {
+        #[source]
+        source: BoxError,
+    },
     #[error("ProductListing projection sale-observation FX snapshot is missing")]
     SaleObservationFxSnapshotMissing,
     #[error("ProductListing projection sale-observation FX snapshot is invalid")]
@@ -206,13 +211,13 @@ where
 fn source_read_error(
     error: ProductListingSearchFilterMatchSourceReadError,
 ) -> ProjectProductListingError {
-    ProjectProductListingError::SourceReadFailed {
-        source: match error {
-            ProductListingSearchFilterMatchSourceReadError::QueryFailed { source }
-            | ProductListingSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
-                source
-            }
-        },
+    match error {
+        ProductListingSearchFilterMatchSourceReadError::QueryFailed { source } => {
+            ProjectProductListingError::SourceReadFailed { source }
+        }
+        ProductListingSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
+            ProjectProductListingError::SourceStateInvalid { source }
+        }
     }
 }
 
@@ -740,6 +745,39 @@ mod tests {
         let state = lock_state(&state);
         assert_eq!(0, state.commit_count);
         assert!(state.upserts.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_keep_invalid_persisted_source_state_apart_from_a_failed_source_read()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let source = source()?;
+        for (read_error, invalid) in [
+            (
+                ProductListingSearchFilterMatchSourceReadError::InvalidPersistedState {
+                    source: box_error(std::io::Error::other("invalid source")),
+                },
+                true,
+            ),
+            (
+                ProductListingSearchFilterMatchSourceReadError::QueryFailed {
+                    source: box_error(std::io::Error::other("query failed")),
+                },
+                false,
+            ),
+        ] {
+            let state = state();
+            lock_state(&state).source_result = Some(Err(read_error));
+
+            let result = handler(&state).execute(command(&source)).await;
+
+            match result {
+                Err(ProjectProductListingError::SourceStateInvalid { .. }) => assert!(invalid),
+                Err(ProjectProductListingError::SourceReadFailed { .. }) => assert!(!invalid),
+                other => panic!("unexpected projection result: {other:?}"),
+            }
+            assert!(lock_state(&state).upserts.is_empty());
+        }
         Ok(())
     }
 

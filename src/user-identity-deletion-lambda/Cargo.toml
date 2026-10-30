@@ -24,3 +24,6 @@ user-service = { workspace = true }
 [dev-dependencies]
 application = { workspace = true }
 async-trait = { workspace = true }
+sqlx = { workspace = true }
+test-api = { workspace = true }
+thiserror = { workspace = true }

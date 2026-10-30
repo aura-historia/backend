@@ -10,8 +10,9 @@ use user_postgres::{
     SqlxUserIdentityDeletionStoreFactory, SqlxUserRepositoryFactory,
 };
 use user_service::ports::user_identity_deletion::{
-    UserIdentityDeleter, UserIdentityDeletionClaimOutcome, UserIdentityDeletionError,
-    UserIdentityDeletionStore, UserIdentityDeletionStoreFactory, UserIdentityUsername,
+    IdentityProviderFailure, UserIdentityDeleter, UserIdentityDeletionClaimOutcome,
+    UserIdentityDeletionError, UserIdentityDeletionStore, UserIdentityDeletionStoreFactory,
+    UserIdentityUsername,
 };
 use user_service::ports::{
     CognitoIdentity, CognitoIssuer, CognitoSubject, CognitoUserIdentityReader,
@@ -80,9 +81,9 @@ impl UserIdentityDeleter for Provider {
         if self.missing.swap(false, Ordering::SeqCst) {
             return Ok(None);
         }
-        Ok(Some(UserIdentityUsername::try_from(
-            "provider-username".to_owned(),
-        )?))
+        Ok(Some(
+            UserIdentityUsername::try_from("provider-username".to_owned()).unwrap(),
+        ))
     }
     async fn delete_identity(
         &self,
@@ -102,9 +103,11 @@ impl UserIdentityDeleter for Provider {
             .bind(identity.issuer.as_str()).bind(identity.subject.as_str()).bind(username.as_str()).fetch_one(&self.pool).await.unwrap();
         assert!(claimed);
         if self.fail.swap(false, Ordering::SeqCst) {
-            Err(UserIdentityDeletionError(application::error::static_error(
-                "provider response lost after deletion",
-            )))
+            Err(UserIdentityDeletionError::IdentityProvider {
+                failure: IdentityProviderFailure::Unavailable,
+                http_status: None,
+                source: application::error::static_error("provider response lost after deletion"),
+            })
         } else {
             Ok(())
         }
@@ -312,20 +315,17 @@ async fn deletion_intent_rolls_back_with_account_and_claims_are_exclusive_and_fe
     assert!(second.version > first.version);
     let username = UserIdentityUsername::try_from("provider-username".to_owned()).unwrap();
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert!(matches!(
         store
             .in_transaction(&mut tx)
             .save_username(&first, &username)
-            .await
-            .is_err()
-    );
-    assert!(
-        store
-            .in_transaction(&mut tx)
-            .complete(&first)
-            .await
-            .is_err()
-    );
+            .await,
+        Err(UserIdentityDeletionError::ClaimLost)
+    ));
+    assert!(matches!(
+        store.in_transaction(&mut tx).complete(&first).await,
+        Err(UserIdentityDeletionError::ClaimLost)
+    ));
     drop(tx);
     let mut tx = uow.begin().await.unwrap();
     store

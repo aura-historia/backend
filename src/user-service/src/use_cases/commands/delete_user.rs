@@ -283,10 +283,8 @@ impl From<CoordinateMarketingConsentError> for DeleteUserError {
             CoordinateMarketingConsentError::UserNotFound => Self::UserNotFound,
             CoordinateMarketingConsentError::ConcurrencyConflict
             | CoordinateMarketingConsentError::SourceKeyConflict => Self::ConcurrencyConflict,
-            CoordinateMarketingConsentError::TemporarilyUnavailable => {
-                Self::TemporarilyUnavailable {
-                    source: application::error::static_error("consent persistence unavailable"),
-                }
+            CoordinateMarketingConsentError::TemporarilyUnavailable(source) => {
+                Self::TemporarilyUnavailable { source }
             }
             CoordinateMarketingConsentError::InvalidPersistedState => Self::InvalidPersistedState {
                 source: application::error::static_error("invalid persisted consent state"),
@@ -384,9 +382,9 @@ mod tests {
         ) -> Result<(), UserIdentityDeletionError> {
             let mut state = lock(&self.state);
             if state.identity_schedule_error {
-                return Err(UserIdentityDeletionError(application::error::static_error(
-                    "identity persistence unavailable",
-                )));
+                return Err(UserIdentityDeletionError::Storage(
+                    application::error::static_error("identity persistence unavailable"),
+                ));
             }
             state.identity_deletions.push(user_id);
             Ok(())
