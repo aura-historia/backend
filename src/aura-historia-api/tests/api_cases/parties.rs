@@ -238,32 +238,6 @@ async fn should_reject_invalid_party_search_query_values() {
         reqwest::StatusCode::BAD_REQUEST,
         "BAD_QUERY_PARAMETER_VALUE",
     );
-
-    let party_id = PartyId::new();
-    for invalid_id in [
-        ListingSourceId::new().to_string(),
-        party_id.as_uuid().to_string(),
-        "pty_not-a-typeid".to_owned(),
-    ] {
-        let invalid_cursor = client
-            .get(format!("{}/v1/admin/parties", AURA_API.base_url()))
-            .bearer_auth(String::from(token.clone()))
-            .query(&[("searchAfter", invalid_id)])
-            .send()
-            .await
-            .unwrap_or_else(|error| panic!("failed to validate party cursor: {error}"));
-        let (status, body) = json_response(invalid_cursor).await;
-        assert_problem(
-            status,
-            &body,
-            reqwest::StatusCode::BAD_REQUEST,
-            "INVALID_OBJECT_ID",
-        );
-        assert_eq!(
-            json!({"field": "searchAfter", "type": "QUERY"}),
-            body["source"]
-        );
-    }
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

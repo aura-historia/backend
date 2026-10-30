@@ -12,7 +12,7 @@ pub(crate) struct PartyCollectionData {
     pub(crate) items: Vec<PartySummaryData>,
     pub(crate) size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) search_after: Option<PartyId>,
+    pub(crate) search_after: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) total: Option<u64>,
 }
@@ -27,7 +27,10 @@ impl From<SearchPartiesResult> for PartyCollectionData {
         Self {
             size: items.len() as u64,
             items,
-            search_after: result.cursor.search_after,
+            search_after: result
+                .cursor
+                .search_after
+                .map(super::search_parties::encode_search_after),
             total: result.total,
         }
     }

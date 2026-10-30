@@ -5521,11 +5521,14 @@ paths:
         identity filters. `operatorPartyId`, `ingestionMethod`, and `platformTechnology` are exact filters
         and can be combined. Platform technology is descriptive metadata independent of ingestion.
 
-        Results use deterministic cursor pagination. The default sort is `name` ascending;
+        Results use deterministic keyset pagination. The default sort is `name` ascending;
         override it by providing both `sort` and `order`. Valid sort fields are `name`, `slug`,
-        `created`, and `updated`; ListingSource ID is always the final deterministic tie-breaker.
-        Page sizes are clamped to 1–100, with a default of 21. The returned ListingSource ID `searchAfter`
-        cursor is omitted on the terminal page and should be sent with the same filters and sort.
+        `created`, and `updated`; ListingSource ID is always the final ascending tie-breaker.
+        Page sizes are clamped to 1–100, with a default of 21. The opaque `searchAfter` cursor
+        continues after the sort position of the last returned ListingSource, also when that source
+        was deleted or changed since, and is omitted on the terminal page. Send it back unchanged with
+        the same filters and sort; a malformed cursor, a ListingSource ID cursor, or a cursor
+        returned for other filters or sort is rejected with `400 BAD_QUERY_PARAMETER_VALUE`.
         Responses always use `Cache-Control: no-store`.
 
         The result contains only safe business-resource fields: ListingSource identity and name,
@@ -5607,10 +5610,10 @@ paths:
         - name: searchAfter
           in: query
           required: false
-          description: Opaque ListingSource ID cursor returned by the previous page. It is omitted when no next page exists.
+          description: Opaque cursor returned by the previous page for the same filters and sort. Pass it back unchanged. It embeds the sort value of the last returned item, such as a name or email address, so keep it out of logs and shared links like the response data itself.
           schema:
             type: string
-          example: ls_01jw7j4azge008000000000003
+          example: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsibmFtZSI6IkFudGlxdWVzIGFuZCBNb3JlIn0sImlkIjoibHNfNnJkODI3ZXFmZWZzdmE5dGVlY213YTNhdGUifQ
         - name: size
           in: query
           required: false
@@ -5659,7 +5662,7 @@ paths:
                     created: "2026-01-01T10:00:00Z"
                     updated: "2026-01-02T10:00:00Z"
                 size: 21
-                searchAfter: ls_6rd827eqfefsva9teecmwa3ate
+                searchAfter: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsibmFtZSI6IkFudGlxdWVzIGFuZCBNb3JlIn0sImlkIjoibHNfNnJkODI3ZXFmZWZzdmE5dGVlY213YTNhdGUifQ
         "400":
           description: Bad request - invalid ListingSource search parameters.
           content:
@@ -5687,7 +5690,16 @@ paths:
                       type: QUERY
                     detail: Query parameter 'listingSourceId' must be a valid ListingSource ID
                 invalid_query:
-                  summary: Invalid ingestion method, page size, or cursor
+                  summary: Invalid ingestion method or page size
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: size
+                      type: QUERY
+                foreign_search_after:
+                  summary: Malformed cursor or cursor for other filters or sort
                   value:
                     status: 400
                     title: Bad Request
@@ -5695,6 +5707,7 @@ paths:
                     source:
                       field: searchAfter
                       type: QUERY
+                    detail: searchAfter belongs to different filters or sort. Repeat the request that returned it, or start again without searchAfter.
         "401":
           description: Unauthorized - invalid or missing bearer credentials.
           content:
@@ -5874,11 +5887,15 @@ paths:
         `name`, `phone`, and `email` restrict the substring match to one contact/name field.
         `created` and `updated` accept inclusive RFC3339 ranges using `min` and `max` query members.
 
-        Results use deterministic cursor pagination. The default sort is `name` ascending;
+        Results use deterministic keyset pagination. The default sort is `name` ascending;
         override it by providing both `sort` and `order`. Valid sort fields are `name`, `email`,
-        `phone`, `created`, and `updated`; Party ID is always the final deterministic tie-breaker.
-        Page sizes are clamped to 1–100, with a default of 21. The returned ListingSource ID `searchAfter`
-        cursor is omitted on the terminal page and should be sent with the same filters and sort.
+        `phone`, `created`, and `updated`; missing contact values sort last in both directions, and
+        Party ID is always the final ascending tie-breaker.
+        Page sizes are clamped to 1–100, with a default of 21. The opaque `searchAfter` cursor
+        continues after the sort position of the last returned Party, also when that Party was
+        deleted or changed since, and is omitted on the terminal page. Send it back unchanged with
+        the same filters and sort; a malformed cursor, a Party ID cursor, or a cursor returned for
+        other filters or sort is rejected with `400 BAD_QUERY_PARAMETER_VALUE`.
         Responses always use `Cache-Control: no-store` because contact data is returned.
       operationId: adminSearchParties
       tags:
@@ -5967,10 +5984,10 @@ paths:
         - name: searchAfter
           in: query
           required: false
-          description: Opaque Party ID cursor returned by the previous page. It is omitted when no next page exists.
+          description: Opaque cursor returned by the previous page for the same filters and sort. Pass it back unchanged. It embeds the sort value of the last returned item, such as a name or email address, so keep it out of logs and shared links like the response data itself.
           schema:
             type: string
-          example: pty_01jw7j4azge008000000000002
+          example: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsibmFtZSI6IkFudGlxdWVzIGFuZCBNb3JlIn0sImlkIjoicHR5XzRrNHNueGMzcGtlY2M5eXc2NmhlZW16eXAwIn0
         - name: size
           in: query
           required: false
@@ -6010,7 +6027,7 @@ paths:
                     created: "2026-01-01T10:00:00Z"
                     updated: "2026-01-02T10:00:00Z"
                 size: 21
-                searchAfter: pty_4k4snxc3pkecc9yw66heemzyp0
+                searchAfter: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsibmFtZSI6IkFudGlxdWVzIGFuZCBNb3JlIn0sImlkIjoicHR5XzRrNHNueGMzcGtlY2M5eXc2NmhlZW16eXAwIn0
         "400":
           description: Bad request - invalid query parameters.
           content:
@@ -6045,7 +6062,17 @@ paths:
                     source:
                       field: searchAfter
                       type: QUERY
-                    detail: "searchAfter must contain a valid Party ID."
+                    detail: searchAfter must be a cursor returned by this search.
+                foreign_search_after:
+                  summary: Cursor returned for other filters or sort
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: searchAfter
+                      type: QUERY
+                    detail: searchAfter belongs to different filters or sort. Repeat the request that returned it, or start again without searchAfter.
                 invalid_size:
                   summary: Invalid page size
                   value:
@@ -6470,9 +6497,17 @@ paths:
 
         Results use deterministic keyset pagination. The default sort is `name` ascending;
 
-        override it by providing both `sort` and `order`. Every sort uses `userId` as a
+        override it by providing both `sort` and `order`. Every sort uses `userId` as the final
 
-        deterministic tie-breaker. This response always uses `Cache-Control: no-store`.
+        ascending tie-breaker. The opaque `searchAfter` cursor continues after the sort position of
+
+        the last returned user, also when that user was deleted or changed since, and is omitted on
+
+        the terminal page. A malformed cursor, a User ID cursor, or a cursor returned for other
+
+        filters or sort is rejected with `400 BAD_QUERY_PARAMETER_VALUE`. This response always uses
+
+        `Cache-Control: no-store`.
 
         "
       operationId: adminSearchUsers
@@ -6598,15 +6633,10 @@ paths:
         - name: searchAfter
           in: query
           required: false
-          description:
-            "Opaque User ID cursor for keyset pagination. Pass the `searchAfter` string returned by the previous response to fetch the next page.
-
-            Requests may also provide the legacy JSON array form when its final element is a valid User ID. The cursor is valid only with the same filters and sort used for the previous page.
-
-            "
+          description: Opaque cursor returned by the previous page for the same filters and sort. Pass it back unchanged. It embeds the sort value of the last returned item, such as a name or email address, so keep it out of logs and shared links like the response data itself.
           schema:
             type: string
-          example: usr_01jw7j4azge008000000000004
+          example: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsiZW1haWwiOiJncmFjZS51c2VyQGV4YW1wbGUuY29tIn0sImlkIjoidXNyXzY4MXc5em5oZThlYXdyaGVieGQxMDQ2ZDQ0In0
         - name: size
           in: query
           required: false
@@ -6651,7 +6681,7 @@ paths:
                     tier: PRO
                     role: USER
                 size: 2
-                searchAfter: usr_681w9znhe8eawrhebxd1046d44
+                searchAfter: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsiZW1haWwiOiJncmFjZS51c2VyQGV4YW1wbGUuY29tIn0sImlkIjoidXNyXzY4MXc5em5oZThlYXdyaGVieGQxMDQ2ZDQ0In0
         "400":
           description: Bad request - invalid query parameters.
           content:
@@ -6696,7 +6726,17 @@ paths:
                     source:
                       field: searchAfter
                       type: QUERY
-                    detail: "searchAfter must contain a valid User ID."
+                    detail: searchAfter must be a cursor returned by this search.
+                foreign_search_after:
+                  summary: Cursor returned for other filters or sort
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: searchAfter
+                      type: QUERY
+                    detail: searchAfter belongs to different filters or sort. Repeat the request that returned it, or start again without searchAfter.
                 invalid_size:
                   summary: Invalid page size
                   value:
@@ -22817,7 +22857,7 @@ components:
           description: When the Party was last updated.
     PartyCollectionData:
       type: object
-      description: "Cursor-paginated Party summaries for the admin search endpoint. `searchAfter` is a Party ID cursor and is omitted when the current page is terminal."
+      description: "Cursor-paginated Party summaries for the admin search endpoint. `searchAfter` is an opaque cursor and is omitted when the current page is terminal."
       required:
         - items
         - size
@@ -22835,8 +22875,8 @@ components:
           example: 21
         searchAfter:
           type: string
-          description: Party ID cursor for the next page, omitted when no more results are available.
-          example: pty_71m2jxjctefykb6crqka16yf6z
+          description: Opaque cursor for the next page, valid only with the same filters and sort; omitted when no more results are available.
+          example: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsibmFtZSI6IkFudGlxdWVzIGFuZCBNb3JlIn0sImlkIjoicHR5XzRrNHNueGMzcGtlY2M5eXc2NmhlZW16eXAwIn0
         total:
           type: integer
           minimum: 0
@@ -22958,7 +22998,7 @@ components:
       description:
         "Cursor-paginated collection of users for the admin search endpoint.
 
-        Items are compact admin user summaries. `searchAfter` is a User ID cursor for
+        Items are compact admin user summaries. `searchAfter` is an opaque cursor for
 
         the next page and is omitted when the current page is terminal. The cursor must
 
@@ -22982,8 +23022,8 @@ components:
           example: 21
         searchAfter:
           type: string
-          description: User ID cursor for the next page, omitted when more results are unavailable.
-          example: usr_681w9znhe8eawrhebxd1046d44
+          description: Opaque cursor for the next page, valid only with the same filters and sort; omitted when no more results are available.
+          example: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsiZW1haWwiOiJncmFjZS51c2VyQGV4YW1wbGUuY29tIn0sImlkIjoidXNyXzY4MXc5em5oZThlYXdyaGVieGQxMDQ2ZDQ0In0
         total:
           type: integer
           minimum: 0
@@ -24590,7 +24630,7 @@ components:
           type: string
     ListingSourceSearchCollectionData:
       type: object
-      description: "Cursor-paginated safe ListingSource summaries for the admin search endpoint. `searchAfter` is a ListingSource ID cursor and is omitted when the current page is terminal."
+      description: "Cursor-paginated safe ListingSource summaries for the admin search endpoint. `searchAfter` is an opaque cursor and is omitted when the current page is terminal."
       required:
         - items
         - size
@@ -24608,8 +24648,8 @@ components:
           example: 21
         searchAfter:
           type: string
-          description: ListingSource ID cursor for the next page, omitted when no more results are available.
-          example: ls_11j55nbvjfe7ds34s7gya899a9
+          description: Opaque cursor for the next page, valid only with the same filters and sort; omitted when no more results are available.
+          example: eyJ2ZXJzaW9uIjoxLCJzY29wZSI6IkFBRUNBd1FGQmdjSUNRb0xEQTBPRHhBUkVoTVVGUllYR0JrYUd4d2RIaDgiLCJrZXkiOnsibmFtZSI6IkFudGlxdWVzIGFuZCBNb3JlIn0sImlkIjoibHNfNnJkODI3ZXFmZWZzdmE5dGVlY213YTNhdGUifQ
         total:
           type: integer
           minimum: 0

@@ -5,6 +5,7 @@ pub mod auth;
 pub mod billing;
 pub mod error;
 mod geographic_search;
+pub(crate) mod keyset_cursor;
 pub mod lambda;
 pub mod listing_sources;
 pub mod newsletter;
