@@ -1249,6 +1249,7 @@ mod tests {
     use super::*;
     use crate::authoring::CrawlerAuthoringMode;
     use crate::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
+    use crate::review::agent_tokens::ReviewAgentTokens;
     use crate::review::approval_guard::FailedApprovalCheck;
     use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
     use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
@@ -1426,7 +1427,8 @@ mod tests {
     }
 
     /// The console answers the limits of the agent decision policy its repository applies to
-    /// whoever may read it, so the review agent runner tells the agents those limits.
+    /// whoever may read it, a human and the author agent whose token the review agent runner
+    /// reads them with, so the runner tells the agents those limits.
     #[tokio::test]
     async fn should_answer_the_agents_limits_the_console_applies()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -1442,7 +1444,7 @@ mod tests {
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_owned()),
-                agent_tokens: None,
+                agent_tokens: Some(ReviewAgentTokens::of("author-token", "reviewer-token")),
                 local_mutations_without_token: false,
                 max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
@@ -1452,18 +1454,24 @@ mod tests {
             format!("GET {AGENT_LIMITS_ROUTE} HTTP/1.1\r\nHost: 127.0.0.1\r\n{authorization}\r\n")
         };
 
-        let answered = server
-            .route(&read("Authorization: Bearer review-token\r\n"))
-            .await
-            .to_string();
-        let refused = server.route(&read("")).await.to_string();
+        for token in ["review-token", "author-token"] {
+            let answered = server
+                .route(&read(&format!("Authorization: Bearer {token}\r\n")))
+                .await
+                .to_string();
 
-        assert!(answered.starts_with("HTTP/1.1 200"), "{answered}");
-        let body = answered
-            .split_once("\r\n\r\n")
-            .map(|(_, body)| body)
-            .ok_or("answer without body")?;
-        assert_eq!(serde_json::from_str::<AgentLimits>(body)?, limits);
+            assert!(answered.starts_with("HTTP/1.1 200"), "{token}: {answered}");
+            let body = answered
+                .split_once("\r\n\r\n")
+                .map(|(_, body)| body)
+                .ok_or("answer without body")?;
+            assert_eq!(
+                serde_json::from_str::<AgentLimits>(body)?,
+                limits,
+                "{token}"
+            );
+        }
+        let refused = server.route(&read("")).await.to_string();
         assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
         Ok(())
     }
