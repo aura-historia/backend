@@ -20,6 +20,7 @@ pub enum Dependency {
     NotificationChannel,
     Cognito,
     Loops,
+    FxRatesApi,
     /// The service did not say which system failed.
     Unknown,
 }
@@ -36,6 +37,7 @@ impl Dependency {
             Self::NotificationChannel => "notification_channel",
             Self::Cognito => "cognito",
             Self::Loops => "loops",
+            Self::FxRatesApi => "fxratesapi",
             Self::Unknown => "unknown",
         }
     }
