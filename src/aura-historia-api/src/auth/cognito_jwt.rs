@@ -5,7 +5,7 @@ use jsonwebtokens::{Algorithm, AlgorithmID, Verifier, raw};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
@@ -82,11 +82,76 @@ impl JwksProvider for ReqwestJwksProvider {
     }
 }
 
+/// How long keys from the last successful JWKS fetch are used without refetching.
 const JWKS_CACHE_TTL: Duration = Duration::from_secs(300);
+/// Minimum spacing between JWKS fetches, successful or failed. It bounds the outbound fetches
+/// that unknown key IDs and provider failures can cause, and how long a newly published key
+/// can be rejected. Keep it below `JWKS_CACHE_TTL`.
+const JWKS_REFRESH_COOLDOWN: Duration = Duration::from_secs(10);
+const _: () = assert!(JWKS_REFRESH_COOLDOWN.as_secs() < JWKS_CACHE_TTL.as_secs());
 
 struct JwksCache {
     algorithms: HashMap<String, Arc<Algorithm>>,
     refreshed_at: Option<Instant>,
+    last_attempt: Option<RefreshAttempt>,
+}
+
+#[derive(Clone, Copy)]
+enum RefreshAttempt {
+    Succeeded(Instant),
+    Failed(Instant),
+}
+
+impl RefreshAttempt {
+    fn finished_at(self) -> Instant {
+        match self {
+            Self::Succeeded(at) | Self::Failed(at) => at,
+        }
+    }
+}
+
+impl JwksCache {
+    fn empty() -> Self {
+        Self {
+            algorithms: HashMap::new(),
+            refreshed_at: None,
+            last_attempt: None,
+        }
+    }
+
+    fn refresh_due(&self, kid: &str) -> bool {
+        let fresh_key = self.algorithms.contains_key(kid)
+            && self
+                .refreshed_at
+                .is_some_and(|refreshed_at| refreshed_at.elapsed() < JWKS_CACHE_TTL);
+        let cooling_down = self
+            .last_attempt
+            .is_some_and(|attempt| attempt.finished_at().elapsed() < JWKS_REFRESH_COOLDOWN);
+        !fresh_key && !cooling_down
+    }
+
+    /// Answers from the cache without fetching. A cached key is returned even when expired,
+    /// which only happens after a failed refresh, so known keys survive provider outages.
+    fn algorithm(&self, kid: &str) -> Result<Arc<Algorithm>, AuthError> {
+        if let Some(algorithm) = self.algorithms.get(kid) {
+            return Ok(Arc::clone(algorithm));
+        }
+        match self.last_attempt {
+            Some(RefreshAttempt::Succeeded(_)) => Err(AuthError::JwksKeyNotFound),
+            Some(RefreshAttempt::Failed(_)) | None => Err(AuthError::TemporarilyUnavailable),
+        }
+    }
+
+    fn record_refresh(&mut self, algorithms: HashMap<String, Arc<Algorithm>>) {
+        let now = Instant::now();
+        self.algorithms = algorithms;
+        self.refreshed_at = Some(now);
+        self.last_attempt = Some(RefreshAttempt::Succeeded(now));
+    }
+
+    fn record_failed_refresh(&mut self) {
+        self.last_attempt = Some(RefreshAttempt::Failed(Instant::now()));
+    }
 }
 
 pub struct CognitoJwtAuthenticator<P, R> {
@@ -113,10 +178,7 @@ impl<P, R> CognitoJwtAuthenticator<P, R> {
             provider,
             resolve_user,
             verifier,
-            jwks_cache: Arc::new(RwLock::new(JwksCache {
-                algorithms: HashMap::new(),
-                refreshed_at: None,
-            })),
+            jwks_cache: Arc::new(RwLock::new(JwksCache::empty())),
             refresh_lock: Mutex::new(()),
         })
     }
@@ -129,58 +191,43 @@ where
     async fn algorithm_for_token(&self, token: &str) -> Result<Arc<Algorithm>, AuthError> {
         let header = raw::decode_header_only(token).map_err(|_| AuthError::MalformedCredentials)?;
         let kid = claim_string(&header, "kid")?;
-        let (cached_algorithm, observed_refresh) = self.cached_algorithm(kid)?;
-
-        if cached_algorithm.is_some() && self.is_cache_fresh(observed_refresh) {
-            return cached_algorithm.ok_or(AuthError::JwksKeyNotFound);
-        }
-
-        let _refresh_guard = self.refresh_lock.lock().await;
-        let (refreshed_algorithm, refreshed_at) = self.cached_algorithm(kid)?;
-        if refreshed_at > observed_refresh {
-            return refreshed_algorithm.ok_or(AuthError::JwksKeyNotFound);
-        }
-
-        match self.refresh_jwks().await {
-            Ok(()) => self
-                .cached_algorithm(kid)?
-                .0
-                .ok_or(AuthError::JwksKeyNotFound),
-            Err(_) if cached_algorithm.is_some() => {
-                cached_algorithm.ok_or(AuthError::JwksKeyNotFound)
+        if self.read_jwks_cache()?.refresh_due(kid) {
+            let _refresh_guard = self.refresh_lock.lock().await;
+            // Requests queued behind a refresh re-check and share its result.
+            if self.read_jwks_cache()?.refresh_due(kid) {
+                self.refresh_jwks().await?;
             }
-            Err(error) => Err(error),
         }
+        self.read_jwks_cache()?.algorithm(kid)
     }
 
-    fn cached_algorithm(
-        &self,
-        kid: &str,
-    ) -> Result<(Option<Arc<Algorithm>>, Option<Instant>), AuthError> {
-        let cache = self
-            .jwks_cache
+    fn read_jwks_cache(&self) -> Result<RwLockReadGuard<'_, JwksCache>, AuthError> {
+        self.jwks_cache
             .read()
-            .map_err(|error| AuthError::Internal(error.to_string()))?;
-        Ok((cache.algorithms.get(kid).cloned(), cache.refreshed_at))
-    }
-
-    fn is_cache_fresh(&self, refreshed_at: Option<Instant>) -> bool {
-        refreshed_at.is_some_and(|refreshed_at| refreshed_at.elapsed() < JWKS_CACHE_TTL)
+            .map_err(|error| AuthError::Internal(error.to_string()))
     }
 
     async fn refresh_jwks(&self) -> Result<(), AuthError> {
-        let jwks = self
+        let refreshed = self
             .provider
             .fetch_jwks(&self.config.jwks_url)
             .await
-            .map_err(|_| AuthError::TemporarilyUnavailable)?;
-        let algorithms = verifier_algorithms(jwks)?;
+            .and_then(verifier_algorithms);
         let mut cache = self
             .jwks_cache
             .write()
             .map_err(|error| AuthError::Internal(error.to_string()))?;
-        cache.algorithms = algorithms;
-        cache.refreshed_at = Some(Instant::now());
+        match refreshed {
+            Ok(algorithms) => cache.record_refresh(algorithms),
+            Err(error) => {
+                tracing::warn!(
+                    event = "cognito_jwks.refresh_failed",
+                    error = %error,
+                    "Cognito JWKS refresh failed"
+                );
+                cache.record_failed_refresh();
+            }
+        }
         Ok(())
     }
 }
@@ -238,7 +285,7 @@ fn verifier_algorithms(jwks: JsonWebKeySet) -> Result<HashMap<String, Arc<Algori
         .map(|key| {
             let mut algorithm =
                 Algorithm::new_rsa_n_e_b64_verifier(AlgorithmID::RS256, &key.n, &key.e)
-                    .map_err(|error| AuthError::Internal(error.to_string()))?;
+                    .map_err(|error| AuthError::JwksFetch(error.to_string()))?;
             algorithm.set_kid(&key.kid);
             Ok((key.kid, Arc::new(algorithm)))
         })
@@ -359,12 +406,20 @@ mod tests {
         release: Arc<Notify>,
     }
 
+    /// Blocks the first fetch until released. Later fetches return at once, so a refresh that
+    /// is not shared shows up as an extra call instead of a hang.
     #[async_trait::async_trait]
     impl JwksProvider for BlockingJwksProvider {
         async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
-            lock(&self.calls).push(jwks_url.to_owned());
-            self.entered.notify_one();
-            self.release.notified().await;
+            let first_fetch = {
+                let mut calls = lock(&self.calls);
+                calls.push(jwks_url.to_owned());
+                calls.len() == 1
+            };
+            if first_fetch {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
             Ok(self.jwks.clone())
         }
     }
@@ -558,6 +613,14 @@ mod tests {
         let algorithm = Algorithm::new_rsa_pem_signer(AlgorithmID::RS256, &key.private_pem)?;
         let header = json!({ "alg": algorithm.name(), "kid": key.kid });
         Ok(jwt::encode(&header, &claims, &algorithm)?)
+    }
+
+    /// A JWT-shaped bearer naming `kid` without a valid signature, as an unauthenticated
+    /// caller can send.
+    fn forged_token(kid: &str) -> String {
+        let header = URL_SAFE_NO_PAD.encode(json!({ "alg": "RS256", "kid": kid }).to_string());
+        let claims = URL_SAFE_NO_PAD.encode(b"{}");
+        format!("{header}.{claims}.c2lnbmF0dXJl")
     }
 
     fn jwt_claims(subject: &str, exp_delta_seconds: i64, client_id: Value) -> Value {
@@ -791,8 +854,13 @@ mod tests {
         let _ = authenticator.authenticate(&token, &metadata()).await?;
         tokio::time::advance(JWKS_CACHE_TTL).await;
         let principal = authenticator.authenticate(&token, &metadata()).await?;
+        let principal_within_cooldown = authenticator.authenticate(&token, &metadata()).await?;
 
         assert!(matches!(principal, TransportPrincipal::User { .. }));
+        assert!(matches!(
+            principal_within_cooldown,
+            TransportPrincipal::User { .. }
+        ));
         assert_eq!(2, lock(&calls).len());
         Ok(())
     }
@@ -817,6 +885,148 @@ mod tests {
                 .all(|result| matches!(result, Ok(TransportPrincipal::User { .. })))
         );
         assert_eq!(1, fetches);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_refresh_jwks_once_for_concurrent_kids_missing_from_jwks()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let tokens = (0..5)
+            .map(|index| forged_token(&format!("unknown-{index}")))
+            .collect();
+
+        let (results, fetches) =
+            authenticate_while_first_refresh_blocks(JsonWebKeySet { keys: Vec::new() }, tokens)
+                .await?;
+
+        assert!(
+            results
+                .iter()
+                .all(|result| matches!(result, Err(AuthError::JwksKeyNotFound)))
+        );
+        assert_eq!(1, fetches);
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_fetch_jwks_once_per_cooldown_for_sequential_unknown_kids()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let key = test_key("kid-1")?;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let authenticator = authenticator(vec![jwk(&key)], calls.clone())?;
+        let token = signed_jwt(&key, jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1")))?;
+        let _ = authenticator.authenticate(&token, &metadata()).await?;
+        tokio::time::advance(JWKS_REFRESH_COOLDOWN).await;
+
+        for kid in ["unknown-1", "unknown-1", "unknown-2", "unknown-3"] {
+            let result = authenticator
+                .authenticate(&forged_token(kid), &metadata())
+                .await;
+            assert!(matches!(result, Err(AuthError::JwksKeyNotFound)));
+        }
+        assert_eq!(2, lock(&calls).len());
+
+        tokio::time::advance(JWKS_REFRESH_COOLDOWN).await;
+        let result = authenticator
+            .authenticate(&forged_token("unknown-4"), &metadata())
+            .await;
+        let known_key_principal = authenticator.authenticate(&token, &metadata()).await?;
+
+        assert!(matches!(result, Err(AuthError::JwksKeyNotFound)));
+        assert!(matches!(
+            known_key_principal,
+            TransportPrincipal::User { .. }
+        ));
+        assert_eq!(3, lock(&calls).len());
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_fetch_jwks_once_per_cooldown_when_refresh_fails() -> Result<(), AuthError> {
+        let invalid_key_material = JsonWebKeySet {
+            keys: vec![JsonWebKey {
+                kid: "kid-1".to_owned(),
+                alg: Some("RS256".to_owned()),
+                n: "!".to_owned(),
+                e: "AQAB".to_owned(),
+            }],
+        };
+        for provider_result in [Err(FakeJwksError::Fetch), Ok(invalid_key_material)] {
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let authenticator = authenticator_with_provider_result(provider_result, calls.clone())?;
+
+            for _ in 0..3 {
+                let result = authenticator
+                    .authenticate(&forged_token("kid-1"), &metadata())
+                    .await;
+                assert!(matches!(result, Err(AuthError::TemporarilyUnavailable)));
+            }
+            assert_eq!(1, lock(&calls).len());
+
+            tokio::time::advance(JWKS_REFRESH_COOLDOWN).await;
+            let result = authenticator
+                .authenticate(&forged_token("kid-1"), &metadata())
+                .await;
+
+            assert!(matches!(result, Err(AuthError::TemporarilyUnavailable)));
+            assert_eq!(2, lock(&calls).len());
+        }
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_follow_signing_key_rotation_within_refresh_window()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let retiring_key = test_key("kid-1")?;
+        let rotated_key = test_key("kid-2")?;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let authenticator = authenticator_with_jwks_provider(SequencedJwksProvider {
+            results: Arc::new(Mutex::new(vec![
+                Ok(JsonWebKeySet {
+                    keys: vec![jwk(&retiring_key)],
+                }),
+                Ok(JsonWebKeySet {
+                    keys: vec![jwk(&retiring_key), jwk(&rotated_key)],
+                }),
+                Ok(JsonWebKeySet {
+                    keys: vec![jwk(&rotated_key)],
+                }),
+            ])),
+            calls: calls.clone(),
+        })?;
+        let claims = jwt_claims(OPAQUE_SUBJECT, 3_600, json!("audience-1"));
+        let retiring_token = signed_jwt(&retiring_key, claims.clone())?;
+        let rotated_token = signed_jwt(&rotated_key, claims)?;
+
+        let _ = authenticator
+            .authenticate(&retiring_token, &metadata())
+            .await?;
+        let rotated_within_cooldown = authenticator
+            .authenticate(&rotated_token, &metadata())
+            .await;
+        assert!(matches!(
+            rotated_within_cooldown,
+            Err(AuthError::JwksKeyNotFound)
+        ));
+        assert_eq!(1, lock(&calls).len());
+
+        tokio::time::advance(JWKS_REFRESH_COOLDOWN).await;
+        let rotated = authenticator
+            .authenticate(&rotated_token, &metadata())
+            .await?;
+        let retiring = authenticator
+            .authenticate(&retiring_token, &metadata())
+            .await?;
+        assert!(matches!(rotated, TransportPrincipal::User { .. }));
+        assert!(matches!(retiring, TransportPrincipal::User { .. }));
+        assert_eq!(2, lock(&calls).len());
+
+        tokio::time::advance(JWKS_CACHE_TTL).await;
+        let retired = authenticator
+            .authenticate(&retiring_token, &metadata())
+            .await;
+        assert!(matches!(retired, Err(AuthError::JwksKeyNotFound)));
+        assert_eq!(3, lock(&calls).len());
         Ok(())
     }
 

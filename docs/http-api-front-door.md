@@ -29,8 +29,15 @@ Signed integer `auth_time` and `iat` claims are required. `auth_time` must be no
 and no later than `iat`; `iat` cannot lead the API clock by more than 60 seconds.
 A session authenticated at or before its stored cutoff is rejected. Token refresh
 preserves `auth_time`, so it cannot restore a revoked session. Cutoffs are never cached.
-Ordinary requests make no live Cognito status call; signing keys retain their existing
-bounded refresh behavior. No additional Cognito scope is required.
+Ordinary requests make no live Cognito status call. No additional Cognito scope is required.
+
+Each API instance caches Cognito signing keys for five minutes. Any JWKS fetch,
+successful or failed, starts a ten-second cooldown in which unknown key IDs are rejected
+and expired keys are served without fetching, so neither forged key IDs nor provider
+failures cause more than one fetch per cooldown; concurrent misses share one fetch.
+A key Cognito publishes is therefore accepted within one cooldown. While refreshes fail,
+previously fetched keys stay usable; a successful refresh that omits a key stops accepting
+it. Fetch and key-material failures fail closed with `503` for keys not already cached.
 
 Administrator session revocation commits a local cutoff before Cognito global sign-out,
 then advances it again after the provider call returns, including when the provider

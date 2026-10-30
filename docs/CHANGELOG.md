@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-10-30 — Bounded Cognito signing-key refresh (#2621)
+
+- A Cognito bearer naming a signing key the API has not cached no longer causes a JWKS fetch on every request. Each API instance fetches at most once per ten seconds, whether the previous fetch succeeded or failed; such bearers are still rejected with `401`, or `503` while Cognito's JWKS is unavailable. A newly published Cognito key is accepted within ten seconds. Malformed key material in Cognito's JWKS now yields `503` like an unreachable JWKS instead of `500`. See the [front-door contract](http-api-front-door.md#route-and-authentication-boundary).
+
 ## 2026-10-29 — WooCommerce deletion of backfilled products (#2606)
 
 - `product.deleted`, and `product.created`/`product.updated` with status `trash`, `draft`, `pending` or `private`, now withdraw the listing whose `sourceListingId` is the WooCommerce product `id`, even when it was so far only created or changed through the partner API, such as by the extension's catalogue backfill. Previously such a deletion was acknowledged with `204` but had no effect; only a deletion after an applied live product webhook withdrew the listing. Listings left `ACTIVE` by earlier deletions are not repaired; withdraw them through the partner API. Signed-request and `204` admission semantics are unchanged.
