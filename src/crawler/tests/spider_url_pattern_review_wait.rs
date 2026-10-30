@@ -12,7 +12,9 @@ use crawler::spider::classification::url_pattern_service::{
 use crawler::spider::discovery::website_spider::{
     CrawlCompletion, CrawlDiagnostics, CrawledPage, MockSpider, SpiderCrawl,
 };
-use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
+use crawler::spider::service::{
+    SpiderRunResult, SpiderService, SpiderServiceConfig, SpiderServiceError, SpiderServiceImpl,
+};
 use crawler::spider::utils::url::CrawledUrl;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
@@ -23,39 +25,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use test_api::*;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 const DOMAIN: &str = "mid-crawl.example.com";
 /// Pages crawled before the spider classifies, enough for the inference sample.
 const THRESHOLD: usize = 20;
-/// Pages crawled after the operator approved the review.
-const PAGES_AFTER_APPROVAL: usize = 7;
-
-async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId) {
-    sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled) \
-         VALUES ($1, 'Mid-crawl source', 'mid-crawl-source', TRUE)",
-    )
-    .bind(listing_source_id.as_uuid())
-    .execute(pool)
-    .await
-    .unwrap();
-}
-
-async fn insert_domain(pool: &PgPool, listing_source_id: ListingSourceId) -> CrawlerDomainId {
-    let domain_id = CrawlerDomainId::new();
-    sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, $3, $3)",
-    )
-    .bind(domain_id.as_uuid())
-    .bind(listing_source_id.as_uuid())
-    .bind(DOMAIN)
-    .execute(pool)
-    .await
-    .unwrap();
-    domain_id
-}
+/// Pages crawled after the operator decided the review.
+const PAGES_AFTER_DECISION: usize = 7;
 
 /// A crawl whose pages the test delivers through the returned sender; dropping it ends the
 /// crawl as completed.
@@ -111,18 +88,120 @@ where
     .unwrap_or_else(|_| panic!("timed out waiting for {what}"))
 }
 
-async fn stored_url_classes(pool: &PgPool, domain_id: CrawlerDomainId) -> Vec<(String, String)> {
-    sqlx::query_as(
-        "SELECT url, url_class FROM listing_source_urls WHERE domain_id = $1 ORDER BY url",
-    )
-    .bind(domain_id.as_uuid())
-    .fetch_all(pool)
-    .await
-    .unwrap()
+/// A ListingSource with one domain whose URL pattern an operator writes (`manual` authoring),
+/// with the crawler's PostgreSQL repositories behind the spider service.
+struct ManualCrawlFixture {
+    pool: PgPool,
+    listing_source_id: ListingSourceId,
+    domain_id: CrawlerDomainId,
+    review_repository: CrawlerReviewRepository,
 }
 
-/// Writes `pattern` as the review's decision and approves it, as an operator does in the console.
-async fn approve_pattern(
+impl ManualCrawlFixture {
+    async fn new() -> Self {
+        let pool = get_postgres_client().await;
+        let listing_source_id = ListingSourceId::new();
+        sqlx::query(
+            "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled) \
+             VALUES ($1, 'Mid-crawl source', 'mid-crawl-source', TRUE)",
+        )
+        .bind(listing_source_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let domain_id = CrawlerDomainId::new();
+        sqlx::query(
+            "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+             VALUES ($1, $2, $3, $3)",
+        )
+        .bind(domain_id.as_uuid())
+        .bind(listing_source_id.as_uuid())
+        .bind(DOMAIN)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let review_repository = CrawlerReviewRepository::new(pool.clone());
+        Self {
+            pool,
+            listing_source_id,
+            domain_id,
+            review_repository,
+        }
+    }
+
+    /// Starts a crawl of the domain whose pages the test delivers through the returned sender;
+    /// dropping the sender ends the crawl as completed.
+    fn start_crawl(
+        &self,
+    ) -> (
+        mpsc::Sender<CrawledPage>,
+        JoinHandle<Result<SpiderRunResult, SpiderServiceError>>,
+    ) {
+        let (pages, spider) = crawl_fed_by_the_test();
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig {
+                db_batch_size: 5,
+                ..SpiderServiceConfig::default()
+            },
+            Box::new(spider),
+            Box::new(UrlPatternServiceImpl::new(
+                Arc::new(ListingSourceUrlPatternRepositoryImpl::new(
+                    self.pool.clone(),
+                )),
+                UrlPatternAuthoring::Manual {
+                    review_repository: self.review_repository.clone(),
+                },
+            )),
+            Arc::new(UrlMetadataRepositoryImpl::new(self.pool.clone())),
+        );
+        let (listing_source_id, domain_id) = (self.listing_source_id, self.domain_id);
+        let crawl = tokio::spawn(async move {
+            service
+                .run(
+                    &listing_source_id,
+                    &domain_id,
+                    &format!("https://{DOMAIN}"),
+                    THRESHOLD,
+                )
+                .await
+        });
+        (pages, crawl)
+    }
+
+    /// Delivers the crawl's pages up to its threshold and returns the manual URL-pattern review
+    /// the crawl waits on, once the crawl has stored those pages.
+    async fn crawl_until_the_review_waits(
+        &self,
+        pages: &mpsc::Sender<CrawledPage>,
+    ) -> CrawlerReviewId {
+        send_pages(pages, 0..THRESHOLD).await;
+        let review_id = eventually("the manual URL-pattern review", || async {
+            self.review_repository
+                .latest_pending_url_pattern_review_id(&self.listing_source_id, &self.domain_id)
+                .await
+                .unwrap()
+        })
+        .await;
+        eventually("the URLs crawled before the decision", || async {
+            (self.stored_url_classes().await.len() == THRESHOLD).then_some(())
+        })
+        .await;
+        review_id
+    }
+
+    async fn stored_url_classes(&self) -> Vec<(String, String)> {
+        sqlx::query_as(
+            "SELECT url, url_class FROM listing_source_urls WHERE domain_id = $1 ORDER BY url",
+        )
+        .bind(self.domain_id.as_uuid())
+        .fetch_all(&self.pool)
+        .await
+        .unwrap()
+    }
+}
+
+/// Writes `pattern` as the review's decision, as an operator does in the console.
+async fn stage_pattern(
     repository: &CrawlerReviewRepository,
     review_id: CrawlerReviewId,
     pattern: &str,
@@ -142,6 +221,10 @@ async fn approve_pattern(
         )
         .await
         .unwrap();
+}
+
+/// Approves the review's current candidate, as an operator does in the console.
+async fn approve_candidate(repository: &CrawlerReviewRepository, review_id: CrawlerReviewId) {
     repository
         .approve_review(
             review_id,
@@ -162,58 +245,20 @@ async fn approve_pattern(
 /// the crawl completes instead of waiting on the review.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_classify_urls_and_complete_when_url_pattern_review_is_approved_during_the_crawl() {
-    let pool = get_postgres_client().await;
-    let listing_source_id = ListingSourceId::new();
-    insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id).await;
-    let review_repository = CrawlerReviewRepository::new(pool.clone());
-    let (pages, spider) = crawl_fed_by_the_test();
-    let service = SpiderServiceImpl::new(
-        SpiderServiceConfig {
-            db_batch_size: 5,
-            ..SpiderServiceConfig::default()
-        },
-        Box::new(spider),
-        Box::new(UrlPatternServiceImpl::new(
-            Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone())),
-            UrlPatternAuthoring::Manual {
-                review_repository: review_repository.clone(),
-            },
-        )),
-        Arc::new(UrlMetadataRepositoryImpl::new(pool.clone())),
-    );
-    let crawl = tokio::spawn(async move {
-        service
-            .run(
-                &listing_source_id,
-                &domain_id,
-                &format!("https://{DOMAIN}"),
-                THRESHOLD,
-            )
-            .await
-    });
+    let fixture = ManualCrawlFixture::new().await;
+    let (pages, crawl) = fixture.start_crawl();
 
-    send_pages(&pages, 0..THRESHOLD).await;
-    let review_id = eventually("the manual URL-pattern review", || async {
-        review_repository
-            .latest_pending_url_pattern_review_id(&listing_source_id, &domain_id)
-            .await
-            .unwrap()
-    })
-    .await;
-    eventually("the URLs crawled before the approval", || async {
-        (stored_url_classes(&pool, domain_id).await.len() == THRESHOLD).then_some(())
-    })
-    .await;
-    approve_pattern(&review_repository, review_id, "/item/").await;
-    send_pages(&pages, THRESHOLD..THRESHOLD + PAGES_AFTER_APPROVAL).await;
+    let review_id = fixture.crawl_until_the_review_waits(&pages).await;
+    stage_pattern(&fixture.review_repository, review_id, "/item/").await;
+    approve_candidate(&fixture.review_repository, review_id).await;
+    send_pages(&pages, THRESHOLD..THRESHOLD + PAGES_AFTER_DECISION).await;
     drop(pages);
     let run = crawl
         .await
         .unwrap()
         .unwrap_or_else(|error| panic!("crawl: {error}"));
 
-    let crawled = THRESHOLD + PAGES_AFTER_APPROVAL;
+    let crawled = THRESHOLD + PAGES_AFTER_DECISION;
     let item_pages = crawled.div_ceil(2);
     assert_eq!(
         run.pending_url_pattern_review, None,
@@ -222,7 +267,7 @@ async fn should_classify_urls_and_complete_when_url_pattern_review_is_approved_d
     assert_eq!(run.completion, CrawlCompletion::Completed);
     assert_eq!(run.product_pattern.as_deref(), Some("/item/"));
     assert_eq!(run.product_urls_count, item_pages);
-    let stored = stored_url_classes(&pool, domain_id).await;
+    let stored = fixture.stored_url_classes().await;
     assert_eq!(stored.len(), crawled);
     let misclassified: Vec<_> = stored
         .iter()
