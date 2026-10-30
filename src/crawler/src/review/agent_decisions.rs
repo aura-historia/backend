@@ -107,13 +107,23 @@ impl AgentDecisionPolicy {
         &self.limits
     }
 
+    /// The agents' needs-repair rounds at which a pending review waits for a human: the
+    /// `max_repair_rounds` limit where the review agents work the reviews, and `None` elsewhere,
+    /// where no review ever waits for a human. A query that selects reviews by it binds this value.
+    pub fn repair_rounds_cap(&self) -> Option<NonZeroU32> {
+        self.authoring
+            .has_review_agents()
+            .then_some(self.limits.max_repair_rounds)
+    }
+
     /// Whether a review in `status` that the agents gave `agent_rounds` needs-repair verdicts
-    /// since a human last changed or judged it waits for a human: the review agents work the
-    /// reviews, it is pending and their back-and-forth on it reached the cap.
+    /// since a human last changed or judged it waits for a human: it is pending and their
+    /// back-and-forth on it reached the [repair-round cap](Self::repair_rounds_cap).
     pub fn waits_for_human(&self, status: &str, agent_rounds: u32) -> bool {
-        self.authoring.has_review_agents()
-            && status == STATUS_PENDING_REVIEW
-            && agent_rounds >= self.limits.max_repair_rounds.get()
+        status == STATUS_PENDING_REVIEW
+            && self
+                .repair_rounds_cap()
+                .is_some_and(|cap| agent_rounds >= cap.get())
     }
 }
 
@@ -302,5 +312,10 @@ mod tests {
             );
         }
         assert!(!AgentDecisionPolicy::default().waits_for_human(STATUS_PENDING_REVIEW, 3));
+        assert_eq!(AgentDecisionPolicy::default().repair_rounds_cap(), None);
+        assert_eq!(
+            capped_at_three(CrawlerAuthoringMode::Agent).repair_rounds_cap(),
+            NonZeroU32::new(3)
+        );
     }
 }
