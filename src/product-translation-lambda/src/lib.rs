@@ -1,9 +1,12 @@
+use application::error::find_source;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
 use large_language_model::{AnthropicClaude, LargeLanguageModel, LargeLanguageModelError};
-use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE};
+use platform_lambda_bootstrap::{
+    Dependency, FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE,
+};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
@@ -232,28 +235,16 @@ fn translation_error_disposition(
 /// Classifies by the provider error when one is in the chain. Otherwise the translator adapter
 /// rejected the provider response itself, which its port variant still names.
 fn translation_failure(error: &TranslateProductListingEventError) -> FailureDiagnostic {
-    let chain = || {
-        std::iter::successors(Some(error as &(dyn std::error::Error + 'static)), |error| {
-            (*error).source()
-        })
-    };
-    let category = chain()
-        .find_map(|error| error.downcast_ref::<LargeLanguageModelError>())
+    let category = find_source::<LargeLanguageModelError>(error)
         .map(LargeLanguageModelError::diagnostic_category)
         .or_else(|| {
-            chain()
-                .find_map(|error| error.downcast_ref::<ProductListingTitleTranslationError>())
-                .map(|error| match error {
-                    ProductListingTitleTranslationError::TemporarilyUnavailable { .. } => {
-                        "unavailable"
-                    }
-                    ProductListingTitleTranslationError::InvalidResponse { .. } => {
-                        "response_invalid"
-                    }
-                })
+            find_source::<ProductListingTitleTranslationError>(error).map(|error| match error {
+                ProductListingTitleTranslationError::TemporarilyUnavailable { .. } => "unavailable",
+                ProductListingTitleTranslationError::InvalidResponse { .. } => "response_invalid",
+            })
         })
         .unwrap_or(UNCLASSIFIED_FAILURE);
-    FailureDiagnostic::new("translation", "anthropic", category, None)
+    FailureDiagnostic::new("translation", Dependency::Anthropic, category, None)
 }
 
 pub fn translation_disposition(

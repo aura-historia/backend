@@ -1,4 +1,5 @@
 use crate::response::{OpenSearchResponseReadError, OpenSearchStatusError};
+use application::error::error_chain;
 use opensearch::http::StatusCode;
 use std::error::Error;
 
@@ -16,7 +17,7 @@ impl OpenSearchFailure {
     /// Returns `None` when the chain holds no OpenSearch client or response error, for example
     /// when an adapter rejected its own document before sending it.
     pub fn find(error: &(dyn Error + 'static)) -> Option<Self> {
-        std::iter::successors(Some(error), |error| (*error).source()).find_map(Self::classify)
+        error_chain(error).find_map(Self::classify)
     }
 
     pub fn kind(&self) -> &'static str {

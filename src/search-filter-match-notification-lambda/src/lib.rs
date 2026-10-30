@@ -1,3 +1,4 @@
+use application::error::FailureKind;
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
@@ -191,26 +192,14 @@ pub async fn execute_job(
 fn notification_error_disposition(
     error: &GenerateSearchFilterMatchNotificationError,
 ) -> SearchFilterMatchNotificationJobDisposition {
-    use GenerateSearchFilterMatchNotificationError as E;
-    use SearchFilterMatchNotificationJobDisposition as D;
-    let stage = match error {
-        E::MatchSourceStateInvalid { .. }
-        | E::ProductListingSourceStateInvalid { .. }
-        | E::ProductListingSourceMismatch
-        | E::ContentAssessmentStateInvalid { .. } => {
-            return D::Poison("match_notification_state_invalid");
+    match error.failure_kind() {
+        FailureKind::InvalidPersistedState => {
+            SearchFilterMatchNotificationJobDisposition::Poison("match_notification_state_invalid")
         }
-        E::BeginTransactionFailed { .. } => "selection_begin",
-        E::MatchSourceReadFailed { .. } => "match_source_read",
-        E::ProductListingSourceReadFailed { .. } => "product_source_read",
-        E::ContentAssessmentReadFailed { .. } => "content_assessment_read",
-        E::UserTierEntitlementsLockFailed { .. } => "tier_entitlements_lock",
-        E::MonthlyMatchQuotaReadFailed { .. } => "monthly_quota_read",
-        E::CommitTransactionFailed { .. } => "selection_commit",
-        E::DigestFinalizationFailed { .. } => "digest_finalization",
-        E::NotificationCreateFailed { .. } => "notification_create",
-    };
-    D::DependencyUnavailable(FailureDiagnostic::postgres(stage, error))
+        kind => SearchFilterMatchNotificationJobDisposition::DependencyUnavailable(
+            FailureDiagnostic::from_kind(error.failure_stage(), kind, None, error),
+        ),
+    }
 }
 pub fn notification_outcome(
     result: GenerateSearchFilterMatchNotificationResult,

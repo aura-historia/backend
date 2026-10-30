@@ -11,10 +11,10 @@ shipping-postgres = ["geo-postgres", "geo-service", "shipping-json", "applicatio
 shipping-core = ["domain-primitives", "geo", "listing-source-core", "money", "party-core"]
 platform-observability = []
 platform-google-adc = []
-platform-lambda-bootstrap = ["google-cloud-auth", "platform-google-adc", "platform-observability", "platform-postgres"]
+platform-lambda-bootstrap = ["application", "google-cloud-auth", "platform-google-adc", "platform-observability", "platform-postgres"]
 platform-lambda-sqs = ["platform-lambda-bootstrap"]
 platform-postgres-secretsmanager = ["platform-postgres"]
-platform-opensearch = []
+platform-opensearch = ["application"]
 platform-postgres = ["application", "domain-primitives"]
 
 geo = []
@@ -34,7 +34,7 @@ product-content-assessment-lambda = ["application", "aura-historia-jobs", "platf
 product-embedding-lambda = ["application", "aura-historia-jobs", "embedding", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "product-listing-service"]
 product-translation-lambda = ["application", "aura-historia-jobs", "large-language-model", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "product-listing-service", "product-listing-translation-llm"]
 
-search-filter-match-notification-lambda = ["aura-historia-jobs", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "search-filter-postgres", "search-filter-service", "user-postgres"]
+search-filter-match-notification-lambda = ["application", "aura-historia-jobs", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "search-filter-postgres", "search-filter-service", "user-postgres"]
 watchlist-notification-lambda = ["aura-historia-jobs", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "product-listing-postgres", "product-listing-service", "watchlist-postgres"]
 notification-delivery-lambda = ["aura-historia-jobs", "notification-core", "notification-email-aws", "notification-postgres", "notification-service", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager"]
 marketing-consent-sync-lambda = ["aura-historia-jobs", "aws_lambda_events", "lambda_runtime", "platform-lambda-bootstrap", "platform-lambda-sqs", "platform-observability", "platform-postgres", "platform-postgres-secretsmanager", "sqlx", "tokio", "tracing", "user-core", "user-loops", "user-postgres", "user-service"]

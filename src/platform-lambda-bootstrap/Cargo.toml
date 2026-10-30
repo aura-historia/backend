@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
 google-cloud-auth = { workspace = true }
 lambda_runtime = { workspace = true }
 platform-google-adc = { workspace = true }

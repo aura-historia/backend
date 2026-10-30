@@ -1,13 +1,13 @@
 use application::operation_context::{OperationContext, Principal};
-use geo_service::resolution::{MaintainResolutionsUseCase, ResolutionError};
+use geo_service::resolution::MaintainResolutionsUseCase;
 use lambda_runtime::Error;
 use oauth_service::ports::ExpiredCredentialCleanupError;
 use oauth_service::use_cases::{
     CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
     ExpiryCleanupBatchSizeError,
 };
-use platform_lambda_bootstrap::FailureDiagnostic;
-use product_listing_service::geography::{GeographyError, ProjectListingGeographyUseCase};
+use platform_lambda_bootstrap::{Dependency, FailureDiagnostic};
+use product_listing_service::geography::ProjectListingGeographyUseCase;
 use product_listing_service::use_cases::{
     RefreshPublicCatalogueOverviewError, RefreshPublicCatalogueOverviewUseCase,
 };
@@ -16,6 +16,8 @@ use std::time::Instant;
 use user_service::use_cases::{CleanupConsentWorkflowError, CleanupConsentWorkflowUseCase};
 
 pub const EXPIRY_CLEANUP_BATCH_SIZE_ENV: &str = "EXPIRY_CLEANUP_BATCH_SIZE";
+/// The geocoding provider the composition wires behind resolution and geography maintenance.
+const GEOCODING_PROVIDER: Option<Dependency> = Some(Dependency::AmazonLocation);
 /// Runs last in the hourly maintenance invocation; the use case recalculates only once the
 /// stored calculation is due, so most runs skip the full aggregate.
 pub async fn run_public_catalogue_overview_refresh(
@@ -66,7 +68,7 @@ fn overview_refresh_failure(error: &RefreshPublicCatalogueOverviewError) -> Fail
         }
         E::RefresherInvalidReadModel { .. } => FailureDiagnostic::new(
             "overview_calculation",
-            "postgres",
+            Dependency::Postgres,
             "invalid_read_model",
             None,
         ),
@@ -82,7 +84,12 @@ pub async fn run_listing_geography_recovery(
     let Err(error) = recovery.execute(None, 100).await else {
         return Ok(());
     };
-    let failure = listing_geography_failure(&error);
+    let failure = FailureDiagnostic::from_kind(
+        error.failure_stage(),
+        error.failure_kind(),
+        GEOCODING_PROVIDER,
+        &error,
+    );
     tracing::warn!(
         event = "backend_cleanup.listing_geography.failed",
         stage = failure.stage(),
@@ -91,25 +98,6 @@ pub async fn run_listing_geography_recovery(
         sqlstate = failure.sqlstate(),
     );
     Err(Error::from(error))
-}
-
-fn listing_geography_failure(error: &GeographyError) -> FailureDiagnostic {
-    match error {
-        GeographyError::Storage(_) => FailureDiagnostic::postgres("geography_projection", error),
-        GeographyError::Transaction(_) => {
-            FailureDiagnostic::postgres("geography_transaction", error)
-        }
-        GeographyError::Resolution(error) => resolution_failure("geography_resolution", error),
-        GeographyError::Superseded => {
-            FailureDiagnostic::rejected("geography_projection", "claim_superseded")
-        }
-        GeographyError::Deferred => {
-            FailureDiagnostic::rejected("geography_projection", "claimed_elsewhere")
-        }
-        GeographyError::InvalidInput => {
-            FailureDiagnostic::rejected("geography_projection", "invalid_input")
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -230,7 +218,12 @@ pub async fn run_cleanup(
             duration_ms = started_at.elapsed().as_millis(),
         ),
         Err(error) => {
-            let failure = resolution_failure("resolution_maintenance", error);
+            let failure = FailureDiagnostic::from_kind(
+                "resolution_maintenance",
+                error.failure_kind(),
+                GEOCODING_PROVIDER,
+                error,
+            );
             tracing::warn!(
                 event = "backend_cleanup.geographic_resolution.completed",
                 outcome = "failure",
@@ -270,27 +263,6 @@ fn consent_cleanup_failure(error: &CleanupConsentWorkflowError) -> FailureDiagno
     }
 }
 
-fn resolution_failure(stage: &'static str, error: &ResolutionError) -> FailureDiagnostic {
-    match error {
-        ResolutionError::Provider(provider) => FailureDiagnostic::new(
-            stage,
-            "amazon_location",
-            provider.kind.diagnostic_category(),
-            None,
-        ),
-        ResolutionError::Storage(_) | ResolutionError::Transaction(_) => {
-            FailureDiagnostic::postgres(stage, error)
-        }
-        ResolutionError::InvalidState(_) => {
-            FailureDiagnostic::new(stage, "postgres", "invalid_persisted_state", None)
-        }
-        ResolutionError::InvalidInput => FailureDiagnostic::rejected(stage, "invalid_input"),
-        ResolutionError::Forbidden => FailureDiagnostic::rejected(stage, "forbidden"),
-        ResolutionError::Conflict => FailureDiagnostic::rejected(stage, "conflict"),
-        ResolutionError::Missing => FailureDiagnostic::rejected(stage, "missing"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,7 +270,7 @@ mod tests {
     use geo_service::resolution::{ResolutionError, ResolutionMaintenanceCounts};
     use oauth_service::ports::ExpiredCredentialCleanupError;
     use oauth_service::use_cases::CleanupCounts;
-    use product_listing_service::geography::GeographyWorkId;
+    use product_listing_service::geography::{GeographyError, GeographyWorkId};
     use product_listing_service::use_cases::{
         PublicCatalogueOverview, PublicCatalogueOverviewRefresh,
         RefreshPublicCatalogueOverviewError,

@@ -6293,6 +6293,7 @@ dependencies = [
 name = "platform-lambda-bootstrap"
 version = "0.1.0"
 dependencies = [
+ "application",
  "google-cloud-auth",
  "lambda_runtime",
  "platform-google-adc",
@@ -6335,6 +6336,7 @@ dependencies = [
 name = "platform-opensearch"
 version = "0.1.0"
 dependencies = [
+ "application",
  "opensearch",
  "serde",
  "serde_json",

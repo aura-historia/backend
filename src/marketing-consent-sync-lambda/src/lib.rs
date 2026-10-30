@@ -1,7 +1,9 @@
 use aura_historia_jobs::{DomainJob, DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE};
+use platform_lambda_bootstrap::{
+    Dependency, FailureDiagnostic, LambdaInvocationBudget, UNCLASSIFIED_FAILURE,
+};
 use platform_lambda_sqs::{
     FailureCustody, FifoDisposition, RecordOutcome, process_fifo_batch, safe_message_id,
 };
@@ -210,14 +212,20 @@ fn sync_failure(error: &SyncMarketingConsentIntentError) -> FailureDiagnostic {
     match error {
         // The service returns this for both PostgreSQL and Loops state reads and drops the cause,
         // so the failed system cannot be named here.
-        E::Persistence => {
-            FailureDiagnostic::new("intent_sync", "unknown", UNCLASSIFIED_FAILURE, None)
-        }
+        E::Persistence => FailureDiagnostic::new(
+            "intent_sync",
+            Dependency::Unknown,
+            UNCLASSIFIED_FAILURE,
+            None,
+        ),
         E::Transaction(_) => FailureDiagnostic::postgres("intent_transaction", error),
         E::ReconciliationExhausted { .. } => FailureDiagnostic::postgres("reconciliation", error),
-        E::InvalidPersistedState => {
-            FailureDiagnostic::new("intent_read", "postgres", "invalid_persisted_state", None)
-        }
+        E::InvalidPersistedState => FailureDiagnostic::new(
+            "intent_read",
+            Dependency::Postgres,
+            "invalid_persisted_state",
+            None,
+        ),
     }
 }
 

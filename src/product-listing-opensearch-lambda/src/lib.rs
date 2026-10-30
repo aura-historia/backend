@@ -3,7 +3,7 @@ use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent};
 use opensearch::OpenSearch;
-use platform_lambda_bootstrap::{FailureDiagnostic, LambdaInvocationBudget};
+use platform_lambda_bootstrap::{Dependency, FailureDiagnostic, LambdaInvocationBudget};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use platform_opensearch::failure::OpenSearchFailure;
 use platform_postgres::SqlxUnitOfWork;
@@ -199,7 +199,7 @@ fn projection_error_disposition(
             category: "sale_snapshot_invalid",
             failure: FailureDiagnostic::new(
                 "sale_snapshot_read",
-                "postgres",
+                Dependency::Postgres,
                 "invalid_persisted_state",
                 None,
             ),
@@ -226,7 +226,7 @@ fn target_write_failure(error: &ProjectProductListingError) -> FailureDiagnostic
     let failure = OpenSearchFailure::find(error);
     FailureDiagnostic::new(
         "target_write",
-        "opensearch",
+        Dependency::OpenSearch,
         failure.map_or("document_invalid", |failure| failure.kind()),
         failure.and_then(|failure| failure.http_status()),
     )

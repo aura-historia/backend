@@ -1,9 +1,9 @@
 use application::operation_context::{OperationContext, Principal};
 use aura_historia_jobs::{DomainJobPayload, WorkerScope, decode};
 use aws_lambda_events::sqs::{SqsBatchResponse, SqsEvent};
-use geo_service::resolution::{ResolutionError, ResolutionWork, ResolveOutcome, ResolveUseCase};
+use geo_service::resolution::{ResolutionWork, ResolveOutcome, ResolveUseCase};
 use lambda_runtime::{Error, LambdaEvent};
-use platform_lambda_bootstrap::FailureDiagnostic;
+use platform_lambda_bootstrap::{Dependency, FailureDiagnostic};
 use platform_lambda_sqs::{RecordOutcome, process_batch};
 use std::time::Duration;
 
@@ -28,7 +28,12 @@ pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> bool {
     match use_case.execute(&context(), work).await {
         Ok(outcome) => outcome == ResolveOutcome::Complete,
         Err(error) => {
-            let failure = resolution_failure("resolution", &error);
+            let failure = FailureDiagnostic::from_kind(
+                "resolution",
+                error.failure_kind(),
+                Some(Dependency::AmazonLocation),
+                &error,
+            );
             tracing::warn!(
                 event = "geo_resolution.work_failed",
                 resolution_id = %job.resolution_id,
@@ -42,27 +47,6 @@ pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> bool {
     }
 }
 
-/// Keeps the failed stage and safe cause facts; the error chain itself is never logged.
-fn resolution_failure(stage: &'static str, error: &ResolutionError) -> FailureDiagnostic {
-    match error {
-        ResolutionError::Provider(provider) => FailureDiagnostic::new(
-            stage,
-            "amazon_location",
-            provider.kind.diagnostic_category(),
-            None,
-        ),
-        ResolutionError::Storage(_) | ResolutionError::Transaction(_) => {
-            FailureDiagnostic::postgres(stage, error)
-        }
-        ResolutionError::InvalidState(_) => {
-            FailureDiagnostic::new(stage, "postgres", "invalid_persisted_state", None)
-        }
-        ResolutionError::InvalidInput => FailureDiagnostic::rejected(stage, "invalid_input"),
-        ResolutionError::Forbidden => FailureDiagnostic::rejected(stage, "forbidden"),
-        ResolutionError::Conflict => FailureDiagnostic::rejected(stage, "conflict"),
-        ResolutionError::Missing => FailureDiagnostic::rejected(stage, "missing"),
-    }
-}
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
     use_case: &dyn ResolveUseCase,

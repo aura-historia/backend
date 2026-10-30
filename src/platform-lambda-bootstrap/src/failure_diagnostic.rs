@@ -1,8 +1,41 @@
+use application::error::FailureKind;
 use platform_postgres::{PostgresFailure, SqlState};
 use std::error::Error;
 
 /// The category recorded when no adapter-specific classification recognizes the cause.
 pub const UNCLASSIFIED_FAILURE: &str = "unclassified";
+
+/// The category recorded when authoritative state violates its invariants: data to repair, not
+/// an outage.
+pub const INVALID_PERSISTED_STATE: &str = "invalid_persisted_state";
+
+/// The closed vocabulary of systems a worker boundary names as the cause of a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dependency {
+    Postgres,
+    OpenSearch,
+    AmazonLocation,
+    VertexAi,
+    Anthropic,
+    NotificationChannel,
+    /// The service did not say which system failed.
+    Unknown,
+}
+
+impl Dependency {
+    /// The label recorded in the `dependency` log field.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Postgres => "postgres",
+            Self::OpenSearch => "opensearch",
+            Self::AmazonLocation => "amazon_location",
+            Self::VertexAi => "vertex_ai",
+            Self::Anthropic => "anthropic",
+            Self::NotificationChannel => "notification_channel",
+            Self::Unknown => "unknown",
+        }
+    }
+}
 
 /// Safe, bounded facts about a failure, carried to the Lambda boundary that records it once.
 ///
@@ -12,7 +45,7 @@ pub const UNCLASSIFIED_FAILURE: &str = "unclassified";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FailureDiagnostic {
     stage: &'static str,
-    dependency: Option<&'static str>,
+    dependency: Option<Dependency>,
     category: &'static str,
     http_status: Option<u16>,
     sqlstate: Option<SqlState>,
@@ -22,7 +55,7 @@ impl FailureDiagnostic {
     /// Classifies a non-PostgreSQL dependency whose adapter supplied the category and status.
     pub const fn new(
         stage: &'static str,
-        dependency: &'static str,
+        dependency: Dependency,
         category: &'static str,
         http_status: Option<u16>,
     ) -> Self {
@@ -51,10 +84,34 @@ impl FailureDiagnostic {
         let failure = PostgresFailure::find(error);
         Self {
             stage,
-            dependency: Some("postgres"),
+            dependency: Some(Dependency::Postgres),
             category: failure.map_or(UNCLASSIFIED_FAILURE, |failure| failure.kind()),
             http_status: None,
             sqlstate: failure.and_then(|failure| failure.sqlstate()),
+        }
+    }
+
+    /// Classifies a failure from the kind its use-case error states. `provider` names the system
+    /// the composition wired behind the use case's provider port; the authoritative store is
+    /// PostgreSQL.
+    pub fn from_kind(
+        stage: &'static str,
+        kind: FailureKind,
+        provider: Option<Dependency>,
+        error: &(dyn Error + 'static),
+    ) -> Self {
+        match kind {
+            FailureKind::Storage => Self::postgres(stage, error),
+            FailureKind::InvalidPersistedState => {
+                Self::new(stage, Dependency::Postgres, INVALID_PERSISTED_STATE, None)
+            }
+            FailureKind::Provider(category) => Self::new(
+                stage,
+                provider.unwrap_or(Dependency::Unknown),
+                category,
+                None,
+            ),
+            FailureKind::Rejected(category) => Self::rejected(stage, category),
         }
     }
 
@@ -63,7 +120,7 @@ impl FailureDiagnostic {
     }
 
     pub fn dependency(&self) -> Option<&'static str> {
-        self.dependency
+        self.dependency.map(Dependency::as_str)
     }
 
     pub fn category(&self) -> &'static str {
@@ -106,6 +163,36 @@ mod tests {
         let failure = FailureDiagnostic::postgres("source_read", &error);
 
         assert_eq!(UNCLASSIFIED_FAILURE, failure.category());
+    }
+
+    #[test]
+    fn should_name_the_wired_provider_only_for_a_provider_failure() {
+        let error = std::io::Error::other("provider body");
+
+        let provider = FailureDiagnostic::from_kind(
+            "resolution",
+            FailureKind::Provider("throttled"),
+            Some(Dependency::AmazonLocation),
+            &error,
+        );
+        let storage = FailureDiagnostic::from_kind(
+            "resolution",
+            FailureKind::Storage,
+            Some(Dependency::AmazonLocation),
+            &BeginFailed(sqlx::Error::PoolTimedOut),
+        );
+        let unnamed = FailureDiagnostic::from_kind(
+            "resolution",
+            FailureKind::Provider("throttled"),
+            None,
+            &error,
+        );
+
+        assert_eq!(Some("amazon_location"), provider.dependency());
+        assert_eq!("throttled", provider.category());
+        assert_eq!(Some("postgres"), storage.dependency());
+        assert_eq!("pool_timed_out", storage.category());
+        assert_eq!(Some("unknown"), unnamed.dependency());
     }
 
     #[test]
