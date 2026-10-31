@@ -1,12 +1,12 @@
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
-    DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, RedirectUrlMove,
-    SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCompletion, ScraperCandidateService,
-    ScraperCandidateServiceImpl,
+    DomainAwaitingReview, DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest,
+    RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCompletion,
+    ScraperCandidateService, ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
-    SpiderCandidateService, SpiderCandidateServiceImpl,
+    SpiderCandidateService, SpiderCandidateServiceImpl, UrlPatternReviewWaitWrite,
 };
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -528,6 +528,25 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
     assert_eq!(error_kind.as_deref(), Some("RateLimited"));
 }
 
+async fn insert_pending_url_pattern_review(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    domain_id: CrawlerDomainId,
+) -> CrawlerReviewId {
+    let review_id = CrawlerReviewId::new();
+    sqlx::query(
+        "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload) \
+         VALUES ($1, $2, $3, 'URL_PATTERN', 'PENDING_REVIEW', 'manual_url_pattern_required', '{}'::jsonb)",
+    )
+    .bind(review_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
+    .bind(domain_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    review_id
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state_and_defer() {
     let pool = get_postgres_client().await;
@@ -540,6 +559,7 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
         "spider-review-wait.example.com",
     )
     .await;
+    let review_id = insert_pending_url_pattern_review(&pool, listing_source_id, domain_id).await;
     let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
     service
         .mark_crawl_failure(&domain_id, "RateLimited", 2, past)
@@ -547,11 +567,12 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
         .unwrap();
 
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::days(7);
-    service
-        .mark_crawl_awaiting_url_pattern_review(&domain_id, next_crawl_at)
+    let wait_write = service
+        .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, next_crawl_at)
         .await
         .unwrap();
 
+    assert_eq!(wait_write, UrlPatternReviewWaitWrite::Recorded);
     let (failure_count, error_kind, stored_next, outcome, truncations, last_crawled) =
         crawl_state(&pool, domain_id).await;
     assert_eq!(failure_count, 2, "a review wait is not a failure");
@@ -572,6 +593,47 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
             .any(|c| c.domain_id == domain_id),
         "a domain waiting for a review is not crawled until the review is decided"
     );
+}
+
+/// A domain waits only on a pending URL-pattern review of its own; a wait on any other review
+/// leaves its crawl state as it was.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_should_record_a_url_pattern_review_wait_only_on_a_pending_review_of_the_domain() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "spider-wait-guard.example.com",
+    )
+    .await;
+    let other_domain_id = insert_domain_for_listing_source(
+        &pool,
+        listing_source_id,
+        "spider-other-guard.example.com",
+    )
+    .await;
+    let other_domain_review_id =
+        insert_pending_url_pattern_review(&pool, listing_source_id, other_domain_id).await;
+    let crawl_state_before = crawl_state(&pool, domain_id).await;
+    let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::days(7);
+
+    for (review_id, case) in [
+        (CrawlerReviewId::new(), "an unknown review"),
+        (other_domain_review_id, "another domain's review"),
+    ] {
+        assert_eq!(
+            service
+                .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, next_crawl_at)
+                .await
+                .unwrap(),
+            UrlPatternReviewWaitWrite::ReviewNotPending,
+            "a domain must not wait on {case}"
+        );
+    }
+
+    assert_eq!(crawl_state(&pool, domain_id).await, crawl_state_before);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -907,6 +969,101 @@ async fn scraper_should_count_due_urls_by_the_candidate_eligibility_rule() {
 
     assert_eq!(due, 2);
     assert_eq!(due, candidates.len() as u64);
+}
+
+// ---------------------------------------------------------------------------
+// domains_awaiting_review — the domains only a pending review keeps from scraping
+// ---------------------------------------------------------------------------
+
+async fn match_url_pattern(pool: &sqlx::PgPool, domain_id: CrawlerDomainId) {
+    sqlx::query(
+        "UPDATE listing_source_domains SET url_pattern = '/p/', url_pattern_state = 'MATCHED' \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_list_only_domains_whose_scraping_a_pending_review_holds_back() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    // The ListingSource waits on its first product schema.
+    let first_schema = ListingSourceId::new();
+    let first_schema_domain =
+        insert_listing_source_with_domain(&pool, first_schema, "first-schema.example.com").await;
+    match_url_pattern(&pool, first_schema_domain).await;
+    insert_pending_product_schema_review(&pool, first_schema).await;
+    // Another domain of it has no product URL pattern and no URL-pattern review, so the first
+    // product schema would not get it scraped either.
+    insert_domain_for_listing_source(&pool, first_schema, "uncrawled.example.com").await;
+    // The cached schema still extracts pages, so the scraper scrapes them.
+    let cached_schema = ListingSourceId::new();
+    insert_listing_source_with_domain(&pool, cached_schema, "cached-schema.example.com").await;
+    insert_cached_product_schemas(
+        &pool,
+        cached_schema,
+        serde_json::json!([{ "title": { "type": "text", "selector": "h1", "cardinality": "first" } }]),
+    )
+    .await;
+    insert_pending_product_schema_review(&pool, cached_schema).await;
+    // Without a pattern the domain has no product URL until its review is decided.
+    let pattern_review = ListingSourceId::new();
+    let pattern_review_domain =
+        insert_listing_source_with_domain(&pool, pattern_review, "pattern-review.example.com")
+            .await;
+    insert_pending_url_pattern_review(&pool, pattern_review, pattern_review_domain).await;
+    // A restored pattern is live while a newer URL-pattern review is pending.
+    let matched = ListingSourceId::new();
+    let matched_domain =
+        insert_listing_source_with_domain(&pool, matched, "matched-pattern.example.com").await;
+    match_url_pattern(&pool, matched_domain).await;
+    insert_pending_url_pattern_review(&pool, matched, matched_domain).await;
+    // A disabled ListingSource is not scraped whatever its reviews.
+    let disabled = ListingSourceId::new();
+    let disabled_domain =
+        insert_listing_source_with_domain(&pool, disabled, "disabled.example.com").await;
+    insert_pending_url_pattern_review(&pool, disabled, disabled_domain).await;
+    sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
+        .bind(disabled.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    // An open domain circuit keeps the domain from scraping as well.
+    let cooling = ListingSourceId::new();
+    let cooling_domain =
+        insert_listing_source_with_domain(&pool, cooling, "cooling-circuit.example.com").await;
+    insert_pending_url_pattern_review(&pool, cooling, cooling_domain).await;
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET scrape_failure_streak = 3, last_scrape_error_kind = 'HTTP_503', \
+             next_scrape_at = NOW() + INTERVAL '1 hour' \
+         WHERE domain_id = $1",
+    )
+    .bind(cooling_domain.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    // No review is pending.
+    insert_listing_source_with_domain(&pool, ListingSourceId::new(), "no-review.example.com").await;
+
+    let domains = service.domains_awaiting_review().await.unwrap();
+
+    assert_eq!(
+        domains,
+        vec![
+            DomainAwaitingReview {
+                listing_source_id: first_schema,
+                listing_source_domain: "first-schema.example.com".to_owned(),
+            },
+            DomainAwaitingReview {
+                listing_source_id: pattern_review,
+                listing_source_domain: "pattern-review.example.com".to_owned(),
+            },
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1711,6 +1868,71 @@ async fn scraper_should_record_a_schema_review_wait_only_on_a_pending_review_of_
     .await
     .unwrap();
     assert_eq!((last_error_kind, failure_count), (None, 0));
+}
+
+// ---------------------------------------------------------------------------
+// get_random_product_urls_for_schema_seed — a schema review wait is no failure
+// ---------------------------------------------------------------------------
+
+async fn url_failure_count(pool: &sqlx::PgPool, url: &str) -> i32 {
+    sqlx::query_scalar("SELECT failure_count FROM listing_source_urls WHERE url = $1")
+        .bind(url)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// A page that only waited on a product-schema review keeps no failure and stays a schema seed,
+/// however often it waited; a page whose fetch failed stays out of the sample, and a later wait
+/// does not clear that failure.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_keep_a_page_that_only_waited_on_a_schema_review_as_a_seed() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-seed.example.com")
+            .await;
+    let primary_url = "https://waiting-seed.example.com/p/primary";
+    let waiting_url = "https://waiting-seed.example.com/p/waiting";
+    let failing_url = "https://waiting-seed.example.com/p/failing";
+    for url in [primary_url, waiting_url, failing_url] {
+        insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    }
+    let review_id = insert_pending_product_schema_review(&pool, listing_source_id).await;
+    let wait = |streak| SchemaReviewWait { review_id, streak };
+
+    record_due_schema_review_wait(&service, listing_source_id, waiting_url, wait(1)).await;
+    record_due_schema_review_wait(&service, listing_source_id, waiting_url, wait(2)).await;
+    service
+        .mark_fetch_failure(
+            &listing_source_id,
+            &url::Url::parse(failing_url).unwrap(),
+            "HTTP_500",
+            "server error",
+            Some(500),
+            time::OffsetDateTime::now_utc() - time::Duration::minutes(1),
+            None,
+        )
+        .await
+        .unwrap();
+    record_due_schema_review_wait(&service, listing_source_id, failing_url, wait(1)).await;
+
+    assert_eq!(url_failure_count(&pool, waiting_url).await, 0);
+    assert_eq!(url_failure_count(&pool, failing_url).await, 1);
+    let seeds: Vec<String> = service
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_id,
+            &[primary_url.to_owned()],
+            10,
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|seed| seed.url.to_string())
+        .collect();
+    assert_eq!(seeds, vec![waiting_url]);
 }
 
 // ---------------------------------------------------------------------------
@@ -2780,7 +3002,7 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
         .get_random_product_urls_for_schema_seed(
             &seed_listing_source_id,
             &seed_domain_id,
-            &current_url,
+            &[current_url.to_string()],
             20,
         )
         .await
@@ -2846,7 +3068,7 @@ async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
         .get_random_product_urls_for_schema_seed(
             &listing_source_id,
             &domain_a,
-            &url::Url::parse(current_a).unwrap(),
+            &[url::Url::parse(current_a).unwrap().to_string()],
             10,
         )
         .await
@@ -2874,7 +3096,7 @@ async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
         .get_random_product_urls_for_schema_seed(
             &listing_source_id,
             &domain_b,
-            &url::Url::parse(current_b).unwrap(),
+            &[url::Url::parse(current_b).unwrap().to_string()],
             10,
         )
         .await
@@ -2927,7 +3149,12 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     .unwrap();
 
     let selected_seed = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &primary_url, 1)
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_id,
+            &[primary_url.to_string()],
+            1,
+        )
         .await
         .unwrap();
     assert_eq!(selected_seed.len(), 1);
@@ -3041,7 +3268,12 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     assert!(domain.3 > time::OffsetDateTime::now_utc());
 
     let sampled = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &primary_url, 10)
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_id,
+            &[primary_url.to_string()],
+            10,
+        )
         .await
         .unwrap();
     assert!(
@@ -3324,7 +3556,12 @@ async fn scraper_seed_urls_should_respect_limit() {
 
     let exclude = url::Url::parse(current_url).unwrap();
     let sampled = service
-        .get_random_product_urls_for_schema_seed(&listing_source_id, &domain_id, &exclude, 3)
+        .get_random_product_urls_for_schema_seed(
+            &listing_source_id,
+            &domain_id,
+            &[exclude.to_string()],
+            3,
+        )
         .await
         .unwrap();
 

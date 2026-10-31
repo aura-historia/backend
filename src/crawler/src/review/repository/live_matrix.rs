@@ -80,7 +80,9 @@ impl CrawlerReviewRepository {
     /// configuration approving the review's current candidate would make live: its schemas,
     /// merged with the live list for a legacy single-schema append or repair, and its
     /// removed-page templates rebased onto the stored ones. The matrix records what it evaluated
-    /// and when, so an approval can tell whether it still describes the review.
+    /// and when, so an approval can tell whether it still describes the review. The pages are
+    /// parsed on a blocking thread awaited to its end, so a caller runs this within a console live
+    /// job, whose place under the console's limit bounds that thread.
     pub async fn evaluate_schema_matrix_for_live_pages(
         &self,
         review_id: CrawlerReviewId,
@@ -98,19 +100,23 @@ impl CrawlerReviewRepository {
             .iter()
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
-        let mut matrix = evaluate_schema_matrix_for_live_review_pages(
-            review_id,
-            &going_live.schemas,
-            &going_live.removed_page_schemas,
-            &pages,
-            &[],
-            &captured_identities,
-        );
-        matrix.live_evaluation = Some(LiveMatrixEvaluation {
+        let live_evaluation = LiveMatrixEvaluation {
             candidate_version: review.candidate_version,
             configuration_sha256: going_live.fingerprint()?,
             fetched_at,
-        });
+        };
+        let mut matrix = evaluate_on_blocking_thread(move || {
+            evaluate_schema_matrix_for_live_review_pages(
+                review_id,
+                &going_live.schemas,
+                &going_live.removed_page_schemas,
+                &pages,
+                &[],
+                &captured_identities,
+            )
+        })
+        .await?;
+        matrix.live_evaluation = Some(live_evaluation);
         Ok(EvaluatedSchemaMatrix {
             matrix,
             candidate_hash: review.candidate_hash,
@@ -160,7 +166,9 @@ impl CrawlerReviewRepository {
 
     /// Evaluates the `proposal` on its review `pages` and its `url_pages` as the shop serves them
     /// now. The matrix is no live evaluation of the review: it records none and is not stored, so
-    /// it never stands in for the review's own live matrix.
+    /// it never stands in for the review's own live matrix. The pages are parsed on a blocking
+    /// thread awaited to its end, so a caller runs this within a console live job, whose place
+    /// under the console's limit bounds that thread.
     pub async fn evaluate_candidate_proposal(
         &self,
         proposal: CandidateProposal,
@@ -175,14 +183,17 @@ impl CrawlerReviewRepository {
         let captured_identities = self
             .captured_identities(proposal.listing_source_id, &page_urls)
             .await?;
-        Ok(evaluate_schema_matrix_for_live_review_pages(
-            proposal.review_id,
-            &proposal.going_live.schemas,
-            &proposal.going_live.removed_page_schemas,
-            &pages,
-            &url_pages,
-            &captured_identities,
-        ))
+        evaluate_on_blocking_thread(move || {
+            evaluate_schema_matrix_for_live_review_pages(
+                proposal.review_id,
+                &proposal.going_live.schemas,
+                &proposal.going_live.removed_page_schemas,
+                &pages,
+                &url_pages,
+                &captured_identities,
+            )
+        })
+        .await
     }
 
     async fn review_under_evaluation(
@@ -283,9 +294,11 @@ impl CrawlerReviewRepository {
             .collect())
     }
 
-    /// Refuses, before `actor`'s live refresh of the review's matrix fetches anything, a review
-    /// agent's refresh of a review that waits for a human; storing the matrix checks it again.
-    pub async fn check_matrix_refresh(
+    /// Refuses, before `actor`'s live job on the review fetches anything (a live matrix refresh, a
+    /// candidate evaluation or a page projection), a review agent's job on a review that waits for a
+    /// human, so the agents fetch no shop pages for a review they cannot change or decide; storing
+    /// a refreshed matrix checks it again.
+    pub async fn check_live_job(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
@@ -377,6 +390,18 @@ impl CrawlerReviewRepository {
     }
 }
 
+/// Runs `evaluate`, which parses every page it evaluates, on a blocking thread and waits for it to
+/// end. Parsing a shop's page costs more than its size on deeply nested markup, and on an async
+/// worker it would hold up the console's other requests. Waiting for the end keeps the evaluation
+/// within the console live job that awaits it, under that job's place in the console's limit.
+async fn evaluate_on_blocking_thread(
+    evaluate: impl FnOnce() -> SchemaMatrix + Send + 'static,
+) -> Result<SchemaMatrix, ReviewRepositoryError> {
+    tokio::task::spawn_blocking(evaluate)
+        .await
+        .map_err(|source| ReviewRepositoryError::MatrixEvaluationStopped { source })
+}
+
 /// Locks the review for the rest of the transaction and reads its status.
 async fn lock_review_status(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -387,4 +412,20 @@ async fn lock_review_status(
         .fetch_optional(&mut **transaction)
         .await?
         .ok_or(ReviewRepositoryError::NotFound(review_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn should_stop_with_the_panic_as_its_cause_when_the_evaluation_panics() {
+        let evaluated =
+            evaluate_on_blocking_thread(|| -> SchemaMatrix { panic!("evaluation panicked") }).await;
+
+        let Err(ReviewRepositoryError::MatrixEvaluationStopped { source }) = evaluated else {
+            panic!("a panicking evaluation must stop with an error, not a matrix or another error");
+        };
+        assert!(source.is_panic(), "{source}");
+    }
 }

@@ -30,16 +30,19 @@ use tracing::info;
 use url::Url;
 
 mod live_matrix;
+mod pending_reviews;
 mod repair_rounds;
 mod restore;
 mod review_events;
 mod review_source;
 mod reviewer_page_url;
+mod revocation;
 mod sample_labels;
 mod schema_payload;
 mod verdicts;
 
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
+pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use verdicts::Approval;
@@ -170,10 +173,6 @@ pub enum ReviewRepositoryError {
         acknowledged: ReviewPageCoverage,
     },
     #[error(
-        "the review agents' approvals and rejections are taken only with CRAWLER_AUTHORING_MODE=agent; stage the candidate and leave the decision to a human"
-    )]
-    AgentDecisionsOff,
-    #[error(
         "a review agent cannot acknowledge incomplete coverage; only a human approves a candidate that does not cover every review page"
     )]
     AgentCoverageAcknowledgement,
@@ -214,16 +213,33 @@ pub enum ReviewRepositoryError {
     },
     #[error("the approval of review {0} was already restored")]
     ApprovalAlreadyRestored(CrawlerReviewId),
+    #[error("only a human revokes a rejection")]
+    RevocationNeedsHuman,
+    #[error(
+        "review {0} has no rejection to revoke: only rejecting a manual_schema_required product-schema review classifies pages as non-product pages"
+    )]
+    NoRejectionToRevoke(CrawlerReviewId),
+    #[error("the rejection of review {0} was already revoked")]
+    RejectionAlreadyRevoked(CrawlerReviewId),
     #[error(
         "the live configuration changed since review {0} was approved; a restore would overwrite that newer change"
     )]
     LiveConfigurationChangedSinceApproval(CrawlerReviewId),
+    #[error("the schema matrix evaluation stopped before it finished")]
+    MatrixEvaluationStopped {
+        #[source]
+        source: tokio::task::JoinError,
+    },
 }
 
 /// Upper bound on the pages a reviewer adds to one review. A live schema-matrix refresh refetches
 /// every page, seed pages included, one by one from the same throttled shop within the review
 /// API's 30-second request deadline, so reviewer pages may only add a few fetches.
 pub const MAX_REVIEWER_ADDED_PAGES: usize = 4;
+
+/// The roles of the review pages that rejecting their review gives no verdict on: reviewer-added
+/// and waiting pages only test the candidate.
+const ROLES_NO_REJECTION_JUDGES: [&str; 2] = [PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_WAITING_PAGE];
 
 /// Upper bound on the pages that wait on one pending review. They show the reviewer the template
 /// variants that need the schema, but every matrix refresh refetches them too; further failing
@@ -233,8 +249,9 @@ pub const MAX_WAITING_PAGES: usize = 6;
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
     pool: PgPool,
-    /// What the review agents may decide; agent decisions are off unless the review console of
-    /// `agent` authoring mode configures them.
+    /// The review agents' decision policy of the start, which every copy of the repository the
+    /// crawler wires shares: whether a review waits for a human and the limits of the agents'
+    /// decisions. Without review agents unless [`Self::with_agent_decisions`] sets it.
     agent_decisions: AgentDecisionPolicy,
     /// How a URL-pattern review's sample and, once a decision goes live, the domain's stored URLs
     /// are classified: as the spider classifies them in the configured authoring mode.
@@ -268,12 +285,19 @@ impl CrawlerReviewRepository {
         }
     }
 
-    /// This repository deciding the review agents' approvals and rejections by `agent_decisions`.
+    /// This repository under the review agents' decision policy `agent_decisions`. The
+    /// composition root sets it once, before it hands copies to the console, the scraper's review
+    /// gate and the spider.
     pub fn with_agent_decisions(self, agent_decisions: AgentDecisionPolicy) -> Self {
         Self {
             agent_decisions,
             ..self
         }
+    }
+
+    /// The review agents' decision policy this repository applies.
+    pub fn agent_decisions(&self) -> AgentDecisionPolicy {
+        self.agent_decisions
     }
 
     pub async fn has_pending_review(
@@ -313,9 +337,9 @@ impl CrawlerReviewRepository {
     }
 
     /// Whether an operator rejected a product schema review opened for `reason` over the page of
-    /// the crawler URL `url`, which the review recorded with or without its trailing slash: the
-    /// spider moves a URL stored without the slash to the slashed spelling it fetches, while the
-    /// review page keeps the spelling it was recorded under
+    /// the crawler URL `url`, and no human revoked that rejection. The review recorded the page with
+    /// or without its trailing slash: the spider moves a URL stored without the slash to the
+    /// slashed spelling it fetches, while the review page keeps the spelling it was recorded under
     /// (`docs/crawler/networking.md#stored-urls`).
     pub async fn has_rejected_schema_review_for_page(
         &self,
@@ -328,14 +352,15 @@ impl CrawlerReviewRepository {
              JOIN crawler_review_pages p ON p.review_id = r.review_id \
              WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
                AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = ANY($3::text[]) \
-               AND p.role <> ALL($4))",
+               AND p.role <> ALL($4) \
+               AND NOT EXISTS (SELECT 1 FROM crawler_review_events e \
+                               WHERE e.review_id = r.review_id AND e.action = $5))",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(reason)
         .bind(page_url_spellings(url))
-        // Reviewer-added and waiting pages only test the candidate; rejecting the review is no
-        // verdict on them.
-        .bind([PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_WAITING_PAGE])
+        .bind(ROLES_NO_REJECTION_JUDGES)
+        .bind(ReviewEventAction::RejectionRevoked.as_str())
         .fetch_one(&self.pool)
         .await
     }
@@ -408,6 +433,15 @@ impl CrawlerReviewRepository {
         rows.into_iter()
             .map(|row| row_to_review(row, &agent_rounds, &self.agent_decisions))
             .collect()
+    }
+
+    /// A page of the review agents' queue, the pending reviews of crawl-enabled ListingSources,
+    /// oldest first, with the totals of the whole queue; see [`PendingReviewQuery`].
+    pub async fn list_pending_reviews(
+        &self,
+        query: PendingReviewQuery,
+    ) -> Result<PendingReviewPage, ReviewRepositoryError> {
+        pending_reviews::fetch_pending_review_page(&self.pool, &self.agent_decisions, query).await
     }
 
     /// The events of all reviews created at or after `since`, oldest first, at most `limit`, and

@@ -7,6 +7,7 @@
 
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
+use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::agent_tokens::{REVIEW_AGENT_TOKEN_FILE, provision_review_agents};
 use crawler::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput, UrlPatternDecision};
 use crawler::review::repository::CrawlerReviewRepository;
@@ -155,15 +156,20 @@ async fn reviews(pool: &PgPool) -> Reviews {
 }
 
 /// A console of `agent` authoring mode as the crawler starts it, serving on `listener`: its
-/// configuration from the review settings, the agents' tokens provisioned into the token file in
-/// `state_directory`, the reviewer agent deciding within the approval guard.
+/// configuration and the agents' limits from the review settings, the agents' tokens provisioned
+/// into the token file in `state_directory`, the reviewer agent deciding within the approval guard.
 fn start_console(pool: &PgPool, state_directory: &Path, listener: TcpListener) -> JoinHandle<()> {
     let config = ReviewServerConfig::from_env().unwrap();
     let config =
         provision_review_agents(config, CrawlerAuthoringMode::Agent, state_directory).unwrap();
+    let agent_decisions = AgentDecisionPolicy::new(
+        CrawlerAuthoringMode::Agent,
+        AgentLimits::from_env().unwrap(),
+    );
     let server = ReviewServer::new(
         CrawlerReviewRepository::new(pool.clone())
-            .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent)),
+            .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent))
+            .with_agent_decisions(agent_decisions),
         Arc::new(CrawlerDomainAdministrationHandler::new(Arc::new(
             CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
         ))),
@@ -423,12 +429,32 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
     assert_eq!(reject_elsewhere["kind"], "REVIEW_OUTSIDE_SCOPE");
     scoped.close().await;
 
-    // Reads.
+    // Reads: the queue page by page, oldest first.
     let queue = author
         .call("list_pending_reviews", json!({}))
         .await
         .unwrap();
-    assert_eq!(queue["total_pending"], 2);
+    assert_eq!(
+        (
+            &queue["total_pending"],
+            &queue["waiting_for_human"],
+            &queue["more"]
+        ),
+        (&json!(2), &json!(0), &json!(false))
+    );
+    assert_eq!(queue["reviews"][0]["review_id"], product_schema.to_string());
+    let after_first = author
+        .call(
+            "list_pending_reviews",
+            json!({ "after": product_schema.to_string() }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(after_first["reviews"], json!([queue["reviews"][1].clone()]));
+    assert_eq!(
+        after_first["reviews"][0]["review_id"],
+        url_pattern.to_string()
+    );
     let review = author
         .call(
             "get_review",

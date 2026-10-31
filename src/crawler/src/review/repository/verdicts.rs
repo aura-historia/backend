@@ -1,9 +1,10 @@
 //! The verdicts a pending review takes: approval, which makes its candidate the live
 //! configuration, rejection and the needs-repair verdict. Each locks the review first, so
 //! verdicts, edits and page joins on it apply one after the other. The review agents' approvals
-//! and rejections pass the actor's role, [`AgentDecisionPolicy`] and, for approvals, the four-eyes
-//! rule and the [approval guard](crate::review::approval_guard) here, and no agent verdict is
-//! taken on a review that waits for a human, so no caller decides for an agent without them.
+//! and rejections pass the actor's role, the limits of the [`AgentDecisionPolicy`] and, for
+//! approvals, the four-eyes rule and the [approval guard](crate::review::approval_guard) here, and
+//! no agent verdict is taken on a review that waits for a human, so no caller decides for an agent
+//! without them.
 
 use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_events::{
@@ -17,7 +18,7 @@ use super::{
     fetch_review_pages, listing_source_id_from_uuid, lock_live_product_schemas,
     persist_product_schemas,
 };
-use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::approval_guard::{
     CurrentReview, FailedApprovalCheck, product_schema_approval_checks, url_pattern_approval_checks,
 };
@@ -67,7 +68,7 @@ impl CrawlerReviewRepository {
         actor: ReviewActor,
         approval: Approval<'_>,
     ) -> Result<(), ReviewRepositoryError> {
-        admit_approval(&self.agent_decisions, actor, approval.incomplete_coverage)?;
+        admit_approval(actor, approval.incomplete_coverage)?;
         let mut transaction = self.pool.begin().await?;
         let review =
             lock_review_for_verdict(&mut transaction, review_id, actor, &self.agent_decisions)
@@ -77,7 +78,7 @@ impl CrawlerReviewRepository {
         if guarded {
             check_agent_decision_rate(
                 &mut transaction,
-                self.agent_decisions.max_decisions_per_hour,
+                self.agent_decisions.limits().max_decisions_per_hour,
             )
             .await?;
             refuse_approval_of_own_change(&mut transaction, review_id, actor, &review).await?;
@@ -94,7 +95,7 @@ impl CrawlerReviewRepository {
                         url_pattern_approval_checks(
                             &candidate,
                             &domain,
-                            self.agent_decisions.min_labelled_urls,
+                            self.agent_decisions.limits().min_labelled_urls,
                         ),
                     )?;
                 }
@@ -123,7 +124,7 @@ impl CrawlerReviewRepository {
                         &pages,
                         matrix.as_ref(),
                         &going_live.live,
-                        self.agent_decisions.max_matrix_age,
+                        self.agent_decisions.limits().max_matrix_age(),
                     )?;
                 }
                 let coverage = check_approval_coverage(
@@ -170,7 +171,7 @@ impl CrawlerReviewRepository {
         actor: ReviewActor,
         notes: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
-        admit_rejection(&self.agent_decisions, actor, notes)?;
+        admit_rejection(actor, notes)?;
         let mut transaction = self.pool.begin().await?;
         let review =
             lock_review_for_verdict(&mut transaction, review_id, actor, &self.agent_decisions)
@@ -178,7 +179,7 @@ impl CrawlerReviewRepository {
         if actor.is_agent() {
             check_agent_decision_rate(
                 &mut transaction,
-                self.agent_decisions.max_decisions_per_hour,
+                self.agent_decisions.limits().max_decisions_per_hour,
             )
             .await?;
         }
@@ -244,17 +245,11 @@ impl CrawlerReviewRepository {
 }
 
 /// Refuses, before any review is read, a verdict the actor may not give on any review: the author
-/// agent's, which only stages, and every agent verdict while agent decisions are off. Other actors
-/// pass.
-fn admit_agent_verdict(
-    policy: &AgentDecisionPolicy,
-    actor: ReviewActor,
-) -> Result<(), ReviewRepositoryError> {
+/// agent's, which only stages. Other actors pass; only the console of `agent` authoring mode
+/// lets a request act as the reviewer agent.
+fn admit_agent_verdict(actor: ReviewActor) -> Result<(), ReviewRepositoryError> {
     if !actor.may_decide() {
         return Err(ReviewRepositoryError::AuthorMayNotDecide);
-    }
-    if actor.is_agent() && policy.approvals == AgentApprovals::Off {
-        return Err(ReviewRepositoryError::AgentDecisionsOff);
     }
     Ok(())
 }
@@ -262,11 +257,10 @@ fn admit_agent_verdict(
 /// As [`admit_agent_verdict`], and refuses an agent approval that acknowledges incomplete
 /// coverage: only a human approves a candidate that does not cover every review page.
 fn admit_approval(
-    policy: &AgentDecisionPolicy,
     actor: ReviewActor,
     incomplete_coverage: IncompleteCoverage,
 ) -> Result<(), ReviewRepositoryError> {
-    admit_agent_verdict(policy, actor)?;
+    admit_agent_verdict(actor)?;
     if actor.is_agent() && incomplete_coverage != IncompleteCoverage::Refuse {
         return Err(ReviewRepositoryError::AgentCoverageAcknowledgement);
     }
@@ -274,12 +268,8 @@ fn admit_approval(
 }
 
 /// As [`admit_agent_verdict`], and refuses an agent rejection without notes saying why.
-fn admit_rejection(
-    policy: &AgentDecisionPolicy,
-    actor: ReviewActor,
-    notes: Option<&str>,
-) -> Result<(), ReviewRepositoryError> {
-    admit_agent_verdict(policy, actor)?;
+fn admit_rejection(actor: ReviewActor, notes: Option<&str>) -> Result<(), ReviewRepositoryError> {
+    admit_agent_verdict(actor)?;
     if actor.is_agent() && notes.is_none_or(|notes| notes.trim().is_empty()) {
         return Err(ReviewRepositoryError::MissingRejectionNote);
     }
@@ -525,11 +515,7 @@ pub(super) async fn make_url_pattern_live(
     .execute(&mut **transaction)
     .await?;
     let live_pattern = decision
-        .url_pattern
-        .as_deref()
-        .filter(|_| decision.url_pattern_state == "MATCHED")
-        .map(Regex::new)
-        .transpose()
+        .live_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     reclassify_domain_urls(
         transaction,
@@ -837,22 +823,42 @@ async fn reclassify_domain_urls(
 }
 
 /// Lets the scheduler crawl a domain again whose last crawl stopped at a URL-pattern review,
-/// now that the review is decided. Rows written before the review-wait outcome existed carry
-/// the wait as `last_crawl_error_kind` instead and are released the same way.
+/// now that the review is decided, and clears that crawl's review-wait outcome, so the domain
+/// reports no crawl outcome until its next crawl records one. A domain that still has a pending
+/// URL-pattern review keeps the outcome, which then reports its wait on that review; only a
+/// restore can find one, since a verdict has just closed the domain's one pending review. Rows
+/// written before the review-wait outcome existed carry the wait as `last_crawl_error_kind`
+/// instead and are released the same way. A released domain no longer matches, so releasing it
+/// again changes nothing.
+///
+/// The pending-review check takes no lock of its own: a review opened for the domain while the
+/// caller's transaction runs is either seen by it or commits after it. Opening a review locks
+/// the domain row `FOR KEY SHARE`, which waits for the `FOR UPDATE` lock approval and restore
+/// take on it first, and a rejection's closed review keeps the domain's one pending URL-pattern
+/// review slot in the unique index until it commits. A crawl that opens a review after the
+/// release records its own wait on it.
 async fn release_domain_waiting_for_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
     domain_id: CrawlerDomainId,
 ) -> Result<(), ReviewRepositoryError> {
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_source_domains AS d \
          SET next_crawl_at = NULL, \
              last_crawl_error_kind = CASE \
-                 WHEN last_crawl_error_kind = 'PendingUrlPatternReview' THEN NULL \
-                 ELSE last_crawl_error_kind \
+                 WHEN d.last_crawl_error_kind = 'PendingUrlPatternReview' THEN NULL \
+                 ELSE d.last_crawl_error_kind \
+             END, \
+             last_crawl_outcome = CASE \
+                 WHEN d.last_crawl_outcome = $3 AND NOT EXISTS ( \
+                     SELECT 1 FROM crawler_reviews r \
+                     WHERE r.domain_id = d.domain_id AND r.artifact_type = 'URL_PATTERN' \
+                       AND r.status = 'PENDING_REVIEW' \
+                 ) THEN NULL \
+                 ELSE d.last_crawl_outcome \
              END \
-         WHERE listing_source_id = $1 AND domain_id = $2 \
-           AND (last_crawl_error_kind = 'PendingUrlPatternReview' OR last_crawl_outcome = $3)",
+         WHERE d.listing_source_id = $1 AND d.domain_id = $2 \
+           AND (d.last_crawl_error_kind = 'PendingUrlPatternReview' OR d.last_crawl_outcome = $3)",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(domain_id.as_uuid())
@@ -867,13 +873,6 @@ mod tests {
     use super::*;
     use crate::review::page_coverage::ReviewPageCoverage;
 
-    fn policy(approvals: AgentApprovals) -> AgentDecisionPolicy {
-        AgentDecisionPolicy {
-            approvals,
-            ..AgentDecisionPolicy::default()
-        }
-    }
-
     const ACKNOWLEDGED: IncompleteCoverage = IncompleteCoverage::Acknowledged(ReviewPageCoverage {
         covered: 1,
         removed: 0,
@@ -881,76 +880,42 @@ mod tests {
         not_evaluated: 0,
     });
 
-    /// With agent decisions off a human decides; humans and the crawler decide as before in both
-    /// modes.
+    /// The reviewer agent's verdicts pass on to the review's own checks, and humans and the
+    /// crawler decide with or without acknowledged coverage and notes.
     #[test]
-    fn should_refuse_every_agent_verdict_only_while_agent_decisions_are_off() {
-        let off = policy(AgentApprovals::Off);
-        let guarded = policy(AgentApprovals::Guarded);
-
-        assert!(matches!(
-            admit_approval(&off, ReviewActor::AgentReviewer, IncompleteCoverage::Refuse),
-            Err(ReviewRepositoryError::AgentDecisionsOff)
-        ));
-        assert!(matches!(
-            admit_rejection(&off, ReviewActor::AgentReviewer, Some("not a product page")),
-            Err(ReviewRepositoryError::AgentDecisionsOff)
-        ));
-        assert!(
-            admit_approval(
-                &guarded,
-                ReviewActor::AgentReviewer,
-                IncompleteCoverage::Refuse
-            )
-            .is_ok()
-        );
-        assert!(
-            admit_rejection(
-                &guarded,
-                ReviewActor::AgentReviewer,
-                Some("not a product page")
-            )
-            .is_ok()
-        );
+    fn should_admit_the_verdicts_of_the_reviewer_agent_humans_and_the_crawler() {
+        assert!(admit_approval(ReviewActor::AgentReviewer, IncompleteCoverage::Refuse).is_ok());
+        assert!(admit_rejection(ReviewActor::AgentReviewer, Some("not a product page")).is_ok());
         for actor in [ReviewActor::Human, ReviewActor::System] {
-            for policy in [&off, &guarded] {
-                assert!(
-                    admit_approval(policy, actor, ACKNOWLEDGED).is_ok(),
-                    "{actor}"
-                );
-                assert!(admit_rejection(policy, actor, None).is_ok(), "{actor}");
-            }
+            assert!(admit_approval(actor, ACKNOWLEDGED).is_ok(), "{actor}");
+            assert!(admit_rejection(actor, None).is_ok(), "{actor}");
         }
     }
 
-    /// The author agent stages and never decides, whatever the policy.
+    /// The author agent stages and never decides.
     #[test]
     fn should_refuse_every_verdict_of_an_agent_that_does_not_decide() {
         let actor = ReviewActor::AgentAuthor;
-        for policy in [policy(AgentApprovals::Off), policy(AgentApprovals::Guarded)] {
-            assert!(matches!(
-                admit_approval(&policy, actor, IncompleteCoverage::Refuse),
-                Err(ReviewRepositoryError::AuthorMayNotDecide)
-            ));
-            assert!(matches!(
-                admit_rejection(&policy, actor, Some("not a product page")),
-                Err(ReviewRepositoryError::AuthorMayNotDecide)
-            ));
-        }
+        assert!(matches!(
+            admit_approval(actor, IncompleteCoverage::Refuse),
+            Err(ReviewRepositoryError::AuthorMayNotDecide)
+        ));
+        assert!(matches!(
+            admit_rejection(actor, Some("not a product page")),
+            Err(ReviewRepositoryError::AuthorMayNotDecide)
+        ));
     }
 
     #[test]
     fn should_refuse_an_agent_approval_that_acknowledges_coverage_and_a_rejection_without_notes() {
-        let guarded = policy(AgentApprovals::Guarded);
-
         assert!(matches!(
-            admit_approval(&guarded, ReviewActor::AgentReviewer, ACKNOWLEDGED),
+            admit_approval(ReviewActor::AgentReviewer, ACKNOWLEDGED),
             Err(ReviewRepositoryError::AgentCoverageAcknowledgement)
         ));
         for notes in [None, Some(""), Some(" \n ")] {
             assert!(
                 matches!(
-                    admit_rejection(&guarded, ReviewActor::AgentReviewer, notes),
+                    admit_rejection(ReviewActor::AgentReviewer, notes),
                     Err(ReviewRepositoryError::MissingRejectionNote)
                 ),
                 "{notes:?}"

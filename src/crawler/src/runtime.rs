@@ -4,8 +4,9 @@
 //! carrying only what differs between them. [`CrawlerRuntimeConfig::from_env`] reads the shared
 //! settings and [`build`] wires everything else once — the LLM models selected by
 //! [`CrawlerLlmConfig`], repositories, the schema service, scraper, spider, URL classification,
-//! the LLM governor, the review server and the cron job. [`CrawlerRuntime::run`] then runs the
-//! review server and cron loop until either stops or a SIGTERM or SIGINT stops them gracefully
+//! the review agents' decision policy, the LLM governor, the review server and the cron job.
+//! [`CrawlerRuntime::run`] then runs the review server and cron loop until either stops or a
+//! SIGTERM or SIGINT stops them gracefully
 //! ([operations](../../../docs/crawler/operations.md#stopping-the-crawler)).
 //!
 //! Startup failures panic with a descriptive message, matching the production server's
@@ -14,6 +15,7 @@
 use crate::authoring::CrawlerAuthoringMode;
 use crate::llm_runtime::{CrawlerLlmGovernor, DisabledLlm};
 use crate::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crate::review::agent_tokens::provision_review_agents;
 use crate::review::repository::CrawlerReviewRepository;
 use crate::review::server::{ReviewServer, ReviewServerConfig};
@@ -142,6 +144,7 @@ pub fn build(
 ) -> CrawlerRuntime {
     let CrawlerRuntimeConfig {
         authoring,
+        agent_limits,
         llm,
         shutdown_grace_period,
     } = config;
@@ -154,11 +157,23 @@ pub fn build(
         CrawlerLlmConfig::VertexAi(vertex) => {
             let governor = Arc::new(CrawlerLlmGovernor::new(vertex.rate_limit));
             let models = CrawlerLlmModels::vertex_ai(&vertex);
-            wire(pool, profile, authoring, models, Some(governor))
+            wire(
+                pool,
+                profile,
+                authoring,
+                agent_limits,
+                models,
+                Some(governor),
+            )
         }
-        CrawlerLlmConfig::Disabled => {
-            wire(pool, profile, authoring, CrawlerLlmModels::disabled(), None)
-        }
+        CrawlerLlmConfig::Disabled => wire(
+            pool,
+            profile,
+            authoring,
+            agent_limits,
+            CrawlerLlmModels::disabled(),
+            None,
+        ),
     };
     CrawlerRuntime {
         review_server,
@@ -171,6 +186,7 @@ fn wire<Llm>(
     pool: PgPool,
     profile: CrawlerRuntimeProfile,
     authoring: CrawlerAuthoringMode,
+    agent_limits: AgentLimits,
     models: CrawlerLlmModels<Llm>,
     llm_governor: Option<Arc<CrawlerLlmGovernor>>,
 ) -> (ReviewServer, CrawlerCronJob)
@@ -184,10 +200,13 @@ where
         listing_source_source,
         raw_capture,
     } = profile;
-    // The spider and the review rail classify URLs alike, as the authoring mode selects.
+    // The spider and the review rail classify URLs alike, as the authoring mode selects. The
+    // console, the scraper's review gate and the spider share this one repository and with it the
+    // one agent decision policy of the start.
     let url_classifier = UrlClassifier::for_authoring(authoring);
-    let review_repo =
-        CrawlerReviewRepository::new(pool.clone()).with_url_classifier(url_classifier);
+    let review_repo = CrawlerReviewRepository::new(pool.clone())
+        .with_url_classifier(url_classifier)
+        .with_agent_decisions(AgentDecisionPolicy::new(authoring, agent_limits));
 
     let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(Box::leak(
         Box::new(pool.clone()),
@@ -520,6 +539,7 @@ mod tests {
     fn disabled_llm_config() -> CrawlerRuntimeConfig {
         CrawlerRuntimeConfig {
             authoring: CrawlerAuthoringMode::Manual,
+            agent_limits: AgentLimits::default(),
             llm: CrawlerLlmConfig::Disabled,
             shutdown_grace_period: DEFAULT_SHUTDOWN_GRACE_PERIOD,
         }

@@ -2,6 +2,7 @@ let selectedId = null;
 let selectedDetail = null;
 let selectedMatrix = null;
 let selectedMatrixFailure = '';
+let selectedMatrixMissing = false;
 let selectedSchemaIndex = 0;
 let compareSchemaIndex = 1;
 let selectedField = 'title';
@@ -142,6 +143,15 @@ async function api(path, options = {}, allowPrompt = true) {
         throw error;
     }
     return res.json();
+}
+
+// The machine-readable `reason` of a refused request, such as `NO_MATRIX`, or null.
+function refusalReason(error) {
+    try {
+        return JSON.parse(error.message).reason || null;
+    } catch (_) {
+        return null;
+    }
 }
 
 // A 409 that carries `candidate_version` means the review changed under the request: an edit
@@ -304,7 +314,9 @@ async function selectReview(id) {
 const MATRIX_POLL_INTERVAL_MS = 3000;
 
 // A refresh fetches every review page at the shop's robots.txt Crawl-delay, so the server
-// answers 202 while it runs in the background; poll until the matrix or its error arrives.
+// answers 202 while it runs in the background; poll until the matrix or its error arrives. A read
+// without refresh never fetches: without a stored matrix it is refused with `NO_MATRIX`, and the
+// console asks for a refresh only when the reviewer does.
 async function loadSchemaMatrix(reviewId, refresh) {
     const matrix = await api(`/api/reviews/${reviewId}/matrix${refresh ? '?refresh=true' : ''}`);
     return pollSchemaMatrix(reviewId, matrix);
@@ -321,20 +333,26 @@ async function pollSchemaMatrix(reviewId, matrix) {
     return pollSchemaMatrix(reviewId, await api(`/api/reviews/${reviewId}/matrix`));
 }
 
-// A failed matrix refresh leaves the review workable: the workbench shows why, without a
-// matrix, and Re-evaluate starts a new refresh. The console never retries on its own.
+// A failed matrix refresh, or a review without a stored matrix, leaves the review workable: the
+// workbench shows why, without a matrix, and Re-evaluate starts a new refresh. The console never
+// fetches the shop's pages or retries on its own.
 async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     if (!selectedId) return;
     const reviewId = selectedId;
     const detail = await api(`/api/reviews/${reviewId}`);
     let matrix = null;
     let matrixFailure = '';
+    let matrixMissing = false;
     if (detail.review.artifact_type === 'PRODUCT_SCHEMA') {
         try {
             matrix = await loadSchemaMatrix(reviewId, refreshMatrix);
         } catch (error) {
             matrix = {review_id: reviewId, candidates: [], removed_page_matches: []};
-            matrixFailure = apiErrorMessage(error);
+            if (refusalReason(error) === 'NO_MATRIX') {
+                matrixMissing = true;
+            } else {
+                matrixFailure = apiErrorMessage(error);
+            }
         }
     }
     if (matrix && rawAttributeKeys === null) {
@@ -344,6 +362,7 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     selectedDetail = detail;
     selectedMatrix = matrix;
     selectedMatrixFailure = matrixFailure;
+    selectedMatrixMissing = matrixMissing;
     selectedReviewUpdatedAt = detail.review.updated;
     selectedReviewStatus = detail.review.status;
     selectedReviewNeedsRefresh = false;
@@ -398,6 +417,12 @@ function renderDetail(detail, matrix) {
 function renderApprovalPanel(detail) {
     const review = detail.review;
     if (review.status !== 'PENDING_REVIEW') {
+        if (rejectionRevocable(detail)) {
+            return '<div class="approval-actions"><button onclick="revokeRejection()" title="Lift this rejection\'s non-product verdict, so the crawler scrapes its seed and triggering pages again">Revoke rejection</button></div>';
+        }
+        if (rejectionRevoked(detail)) {
+            return '<div class="approval-actions"><span class="badge" title="The review stays rejected, but its rejection no longer classifies its seed and triggering pages as non-product pages">Rejection revoked</span></div>';
+        }
         if (review.status !== 'APPROVED') return '';
         const live = review.artifact_type === 'PRODUCT_SCHEMA'
             ? (detail.candidate_is_live
@@ -500,7 +525,8 @@ const REVIEW_EVENT_LABELS = {
     REPAIR_REQUESTED: 'Repair requested',
     APPROVED: 'Approved',
     REJECTED: 'Rejected',
-    RESTORED: 'Restored'
+    RESTORED: 'Restored',
+    REJECTION_REVOKED: 'Rejection revoked'
 };
 
 // An approval whose event keeps what it made live can be restored once; the server also
@@ -511,6 +537,22 @@ function approvalRestorable(detail) {
     const keepsWhatWentLive = details.approved_product_schemas !== undefined
         || details.approved_url_pattern !== undefined;
     return keepsWhatWentLive && !events.some(event => event.action === 'RESTORED');
+}
+
+// Only rejecting a manual product-schema review classifies its seed and triggering pages as
+// non-product pages, so only that rejection is revoked, once.
+function rejectionRevocable(detail) {
+    const review = detail?.review;
+    return review?.status === 'REJECTED'
+        && review.artifact_type === 'PRODUCT_SCHEMA'
+        && review.reason === 'manual_schema_required'
+        && !rejectionRevoked(detail);
+}
+
+// A revoked rejection keeps the review's REJECTED status, so the console says it no longer applies.
+function rejectionRevoked(detail) {
+    return detail?.review?.status === 'REJECTED'
+        && (detail.events || []).some(event => event.action === 'REJECTION_REVOKED');
 }
 
 // The review's event trail, newest first: each decision and edit with the actor that made it.
@@ -561,6 +603,10 @@ function reviewEventSummary(event) {
             return details.replaced_url_pattern !== undefined
                 ? 'URL pattern the approval replaced is live again'
                 : 'schemas the approval replaced are live again';
+        case 'REJECTION_REVOKED': {
+            const reclassified = (details.reclassified_urls || []).length;
+            return `${reclassified} rejected page${reclassified === 1 ? '' : 's'} classified again`;
+        }
         default:
             return '';
     }
@@ -1286,6 +1332,12 @@ function recordSavedCandidateVersion(saved) {
 }
 
 function renderMatrixNotice(detail, matrix) {
+    if (selectedMatrixMissing) {
+        return `<div class="hint-card">
+          <span>No schema matrix yet: the current candidate has not been evaluated on the live review pages. Evaluating fetches every review page from the shop at its crawl delay.</span>
+          <button onclick="reevaluateMatrix()">Evaluate on live pages</button>
+        </div>`;
+    }
     if (selectedMatrixFailure) {
         return `<div class="hint-card finding-hint">
           <span>No schema matrix: ${escapeHtml(selectedMatrixFailure)}</span>
@@ -2151,6 +2203,15 @@ async function restoreApproval() {
     const notes = prompt('Why restore?');
     if (notes === null) return;
     await submitVerdict('restore', {notes: notes || null});
+}
+
+// Lets the crawler scrape this review's seed and triggering pages again. Cancelling either dialog
+// sends nothing.
+async function revokeRejection() {
+    if (!confirm('Revoke this rejection? Its seed and triggering pages are classified again by their URL pattern and scraped again; a page no cached schema extracts opens a new review.')) return;
+    const notes = prompt('Why revoke?');
+    if (notes === null) return;
+    await submitVerdict('revoke-rejection', {notes: notes || null});
 }
 
 async function rejectReview() {

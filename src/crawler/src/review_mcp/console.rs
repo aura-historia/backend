@@ -12,8 +12,8 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 use url::Url;
 
-/// The longest console answer `review-mcp` reads; the review queue with its candidates is the
-/// largest one.
+/// The longest console answer `review-mcp` reads; a review with its candidate, stored schema matrix
+/// and URL sample is the largest one.
 const MAX_CONSOLE_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// The console answers within its own 30-second request deadline.

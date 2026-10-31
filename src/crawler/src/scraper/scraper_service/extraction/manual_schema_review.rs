@@ -36,15 +36,8 @@ impl ScraperServiceImpl {
         url: &Url,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<(), ScraperError> {
-        let Some(review_repository) = self.manual_schema_review_repository() else {
-            return Ok(());
-        };
-        let rejected = review_repository
-            .has_rejected_schema_review_for_page(
-                listing_source_id,
-                MANUAL_SCHEMA_REASON,
-                url.as_str(),
-            )
+        let rejected = self
+            .is_rejected_page(listing_source_id, url)
             .await
             .map_err(|error| {
                 ScraperError::from(review_error_to_schema_service_error(error.into()))
@@ -62,6 +55,26 @@ impl ScraperServiceImpl {
             url: url.clone(),
             details: "an operator rejected the manual schema review for this page".to_owned(),
         })
+    }
+
+    /// Whether a rejected manual review covers the page of the crawler URL `url`, in either
+    /// trailing-slash spelling: the verdict that it is no product page. `false` when the mode
+    /// authors no manual schemas.
+    pub(crate) async fn is_rejected_page(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+    ) -> Result<bool, sqlx::Error> {
+        let Some(review_repository) = self.manual_schema_review_repository() else {
+            return Ok(false);
+        };
+        review_repository
+            .has_rejected_schema_review_for_page(
+                listing_source_id,
+                MANUAL_SCHEMA_REASON,
+                url.as_str(),
+            )
+            .await
     }
 
     /// Opens the pending manual schema review for `listing_source_id` and returns the error that

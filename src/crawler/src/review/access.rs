@@ -4,14 +4,15 @@
 //! contract is in `docs/crawler/operations.md` (review service, review agents and review console
 //! access).
 
-use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
 use crate::review::agent_tokens::ReviewAgentTokens;
 use crate::review::http::{HttpResponse, ParsedRequest};
+use crate::review::live_jobs::{DEFAULT_MAX_CONCURRENT_LIVE_JOBS, MAX_CONCURRENT_LIVE_JOBS_ENV};
 use crate::review::model::ReviewActor;
 use dashmap::DashMap;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 use subtle::ConstantTimeEq;
@@ -40,8 +41,9 @@ pub struct ReviewServerConfig {
     /// [`ReviewActor::AgentAuthor`] or [`ReviewActor::AgentReviewer`]. `None` in every other mode,
     /// where nothing acts as an agent.
     pub(super) agent_tokens: Option<ReviewAgentTokens>,
-    /// What the agents may decide on their own; with the default they decide nothing.
-    pub agent_decisions: AgentDecisionPolicy,
+    /// How many live jobs (live matrix refreshes, candidate evaluations and page projections) the
+    /// console runs at once, for all reviews and actors together.
+    pub max_concurrent_live_jobs: NonZeroU32,
     /// Lets same-origin browser requests mutate review state without a token on a
     /// loopback bind. Only the local `dev` binary opts in through
     /// [`ReviewServerConfig::allow_local_mutations_without_token`], which keeps it
@@ -58,7 +60,8 @@ impl ReviewServerConfig {
             bind_addr,
             auth_token: token_from_env("CRAWLER_REVIEW_AUTH_TOKEN"),
             agent_tokens: None,
-            agent_decisions: AgentDecisionPolicy::from_env()?,
+            max_concurrent_live_jobs: positive_number(MAX_CONCURRENT_LIVE_JOBS_ENV)?
+                .unwrap_or(DEFAULT_MAX_CONCURRENT_LIVE_JOBS),
             local_mutations_without_token: false,
         }
         .validate()
@@ -83,8 +86,8 @@ impl ReviewServerConfig {
         Ok(self)
     }
 
-    /// This console opened to the author and reviewer agents with `tokens`, the reviewer agent
-    /// deciding within the approval guard: the review console of `agent` authoring mode. The
+    /// This console opened to the author and reviewer agents with `tokens`: the review console of
+    /// `agent` authoring mode, where the reviewer agent decides within the approval guard. The
     /// agents work next to a human credential for mutations, the review token or the `dev`
     /// binary's tokenless local console, so a human can always reject, restore and override what
     /// they do; without one it is refused. An unauthenticated request never acts as an agent.
@@ -97,13 +100,33 @@ impl ReviewServerConfig {
         }
         Ok(Self {
             agent_tokens: Some(tokens),
-            agent_decisions: AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
-                ..self.agent_decisions
-            },
             ..self
         })
     }
+}
+
+/// The trimmed value of `name`, `None` when it is unset, empty or whitespace-only. A value that
+/// is not valid Unicode is returned as `Err` to be refused like any other value not accepted.
+fn setting(name: &str) -> Result<Option<String>, String> {
+    match std::env::var(name) {
+        Ok(raw) if raw.trim().is_empty() => Ok(None),
+        Ok(raw) => Ok(Some(raw.trim().to_owned())),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(raw)) => Err(raw.to_string_lossy().into_owned()),
+    }
+}
+
+/// A whole-number setting of at least 1, `None` when it is unset, empty or whitespace-only. A
+/// value that is set but not accepted fails startup instead of silently changing a limit.
+pub(super) fn positive_number(
+    name: &'static str,
+) -> Result<Option<NonZeroU32>, ReviewServerConfigError> {
+    setting(name)
+        .and_then(|raw| {
+            raw.map(|raw| raw.parse::<NonZeroU32>().map_err(|_| raw))
+                .transpose()
+        })
+        .map_err(|value| ReviewServerConfigError::InvalidPositiveNumber { name, value })
 }
 
 /// A token setting, where an empty or whitespace-only value counts as unset.
@@ -143,19 +166,14 @@ impl ReviewAccess {
         self.config.agent_tokens.is_some()
     }
 
-    /// What the review agents may decide, which the startup log reports.
-    pub(super) fn agent_decisions(&self) -> &AgentDecisionPolicy {
-        &self.config.agent_decisions
-    }
-
     /// Authorizes a request and resolves who it acts as, or `None` when it is refused as
     /// unauthorized. An agent token reads the console API and makes review mutations as its
-    /// role, never opens or closes a browser session and never administers domains; what each
-    /// role may change is the repository's to refuse. The review token, a browser session (reads
-    /// and logout only) and the `dev` binary's local same-origin mutations act as
-    /// [`ReviewActor::Human`]. Without a configured review token the API is open to reads, which
-    /// record nothing; only a generated agent token is ever resolved as an agent. An
-    /// `Authorization` header that matches no token is refused on every API route: a supplied
+    /// role, never opens or closes a browser session, never administers domains and never fetches
+    /// a live preview; what each role may change is the repository's to refuse. The review token,
+    /// a browser session (reads and logout only) and the `dev` binary's local same-origin
+    /// mutations act as [`ReviewActor::Human`]. Without a configured review token the API is open
+    /// to reads, which record nothing; only a generated agent token is ever resolved as an agent.
+    /// An `Authorization` header that matches no token is refused on every API route: a supplied
     /// credential that fails is never downgraded to a session or to tokenless access.
     pub(super) fn authorize(&self, request: &ParsedRequest<'_>) -> Option<ReviewActor> {
         if !request.path.starts_with("/api/") {
@@ -184,9 +202,9 @@ impl ReviewAccess {
                 Bearer::Absent => local_mutation().then_some(ReviewActor::Human),
                 Bearer::Invalid => None,
             },
-            _ => match bearer {
+            (_, path) => match bearer {
                 Bearer::ReviewToken => Some(ReviewActor::Human),
-                Bearer::Agent(agent) => Some(agent),
+                Bearer::Agent(agent) => (!is_live_preview_route(path)).then_some(agent),
                 Bearer::Absent => {
                     (session() || self.config.auth_token.is_none()).then_some(ReviewActor::Human)
                 }
@@ -348,6 +366,16 @@ fn is_review_route(path: &str) -> bool {
     path.starts_with("/api/reviews/") || path.starts_with("/api/review-pages/")
 }
 
+/// The live previews, of any URL (`/api/live-inspect`, `/api/live-html`) and of a review page
+/// (`/api/review-pages/{id}/inspect`, `/html`), which only the browser console uses. They fetch a
+/// page outside the console's cap on live jobs and without asking whether its review waits for a
+/// human; the agents read a page as a review's page projection, a live job, instead.
+fn is_live_preview_route(path: &str) -> bool {
+    matches!(path, "/api/live-inspect" | "/api/live-html")
+        || (path.starts_with("/api/review-pages/")
+            && (path.ends_with("/inspect") || path.ends_with("/html")))
+}
+
 /// Browsers send `Origin` on every cross-origin mutation, so requiring it to equal
 /// the loopback `Host` rejects other sites and DNS-rebinding hosts.
 fn is_same_origin_loopback_request(headers: &std::collections::HashMap<String, String>) -> bool {
@@ -391,8 +419,8 @@ mod tests {
             bind_addr: bind_addr.parse().unwrap(),
             auth_token: auth_token.map(str::to_owned),
             agent_tokens: None,
-            agent_decisions: AgentDecisionPolicy::default(),
             local_mutations_without_token: false,
+            max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
         }
     }
 
@@ -492,8 +520,38 @@ mod tests {
         );
     }
 
-    /// No console reads agent tokens or turns agent decisions on from its settings: only `agent`
-    /// authoring mode opens it to the agents it generated tokens for.
+    /// The console's live-job limit defaults to four; a value that is set but not a whole number
+    /// of at least 1 fails startup with the variable and the value.
+    #[test]
+    #[serial_test::serial]
+    fn should_read_the_live_job_limit_and_refuse_a_value_that_is_not_accepted() {
+        let read = |value: Option<&str>| {
+            set_env(MAX_CONCURRENT_LIVE_JOBS_ENV, value);
+            let config = review_config_from(None, None);
+            set_env(MAX_CONCURRENT_LIVE_JOBS_ENV, None);
+            config
+        };
+        let limit = |value: Option<&str>| {
+            read(value)
+                .map(|config| config.max_concurrent_live_jobs.get())
+                .unwrap_or_else(|error| panic!("{value:?}: {error}"))
+        };
+
+        assert_eq!(limit(None), 4);
+        assert_eq!(limit(Some(" ")), 4);
+        assert_eq!(limit(Some(" 2 ")), 2);
+        for refused in ["0", "-1", "two"] {
+            assert_eq!(
+                read(Some(refused)).err().map(|error| error.to_string()),
+                Some(format!(
+                    "invalid CRAWLER_REVIEW_MAX_CONCURRENT_LIVE_JOBS value \"{refused}\"; expected a whole number of at least 1"
+                ))
+            );
+        }
+    }
+
+    /// No console reads agent tokens from its settings: only `agent` authoring mode opens it to the
+    /// agents it generated tokens for.
     #[test]
     #[serial_test::serial]
     fn should_open_the_console_read_from_its_settings_to_no_agent() {
@@ -501,7 +559,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("review config: {error}"));
 
         assert_eq!(config.agent_tokens, None);
-        assert_eq!(config.agent_decisions.approvals, AgentApprovals::Off);
     }
 
     /// The agents work next to a human credential for mutations, so a human can always decide
@@ -520,7 +577,6 @@ mod tests {
 
         for opened in [&with_review_token, &local_console] {
             assert_eq!(opened.agent_tokens, Some(agent_tokens()));
-            assert_eq!(opened.agent_decisions.approvals, AgentApprovals::Guarded);
         }
         let error = refused
             .err()
@@ -605,6 +661,36 @@ mod tests {
         "DELETE /api/listing-sources/ls_1/domains/cd_1",
         Some(REVIEWER_TOKEN),
         None
+    )]
+    #[case::author_token_fetches_no_live_preview(
+        "GET /api/live-inspect?url=https%3A%2F%2Fshop.example%2Fitem&review=cr_1",
+        Some(AUTHOR_TOKEN),
+        None
+    )]
+    #[case::reviewer_token_fetches_no_live_html(
+        "GET /api/live-html?url=https%3A%2F%2Fshop.example%2Fitem&review=cr_1",
+        Some(REVIEWER_TOKEN),
+        None
+    )]
+    #[case::review_token_fetches_a_live_preview(
+        "GET /api/live-inspect?url=https%3A%2F%2Fshop.example%2Fitem",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::author_token_previews_no_review_page(
+        "GET /api/review-pages/crp_1/inspect",
+        Some(AUTHOR_TOKEN),
+        None
+    )]
+    #[case::reviewer_token_fetches_no_review_page_html(
+        "GET /api/review-pages/crp_1/html",
+        Some(REVIEWER_TOKEN),
+        None
+    )]
+    #[case::review_token_previews_a_review_page(
+        "GET /api/review-pages/crp_1/inspect",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
     )]
     #[case::review_token_opens_a_browser_session(
         "POST /api/session",

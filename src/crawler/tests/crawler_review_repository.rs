@@ -27,7 +27,7 @@ use crawler::scraper::css_selector::removed_page_schema_repository::{
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
-    SpiderCandidateService, SpiderCandidateServiceImpl,
+    SpiderCandidateService, SpiderCandidateServiceImpl, UrlPatternReviewWaitWrite,
 };
 use crawler::spider::classification::url_classifier::UrlClassifier;
 use crawler::spider::classification::url_metadata::{
@@ -2292,12 +2292,19 @@ async fn mark_domain_waiting_for_url_pattern_review(pool: &PgPool, domain_id: Cr
     .unwrap();
 }
 
-async fn domain_crawl_schedule(
-    pool: &PgPool,
-    domain_id: CrawlerDomainId,
-) -> (Option<OffsetDateTime>, i32, Option<String>) {
+/// The domain's crawl state as the spider scheduler reads it and the ListingSource overview shows
+/// it.
+#[derive(Debug, sqlx::FromRow)]
+struct DomainCrawlSchedule {
+    last_crawl_outcome: Option<String>,
+    next_crawl_at: Option<OffsetDateTime>,
+    crawl_failure_count: i32,
+    last_crawl_error_kind: Option<String>,
+}
+
+async fn domain_crawl_schedule(pool: &PgPool, domain_id: CrawlerDomainId) -> DomainCrawlSchedule {
     sqlx::query_as(
-        "SELECT next_crawl_at, crawl_failure_count, last_crawl_error_kind \
+        "SELECT last_crawl_outcome, next_crawl_at, crawl_failure_count, last_crawl_error_kind \
          FROM listing_source_domains WHERE domain_id = $1",
     )
     .bind(domain_id.as_uuid())
@@ -2498,13 +2505,20 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
         ],
         "approval classifies the stored active URLs as the spider would; a sold URL keeps its class"
     );
-    let (next_crawl_at, failure_count, error_kind) = domain_crawl_schedule(&pool, domain_id).await;
+    let schedule = domain_crawl_schedule(&pool, domain_id).await;
     assert_eq!(
-        next_crawl_at, None,
+        schedule.next_crawl_at, None,
         "the decided review releases the domain"
     );
     assert_eq!(
-        (failure_count, error_kind.as_deref()),
+        schedule.last_crawl_outcome, None,
+        "the domain no longer reports a wait on the decided review"
+    );
+    assert_eq!(
+        (
+            schedule.crawl_failure_count,
+            schedule.last_crawl_error_kind.as_deref()
+        ),
         (1, Some("RateLimited")),
         "earlier failure state is left as it was"
     );
@@ -2615,8 +2629,12 @@ async fn should_release_waiting_domain_without_changing_pattern_when_url_pattern
         .await
         .unwrap();
 
-    let (next_crawl_at, ..) = domain_crawl_schedule(&pool, domain_id).await;
-    assert_eq!(next_crawl_at, None);
+    let schedule = domain_crawl_schedule(&pool, domain_id).await;
+    assert_eq!(schedule.next_crawl_at, None);
+    assert_eq!(
+        schedule.last_crawl_outcome, None,
+        "the domain no longer reports a wait on the rejected review"
+    );
     let (pattern, state): (Option<String>, String) = sqlx::query_as(
         "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
     )
@@ -2631,6 +2649,104 @@ async fn should_release_waiting_domain_without_changing_pattern_when_url_pattern
             .await,
         Err(ReviewRepositoryError::NotPending(_))
     ));
+}
+
+/// What the domain of a restored URL-pattern approval waits on when the approval is restored.
+#[derive(Clone, Copy, Debug)]
+enum WaitAtRestore {
+    /// A newer review of the domain, opened by a crawl after the approval, that is still pending.
+    NewerPendingReview,
+    /// No pending review: the recorded wait outlived the review it waited on.
+    NoPendingReview,
+}
+
+/// Approves a URL pattern for a domain, leaves the domain's crawl waiting as `wait` says, restores
+/// the approval and returns the domain's crawl state after the restore.
+async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> DomainCrawlSchedule {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "restored-pattern.example.com").await;
+    let sample = ["https://restored-pattern.example.com/item/1".to_owned()];
+    let approved =
+        undecided_url_pattern_review(&repository, listing_source_id, domain_id, &sample).await;
+    repository
+        .update_candidate_payload(
+            approved,
+            ReviewActor::Human,
+            candidate_version(&repository, approved).await,
+            json!(UrlPatternReviewCandidate {
+                decision: UrlPatternDecision::Pattern {
+                    value: "/item/".to_owned(),
+                },
+                current_pattern: None,
+                sample_labels: None,
+            }),
+        )
+        .await
+        .unwrap();
+    approve(
+        &repository,
+        approved,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
+    match wait {
+        WaitAtRestore::NewerPendingReview => {
+            let newer =
+                undecided_url_pattern_review(&repository, listing_source_id, domain_id, &sample)
+                    .await;
+            let wait_write = SpiderCandidateServiceImpl::new(pool.clone())
+                .mark_crawl_awaiting_url_pattern_review(
+                    &domain_id,
+                    &newer,
+                    OffsetDateTime::now_utc() + time::Duration::days(7),
+                )
+                .await
+                .unwrap();
+            assert_eq!(wait_write, UrlPatternReviewWaitWrite::Recorded);
+        }
+        WaitAtRestore::NoPendingReview => {
+            mark_domain_waiting_for_url_pattern_review(&pool, domain_id).await;
+        }
+    }
+
+    repository
+        .restore_approval(approved, ReviewActor::Human, None)
+        .await
+        .unwrap();
+    domain_crawl_schedule(&pool, domain_id).await
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_clear_a_wait_without_a_pending_review_when_a_url_pattern_approval_is_restored() {
+    let schedule = crawl_schedule_after_url_pattern_restore(WaitAtRestore::NoPendingReview).await;
+
+    assert_eq!(schedule.next_crawl_at, None);
+    assert_eq!(
+        schedule.last_crawl_outcome, None,
+        "the domain reports no wait on a review it no longer has"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_the_wait_on_a_newer_pending_review_when_url_pattern_approval_is_restored() {
+    let schedule =
+        crawl_schedule_after_url_pattern_restore(WaitAtRestore::NewerPendingReview).await;
+
+    assert_eq!(
+        schedule.next_crawl_at, None,
+        "the restore releases the domain as the approval did"
+    );
+    assert_eq!(
+        schedule.last_crawl_outcome.as_deref(),
+        Some(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME),
+        "the domain still waits on the newer review"
+    );
 }
 
 async fn pending_schema_review(

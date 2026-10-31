@@ -1,11 +1,12 @@
-//! What the runner reads from the review console with the author agent's token: the pending
-//! reviews the agents work, in the console's queue order, those that wait for a human, and the
-//! event trail of all reviews since a time, for the digest. The console decides what is pending
-//! and what waits for a human; the runner only picks which reviews this pass works.
+//! What the runner reads from the review console with the author agent's token: every page of the
+//! agents' queue (`GET /api/pending-reviews`), the pending reviews the agents work and those that
+//! wait for a human, whether a review waits for a human now, and the event trail of all reviews
+//! since a time, for the digest. The console decides what is pending and what waits for a human;
+//! the runner only picks which reviews this pass works.
 
 use crate::review::model::{
-    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, RepairRequest,
-    STATUS_PENDING_REVIEW,
+    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, PendingReviewPage,
+    PendingReviewSummary, RepairRequest,
 };
 use crate::review_mcp::{ConsoleClient, ConsoleError};
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
@@ -49,6 +50,8 @@ pub struct QueuedReview {
     pub review_id: CrawlerReviewId,
     pub artifact_type: ReviewArtifact,
     pub listing_source_name: Option<String>,
+    /// When a human last changed or judged the review, which handed it back to the agents.
+    pub handed_back: Option<OffsetDateTime>,
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -64,56 +67,131 @@ pub struct HumanRequiredReview {
     pub repair_request: Option<RepairRequest>,
 }
 
-/// The pending product-schema and URL-pattern reviews of crawl-enabled ListingSources, in the
-/// console's order: those the agents can work and those that wait for a human. A review of a
-/// disabled ListingSource holds nothing back, so it waits until the source is crawled again.
+/// Every pending product-schema and URL-pattern review of crawl-enabled ListingSources, oldest
+/// first: those the agents can work and those that wait for a human. A review of a disabled
+/// ListingSource holds nothing back, so it waits until the source is crawled again.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReviewQueue {
     pub workable: Vec<QueuedReview>,
     pub waiting_for_human: Vec<HumanRequiredReview>,
 }
 
-/// The console's review queue as the agents see it.
+/// The agents' queue: every page of the reviews they can work, then every page of those that wait
+/// for a human, so however many wait for a human, none takes a workable review's place.
 pub async fn review_queue(console: &ConsoleClient) -> Result<ReviewQueue, ConsoleError> {
-    let reviews: Vec<CrawlerReview> = console.get("/api/reviews").await?.decode()?;
-    Ok(ReviewQueue::of(reviews))
+    let workable = pending_reviews(console, false).await?;
+    let waiting_for_human = pending_reviews(console, true).await?;
+    Ok(ReviewQueue::of(workable, waiting_for_human))
+}
+
+/// Every page of the agents' queue whose reviews' `human_required` is `human_required`.
+async fn pending_reviews(
+    console: &ConsoleClient,
+    human_required: bool,
+) -> Result<Vec<PendingReviewSummary>, ConsoleError> {
+    every_page(|after| async move {
+        let mut path = format!("/api/pending-reviews?human_required={human_required}");
+        if let Some(after) = after {
+            path.push_str(&format!("&after={after}"));
+        }
+        console.get(&path).await?.decode()
+    })
+    .await
+}
+
+/// The reviews of every page `page` answers, from the first on: each page after the review the
+/// previous one names in `next_after`. Each review is kept once, and a page that adds none ends
+/// the read, so a console that repeats a page cannot keep the runner reading.
+async fn every_page<Page, Fut>(mut page: Page) -> Result<Vec<PendingReviewSummary>, ConsoleError>
+where
+    Page: FnMut(Option<CrawlerReviewId>) -> Fut,
+    Fut: Future<Output = Result<PendingReviewPage, ConsoleError>>,
+{
+    let mut reviews: Vec<PendingReviewSummary> = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut after = None;
+    loop {
+        let answer = page(after).await?;
+        let before = reviews.len();
+        reviews.extend(
+            answer
+                .reviews
+                .into_iter()
+                .filter(|review| seen.insert(review.review_id)),
+        );
+        match answer.next_after {
+            Some(next) if reviews.len() > before => after = Some(next),
+            _ => return Ok(reviews),
+        }
+    }
 }
 
 impl ReviewQueue {
-    fn of(reviews: Vec<CrawlerReview>) -> Self {
-        let mut queue = Self::default();
-        for review in reviews {
-            if review.status != STATUS_PENDING_REVIEW || !review.listing_source_crawl_enabled {
-                continue;
-            }
-            let Some(artifact_type) = ReviewArtifact::parse(&review.artifact_type) else {
-                continue;
-            };
-            if review.human_required {
-                queue.waiting_for_human.push(HumanRequiredReview {
-                    review_id: review.review_id,
-                    artifact_type,
-                    listing_source_name: review.listing_source_name,
-                    agent_rounds: review.agent_rounds,
-                    repair_request: review.repair_request,
-                });
-            } else {
-                queue.workable.push(QueuedReview {
-                    review_id: review.review_id,
-                    artifact_type,
-                    listing_source_name: review.listing_source_name,
-                });
-            }
+    /// The queue of the `workable` reviews and of those `waiting_for_human`, read after them: a
+    /// review that came to wait for a human between the two reads waits for one.
+    fn of(
+        workable: Vec<PendingReviewSummary>,
+        waiting_for_human: Vec<PendingReviewSummary>,
+    ) -> Self {
+        let waiting_ids: BTreeSet<CrawlerReviewId> = waiting_for_human
+            .iter()
+            .map(|review| review.review_id)
+            .collect();
+        Self {
+            workable: workable
+                .into_iter()
+                .filter(|review| !waiting_ids.contains(&review.review_id))
+                .filter_map(|review| {
+                    Some(QueuedReview {
+                        review_id: review.review_id,
+                        artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
+                        listing_source_name: Some(review.listing_source_name),
+                        handed_back: review.handed_back,
+                    })
+                })
+                .collect(),
+            waiting_for_human: waiting_for_human
+                .into_iter()
+                .filter_map(|review| {
+                    Some(HumanRequiredReview {
+                        review_id: review.review_id,
+                        artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
+                        listing_source_name: Some(review.listing_source_name),
+                        agent_rounds: review.agent_rounds,
+                        repair_request: review.repair_request,
+                    })
+                })
+                .collect(),
         }
-        queue
     }
+}
+
+/// `GET /api/reviews/{id}`, of which the runner reads only the review.
+#[derive(Debug, Deserialize)]
+struct ReviewDetail {
+    review: CrawlerReview,
+}
+
+/// Whether the console says `review_id` waits for a human now: the agents' needs-repair rounds
+/// on it reached the cap, so it refuses every agent change and verdict on it.
+pub async fn waits_for_human(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<bool, ConsoleError> {
+    let detail: ReviewDetail = console
+        .get(&format!("/api/reviews/{review_id}"))
+        .await?
+        .decode()?;
+    Ok(detail.review.human_required)
 }
 
 /// The `max` reviews of `queue` this pass works, and how many of the others are cooling down.
 /// A review whose cooldown has not passed by `now` waits. Of the others, those no agent process
 /// worked within the ledger's window come first, in the console's order, then those worked
-/// longest ago, by `last_worked`: a review handed back and forth with needs-repair verdicts never
-/// keeps the rest of the queue waiting.
+/// longest ago, by `last_worked`: a review the agents hand back and forth with needs-repair
+/// verdicts never keeps the rest of the queue waiting. A review a human handed back after its
+/// last process, such as one that waited for a human at the repair cap, counts as not worked:
+/// the agents answer the human ahead of the reviews they worked since.
 pub fn select_reviews(
     queue: Vec<QueuedReview>,
     cooldowns: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
@@ -126,7 +204,12 @@ pub fn select_reviews(
             .get(&review.review_id)
             .is_some_and(|until| *until > now)
     });
-    ready.sort_by_key(|review| last_worked.get(&review.review_id).copied());
+    ready.sort_by_key(|review| {
+        last_worked
+            .get(&review.review_id)
+            .copied()
+            .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked))
+    });
     (ready.into_iter().take(max).collect(), cooling.len())
 }
 
@@ -229,6 +312,7 @@ mod tests {
                 review_id: CrawlerReviewId::new(),
                 artifact_type: ReviewArtifact::ProductSchema,
                 listing_source_name: None,
+                handed_back: None,
             })
             .collect()
     }
@@ -266,6 +350,163 @@ mod tests {
         assert_eq!(
             selected,
             vec![queue[2].clone(), queue[3].clone(), queue[1].clone()]
+        );
+    }
+
+    /// A review a human handed back after its last process counts as not worked, in the
+    /// console's order, so the agents answer the human ahead of the reviews they worked since;
+    /// one handed back before its last process keeps its place.
+    #[test]
+    fn should_work_a_review_a_human_handed_back_since_its_last_process_as_not_worked() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let mut queue = queued(4);
+        queue[0].handed_back = Some(now - Duration::minutes(10));
+        queue[1].handed_back = Some(now - Duration::hours(6));
+        let last_worked = BTreeMap::from([
+            (queue[0].review_id, now - Duration::hours(2)),
+            (queue[1].review_id, now - Duration::hours(5)),
+            (queue[2].review_id, now - Duration::hours(1)),
+        ]);
+
+        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 4);
+
+        assert_eq!(
+            selected,
+            vec![
+                queue[0].clone(),
+                queue[3].clone(),
+                queue[1].clone(),
+                queue[2].clone()
+            ]
+        );
+    }
+
+    fn summary(human_required: bool) -> PendingReviewSummary {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        PendingReviewSummary {
+            review_id: CrawlerReviewId::new(),
+            listing_source_id: listing_source_core::ListingSourceId::new(),
+            listing_source_name: "Antiques".to_owned(),
+            domain_id: None,
+            artifact_type: "PRODUCT_SCHEMA".to_owned(),
+            reason: "manual_schema_required".to_owned(),
+            candidate_version: 1,
+            repair_request: None,
+            agent_rounds: if human_required { 3 } else { 0 },
+            human_required,
+            handed_back: None,
+            created: now,
+            updated: now,
+        }
+    }
+
+    /// A console that answers `reviews` in pages of `page_size`, each after the review its
+    /// `after` names, as `GET /api/pending-reviews` does, and records each `after` it was asked for.
+    fn paged_queue(
+        reviews: &[PendingReviewSummary],
+        page_size: usize,
+        asked: &std::sync::Mutex<Vec<Option<CrawlerReviewId>>>,
+        after: Option<CrawlerReviewId>,
+    ) -> Result<PendingReviewPage, ConsoleError> {
+        asked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(after);
+        let start = after.map_or(0, |after| {
+            reviews
+                .iter()
+                .position(|review| review.review_id == after)
+                .map_or(reviews.len(), |index| index + 1)
+        });
+        let page: Vec<PendingReviewSummary> = reviews
+            .iter()
+            .skip(start)
+            .take(page_size)
+            .cloned()
+            .collect();
+        let next_after = (start + page.len() < reviews.len())
+            .then(|| page.last().map(|review| review.review_id))
+            .flatten();
+        Ok(PendingReviewPage {
+            reviews: page,
+            next_after,
+            totals: crate::review::model::PendingReviewTotals {
+                workable: i64::try_from(reviews.len()).unwrap_or(i64::MAX),
+                waiting_for_human: 0,
+            },
+        })
+    }
+
+    #[tokio::test]
+    async fn should_read_every_page_of_the_queue_after_the_review_the_previous_one_ended_with() {
+        let reviews: Vec<PendingReviewSummary> = (0..5).map(|_| summary(false)).collect();
+        let asked = std::sync::Mutex::new(Vec::new());
+
+        let read = every_page(|after| {
+            let answer = paged_queue(&reviews, 2, &asked, after);
+            async move { answer }
+        })
+        .await
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(read, reviews);
+        assert_eq!(
+            asked.into_inner().unwrap_or_default(),
+            [None, Some(reviews[1].review_id), Some(reviews[3].review_id)]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_stop_reading_the_queue_when_a_page_adds_no_review() {
+        let reviews: Vec<PendingReviewSummary> = (0..3).map(|_| summary(false)).collect();
+        let asked = std::sync::Mutex::new(Vec::new());
+
+        // A console that answers the first page whatever it is asked for.
+        let read = every_page(|_| {
+            let answer = paged_queue(&reviews, 2, &asked, None);
+            async move { answer }
+        })
+        .await
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(read, reviews[..2]);
+        assert_eq!(asked.into_inner().unwrap_or_default().len(), 2);
+    }
+
+    #[test]
+    fn should_keep_a_review_that_came_to_wait_for_a_human_between_the_reads_from_the_agents() {
+        let workable = PendingReviewSummary {
+            handed_back: Some(OffsetDateTime::UNIX_EPOCH + Duration::days(9_999)),
+            ..summary(false)
+        };
+        let handed_over = summary(false);
+        let waiting = summary(true);
+        let handed_over_now = PendingReviewSummary {
+            agent_rounds: 3,
+            human_required: true,
+            ..handed_over.clone()
+        };
+
+        let queue = ReviewQueue::of(
+            vec![workable.clone(), handed_over],
+            vec![waiting.clone(), handed_over_now.clone()],
+        );
+
+        assert_eq!(
+            queue
+                .workable
+                .iter()
+                .map(|review| (review.review_id, review.handed_back))
+                .collect::<Vec<_>>(),
+            [(workable.review_id, workable.handed_back)]
+        );
+        assert_eq!(
+            queue
+                .waiting_for_human
+                .iter()
+                .map(|review| (review.review_id, review.agent_rounds))
+                .collect::<Vec<_>>(),
+            [(waiting.review_id, 3), (handed_over_now.review_id, 3)]
         );
     }
 

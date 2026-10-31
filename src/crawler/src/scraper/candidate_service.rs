@@ -66,8 +66,8 @@ impl SchemaReviewWait {
     }
 }
 
-/// URL failure state for a page that waits on a pending product-schema review, together
-/// with the wait it records.
+/// Retry state for a page that waits on a pending product-schema review, written in the shape of
+/// a URL failure but not counted as one, together with the wait it records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaReviewWaitRequest {
     pub url_failure: FetchFailureRequest,
@@ -177,6 +177,14 @@ pub fn next_domain_failure_streak(
     }
 }
 
+/// A domain whose scraping only a pending review holds back, so it has no scraper batch to
+/// record its scrapes until the review is decided.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainAwaitingReview {
+    pub listing_source_id: ListingSourceId,
+    pub listing_source_domain: String,
+}
+
 /// Per-ListingSource LLM usage snapshot for operational logging.
 pub struct ListingSourceLlmUsage {
     pub listing_source_id: ListingSourceId,
@@ -200,8 +208,17 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Counts the URLs due for scraping, by the same eligibility rule as
     /// [`ScraperCandidateService::get_candidates`].
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
-    /// Returns a random sample of product URLs for a ListingSource (excluding the current
-    /// URL) to seed first-time schema generation with additional page layouts.
+    /// Lists the domains whose scraping only a pending review holds back: domains that pass
+    /// the ListingSource and domain conditions of [`ScraperCandidateService::get_candidates`]
+    /// while they have a product URL pattern and their ListingSource has no product schema and
+    /// a pending product-schema review, or while they have no product URL pattern and their
+    /// URL-pattern review is pending, so the spider classified none of their URLs as products.
+    async fn domains_awaiting_review(&self) -> Result<Vec<DomainAwaitingReview>, sqlx::Error>;
+    /// Returns a random sample of product URLs for a ListingSource, other than the stored URLs
+    /// `excluded_urls` names, to seed first-time schema generation with additional page layouts.
+    /// A URL is drawn only while its retry is due and it recorded no fetch failure or
+    /// schema-generation outcome since its last completed scrape; waiting on a product-schema
+    /// review is neither.
     ///
     /// This query intentionally uses `ORDER BY RANDOM()` because the path is
     /// only used on schema cache misses, which are rare (typically one-time per
@@ -210,7 +227,7 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        exclude_url: &Url,
+        excluded_urls: &[String],
         limit: i64,
     ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error>;
     async fn mark_as_scraped(
@@ -314,8 +331,9 @@ pub trait ScraperCandidateService: Send + Sync {
         Ok(CrawlerUrlWriteOutcome::NoopStale)
     }
 
-    /// Records URL failure state for a page that waits on a pending product-schema review,
-    /// including the review it waits on and the consecutive-wait streak. The write is
+    /// Records URL retry state for a page that waits on a pending product-schema review,
+    /// including the review it waits on and the consecutive-wait streak. The wait is no failure
+    /// and leaves the URL's failure count as it was. The write is
     /// [`NoopStale`](CrawlerUrlWriteOutcome::NoopStale) once that review is no longer pending,
     /// so a scrape that overlapped the verdict on the review cannot hold back a page the verdict
     /// released.
@@ -417,6 +435,10 @@ impl ScraperCandidateServiceImpl {
     /// Candidate selection reads a wait only while `last_error_kind` is still
     /// `PendingSchemaReview`, so writes that leave the columns cannot extend a streak either.
     ///
+    /// A wait is no failure: it leaves `failure_count` as it was, so a page that only waited on a
+    /// review stays a [schema seed](ScraperCandidateService::get_random_product_urls_for_schema_seed)
+    /// once the review releases it. Every other failure counts one more.
+    ///
     /// The pending check share-locks the review row before the URL row is written. Approval and
     /// rejection lock the review row first and release the waiting pages last, so a wait written
     /// while either verdict commits waits for it and then finds the review closed, instead of
@@ -433,7 +455,9 @@ impl ScraperCandidateServiceImpl {
 
         let result = sqlx::query(
             "UPDATE listing_source_urls
-             SET failure_count = failure_count + 1,
+             SET failure_count = CASE WHEN $8::uuid IS NULL
+                                      THEN failure_count + 1
+                                      ELSE failure_count END,
                  last_error_kind = $3,
                  last_error_message = $4,
                  last_status_code = $5,
@@ -538,12 +562,48 @@ struct ScraperCandidateRow {
     schema_review_wait_streak: i32,
 }
 
+/// The ListingSource and domain conditions of scraper eligibility over `listing_sources s` and
+/// `listing_source_domains sd`: crawling is enabled, the ListingSource has LLM budget left
+/// (`$1`, the per-ListingSource LLM call cap) and the domain circuit is not cooling down.
+macro_rules! scrapable_domain_conditions {
+    () => {
+        r#"s.crawl_enabled = TRUE
+          AND s.llm_calls_count < $1
+          AND (sd.scrape_failure_streak = 0
+               OR sd.next_scrape_at IS NULL
+               OR sd.next_scrape_at <= NOW())"#
+    };
+}
+
+/// Whether the ListingSource of `listing_source_domains sd` waits on its first product schema:
+/// it has no product schema while its product-schema review is pending, so none of its URLs is
+/// scraped until the review is decided.
+macro_rules! awaits_first_product_schema {
+    () => {
+        r#"(NOT EXISTS (
+                  SELECT 1
+                  FROM listing_source_product_schemas ps
+                  WHERE ps.listing_source_id = sd.listing_source_id
+                    AND (jsonb_typeof(ps.product_schema) <> 'array'
+                         OR jsonb_array_length(ps.product_schema) > 0)
+              )
+              AND EXISTS (
+                  SELECT 1
+                  FROM crawler_reviews cr
+                  WHERE cr.listing_source_id = sd.listing_source_id
+                    AND cr.artifact_type = 'PRODUCT_SCHEMA'
+                    AND cr.status = 'PENDING_REVIEW'
+              ))"#
+    };
+}
+
 /// The URLs due for scraping, shared by every query that selects or counts them so their
 /// definitions cannot drift. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the
 /// domain IDs to leave out.
 macro_rules! eligible_scraper_urls_cte {
     () => {
-        r#"
+        concat!(
+            r#"
     WITH eligible_urls AS (
         SELECT
             su.listing_source_id, sd.domain_id, sd.listing_source_domain,
@@ -569,33 +629,19 @@ macro_rules! eligible_scraper_urls_cte {
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
         JOIN listing_source_domains sd
           ON sd.listing_source_id = su.listing_source_id AND sd.domain_id = su.domain_id
-        WHERE s.crawl_enabled = TRUE
-          AND s.llm_calls_count < $1
+        WHERE "#,
+            scrapable_domain_conditions!(),
+            r#"
           AND su.url_class = 'product'
           AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
           AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
           AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
-          AND (sd.scrape_failure_streak = 0
-               OR sd.next_scrape_at IS NULL
-               OR sd.next_scrape_at <= NOW())
-          AND (
-              EXISTS (
-                  SELECT 1
-                  FROM listing_source_product_schemas ps
-                  WHERE ps.listing_source_id = su.listing_source_id
-                    AND (jsonb_typeof(ps.product_schema) <> 'array'
-                         OR jsonb_array_length(ps.product_schema) > 0)
-              )
-              OR NOT EXISTS (
-                  SELECT 1
-                  FROM crawler_reviews cr
-                  WHERE cr.listing_source_id = su.listing_source_id
-                    AND cr.artifact_type = 'PRODUCT_SCHEMA'
-                    AND cr.status = 'PENDING_REVIEW'
-              )
-          )
+          AND NOT "#,
+            awaits_first_product_schema!(),
+            r#"
           AND NOT (sd.domain_id = ANY($2))
     )"#
+        )
     };
 }
 
@@ -640,6 +686,38 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
 const DUE_SCRAPER_URL_COUNT_QUERY: &str = concat!(
     eligible_scraper_urls_cte!(),
     "\n    SELECT COUNT(*) FROM eligible_urls"
+);
+
+/// Binds `$1`, the per-ListingSource LLM call cap, as the [`eligible_scraper_urls_cte`] does.
+/// A domain without a `MATCHED` pattern has no active product URL: the spider stores none of its
+/// URLs as a product, and every URL-pattern decision classifies the domain's stored active URLs with
+/// the live pattern. So the first product schema holds back only a domain with a `MATCHED`
+/// pattern, and a domain without one waits only on its own URL-pattern review; any other domain
+/// without product URLs is stuck on its crawl, not on a review. Reading the pattern state keeps
+/// the query off the domain's URLs, which a crawl waiting on its review may have stored by the
+/// hundred thousand.
+const DOMAINS_AWAITING_REVIEW_QUERY: &str = concat!(
+    r#"
+    SELECT sd.listing_source_id, sd.listing_source_domain
+    FROM listing_source_domains sd
+    JOIN listing_sources s ON s.listing_source_id = sd.listing_source_id
+    WHERE "#,
+    scrapable_domain_conditions!(),
+    r#"
+      AND ((sd.url_pattern_state = 'MATCHED'
+            AND "#,
+    awaits_first_product_schema!(),
+    r#")
+           OR (sd.url_pattern_state <> 'MATCHED'
+               AND EXISTS (
+                   SELECT 1
+                   FROM crawler_reviews cr
+                   WHERE cr.domain_id = sd.domain_id
+                     AND cr.artifact_type = 'URL_PATTERN'
+                     AND cr.status = 'PENDING_REVIEW'
+               )))
+    ORDER BY sd.listing_source_domain
+    "#
 );
 
 #[async_trait]
@@ -719,11 +797,27 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         u64::try_from(count).map_err(|error| sqlx::Error::Decode(Box::new(error)))
     }
 
+    async fn domains_awaiting_review(&self) -> Result<Vec<DomainAwaitingReview>, sqlx::Error> {
+        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(DOMAINS_AWAITING_REVIEW_QUERY)
+            .bind(self.max_llm_calls_per_listing_source)
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter()
+            .map(|(listing_source_id, listing_source_domain)| {
+                Ok(DomainAwaitingReview {
+                    listing_source_id: ListingSourceId::try_from(listing_source_id)
+                        .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+                    listing_source_domain,
+                })
+            })
+            .collect()
+    }
+
     async fn get_random_product_urls_for_schema_seed(
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        exclude_url: &Url,
+        excluded_urls: &[String],
         limit: i64,
     ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
@@ -741,7 +835,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
               AND su.domain_id = $2
               AND su.url_class = 'product'
               AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-              AND su.url <> $3
+              AND su.url <> ALL($3::text[])
               AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
               AND su.failure_count = 0
               AND (sd.scrape_failure_streak = 0
@@ -756,7 +850,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         )
         .bind(listing_source_id_uuid)
         .bind(domain_id_uuid)
-        .bind(exclude_url.to_string())
+        .bind(excluded_urls)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;

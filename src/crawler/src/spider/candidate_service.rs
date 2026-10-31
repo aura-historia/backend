@@ -1,5 +1,5 @@
-use crate::CrawlerDomainId;
 use crate::spider::discovery::website_spider::CrawlCompletion;
+use crate::{CrawlerDomainId, CrawlerReviewId};
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
@@ -12,13 +12,25 @@ pub const SPIDER_RECRAWL_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 
 pub const FAILED_CRAWL_OUTCOME: &str = "FAILED";
 
 /// Persisted `last_crawl_outcome` of a run that stopped classifying at a
-/// pending URL-pattern review. The review's decision releases the domain.
+/// pending URL-pattern review. The review's decision releases the domain and
+/// clears this outcome.
 pub const AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME: &str = "AWAITING_URL_PATTERN_REVIEW";
 
 /// Persisted `last_crawl_outcome` of a domain whose deterministic failures
 /// kept repeating. It is not selected again until an operator changes its
 /// configuration, which replaces the domain row.
 pub const NEEDS_OPERATOR_CRAWL_OUTCOME: &str = "NEEDS_OPERATOR";
+
+/// Whether [`SpiderCandidateService::mark_crawl_awaiting_url_pattern_review`] recorded the wait.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UrlPatternReviewWaitWrite {
+    /// The review was still pending: the domain waits for its decision.
+    Recorded,
+    /// The review is no longer a pending URL-pattern review of the domain, typically because it
+    /// was decided while the crawl ran. Nothing was written: the decision released the domain,
+    /// and its crawl state stays as the decision left it.
+    ReviewNotPending,
+}
 
 pub struct SpiderCandidate {
     pub listing_source_id: ListingSourceId,
@@ -59,14 +71,15 @@ pub trait SpiderCandidateService: Send + Sync {
         crawl_truncation_count: i32,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error>;
-    /// Records a crawl that waits for a URL-pattern review without touching
-    /// failure or truncation state. `next_crawl_at` is the latest the domain
-    /// waits; the review's decision releases it sooner.
+    /// Records a crawl that waits for the URL-pattern review `review_id` without touching
+    /// failure or truncation state, while that review is still a pending review of the domain.
+    /// `next_crawl_at` is the latest the domain waits; the review's decision releases it sooner.
     async fn mark_crawl_awaiting_url_pattern_review(
         &self,
         domain_id: &CrawlerDomainId,
+        review_id: &CrawlerReviewId,
         next_crawl_at: time::OffsetDateTime,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<UrlPatternReviewWaitWrite, sqlx::Error>;
     /// Records a repeated deterministic failure and takes the domain out of
     /// the schedule until an operator acts.
     async fn mark_crawl_needs_operator(
@@ -228,24 +241,43 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         Ok(())
     }
 
+    /// The pending check share-locks the review row before the domain row is written. Approval
+    /// and rejection lock the review row first and release the domain before they commit, so a
+    /// wait written while either verdict commits waits for it and then finds the review closed,
+    /// instead of passing a check that read the review before the verdict committed and parking
+    /// the domain the verdict just released.
     async fn mark_crawl_awaiting_url_pattern_review(
         &self,
         domain_id: &CrawlerDomainId,
+        review_id: &CrawlerReviewId,
         next_crawl_at: time::OffsetDateTime,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    ) -> Result<UrlPatternReviewWaitWrite, sqlx::Error> {
+        let result = sqlx::query(
             "UPDATE listing_source_domains
              SET next_crawl_at = $2,
                  last_crawl_outcome = $3
-             WHERE domain_id = $1",
+             WHERE domain_id = $1
+               AND EXISTS (
+                   SELECT 1
+                   FROM crawler_reviews cr
+                   WHERE cr.review_id = $4
+                     AND cr.domain_id = $1
+                     AND cr.artifact_type = 'URL_PATTERN'
+                     AND cr.status = 'PENDING_REVIEW'
+                   FOR SHARE
+               )",
         )
         .bind(domain_id.as_uuid())
         .bind(next_crawl_at)
         .bind(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
+        .bind(review_id.as_uuid())
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(match result.rows_affected() {
+            0 => UrlPatternReviewWaitWrite::ReviewNotPending,
+            _ => UrlPatternReviewWaitWrite::Recorded,
+        })
     }
 
     async fn mark_crawl_needs_operator(

@@ -11,6 +11,7 @@ use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
@@ -97,6 +98,12 @@ pub(super) enum ReviewMutation<'a> {
         /// The domain's URL-pattern decision the restore replaced.
         replaced_url_pattern: DomainUrlPattern,
     },
+    RejectionRevoked {
+        #[serde(skip)]
+        notes: Option<&'a str>,
+        /// The crawler URLs of the rejected pages whose class the revocation changed.
+        reclassified_urls: Vec<String>,
+    },
 }
 
 /// A domain's URL-pattern decision as `listing_source_domains` stores it.
@@ -104,6 +111,18 @@ pub(super) enum ReviewMutation<'a> {
 pub(super) struct DomainUrlPattern {
     pub(super) url_pattern: Option<String>,
     pub(super) url_pattern_state: String,
+}
+
+impl DomainUrlPattern {
+    /// The pattern that classifies the domain's URLs as products: only a `MATCHED` decision has
+    /// one.
+    pub(super) fn live_pattern(&self) -> Result<Option<Regex>, regex::Error> {
+        self.url_pattern
+            .as_deref()
+            .filter(|_| self.url_pattern_state == "MATCHED")
+            .map(Regex::new)
+            .transpose()
+    }
 }
 
 /// The live product-schema configuration an approval replaced and the one it made live, as the
@@ -145,6 +164,7 @@ impl ReviewMutation<'_> {
             Self::ProductSchemasRestored { .. } | Self::UrlPatternRestored { .. } => {
                 ReviewEventAction::Restored
             }
+            Self::RejectionRevoked { .. } => ReviewEventAction::RejectionRevoked,
         }
     }
 
@@ -155,7 +175,8 @@ impl ReviewMutation<'_> {
             | Self::UrlPatternApproved { notes, .. }
             | Self::Rejected { notes }
             | Self::ProductSchemasRestored { notes, .. }
-            | Self::UrlPatternRestored { notes, .. } => *notes,
+            | Self::UrlPatternRestored { notes, .. }
+            | Self::RejectionRevoked { notes, .. } => *notes,
             Self::CandidateEdited { .. }
             | Self::SampleLabelsEdited { .. }
             | Self::SchemaFieldEdited { .. }
@@ -516,6 +537,15 @@ mod tests {
                 ReviewEventAction::Rejected,
                 Some("not a shop page"),
                 json!({}),
+            ),
+            (
+                ReviewMutation::RejectionRevoked {
+                    notes: Some("the agent rejected product pages"),
+                    reclassified_urls: vec!["https://shop.example/item/1".to_owned()],
+                },
+                ReviewEventAction::RejectionRevoked,
+                Some("the agent rejected product pages"),
+                json!({ "reclassified_urls": ["https://shop.example/item/1"] }),
             ),
         ] {
             assert_eq!(mutation.action(), action);

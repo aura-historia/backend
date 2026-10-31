@@ -1,14 +1,18 @@
-//! The result envelope `claude -p --output-format json` prints when a process ends, and what it
-//! means for the runner. Every key is optional and read with a default, so a CLI that adds,
-//! renames or drops a key degrades to a failed process instead of a crash; a value of the wrong
-//! type counts as missing. The envelope's texts (`result`, `errors`) are read only to recognise a
-//! usage limit and are never logged or stored: they can carry what the agent read.
+//! What a `claude -p --output-format stream-json --verbose` process printed, and what it means for
+//! the runner: the result envelope of its last `result` line, and the last `rate_limit_event`,
+//! whose `resetsAt` is the CLI's structured reset time of a usage limit that rejected a request.
+//! Every other line, what the agent read among them, is dropped once its type is read. Every key
+//! is optional and read with a default, so a CLI that adds, renames or drops a key degrades to a
+//! failed process instead of a crash; a value of the wrong type counts as missing. The envelope's
+//! texts (`result`, `errors`) are read only to recognise a usage limit and are never stored; they
+//! can carry what the agent read, so the log gets at most the line of a usage-limit message whose
+//! reset time the runner cannot read.
 
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::LazyLock;
-use time::{Date, Duration, Month, OffsetDateTime, PrimitiveDateTime, Time};
+use time::{Date, Duration, Month, OffsetDateTime, PrimitiveDateTime, Time, Weekday};
 
 /// How long the runner pauses after a usage limit whose reset time it cannot read.
 pub const UNREADABLE_RESET_PAUSE: Duration = Duration::hours(1);
@@ -16,6 +20,10 @@ pub const UNREADABLE_RESET_PAUSE: Duration = Duration::hours(1);
 const MAX_PAUSE: Duration = Duration::days(8);
 /// The longest `subtype` or `terminal_reason` the runner records.
 const MAX_REASON_CHARS: usize = 64;
+/// The longest part of a usage-limit message the runner logs.
+const MAX_LIMIT_MESSAGE_CHARS: usize = 200;
+/// The zones a reset time may name; the runner starts the CLI in UTC.
+const UTC_ZONES: [&str; 5] = ["UTC", "Etc/UTC", "GMT", "Etc/GMT", "Z"];
 
 /// The token counts of a process, summed over its models.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -52,23 +60,58 @@ pub struct ResultEnvelope {
     pub total_cost_usd: f64,
     pub num_turns: u64,
     pub duration_ms: u64,
+    /// The stream's last `rate_limit_event`, when it rejected a request.
+    rejection: Option<RateLimitRejection>,
+}
+
+/// A `rate_limit_event` whose request the login's usage limits rejected.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct RateLimitRejection {
+    /// `resetsAt`, in Unix epoch seconds; `None` when it is missing or no time.
+    resets_at: Option<OffsetDateTime>,
+    /// `errorCode` `credits_required`: the subscription's included usage is spent, and only
+    /// usage credits would go on.
+    credits_required: bool,
+}
+
+impl RateLimitRejection {
+    /// The rejection a `rate_limit_event` reports; `None` for an event that allowed its request.
+    fn of(event: &Value) -> Option<Self> {
+        let info = event.get("rate_limit_info")?;
+        if info.get("status").and_then(Value::as_str) != Some("rejected") {
+            return None;
+        }
+        Some(Self {
+            resets_at: info
+                .get("resetsAt")
+                .and_then(Value::as_i64)
+                .and_then(|seconds| OffsetDateTime::from_unix_timestamp(seconds).ok()),
+            credits_required: info.get("errorCode").and_then(Value::as_str)
+                == Some("credits_required"),
+        })
+    }
 }
 
 impl ResultEnvelope {
-    /// The envelope on a process's stdout: the one JSON object it prints, or the last line that
-    /// is one. `None` when there is none.
+    /// The envelope of a process's stream on its stdout: its last `result` line, with the last
+    /// `rate_limit_event` before it. `None` when no line is a result.
     pub fn parse(stdout: &[u8]) -> Option<Self> {
         let text = String::from_utf8_lossy(stdout);
-        let object = serde_json::from_str::<Value>(text.trim())
-            .ok()
-            .filter(Value::is_object)
-            .or_else(|| {
-                text.lines()
-                    .rev()
-                    .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-                    .find(|value| value.get("type").and_then(Value::as_str) == Some("result"))
-            })?;
-        Some(Self::of(&object))
+        let mut result = None;
+        let mut rate_limit_event = None;
+        for message in text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        {
+            match message.get("type").and_then(Value::as_str) {
+                Some("result") => result = Some(message),
+                Some("rate_limit_event") => rate_limit_event = Some(message),
+                _ => {}
+            }
+        }
+        let mut envelope = Self::of(&result?);
+        envelope.rejection = rate_limit_event.as_ref().and_then(RateLimitRejection::of);
+        Some(envelope)
     }
 
     fn of(envelope: &Value) -> Self {
@@ -118,6 +161,7 @@ impl ResultEnvelope {
                 .unwrap_or(0.0),
             num_turns: number("num_turns"),
             duration_ms: number("duration_ms"),
+            rejection: None,
         }
     }
 }
@@ -174,11 +218,14 @@ pub enum UsageLimitKind {
 }
 
 /// A usage limit of the CLI's login, and when it resets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageLimit {
     pub kind: UsageLimitKind,
     /// The reset time the CLI reported, `None` when it named none the runner can read.
     pub resets_at: Option<OffsetDateTime>,
+    /// The line of the CLI's limit message, shortened, for the log when the reset time cannot
+    /// be read; `None` when the CLI reported the limit without one.
+    pub message: Option<String>,
 }
 
 impl UsageLimit {
@@ -238,46 +285,85 @@ impl ResultEnvelope {
         }
     }
 
-    /// The usage limit an error envelope reports: the CLI's typed `usage_limit_reached`, or its
-    /// limit message (`You've hit your 5-hour limit · resets 3pm (UTC)`).
+    /// The usage limit an error envelope reports. The CLI's limit message (`You've hit your
+    /// weekly limit · resets Mon 12:00am`) or its typed `usage_limit_reached` says that it is
+    /// one, and so does a rejecting `rate_limit_event` before a 429. The event's `resetsAt` is
+    /// the reset time; the message's is read only without it.
     fn usage_limit(&self, now: OffsetDateTime) -> Option<UsageLimit> {
         if !self.is_error {
             return None;
         }
-        let message = self
-            .texts
-            .iter()
-            .find_map(|text| limit_message_kind(text).map(|kind| (kind, text)));
+        let message = self.texts.iter().find_map(|text| LimitMessage::find(text));
         let typed = self.api_error.as_deref() == Some("usage_limit_reached");
-        let (kind, text) = match message {
-            Some((kind, text)) => (kind, Some(text)),
-            None if typed => (UsageLimitKind::Session, None),
-            None => return None,
+        let rejected = self.rejection.is_some() && self.api_error_status == Some(429);
+        if message.is_none() && !typed && !rejected {
+            return None;
+        }
+        let rejection = self.rejection.unwrap_or_default();
+        let kind = match &message {
+            Some(message) => message.kind,
+            None if rejection.credits_required => UsageLimitKind::Spend,
+            None => UsageLimitKind::Session,
         };
         Some(UsageLimit {
             kind,
-            resets_at: text.and_then(|text| reset_time(text, now)),
+            resets_at: rejection.resets_at.or_else(|| {
+                message
+                    .as_ref()
+                    .and_then(|message| reset_time(message.text, now))
+            }),
+            message: message.map(|message| message.line()),
         })
     }
 }
 
-/// The kind of limit a CLI limit message names, such as `You've hit your weekly limit`.
-fn limit_message_kind(text: &str) -> Option<UsageLimitKind> {
-    static LIMIT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"(?i)\b(?:you've|you have) (?:hit|reached) your (?P<limit>[^·.\n]+?)(?:\s*[·.]|\s*$)",
-        )
-        .unwrap_or_else(|error| panic!("limit message pattern: {error}"))
-    });
-    if text.contains("You're out of usage credits") {
-        return Some(UsageLimitKind::Spend);
+/// A CLI limit message in an envelope text, such as `You've hit your weekly limit · resets
+/// Mon 12:00am`: the kind of limit it names and the text from where it starts.
+struct LimitMessage<'a> {
+    kind: UsageLimitKind,
+    text: &'a str,
+}
+
+impl<'a> LimitMessage<'a> {
+    fn find(text: &'a str) -> Option<Self> {
+        static LIMIT: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(
+                r"(?i)\b(?:(?P<credits>you['’]re out of usage credits)|(?:you['’]ve|you have) (?:hit|reached) your (?P<limit>[^·.\n]+?)(?:\s*[·.]|\s*$))",
+            )
+            .unwrap_or_else(|error| panic!("limit message pattern: {error}"))
+        });
+        let captures = LIMIT.captures(text)?;
+        let start = captures.get(0)?.start();
+        if captures.name("credits").is_some() {
+            return Some(Self {
+                kind: UsageLimitKind::Spend,
+                text: &text[start..],
+            });
+        }
+        let limit = captures.name("limit")?.as_str();
+        Some(Self {
+            kind: limit_kind(&limit.to_ascii_lowercase()),
+            text: &text[start..],
+        })
     }
-    let limit = LIMIT
-        .captures(text)?
-        .name("limit")?
-        .as_str()
-        .to_ascii_lowercase();
-    Some(if limit.contains("5-hour") || limit.contains("session") {
+
+    /// The message's line, shortened, as the log shows it.
+    fn line(&self) -> String {
+        self.text
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .take(MAX_LIMIT_MESSAGE_CHARS)
+            .collect()
+    }
+}
+
+/// The kind of limit a limit message names, lowercase: `session limit`, `weekly limit`, `opus
+/// limit` or a spend limit such as `org's monthly spend limit`.
+fn limit_kind(limit: &str) -> UsageLimitKind {
+    if limit.contains("5-hour") || limit.contains("session") {
         UsageLimitKind::Session
     } else if limit.starts_with("weekly") {
         UsageLimitKind::Weekly
@@ -288,22 +374,26 @@ fn limit_message_kind(text: &str) -> Option<UsageLimitKind> {
         UsageLimitKind::Model
     } else {
         UsageLimitKind::Spend
-    })
+    }
 }
 
-/// The reset time of a limit message, `resets 3pm (UTC)`, `resets 9:30am (UTC)`,
-/// `resets Nov 3, 9am (UTC)` or `resets Jan 3, 2027, 9am (UTC)`, as the CLI writes it in the
-/// process's time zone, which the runner sets to UTC. A time without a date is the next such time
-/// after `now`; a time in any other zone is not read.
+/// The reset time of a limit message, as the CLI writes it in the process's time zone, which the
+/// runner sets to UTC: `resets 3:45pm`, `resets Mon 12:00am`, `resets Nov 3, 9am` or `resets Jan
+/// 3, 2027, 9am`, each optionally followed by its zone, such as `(UTC)`. A time without a date is
+/// the next such time after `now`, and one with a weekday the next such day; a time that names
+/// another zone than UTC is not read.
 fn reset_time(text: &str, now: OffsetDateTime) -> Option<OffsetDateTime> {
     static RESET: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"resets (?:(?P<month>[A-Z][a-z]{2}) (?P<day>\d{1,2}), (?:(?P<year>\d{4}), )?)?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s?(?P<meridiem>[ap]m) \((?P<zone>[^)]+)\)",
+            r"resets (?:(?P<weekday>Mon|Tue|Wed|Thu|Fri|Sat|Sun) |(?P<month>[A-Z][a-z]{2}) (?P<day>\d{1,2}), (?:(?P<year>\d{4}), )?)?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s?(?P<meridiem>[ap]m)(?: \((?P<zone>[^)]+)\))?",
         )
         .unwrap_or_else(|error| panic!("reset time pattern: {error}"))
     });
     let reset = RESET.captures(text)?;
-    if !matches!(&reset["zone"], "UTC" | "Etc/UTC" | "GMT" | "Etc/GMT" | "Z") {
+    if reset
+        .name("zone")
+        .is_some_and(|zone| !UTC_ZONES.contains(&zone.as_str()))
+    {
         return None;
     }
     let hour12: u8 = reset["hour"]
@@ -315,6 +405,14 @@ fn reset_time(text: &str, now: OffsetDateTime) -> Option<OffsetDateTime> {
         .map_or(Some(0), |minute| minute.as_str().parse().ok())?;
     let hour = (hour12 % 12) + if &reset["meridiem"] == "pm" { 12 } else { 0 };
     let time = Time::from_hms(hour, minute, 0).ok()?;
+    if let Some(weekday) = reset.name("weekday") {
+        let weekday = weekday_of(weekday.as_str())?;
+        return (0..=7)
+            .map(|days| {
+                PrimitiveDateTime::new(now.date(), time).assume_utc() + Duration::days(days)
+            })
+            .find(|at| at.weekday() == weekday && *at > now);
+    }
     let Some(month) = reset.name("month") else {
         let today = PrimitiveDateTime::new(now.date(), time).assume_utc();
         return Some(if today > now {
@@ -330,6 +428,22 @@ fn reset_time(text: &str, now: OffsetDateTime) -> Option<OffsetDateTime> {
         .map_or(Some(now.year()), |year| year.as_str().parse().ok())?;
     let date = Date::from_calendar_date(year, month, day).ok()?;
     Some(PrimitiveDateTime::new(date, time).assume_utc())
+}
+
+fn weekday_of(name: &str) -> Option<Weekday> {
+    const WEEKDAYS: [(&str, Weekday); 7] = [
+        ("Mon", Weekday::Monday),
+        ("Tue", Weekday::Tuesday),
+        ("Wed", Weekday::Wednesday),
+        ("Thu", Weekday::Thursday),
+        ("Fri", Weekday::Friday),
+        ("Sat", Weekday::Saturday),
+        ("Sun", Weekday::Sunday),
+    ];
+    WEEKDAYS
+        .iter()
+        .find(|(short, _)| *short == name)
+        .map(|(_, weekday)| *weekday)
 }
 
 fn month_of(name: &str) -> Option<Month> {
@@ -361,7 +475,11 @@ mod tests {
 
     const NOW: OffsetDateTime = datetime!(2026-10-28 13:20 UTC);
 
-    fn envelope(value: Value) -> ResultEnvelope {
+    /// The envelope of a stream whose only line is `value` as a `result` message.
+    fn envelope(mut value: Value) -> ResultEnvelope {
+        if let Some(message) = value.as_object_mut() {
+            message.insert("type".to_owned(), json!("result"));
+        }
         ResultEnvelope::parse(value.to_string().as_bytes())
             .unwrap_or_else(|| panic!("no envelope in {value}"))
     }
@@ -422,6 +540,13 @@ mod tests {
         assert_eq!(read.outcome(NOW), EnvelopeOutcome::Failed);
         assert_eq!(ResultEnvelope::parse(b"not json\n"), None);
         assert_eq!(ResultEnvelope::parse(b""), None);
+        assert_eq!(
+            ResultEnvelope::parse(
+                b"{\"type\":\"system\",\"subtype\":\"init\"}\n{\"subtype\":\"success\",\"total_cost_usd\":1.0}\n"
+            ),
+            None,
+            "only a line of type result is the envelope"
+        );
     }
 
     #[test]
@@ -470,67 +595,116 @@ mod tests {
         );
     }
 
-    #[test]
-    fn should_read_the_usage_limit_and_its_reset_time() {
-        let limit = |result: &str| {
-            envelope(json!({
-                "subtype": "success",
-                "is_error": true,
-                "api_error_status": 429,
-                "result": result,
-            }))
-            .outcome(NOW)
-        };
+    /// What an error envelope with `result` reports, read at `NOW`: the limit's kind and reset
+    /// time, or `None` when it is no usage limit.
+    fn limit_in(result: &str) -> Option<(UsageLimitKind, Option<OffsetDateTime>)> {
+        match envelope(json!({
+            "subtype": "success",
+            "is_error": true,
+            "api_error_status": 429,
+            "result": result,
+        }))
+        .outcome(NOW)
+        {
+            EnvelopeOutcome::UsageLimit(limit) => Some((limit.kind, limit.resets_at)),
+            _ => None,
+        }
+    }
 
-        assert_eq!(
-            limit("You've hit your 5-hour limit · resets 3pm (UTC)"),
-            EnvelopeOutcome::UsageLimit(UsageLimit {
-                kind: UsageLimitKind::Session,
-                resets_at: Some(datetime!(2026-10-28 15:00 UTC)),
-            })
-        );
-        assert_eq!(
-            limit("You've hit your session limit · resets 1:15pm (UTC)"),
-            EnvelopeOutcome::UsageLimit(UsageLimit {
-                kind: UsageLimitKind::Session,
-                resets_at: Some(datetime!(2026-10-29 13:15 UTC)),
-            })
-        );
-        assert_eq!(
-            limit("You've hit your weekly limit · resets Nov 3, 9am (UTC) · progress saved"),
-            EnvelopeOutcome::UsageLimit(UsageLimit {
-                kind: UsageLimitKind::Weekly,
-                resets_at: Some(datetime!(2026-11-03 09:00 UTC)),
-            })
-        );
-        assert_eq!(
-            limit("You've hit your Opus limit · resets Jan 2, 2027, 12am (UTC)"),
-            EnvelopeOutcome::UsageLimit(UsageLimit {
-                kind: UsageLimitKind::Model,
-                resets_at: Some(datetime!(2027-01-02 00:00 UTC)),
-            })
-        );
-        assert_eq!(
-            limit("API Error: You've hit your Sonnet limit · resets 11:45pm (UTC)"),
-            EnvelopeOutcome::UsageLimit(UsageLimit {
-                kind: UsageLimitKind::Model,
-                resets_at: Some(datetime!(2026-10-28 23:45 UTC)),
-            })
-        );
-        assert_eq!(
-            limit("You've hit your 5-hour limit · resets 3pm (Europe/Berlin)"),
-            EnvelopeOutcome::UsageLimit(UsageLimit {
-                kind: UsageLimitKind::Session,
-                resets_at: None,
-            })
-        );
-        assert_eq!(
-            limit("You've hit your org's monthly spend limit · ask your admin"),
-            EnvelopeOutcome::UsageLimit(UsageLimit {
-                kind: UsageLimitKind::Spend,
-                resets_at: None,
-            })
-        );
+    /// The limit messages of the CLI's error reference (code.claude.com/docs/en/errors, "Usage
+    /// limits"), read without a `rate_limit_event`, as from a CLI that sends none. The CLI writes
+    /// times in the process's zone, which the runner sets to UTC, and names the zone only in some
+    /// versions. `NOW` is a Wednesday.
+    #[test]
+    fn should_read_the_kind_and_reset_time_of_the_cli_s_limit_messages() {
+        let monday = datetime!(2026-11-02 00:00 UTC);
+        for (message, expected) in [
+            (
+                "You've hit your session limit · resets 3:45pm",
+                (
+                    UsageLimitKind::Session,
+                    Some(datetime!(2026-10-28 15:45 UTC)),
+                ),
+            ),
+            (
+                "You've hit your weekly limit · resets Mon 12:00am",
+                (UsageLimitKind::Weekly, Some(monday)),
+            ),
+            (
+                "You've hit your Opus limit · resets 3:45pm",
+                (UsageLimitKind::Model, Some(datetime!(2026-10-28 15:45 UTC))),
+            ),
+            (
+                "You've hit your Sonnet limit · resets 1:15pm",
+                (UsageLimitKind::Model, Some(datetime!(2026-10-29 13:15 UTC))),
+            ),
+            (
+                "You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage?from=cc_cli_limit_message",
+                (UsageLimitKind::Spend, None),
+            ),
+            (
+                "You've hit your individual spend limit · ask your admin for a higher limit · your session limit resets 3:45pm",
+                (UsageLimitKind::Spend, Some(datetime!(2026-10-28 15:45 UTC))),
+            ),
+            (
+                "You've hit your org's monthly spend limit · visit https://claude.ai/admin-settings/usage to raise it",
+                (UsageLimitKind::Spend, None),
+            ),
+            (
+                "You've hit your team's shared budget · ask your admin to raise it at https://claude.ai/admin-settings/usage",
+                (UsageLimitKind::Spend, None),
+            ),
+            (
+                "You've hit your individual usage limit",
+                (UsageLimitKind::Spend, None),
+            ),
+            (
+                "You've hit your 5-hour limit · resets 3pm (UTC)",
+                (
+                    UsageLimitKind::Session,
+                    Some(datetime!(2026-10-28 15:00 UTC)),
+                ),
+            ),
+            (
+                "You've hit your weekly limit · resets Nov 3, 9am (UTC) · progress saved",
+                (
+                    UsageLimitKind::Weekly,
+                    Some(datetime!(2026-11-03 09:00 UTC)),
+                ),
+            ),
+            (
+                "You’ve hit your Opus limit · resets Jan 2, 2027, 12am (UTC)",
+                (UsageLimitKind::Model, Some(datetime!(2027-01-02 00:00 UTC))),
+            ),
+            (
+                "API Error: You've hit your Sonnet limit · resets 11:45pm (UTC)",
+                (UsageLimitKind::Model, Some(datetime!(2026-10-28 23:45 UTC))),
+            ),
+            (
+                "You've hit your session limit · resets Wed 1pm",
+                (
+                    UsageLimitKind::Session,
+                    Some(datetime!(2026-11-04 13:00 UTC)),
+                ),
+            ),
+            (
+                "You've hit your 5-hour limit · resets 3pm (Europe/Berlin)",
+                (UsageLimitKind::Session, None),
+            ),
+            (
+                "API Error: You're out of usage credits",
+                (UsageLimitKind::Spend, None),
+            ),
+        ] {
+            assert_eq!(limit_in(message), Some(expected), "{message}");
+        }
+        for not_a_limit in [
+            "API Error: Server is temporarily limiting requests (not your usage limit)",
+            "API Error: Request rejected (429) · this may be a temporary capacity issue. If it persists, check https://status.claude.com.",
+            "You've used 85% of your session limit · resets 3:45pm",
+        ] {
+            assert_eq!(limit_in(not_a_limit), None, "{not_a_limit}");
+        }
         assert_eq!(
             envelope(
                 json!({ "is_error": true, "api_error": "usage_limit_reached", "errors": ["limit"] })
@@ -539,13 +713,123 @@ mod tests {
             EnvelopeOutcome::UsageLimit(UsageLimit {
                 kind: UsageLimitKind::Session,
                 resets_at: None,
+                message: None,
+            })
+        );
+    }
+
+    /// The `rate_limit_event` before the result is the CLI's structured account of the limit: its
+    /// `resetsAt` is the reset time whatever the message says, and it marks a 429 whose message
+    /// the runner does not recognise as a usage limit.
+    #[test]
+    fn should_take_the_reset_time_from_the_stream_s_rejecting_rate_limit_event() {
+        let resets_at = datetime!(2026-10-30 09:00 UTC);
+        let rate_limit_event = |status: &str, extra: Value| {
+            let mut info = json!({ "status": status, "resetsAt": resets_at.unix_timestamp() });
+            if let (Some(info), Some(extra)) = (info.as_object_mut(), extra.as_object()) {
+                info.extend(extra.clone());
+            }
+            json!({ "type": "rate_limit_event", "rate_limit_info": info, "uuid": "u", "session_id": "s" })
+        };
+        let stream = |events: &[Value], result: &str, status: u16| {
+            let mut lines: Vec<String> = vec![
+                json!({ "type": "system", "subtype": "init", "model": "claude-opus-5-5" }).to_string(),
+                json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "page text" }] } }).to_string(),
+            ];
+            lines.extend(events.iter().map(Value::to_string));
+            lines.push(
+                json!({
+                    "type": "result", "subtype": "success", "is_error": true,
+                    "api_error_status": status, "result": result, "total_cost_usd": 0.4,
+                })
+                .to_string(),
+            );
+            ResultEnvelope::parse(lines.join("\n").as_bytes())
+                .unwrap_or_else(|| panic!("no envelope"))
+                .outcome(NOW)
+        };
+        let rejected = rate_limit_event("rejected", json!({}));
+        let warned = rate_limit_event("allowed_warning", json!({ "utilization": 0.9 }));
+
+        assert_eq!(
+            stream(
+                &[warned.clone(), rejected.clone()],
+                "You've hit your weekly limit · resets Mon 12:00am",
+                429
+            ),
+            EnvelopeOutcome::UsageLimit(UsageLimit {
+                kind: UsageLimitKind::Weekly,
+                resets_at: Some(resets_at),
+                message: Some("You've hit your weekly limit · resets Mon 12:00am".to_owned()),
             })
         );
         assert_eq!(
-            envelope(json!({ "is_error": true, "api_error_status": 429, "result": "API Error: 429 overloaded" }))
-                .outcome(NOW),
+            stream(
+                std::slice::from_ref(&rejected),
+                "API Error: 429 rate_limit_error",
+                429
+            ),
+            EnvelopeOutcome::UsageLimit(UsageLimit {
+                kind: UsageLimitKind::Session,
+                resets_at: Some(resets_at),
+                message: None,
+            })
+        );
+        assert_eq!(
+            stream(
+                &[rate_limit_event(
+                    "rejected",
+                    json!({ "errorCode": "credits_required", "resetsAt": null })
+                )],
+                "API Error: 429",
+                429
+            ),
+            EnvelopeOutcome::UsageLimit(UsageLimit {
+                kind: UsageLimitKind::Spend,
+                resets_at: None,
+                message: None,
+            })
+        );
+        assert_eq!(
+            stream(
+                &[rejected.clone(), warned],
+                "API Error: 429 rate_limit_error",
+                429
+            ),
+            EnvelopeOutcome::Failed,
+            "a later event that allowed a request ends the rejection"
+        );
+        assert_eq!(
+            stream(&[rejected], "API Error: 500 internal error", 500),
             EnvelopeOutcome::Failed
         );
+    }
+
+    /// A message whose reset time the runner cannot read keeps its own line for the log, and
+    /// nothing the agent read after it.
+    #[test]
+    fn should_keep_only_the_line_of_a_limit_message_whose_reset_cannot_be_read() {
+        let read = limit_message_of(
+            "API Error: You've hit your weekly limit · resets in a while\nproduct page text the agent read",
+        );
+
+        assert_eq!(
+            read,
+            Some(UsageLimit {
+                kind: UsageLimitKind::Weekly,
+                resets_at: None,
+                message: Some("You've hit your weekly limit · resets in a while".to_owned()),
+            })
+        );
+    }
+
+    fn limit_message_of(result: &str) -> Option<UsageLimit> {
+        match envelope(json!({ "is_error": true, "api_error_status": 429, "result": result }))
+            .outcome(NOW)
+        {
+            EnvelopeOutcome::UsageLimit(limit) => Some(limit),
+            _ => None,
+        }
     }
 
     #[test]
@@ -553,6 +837,7 @@ mod tests {
         let read = |resets_at| UsageLimit {
             kind: UsageLimitKind::Weekly,
             resets_at,
+            message: None,
         };
 
         assert_eq!(

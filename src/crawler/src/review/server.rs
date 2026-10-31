@@ -1,20 +1,17 @@
 use crate::network::policy::NetworkErrorKind;
-use crate::network::robots::MAX_CRAWL_DELAY;
 use crate::review::access::ReviewAccess;
 pub use crate::review::access::{ReviewServerConfig, ReviewServerConfigError};
+use crate::review::agent_decisions::AGENT_LIMITS_ROUTE;
 use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
 use crate::review::candidate_evaluations::CandidateEvaluations;
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
-use crate::review::matrix_refresh::{MatrixRefreshOutcome, MatrixRefreshStatus, MatrixRefreshes};
-use crate::review::model::{
-    ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail,
-    ReviewSchemaMatrix, SampleLabelInput, SchemaMatrix,
-};
+use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
+use crate::review::matrix_refresh::MatrixRefreshes;
+use crate::review::model::{CrawlerReviewPage, RawAttributeKey, ReviewActor, SampleLabelInput};
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
-use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::service::crawler_domain_configuration::{
@@ -42,10 +39,6 @@ const REQUEST_DEADLINE: Duration = Duration::from_secs(30);
 /// robots.txt `Crawl-delay` can queue it; it gives up in time to answer
 /// within [`REQUEST_DEADLINE`].
 const LIVE_FETCH_DEADLINE: Duration = Duration::from_secs(25);
-/// A matrix refresh fetches every review page at the shop's `Crawl-delay`, so it runs in
-/// the background with a budget per page: the longest honoured delay plus a full fetch.
-const MATRIX_REFRESH_PAGE_BUDGET: Duration =
-    MAX_CRAWL_DELAY.saturating_add(Duration::from_secs(30));
 /// How long a refresh request waits for the matrix before answering that it is still
 /// refreshing, leaving room within [`REQUEST_DEADLINE`].
 const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
@@ -54,6 +47,8 @@ const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 /// event's time, as the review agents' daily digest does.
 const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 
+mod pending_reviews;
+mod schema_matrix;
 mod source_pages;
 
 use source_pages::{EvaluationPayload, parse_review_evaluation_id};
@@ -64,6 +59,8 @@ pub struct ReviewServer {
     domain_administration: Arc<dyn CrawlerDomainAdministration>,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
+    /// The console's cap on live matrix refreshes, candidate evaluations and page projections.
+    live_jobs: LiveJobLimit,
     matrix_refreshes: MatrixRefreshes,
     matrix_refresh_wait: Duration,
     candidate_evaluations: CandidateEvaluations,
@@ -71,7 +68,8 @@ pub struct ReviewServer {
 
 impl ReviewServer {
     /// `html_fetcher` serves live inspection; pass the scraper's fetcher so
-    /// both count against the same robots.txt cache and per-domain pacing.
+    /// both count against the same robots.txt cache and per-domain pacing. `repository` carries
+    /// the review agents' decision policy the composition root built for the whole crawler.
     pub fn new(
         repository: CrawlerReviewRepository,
         domain_administration: Arc<dyn CrawlerDomainAdministration>,
@@ -79,9 +77,9 @@ impl ReviewServer {
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
         Self {
-            // The console decides the review agents' approvals and rejections by its settings.
-            repository: repository.with_agent_decisions(config.agent_decisions.clone()),
+            repository,
             domain_administration,
+            live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
             access: ReviewAccess::new(config),
             html_fetcher,
             matrix_refreshes: MatrixRefreshes::default(),
@@ -99,15 +97,15 @@ impl ReviewServer {
     /// Serves the console on `listener`, such as one bound to an ephemeral port in a test.
     pub async fn serve(self, listener: TcpListener) -> std::io::Result<()> {
         let bind_addr = listener.local_addr()?;
-        let agent_decisions = self.access.agent_decisions();
+        let agent_limits = *self.repository.agent_decisions().limits();
         info!(
             bind_addr = %bind_addr,
             agent_access = self.access.agent_access(),
-            agent_approvals = agent_decisions.approvals.as_str(),
-            agent_max_decisions_per_hour = agent_decisions.max_decisions_per_hour.get(),
-            agent_matrix_max_age_minutes = agent_decisions.max_matrix_age.as_secs() / 60,
-            agent_min_labelled_urls = agent_decisions.min_labelled_urls.get(),
-            agent_max_repair_rounds = agent_decisions.max_repair_rounds.get(),
+            agent_max_decisions_per_hour = agent_limits.max_decisions_per_hour.get(),
+            agent_matrix_max_age_minutes = agent_limits.matrix_max_age_minutes.get(),
+            agent_min_labelled_urls = agent_limits.min_labelled_urls.get(),
+            agent_max_repair_rounds = agent_limits.max_repair_rounds.get(),
+            max_concurrent_live_jobs = self.live_jobs.limit().get(),
             "Crawler review console listening"
         );
 
@@ -211,10 +209,14 @@ impl ReviewServer {
             ("GET", "/api/raw-attribute-keys") => {
                 HttpResponse::json(200, &RawAttributeKey::registry())
             }
+            ("GET", AGENT_LIMITS_ROUTE) => {
+                HttpResponse::json(200, self.repository.agent_decisions().limits())
+            }
             ("GET", "/api/reviews") => match self.repository.list_reviews(200).await {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
                 Err(err) => internal_error(err),
             },
+            ("GET", "/api/pending-reviews") => self.pending_reviews(&parsed).await,
             ("GET", "/api/review-events") => self.review_events_since(&parsed).await,
             _ => self.route_dynamic(parsed, actor).await,
         }
@@ -345,7 +347,7 @@ impl ReviewServer {
 
         // Preview responses, including their errors, are framed by the console.
         if request.method == "GET" && request.path == "/api/live-inspect" {
-            return match self.live_preview_url(&request, actor).await {
+            return match live_preview_url(&request) {
                 Ok(url) => match self.fetch_live_url(&url).await {
                     Ok(html) => HttpResponse::html(200, &instrument_live_html(url.as_str(), &html)),
                     Err(response) => response,
@@ -356,7 +358,7 @@ impl ReviewServer {
         }
 
         if request.method == "GET" && request.path == "/api/live-html" {
-            return match self.live_preview_url(&request, actor).await {
+            return match live_preview_url(&request) {
                 Ok(url) => match self.fetch_live_url(&url).await {
                     Ok(html) => HttpResponse::text(200, &html),
                     Err(response) => response,
@@ -373,7 +375,10 @@ impl ReviewServer {
             else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            return match self.project_review_source_page(review_id, &request).await {
+            return match self
+                .project_review_source_page(review_id, actor, &request)
+                .await
+            {
                 Ok(projection) => HttpResponse::json(200, &projection),
                 Err(response) => response,
             };
@@ -392,7 +397,7 @@ impl ReviewServer {
                     return HttpResponse::json(400, &json!({ "error": error.to_string() }));
                 }
             };
-            return self.evaluate_candidate(review_id, payload).await;
+            return self.evaluate_candidate(review_id, actor, payload).await;
         }
 
         if request.method == "GET"
@@ -419,34 +424,11 @@ impl ReviewServer {
                 .query
                 .get("refresh")
                 .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
-            if !refresh {
-                match self.matrix_refreshes.status(review_id) {
-                    MatrixRefreshStatus::Running => return matrix_refreshing(review_id),
-                    MatrixRefreshStatus::Failed(response) => return response,
-                    MatrixRefreshStatus::Idle => {}
-                }
-            }
-            // An unknown review is refused before a refresh starts, so requests for unknown ids
-            // leave no refresh behind in the registry.
-            let detail = match self.repository.get_review(review_id).await {
-                Ok(detail) => detail,
-                Err(err) => return review_error(err),
+            return if refresh {
+                self.refresh_schema_matrix(review_id, actor).await
+            } else {
+                self.read_schema_matrix(review_id, actor).await
             };
-            // Only a product-schema review has pages to evaluate live; a URL-pattern review is
-            // judged on its sample labels.
-            if detail.review.artifact_type != ARTIFACT_PRODUCT_SCHEMA {
-                return review_error(ReviewRepositoryError::UnsupportedArtifact(
-                    review_id,
-                    detail.review.artifact_type,
-                ));
-            }
-            if !refresh && let Some(matrix) = cached_schema_matrix(&detail) {
-                return HttpResponse::json(200, &ReviewSchemaMatrix::of(matrix, &detail.pages));
-            }
-            if let Err(error) = self.repository.check_matrix_refresh(review_id, actor).await {
-                return review_error(error);
-            }
-            return self.refresh_schema_matrix(review_id, actor).await;
         }
 
         if request.method == "POST"
@@ -529,92 +511,79 @@ impl ReviewServer {
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/approve")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/approve") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ApprovalPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .approve_review(review_id, actor, payload.approval())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            let (review_id, payload) =
+                match verdict_request::<ApprovalPayload>(&request, "/approve") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .approve_review(review_id, actor, payload.approval())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/restore")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/restore") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .restore_approval(review_id, actor, payload.notes.as_deref())
-                .await
+            let (review_id, payload) = match verdict_request::<ActionPayload>(&request, "/restore")
             {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
+                Ok(verdict) => verdict,
+                Err(response) => return response,
             };
+            return verdict_answer(
+                self.repository
+                    .restore_approval(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/revoke-rejection")
+        {
+            let (review_id, payload) =
+                match verdict_request::<ActionPayload>(&request, "/revoke-rejection") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .revoke_rejection(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/reject")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/reject") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            let (review_id, payload) = match verdict_request::<ActionPayload>(&request, "/reject") {
+                Ok(verdict) => verdict,
+                Err(response) => return response,
             };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .reject_review(review_id, actor, payload.notes.as_deref())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            return verdict_answer(
+                self.repository
+                    .reject_review(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/needs-repair")
         {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/needs-repair") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            let payload: ActionPayload = match parse_verdict_payload(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .repository
-                .request_repair(review_id, actor, payload.notes.as_deref())
-                .await
-            {
-                Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
-                Err(err) => review_error(err),
-            };
+            let (review_id, payload) =
+                match verdict_request::<ActionPayload>(&request, "/needs-repair") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .request_repair(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
         }
 
         if request.method == "POST"
@@ -707,79 +676,6 @@ impl ReviewServer {
         HttpResponse::json(404, &json!({ "error": "not found" }))
     }
 
-    /// Fetches every review page live within a deadline sized for the shop's pacing.
-    async fn live_review_pages(
-        &self,
-        review_id: CrawlerReviewId,
-    ) -> Result<Vec<(CrawlerReviewPage, String)>, HttpResponse> {
-        let detail = self
-            .repository
-            .get_review(review_id)
-            .await
-            .map_err(review_error)?;
-        let deadline = matrix_refresh_deadline(detail.pages.len());
-        tokio::time::timeout(deadline, self.fetch_review_pages(detail.pages))
-            .await
-            .unwrap_or_else(|_| Err(matrix_refresh_timeout(review_id, deadline)))
-    }
-
-    /// Fetches each of `pages` live, one after the other at the shop's pacing.
-    async fn fetch_review_pages(
-        &self,
-        pages: Vec<CrawlerReviewPage>,
-    ) -> Result<Vec<(CrawlerReviewPage, String)>, HttpResponse> {
-        let mut fetched = Vec::with_capacity(pages.len());
-        for page in pages {
-            let url = review_page_url(&page)?;
-            let html = self
-                .html_fetcher
-                .fetch(&url)
-                .await
-                .map(|fetched| fetched.html)
-                .map_err(|err| live_fetch_error(&page, &err))?;
-            fetched.push((page, html));
-        }
-        Ok(fetched)
-    }
-
-    /// Starts `actor`'s background refresh, or joins the running one, and answers with the matrix
-    /// when it finishes in time, otherwise with `202` for the console to poll.
-    async fn refresh_schema_matrix(
-        &self,
-        review_id: CrawlerReviewId,
-        actor: ReviewActor,
-    ) -> HttpResponse {
-        let refresh = self.clone().evaluate_live_schema_matrix(review_id, actor);
-        match self
-            .matrix_refreshes
-            .start_or_join(review_id, refresh)
-            .outcome_within(self.matrix_refresh_wait)
-            .await
-        {
-            Some(Ok(matrix)) => HttpResponse::json(200, &matrix),
-            Some(Err(response)) => response,
-            None => matrix_refreshing(review_id),
-        }
-    }
-
-    async fn evaluate_live_schema_matrix(
-        self,
-        review_id: CrawlerReviewId,
-        actor: ReviewActor,
-    ) -> MatrixRefreshOutcome {
-        let fetched_at = time::OffsetDateTime::now_utc();
-        let pages = self.live_review_pages(review_id).await?;
-        let evaluated = self
-            .repository
-            .evaluate_schema_matrix_for_live_pages(review_id, pages, fetched_at)
-            .await
-            .map_err(review_error)?;
-        self.repository
-            .store_schema_matrix_if_current(review_id, actor, evaluated)
-            .await
-            .map_err(review_error)
-    }
-
     /// Fetches a reviewer-chosen page of the review's ListingSource and stores it as a review
     /// page. The target is checked before the fetch so the console never fetches a foreign
     /// host, and the final URL after redirects is checked again before it is stored.
@@ -804,6 +700,9 @@ impl ReviewServer {
             .map_err(review_error)
     }
 
+    /// Fetches the review page live for a human's preview (`/api/review-pages/{id}/inspect`,
+    /// `/html`), outside the console's cap on live jobs; the console refuses the review agents'
+    /// tokens on these routes (see [`ReviewAccess::authorize`]).
     async fn live_review_page(
         &self,
         review_page_id: CrawlerReviewPageId,
@@ -1074,6 +973,28 @@ fn parse_verdict_payload<T: DeserializeOwned>(body: &str) -> Result<T, serde_jso
     serde_json::from_str(if body.trim().is_empty() { "{}" } else { body })
 }
 
+/// The review id and body of a `POST /api/reviews/{id}{suffix}` verdict, or the 400 a path
+/// without a review id or a body that does not parse is answered with.
+fn verdict_request<T: DeserializeOwned>(
+    request: &ParsedRequest<'_>,
+    suffix: &str,
+) -> Result<(CrawlerReviewId, T), HttpResponse> {
+    let review_id = parse_review_id_with_suffix(request.path, suffix)
+        .ok_or_else(|| HttpResponse::json(400, &json!({ "error": "invalid review id" })))?;
+    let payload = parse_verdict_payload(request.body)
+        .map_err(|error| HttpResponse::json(400, &json!({ "error": error.to_string() })))?;
+    Ok((review_id, payload))
+}
+
+/// Answers a verdict that was taken with `{"ok": true}`, and a refused or failed one as
+/// [`review_error`] does.
+fn verdict_answer(taken: Result<(), ReviewRepositoryError>) -> HttpResponse {
+    match taken {
+        Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
+        Err(error) => review_error(error),
+    }
+}
+
 fn parse_review_id(path: &str) -> Option<CrawlerReviewId> {
     let id = path.strip_prefix("/api/reviews/")?;
     id.parse().ok()
@@ -1119,6 +1040,25 @@ fn domain_configuration_error(error: CrawlerDomainConfigurationError) -> HttpRes
     }
 }
 
+/// The URL a live preview (`/api/live-inspect`, `/api/live-html`) fetches: any URL its `url` query
+/// names. Only humans reach the live previews: the console refuses the review agents' tokens on
+/// them (see [`ReviewAccess::authorize`]).
+fn live_preview_url(request: &ParsedRequest<'_>) -> Result<Url, HttpResponse> {
+    let Some(raw_url) = request.query.get("url") else {
+        return Err(HttpResponse::json(400, &json!({ "error": "missing url" })));
+    };
+    Url::parse(raw_url).map_err(|err| {
+        HttpResponse::json(
+            400,
+            &json!({
+                "error": "invalid live preview url",
+                "url": raw_url,
+                "details": err.to_string(),
+            }),
+        )
+    })
+}
+
 fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
     Url::parse(&page.url).map_err(|err| {
         HttpResponse::json(
@@ -1130,47 +1070,6 @@ fn review_page_url(page: &CrawlerReviewPage) -> Result<Url, HttpResponse> {
             }),
         )
     })
-}
-
-/// The schema matrix cached on the review with the cross-page findings of the current checks,
-/// or `None` when it holds none, or one that no longer decodes, so the caller refreshes it from
-/// the live pages.
-fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
-    stored_schema_matrix(&detail.review.validation_summary)?
-        .inspect_err(|err| {
-            warn!(
-                review_id = %detail.review.review_id,
-                error = ?err,
-                "Cached schema matrix is invalid; refreshing from live pages"
-            );
-        })
-        .ok()
-}
-
-fn matrix_refresh_deadline(page_count: usize) -> Duration {
-    MATRIX_REFRESH_PAGE_BUDGET.saturating_mul(u32::try_from(page_count.max(1)).unwrap_or(u32::MAX))
-}
-
-fn matrix_refreshing(review_id: CrawlerReviewId) -> HttpResponse {
-    HttpResponse::json(
-        202,
-        &json!({
-            "status": "refreshing",
-            "review_id": review_id,
-            "message": "live review pages are fetched at the shop's robots.txt Crawl-delay; poll the matrix without refresh",
-        }),
-    )
-}
-
-fn matrix_refresh_timeout(review_id: CrawlerReviewId, deadline: Duration) -> HttpResponse {
-    warn!(review_id = %review_id, deadline_secs = deadline.as_secs(), "Schema matrix refresh timed out");
-    HttpResponse::json(
-        502,
-        &json!({
-            "error": "schema matrix refresh timed out",
-            "details": format!("live review pages did not finish within {}s", deadline.as_secs()),
-        }),
-    )
 }
 
 /// Answers a request the review changed under with 409 and the review's current candidate
@@ -1223,6 +1122,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::RedirectedToNonProductPage(_)
         | ReviewRepositoryError::NoApprovalToRestore(_)
         | ReviewRepositoryError::ApprovalNotRestorable { .. }
+        | ReviewRepositoryError::NoRejectionToRevoke(_)
         | ReviewRepositoryError::TooManySampleLabels
         | ReviewRepositoryError::SampleLabelUrlNotAllowed(_)
         | ReviewRepositoryError::InvalidSampleLabelReason(_)
@@ -1237,11 +1137,11 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "REVIEWER_CANNOT_CHANGE_CANDIDATES")
         }
         ReviewRepositoryError::AuthorMayNotDecide => forbidden(&error, "AUTHOR_CANNOT_DECIDE"),
-        ReviewRepositoryError::AgentDecisionsOff => forbidden(&error, "AGENT_DECISIONS_OFF"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
         }
         ReviewRepositoryError::RestoreNeedsHuman => forbidden(&error, "RESTORE_NEEDS_HUMAN"),
+        ReviewRepositoryError::RevocationNeedsHuman => forbidden(&error, "REVOKE_NEEDS_HUMAN"),
         ReviewRepositoryError::StaleCandidateVersion { current, .. } => {
             review_changed(&error, current)
         }
@@ -1252,6 +1152,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)
         | ReviewRepositoryError::DuplicateReviewPage(_)
         | ReviewRepositoryError::ApprovalAlreadyRestored(_)
+        | ReviewRepositoryError::RejectionAlreadyRevoked(_)
         | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_) => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
@@ -1295,7 +1196,8 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::Database(_)
         | ReviewRepositoryError::Json(_)
-        | ReviewRepositoryError::Regex(_) => internal_error(error),
+        | ReviewRepositoryError::Regex(_)
+        | ReviewRepositoryError::MatrixEvaluationStopped { .. } => internal_error(error),
     }
 }
 
@@ -1306,6 +1208,26 @@ fn forbidden(error: &ReviewRepositoryError, reason: &str) -> HttpResponse {
         403,
         &json!({ "error": error.to_string(), "reason": reason }),
     )
+}
+
+/// Answers a live job (a matrix refresh, a candidate evaluation or a page projection) the console
+/// does not start because it runs as many as its limit allows: 429 with `reason` `LIVE_JOBS_BUSY`,
+/// the limit and when to retry, also as `Retry-After`.
+fn live_jobs_busy(busy: LiveJobsBusy) -> HttpResponse {
+    let retry_after_secs = busy.retry_after.as_secs();
+    HttpResponse::json(
+        429,
+        &json!({
+            "error": format!(
+                "the review console runs {} live jobs (matrix refreshes, candidate evaluations and page projections) at once, as many as it allows; retry in {retry_after_secs} seconds",
+                busy.limit
+            ),
+            "reason": "LIVE_JOBS_BUSY",
+            "limit": busy.limit.get(),
+            "retry_after_secs": retry_after_secs,
+        }),
+    )
+    .with_header("Retry-After", retry_after_secs.to_string())
 }
 
 fn internal_error(error: impl std::fmt::Display + std::fmt::Debug) -> HttpResponse {
@@ -1349,13 +1271,22 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::agent_decisions::AgentDecisionPolicy;
+    use crate::authoring::CrawlerAuthoringMode;
+    use crate::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
+    use crate::review::agent_tokens::ReviewAgentTokens;
     use crate::review::approval_guard::FailedApprovalCheck;
+    use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
     use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
     use crate::service::crawler_domain_configuration::{
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };
     use std::net::SocketAddr;
+
+    /// The review agents' decision policy of `agent` authoring mode with `limits`, as the crawler
+    /// builds it for a console open to the agents.
+    fn agent_mode(limits: AgentLimits) -> AgentDecisionPolicy {
+        AgentDecisionPolicy::new(CrawlerAuthoringMode::Agent, limits)
+    }
 
     struct RejectingDomainAdministration;
 
@@ -1426,8 +1357,8 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: auth_token.map(str::to_owned),
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
             Arc::new(MockHtmlFetcher::new()),
         ))
@@ -1519,6 +1450,56 @@ mod tests {
         Ok(())
     }
 
+    /// The console answers the limits of the agent decision policy its repository applies to
+    /// whoever may read it, a human and the author agent whose token the review agent runner
+    /// reads them with, so the runner tells the agents those limits.
+    #[tokio::test]
+    async fn should_answer_the_agents_limits_the_console_applies()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        let limits = AgentLimits {
+            min_labelled_urls: std::num::NonZeroU32::new(5).ok_or("five is not zero")?,
+            ..AgentLimits::default()
+        };
+        let server = ReviewServer::new(
+            CrawlerReviewRepository::new(pool).with_agent_decisions(agent_mode(limits)),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: Some("review-token".to_owned()),
+                agent_tokens: Some(ReviewAgentTokens::of("author-token", "reviewer-token")),
+                local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+            },
+            Arc::new(MockHtmlFetcher::new()),
+        );
+        let read = |authorization: &str| {
+            format!("GET {AGENT_LIMITS_ROUTE} HTTP/1.1\r\nHost: 127.0.0.1\r\n{authorization}\r\n")
+        };
+
+        for token in ["review-token", "author-token"] {
+            let answered = server
+                .route(&read(&format!("Authorization: Bearer {token}\r\n")))
+                .await
+                .to_string();
+
+            assert!(answered.starts_with("HTTP/1.1 200"), "{token}: {answered}");
+            let body = answered
+                .split_once("\r\n\r\n")
+                .map(|(_, body)| body)
+                .ok_or("answer without body")?;
+            assert_eq!(
+                serde_json::from_str::<AgentLimits>(body)?,
+                limits,
+                "{token}"
+            );
+        }
+        let refused = server.route(&read("")).await.to_string();
+        assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
+        Ok(())
+    }
+
     #[tokio::test]
     async fn should_reject_header_overshoot() -> Result<(), Box<dyn std::error::Error>> {
         let prefix = "GET / HTTP/1.1\r\nX-Long: ";
@@ -1547,8 +1528,8 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
             Arc::new(StaticHtmlFetcher),
         );
@@ -1577,8 +1558,8 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
             Arc::new(StaticHtmlFetcher),
         );
@@ -1605,6 +1586,75 @@ mod tests {
         }
         assert!(!console.contains("sandbox"));
         assert!(console.contains("frame-ancestors 'none'\r\n"));
+        Ok(())
+    }
+
+    /// The live previews of any URL fetch it for a human outside the console's cap on live jobs, as
+    /// the browser console always did. They and the live previews of a review page refuse both
+    /// review agents' tokens with `401` before reading the review or page they name, so no agent
+    /// fetches a page through them, at the cap or on a review that waits for a human.
+    #[tokio::test]
+    async fn should_fetch_live_previews_for_humans_outside_the_live_job_cap_and_for_no_agent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN};
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        let mut human_fetches = MockHtmlFetcher::new();
+        human_fetches.expect_fetch().times(2).returning(|url| {
+            let final_url = url.clone();
+            Box::pin(async move {
+                Ok(FetchedHtml {
+                    html: "<h1>Chair</h1>".to_owned(),
+                    final_url,
+                    status: reqwest::StatusCode::OK,
+                })
+            })
+        });
+        let server = ReviewServer::new(
+            CrawlerReviewRepository::new(pool),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: Some(TOKEN.to_owned()),
+                agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                local_mutations_without_token: false,
+                max_concurrent_live_jobs: std::num::NonZeroU32::MIN,
+            },
+            Arc::new(human_fetches),
+        );
+        let _only_place = server
+            .live_jobs
+            .try_start()
+            .unwrap_or_else(|busy| panic!("the console's one live job place: {busy:?}"));
+        let query = format!(
+            "url=https%3A%2F%2Fshop.example%2Fitem%2Fchair&review={}",
+            CrawlerReviewId::new()
+        );
+
+        for route in ["/api/live-inspect", "/api/live-html"] {
+            let request = |token: &str| {
+                format!("GET {route}?{query} HTTP/1.1\r\nAuthorization: Bearer {token}\r\n\r\n")
+            };
+            for agent in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                let refused = server.route(&request(agent)).await.to_string();
+                assert!(refused.starts_with("HTTP/1.1 401"), "{route}: {refused}");
+            }
+            let fetched = server.route(&request(TOKEN)).await.to_string();
+            assert!(fetched.starts_with("HTTP/1.1 200"), "{route}: {fetched}");
+        }
+        let page_id = CrawlerReviewPageId::new();
+        for route in ["inspect", "html"] {
+            for agent in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                let refused = server
+                    .route(&format!(
+                        "GET /api/review-pages/{page_id}/{route} HTTP/1.1\r\nAuthorization: Bearer {agent}\r\n\r\n"
+                    ))
+                    .await
+                    .to_string();
+                assert!(refused.starts_with("HTTP/1.1 401"), "{route}: {refused}");
+            }
+        }
         Ok(())
     }
 
@@ -1659,8 +1709,8 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_string()),
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             },
             Arc::new(StaticHtmlFetcher),
         );
@@ -1744,8 +1794,8 @@ mod tests {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
                 agent_tokens: None,
-                agent_decisions: AgentDecisionPolicy::default(),
                 local_mutations_without_token: false,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
             }
             .allow_local_mutations_without_token(),
             Arc::new(MockHtmlFetcher::new()),
@@ -1937,16 +1987,16 @@ Origin: http://127.0.0.1:7878/x
 
         for (error, reason) in [
             (
-                ReviewRepositoryError::AgentDecisionsOff,
-                "AGENT_DECISIONS_OFF",
-            ),
-            (
                 ReviewRepositoryError::AgentCoverageAcknowledgement,
                 "AGENT_COVERAGE_ACKNOWLEDGEMENT",
             ),
             (
                 ReviewRepositoryError::RestoreNeedsHuman,
                 "RESTORE_NEEDS_HUMAN",
+            ),
+            (
+                ReviewRepositoryError::RevocationNeedsHuman,
+                "REVOKE_NEEDS_HUMAN",
             ),
             (
                 ReviewRepositoryError::AgentMayChangeOnlyPendingReviews(CrawlerReviewId::new()),
@@ -2027,8 +2077,12 @@ Origin: http://127.0.0.1:7878/x
     }
 
     mod matrix_refresh {
-        use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig};
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, send_as};
+        use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig, agent_mode};
         use crate::network::policy::NetworkErrorKind;
+        use crate::review::agent_decisions::AgentLimits;
+        use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::matrix_refresh::MatrixRefreshStatus;
         use crate::review::model::{PAGE_ROLE_PRIMARY, ReviewActor, SchemaReviewPageInput};
         use crate::review::repository::CrawlerReviewRepository;
@@ -2048,9 +2102,10 @@ Origin: http://127.0.0.1:7878/x
         use sqlx::PgPool;
         use std::collections::HashMap;
         use std::net::SocketAddr;
+        use std::num::NonZeroU32;
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
         use test_api::IntegrationTestService as _;
         use tokio::sync::Semaphore;
         use url::Url;
@@ -2064,6 +2119,7 @@ Origin: http://127.0.0.1:7878/x
             requested: AtomicUsize,
             fetched: AtomicUsize,
             failure: Option<&'static str>,
+            html: String,
         }
 
         impl PacedFetcher {
@@ -2073,6 +2129,18 @@ Origin: http://127.0.0.1:7878/x
                     requested: AtomicUsize::new(0),
                     fetched: AtomicUsize::new(0),
                     failure,
+                    html: PAGE_HTML.to_owned(),
+                })
+            }
+
+            /// A shop that serves `html` for every page.
+            fn serving(html: String) -> Arc<Self> {
+                Arc::new(Self {
+                    released: Semaphore::new(0),
+                    requested: AtomicUsize::new(0),
+                    fetched: AtomicUsize::new(0),
+                    failure: None,
+                    html,
                 })
             }
 
@@ -2114,11 +2182,19 @@ Origin: http://127.0.0.1:7878/x
                     });
                 }
                 Ok(FetchedHtml {
-                    html: PAGE_HTML.to_string(),
+                    html: self.html.clone(),
                     final_url: url.clone(),
                     status: reqwest::StatusCode::OK,
                 })
             }
+        }
+
+        /// The product page nested in `depth` `div`s, which html5ever parses ever more slowly as
+        /// the nesting deepens.
+        fn deeply_nested_page(depth: usize) -> String {
+            PAGE_HTML
+                .replace("<body>", &format!("<body>{}", "<div>".repeat(depth)))
+                .replace("</body>", &format!("{}</body>", "</div>".repeat(depth)))
         }
 
         struct NoDomainAdministration;
@@ -2185,7 +2261,28 @@ Origin: http://127.0.0.1:7878/x
 
         const PAGE_COUNT: usize = 2;
 
+        /// The console of the paced shop: tokenless, without agents, with the default limit.
+        fn paced_console() -> ReviewServerConfig {
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: None,
+                agent_tokens: None,
+                max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+                local_mutations_without_token: false,
+            }
+        }
+
         async fn fixture(fetcher: Arc<PacedFetcher>) -> Fixture {
+            fixture_with(fetcher, paced_console(), AgentDecisionPolicy::default()).await
+        }
+
+        /// A paced review over [`PAGE_COUNT`] pages on a `console` whose repository applies
+        /// `agent_decisions`.
+        async fn fixture_with(
+            fetcher: Arc<PacedFetcher>,
+            console: ReviewServerConfig,
+            agent_decisions: AgentDecisionPolicy,
+        ) -> Fixture {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -2197,7 +2294,8 @@ Origin: http://127.0.0.1:7878/x
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("insert listing source: {error}"));
-            let repository = CrawlerReviewRepository::new(pool.clone());
+            let repository =
+                CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(agent_decisions);
             let pages = (1..=PAGE_COUNT)
                 .map(|index| SchemaReviewPageInput {
                     url: format!("https://paced.example/products/{index}"),
@@ -2220,13 +2318,7 @@ Origin: http://127.0.0.1:7878/x
                 ..ReviewServer::new(
                     repository,
                     Arc::new(NoDomainAdministration),
-                    ReviewServerConfig {
-                        bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
-                        auth_token: None,
-                        agent_tokens: None,
-                        agent_decisions: AgentDecisionPolicy::default(),
-                        local_mutations_without_token: false,
-                    },
+                    console,
                     fetcher.clone(),
                 )
             };
@@ -2251,7 +2343,9 @@ Origin: http://127.0.0.1:7878/x
                     // Finish its database writes before the context removes its database.
                     fetcher.release(PAGE_COUNT);
                     while matches!(
-                        server.matrix_refreshes.status(review_id),
+                        server
+                            .matrix_refreshes
+                            .status(review_id, ReviewActor::Human),
                         MatrixRefreshStatus::Running
                     ) {
                         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -2530,13 +2624,294 @@ Origin: http://127.0.0.1:7878/x
                 "the answer names the page the matrix did not evaluate"
             );
         }
+
+        /// A plain read never starts a fetch: without a stored matrix it says so, and only an
+        /// explicit refresh fetches the review's pages.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_no_matrix_without_fetching_when_the_review_stores_none() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture(fetcher.clone()).await;
+
+            let read = get_matrix(&fixture.server, fixture.review_id, false).await;
+            tokio::task::yield_now().await;
+
+            assert!(read.starts_with("HTTP/1.1 404"), "{read}");
+            assert!(read.contains("\"reason\": \"NO_MATRIX\""), "{read}");
+            assert_eq!(fetcher.requested.load(Ordering::SeqCst), 0);
+            assert!(matches!(
+                fixture
+                    .server
+                    .matrix_refreshes
+                    .status(fixture.review_id, ReviewActor::Human),
+                MatrixRefreshStatus::Idle
+            ));
+        }
+
+        /// Refreshes, candidate evaluations and page projections share the console's limit: a
+        /// request that would start one above it is refused before it fetches anything, joining a
+        /// running refresh takes no place, and a finished refresh frees its place.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_live_jobs_above_the_console_limit_with_retry_after() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture_with(
+                fetcher.clone(),
+                ReviewServerConfig {
+                    max_concurrent_live_jobs: NonZeroU32::MIN,
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    ..paced_console()
+                },
+                agent_mode(AgentLimits::default()),
+            )
+            .await;
+            let review_id = fixture.review_id;
+            let page_id = CrawlerReviewRepository::new(fixture.pool.clone())
+                .get_review(review_id)
+                .await
+                .unwrap_or_else(|error| panic!("read review: {error}"))
+                .pages[0]
+                .review_page_id;
+            let project = format!(
+                "GET /api/reviews/{review_id}/page-projection?page={page_id} HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            );
+            // The author agent's evaluation, a POST its token may send to the tokenless console.
+            let evaluate = format!(
+                "POST /api/reviews/{review_id}/evaluate HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {AUTHOR_TOKEN}\r\n\r\n{}",
+                json!({ "schemas": [schema("h1")] })
+            );
+
+            let refreshing = get_matrix(&fixture.server, review_id, true).await;
+            let joined = get_matrix(&fixture.server, review_id, true).await;
+            let evaluation = fixture.server.route(&evaluate).await.to_string();
+            let projection = fixture.server.route(&project).await.to_string();
+
+            assert!(refreshing.starts_with("HTTP/1.1 202"), "{refreshing}");
+            assert!(joined.starts_with("HTTP/1.1 202"), "{joined}");
+            for refused in [&evaluation, &projection] {
+                assert!(refused.starts_with("HTTP/1.1 429"), "{refused}");
+                assert!(refused.contains("Retry-After: 30\r\n"), "{refused}");
+                assert!(
+                    refused.contains("\"reason\": \"LIVE_JOBS_BUSY\""),
+                    "{refused}"
+                );
+                assert!(refused.contains("\"limit\": 1"), "{refused}");
+            }
+            fetcher.release(PAGE_COUNT);
+            let settled = poll_until_settled(&fixture.server, review_id).await;
+            assert!(settled.starts_with("HTTP/1.1 200"), "{settled}");
+            assert_eq!(fetcher.requested.load(Ordering::SeqCst), PAGE_COUNT);
+            fetcher.release(1);
+            let projected = fixture.server.route(&project).await.to_string();
+            assert!(projected.starts_with("HTTP/1.1 200"), "{projected}");
+        }
+
+        /// A paced review on a console in `agent` mode whose agents reach the repair cap with one
+        /// needs-repair round.
+        async fn one_round_fixture(fetcher: Arc<PacedFetcher>) -> Fixture {
+            fixture_with(
+                fetcher,
+                ReviewServerConfig {
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    ..paced_console()
+                },
+                agent_mode(AgentLimits {
+                    max_repair_rounds: NonZeroU32::MIN,
+                    ..AgentLimits::default()
+                }),
+            )
+            .await
+        }
+
+        /// Starts the reviewer agent's refresh of the fixture's review, has the author agent's
+        /// needs-repair verdict bring the review to the cap while the pages are fetched, and
+        /// answers the reviewer's first plain matrix read after the refresh settled.
+        async fn refresh_refused_for_a_human(
+            fixture: &Fixture,
+            fetcher: &PacedFetcher,
+        ) -> (String, serde_json::Value) {
+            let review_id = fixture.review_id;
+            let matrix = format!("GET /api/reviews/{review_id}/matrix");
+            let (status, started) = send_as(
+                &fixture.server,
+                REVIEWER_TOKEN,
+                &format!("{matrix}?refresh=true"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 202"), "{status} {started}");
+            fetcher.wait_for_first_request().await;
+            let (status, verdict) = send_as(
+                &fixture.server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/needs-repair"),
+                &json!({ "notes": "the title takes the shop name" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {verdict}");
+            fetcher.release(PAGE_COUNT);
+            for _ in 0..200 {
+                let (status, answer) = send_as(&fixture.server, REVIEWER_TOKEN, &matrix, "").await;
+                if !status.starts_with("HTTP/1.1 202") {
+                    return (status, answer);
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            panic!("the agent's refresh did not settle");
+        }
+
+        /// A review agent's refresh that the review refuses because it came to wait for a human
+        /// while the pages were fetched answers that agent only: a human, or the other agent,
+        /// reading the matrix next learns that the review holds none, without the words written
+        /// for the agents.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_an_agent_refusal_only_to_the_agent_whose_refresh_it_was() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = one_round_fixture(fetcher.clone()).await;
+            let review_id = fixture.review_id;
+            let matrix = format!("GET /api/reviews/{review_id}/matrix");
+            let agent_text = "leave it until a human changes or judges it";
+
+            let (status, refused) = refresh_refused_for_a_human(&fixture, &fetcher).await;
+            let human = get_matrix(&fixture.server, review_id, false).await;
+            let (author_status, author) = send_as(&fixture.server, AUTHOR_TOKEN, &matrix, "").await;
+
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(refused["reason"], "HUMAN_REQUIRED", "{refused}");
+            assert!(human.starts_with("HTTP/1.1 404"), "{human}");
+            assert!(human.contains("\"reason\": \"NO_MATRIX\""), "{human}");
+            assert!(!human.contains(agent_text), "{human}");
+            assert!(
+                author_status.starts_with("HTTP/1.1 404"),
+                "{author_status} {author}"
+            );
+            assert_eq!(author["reason"], "NO_MATRIX", "{author}");
+            assert!(stored_matrix(&fixture.pool, review_id).await.is_none());
+        }
+
+        /// Once a human hands the review back, the agent whose refresh the review refused reads
+        /// the matrix as everyone else does: its refusal from before the hand-back is stale.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_no_refusal_from_before_the_hand_back_to_the_agent() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = one_round_fixture(fetcher.clone()).await;
+            let review_id = fixture.review_id;
+            let (status, refused) = refresh_refused_for_a_human(&fixture, &fetcher).await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+
+            CrawlerReviewRepository::new(fixture.pool.clone())
+                .request_repair(
+                    review_id,
+                    ReviewActor::Human,
+                    Some("keep the title on the h1 and try again"),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("hand the review back: {error}"));
+            let (status, answer) = send_as(
+                &fixture.server,
+                REVIEWER_TOKEN,
+                &format!("GET /api/reviews/{review_id}/matrix"),
+                "",
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {answer}");
+            assert_eq!(answer["reason"], "NO_MATRIX", "{answer}");
+        }
+
+        /// A refresh and a candidate evaluation each evaluate their pages on a blocking thread
+        /// within the place their live job holds, so with a limit of one neither refuses its own
+        /// evaluation, and each frees its place once it answered.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_evaluate_within_the_live_jobs_own_place_when_the_limit_is_one() {
+            let fetcher = PacedFetcher::new(None);
+            let fixture = fixture_with(
+                fetcher.clone(),
+                ReviewServerConfig {
+                    max_concurrent_live_jobs: NonZeroU32::MIN,
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    ..paced_console()
+                },
+                agent_mode(AgentLimits::default()),
+            )
+            .await;
+            let server = ReviewServer {
+                matrix_refresh_wait: Duration::from_secs(30),
+                ..fixture.server.clone()
+            };
+            let review_id = fixture.review_id;
+            fetcher.release(2 * PAGE_COUNT);
+
+            let refreshed = get_matrix(&server, review_id, true).await;
+            let refresh_freed_its_place = server.live_jobs.try_start().is_ok();
+            let (status, evaluated) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/evaluate"),
+                &json!({ "schemas": [schema("h1")] }).to_string(),
+            )
+            .await;
+            let evaluation_freed_its_place = server.live_jobs.try_start().is_ok();
+
+            assert!(refreshed.starts_with("HTTP/1.1 200"), "{refreshed}");
+            assert!(stored_matrix(&fixture.pool, review_id).await.is_some());
+            assert!(refresh_freed_its_place);
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {evaluated}");
+            assert_eq!(
+                evaluated["candidates"][0]["pages"][0]["apply_ok"], true,
+                "{evaluated}"
+            );
+            assert!(evaluation_freed_its_place);
+            assert_eq!(fetcher.fetched.load(Ordering::SeqCst), 2 * PAGE_COUNT);
+        }
+
+        /// Parsing a deeply nested page holds up whatever thread parses it. A refresh parses on a
+        /// blocking thread, so the console keeps answering other requests while it evaluates: no
+        /// request waits for a sizeable part of the refresh, as each would on the one async worker
+        /// of this test's runtime if the refresh parsed there.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_other_requests_while_a_refresh_evaluates_a_deeply_nested_page() {
+            let fetcher = PacedFetcher::serving(deeply_nested_page(4_000));
+            let fixture = fixture(fetcher.clone()).await;
+            fetcher.release(PAGE_COUNT);
+            let reviews = "GET /api/reviews HTTP/1.1\r\nHost: localhost\r\n\r\n";
+
+            let refresh_started = Instant::now();
+            let refreshing = get_matrix(&fixture.server, fixture.review_id, true).await;
+            // The refresh request counts as one of the waits: with the sleeps between them, the
+            // waits cover the whole refresh, so a parse on the async worker lands in one of them,
+            // usually the refresh request's own short wait for the outcome.
+            let mut longest_wait = refresh_started.elapsed();
+            while matches!(
+                fixture
+                    .server
+                    .matrix_refreshes
+                    .status(fixture.review_id, ReviewActor::Human),
+                MatrixRefreshStatus::Running
+            ) {
+                let asked = Instant::now();
+                let listed = fixture.server.route(reviews).await.to_string();
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                longest_wait = longest_wait.max(asked.elapsed());
+                assert!(listed.starts_with("HTTP/1.1 200"), "{listed}");
+            }
+            let refresh_took = refresh_started.elapsed();
+            let settled = get_matrix(&fixture.server, fixture.review_id, false).await;
+
+            assert!(
+                refreshing.starts_with("HTTP/1.1 202") || refreshing.starts_with("HTTP/1.1 200"),
+                "{refreshing}"
+            );
+            assert!(settled.starts_with("HTTP/1.1 200"), "{settled}");
+            assert!(
+                longest_wait < refresh_took / 4,
+                "a request waited {longest_wait:?} of the refresh's {refresh_took:?}"
+            );
+        }
     }
 
     mod needs_repair {
         use super::matrix_refresh::schema;
-        use super::{
-            AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
-        };
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use listing_source_core::ListingSourceId;
@@ -2611,8 +2986,8 @@ Origin: http://127.0.0.1:7878/x
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
                     agent_tokens: None,
-                    agent_decisions: AgentDecisionPolicy::default(),
                     local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
@@ -2663,9 +3038,12 @@ Origin: http://127.0.0.1:7878/x
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send};
         use super::{
             AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
+            agent_mode,
         };
         use crate::CrawlerReviewId;
+        use crate::review::agent_decisions::AgentLimits;
         use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
         use listing_source_core::ListingSourceId;
@@ -2674,12 +3052,13 @@ Origin: http://127.0.0.1:7878/x
         use std::sync::Arc;
         use test_api::IntegrationTestService as _;
 
-        /// A review server over a pending manual schema review, and that review.
+        /// A review server of `agent` authoring mode over a pending manual schema review, and that
+        /// review.
         pub(super) async fn pending_review_server() -> (ReviewServer, CrawlerReviewId) {
-            pending_review_server_deciding(AgentDecisionPolicy::default()).await
+            pending_review_server_deciding(agent_mode(AgentLimits::default())).await
         }
 
-        /// As [`pending_review_server`], taking the agent's decisions by `agent_decisions`.
+        /// As [`pending_review_server`], taking the agents' decisions by `agent_decisions`.
         pub(super) async fn pending_review_server_deciding(
             agent_decisions: AgentDecisionPolicy,
         ) -> (ReviewServer, CrawlerReviewId) {
@@ -2694,7 +3073,8 @@ Origin: http://127.0.0.1:7878/x
             .execute(&pool)
             .await
             .unwrap_or_else(|error| panic!("insert listing source: {error}"));
-            let repository = CrawlerReviewRepository::new(pool);
+            let repository =
+                CrawlerReviewRepository::new(pool).with_agent_decisions(agent_decisions);
             let review_id = repository
                 .create_schema_review(
                     &listing_source_id,
@@ -2712,8 +3092,8 @@ Origin: http://127.0.0.1:7878/x
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
-                    agent_decisions,
                     local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
@@ -3134,31 +3514,18 @@ Origin: http://127.0.0.1:7878/x
 
     /// The console takes the agents' verdicts by its own settings, and only a human restores.
     mod agent_decisions {
+        use super::agent_mode;
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::schema_editing::pending_review_server_deciding;
-        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use super::schema_editing::{pending_review_server, pending_review_server_deciding};
+        use crate::review::agent_decisions::AgentLimits;
         use serde_json::json;
         use test_api::IntegrationTestService as _;
 
+        /// The console of `agent` mode takes the reviewer agent's approval only within the approval
+        /// guard.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_take_the_agent_verdicts_by_the_console_settings() {
-            let (off, off_review) =
-                pending_review_server_deciding(AgentDecisionPolicy::default()).await;
-            let (status, refused) = send_as(
-                &off,
-                REVIEWER_TOKEN,
-                &format!("POST /api/reviews/{off_review}/reject"),
-                &json!({ "notes": "not a product page" }).to_string(),
-            )
-            .await;
-            assert!(status.starts_with("HTTP/1.1 403"), "{status} {refused}");
-            assert_eq!(refused["reason"], "AGENT_DECISIONS_OFF");
-
-            let (guarded, guarded_review) = pending_review_server_deciding(AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
-                ..AgentDecisionPolicy::default()
-            })
-            .await;
+        async fn should_decide_the_reviewer_agent_s_approval_by_the_approval_guard() {
+            let (guarded, guarded_review) = pending_review_server().await;
             let (status, refused) = send_as(
                 &guarded,
                 REVIEWER_TOKEN,
@@ -3183,8 +3550,7 @@ Origin: http://127.0.0.1:7878/x
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_restore_an_approval_for_a_human_only() {
-            let (server, review_id) =
-                pending_review_server_deciding(AgentDecisionPolicy::default()).await;
+            let (server, review_id) = pending_review_server().await;
             let approve = format!("POST /api/reviews/{review_id}/approve");
             let restore = format!("POST /api/reviews/{review_id}/restore");
             let (_, incomplete) = send_as(
@@ -3238,18 +3604,86 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(last["notes"], "wrong schema");
         }
 
+        /// The reviewer agent's rejection is undone by a human, once and recorded as theirs; the
+        /// review stays rejected. Nothing else revokes: not an agent, and not on a review without
+        /// a rejection.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_revoke_a_rejection_for_a_human_only() {
+            let (server, review_id) = pending_review_server().await;
+            let revoke = format!("POST /api/reviews/{review_id}/revoke-rejection");
+            let (pending_status, pending) = send_as(&server, TOKEN, &revoke, "").await;
+            let (status, rejected) = send_as(
+                &server,
+                REVIEWER_TOKEN,
+                &format!("POST /api/reviews/{review_id}/reject"),
+                &json!({ "notes": "not a product page" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {rejected}");
+
+            let (agent_status, by_agent) = send_as(&server, REVIEWER_TOKEN, &revoke, "").await;
+            let (status, revoked) = send_as(
+                &server,
+                TOKEN,
+                &revoke,
+                &json!({ "notes": "the agent rejected product pages" }).to_string(),
+            )
+            .await;
+            let (again_status, again) = send_as(&server, TOKEN, &revoke, "").await;
+
+            assert!(
+                pending_status.starts_with("HTTP/1.1 400"),
+                "{pending_status} {pending}"
+            );
+            assert!(
+                agent_status.starts_with("HTTP/1.1 403"),
+                "{agent_status} {by_agent}"
+            );
+            assert_eq!(by_agent["reason"], "REVOKE_NEEDS_HUMAN");
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {revoked}");
+            assert!(
+                again_status.starts_with("HTTP/1.1 409"),
+                "{again_status} {again}"
+            );
+            let (_, detail) =
+                send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert_eq!(detail["review"]["status"], "REJECTED");
+            let trail: Vec<(&str, &str)> = detail["events"]
+                .as_array()
+                .unwrap_or_else(|| panic!("review without events: {detail}"))
+                .iter()
+                .map(|event| {
+                    (
+                        event["actor"].as_str().unwrap_or_default(),
+                        event["action"].as_str().unwrap_or_default(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                trail,
+                vec![
+                    ("AGENT_REVIEWER", "REJECTED"),
+                    ("HUMAN", "REJECTION_REVOKED")
+                ]
+            );
+            assert_eq!(
+                detail["events"][1]["notes"],
+                "the agent rejected product pages"
+            );
+        }
+
         /// Once the agents' needs-repair rounds reached the cap, the review list and the review
-        /// say the review waits for a human, every agent route on it answers 409
-        /// `HUMAN_REQUIRED` before any page is fetched and records nothing, and a human's verdict
-        /// hands it back.
+        /// say the review waits for a human, every agent route on it, the live jobs that fetch
+        /// shop pages without changing it among them, answers 409 `HUMAN_REQUIRED` before any page
+        /// is fetched and records nothing, the live previews refuse the agents' tokens as on any
+        /// review, and a human's verdict hands it back.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_answer_human_required_on_every_agent_route_once_the_repair_cap_is_reached()
         {
-            let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
+            let (server, review_id) = pending_review_server_deciding(agent_mode(AgentLimits {
                 max_repair_rounds: std::num::NonZeroU32::MIN,
-                ..AgentDecisionPolicy::default()
-            })
+                ..AgentLimits::default()
+            }))
             .await;
             let review = format!("GET /api/reviews/{review_id}");
             let needs_repair = format!("POST /api/reviews/{review_id}/needs-repair");
@@ -3313,6 +3747,25 @@ Origin: http://127.0.0.1:7878/x
                     json!(null),
                 ),
                 (
+                    AUTHOR_TOKEN,
+                    format!("POST /api/reviews/{review_id}/evaluate"),
+                    json!({ "schemas": [super::matrix_refresh::schema("h1.agent")] }),
+                ),
+                (
+                    AUTHOR_TOKEN,
+                    format!(
+                        "GET /api/reviews/{review_id}/page-projection?url=https%3A%2F%2Fedited.example%2Fproducts%2F1"
+                    ),
+                    json!(null),
+                ),
+                (
+                    REVIEWER_TOKEN,
+                    format!(
+                        "GET /api/reviews/{review_id}/page-projection?url=https%3A%2F%2Fedited.example%2Fproducts%2F2"
+                    ),
+                    json!(null),
+                ),
+                (
                     REVIEWER_TOKEN,
                     format!("POST /api/reviews/{review_id}/approve"),
                     json!({ "expected_candidate_version": version }),
@@ -3336,6 +3789,18 @@ Origin: http://127.0.0.1:7878/x
                 assert_eq!(refused["reason"], "HUMAN_REQUIRED", "{request}: {refused}");
                 assert_eq!(refused["agent_rounds"], 1, "{request}: {refused}");
                 assert_eq!(refused["limit"], 1, "{request}: {refused}");
+            }
+            for route in ["/api/live-inspect", "/api/live-html"] {
+                let request = format!(
+                    "GET {route}?url=https%3A%2F%2Fedited.example%2Fproducts%2F3&review={review_id}"
+                );
+                for token in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                    let (status, refused) = send_as(&server, token, &request, "").await;
+                    assert!(
+                        status.starts_with("HTTP/1.1 401"),
+                        "{request}: {status} {refused}"
+                    );
+                }
             }
             let (_, unchanged) = send_as(&server, TOKEN, &review, "").await;
             assert_eq!(unchanged["events"].as_array().map(Vec::len), Some(1));
@@ -3378,18 +3843,13 @@ Origin: http://127.0.0.1:7878/x
     /// each refusal names its reason and records nothing.
     mod agent_roles {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::schema_editing::pending_review_server_deciding;
-        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use super::schema_editing::pending_review_server;
         use serde_json::json;
         use test_api::IntegrationTestService as _;
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_refuse_each_role_what_the_other_role_does_with_its_reason() {
-            let (server, review_id) = pending_review_server_deciding(AgentDecisionPolicy {
-                approvals: AgentApprovals::Guarded,
-                ..AgentDecisionPolicy::default()
-            })
-            .await;
+            let (server, review_id) = pending_review_server().await;
             let title_edit = json!({
                 "expected_candidate_version": 1,
                 "schema_index": 0,
@@ -3492,9 +3952,10 @@ Origin: http://127.0.0.1:7878/x
     /// a URL-pattern review has no live matrix to evaluate.
     mod sample_labels {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
-        use crate::review::agent_decisions::{AgentApprovals, AgentDecisionPolicy};
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig, agent_mode};
+        use crate::review::agent_decisions::AgentLimits;
         use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::model::UrlPatternDecision;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
@@ -3555,7 +4016,8 @@ Origin: http://127.0.0.1:7878/x
                 .await
                 .unwrap_or_else(|error| panic!("insert domain {domain}: {error}"));
             }
-            let repository = CrawlerReviewRepository::new(pool.clone());
+            let repository = CrawlerReviewRepository::new(pool.clone())
+                .with_agent_decisions(agent_mode(AgentLimits::default()));
             let review_id = repository
                 .create_url_pattern_review(
                     &listing_source_id,
@@ -3576,11 +4038,8 @@ Origin: http://127.0.0.1:7878/x
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
                     agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
-                    agent_decisions: AgentDecisionPolicy {
-                        approvals: AgentApprovals::Guarded,
-                        ..AgentDecisionPolicy::default()
-                    },
                     local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
@@ -3824,7 +4283,9 @@ Origin: http://127.0.0.1:7878/x
                 assert!(answer["error"].is_string(), "{request}: {answer}");
             }
             assert!(matches!(
-                server.matrix_refreshes.status(unknown),
+                server
+                    .matrix_refreshes
+                    .status(unknown, crate::review::model::ReviewActor::Human),
                 MatrixRefreshStatus::Idle
             ));
         }
@@ -3982,19 +4443,17 @@ Origin: http://127.0.0.1:7878/x
         }
     }
 
-    /// The console's page fetches for a review: a review agent's live previews stay on the
-    /// review's ListingSource, a page is projected as the schema prompt sees it, and a proposed
-    /// candidate is evaluated on the review's pages and on URLs of its ListingSource without being
-    /// stored.
+    /// The console's page fetches for a review: a review page is previewed live for a human only,
+    /// a page is projected as the schema prompt sees it, and a proposed candidate is evaluated on
+    /// the review's pages and on URLs of its ListingSource without being stored.
     mod review_source_pages {
         use super::matrix_refresh::schema;
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::{
-            AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
-        };
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
         use crate::CrawlerReviewId;
         use crate::network::policy::NetworkErrorKind;
         use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput};
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
@@ -4119,8 +4578,8 @@ Origin: http://127.0.0.1:7878/x
                         bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                         auth_token: Some(TOKEN.to_owned()),
                         agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
-                        agent_decisions: AgentDecisionPolicy::default(),
                         local_mutations_without_token: false,
+                        max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
                     },
                     shop.clone(),
                 )
@@ -4133,82 +4592,60 @@ Origin: http://127.0.0.1:7878/x
             }
         }
 
-        /// Sends a request with `token` as its bearer and returns its status line and body.
-        async fn send_raw(server: &ReviewServer, token: &str, request: &str) -> (String, String) {
-            let response = server
-                .route(&format!(
-                    "{request} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\n\r\n"
-                ))
-                .await
-                .to_string();
-            let (head, body) = response.split_once("\r\n\r\n").unwrap_or((&response, ""));
-            (
-                head.lines().next().unwrap_or_default().to_owned(),
-                body.to_owned(),
-            )
-        }
-
         fn encoded(url: &str) -> String {
             url::form_urlencoded::byte_serialize(url.as_bytes()).collect()
         }
 
+        /// A review page's live previews fetch it for a human, as the browser console always did,
+        /// and answer the review agents' tokens `401` without fetching it.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_fetch_an_agent_live_preview_only_of_the_named_review_source() {
+        async fn should_preview_a_review_page_live_for_a_human_and_for_no_agent() {
             let Fixture {
+                pool,
                 server,
                 shop,
                 review_id,
-                ..
             } = fixture(Shop::default(), Duration::from_secs(5)).await;
-            let foreign = encoded("https://elsewhere.example/item/chair");
-            let own = encoded(&format!("{SHOP}/item/table"));
+            let page_id: uuid::Uuid = sqlx::query_scalar(
+                "SELECT review_page_id FROM crawler_review_pages WHERE review_id = $1",
+            )
+            .bind(review_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("review page: {error}"));
+            let page_id = crate::CrawlerReviewPageId::try_from(page_id)
+                .unwrap_or_else(|error| panic!("{error}"));
 
-            for route in ["/api/live-html", "/api/live-inspect"] {
-                let fetched_before = shop.fetched().len();
-                for (token, query, status) in [
-                    (AUTHOR_TOKEN, format!("url={own}"), "HTTP/1.1 400"),
-                    (
-                        REVIEWER_TOKEN,
-                        format!("url={foreign}&review={review_id}"),
-                        "HTTP/1.1 400",
-                    ),
-                    (
-                        AUTHOR_TOKEN,
-                        format!("url={own}&review={}", CrawlerReviewId::new()),
-                        "HTTP/1.1 404",
-                    ),
-                ] {
-                    let (line, body) =
-                        send_raw(&server, token, &format!("GET {route}?{query}")).await;
-                    assert!(line.starts_with(status), "{route}?{query}: {line} {body}");
+            for route in ["inspect", "html"] {
+                let request = format!("GET /api/review-pages/{page_id}/{route}");
+                for agent in [AUTHOR_TOKEN, REVIEWER_TOKEN] {
+                    let (status, refused) = send_as(&server, agent, &request, "").await;
+                    assert!(
+                        status.starts_with("HTTP/1.1 401"),
+                        "{request}: {status} {refused}"
+                    );
                 }
-                assert_eq!(
-                    shop.fetched().len(),
-                    fetched_before,
-                    "{route}: {:?}",
-                    shop.fetched()
+                assert!(shop.fetched().is_empty(), "{request}: {:?}", shop.fetched());
+                let previewed = server
+                    .route(&format!(
+                        "{request} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\n\r\n"
+                    ))
+                    .await
+                    .to_string();
+                assert!(
+                    previewed.starts_with("HTTP/1.1 200"),
+                    "{request}: {previewed}"
                 );
-
-                let (line, body) = send_raw(
-                    &server,
-                    REVIEWER_TOKEN,
-                    &format!("GET {route}?url={own}&review={review_id}"),
-                )
-                .await;
-                assert!(line.starts_with("HTTP/1.1 200"), "{route}: {line} {body}");
-                let (line, body) =
-                    send_raw(&server, TOKEN, &format!("GET {route}?url={foreign}")).await;
-                assert!(line.starts_with("HTTP/1.1 200"), "{route}: {line} {body}");
+                assert!(
+                    previewed.contains("<h1>chair</h1>"),
+                    "{request}: {previewed}"
+                );
+                assert_eq!(shop.fetched(), [format!("{SHOP}/item/chair")]);
+                shop.fetched
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clear();
             }
-            assert_eq!(
-                shop.fetched(),
-                [
-                    format!("{SHOP}/item/table"),
-                    "https://elsewhere.example/item/chair".to_owned(),
-                    format!("{SHOP}/item/table"),
-                    "https://elsewhere.example/item/chair".to_owned(),
-                ]
-            );
         }
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]

@@ -1,8 +1,10 @@
 //! The review agents' needs-repair rounds on a review: every needs-repair verdict an agent gave it
 //! since a human last changed or judged it, counted from its event trail. Once a pending review
-//! reached the cap of [`AgentDecisionPolicy::max_repair_rounds`] it waits for a human, and every
-//! agent change and verdict on it is refused until a human's own change or verdict hands it back
-//! and the count restarts. The contract is in `docs/crawler/operations.md` (review agents).
+//! reached the cap of
+//! [`AgentLimits::max_repair_rounds`](crate::review::agent_decisions::AgentLimits::max_repair_rounds)
+//! it waits for a human, and every agent change and verdict on it is refused until a human's own
+//! change or verdict hands it back and the count restarts. The contract is in
+//! `docs/crawler/operations.md` (review agents).
 
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::CrawlerReviewId;
@@ -10,29 +12,51 @@ use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{ReviewActor, ReviewEventAction, STATUS_PENDING_REVIEW};
 use std::collections::HashMap;
 
-/// The agents' needs-repair rounds of each of `review_ids` that has any: its agent
-/// `REPAIR_REQUESTED` events after its latest `HUMAN` event, or after its first event when no human
-/// acted on it. A review's events append under its row lock in commit order, each at the time of
-/// its write, so their times order them.
+/// The agents' needs-repair rounds of the review aliased `r`: its agent `REPAIR_REQUESTED` events
+/// after its latest `HUMAN` event, or after its first event when no human acted on it. A review's
+/// events append under its row lock in commit order, each at the time of its write, so their times
+/// order them. Every query that counts the rounds uses this expression, so their counts cannot
+/// drift. Binds `$1`, the agent actors ([`agent_round_binds`]), `$2`, the needs-repair action, and
+/// `$3`, the human actor.
+macro_rules! agent_rounds_of_review {
+    () => {
+        "(SELECT COUNT(*) FROM crawler_review_events e \
+          WHERE e.review_id = r.review_id AND e.actor = ANY($1) AND e.action = $2 \
+            AND e.created > COALESCE( \
+                (SELECT MAX(h.created) FROM crawler_review_events h \
+                 WHERE h.review_id = r.review_id AND h.actor = $3), \
+                '-infinity'::timestamptz))"
+    };
+}
+pub(super) use agent_rounds_of_review;
+
+/// The values of `$1` to `$3` of [`agent_rounds_of_review`]: the agent actors, the needs-repair
+/// action and the human actor.
+pub(super) fn agent_round_binds() -> ([&'static str; 2], &'static str, &'static str) {
+    (
+        ReviewActor::AGENTS.map(ReviewActor::as_str),
+        ReviewEventAction::RepairRequested.as_str(),
+        ReviewActor::Human.as_str(),
+    )
+}
+
+/// The agents' needs-repair rounds of each of `review_ids`, as [`agent_rounds_of_review`] counts
+/// them.
 pub(super) async fn agent_repair_rounds<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     review_ids: &[CrawlerReviewId],
 ) -> Result<HashMap<CrawlerReviewId, u32>, sqlx::Error> {
     let review_ids: Vec<uuid::Uuid> = review_ids.iter().map(|id| *id.as_uuid()).collect();
-    sqlx::query_as::<_, (uuid::Uuid, i64)>(
-        "SELECT e.review_id, COUNT(*) \
-         FROM crawler_review_events e \
-         WHERE e.review_id = ANY($1) AND e.actor = ANY($2) AND e.action = $3 \
-           AND e.created > COALESCE( \
-               (SELECT MAX(h.created) FROM crawler_review_events h \
-                WHERE h.review_id = e.review_id AND h.actor = $4), \
-               '-infinity'::timestamptz) \
-         GROUP BY e.review_id",
-    )
+    let (agents, repair_requested, human) = agent_round_binds();
+    sqlx::query_as::<_, (uuid::Uuid, i64)>(concat!(
+        "SELECT r.review_id, ",
+        agent_rounds_of_review!(),
+        " FROM crawler_reviews r WHERE r.review_id = ANY($4)"
+    ))
+    .bind(agents)
+    .bind(repair_requested)
+    .bind(human)
     .bind(&review_ids)
-    .bind(ReviewActor::AGENTS.map(ReviewActor::as_str))
-    .bind(ReviewEventAction::RepairRequested.as_str())
-    .bind(ReviewActor::Human.as_str())
     .fetch_all(executor)
     .await?
     .into_iter()
@@ -69,7 +93,7 @@ pub(super) async fn refuse_agent_while_human_required(
         return Err(ReviewRepositoryError::HumanRequired {
             review_id,
             agent_rounds,
-            max_repair_rounds: agent_decisions.max_repair_rounds.get(),
+            max_repair_rounds: agent_decisions.limits().max_repair_rounds.get(),
         });
     }
     Ok(())

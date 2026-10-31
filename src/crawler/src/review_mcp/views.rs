@@ -9,8 +9,9 @@ pub use matrix::{MatrixAnswer, MatrixView};
 use super::bounds::{keep_first, keep_last, truncated_text};
 use super::wire;
 use crate::review::model::{
-    CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, RepairRequest, ReviewSchemaMatrix,
-    SampleLabels, SampleUrlLabel, UrlPatternDecision, UrlPatternReviewCandidate,
+    CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, PendingReviewPage, PendingReviewSummary,
+    RepairRequest, ReviewSchemaMatrix, SampleLabels, SampleUrlLabel, UrlPatternDecision,
+    UrlPatternReviewCandidate,
 };
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -20,8 +21,8 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-/// The most pending reviews `list_pending_reviews` answers.
-const MAX_PENDING_REVIEWS: usize = 50;
+/// The most pending reviews one answer of `list_pending_reviews` lists.
+pub(super) const MAX_PENDING_REVIEWS: usize = 50;
 /// The most URLs of a URL-pattern review's sample `get_review` answers.
 const MAX_SAMPLE_URLS: usize = 150;
 /// The most events, the latest ones, `get_review` answers.
@@ -37,15 +38,22 @@ pub(super) const MAX_PROJECTION_CHARS: usize = 36_000;
 /// read on from, instead of being cut by it.
 const MAX_PROJECTION_JSON_BYTES: usize = 40 * 1024;
 
-/// The pending reviews of the console's queue.
+/// One page of the pending reviews the agents can work.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PendingReviews {
-    /// Pending reviews in the console's queue order: those of crawl-enabled ListingSources first,
-    /// newest first within each group.
+    /// Pending reviews of crawl-enabled ListingSources that do not wait for a human, oldest first:
+    /// at most 50, those after the review `after` named.
     pub reviews: Vec<PendingReview>,
-    /// How many of the first 200 reviews the console lists are pending. It lists pending reviews
-    /// first, so 200 means at least 200.
-    pub total_pending: usize,
+    /// How many pending reviews of crawl-enabled ListingSources the agents can work, on every page
+    /// together.
+    pub total_pending: i64,
+    /// How many pending reviews of crawl-enabled ListingSources wait for a human. They are not
+    /// listed: every change, verdict and page fetch of an agent on them is refused with
+    /// `HUMAN_REQUIRED` until a human changes or judges them.
+    pub waiting_for_human: i64,
+    /// Whether reviews follow the last one listed; `after` set to its `review_id` reads on, as it
+    /// does when `truncations` names the reviews list.
+    pub more: bool,
     /// What this answer leaves out, if anything.
     pub truncations: Vec<String>,
 }
@@ -58,9 +66,7 @@ pub struct PendingReview {
     /// Why the crawler opened the review, such as `manual_schema_required`.
     pub reason: String,
     pub listing_source_id: String,
-    pub listing_source_name: Option<String>,
-    /// Whether the ListingSource is crawled; a review of a disabled one holds nothing back.
-    pub listing_source_crawl_enabled: bool,
+    pub listing_source_name: String,
     /// The candidate's version, which edits and approvals name as `expected_candidate_version`.
     pub candidate_version: i64,
     /// The latest needs-repair request the review waits for, if any.
@@ -68,10 +74,6 @@ pub struct PendingReview {
     /// The needs-repair verdicts the agents gave the review since a human last changed or judged
     /// it.
     pub agent_rounds: u32,
-    /// Whether the review waits for a human: the agents' needs-repair rounds reached the cap, and
-    /// every change and verdict of an agent on it is refused with `HUMAN_REQUIRED` until a human
-    /// changes or judges it. Leave such a review alone.
-    pub human_required: bool,
     pub updated: String,
 }
 
@@ -104,8 +106,8 @@ pub struct ReviewView {
     /// it.
     pub agent_rounds: u32,
     /// Whether the review waits for a human: the agents' needs-repair rounds reached the cap, and
-    /// every change and verdict of an agent on it is refused with `HUMAN_REQUIRED` until a human
-    /// changes or judges it. Leave such a review alone.
+    /// every change, verdict and page fetch of an agent on it is refused with `HUMAN_REQUIRED`
+    /// until a human changes or judges it. Leave such a review alone.
     pub human_required: bool,
     pub candidate: CandidateView,
     /// The pages a product-schema candidate is evaluated on.
@@ -264,34 +266,38 @@ pub(super) fn value(text: &str) -> String {
 }
 
 impl PendingReviews {
-    /// The pending reviews among the console's `queue`, in its order.
-    pub(super) fn of(queue: Vec<CrawlerReview>) -> Self {
-        let pending: Vec<CrawlerReview> = queue
-            .into_iter()
-            .filter(|review| review.status == crate::review::model::STATUS_PENDING_REVIEW)
-            .collect();
-        let total_pending = pending.len();
+    /// The console's `page` of the pending reviews the agents can work, at most
+    /// [`MAX_PENDING_REVIEWS`] of them.
+    pub(super) fn of(page: PendingReviewPage) -> Self {
         let mut truncations = Vec::new();
-        let pending = keep_first(pending, MAX_PENDING_REVIEWS, "reviews", &mut truncations);
+        let reviews = keep_first(
+            page.reviews,
+            MAX_PENDING_REVIEWS,
+            "reviews",
+            &mut truncations,
+        );
         Self {
-            reviews: pending
-                .into_iter()
-                .map(|review| PendingReview {
-                    review_id: review.review_id.to_string(),
-                    artifact_type: review.artifact_type,
-                    reason: review.reason,
-                    listing_source_id: review.listing_source_id.to_string(),
-                    listing_source_name: review.listing_source_name,
-                    listing_source_crawl_enabled: review.listing_source_crawl_enabled,
-                    candidate_version: review.candidate_version,
-                    repair_request: review.repair_request.map(RepairRequestView::of),
-                    agent_rounds: review.agent_rounds,
-                    human_required: review.human_required,
-                    updated: timestamp(review.updated),
-                })
-                .collect(),
-            total_pending,
+            reviews: reviews.into_iter().map(PendingReview::of).collect(),
+            total_pending: page.totals.workable,
+            waiting_for_human: page.totals.waiting_for_human,
+            more: page.next_after.is_some() || !truncations.is_empty(),
             truncations,
+        }
+    }
+}
+
+impl PendingReview {
+    fn of(review: PendingReviewSummary) -> Self {
+        Self {
+            review_id: review.review_id.to_string(),
+            artifact_type: review.artifact_type,
+            reason: review.reason,
+            listing_source_id: review.listing_source_id.to_string(),
+            listing_source_name: review.listing_source_name,
+            candidate_version: review.candidate_version,
+            repair_request: review.repair_request.map(RepairRequestView::of),
+            agent_rounds: review.agent_rounds,
+            updated: timestamp(review.updated),
         }
     }
 }
@@ -545,20 +551,70 @@ mod tests {
         serde_json::from_value(value).unwrap_or_else(|error| panic!("{error}"))
     }
 
+    /// A page of the console's agents' queue holding `reviews` of the workable ones.
+    fn queue_page(reviews: Vec<Value>, next_after: Option<Value>) -> PendingReviewPage {
+        decoded(json!({
+            "reviews": reviews,
+            "next_after": next_after,
+            "totals": { "workable": 260, "waiting_for_human": 30 },
+        }))
+    }
+
+    fn queued(agent_rounds: u32) -> Value {
+        json!({
+            "review_id": CrawlerReviewId::new().to_string(),
+            "listing_source_id": listing_source_core::ListingSourceId::new().to_string(),
+            "listing_source_name": "Antiques",
+            "domain_id": null,
+            "artifact_type": "PRODUCT_SCHEMA",
+            "reason": "manual_schema_required",
+            "candidate_version": 3,
+            "repair_request": { "note": "title takes the shop name", "requested": "2026-10-27T11:00:00Z" },
+            "agent_rounds": agent_rounds,
+            "human_required": false,
+            "created": "2026-10-27T10:00:00Z",
+            "updated": "2026-10-27T11:00:00Z",
+        })
+    }
+
     #[test]
-    fn should_list_only_pending_reviews_in_queue_order_up_to_the_bound() {
-        let mut queue: Vec<Value> = (0..60)
-            .map(|_| review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({})))
-            .collect();
-        queue.insert(1, review("APPROVED", "PRODUCT_SCHEMA", json!({})));
-        let first = queue[0]["review_id"].clone();
+    fn should_list_a_page_of_the_workable_reviews_with_the_totals_of_the_whole_queue() {
+        let first = queued(2);
+        let last = queued(0);
 
-        let pending = PendingReviews::of(decoded(Value::Array(queue)));
+        let pending = json!(PendingReviews::of(queue_page(
+            vec![first.clone(), last.clone()],
+            Some(last["review_id"].clone()),
+        )));
 
-        assert_eq!(pending.total_pending, 60);
+        assert_eq!(pending["total_pending"], 260);
+        assert_eq!(pending["waiting_for_human"], 30);
+        assert_eq!(pending["more"], true);
+        assert_eq!(pending["truncations"], json!([]));
+        assert_eq!(pending["reviews"][0]["review_id"], first["review_id"]);
+        assert_eq!(pending["reviews"][0]["agent_rounds"], 2);
+        assert_eq!(
+            pending["reviews"][0]["repair_request"]["note"],
+            "title takes the shop name"
+        );
+        assert_eq!(pending["reviews"][1]["review_id"], last["review_id"]);
+        assert_eq!(pending["reviews"][1].get("human_required"), None);
+
+        let last_page = PendingReviews::of(queue_page(vec![queued(0)], None));
+        assert!(!last_page.more);
+    }
+
+    #[test]
+    fn should_cut_a_page_longer_than_the_bound_and_say_that_more_reviews_follow() {
+        let reviews: Vec<Value> = (0..60).map(|_| queued(0)).collect();
+        let first = reviews[0]["review_id"].clone();
+
+        let pending = PendingReviews::of(queue_page(reviews, None));
+
         assert_eq!(pending.reviews.len(), MAX_PENDING_REVIEWS);
         assert_eq!(json!(pending.reviews[0].review_id), first);
         assert_eq!(pending.truncations, ["reviews: the first 50 of 60"]);
+        assert!(pending.more);
     }
 
     #[test]
@@ -566,13 +622,7 @@ mod tests {
         let mut waiting = review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({}));
         waiting["agent_rounds"] = json!(3);
         waiting["human_required"] = json!(true);
-        let mut worked = review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({}));
-        worked["agent_rounds"] = json!(1);
 
-        let pending = json!(PendingReviews::of(decoded(json!([
-            waiting.clone(),
-            worked
-        ]))));
         let view = json!(ReviewView::of(
             decoded(json!({
                 "review": waiting,
@@ -587,21 +637,6 @@ mod tests {
             }),
         ));
 
-        assert_eq!(
-            (
-                &pending["reviews"][0]["agent_rounds"],
-                &pending["reviews"][0]["human_required"]
-            ),
-            (&json!(3), &json!(true))
-        );
-        assert_eq!(
-            (
-                &pending["reviews"][1]["agent_rounds"],
-                &pending["reviews"][1]["human_required"]
-            ),
-            (&json!(1), &json!(false))
-        );
-        assert_eq!(pending["total_pending"], 2);
         assert_eq!(
             (&view["agent_rounds"], &view["human_required"]),
             (&json!(3), &json!(true))

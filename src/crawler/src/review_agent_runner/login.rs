@@ -85,7 +85,7 @@ mod tests {
             exit_code: Some(exit_code),
             stdout: serde_json::to_vec_pretty(&status).unwrap_or_default(),
             stderr_tail: String::new(),
-            timed_out: false,
+            stopped: None,
         }
     }
 
@@ -140,7 +140,7 @@ mod tests {
             exit_code: Some(2),
             stdout: b"error: unknown command".to_vec(),
             stderr_tail: String::new(),
-            timed_out: false,
+            stopped: None,
         };
         assert!(matches!(
             read_login(&garbled),
