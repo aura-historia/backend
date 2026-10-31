@@ -1,0 +1,37 @@
+{
+  "id": 136207,
+  "accession_number": "1960.108",
+  "title": "Flowers in a Glass",
+  "creation_date": "1606",
+  "creation_date_earliest": 1606,
+  "creation_date_latest": 1606,
+  "culture": [
+    "Netherlands"
+  ],
+  "technique": "oil on copper",
+  "type": "Painting",
+  "measurements": "Framed: 60.3 x 52.8 x 6.4 cm (23 3/4 x 20 13/16 x 2 1/2 in.); Unframed: 35.6 x 29.3 cm (14 x 11 9/16 in.)",
+  "creators": [
+    {
+      "id": 2653,
+      "description": "Ambrosius Bosschaert (Dutch, 1573–1621)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1573",
+      "death_year": "1621",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "One of the first artists to specialize in flower painting, Ambrosius Bosschaert may have been inspired by the botanical gardens and scientific collections in his hometown of Middelburg. The flowers in this bouquet might be common today, but in the 1600s they were costly rarities. Bosschaert captured their fragile beauty with luminous colors and exquisite detail.",
+  "url": "https://clevelandart.org/art/1960.108",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Carrie Moss Halle in memory of Salmon Portland Halle",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1960.108/1960.108_web.jpg",
+  "image_path": "../assets/cma-136207.jpg"
+}

@@ -1,0 +1,36 @@
+{
+  "id": 131804,
+  "accession_number": "1954.380",
+  "title": "Callot Figure",
+  "creation_date": "c. 1720",
+  "creation_date_earliest": 1715,
+  "creation_date_latest": 1725,
+  "culture": [
+    "Germany, Meissen, 18th century"
+  ],
+  "technique": "porcelain",
+  "type": "Ceramic",
+  "measurements": "Overall: 11.5 x 6.2 x 4.8 cm (4 1/2 x 2 7/16 x 1 7/8 in.)",
+  "creators": [
+    {
+      "id": 11685,
+      "description": "Meissen Porcelain Factory (German, est. c. 1710)",
+      "extent": null,
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": "the first and for half a century the best in Europe. It set a high standard which was emulated everywhere, even in China. Founded in 1710 as the Royal Saxon Porcelain Manufacture by Augustus the Strong, Elector of Saxony and King of Poland, at Meissen, near Dresden.",
+      "name_in_original_language": null,
+      "birth_year": "1710",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "This small figure is made of the slightly yellowish porcelain developed by Böttger and used by the Meissen factory during the first decade of its existence. It is one of a series of small figures adapted from engravings in the style of Callot and is thought to have been modeled by Georg Fritzche, who had been employed at Meissen since 1712.",
+  "url": "https://clevelandart.org/art/1954.380",
+  "share_license_status": "CC0",
+  "creditline": "Gift of R. Thornton Wilson in memory of his wife, Florence Ellsworth Wilson",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1954.380/1954.380_web.jpg",
+  "image_path": "../assets/cma-131804.jpg"
+}

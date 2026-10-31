@@ -1,0 +1,36 @@
+{
+  "id": 128834,
+  "accession_number": "1951.451",
+  "title": "Pilgrim Bottle",
+  "creation_date": "c. 1715",
+  "creation_date_earliest": 1710,
+  "creation_date_latest": 1720,
+  "culture": [
+    "Germany, Meissen, 18th century"
+  ],
+  "technique": "polished red stoneware, silver-gilt mounts",
+  "type": "Ceramic",
+  "measurements": "Overall: 15.9 x 9.6 cm (6 1/4 x 3 3/4 in.)",
+  "creators": [
+    {
+      "id": 11685,
+      "description": "Meissen Porcelain Factory (German, est. c. 1710)",
+      "extent": null,
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": "the first and for half a century the best in Europe. It set a high standard which was emulated everywhere, even in China. Founded in 1710 as the Royal Saxon Porcelain Manufacture by Augustus the Strong, Elector of Saxony and King of Poland, at Meissen, near Dresden.",
+      "name_in_original_language": null,
+      "birth_year": "1710",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Throughout the early 1700s porcelain was imported to Europe from China and Japan, until the correct formula to produce it was developed by Johann Friedrich Böttger and a collaborator, which led to the establishment of the Meissen factory in 1710. Red stoneware inspired by Chinese Yixing ware and white porcelain were produced in Meissen under Böttger. Its fine red stoneware was so hard that it could be polished on a lapidary’s wheel—as was the body of this bottle.",
+  "url": "https://clevelandart.org/art/1951.451",
+  "share_license_status": "CC0",
+  "creditline": "Purchase from the J. H. Wade Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1951.451/1951.451_web.jpg",
+  "image_path": "../assets/cma-128834.jpg"
+}

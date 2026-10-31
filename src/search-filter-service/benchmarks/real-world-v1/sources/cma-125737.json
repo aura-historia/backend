@@ -1,0 +1,35 @@
+{
+  "id": 125737,
+  "accession_number": "1947.63",
+  "title": "Vase",
+  "creation_date": "c. 1695–1700",
+  "creation_date_earliest": 1690,
+  "creation_date_latest": 1705,
+  "culture": [
+    "France, St. Cloud, late 17th-early 18th Century"
+  ],
+  "technique": "Molded soft-paste porcelain with blue underglaze",
+  "type": "Ceramic",
+  "measurements": "Overall: 20.7 cm (8 1/8 in.)",
+  "creators": [
+    {
+      "id": 11810,
+      "description": "Saint Cloud Porcelain Factory (French)",
+      "extent": null,
+      "qualifier": "attributed to",
+      "role": "artist",
+      "biography": "Established c. 1690s",
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "This vase’s decoration demonstrates the converging influence of Chinese and Italian art on French porcelain manufacture. Early production at the Saint-Cloud factory was inspired by blue and white Chinese porcelain. Books of grotesque designs popular during the Italian Renaissance and published by Jacques Androuet Du Cerceau provided models for this vase’s ornament including its interlacing garlands, swans, and snakes.",
+  "url": "https://clevelandart.org/art/1947.63",
+  "share_license_status": "CC0",
+  "creditline": "Purchase from the J. H. Wade Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1947.63/1947.63_web.jpg",
+  "image_path": "../assets/cma-125737.jpg"
+}

@@ -1,0 +1,37 @@
+{
+  "id": 143602,
+  "accession_number": "1967.63",
+  "title": "Low Waterfall in a Wooded Landscape with a Dead Beech Tree",
+  "creation_date": "c. 1660–70",
+  "creation_date_earliest": 1660,
+  "creation_date_latest": 1670,
+  "culture": [
+    "Netherlands"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Framed: 123 x 157 x 9.5 cm (48 7/16 x 61 13/16 x 3 3/4 in.); Unframed: 99.2 x 131 cm (39 1/16 x 51 9/16 in.)",
+  "creators": [
+    {
+      "id": 2676,
+      "description": "Jacob van Ruisdael (Dutch, 1628/29–1682)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1628",
+      "death_year": "1682",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Jutting from a dune in the foreground, the massive silvery trunk of a dead tree leads the eye across a waterfall and toward a distant sunlit field where travelers and a dog traverse a sandy path. Partly masked by trees, a ruined building is turned gold by the sun. In Jacob van Ruisdael’s landscapes, dead trees, waterfalls, and ruined buildings were visual expressions of the passage of time. Ruisdael devoted equal attention to the cloud-filled skies looming above the land, creating dramatic patterns of light and shadow and revealing the unseen movements of the wind.",
+  "url": "https://clevelandart.org/art/1967.63",
+  "share_license_status": "CC0",
+  "creditline": "Mr. and Mrs. William H. Marlatt Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1967.63/1967.63_web.jpg",
+  "image_path": "../assets/cma-143602.jpg"
+}

@@ -1,0 +1,37 @@
+{
+  "id": 102578,
+  "accession_number": "1921.1239",
+  "title": "Portrait of Dora Wheeler",
+  "creation_date": "1882–83",
+  "creation_date_earliest": 1882,
+  "creation_date_latest": 1883,
+  "culture": [
+    "United States"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Framed: 180.6 x 188.6 x 11 cm (71 1/8 x 74 1/4 x 4 5/16 in.); Unframed: 159.8 x 166.4 cm (62 15/16 x 65 1/2 in.)",
+  "creators": [
+    {
+      "id": 3071,
+      "description": "William Merritt Chase (American, 1849–1916)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1849",
+      "death_year": "1916",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Dora Wheeler became Chase's first student when he returned from overseas study in Munich and set up a teaching studio in New York. At the time, few American artists accepted women as private pupils. After her course of study, Wheeler joined her mother in launching a successful decorating firm, one of the first businesses in the country to be operated entirely by women. For the firm, she designed luxurious textiles, and the embroidered silk tapestry that fills the background in her portrait references her occupational interest. Chase's portrait was awarded a gold medal at an international exhibition of contemporary art in Munich in 1883, and later that year was also shown in Paris. At some later point, the painting was acquired by the sitter, who subsequently donated it to the museum.",
+  "url": "https://clevelandart.org/art/1921.1239",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Mrs. Boudinot Keith in memory of  Mr. and Mrs. J. H. Wade",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1921.1239/1921.1239_web.jpg",
+  "image_path": "../assets/cma-102578.jpg"
+}

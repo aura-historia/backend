@@ -1,0 +1,37 @@
+{
+  "id": 315934,
+  "accession_number": "2018.258",
+  "title": "Still Life with Meat, Fish, Vegetables, and Fruit",
+  "creation_date": "c. 1615–20",
+  "creation_date_earliest": 1615,
+  "creation_date_latest": 1620,
+  "culture": [
+    "Flanders"
+  ],
+  "technique": "Oil on panel, the reverse prepared with gesso",
+  "type": "Painting",
+  "measurements": "71.5 x 104 cm (28 1/8 x 40 15/16 in.)",
+  "creators": [
+    {
+      "id": 315930,
+      "description": "Jacob van Hulsdonck (Flemish, 1582–1647)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": "Flemish painter and draftsman, 1582-1647",
+      "name_in_original_language": null,
+      "birth_year": "1582",
+      "death_year": "1647",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Jacob van Hulsdonck depicted a colorful array of foods, and tablewares ranging from an earthenware trencher to delicate Chinese porcelain—an expensive luxury made possible by international trade. For seventeenth-century viewers, the quantity and variety of foods would have represented a utopian world without scarcity or hunger. Partially eaten food and an overturned glass suggest that diners have just departed, leaving insects to explore the remains.",
+  "url": "https://clevelandart.org/art/2018.258",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Janice Hammond and Edward Hemmelgarn",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2018.258/2018.258_web.jpg",
+  "image_path": "../assets/cma-315934.jpg"
+}

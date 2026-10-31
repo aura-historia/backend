@@ -1,0 +1,2320 @@
+{
+  "dataset_revision": "real-world-v1-2026-10-31",
+  "label_provenance": "agent-authored",
+  "authored_by": "Codex",
+  "human_reviewed": false,
+  "scope": "Purposive challenge set of real CC0 museum objects, plus explicitly constructed lots. Not a random sample of dealer listings; not a population error-rate estimate.",
+  "created_at": "2026-10-31",
+  "threshold": 0.5,
+  "classifier_model": "clef-flash",
+  "neurons_per_million_input_tokens": 3455,
+  "max_estimated_neurons": 1500,
+  "case_count": 88,
+  "unique_object_count": 69,
+  "groups": [
+    {
+      "id": "plain-clocks",
+      "mode": "plain",
+      "evidence": "TEXT_ONLY",
+      "search": {
+        "language": "en",
+        "currency": "EUR",
+        "productQuery": [
+          "clock"
+        ]
+      }
+    },
+    {
+      "id": "plain-lighting",
+      "mode": "plain",
+      "evidence": "TEXT_ONLY",
+      "search": {
+        "language": "en",
+        "currency": "EUR",
+        "productQuery": [
+          "lamp",
+          "candlestick"
+        ]
+      }
+    },
+    {
+      "id": "river-oils",
+      "mode": "enhanced",
+      "evidence": "ONE_IMAGE",
+      "search": {
+        "language": "en",
+        "currency": "EUR",
+        "productQuery": [
+          "river landscape",
+          "water landscape"
+        ],
+        "enhancedSearchDescription": "An original oil painting of a river, canal, inland waterway, stream or waterfall. Exclude open-sea/coastal scenes, floral still lifes, prints and watercolors. Any country or date is acceptable. A frame is preferred, not required."
+      }
+    },
+    {
+      "id": "food-still-life",
+      "mode": "enhanced",
+      "evidence": "ONE_IMAGE",
+      "search": {
+        "language": "en",
+        "currency": "EUR",
+        "productQuery": [
+          "still life",
+          "still-life"
+        ],
+        "enhancedSearchDescription": "An original oil still-life painting whose main subject is food or drink: fruit, vegetables, fish, bread, sweets or wine. Exclude predominantly floral bouquets, portraits, photographs and watercolors. Any date or nationality is acceptable."
+      }
+    },
+    {
+      "id": "meissen-vessels",
+      "mode": "enhanced",
+      "evidence": "ONE_IMAGE",
+      "search": {
+        "language": "en",
+        "currency": "EUR",
+        "productQuery": [
+          "Meissen porcelain"
+        ],
+        "enhancedSearchDescription": "Meissen porcelain vessels or tableware made in the eighteenth century (1700-1799). Exclude stoneware even if made at Meissen, human figurines, and French or English manufactures. Gilt metal mounts are acceptable."
+      }
+    },
+    {
+      "id": "french-clocks",
+      "mode": "enhanced",
+      "evidence": "ONE_IMAGE",
+      "search": {
+        "language": "en",
+        "currency": "EUR",
+        "productQuery": [
+          "antique clock"
+        ],
+        "enhancedSearchDescription": "A clock made in France between 1650 and 1800, with gilt-bronze decoration or mounts. Wood, marble and other materials may be present. Exclude Russian, English, American and German clocks, and snuff boxes that merely incorporate a clock."
+      }
+    },
+    {
+      "id": "chinese-blue-white",
+      "mode": "enhanced",
+      "evidence": "ONE_IMAGE",
+      "search": {
+        "language": "en",
+        "currency": "EUR",
+        "productQuery": [
+          "blue and white porcelain"
+        ],
+        "enhancedSearchDescription": "Chinese blue-and-white porcelain decorated with cobalt blue under the glaze. Exclude Korean, Japanese and European wares, monochrome blue glazes, qingbai blue-white glaze, and tin-glazed earthenware. Any vessel shape or historical date is acceptable."
+      }
+    },
+    {
+      "id": "four-picture-lots",
+      "mode": "enhanced",
+      "evidence": "FOUR_IMAGES",
+      "search": {
+        "language": "en",
+        "currency": "EUR",
+        "productQuery": [
+          "group of four pictures"
+        ],
+        "enhancedSearchDescription": "A group of four pictures, each showing a river, canal, inland waterway, stream or waterfall. All four must show inland water. Exclude mixed lots containing floral still lifes, food still lifes, portraits or open-sea scenes. Different media, styles, countries and dates are acceptable. Each photograph shows one separate work, not another view of the same object."
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "plain-clocks-01",
+      "group": "plain-clocks",
+      "object_ids": [
+        156855
+      ],
+      "title": "Tall Clock",
+      "description": "Date: c. 1880. Technique/materials: mahogany, teak with dial faces of gilded and patinated metal, glass. Culture/origin: America, New York. Creator attribution: Tiffany & Co. (America, New York, est. 1837). In 1879, Louis Comfort Tiffany joined several other artisans to create an interior decoration firm called Associated Artists. The firm was very influential in advocating a rejection of historical styles in favor of the new fashion from more eclectic sources of inspiration, including the Islamic world and Japan. One of Tiffany's partners, Lockwood De Forest, traveled extensively in India to find carved wood and other decorative accessories that could be used in their designs. This clock's design was one result of this collaboration. The heavily carved panels on the clock were likely purchased in India during this time and assembled with a clock mechanism from Tiffany's father's shop, Tiffany and Co., whose name appears on the clock face.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical clock versus an image or print referring to a clock.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-clocks-02",
+      "group": "plain-clocks",
+      "object_ids": [
+        142771
+      ],
+      "title": "Clock",
+      "description": "Date: 1908–17. Technique/materials: nephrite, gold, enamel, diamonds. Culture/origin: Russia, St. Petersburg. Creator attribution: Henrik Wigström (Russian, 1862–1923); House of Fabergé (Russian, 1842–1918). The use of Russian hardstones in creating precious objects became a hallmark of design from the House of Fabergé. Easily carved, these minerals were sourced largely from the western region surrounding the Ural Mountains. Fabergé's workmasters used colorful stones such as agate, lapis lazuli, rock crystal, rhodonite, and nephrite (jade), seen here in this small desk clock, to create and embellish flower studies, animal figures, and all manner of luxurious accessories.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical clock versus an image or print referring to a clock.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-clocks-03",
+      "group": "plain-clocks",
+      "object_ids": [
+        128963
+      ],
+      "title": "Clock",
+      "description": "Date: c. 1750. Technique/materials: gilt bronze. Culture/origin: France.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical clock versus an image or print referring to a clock.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-clocks-04",
+      "group": "plain-clocks",
+      "object_ids": [
+        168181
+      ],
+      "title": "Cabinet Clock",
+      "description": "Date: c.  1770–75. Technique/materials: gold, agate, enamel dial, glass. Culture/origin: England, late 18th century. Creator attribution: James Cox (British). In the 1700s and early 1800s, luxurious objects such as jewelry, miniatures, snuff boxes, and vanity cases emphasized their owner’s refinement and wealth. Especially popular were small cases with clocks and moving mechanical devices that played a handful of musical tunes. James Cox, the London goldsmith responsible for this clock and case, was known for creating such tuneful surprises, although this work no longer contains such a mechanism. Its glittering surface disguises a system based on the labor and suffering of enslaved people, whether in gold and stone mines or in shops where these goods were made by indentured apprentices. Many of these timepieces were designed for export and sold to the Chinese emperor Ch'ien Lung (1711–1799) and his court in attempt to balance out the substantial amount of tea that Britain was importing at the time.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical clock versus an image or print referring to a clock.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-clocks-05",
+      "group": "plain-clocks",
+      "object_ids": [
+        169336
+      ],
+      "title": "Mantel Clock",
+      "description": "Date: c. 1780–90. Technique/materials: marble, gilt-bronze, glass. Culture/origin: France, Paris.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical clock versus an image or print referring to a clock.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-clocks-06",
+      "group": "plain-clocks",
+      "object_ids": [
+        167839
+      ],
+      "title": "Mantle Clock",
+      "description": "Date: 1901. Technique/materials: brass, mahogany. Culture/origin: America. Creator attribution: Lenzkirch Clock Factory (German); Tiffany & Co. (America, New York, est. 1837).",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical clock versus an image or print referring to a clock.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-clocks-07",
+      "group": "plain-clocks",
+      "object_ids": [
+        117070
+      ],
+      "title": "Etchings of Paris: The Clock Tower",
+      "description": "Date: 1852. Technique/materials: etching. Culture/origin: France, 19th century. Creator attribution: Charles Meryon (French, 1821–1868).",
+      "image_paths": [],
+      "expected_match": false,
+      "label_reason": "Physical clock versus an image or print referring to a clock.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-clocks-08",
+      "group": "plain-clocks",
+      "object_ids": [
+        103275
+      ],
+      "title": "The Hour of the Snake (from the series A Clock for Young Women)",
+      "description": "Date: c. 1796. Technique/materials: color woodblock print. Culture/origin: Japan, Edo period (1615–1868). Creator attribution: Kitagawa Utamaro (Japanese, c. 1754–1806).",
+      "image_paths": [],
+      "expected_match": false,
+      "label_reason": "Physical clock versus an image or print referring to a clock.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-lighting-01",
+      "group": "plain-lighting",
+      "object_ids": [
+        93149
+      ],
+      "title": "Peacock Table Lamp",
+      "description": "Date: c. 1902. Technique/materials: Leaded glass, bronze. Culture/origin: America, New York. Creator attribution: Clara Wolcott Driscoll (American, 1861–1944); Tiffany Studios (United States, New York, 1902–32). The peacock, with its brilliantly colored iridescent plumage, was a favorite motif of Louis Comfort Tiffany, appearing in almost every genre of his artistic production. The Peacock table lamp, created by Tiffany's chief lamp designer Clara Wolcott Driscoll, evokes the wide circular swath of a peacock's preening feathers and attracted critical acclaim to both Driscoll and Tiffany Studios. This particular version retains its original kerosene burning fluid apparatus as well as an electric bulb armature. Although incandescent lamp bulbs had become more widely available in the 1890s, most households, even those of the wealthy, were not yet wired for electricity. Tiffany originally designed his lamps with an oil-burning apparatus, consisting of a reservoir and a double wick and chimney, as well as an electric attachment. He cleverly predicted, though, that electric households would eventually become commonplace, so he soon moved to all-electric designs, greatly increasing the illumination and appeal of his lamps.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical lamp or candlestick; a design drawing and a clock print are not lighting objects.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-lighting-02",
+      "group": "plain-lighting",
+      "object_ids": [
+        300120
+      ],
+      "title": "\"Pony\" Wisteria Lamp",
+      "description": "Date: c. 1902–10. Technique/materials: leaded glass, bronze. Culture/origin: America, New York. Creator attribution: Clara Wolcott Driscoll (American, 1861–1944); Tiffany Studios (United States, New York, 1902–32). The dawn of the 20th century spurred fresh approaches to design. Louis Comfort Tiffany’s great contribution to this new art movement, termed the Art Nouveau, was not only the shimmering iridescence of his Favrile glass but also the naturalistic compositions of his lamps and windows, which brought him commercial and critical success in both Europe and America. The artistic blend of sculpture and function in the Wisteria lamp, in which the base rises up to form the branches of the vine, became a hallmark of Tiffany's Art Nouveau production. This lamp, designed by Clara Wolcott Driscoll, Tiffany's chief lamp designer, won a grand prize for Tiffany Studios at the 1902 international exposition in Turin, Italy.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical lamp or candlestick; a design drawing and a clock print are not lighting objects.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-lighting-03",
+      "group": "plain-lighting",
+      "object_ids": [
+        172939
+      ],
+      "title": "Turtleback Reading Lamp",
+      "description": "Date: c. 1895–1902. Technique/materials: Favrile glass, bronze. Culture/origin: America, New York. Creator attribution: Tiffany Glass & Decorating Company (America, New York, 1892–1902). By 1900 Louis Comfort Tiffany had expanded his empire by increasing the firm’s production of “fancy goods,” including inkstands, candlesticks, clocks, small boxes, desk sets, tea screens, and other functional objects, such as this small reading lamp for a desk. These smaller, more affordable luxury items were designed with as much thought to artistry as the great stained glass windows and table lamps through which the firm enjoyed unrivaled success.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical lamp or candlestick; a design drawing and a clock print are not lighting objects.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-lighting-04",
+      "group": "plain-lighting",
+      "object_ids": [
+        147819
+      ],
+      "title": "Pricket Candlestick",
+      "description": "Date: early 1500s. Technique/materials: brass (hollow cast in three parts) and iron. Culture/origin: South Netherlands, Valley of the Meuse, 16th century. This object is an example of a type of metalwork known as \"dinanderie,\" produced in and around the town of Dinant on the River Meuse in the Belgian province of Namur. Late medieval Dinant specialized in the production of these finely cast and finished objects in brass alloy, supplying aquamanilia, candlesticks, patens, basins, baptismal fonts, and other altar furniture throughout the Meuse Valley and for export beyond.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical lamp or candlestick; a design drawing and a clock print are not lighting objects.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-lighting-05",
+      "group": "plain-lighting",
+      "object_ids": [
+        128948
+      ],
+      "title": "Candlestick",
+      "description": "Date: 1250–1350. Technique/materials: sheet brass inlaid with silver. Culture/origin: Eastern Anatolia. Candlesticks were a common type of luxury good in the Islamic world during the medieval period. The extensive decoration on this piece is arranged in bands with roundels displaying birds in flight and leaf-like scrolls on a background of hexagonal swastikas. These ancient motifs are thought to have been sun symbols and were sometimes used as a background pattern for metalwork at this time.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical lamp or candlestick; a design drawing and a clock print are not lighting objects.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-lighting-06",
+      "group": "plain-lighting",
+      "object_ids": [
+        95030
+      ],
+      "title": "Candlestick",
+      "description": "Date: late 1400s. Technique/materials: carved and gilded wood. Culture/origin: Italy, probably Tuscany, late 15th century.",
+      "image_paths": [],
+      "expected_match": true,
+      "label_reason": "Physical lamp or candlestick; a design drawing and a clock print are not lighting objects.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-lighting-07",
+      "group": "plain-lighting",
+      "object_ids": [
+        109211
+      ],
+      "title": "Design for a Candlestick",
+      "description": "Date: mid 1500s. Technique/materials: pen and brown ink and brush and brown wash, over black chalk. Culture/origin: Italy. Creator attribution: Luzio Romano (Italian, active 1528–75).",
+      "image_paths": [],
+      "expected_match": false,
+      "label_reason": "Physical lamp or candlestick; a design drawing and a clock print are not lighting objects.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "text_only"
+      ]
+    },
+    {
+      "id": "plain-lighting-08",
+      "group": "plain-lighting",
+      "object_ids": [
+        117070
+      ],
+      "title": "Etchings of Paris: The Clock Tower",
+      "description": "Date: 1852. Technique/materials: etching. Culture/origin: France, 19th century. Creator attribution: Charles Meryon (French, 1821–1868).",
+      "image_paths": [],
+      "expected_match": false,
+      "label_reason": "Physical lamp or candlestick; a design drawing and a clock print are not lighting objects.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "text_only"
+      ]
+    },
+    {
+      "id": "river-oils-01",
+      "group": "river-oils",
+      "object_ids": [
+        92844
+      ],
+      "title": "Blessing of a Yacht on the Belon River",
+      "description": "Date: 1899. Technique/materials: oil on canvas. Culture/origin: France. Creator attribution: Maurice Denis (French, 1870–1943). Maurice Denis made this painting during the summer of 1899 while vacationing with his family in the coastal village of Le Pouldu in Brittany in northwestern France. Two-thirds of this canvas is filled by the lavender-pink surface of the water, dotted with touches of color that suggest reflections of flags and sails on the Belon River. Local women wearing traditional headdresses observe the scene from the riverbank in the foreground, shaded by trees whose foliage frames the top of the composition.",
+      "image_paths": [
+        "assets/cma-92844.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-02",
+      "group": "river-oils",
+      "object_ids": [
+        147464
+      ],
+      "title": "Castle on a River",
+      "description": "Date: 1644. Technique/materials: oil on wood. Culture/origin: Netherlands. Creator attribution: Salomon van Ruysdael (Dutch, 1602–1670). Salomon van Ruysdael, the uncle of Jacob van Ruisdael, here represents a free interpretation of the Castle Loevenstein. In addition to its picturesque qualities, the castle had great political and cultural importance as the official state prison and a key fort in the southern Netherlands. Painted just before the Dutch won independence from Spain in 1648, the painting likely expressed nationalist pride for its owner.",
+      "image_paths": [
+        "assets/cma-147464.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-03",
+      "group": "river-oils",
+      "object_ids": [
+        155626
+      ],
+      "title": "The Lock at Pontoise",
+      "description": "Date: 1872. Technique/materials: oil on fabric. Culture/origin: France, 19th century. Creator attribution: Camille Pissarro (French, 1830–1903). Pissarro was instrumental in developing the radically new Impressionist technique of painting quickly outdoors to capture fleeting effects of light and atmosphere. The rushing water and overcast sky in this view of a river lock near the artist’s home at Pontoise, a rural commune about 17 miles northwest of Paris, are rendered with rapid, broken brushstrokes of pure color. Painting directly on canvas without preliminary drawing, Pissarro may have executed this work in a single session. The shimmering surface of broken color conveys the sensation of natural, outdoor light.",
+      "image_paths": [
+        "assets/cma-155626.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-04",
+      "group": "river-oils",
+      "object_ids": [
+        169614
+      ],
+      "title": "Haverstraw Bay",
+      "description": "Date: 1868. Technique/materials: oil on canvas. Culture/origin: United States. Creator attribution: Sanford Robinson Gifford (American, 1823–1880). Located about 40 miles north of New York City, Haverstraw Bay is the widest point on the Hudson River. During the 1860s, it was a prime area for shad fishing, and Gifford’s painting records this activity taking place amid a delicately luminous morning haze.",
+      "image_paths": [
+        "assets/cma-169614.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-05",
+      "group": "river-oils",
+      "object_ids": [
+        152006
+      ],
+      "title": "Rocky, Wooded Landscape with a Dell and Weir",
+      "description": "Date: c. 1782–1783. Technique/materials: oil on canvas. Culture/origin: England, 18th century. Creator attribution: Thomas Gainsborough (British, 1727–1788). In a sketchy manner, Gainsborough convincingly singled out the various elements comprising this sweeping landscape—meadow, rocks, trees—by only slightly varying colors and brushstrokes. At the same time, however, a great sense of unity prevails. Although the bulk of Gainsborough's artistic output was portraits, he insisted that landscape was his first love.",
+      "image_paths": [
+        "assets/cma-152006.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-06",
+      "group": "river-oils",
+      "object_ids": [
+        143602
+      ],
+      "title": "Low Waterfall in a Wooded Landscape with a Dead Beech Tree",
+      "description": "Date: c. 1660–70. Technique/materials: oil on canvas. Culture/origin: Netherlands. Creator attribution: Jacob van Ruisdael (Dutch, 1628/29–1682). Jutting from a dune in the foreground, the massive silvery trunk of a dead tree leads the eye across a waterfall and toward a distant sunlit field where travelers and a dog traverse a sandy path. Partly masked by trees, a ruined building is turned gold by the sun. In Jacob van Ruisdael’s landscapes, dead trees, waterfalls, and ruined buildings were visual expressions of the passage of time. Ruisdael devoted equal attention to the cloud-filled skies looming above the land, creating dramatic patterns of light and shadow and revealing the unseen movements of the wind.",
+      "image_paths": [
+        "assets/cma-143602.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-07",
+      "group": "river-oils",
+      "object_ids": [
+        100953
+      ],
+      "title": "Rocky River Bridge",
+      "description": "Date: before 1920. Technique/materials: etching. Culture/origin: America, Ohio, Cleveland. Creator attribution: Orville Houghton Peets (American, 1884–1968). A bridge spanning the Rocky River to the west of Cleveland was built and rebuilt many times since its original construction in 1819. This image depicts the 1910 bridge, which was the longest stretch of unreinforced concrete in the world at the time. The area was a popular boating spot: Peets depicted a boatyard with “Launches for Sale” below the bridge. The small rowboats of Rocky River differ significantly from the images that Peets and other Cleveland artists made of the Cuyahoga, which often featured large steamboats and barges.",
+      "image_paths": [
+        "assets/cma-100953.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-08",
+      "group": "river-oils",
+      "object_ids": [
+        105638
+      ],
+      "title": "River Landscape with Large Tree at Left",
+      "description": "Date: 1546. Technique/materials: etching. Culture/origin: Germany. Creator attribution: Augustin Hirschvogel (German, 1503–1553). Within a decade, Augustin Hirschvogel and Hanns Lautensack were aware of the landscapes by Wolfgang Huber and Albrecht Altdorfer and began to expand their artistic vocabulary. Hirschvogel probably made this group of etchings after traveling down the Danube from Nuremberg, through Regensburg and Passau, to his residence in Vienna. The many buildings, cultivated fields, and roads emphasize human activity and its mark on the landscape but always in the service of articulating a particular topography. Hirschvogel’s etchings found an international audience, informing the development of the landscape genre as far away as Italy and the Netherlands.",
+      "image_paths": [
+        "assets/cma-105638.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-09",
+      "group": "river-oils",
+      "object_ids": [
+        160091
+      ],
+      "title": "On the Harlem River",
+      "description": "Date: 1855. Technique/materials: watercolor with gouache, over graphite, framing lines in graphite. Culture/origin: America. Creator attribution: William Rickarby Miller (American, 1818–1893). When William Rickarby Miller arrived in America from England in 1845, he found watercolor painting in a dismal state—“a branch of Painting scarcely at all cultivated here.” Nonetheless, Miller made his living producing watercolors for print publications, depicting picturesque American woodlands with the staid British technique of his training. In On the Harlem River, Miller overlays delicate graphite line work with tints of luminous watercolor and dense gouache, capturing the color and light effects of a crisp autumn day. His meticulous transcription of individual leaves, branches, and stones displays his technical finesse, as well as his interest in documenting the particularities of nature. He shared this preoccupation with the Hudson River School, a mid-century American landscape painting movement whose members used detailed, on-site drawings of natural subjects as aids in making oil paintings. Miller’s great innovation was to marry the Hudson River manner to the medium of watercolor, anticipating the landscapes of American watercolorists in the decades to follow.",
+      "image_paths": [
+        "assets/cma-160091.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-10",
+      "group": "river-oils",
+      "object_ids": [
+        143272
+      ],
+      "title": "Seascape",
+      "description": "Date: 1892. Technique/materials: oil on canvas. Culture/origin: United States. Creator attribution: Henry Ward Ranger (American, 1858–1916).",
+      "image_paths": [
+        "assets/cma-143272.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-11",
+      "group": "river-oils",
+      "object_ids": [
+        142659
+      ],
+      "title": "The Cliffs at Beg-ar-Fry, Saint-Jean-du-Doigt",
+      "description": "Date: 1895. Technique/materials: oil on fabric. Culture/origin: France, 19th century. Creator attribution: Maxime Maufra (French, 1861–1918). Maxime Maufra was initially an amateur artist, but in 1883 he gave up a career in business to devote himself entirely to painting. He traveled throughout Normandy and Britany painting sea- and landscapes. During a visit to Pont-Aven in northwestern France in 1890 he met Paul Gauguin and a group of young artists who were inspired by Gauguin’s approaches to color and composition in his art. In particular, Maufra began to translate forms into flat planes of bold color arranged in decorative patterns as seen in this seascape of the Breton coast. Perhaps the most striking aspect of this painting is the way the artist framed the composition at the left with the view of a steep cliff.",
+      "image_paths": [
+        "assets/cma-142659.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "river-oils-12",
+      "group": "river-oils",
+      "object_ids": [
+        136207
+      ],
+      "title": "Flowers in a Glass",
+      "description": "Date: 1606. Technique/materials: oil on copper. Culture/origin: Netherlands. Creator attribution: Ambrosius Bosschaert (Dutch, 1573–1621). One of the first artists to specialize in flower painting, Ambrosius Bosschaert may have been inspired by the botanical gardens and scientific collections in his hometown of Middelburg. The flowers in this bouquet might be common today, but in the 1600s they were costly rarities. Bosschaert captured their fragile beauty with luminous colors and exquisite detail.",
+      "image_paths": [
+        "assets/cma-136207.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Oil technique and inland-water subject are required; related subjects in excluded media remain negative.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-01",
+      "group": "food-still-life",
+      "object_ids": [
+        147607
+      ],
+      "title": "Still Life with Herrings",
+      "description": "Date: c. 1735. Technique/materials: oil on canvas. Culture/origin: France. Creator attribution: Jean-Siméon Chardin (French, 1699–1779). Chardin reflected intensely on the act of observation. Still life became a forum for sophisticated performances in paint, and his complex technique—he famously worked in private—uses a staggering combination of delicate glazes and roughly dragged thick paint to capture the varied surfaces, atmospheres, and spaces in this humble pantry shelf. Acutely aware of recent developments in optics and physics, Chardin explored ideas about light, shadow, and color, and fully expected his work to be inspected closely.",
+      "image_paths": [
+        "assets/cma-147607.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-02",
+      "group": "food-still-life",
+      "object_ids": [
+        150140
+      ],
+      "title": "Still Life with Sweets",
+      "description": "Date: 1622. Technique/materials: oil on canvas. Culture/origin: Spain. Creator attribution: Juan van der Hamen y Léon (Spanish, 1596–1631). Placed on a simple stone ledge, this bold arrangement includes a wooden box, a dark glass bottle, some walnuts, an elaborate Venetian glass, and several sweets called turrones. These delicacies are a mixture of pine nuts, honey, almonds, and hazelnuts. The picture may not represent an actual meal or snack. Rather, the artist played with contrasts and harmonies of shapes, textures, and colors. During his short career van der Hamen, whose father was from the Netherlands, worked at the Spanish royal court and created biblical pictures, history paintings, allegories, and landscapes. He is best known for his portraits and still lifes.",
+      "image_paths": [
+        "assets/cma-150140.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-03",
+      "group": "food-still-life",
+      "object_ids": [
+        151555
+      ],
+      "title": "Still Life with Fish, Bread, and Kettle",
+      "description": "Date: c. 1772. Technique/materials: oil on canvas. Culture/origin: Spain. Creator attribution: Luis Meléndez (Spanish, 1716–1780). During the 1760s, after painting portraits and portrait miniatures with his father, Meléndez began to specialize in still lifes. Active mainly in Madrid, he is regarded as the finest Spanish still-life painter of the 18th century, but he spent much of his life in poverty.",
+      "image_paths": [
+        "assets/cma-151555.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-04",
+      "group": "food-still-life",
+      "object_ids": [
+        150079
+      ],
+      "title": "Still Life with Asparagus",
+      "description": "Date: c. 1880. Technique/materials: oil on fabric. Culture/origin: France, 19th century. Creator attribution: Philippe Rousseau (French, 1816–1887). Rousseau was profoundly influenced by the atmospheric still lifes of Jean Siméon Chardin (1699-1779), whom the artist and other French painters like François Bonvin (1817-1877) rediscovered in the mid-1800s. A comparison with Chardin's work, also shown in this gallery, indicates that Rousseau similarly depicted foodstuffs on a simple kitchen table, concentrating on rich textures and restrained colors.",
+      "image_paths": [
+        "assets/cma-150079.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-05",
+      "group": "food-still-life",
+      "object_ids": [
+        315934
+      ],
+      "title": "Still Life with Meat, Fish, Vegetables, and Fruit",
+      "description": "Date: c. 1615–20. Technique/materials: Oil on panel, the reverse prepared with gesso. Culture/origin: Flanders. Creator attribution: Jacob van Hulsdonck (Flemish, 1582–1647). Jacob van Hulsdonck depicted a colorful array of foods, and tablewares ranging from an earthenware trencher to delicate Chinese porcelain—an expensive luxury made possible by international trade. For seventeenth-century viewers, the quantity and variety of foods would have represented a utopian world without scarcity or hunger. Partially eaten food and an overturned glass suggest that diners have just departed, leaving insects to explore the remains.",
+      "image_paths": [
+        "assets/cma-315934.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-06",
+      "group": "food-still-life",
+      "object_ids": [
+        138359
+      ],
+      "title": "Wineglass and a Bowl of Fruit",
+      "description": "Date: 1663. Technique/materials: oil on canvas. Culture/origin: Netherlands. Creator attribution: Willem Kalf (Dutch, 1619–1693). Priceless objects crowd the corner of a stone table in Kalf's composition. Pieces like the silver platter, delicate glasswares, thick rumpled carpet, and a Chinese porcelain bowl with peaches and an orange not only represented the great wealth and global reach of the Dutch trading empire, but were also a way for the artist to demonstrate his skill in recreating various surface textures. Kalf used different kinds of highlights to render reflections—quick dots, lines, and dabs of paint—creating sparkling, twinkling light effects that subtly distinguish objects from the surrounding shadows. In 1797, the German poet Johann van Goethe wrote that Kalf's paintings lead to understanding \"in what sense art is superior to nature and what the spirit of man imparts to objects when it views them with creative eyes. . . . if I had to choose between the golden vessels or the picture . . . I would choose the picture.\"",
+      "image_paths": [
+        "assets/cma-138359.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-07",
+      "group": "food-still-life",
+      "object_ids": [
+        130391
+      ],
+      "title": "Spring Flowers",
+      "description": "Date: 1864. Technique/materials: oil on canvas. Culture/origin: France, 19th century. Creator attribution: Claude Monet (French, 1840–1926). This early work reveals Claude Monet's fascination with capturing the transitory effects that became the primary focus of his later innovations. Painted with almost scientific accuracy, this still life has a freshness and immediacy derived partly from its composition. Isolated against a dark background, the fully mature peonies, potted hydrangeas, and basketed lilacs spill downward and outward from the geraniums at the rear. At the same time, Monet's energetic brushwork conveys the sparkling play of light on leaves and petals.",
+      "image_paths": [
+        "assets/cma-130391.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-08",
+      "group": "food-still-life",
+      "object_ids": [
+        136207
+      ],
+      "title": "Flowers in a Glass",
+      "description": "Date: 1606. Technique/materials: oil on copper. Culture/origin: Netherlands. Creator attribution: Ambrosius Bosschaert (Dutch, 1573–1621). One of the first artists to specialize in flower painting, Ambrosius Bosschaert may have been inspired by the botanical gardens and scientific collections in his hometown of Middelburg. The flowers in this bouquet might be common today, but in the 1600s they were costly rarities. Bosschaert captured their fragile beauty with luminous colors and exquisite detail.",
+      "image_paths": [
+        "assets/cma-136207.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-09",
+      "group": "food-still-life",
+      "object_ids": [
+        115067
+      ],
+      "title": "Vase of Flowers",
+      "description": "Date: c. 1905. Technique/materials: oil on fabric. Culture/origin: France, late 19th-early 20th Century. Creator attribution: Odilon Redon (French, 1840–1916). Rapturous flower still lifes like this dominated the last decade and a half of Odilon Redon’s career and provided his greatest commercial success. His interest in plants and flowers began in his youth; child of wine producers, he grew up northwest of Bordeaux and was sensitive to fluctuations in weather, light, and temperature affecting the grape harvest. When he was 20, Redon met Armond Clavaud, a botanist and draftsman who illustrated his own compendium of flowers of the Bordeaux region. Clavaud’s meticulously rendered drawings sparked the young Redon’s imagination and helped to instill his desire to paint “nature, as seen in a dream.”",
+      "image_paths": [
+        "assets/cma-115067.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-10",
+      "group": "food-still-life",
+      "object_ids": [
+        154277
+      ],
+      "title": "Floral Still Life (Bleeding Hearts)",
+      "description": "Date: c. 1865. Technique/materials: albumen print from glass negative. Culture/origin: France, 19th century. Creator attribution: Charles Aubry (French, 1811–1877). Noted for his close-up studies of leaves, blossoms, and foliage, Charles Aubry was a photographer whose work encompassed both the documentary and the artistic. In this image, the artist isloated a plant on a dark background to concentrate attention on the rhythmic patterns of the blossoms and the abstract shapes suggested by the intertwining branches. Aubry's photographs were prized as important visual records by both scholars and artists.",
+      "image_paths": [
+        "assets/cma-154277.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-11",
+      "group": "food-still-life",
+      "object_ids": [
+        132616
+      ],
+      "title": "Still Life with Birds and Fruit",
+      "description": "Date: c. 1650. Technique/materials: watercolor with graphite, heightened with lead white. Culture/origin: Italy. Creator attribution: Giovanna Garzoni (Italian, 1600–1670). Garzoni was one of the few women artists to achieve prominence in Italy during the 1600s. She garnered fame with her naturalistic still lifes on vellum, which combined scientific accuracy with sensitive artistry. Here, three small goldfinches on fruit branches and a larger bee-eater are dispersed across an earth-toned ground. The goldfinches sit on branches from which hang two plums (left), a peach (center), and a pear (right). A yellow quince and purple fig appear in the left foreground. Garzoni’s refined interpretations of the natural world suited the taste of aristocratic patrons like the Medici family, who acquired her drawings to decorate their villas.",
+      "image_paths": [
+        "assets/cma-132616.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "food-still-life-12",
+      "group": "food-still-life",
+      "object_ids": [
+        124080
+      ],
+      "title": "Portrait of Mary Wise",
+      "description": "Date: c. 1774. Technique/materials: oil on canvas. Culture/origin: England, 18th century. Creator attribution: Thomas Gainsborough (British, 1727–1788). Mary’s modest and contemplative demeanor is a counterpoint to a rather elaborate ensemble consisting of a gown embroidered with gold flower sprigs, trimmed with lace and pearls, and tied with a gold sash, as well as a gold-striped veil and a bracelet with eight gold bands. Gainsborough’s compact oval format and the sitter’s informal pose lend this portrait an air of intimacy.",
+      "image_paths": [
+        "assets/cma-124080.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Food/drink subject and oil medium must both hold.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-01",
+      "group": "meissen-vessels",
+      "object_ids": [
+        99563
+      ],
+      "title": "Saucer",
+      "description": "Date: c. 1723. Technique/materials: porcelain. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710). In 1720 Johann Gregor Herold became art director of the Meissen factory and developed the styles of decoration that made it famous. Both the quality and the variety of enamel colors were improved, and the paste achieved the brilliant whiteness and perfection of surface that characterizes mature Meissen wares. Herold introduced \"chinoiserie\" decorations, in which comparatively large-scale half-length figures were set against landscapes with cloudy skies. The high quality of its painting suggests that Herold himself may have decorated this saucer.",
+      "image_paths": [
+        "assets/cma-99563.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-02",
+      "group": "meissen-vessels",
+      "object_ids": [
+        128088
+      ],
+      "title": "Plate from the Swan Service",
+      "description": "Date: c. 1737–1741. Technique/materials: porcelain. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710); Johann Joachim Kändler (German, 1706–1768). The Swan service was made for Count Brühl, director of the Meissen factory between 1737 and 1741.",
+      "image_paths": [
+        "assets/cma-128088.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-03",
+      "group": "meissen-vessels",
+      "object_ids": [
+        123697
+      ],
+      "title": "Vase",
+      "description": "Date: 1749. Technique/materials: porcelain mounted in gilt bronze. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710). One of these vases is dated 1749. They were perhaps part of a set of four covered vases that we know from documents were acquired by Mme. de Pompadour, mistress of Louis XV in 1752.",
+      "image_paths": [
+        "assets/cma-123697.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-04",
+      "group": "meissen-vessels",
+      "object_ids": [
+        125331
+      ],
+      "title": "Beaker",
+      "description": "Date: c. 1745–1750. Technique/materials: porcelain. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710). In an effort to rejuvenate its style of decoration, the Meissen factory acquired a large group of French engravings about 1740. During the next decade, figural decorations in the style of Antoine Watteau and his followers became a typical mode of decoration on Meissen pporcelain.",
+      "image_paths": [
+        "assets/cma-125331.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-05",
+      "group": "meissen-vessels",
+      "object_ids": [
+        154558
+      ],
+      "title": "Covered Milk Jug",
+      "description": "Date: c. 1765. Technique/materials: porcelain with gilt metal mounts. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710).",
+      "image_paths": [
+        "assets/cma-154558.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-06",
+      "group": "meissen-vessels",
+      "object_ids": [
+        154547
+      ],
+      "title": "Tea Caddy",
+      "description": "Date: c. 1735. Technique/materials: porcelain. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710).",
+      "image_paths": [
+        "assets/cma-154547.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-07",
+      "group": "meissen-vessels",
+      "object_ids": [
+        128834
+      ],
+      "title": "Pilgrim Bottle",
+      "description": "Date: c. 1715. Technique/materials: polished red stoneware, silver-gilt mounts. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710). Throughout the early 1700s porcelain was imported to Europe from China and Japan, until the correct formula to produce it was developed by Johann Friedrich Böttger and a collaborator, which led to the establishment of the Meissen factory in 1710. Red stoneware inspired by Chinese Yixing ware and white porcelain were produced in Meissen under Böttger. Its fine red stoneware was so hard that it could be polished on a lapidary’s wheel—as was the body of this bottle.",
+      "image_paths": [
+        "assets/cma-128834.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-08",
+      "group": "meissen-vessels",
+      "object_ids": [
+        125332
+      ],
+      "title": "Vase",
+      "description": "Date: c. 1710–1715. Technique/materials: red stoneware. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710). Because of firing difficulties, early Meissen red stoneware is often inconsistent in color. That is true of this piece, the neck of which is darker than the body. Faint traces of gilding remain on the neck, indicating that originally the change in color was disguised by an overlay of gilded ornament.",
+      "image_paths": [
+        "assets/cma-125332.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-09",
+      "group": "meissen-vessels",
+      "object_ids": [
+        131804
+      ],
+      "title": "Callot Figure",
+      "description": "Date: c. 1720. Technique/materials: porcelain. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710). This small figure is made of the slightly yellowish porcelain developed by Böttger and used by the Meissen factory during the first decade of its existence. It is one of a series of small figures adapted from engravings in the style of Callot and is thought to have been modeled by Georg Fritzche, who had been employed at Meissen since 1712.",
+      "image_paths": [
+        "assets/cma-131804.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-10",
+      "group": "meissen-vessels",
+      "object_ids": [
+        125333
+      ],
+      "title": "Seated Chinese Figure",
+      "description": "Date: c. 1730. Technique/materials: porcelain. Culture/origin: Germany, Meissen, 18th century. Creator attribution: Meissen Porcelain Factory (German, est. c. 1710).",
+      "image_paths": [
+        "assets/cma-125333.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-11",
+      "group": "meissen-vessels",
+      "object_ids": [
+        125737
+      ],
+      "title": "Vase",
+      "description": "Date: c. 1695–1700. Technique/materials: Molded soft-paste porcelain with blue underglaze. Culture/origin: France, St. Cloud, late 17th-early 18th Century. Creator attribution: Saint Cloud Porcelain Factory (French). This vase’s decoration demonstrates the converging influence of Chinese and Italian art on French porcelain manufacture. Early production at the Saint-Cloud factory was inspired by blue and white Chinese porcelain. Books of grotesque designs popular during the Italian Renaissance and published by Jacques Androuet Du Cerceau provided models for this vase’s ornament including its interlacing garlands, swans, and snakes.",
+      "image_paths": [
+        "assets/cma-125737.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "meissen-vessels-12",
+      "group": "meissen-vessels",
+      "object_ids": [
+        117714
+      ],
+      "title": "Punch Bowl",
+      "description": "Date: c. 1770. Technique/materials: soft-paste porcelain. Culture/origin: England, Worcester. Creator attribution: Worcester Porcelain Factory (British, established 1751). Encircling the exterior of this bowl are four segments containing fanciful birds with wide eyes, long necks, and colorful feathers. Both the birds and their frames were inspired by Chinese motifs that had been adapted and popularized by the French. During the 1700s, punch drinking was well suited for large social gatherings and served as a popular alternative to tea drinking. In fact, the exotic birds and scrolling cartouches featured on this porcelain punch bowl also adorned many of Worcester’s tea services.",
+      "image_paths": [
+        "assets/cma-117714.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Meissen manufacture, porcelain material, vessel/tableware form and eighteenth-century date must hold together.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-01",
+      "group": "french-clocks",
+      "object_ids": [
+        143175
+      ],
+      "title": "Clock",
+      "description": "Date: c. 1695. Technique/materials: tortoise shell and brass inlay, gilt bronze. Culture/origin: France, late 17th Century. Creator attribution: André-Charles Boulle (French, 1642–1732); Balthazar Martinot II (French, 1636–1714). Appointed cabinetmaker to King Louis XIV in 1672, André-Charles Boulle became a master of furniture making in France during the late 1600s until his death in 1732. Known primarily for his use of marquetry, in which metal patterns are inlaid into tortoiseshell then applied within the veneered surface of the furniture, Boulle established a level of quality and craftsmanship few others could achieve. As a result, his work found favor at the royal court and among other aristocrats and diplomats eager to impress the king. Often exhibiting stout architectural proportions with elegant groups of inlaid motifs, Boulle’s designs are an example of the intellectual fashion for contrasting ideas, materials, and motifs. With its relatively new scientific invention of a pendulum mechanism and the addition of a barometer, the mantel clock represented the wealth, prestige, and intellect of its owner.",
+      "image_paths": [
+        "assets/cma-143175.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-02",
+      "group": "french-clocks",
+      "object_ids": [
+        128963
+      ],
+      "title": "Clock",
+      "description": "Date: c. 1750. Technique/materials: gilt bronze. Culture/origin: France.",
+      "image_paths": [
+        "assets/cma-128963.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-03",
+      "group": "french-clocks",
+      "object_ids": [
+        169336
+      ],
+      "title": "Mantel Clock",
+      "description": "Date: c. 1780–90. Technique/materials: marble, gilt-bronze, glass. Culture/origin: France, Paris.",
+      "image_paths": [
+        "assets/cma-169336.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-04",
+      "group": "french-clocks",
+      "object_ids": [
+        126806
+      ],
+      "title": "Tall- case Clock (Regulateur)",
+      "description": "Date: 1744. Technique/materials: boulle marquetry with gilt bronze mounts. Culture/origin: France, Paris. Creator attribution: Jean-Pierre Latz (French, 1691–1754); Stollewerck (French).",
+      "image_paths": [
+        "assets/cma-126806.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-05",
+      "group": "french-clocks",
+      "object_ids": [
+        152183
+      ],
+      "title": "Clock",
+      "description": "Date: c. 1785. Technique/materials: gilt bronze. Culture/origin: France. Creator attribution: Robert Osmond (French, 1711–1789); Robert Robin (French, 1742–1799).",
+      "image_paths": [
+        "assets/cma-152183.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-06",
+      "group": "french-clocks",
+      "object_ids": [
+        127714
+      ],
+      "title": "Wall Clock",
+      "description": "Date: c. 1750–60. Technique/materials: gilt bronze. Culture/origin: France.",
+      "image_paths": [
+        "assets/cma-127714.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-07",
+      "group": "french-clocks",
+      "object_ids": [
+        142771
+      ],
+      "title": "Clock",
+      "description": "Date: 1908–17. Technique/materials: nephrite, gold, enamel, diamonds. Culture/origin: Russia, St. Petersburg. Creator attribution: Henrik Wigström (Russian, 1862–1923); House of Fabergé (Russian, 1842–1918). The use of Russian hardstones in creating precious objects became a hallmark of design from the House of Fabergé. Easily carved, these minerals were sourced largely from the western region surrounding the Ural Mountains. Fabergé's workmasters used colorful stones such as agate, lapis lazuli, rock crystal, rhodonite, and nephrite (jade), seen here in this small desk clock, to create and embellish flower studies, animal figures, and all manner of luxurious accessories.",
+      "image_paths": [
+        "assets/cma-142771.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-08",
+      "group": "french-clocks",
+      "object_ids": [
+        142772
+      ],
+      "title": "Clock",
+      "description": "Date: c. 1905–15. Technique/materials: rhodonite, silver, enamel, diamonds. Culture/origin: Russia, St. Petersburg. Creator attribution: Henrik Wigström (Russian, 1862–1923); House of Fabergé (Russian, 1842–1918). The use of Russian hardstones in creating precious objects became a hallmark of design from the House of Fabergé. Easily carved, these minerals were sourced largely from the western region surrounding the Ural Mountains. Fabergé's workmasters used colorful stones such as agate, nephrite (jade), lapis lazuli, rock crystal, and rhodonite, seen here in this small desk clock, to create and embellish flower studies, animal figures, and all manner of luxurious accessories. Bright pink rhodonite was among the rarest, and consequently most expensive, specimens used by the House of Fabergé.",
+      "image_paths": [
+        "assets/cma-142772.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-09",
+      "group": "french-clocks",
+      "object_ids": [
+        168181
+      ],
+      "title": "Cabinet Clock",
+      "description": "Date: c.  1770–75. Technique/materials: gold, agate, enamel dial, glass. Culture/origin: England, late 18th century. Creator attribution: James Cox (British). In the 1700s and early 1800s, luxurious objects such as jewelry, miniatures, snuff boxes, and vanity cases emphasized their owner’s refinement and wealth. Especially popular were small cases with clocks and moving mechanical devices that played a handful of musical tunes. James Cox, the London goldsmith responsible for this clock and case, was known for creating such tuneful surprises, although this work no longer contains such a mechanism. Its glittering surface disguises a system based on the labor and suffering of enslaved people, whether in gold and stone mines or in shops where these goods were made by indentured apprentices. Many of these timepieces were designed for export and sold to the Chinese emperor Ch'ien Lung (1711–1799) and his court in attempt to balance out the substantial amount of tea that Britain was importing at the time.",
+      "image_paths": [
+        "assets/cma-168181.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-10",
+      "group": "french-clocks",
+      "object_ids": [
+        156855
+      ],
+      "title": "Tall Clock",
+      "description": "Date: c. 1880. Technique/materials: mahogany, teak with dial faces of gilded and patinated metal, glass. Culture/origin: America, New York. Creator attribution: Tiffany & Co. (America, New York, est. 1837). In 1879, Louis Comfort Tiffany joined several other artisans to create an interior decoration firm called Associated Artists. The firm was very influential in advocating a rejection of historical styles in favor of the new fashion from more eclectic sources of inspiration, including the Islamic world and Japan. One of Tiffany's partners, Lockwood De Forest, traveled extensively in India to find carved wood and other decorative accessories that could be used in their designs. This clock's design was one result of this collaboration. The heavily carved panels on the clock were likely purchased in India during this time and assembled with a clock mechanism from Tiffany's father's shop, Tiffany and Co., whose name appears on the clock face.",
+      "image_paths": [
+        "assets/cma-156855.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-11",
+      "group": "french-clocks",
+      "object_ids": [
+        167839
+      ],
+      "title": "Mantle Clock",
+      "description": "Date: 1901. Technique/materials: brass, mahogany. Culture/origin: America. Creator attribution: Lenzkirch Clock Factory (German); Tiffany & Co. (America, New York, est. 1837).",
+      "image_paths": [
+        "assets/cma-167839.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "french-clocks-12",
+      "group": "french-clocks",
+      "object_ids": [
+        142637
+      ],
+      "title": "Clock",
+      "description": "Date: c. 1750. Technique/materials: carved and gilded wood, faience. Culture/origin: Germany, 18th century. Creator attribution: Baumgartinger (German).",
+      "image_paths": [
+        "assets/cma-142637.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "French origin, date range, clock object and gilt-bronze material are explicit requirements.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-01",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        318493
+      ],
+      "title": "Transitional Blue-and-White Square Bottle",
+      "description": "Date: 1628–1722. Technique/materials: Porcelain with underglaze cobalt blue decoration. Culture/origin: China, Jiangxi province, Jingdezhen kilns, Ming dynasty (1368-1644), Chongzhen reign (1628-44) or Qing dynasty (1644-1911), Kangxi reign (1662-1722). The shape of this flask derives from European gin bottles. Its decoration in brilliant shades of blue with fantastic animal motifs—such as a leopard, the mystical qilin , a horse, and another imaginary beast—is characteristic of porcelain of the transitional period between the Ming and Qing dynasties when potters lost imperial patronage and experimented to find new clients in China and abroad.",
+      "image_paths": [
+        "assets/cma-318493.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-02",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        84460
+      ],
+      "title": "Lobed vase with underglaze cobalt blue decoration",
+      "description": "Date: 1661–1722. Technique/materials: Porcelain with underglaze cobalt blue decoration. Culture/origin: China, Jiangxi province, Jingdezhen kilns, Qing dynasty (1644-1911), Kangxi reign (1661-1722). Underglaze blue-and-white designs reached their highest painterly quality during the reign of the Kangxi emperor (1662–1722). Porcelain decorators achieved a level of artistic and technical sophistication that rivaled that of professional painters. Blue-and-white porcelains in brilliant cobalt blue catered to the taste of the educated class, the court, and foreign markets. Notice the blue-and-white porcelains in Pierre Bonnard’s painting Fruit and Fruit Dishes ( CMA 2020.100 ); such ceramics on a French dining table would have been inspired by Chinese porcelains of this type.",
+      "image_paths": [
+        "assets/cma-84460.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-03",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        97532
+      ],
+      "title": "Jar",
+      "description": "Date: 1522–66. Technique/materials: porcelain with underglaze blue decoration. Culture/origin: China, Jiangxi Province, Jingdezhen kilns, Ming dynasty (1368–1644), Jiajing mark and reign (1522–66). The jar is painted with vibrant underglaze cobalt blue depicting the four seasons and stages in the life of a scholar-official. In the first scene, a scholar leaves his home in spring hoping to pass the civil service examinations in the city. In the autumn scene, he successfully returns on a horse, prepared for a career at court. The summer scene shows him as an aged man watching his offspring play along a lake. The winter scene depicts him writing while attendants offer him hot tea and break the ice for fresh water from the pond in the foreground.",
+      "image_paths": [
+        "assets/cma-97532.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-04",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        140244
+      ],
+      "title": "Gourd Flask with Floral Scrolls",
+      "description": "Date: 1723–35. Technique/materials: porcelain with underglaze blue decoration. Culture/origin: China, Jiangxi Province, Jingdezhen, Qing dynasty (1644–1911), Yongzheng mark and period (1723–35). This large blue-and-white pilgrim–shaped vase was fashioned from fine kaolinic porcelain at the imperial kilns at Jingdezhen, Jiangxi province. The body of the vase is of quatrefoil shape merging into a highly similar shaped neck, flanked by two scroll handles. The base is of oval quatrefoil form. The vase is decorated with lotus and other flowers, leaves, and scrolling tendrils in brilliant underglaze cobalt blue beneath a pellucid glaze. The underfoot bears an imperial mark.",
+      "image_paths": [
+        "assets/cma-140244.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-05",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        140167
+      ],
+      "title": "Brush Washer with Dragons",
+      "description": "Date: 1426–35. Technique/materials: porcelain with underglaze blue decoration. Culture/origin: China, Jiangxi province, Jingdezhen, Ming dynasty (1368-1644), Xuande reign (1426-35). The attractive tonal range found in the painted decoration, resulting from the irregular size of cobalt bits in the pigment, and the pocked glaze surface identify this stunning brush washer as a classic Xuande period piece despite the absence of a reign mark.",
+      "image_paths": [
+        "assets/cma-140167.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-06",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        370220
+      ],
+      "title": "Dish with Landscape and Inscription",
+      "description": "Date: 1662–1722. Technique/materials: porcelain, underglaze cobalt-blue decoration. Culture/origin: China, Qing dynasty (1644-1911), Kangxi period (1662-1722). The river scene, composed of two shores divided by waterafter the Yuan dynasty master Ni Zan is inscribed: What shall I present the gentleman with? A picture of the Xiang River . A tributary of the Yangzi in Hunan province, the Xiang River is associated with Chinese literature and history, such as the Xiang goddesses, loyal consorts of emperor Shun. They are mentioned in the ancient Songs of the South ( Chuci ), known for staining the bamboo along the Xiang River with their tears when they thought him lost in the floods. The dish may have been a gift between two departing friends or for a couple.",
+      "image_paths": [
+        "assets/cma-370220.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "positive",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-07",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        154403
+      ],
+      "title": "Vase with Bird and Flower Design",
+      "description": "Date: late 1800s–early 1900s. Technique/materials: porcelain with underglaze blue. Culture/origin: Korea, Joseon dynasty (1392–1910). This vase with broad shoulders and a tall neck represents a typical style of 19th-century blue-and-white porcelain. Unlike earlier examples decorated mainly with literati themes that evoke neo-Confucian moral values—plum blossoms (purity), orchids (grace), bamboo (integrity), and chrysanthemums (loftiness)—porcelain works of the 1800s feature fully bloomed peonies and a pair of playful birds, symbols of wealth and familial harmony.",
+      "image_paths": [
+        "assets/cma-154403.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-08",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        447836
+      ],
+      "title": "Sake Pourer with Chrysanthemum, Orchid, and Plum",
+      "description": "Date: c. 1887. Technique/materials: Porcelain with underglaze blue. Culture/origin: Japan, Meiji period (1868–1912). Creator attribution: Seifū Yohei III (Japanese, 1851–1914). Seifū Yohei II and his successor, Seifū Yohei III, trained in ink painting. Their brush skills are seen in their underglaze cobalt blue designs. Orchid, bamboo, chrysanthemum, and plum, appearing on Yohei III’s sake pourer, are known as the Four Gentlemen. They symbolize the virtues of humility, integrity, endurance, and perseverance.",
+      "image_paths": [
+        "assets/cma-447836.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-09",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        146749
+      ],
+      "title": "Cup and Saucer (tasse et soucoupe)",
+      "description": "Date: 1700–1720. Technique/materials: soft-paste porcelain with underglaze blue decoration. Culture/origin: France, Saint Cloud, 18th century. Creator attribution: Saint Cloud Porcelain Factory (French). The cobalt blue and white decoration that borders the edges of the cup and saucer was one of the earliest types of decoration used at the Saint-Cloud porcelain factory. This type of cup and saucer pair may have been called a trembleuse (trembler) due to the raised ring around the well of the saucer that would have secured the cup in trembling hands.",
+      "image_paths": [
+        "assets/cma-146749.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-10",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        675579
+      ],
+      "title": "Flower Pyramid",
+      "description": "Date: c. 1690. Technique/materials: Tin-glazed earthenware, painted in blue. Culture/origin: Netherlands, Holland, Delft. Creator attribution: Adrianus Kocx (Dutch, active 1686–1701); De Grieksche A (The Greek A) Factory (Netherlands, 1658–1811). Allegorical figures representing Faith, Hope, and Love decorate the base of this pyramid, on which rest six tiers with spouts where flowers can be placed. Flower pyramids are among the most complex and luxurious types of ceramics produced in Delft in the late 1600s. This example was made in the Greek A Factory, owned by Adrianus Kocx. During his tenure, the factory became the most prestigious of Delft potteries and received commissions from Queen Mary II, who ruled over England, Scotland, and Ireland together with her husband, William III. She contributed to the international spread of the fashion for Delft ceramics.",
+      "image_paths": [
+        "assets/cma-675579.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-11",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        119886
+      ],
+      "title": "Blue Bottle Vase",
+      "description": "Date: 1736–95. Technique/materials: porcelain. Culture/origin: China, Qing dynasty (1644-1911), Qianlong mark and reign (1736-95). In the Qing dynasty (1644–1911), luxury items became more affordable to larger parts of the society, including women, merchants, and literati in non-official positions. Imperial patronage and a growing urban population encouraged consumption of luxury goods and local craftmanship. This blue bottle vase exemplifies the technical perfection of Qing dynasty court artisans who surpassed their predecessors in technical skill.",
+      "image_paths": [
+        "assets/cma-119886.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "chinese-blue-white-12",
+      "group": "chinese-blue-white",
+      "object_ids": [
+        149952
+      ],
+      "title": "Cup and Stand",
+      "description": "Date: 1100s. Technique/materials: Porcelain with pale bluish-white glaze, qingbai (\"blue-white\") ware. Culture/origin: China, Jiangxi province, Jingdezhen, Southern Song dynasty (1127-1279). The kilns of Jingdezhen in Jiangxi province produced an extremely delicate porcelain made from the local resources of kaolin (white China clay) and petuntse (a feldspathic rock called china stone). It is glazed with a clear bluish-white glaze, thus the name qingbai (blue-white) or yingqing (shadowy blue) for this type of ware.",
+      "image_paths": [
+        "assets/cma-149952.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "Chinese origin and cobalt underglaze porcelain; near names, lookalike decoration and other materials are insufficient.",
+      "tags": [
+        "real-catalogue",
+        "hard-negative",
+        "one_image"
+      ]
+    },
+    {
+      "id": "four-picture-lots-01",
+      "group": "four-picture-lots",
+      "object_ids": [
+        147464,
+        155626,
+        160091,
+        92844
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-147464.jpg",
+        "assets/cma-155626.jpg",
+        "assets/cma-160091.jpg",
+        "assets/cma-92844.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "All four real works depict inland water.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "positive",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-02",
+      "group": "four-picture-lots",
+      "object_ids": [
+        155626,
+        160091,
+        92844,
+        152006
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-155626.jpg",
+        "assets/cma-160091.jpg",
+        "assets/cma-92844.jpg",
+        "assets/cma-152006.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "All four real works depict inland water.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "positive",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-03",
+      "group": "four-picture-lots",
+      "object_ids": [
+        160091,
+        92844,
+        152006,
+        143602
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-160091.jpg",
+        "assets/cma-92844.jpg",
+        "assets/cma-152006.jpg",
+        "assets/cma-143602.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "All four real works depict inland water.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "positive",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-04",
+      "group": "four-picture-lots",
+      "object_ids": [
+        92844,
+        152006,
+        143602,
+        147464
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-92844.jpg",
+        "assets/cma-152006.jpg",
+        "assets/cma-143602.jpg",
+        "assets/cma-147464.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "All four real works depict inland water.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "positive",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-05",
+      "group": "four-picture-lots",
+      "object_ids": [
+        152006,
+        143602,
+        147464,
+        155626
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-152006.jpg",
+        "assets/cma-143602.jpg",
+        "assets/cma-147464.jpg",
+        "assets/cma-155626.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "All four real works depict inland water.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "positive",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-06",
+      "group": "four-picture-lots",
+      "object_ids": [
+        143602,
+        147464,
+        155626,
+        160091
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-143602.jpg",
+        "assets/cma-147464.jpg",
+        "assets/cma-155626.jpg",
+        "assets/cma-160091.jpg"
+      ],
+      "expected_match": true,
+      "label_reason": "All four real works depict inland water.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "positive",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-07",
+      "group": "four-picture-lots",
+      "object_ids": [
+        136207,
+        155626,
+        160091,
+        92844
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-136207.jpg",
+        "assets/cma-155626.jpg",
+        "assets/cma-160091.jpg",
+        "assets/cma-92844.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "One work is a floral/food still life or a portrait; all-four requirement fails.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "hard-negative",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-08",
+      "group": "four-picture-lots",
+      "object_ids": [
+        155626,
+        124080,
+        92844,
+        152006
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-155626.jpg",
+        "assets/cma-124080.jpg",
+        "assets/cma-92844.jpg",
+        "assets/cma-152006.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "One work is a floral/food still life or a portrait; all-four requirement fails.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "hard-negative",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-09",
+      "group": "four-picture-lots",
+      "object_ids": [
+        160091,
+        92844,
+        147607,
+        143602
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-160091.jpg",
+        "assets/cma-92844.jpg",
+        "assets/cma-147607.jpg",
+        "assets/cma-143602.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "One work is a floral/food still life or a portrait; all-four requirement fails.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "hard-negative",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-10",
+      "group": "four-picture-lots",
+      "object_ids": [
+        92844,
+        152006,
+        143602,
+        130391
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-92844.jpg",
+        "assets/cma-152006.jpg",
+        "assets/cma-143602.jpg",
+        "assets/cma-130391.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "One work is a floral/food still life or a portrait; all-four requirement fails.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "hard-negative",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-11",
+      "group": "four-picture-lots",
+      "object_ids": [
+        102578,
+        143602,
+        147464,
+        155626
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-102578.jpg",
+        "assets/cma-143602.jpg",
+        "assets/cma-147464.jpg",
+        "assets/cma-155626.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "One work is a floral/food still life or a portrait; all-four requirement fails.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "hard-negative",
+        "four_images"
+      ]
+    },
+    {
+      "id": "four-picture-lots-12",
+      "group": "four-picture-lots",
+      "object_ids": [
+        143602,
+        115067,
+        155626,
+        160091
+      ],
+      "title": "Group of four pictures",
+      "description": "Four separate works are offered together. One photograph is supplied for each work, in order. The media, styles, dates and origins may differ. Individual titles and subjects are not supplied in this lot description; inspect all four photographs.",
+      "image_paths": [
+        "assets/cma-143602.jpg",
+        "assets/cma-115067.jpg",
+        "assets/cma-155626.jpg",
+        "assets/cma-160091.jpg"
+      ],
+      "expected_match": false,
+      "label_reason": "One work is a floral/food still life or a portrait; all-four requirement fails.",
+      "tags": [
+        "constructed-lot-of-real-objects",
+        "hard-negative",
+        "four_images"
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "path": "assets/cma-100953.jpg",
+      "sha256": "4c5fbbf4fe1cdd8a8417f4426b846057c3ef2248d6b07e22c68bfc14fe42639c",
+      "bytes": 538579,
+      "source_record": "sources/cma-100953.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-102578.jpg",
+      "sha256": "e516121c316dcc420843fbae9710f772903088c5a1977b65bdd3a432bc0f7d54",
+      "bytes": 179089,
+      "source_record": "sources/cma-102578.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-103275.jpg",
+      "sha256": "a5c4f195ae9079bb00dfb994f38645b14670b97c9bd1a6e8da8642430eae88dc",
+      "bytes": 171242,
+      "source_record": "sources/cma-103275.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-105638.jpg",
+      "sha256": "83f6a94ec8fba304966e87b80603ac8b21b7eda377e30df5d39b70feb24b1574",
+      "bytes": 1005088,
+      "source_record": "sources/cma-105638.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-109211.jpg",
+      "sha256": "04b85a4e81d79118aabfeddeed0ceed3d6bfdcd3ecd7c12ddb87f2ea6f0567d2",
+      "bytes": 276288,
+      "source_record": "sources/cma-109211.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-115067.jpg",
+      "sha256": "2a5683f8c1eb79c7f9f260455fa93482ed138ba1cd8b5000b5636fd4c05497d9",
+      "bytes": 560470,
+      "source_record": "sources/cma-115067.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-117070.jpg",
+      "sha256": "5522e1e8611cb7af0dcb3cced18f36fe14d00f52770854dc8e5f550bb647de84",
+      "bytes": 495099,
+      "source_record": "sources/cma-117070.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-117714.jpg",
+      "sha256": "c827c65a2bdbcd8246f5d40c5a121c0ee2b9ad5e150521dbeea2ad51e278d94e",
+      "bytes": 522542,
+      "source_record": "sources/cma-117714.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-119886.jpg",
+      "sha256": "45011670d8c2370e0c67b73bd363cdcda876400867ce9ac975e244150b688eff",
+      "bytes": 26173,
+      "source_record": "sources/cma-119886.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-123697.jpg",
+      "sha256": "cabf6086630d2a42649acbb081ba4366be9b5aedf0fd0abe5028c9b85977480c",
+      "bytes": 250931,
+      "source_record": "sources/cma-123697.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-124080.jpg",
+      "sha256": "17f36d33586bc2cd1f52e11314cc677df02452041f316f335e2059e500e71c0b",
+      "bytes": 448547,
+      "source_record": "sources/cma-124080.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-125331.jpg",
+      "sha256": "7218203b38d35232a3b607b1f3510e58ca855c0853a8a2adc287632f7d0b5330",
+      "bytes": 105053,
+      "source_record": "sources/cma-125331.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-125332.jpg",
+      "sha256": "5d230601b1afa331d7a9617a5f03de577bf619f69f89be604e696183e418f14a",
+      "bytes": 225782,
+      "source_record": "sources/cma-125332.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-125333.jpg",
+      "sha256": "5abd979e2103cb59e94ebc39345819c8bb6aed1927b7f134768d88c0e420efe6",
+      "bytes": 356257,
+      "source_record": "sources/cma-125333.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-125737.jpg",
+      "sha256": "bdb4b9852c2360b4f1dc25a5aac34f15a6349a60e3379a0d234365d28a37c37f",
+      "bytes": 292423,
+      "source_record": "sources/cma-125737.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-126806.jpg",
+      "sha256": "9a0ad8bc268ed2f8d26a70824a0be6c3a87b6daa9ce9dfde14b2535c38d6eac3",
+      "bytes": 110325,
+      "source_record": "sources/cma-126806.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-127714.jpg",
+      "sha256": "c8ec2a5fda5e8ffc81c22f03ebbf2ee2e22808089f6322fc9f2268d24df53d27",
+      "bytes": 260896,
+      "source_record": "sources/cma-127714.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-128088.jpg",
+      "sha256": "4248055553eb0e559a649cf105e961dc19d83179343237df51b62357204b601a",
+      "bytes": 56707,
+      "source_record": "sources/cma-128088.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-128834.jpg",
+      "sha256": "a28b5a1aba751f8854f842939ef5c92c9e24831bc31671e292e9aa5244b2869a",
+      "bytes": 159413,
+      "source_record": "sources/cma-128834.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-128948.jpg",
+      "sha256": "8d84c4ae92054f3d6237720f26c9fb2cbdf5dade5c073288a5c144210e102eff",
+      "bytes": 102269,
+      "source_record": "sources/cma-128948.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-128963.jpg",
+      "sha256": "4d6642a1fb710c9adb5b4f0c009c20fe4bf0776e160ffce7ded5a9db2d94f3f4",
+      "bytes": 348865,
+      "source_record": "sources/cma-128963.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-130391.jpg",
+      "sha256": "fb9731f06fc21ac92e932b66e5369c7651cce4e80da5fe65bda2fccd455e20d7",
+      "bytes": 205356,
+      "source_record": "sources/cma-130391.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-131804.jpg",
+      "sha256": "307994d87d22971792bf4781ded7128531fc364eb258cb033a3c655e9c7bf434",
+      "bytes": 76265,
+      "source_record": "sources/cma-131804.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-132616.jpg",
+      "sha256": "6217b49975460e62dd48ecc54664d996721a3bcf4470b86c46a3c05cc577d793",
+      "bytes": 283983,
+      "source_record": "sources/cma-132616.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-136207.jpg",
+      "sha256": "bf683398482085cfadaa43ca4ea014bf4e4d5a22ecf68d273cb5e37ca3b04fbc",
+      "bytes": 475655,
+      "source_record": "sources/cma-136207.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-138359.jpg",
+      "sha256": "2f909ff83699ab851e7fecf8e6a36f64408c2cedc356b99f2ac93c9e752546c1",
+      "bytes": 379899,
+      "source_record": "sources/cma-138359.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-140167.jpg",
+      "sha256": "41ed5dc95eb884c826494f70e898ac186c54e918fac7d67d84ed84e3afbb5674",
+      "bytes": 290410,
+      "source_record": "sources/cma-140167.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-140244.jpg",
+      "sha256": "3013e5f4fa7bc06090bb4b04b85f0321498619e2abbe7f467c75f00ee0f1b7bf",
+      "bytes": 123782,
+      "source_record": "sources/cma-140244.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-142637.jpg",
+      "sha256": "192649ca42d67ca1fbe87ced4cf7955528ba5f27ea83b38b370a0448e13248d8",
+      "bytes": 185447,
+      "source_record": "sources/cma-142637.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-142659.jpg",
+      "sha256": "5e2f54691381bfe97719aa6251b2bff330cf30746900ae062aeb69609b5e9db7",
+      "bytes": 277941,
+      "source_record": "sources/cma-142659.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-142771.jpg",
+      "sha256": "4922786eac56dbe10af052bee76eb7fc6dcb879ad7b59aa0833db0a39cf759e8",
+      "bytes": 281502,
+      "source_record": "sources/cma-142771.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-142772.jpg",
+      "sha256": "2bf3b7168fa19d1ae1507006b531b65263b84571a356834d8265d6d8eda0b398",
+      "bytes": 41665,
+      "source_record": "sources/cma-142772.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-143175.jpg",
+      "sha256": "0cb216a2e1896eb461788a0c270ec3d5734745972ea5757e24657b45c3cc09dd",
+      "bytes": 316101,
+      "source_record": "sources/cma-143175.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-143272.jpg",
+      "sha256": "dc1fcab8052f552efeb44a145b32671f56e0ed0f1e194e2176e57031eaadeabb",
+      "bytes": 773012,
+      "source_record": "sources/cma-143272.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-143602.jpg",
+      "sha256": "ac99178598dd06d845bb181a377aeb5299dae95222991cb82e355b46d42bb854",
+      "bytes": 708964,
+      "source_record": "sources/cma-143602.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-146749.jpg",
+      "sha256": "d34eb3d6a54fc2a3d8ef385ec83efa646dffe976603a583f1f18acc7f5a9e82b",
+      "bytes": 138518,
+      "source_record": "sources/cma-146749.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-147464.jpg",
+      "sha256": "e2b288adaf8fc6678337ea76f72845820b08943723e3057418d1bfb35dc82f7e",
+      "bytes": 675818,
+      "source_record": "sources/cma-147464.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-147607.jpg",
+      "sha256": "4c74d5ef53fef7b93c4985769d6b75cd1bb9081b0314699ac96c8a755a0ef7ba",
+      "bytes": 472282,
+      "source_record": "sources/cma-147607.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-147819.jpg",
+      "sha256": "bc0b04a36be4fbfb34f1c9c46fc43f2f1ffbf2dce0ffa54cf7e102a76024a40f",
+      "bytes": 40103,
+      "source_record": "sources/cma-147819.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-149952.jpg",
+      "sha256": "93a6ea4fdf509e0ef8da1fca59d4b9a128a59bfde4f70eb3f27acfbad4bc6679",
+      "bytes": 130654,
+      "source_record": "sources/cma-149952.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-150079.jpg",
+      "sha256": "514fc166ac770fe981c15e1f68063e0f183f8dd5ca60c82c9df091fc8d7c050a",
+      "bytes": 557429,
+      "source_record": "sources/cma-150079.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-150140.jpg",
+      "sha256": "e3ad435f7c1b87ec0ca7a5767fcae05a0a66f2e1ca292217c90b92920753df4d",
+      "bytes": 552242,
+      "source_record": "sources/cma-150140.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-151555.jpg",
+      "sha256": "10a8d168b53cfd3bc849a0dc31d332bae83bab59c870c05fabe3b70cb882db34",
+      "bytes": 758081,
+      "source_record": "sources/cma-151555.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-152006.jpg",
+      "sha256": "02310f0e6aeb94bce4a48c0570462939dfd4b3c328c13774e866e7056762a4c5",
+      "bytes": 641874,
+      "source_record": "sources/cma-152006.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-152183.jpg",
+      "sha256": "f5d6dfe9bc46bd41d843a102395de9c079ede6b4feac25b10064eb054b06cb2c",
+      "bytes": 354123,
+      "source_record": "sources/cma-152183.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-154277.jpg",
+      "sha256": "78ab0ba7f2aeae68f7b75b3ee54669c8e7472dd14c84ce074a4298b6e9ed0117",
+      "bytes": 336135,
+      "source_record": "sources/cma-154277.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-154403.jpg",
+      "sha256": "137ddd066e2aa837e2ba1aefbcbfbed453b8ed7bd0c3ee20ca631cad247a192a",
+      "bytes": 172934,
+      "source_record": "sources/cma-154403.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-154547.jpg",
+      "sha256": "d0e6f22cd1b20bf4b9e6e174d16d995f82560f1d29469eb0595869db4403e38a",
+      "bytes": 183949,
+      "source_record": "sources/cma-154547.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-154558.jpg",
+      "sha256": "ed8faa075abce5db5660232c791e37b2f98f70074ca687eea70b8530cb05f9ba",
+      "bytes": 109585,
+      "source_record": "sources/cma-154558.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-155626.jpg",
+      "sha256": "f99ff757bb656b4614a10af76089f860eb9ae9336ae0147be2cda041f2d98a30",
+      "bytes": 225141,
+      "source_record": "sources/cma-155626.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-156855.jpg",
+      "sha256": "f15f1101a360ab375ca828f4c20a85213221b48922e725494c6995bd09e23206",
+      "bytes": 234508,
+      "source_record": "sources/cma-156855.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-160091.jpg",
+      "sha256": "84a7245a760677bb6229a0d47feb5d75798bcd078238f3c838df9e481df9f1f0",
+      "bytes": 876154,
+      "source_record": "sources/cma-160091.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-167839.jpg",
+      "sha256": "f19dc5d316507ecf8d14ce9c70575a5a4193fbfd4787d1956bfc183d3825923b",
+      "bytes": 348597,
+      "source_record": "sources/cma-167839.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-168181.jpg",
+      "sha256": "098dbe38ef775c01426fdcf9a830d759e832ac67cf60b676bf39f62273ee763b",
+      "bytes": 171610,
+      "source_record": "sources/cma-168181.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-169336.jpg",
+      "sha256": "240ac500d81b181d72d6ef1c7964412889e673dcb3c35471fb639e688bd2ea63",
+      "bytes": 111761,
+      "source_record": "sources/cma-169336.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-169614.jpg",
+      "sha256": "3773eb1840e4ccb5df990add0e17e2a8c2dccbd8e0eed7a3be6fae59ed6e4294",
+      "bytes": 180972,
+      "source_record": "sources/cma-169614.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-172939.jpg",
+      "sha256": "50e93465abdb1e7b9c0bb06f6f9ac51ff719921f9e9d54adcc2a6071fde4f74d",
+      "bytes": 313678,
+      "source_record": "sources/cma-172939.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-300120.jpg",
+      "sha256": "57ddc2d166dcc8b143b1fb20c61bde78cfe952d3f0c7be10ecd205eb77f2d6dd",
+      "bytes": 132858,
+      "source_record": "sources/cma-300120.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-315934.jpg",
+      "sha256": "7ce1802697ce2ef7d5540d062a5cfeb8884192faede2981e2f780b2f1e6014b8",
+      "bytes": 230812,
+      "source_record": "sources/cma-315934.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-318493.jpg",
+      "sha256": "726b6cec2b603d4ad7e6a3fad9a4447baa479e255884c8994c9e97307bd94bed",
+      "bytes": 131908,
+      "source_record": "sources/cma-318493.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-370220.jpg",
+      "sha256": "c678469b4a22db235b6a660b884853a1a0a5c16ab169bae16a790cbf654736f9",
+      "bytes": 208212,
+      "source_record": "sources/cma-370220.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-447836.jpg",
+      "sha256": "c406efa10f64b9d29c23b976e477274b6e2c5c7cc5cba0a348a3505b30c16626",
+      "bytes": 142196,
+      "source_record": "sources/cma-447836.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-675579.jpg",
+      "sha256": "576846a0355ea16999df506c31378c53863c1c6b3d33cb9bb11c0c42c9614e3c",
+      "bytes": 133301,
+      "source_record": "sources/cma-675579.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-84460.jpg",
+      "sha256": "e3cd479e1a0674bc8f453e6136a4134d073e987c918a3915dd435cc82f1698c7",
+      "bytes": 181419,
+      "source_record": "sources/cma-84460.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-92844.jpg",
+      "sha256": "0f4ded04d0591a4a9b47dcb6cf9f42d4a35aac1462d074e7185e47efb4275ff1",
+      "bytes": 403883,
+      "source_record": "sources/cma-92844.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-93149.jpg",
+      "sha256": "37ce50fbf68932bdeb149a4da82a26daf6b1d3dbf680fa4c56da4e07c13cfd6c",
+      "bytes": 130074,
+      "source_record": "sources/cma-93149.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-95030.jpg",
+      "sha256": "b19caf2f70f6917e1db9f8e4d187942403f8fc828bd5de4f860cd53f24e9ec74",
+      "bytes": 45273,
+      "source_record": "sources/cma-95030.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-97532.jpg",
+      "sha256": "f93486034074111ab03617385d3f2f39336da31737014f09a86a9affdaeae0a1",
+      "bytes": 130640,
+      "source_record": "sources/cma-97532.json",
+      "license": "CC0-1.0"
+    },
+    {
+      "path": "assets/cma-99563.jpg",
+      "sha256": "e577eb944040d53d12c2a2ade7ea9cc6f1f60bae1f9e7a105b5d487f775f549d",
+      "bytes": 57579,
+      "source_record": "sources/cma-99563.json",
+      "license": "CC0-1.0"
+    }
+  ]
+}

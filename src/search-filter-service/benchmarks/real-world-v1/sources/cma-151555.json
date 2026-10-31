@@ -1,0 +1,37 @@
+{
+  "id": 151555,
+  "accession_number": "1983.97",
+  "title": "Still Life with Fish, Bread, and Kettle",
+  "creation_date": "c. 1772",
+  "creation_date_earliest": 1767,
+  "creation_date_latest": 1777,
+  "culture": [
+    "Spain"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Framed: 54 x 67 x 5 cm (21 1/4 x 26 3/8 x 1 15/16 in.); Unframed: 34 x 48 cm (13 3/8 x 18 7/8 in.)",
+  "creators": [
+    {
+      "id": 2397,
+      "description": "Luis Meléndez (Spanish, 1716–1780)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1716",
+      "death_year": "1780",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "During the 1760s, after painting portraits and portrait miniatures with his father, Meléndez began to specialize in still lifes. Active mainly in Madrid, he is regarded as the finest Spanish still-life painter of the 18th century, but he spent much of his life in poverty.",
+  "url": "https://clevelandart.org/art/1983.97",
+  "share_license_status": "CC0",
+  "creditline": "Leonard C. Hanna Jr. Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1983.97/1983.97_web.jpg",
+  "image_path": "../assets/cma-151555.jpg"
+}

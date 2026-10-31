@@ -1,0 +1,47 @@
+{
+  "id": 675579,
+  "accession_number": "2024.27",
+  "title": "Flower Pyramid",
+  "creation_date": "c. 1690",
+  "creation_date_earliest": 1680,
+  "creation_date_latest": 1700,
+  "culture": [
+    "Netherlands, Holland, Delft"
+  ],
+  "technique": "Tin-glazed earthenware, painted in blue",
+  "type": "Ceramic",
+  "measurements": "Overall: 95 cm (37 3/8 in.)",
+  "creators": [
+    {
+      "id": 675582,
+      "description": "Adrianus Kocx (Dutch, active 1686–1701)",
+      "extent": "manufactured by",
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": null,
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 675584,
+      "description": "De Grieksche A (The Greek A) Factory (Netherlands, 1658–1811)",
+      "extent": "manufactured by",
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": null,
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 2
+    }
+  ],
+  "description": "Allegorical figures representing Faith, Hope, and Love decorate the base of this pyramid, on which rest six tiers with spouts where flowers can be placed. Flower pyramids are among the most complex and luxurious types of ceramics produced in Delft in the late 1600s. This example was made in the Greek A Factory, owned by Adrianus Kocx. During his tenure, the factory became the most prestigious of Delft potteries and received commissions from Queen Mary II, who ruled over England, Scotland, and Ireland together with her husband, William III. She contributed to the international spread of the fashion for Delft ceramics.",
+  "url": "https://clevelandart.org/art/2024.27",
+  "share_license_status": "CC0",
+  "creditline": "Severance and Greta Millikin Purchase Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2024.27/2024.27_web.jpg",
+  "image_path": "../assets/cma-675579.jpg"
+}

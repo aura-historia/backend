@@ -1,0 +1,37 @@
+{
+  "id": 152006,
+  "accession_number": "1984.59",
+  "title": "Rocky, Wooded Landscape with a Dell and Weir",
+  "creation_date": "c. 1782–1783",
+  "creation_date_earliest": 1777,
+  "creation_date_latest": 1788,
+  "culture": [
+    "England, 18th century"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Framed: 89.5 x 110 x 8 cm (35 1/4 x 43 5/16 x 3 1/8 in.); Unframed: 70.5 x 91 cm (27 3/4 x 35 13/16 in.)",
+  "creators": [
+    {
+      "id": 1313,
+      "description": "Thomas Gainsborough (British, 1727–1788)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1727",
+      "death_year": "1788",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "In a sketchy manner, Gainsborough convincingly singled out the various elements comprising this sweeping landscape—meadow, rocks, trees—by only slightly varying colors and brushstrokes. At the same time, however, a great sense of unity prevails. Although the bulk of Gainsborough's artistic output was portraits, he insisted that landscape was his first love.",
+  "url": "https://clevelandart.org/art/1984.59",
+  "share_license_status": "CC0",
+  "creditline": "Mr. and Mrs. William H. Marlatt Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1984.59/1984.59_web.jpg",
+  "image_path": "../assets/cma-152006.jpg"
+}

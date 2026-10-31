@@ -1,0 +1,51 @@
+{
+  "id": 142772,
+  "accession_number": "1966.476",
+  "title": "Clock",
+  "creation_date": "c. 1905–15",
+  "creation_date_earliest": 1905,
+  "creation_date_latest": 1915,
+  "culture": [
+    "Russia, St. Petersburg"
+  ],
+  "technique": "rhodonite, silver, enamel, diamonds",
+  "type": "Timepiece",
+  "measurements": "Overall: 5.3 x 5 x 2.9 cm (2 1/16 x 1 15/16 x 1 1/8 in.)",
+  "creators": [
+    {
+      "id": 8891,
+      "description": "Henrik Wigström (Russian, 1862–1923)",
+      "extent": null,
+      "qualifier": null,
+      "role": "workmaster",
+      "biography": "Workmaster for the House of Faberge based in St. Petersburg, Russia. Responsible for many of the imperial Easter eggs as well as enameled accessories and jewelry.",
+      "name_in_original_language": null,
+      "birth_year": "1862",
+      "death_year": "1923",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 55332,
+      "description": "House of Fabergé (Russian, 1842–1918)",
+      "extent": null,
+      "qualifier": null,
+      "role": "maker",
+      "biography": "Peter Carl Faberge (1846-1920) took over the House of Faberge in 1870 from his father Carl Gustav Faberge who had founded the firm in 1842. Until 1881, the firm manufactured primarily jewelry for Saint Petersburg's aristocrats and wealthy elite. In 1885 the firm was awarded the coveted imperial warrant as goldsmith to the tsar and began to produce elaborate presentation Easter eggs as a gift for the tsarina from her husband every year. They also produced luxurious accessories, jewelry, and hardstone sculptures. At one point, Faberge employed over 300 workers including 22 workmasters who oversaw the production of the firm's jewelry and precious objects. A branch of the firm opened in Moscow in 1887, specializing in neo-Russian and pan-Slavic motifs in jewelry, silver, and enamel. Other branches followed in Kiev, London, and Odessa as well as new premises in Saint Petersburg. At the onset of the Russian Revolution, Peter Carl Faberge fled the country to Paris then Switzerland, where he died in 1920. His firm was nationalized by the Bolsheviks in 1918.",
+      "name_in_original_language": null,
+      "birth_year": "1842",
+      "death_year": "1918",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 2
+    }
+  ],
+  "description": "The use of Russian hardstones in creating precious objects became a hallmark of design from the House of Fabergé. Easily carved, these minerals were sourced largely from the western region surrounding the Ural Mountains. Fabergé's workmasters used colorful stones such as agate, nephrite (jade), lapis lazuli, rock crystal, and rhodonite, seen here in this small desk clock, to create and embellish flower studies, animal figures, and all manner of luxurious accessories. Bright pink rhodonite was among the rarest, and consequently most expensive, specimens used by the House of Fabergé.",
+  "url": "https://clevelandart.org/art/1966.476",
+  "share_license_status": "CC0",
+  "creditline": "The India Early Minshall Collection",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1966.476/1966.476_web.jpg",
+  "image_path": "../assets/cma-142772.jpg"
+}

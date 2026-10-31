@@ -1,0 +1,37 @@
+{
+  "id": 150140,
+  "accession_number": "1980.6",
+  "title": "Still Life with Sweets",
+  "creation_date": "1622",
+  "creation_date_earliest": 1622,
+  "creation_date_latest": 1622,
+  "culture": [
+    "Spain"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Framed: 83 x 122 x 7.5 cm (32 11/16 x 48 1/16 x 2 15/16 in.); Unframed: 58 x 97 cm (22 13/16 x 38 3/16 in.)",
+  "creators": [
+    {
+      "id": 2394,
+      "description": "Juan van der Hamen y Léon (Spanish, 1596–1631)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1596",
+      "death_year": "1631",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Placed on a simple stone ledge, this bold arrangement includes a wooden box, a dark glass bottle, some walnuts, an elaborate Venetian glass, and several sweets called turrones. These delicacies are a mixture of pine nuts, honey, almonds, and hazelnuts. The picture may not represent an actual meal or snack. Rather, the artist played with contrasts and harmonies of shapes, textures, and colors. During his short career van der Hamen, whose father was from the Netherlands, worked at the Spanish royal court and created biblical pictures, history paintings, allegories, and landscapes. He is best known for his portraits and still lifes.",
+  "url": "https://clevelandart.org/art/1980.6",
+  "share_license_status": "CC0",
+  "creditline": "John L. Severance Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1980.6/1980.6_web.jpg",
+  "image_path": "../assets/cma-150140.jpg"
+}

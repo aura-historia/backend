@@ -1,0 +1,49 @@
+{
+  "id": 126806,
+  "accession_number": "1949.200",
+  "title": "Tall- case Clock (Regulateur)",
+  "creation_date": "1744",
+  "creation_date_earliest": 1744,
+  "creation_date_latest": 1744,
+  "culture": [
+    "France, Paris"
+  ],
+  "technique": "boulle marquetry with gilt bronze mounts",
+  "type": "Furniture and woodwork",
+  "measurements": "Overall: 261.6 x 69.9 x 41.9 cm (103 x 27 1/2 x 16 1/2 in.)",
+  "creators": [
+    {
+      "id": 11764,
+      "description": "Jean-Pierre Latz (French, 1691–1754)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1691",
+      "death_year": "1754",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 11886,
+      "description": "Stollewerck (French)",
+      "extent": null,
+      "qualifier": null,
+      "role": "movement maker",
+      "biography": null,
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 2
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1949.200",
+  "share_license_status": "CC0",
+  "creditline": "John L. Severance Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1949.200/1949.200_web.jpg",
+  "image_path": "../assets/cma-126806.jpg"
+}

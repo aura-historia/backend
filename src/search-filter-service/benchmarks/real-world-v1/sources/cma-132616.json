@@ -1,0 +1,37 @@
+{
+  "id": 132616,
+  "accession_number": "1955.140",
+  "title": "Still Life with Birds and Fruit",
+  "creation_date": "c. 1650",
+  "creation_date_earliest": 1645,
+  "creation_date_latest": 1655,
+  "culture": [
+    "Italy"
+  ],
+  "technique": "watercolor with graphite, heightened with lead white",
+  "type": "Drawing",
+  "measurements": "Sheet: 25.7 x 41.6 cm (10 1/8 x 16 3/8 in.)",
+  "creators": [
+    {
+      "id": 11930,
+      "description": "Giovanna Garzoni (Italian, 1600–1670)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1600",
+      "death_year": "1670",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Garzoni was one of the few women artists to achieve prominence in Italy during the 1600s. She garnered fame with her naturalistic still lifes on vellum, which combined scientific accuracy with sensitive artistry. Here, three small goldfinches on fruit branches and a larger bee-eater are dispersed across an earth-toned ground. The goldfinches sit on branches from which hang two plums (left), a peach (center), and a pear (right). A yellow quince and purple fig appear in the left foreground. Garzoni’s refined interpretations of the natural world suited the taste of aristocratic patrons like the Medici family, who acquired her drawings to decorate their villas.",
+  "url": "https://clevelandart.org/art/1955.140",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Mrs. Elma M. Schniewind in memory of her parents Mr. and Mrs. Frank Geib",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1955.140/1955.140_web.jpg",
+  "image_path": "../assets/cma-132616.jpg"
+}

@@ -1,0 +1,37 @@
+{
+  "id": 138359,
+  "accession_number": "1962.292",
+  "title": "Wineglass and a Bowl of Fruit",
+  "creation_date": "1663",
+  "creation_date_earliest": 1663,
+  "creation_date_latest": 1663,
+  "culture": [
+    "Netherlands"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Framed: 81 x 70.5 x 7.5 cm (31 7/8 x 27 3/4 x 2 15/16 in.); Unframed: 60.3 x 50.2 cm (23 3/4 x 19 3/4 in.)",
+  "creators": [
+    {
+      "id": 2673,
+      "description": "Willem Kalf (Dutch, 1619–1693)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1619",
+      "death_year": "1693",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Priceless objects crowd the corner of a stone table in Kalf's composition. Pieces like the silver platter, delicate glasswares, thick rumpled carpet, and a Chinese porcelain bowl with peaches and an orange not only represented the great wealth and global reach of the Dutch trading empire, but were also a way for the artist to demonstrate his skill in recreating various surface textures. Kalf used different kinds of highlights to render reflections—quick dots, lines, and dabs of paint—creating sparkling, twinkling light effects that subtly distinguish objects from the surrounding shadows.<br>In 1797, the German poet Johann van Goethe wrote that Kalf's paintings lead to understanding \"in what sense art is superior to nature and what the spirit of man imparts to objects when it views them with creative eyes. . . . if I had to choose between the golden vessels or the picture . . . I would choose the picture.\"",
+  "url": "https://clevelandart.org/art/1962.292",
+  "share_license_status": "CC0",
+  "creditline": "Leonard C. Hanna Jr. Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1962.292/1962.292_web.jpg",
+  "image_path": "../assets/cma-138359.jpg"
+}

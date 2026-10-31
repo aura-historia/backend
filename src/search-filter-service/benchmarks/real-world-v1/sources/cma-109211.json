@@ -1,0 +1,36 @@
+{
+  "id": 109211,
+  "accession_number": "1927.362",
+  "title": "Design for a Candlestick",
+  "creation_date": "mid 1500s",
+  "creation_date_earliest": 1530,
+  "creation_date_latest": 1570,
+  "culture": [
+    "Italy"
+  ],
+  "technique": "pen and brown ink and brush and brown wash, over black chalk",
+  "type": "Drawing",
+  "measurements": "Sheet: 32.5 x 14.6 cm (12 13/16 x 5 3/4 in.); Secondary Support: 38.8 x 20.9 cm (15 1/4 x 8 1/4 in.)",
+  "creators": [
+    {
+      "id": 64047,
+      "description": "Luzio Romano (Italian, active 1528–75)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "death_year": "1575",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1927.362",
+  "share_license_status": "CC0",
+  "creditline": "Gift of The Print Club of Cleveland",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1927.362/1927.362_web.jpg",
+  "image_path": "../assets/cma-109211.jpg"
+}

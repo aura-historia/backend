@@ -1,0 +1,37 @@
+{
+  "id": 154277,
+  "accession_number": "1988.86",
+  "title": "Floral Still Life (Bleeding Hearts)",
+  "creation_date": "c. 1865",
+  "creation_date_earliest": 1860,
+  "creation_date_latest": 1870,
+  "culture": [
+    "France, 19th century"
+  ],
+  "technique": "albumen print from glass negative",
+  "type": "Photograph",
+  "measurements": "Image: 34.6 x 24.6 cm (13 5/8 x 9 11/16 in.); Paper: 48.1 x 31.7 cm (18 15/16 x 12 1/2 in.); Matted: 50.8 x 40.6 cm (20 x 16 in.)",
+  "creators": [
+    {
+      "id": 206,
+      "description": "Charles Aubry (French, 1811–1877)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": "Charles Aubry French, 1811-1877\r\n\r\nA Parisian trained as an industrial designer, Charles Aubry was among those early advocates of photography who recognized its potential as an aid to art and design. Noting the inadequacy of the didactic tools used by academies and schools, Aubry wrote in the introduction to his Studies of Leaves (1864), which he presented to the Prince Impérial, \". . . in order to facilitate the study of nature, I caught it in the act, and I hereby offer to workers some models that may increase our productivity in the industrial arts . . . .\" But he added significantly that he hoped his was a \"revitalizing work,\" noting that apprentices should consider not only their future work, but also \"that which develops the soul and the best sentiments, that is, beauty and truth.\"\r\n\tWhile Aubry's works owe their origin to their practical intent, they are clearly imbued with a beauty and personality that reflects the artist's distinctive subjects and style. Today they are valued, not as study aids, but as works of art entirely on their own merits, on a par with those of predecessor Adolphe Braun. T.W.F.",
+      "name_in_original_language": null,
+      "birth_year": "1811",
+      "death_year": "1877",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Noted for his close-up studies of leaves, blossoms, and foliage, Charles Aubry was a photographer whose work encompassed both the documentary and the artistic. In this image, the artist isloated a plant on a dark background to concentrate attention on the rhythmic patterns of the blossoms and the abstract shapes suggested by the intertwining branches. Aubry's photographs were prized as important visual records by both scholars and artists.",
+  "url": "https://clevelandart.org/art/1988.86",
+  "share_license_status": "CC0",
+  "creditline": "John L. Severance Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1988.86/1988.86_web.jpg",
+  "image_path": "../assets/cma-154277.jpg"
+}

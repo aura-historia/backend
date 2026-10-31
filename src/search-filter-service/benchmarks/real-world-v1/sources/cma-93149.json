@@ -1,0 +1,49 @@
+{
+  "id": 93149,
+  "accession_number": "2018.281",
+  "title": "Peacock Table Lamp",
+  "creation_date": "c. 1902",
+  "creation_date_earliest": 1902,
+  "creation_date_latest": 1907,
+  "culture": [
+    "America, New York"
+  ],
+  "technique": "Leaded glass, bronze",
+  "type": "Lamp",
+  "measurements": "Diameter: 48 cm (18 7/8 in.); Overall: 65 cm (25 9/16 in.)",
+  "creators": [
+    {
+      "id": 356976,
+      "description": "Clara Wolcott Driscoll (American, 1861–1944)",
+      "extent": null,
+      "qualifier": "probably by",
+      "role": "designer",
+      "biography": "Cleveland Institute of Art alumni.",
+      "name_in_original_language": null,
+      "birth_year": "1861",
+      "death_year": "1944",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 292194,
+      "description": "Tiffany Studios (United States, New York, 1902–32)",
+      "extent": null,
+      "qualifier": null,
+      "role": "maker",
+      "biography": "American jewelry and glass manufactory, 1902-1932",
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 2
+    }
+  ],
+  "description": "The peacock, with its brilliantly colored iridescent plumage, was a favorite motif of Louis Comfort Tiffany, appearing in almost every genre of his artistic production. The Peacock table lamp, created by Tiffany's chief lamp designer Clara Wolcott Driscoll, evokes the wide circular swath of a peacock's preening feathers and attracted critical acclaim to both Driscoll and Tiffany Studios. This particular version retains its original kerosene burning fluid apparatus as well as an electric bulb armature. Although incandescent lamp bulbs had become more widely available in the 1890s, most households, even those of the wealthy, were not yet wired for electricity. Tiffany originally designed his lamps with an oil-burning apparatus, consisting of a reservoir and a double wick and chimney, as well as an electric attachment. He cleverly predicted, though, that electric households would eventually become commonplace, so he soon moved to all-electric designs, greatly increasing the illumination and appeal of his lamps.",
+  "url": "https://clevelandart.org/art/2018.281",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Charles Maurer",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2018.281/2018.281_web.jpg",
+  "image_path": "../assets/cma-93149.jpg"
+}

@@ -1,0 +1,37 @@
+{
+  "id": 115067,
+  "accession_number": "1935.233",
+  "title": "Vase of Flowers",
+  "creation_date": "c. 1905",
+  "creation_date_earliest": 1900,
+  "creation_date_latest": 1910,
+  "culture": [
+    "France, late 19th-early 20th Century"
+  ],
+  "technique": "oil on fabric",
+  "type": "Painting",
+  "measurements": "Framed: 90.8 x 62.2 x 10.2 cm (35 3/4 x 24 1/2 x 4 in.); Unframed: 73 x 59 cm (28 3/4 x 23 1/4 in.)",
+  "creators": [
+    {
+      "id": 1748,
+      "description": "Odilon Redon (French, 1840–1916)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": "A leader of the symbolist movement in France, Odilon Redon was born in Bordeaux in 1840 and grew up in the surrounding region. During his early years he studied drawing, architecture, and the violin. A friendship with Armand Clavaud, a local botanist and philosopher, stimulated Redon's passion for romantic art and literature. In 1864, after a brief and discouraging period of instruction with Gérôme in Paris, Redon returned to Bordeaux, where he studied printmaking with Rodolphe Bresdin (1825-1885). Deploring the emphasis on rational, phenomenal experience in academic and naturalist art, Redon turned for inspiration to the imaginative paintings of Delacroix, the prints of Francisco José de Goya (1746-1828), and the poetry of Charles Baudelaire. In 1870, after military service in the Franco-Prussian War, Redon settled in Paris and produced his first <em>Noirs</em>. These visionary images, featuring floating eyes and severed heads born aloft on wings, reflect Redon's belief in the superiority of the imagination and fantasy, which he considered \"the messenger of the unconscious.\" After producing his initial <em>Noirs </em>in charcoal, Redon discovered a method of transferring his drawings to lithography in 1876. Throughout the 1880s he continued to use charcoal, etching, and lithography as his primary media, and he produced twelve lithography albums before abandoning the genre in the late 1890s. During the 1880s Redon emerged as a leader of the symbolist reaction against impressionism. The publication in 1879 of his first lithographic album, <em>Dans le rêve</em>, followed by his first solo exhibition in 1881, attracted the admiration of J. K. Huysmans, who included illustrations by Redon in his novel <em>À rebours</em> (1884). Around the same time, Redon developed a personal and artistic relationship with poet Stéphane Mallarmé. Increasingly drawn into the public arena, Redon helped organize the Société des Artistes Indépendants in 1884. In 1886 he participated in the last impressionist exhibition and began showing with Les XX in Brussels. Redon's antinaturalist, visionary, art inspired many symbolist and Nabi artists, including Gauguin and Vuillard. Maurice Denis praised Redon as \"our Mallarmé,\" and in 1892 critic Albert Aurier described Redon as a leader of the new \"idealistic\" tendency in art. After 1890 the focus of Redon's activity shifted from monochromatic drawings and prints toward exploring color in richly worked pastels. His innovations in luminous color, as seen in the pastel and oil paintings he exhibited at the Galeries Durand-Ruel in 1900 were greatly admired by Henri Matisse (1869-1954) and the Fauves. Awarded the Legion of Honor in 1903, Redon continued his leadership role in the avant-garde and in 1904 became a founding member of the Salon d'Automne. In 1913 forty of his works were selected for exhibition in the Armory Show, the most by any artist. Redon died at his home in Paris in the summer of 1916.",
+      "name_in_original_language": null,
+      "birth_year": "1840",
+      "death_year": "1916",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Rapturous flower still lifes like this dominated the last decade and a half of Odilon Redon’s career and provided his greatest commercial success. His interest in plants and flowers began in his youth; child of wine producers, he grew up northwest of Bordeaux and was sensitive to fluctuations in weather, light, and temperature affecting the grape harvest. When he was 20, Redon met Armond Clavaud, a botanist and draftsman who illustrated his own compendium of flowers of the Bordeaux region. Clavaud’s meticulously rendered drawings sparked the young Redon’s imagination and helped to instill his desire to paint “nature, as seen in a dream.”",
+  "url": "https://clevelandart.org/art/1935.233",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Roberta Holden Bole",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1935.233/1935.233_web.jpg",
+  "image_path": "../assets/cma-115067.jpg"
+}

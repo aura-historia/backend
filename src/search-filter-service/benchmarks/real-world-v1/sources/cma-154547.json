@@ -1,0 +1,36 @@
+{
+  "id": 154547,
+  "accession_number": "1989.177",
+  "title": "Tea Caddy",
+  "creation_date": "c. 1735",
+  "creation_date_earliest": 1730,
+  "creation_date_latest": 1740,
+  "culture": [
+    "Germany, Meissen, 18th century"
+  ],
+  "technique": "porcelain",
+  "type": "Ceramic",
+  "measurements": "Overall: 10.7 x 7.5 x 5.1 cm (4 3/16 x 2 15/16 x 2 in.)",
+  "creators": [
+    {
+      "id": 11685,
+      "description": "Meissen Porcelain Factory (German, est. c. 1710)",
+      "extent": null,
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": "the first and for half a century the best in Europe. It set a high standard which was emulated everywhere, even in China. Founded in 1710 as the Royal Saxon Porcelain Manufacture by Augustus the Strong, Elector of Saxony and King of Poland, at Meissen, near Dresden.",
+      "name_in_original_language": null,
+      "birth_year": "1710",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1989.177",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Mrs. Severance A. Millikin",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1989.177/1989.177_web.jpg",
+  "image_path": "../assets/cma-154547.jpg"
+}

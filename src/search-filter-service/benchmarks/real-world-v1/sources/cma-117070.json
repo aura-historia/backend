@@ -1,0 +1,36 @@
+{
+  "id": 117070,
+  "accession_number": "1937.639",
+  "title": "Etchings of Paris:  The Clock Tower",
+  "creation_date": "1852",
+  "creation_date_earliest": 1852,
+  "creation_date_latest": 1852,
+  "culture": [
+    "France, 19th century"
+  ],
+  "technique": "etching",
+  "type": "Print",
+  "creators": [
+    {
+      "id": 29529,
+      "description": "Charles Meryon (French, 1821–1868)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1821",
+      "death_year": "1868",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1937.639",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Leonard C. Hanna Jr.",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1937.639/1937.639_web.jpg",
+  "image_path": "../assets/cma-117070.jpg"
+}

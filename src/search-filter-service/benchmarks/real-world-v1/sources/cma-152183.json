@@ -1,0 +1,51 @@
+{
+  "id": 152183,
+  "accession_number": "1985.11",
+  "title": "Clock",
+  "creation_date": "c. 1785",
+  "creation_date_earliest": 1780,
+  "creation_date_latest": 1790,
+  "culture": [
+    "France"
+  ],
+  "technique": "gilt bronze",
+  "type": "Furniture and woodwork",
+  "measurements": "Overall: 62 x 30 x 25.5 cm (24 7/16 x 11 13/16 x 10 1/16 in.)",
+  "creators": [
+    {
+      "id": 5783,
+      "description": "Robert Osmond (French, 1711–1789)",
+      "extent": null,
+      "qualifier": null,
+      "role": "case maker",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1711",
+      "death_year": "1789",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 5786,
+      "description": "Robert Robin (French, 1742–1799)",
+      "extent": null,
+      "qualifier": null,
+      "role": "movement by",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1742",
+      "death_year": "1799",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 2
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1985.11",
+  "share_license_status": "CC0",
+  "creditline": "John L. Severance Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1985.11/1985.11_web.jpg",
+  "image_path": "../assets/cma-152183.jpg"
+}

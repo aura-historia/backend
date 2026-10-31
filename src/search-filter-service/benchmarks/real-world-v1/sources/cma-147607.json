@@ -1,0 +1,37 @@
+{
+  "id": 147607,
+  "accession_number": "1974.1",
+  "title": "Still Life with Herrings",
+  "creation_date": "c. 1735",
+  "creation_date_earliest": 1730,
+  "creation_date_latest": 1740,
+  "culture": [
+    "France"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Framed: 58.5 x 50.5 x 8.5 cm (23 1/16 x 19 7/8 x 3 3/8 in.); Unframed: 41 x 33.6 cm (16 1/8 x 13 1/4 in.)",
+  "creators": [
+    {
+      "id": 1896,
+      "description": "Jean-Siméon Chardin (French, 1699–1779)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1699",
+      "death_year": "1779",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Chardin reflected intensely on the act of observation. Still life became a forum for sophisticated performances in paint, and his complex technique—he famously worked in private—uses a staggering combination of delicate glazes and roughly dragged thick paint to capture the varied surfaces, atmospheres, and spaces in this humble pantry shelf. Acutely aware of recent developments in optics and physics, Chardin explored ideas about light, shadow, and color, and fully expected his work to be inspected closely.",
+  "url": "https://clevelandart.org/art/1974.1",
+  "share_license_status": "CC0",
+  "creditline": "Leonard C. Hanna Jr. Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1974.1/1974.1_web.jpg",
+  "image_path": "../assets/cma-147607.jpg"
+}

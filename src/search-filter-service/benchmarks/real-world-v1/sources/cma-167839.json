@@ -1,0 +1,48 @@
+{
+  "id": 167839,
+  "accession_number": "2009.443",
+  "title": "Mantle Clock",
+  "creation_date": "1901",
+  "creation_date_earliest": 1901,
+  "creation_date_latest": 1901,
+  "culture": [
+    "America"
+  ],
+  "technique": "brass, mahogany",
+  "type": "Wood",
+  "measurements": "Overall: 40 x 22.9 x 8.9 cm (15 3/4 x 9 x 3 1/2 in.)",
+  "creators": [
+    {
+      "id": 59280,
+      "description": "Lenzkirch Clock Factory (German)",
+      "extent": null,
+      "qualifier": null,
+      "role": "clockmaker",
+      "biography": null,
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 7431,
+      "description": "Tiffany & Co. (America, New York, est. 1837)",
+      "extent": null,
+      "qualifier": null,
+      "role": "retailer",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1837",
+      "use_in_caption": true,
+      "include_extent": true,
+      "weight": 2
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/2009.443",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Barry Bradley",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2009.443/2009.443_web.jpg",
+  "image_path": "../assets/cma-167839.jpg"
+}

@@ -1,0 +1,36 @@
+{
+  "id": 123697,
+  "accession_number": "1944.229.2.a",
+  "title": "Vase",
+  "creation_date": "1749",
+  "creation_date_earliest": 1749,
+  "creation_date_latest": 1749,
+  "culture": [
+    "Germany, Meissen, 18th century"
+  ],
+  "technique": "porcelain mounted in gilt bronze",
+  "type": "Ceramic",
+  "measurements": "Overall: 38.1 x 33.7 x 20.7 cm (15 x 13 1/4 x 8 1/8 in.)",
+  "creators": [
+    {
+      "id": 11685,
+      "description": "Meissen Porcelain Factory (German, est. c. 1710)",
+      "extent": null,
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": "the first and for half a century the best in Europe. It set a high standard which was emulated everywhere, even in China. Founded in 1710 as the Royal Saxon Porcelain Manufacture by Augustus the Strong, Elector of Saxony and King of Poland, at Meissen, near Dresden.",
+      "name_in_original_language": null,
+      "birth_year": "1710",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "One of these vases is dated 1749. They were perhaps part of a set of four covered vases that we know from documents were acquired by Mme. de Pompadour, mistress of Louis XV in 1752.",
+  "url": "https://clevelandart.org/art/1944.229.2.a",
+  "share_license_status": "CC0",
+  "creditline": "Purchase from the J. H. Wade Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1944.229.2.a/1944.229.2.a_web.jpg",
+  "image_path": "../assets/cma-123697.jpg"
+}
