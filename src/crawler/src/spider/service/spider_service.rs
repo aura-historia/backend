@@ -1,5 +1,6 @@
 use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -206,7 +207,7 @@ impl SpiderServiceImpl {
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
-        state.products_found += count_products(&state.page_buffer, &state.pattern);
+        record_product_pages(&state.page_buffer, &state.pattern, &mut state.product_pages);
         self.persist_url_metadata_batch(
             listing_source_id,
             domain_id,
@@ -254,7 +255,7 @@ impl SpiderServiceImpl {
             "URL pattern review was decided during the crawl, classifying its stored URLs with the decision"
         );
         for pages in stored_pages.chunks(self.config.db_batch_size.max(1)) {
-            state.products_found += count_products(pages, &state.pattern);
+            record_product_pages(pages, &state.pattern, &mut state.product_pages);
             self.persist_url_metadata_batch(listing_source_id, domain_id, pages, &state.pattern)
                 .await?;
         }
@@ -379,7 +380,7 @@ impl SpiderServiceImpl {
         if state.total_crawled.is_multiple_of(1000) {
             info!(
                 total_crawled = state.total_crawled,
-                products_found = state.products_found,
+                products_found = state.products_found(),
                 "Crawl progress"
             );
         }
@@ -432,8 +433,8 @@ impl SpiderServiceImpl {
         // Pages still buffered count too: a crawl smaller than one batch has
         // flushed nothing yet.
         if state.pattern_loaded_from_store
-            && state.products_found == 0
-            && count_products(&state.page_buffer, &state.pattern) == 0
+            && state.products_found() == 0
+            && !has_product_page(&state.page_buffer, &state.pattern)
             && !state.inference_sample.is_empty()
         {
             warn!("Persisted product URL pattern did not match crawl results, reclassifying");
@@ -632,7 +633,7 @@ impl SpiderServiceImpl {
 
         Ok(SpiderRunResult {
             total_links: state.total_crawled,
-            product_urls_count: state.products_found,
+            product_urls_count: state.products_found(),
             product_pattern,
             completion,
             pending_url_pattern_review: state.pending_url_pattern_review(),
@@ -671,13 +672,28 @@ impl SpiderService for SpiderServiceImpl {
     }
 }
 
-fn count_products(pages: &[CrawledPage], pattern: &ProductListingPattern) -> usize {
-    pattern.as_regex().map_or(0, |regex| {
+/// Adds the product pages among `pages` to `product_pages` by their page spelling, so a page a
+/// shop links with and without its trailing slash, in one batch or two, counts once.
+fn record_product_pages(
+    pages: &[CrawledPage],
+    pattern: &ProductListingPattern,
+    product_pages: &mut HashSet<Url>,
+) {
+    let Some(regex) = pattern.as_regex() else {
+        return;
+    };
+    product_pages.extend(
         pages
             .iter()
             .filter(|page| page.url.matches_pattern(regex))
-            .count()
-    })
+            .map(|page| page.url.page_spelling()),
+    );
+}
+
+fn has_product_page(pages: &[CrawledPage], pattern: &ProductListingPattern) -> bool {
+    pattern
+        .as_regex()
+        .is_some_and(|regex| pages.iter().any(|page| page.url.matches_pattern(regex)))
 }
 
 /// Coverage losses on a crawl that delivered pages are only visible here.
@@ -693,7 +709,7 @@ fn log_crawl_outcome(
         diagnostic_reason = ?diagnostics.diagnostic_reason,
         truncated = !completion.is_full(),
         total_crawled = state.total_crawled,
-        product_urls_count = state.products_found,
+        product_urls_count = state.products_found(),
         product_pattern = ?product_pattern,
         product_pattern_known = product_pattern.is_some(),
         classification_done = state.classification_done,
@@ -1654,6 +1670,49 @@ mod service_tests {
         assert_eq!(run_result.product_urls_count, 20);
     }
 
+    /// The spider stores a page a shop links with and without its trailing slash as one row, so
+    /// it counts the page once, also when the two spellings arrive in different batches.
+    #[tokio::test]
+    async fn should_count_a_product_page_once_when_the_shop_links_both_trailing_slash_spellings() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        let mut paths = item_pages();
+        paths.extend((1..=5).map(|i| format!("/item/{i}/")));
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, paths);
+
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+        mock_pattern_service.expect_classify_and_save().times(0);
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .returning(|_, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig {
+                db_batch_size: 4,
+                ..SpiderServiceConfig::default()
+            },
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run_result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .await
+            .unwrap();
+        assert_eq!(run_result.total_links, 25);
+        assert_eq!(run_result.product_urls_count, 20);
+    }
+
     #[tokio::test]
     async fn should_return_empty_crawl_error_without_classifying_or_marking_crawled() {
         let mut mock_spider = MockSpider::new();
@@ -2114,7 +2173,7 @@ fn no_product_urls_error(
     state: &CrawlRunState,
     completion: CrawlCompletion,
 ) -> Option<SpiderServiceError> {
-    if state.products_found > 0 {
+    if state.products_found() > 0 {
         return None;
     }
     Some(match state.pattern.as_regex() {

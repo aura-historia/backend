@@ -1,12 +1,17 @@
 use regex::Regex;
+use std::collections::HashSet;
 
 use crate::CrawlerReviewId;
 use crate::spider::discovery::website_spider::CrawledPage;
 use crate::spider::service::product_pattern::ProductListingPattern;
+#[cfg(doc)]
+use crate::spider::utils::url::CrawledUrl;
 
 pub struct CrawlRunState {
     pub total_crawled: usize,
-    pub products_found: usize,
+    /// The [page spelling](CrawledUrl::page_spelling) of each product page the crawl stored, so
+    /// a page the shop links with and without its trailing slash counts once.
+    pub product_pages: HashSet<url::Url>,
     pub pattern: ProductListingPattern,
     pub classification_done: bool,
     pub pattern_loaded_from_store: bool,
@@ -36,7 +41,7 @@ impl CrawlRunState {
 
         Self {
             total_crawled: 0,
-            products_found: 0,
+            product_pages: HashSet::new(),
             pattern,
             classification_done,
             pattern_loaded_from_store,
@@ -44,6 +49,11 @@ impl CrawlRunState {
             inference_sample: Vec::new(),
             url_pattern_review_wait: None,
         }
+    }
+
+    /// How many product pages the crawl stored.
+    pub fn products_found(&self) -> usize {
+        self.product_pages.len()
     }
 
     /// The pending URL-pattern review the crawl waits on.
