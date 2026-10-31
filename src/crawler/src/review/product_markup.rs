@@ -14,7 +14,8 @@ static SCRIPTS: LazyLock<Selector> =
 /// Whether `html` describes exactly one schema.org `Product` as a top-level item of its JSON-LD or
 /// of its microdata, and no more than one in either. A JSON-LD item is top-level as a script's
 /// node, a member of a top-level array or of a top-level node's `@graph`, with `@type` naming
-/// `Product` as a string or in an array; nodes naming the same `url`, or else the same `@id`,
+/// schema.org's `Product` as a string or in an array under the node's
+/// [active context](ActiveContext); nodes naming the same `url`, or else the same `@id`,
 /// describe one product, as when a theme and a plugin both mark the page up. A microdata item is
 /// top-level when no other item contains it, and its `itemtype` names schema.org's own `Product`
 /// IRI. A product nested in another item, such as a list or a page, does not count, and a page that
@@ -37,7 +38,7 @@ fn json_ld_products(document: &Html) -> usize {
         .collect();
     let mut nodes = Vec::new();
     for value in &scripts {
-        collect_top_level_products(value, &mut nodes);
+        collect_top_level_products(value, &ActiveContext::initial(), &mut nodes);
     }
     let identified: BTreeSet<String> = nodes.iter().filter_map(|node| identity(node)).collect();
     let anonymous = nodes.iter().filter(|node| identity(node).is_none()).count();
@@ -63,40 +64,131 @@ fn is_json_ld_type(media_type: &str) -> bool {
 }
 
 /// Collects the `Product` nodes of a JSON-LD value at its top level: the value itself, the members
-/// of an array and the members of a node's `@graph`, never a node's other properties.
-fn collect_top_level_products<'a>(value: &'a Value, products: &mut Vec<&'a Map<String, Value>>) {
+/// of an array and the members of a node's `@graph`, never a node's other properties. A node's own
+/// `@context` applies to its `@type` and its `@graph`, on top of the `context` it inherits.
+fn collect_top_level_products<'a>(
+    value: &'a Value,
+    context: &ActiveContext,
+    products: &mut Vec<&'a Map<String, Value>>,
+) {
     match value {
         Value::Array(nodes) => {
             for node in nodes {
-                collect_top_level_products(node, products);
+                collect_top_level_products(node, context, products);
             }
         }
         Value::Object(node) => {
-            if node.get("@type").is_some_and(names_product) {
+            let context = node
+                .get("@context")
+                .map_or_else(|| context.clone(), |local| context.with(local));
+            if node
+                .get("@type")
+                .is_some_and(|types| context.names_product_in(types))
+            {
                 products.push(node);
             }
             if let Some(graph) = node.get("@graph") {
-                collect_top_level_products(graph, products);
+                collect_top_level_products(graph, &context, products);
             }
         }
         _ => {}
     }
 }
 
-fn names_product(types: &Value) -> bool {
-    match types {
-        Value::String(name) => is_product_type(name),
-        Value::Array(names) => names
-            .iter()
-            .any(|name| name.as_str().is_some_and(is_product_type)),
-        _ => false,
-    }
+/// What a JSON-LD node's `@context` makes of the type names `Product` and `prefix:Product`, read
+/// without fetching anything: whether the bare term is schema.org's `Product`, and which prefixes
+/// are bound to schema.org's vocabulary. A node without any context counts the bare term, as pages
+/// that omit the context mean schema.org; a context it cannot read, such as another remote
+/// context, counts neither, so a node of another vocabulary never counts.
+#[derive(Clone, Debug)]
+struct ActiveContext {
+    bare_product: bool,
+    schema_org_prefixes: BTreeSet<String>,
 }
 
-/// `Product` in schema.org's vocabulary: the bare term, its compact `schema:` form or its IRI.
-fn is_product_type(name: &str) -> bool {
-    let name = name.trim();
-    name == "Product" || name == "schema:Product" || is_product_iri(name)
+impl ActiveContext {
+    fn initial() -> Self {
+        Self {
+            bare_product: true,
+            schema_org_prefixes: BTreeSet::new(),
+        }
+    }
+
+    fn unreadable() -> Self {
+        Self {
+            bare_product: false,
+            schema_org_prefixes: BTreeSet::new(),
+        }
+    }
+
+    /// This context with `context` processed on top of it: `null` resets it, schema.org's own
+    /// context makes `Product` and `schema:Product` schema.org's, an array applies each entry in
+    /// order, and an object applies its `@vocab`, its prefix definitions and a definition of the
+    /// term `Product`.
+    fn with(&self, context: &Value) -> Self {
+        match context {
+            Value::Null => Self::initial(),
+            Value::String(iri) if is_schema_org_context(iri) => Self {
+                bare_product: true,
+                schema_org_prefixes: BTreeSet::from(["schema".to_owned()]),
+            },
+            Value::Array(contexts) => contexts
+                .iter()
+                .fold(self.clone(), |active, context| active.with(context)),
+            Value::Object(definitions) => self.with_definitions(definitions),
+            _ => Self::unreadable(),
+        }
+    }
+
+    fn with_definitions(&self, definitions: &Map<String, Value>) -> Self {
+        let mut active = self.clone();
+        if let Some(vocab) = definitions.get("@vocab") {
+            active.bare_product = vocab.as_str().is_some_and(is_schema_org_vocabulary);
+        }
+        for (term, definition) in definitions
+            .iter()
+            .filter(|(term, _)| !term.starts_with('@'))
+        {
+            let iri = match definition {
+                Value::Object(expanded) => expanded.get("@id").and_then(Value::as_str),
+                other => other.as_str(),
+            };
+            if term == "Product" {
+                active.bare_product = iri.is_some_and(|iri| self.names_product(iri));
+            } else if iri.is_some_and(is_schema_org_vocabulary) {
+                active.schema_org_prefixes.insert(term.clone());
+            } else {
+                active.schema_org_prefixes.remove(term);
+            }
+        }
+        active
+    }
+
+    /// Whether a node's `@type`, a name or an array of names, includes schema.org's `Product`.
+    fn names_product_in(&self, types: &Value) -> bool {
+        match types {
+            Value::String(name) => self.names_product(name),
+            Value::Array(names) => names
+                .iter()
+                .any(|name| name.as_str().is_some_and(|name| self.names_product(name))),
+            _ => false,
+        }
+    }
+
+    /// `Product` in schema.org's vocabulary: its IRI, or the bare term or a compact
+    /// `prefix:Product` this context maps to it.
+    fn names_product(&self, name: &str) -> bool {
+        let name = name.trim();
+        if is_product_iri(name) {
+            return true;
+        }
+        if name == "Product" {
+            return self.bare_product;
+        }
+        name.split_once(':').is_some_and(|(prefix, term)| {
+            term == "Product" && self.schema_org_prefixes.contains(prefix)
+        })
+    }
 }
 
 /// schema.org's own address of `Product`: `http` or `https`, the host `schema.org` or
@@ -106,16 +198,33 @@ fn is_product_type(name: &str) -> bool {
 /// terms are. Anything else, such as another host ending in `schema.org` or a path ending in
 /// `schema.org/Product`, names another vocabulary's type.
 fn is_product_iri(name: &str) -> bool {
-    let Some((scheme, address)) = name.split_once("://") else {
-        return false;
-    };
-    let Some((host, path)) = address.split_once('/') else {
-        return false;
-    };
+    matches!(schema_org_path(name), Some("Product" | "Product/"))
+}
+
+/// schema.org's vocabulary address, `https://schema.org/` in any of the spellings
+/// [`is_product_iri`] accepts, with or without the trailing slash.
+fn is_schema_org_vocabulary(iri: &str) -> bool {
+    schema_org_path(iri.trim()) == Some("")
+}
+
+/// A JSON-LD context that is schema.org's own: its vocabulary address, which serves the context,
+/// or the context document it publishes.
+fn is_schema_org_context(iri: &str) -> bool {
+    matches!(
+        schema_org_path(iri.trim()),
+        Some("" | "docs/jsonldcontext.json" | "docs/jsonldcontext.jsonld")
+    )
+}
+
+/// The path of an `http` or `https` address on `schema.org` or `www.schema.org`, without its
+/// leading slash; `None` for any other address.
+fn schema_org_path(iri: &str) -> Option<&str> {
+    let (scheme, address) = iri.split_once("://")?;
+    let (host, path) = address.split_once('/').unwrap_or((address, ""));
     let web = scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https");
     let schema_org =
         host.eq_ignore_ascii_case("schema.org") || host.eq_ignore_ascii_case("www.schema.org");
-    web && schema_org && matches!(path, "Product" | "Product/")
+    (web && schema_org).then_some(path)
 }
 
 /// How many microdata items inside no other item name `Product` in their `itemtype`. One pass
@@ -169,6 +278,28 @@ mod tests {
         r#"[{"@type": "Organization"}, {"@type": "Product", "name": "Chair"}]"#
     )]
     #[case::graph_in_array(r#"[{"@graph": [{"@type": "Product", "name": "Chair"}]}]"#)]
+    #[case::http_context(r#"{"@context": "http://schema.org/", "@type": "Product"}"#)]
+    #[case::context_document(
+        r#"{"@context": "https://schema.org/docs/jsonldcontext.jsonld", "@type": "Product"}"#
+    )]
+    #[case::schema_org_vocab(
+        r#"{"@context": {"@vocab": "https://schema.org/"}, "@type": "Product"}"#
+    )]
+    #[case::compact_type_under_schema_org_context(
+        r#"{"@context": "https://schema.org", "@type": "schema:Product"}"#
+    )]
+    #[case::another_prefix_bound_to_schema_org(
+        r#"{"@context": {"s": {"@id": "http://www.schema.org"}}, "@type": "s:Product"}"#
+    )]
+    #[case::context_array(
+        r#"{"@context": ["https://schema.org", {"shop": "https://example.com/ns#"}], "@type": "Product"}"#
+    )]
+    #[case::graph_member_inherits_the_context(
+        r#"{"@context": "https://schema.org", "@graph": [{"@type": "Product"}]}"#
+    )]
+    #[case::null_context_resets_to_no_context(
+        r#"{"@context": "https://example.com/vocab", "@graph": [{"@context": null, "@type": "Product"}]}"#
+    )]
     fn should_find_one_product_in_json_ld(#[case] json: &str) {
         assert!(describes_one_product(&json_ld(json)), "{json}");
     }
@@ -217,6 +348,45 @@ mod tests {
         for (markup, html) in items_typed(iri) {
             assert!(!describes_one_product(&html), "{markup} {iri}");
         }
+    }
+
+    /// The bare `Product` and a compact `prefix:Product` are schema.org's only where the node's
+    /// context maps them there; under another vocabulary they name that vocabulary's type.
+    #[rstest::rstest]
+    #[case::foreign_context(r#"{"@context": "https://example.com/vocab", "@type": "Product"}"#)]
+    #[case::foreign_vocab(
+        r#"{"@context": {"@vocab": "https://example.com/vocab#"}, "@type": "Product"}"#
+    )]
+    #[case::foreign_product_term(
+        r#"{"@context": ["https://schema.org", {"Product": "https://example.com/vocab#Product"}], "@type": "Product"}"#
+    )]
+    #[case::foreign_schema_prefix(
+        r#"{"@context": {"schema": "https://example.com/ns#"}, "@type": "schema:Product"}"#
+    )]
+    #[case::schema_prefix_rebound_after_schema_org(
+        r#"{"@context": ["https://schema.org", {"schema": "https://example.com/ns#"}], "@type": "schema:Product"}"#
+    )]
+    #[case::unbound_schema_prefix(r#"{"@type": "schema:Product"}"#)]
+    #[case::graph_member_under_foreign_context(
+        r#"{"@context": "https://example.com/vocab", "@graph": [{"@type": "Product"}]}"#
+    )]
+    #[case::graph_member_with_its_own_foreign_context(
+        r#"{"@context": "https://schema.org", "@graph": [{"@context": {"@vocab": "https://example.com/vocab#"}, "@type": "Product"}]}"#
+    )]
+    #[case::unreadable_context(r#"{"@context": 42, "@type": "Product"}"#)]
+    fn should_find_no_product_when_its_context_maps_product_to_another_vocabulary(
+        #[case] json: &str,
+    ) {
+        assert!(!describes_one_product(&json_ld(json)), "{json}");
+    }
+
+    /// A type IRI names schema.org's `Product` whatever the context.
+    #[test]
+    fn should_find_one_product_typed_by_iri_under_a_foreign_context() {
+        let json =
+            r#"{"@context": "https://example.com/vocab", "@type": "https://schema.org/Product"}"#;
+
+        assert!(describes_one_product(&json_ld(json)), "{json}");
     }
 
     #[test]
