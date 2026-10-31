@@ -31,6 +31,7 @@ use url::Url;
 
 mod live_matrix;
 mod pending_reviews;
+mod rejected_pages;
 mod repair_rounds;
 mod restore;
 mod review_events;
@@ -43,6 +44,7 @@ mod verdicts;
 
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
 pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
+pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use verdicts::Approval;
@@ -349,22 +351,11 @@ impl CrawlerReviewRepository {
         reason: &str,
         url: &str,
     ) -> Result<bool, sqlx::Error> {
-        sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM crawler_reviews r \
-             JOIN crawler_review_pages p ON p.review_id = r.review_id \
-             WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
-               AND r.status = 'REJECTED' AND r.reason = $2 AND p.url = ANY($3::text[]) \
-               AND p.role <> ALL($4) \
-               AND NOT EXISTS (SELECT 1 FROM crawler_review_events e \
-                               WHERE e.review_id = r.review_id AND e.action = $5))",
+        Ok(
+            RejectedPages::load_for_reason(&self.pool, listing_source_id, reason, None)
+                .await?
+                .covers(url),
         )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(reason)
-        .bind(ReviewPageIdentity::stored_spellings(url))
-        .bind(ROLES_NO_REJECTION_JUDGES)
-        .bind(ReviewEventAction::RejectionRevoked.as_str())
-        .fetch_one(&self.pool)
-        .await
     }
 
     pub async fn has_pending_url_pattern_review(
