@@ -415,13 +415,15 @@ impl FetchFailure {
     }
 
     fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            Self::Request(_)
-                | Self::Resolution(_)
-                | Self::ResolutionTimeout
-                | Self::UnsuccessfulStatus { .. }
-        )
+        match self {
+            Self::Request(_) | Self::Resolution(_) | Self::ResolutionTimeout => true,
+            Self::UnsuccessfulStatus { status } => {
+                *status == reqwest::StatusCode::REQUEST_TIMEOUT
+                    || *status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                    || status.is_server_error()
+            }
+            _ => false,
+        }
     }
 }
 
@@ -682,20 +684,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_report_the_status_of_an_unsuccessful_image_response()
+    async fn should_not_retry_a_permanently_unsuccessful_image_response()
     -> Result<(), Box<dyn std::error::Error>> {
         let not_found = http_response("404 Not Found", &[("Content-Length", "0")], &[]);
         let server = spawn_mock_image_server(vec![not_found]).await?;
         let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
 
         let error = fetcher
-            .fetch_once(&server.url)
+            .fetch(&server.url)
             .await
             .err()
             .ok_or("missing image was fetched")?;
 
-        assert_eq!(error.category(), "unsuccessful_status");
-        assert_eq!(error.http_status(), Some(404));
+        assert_eq!(
+            error.diagnostics(),
+            ImageFetchDiagnostics {
+                category: "unsuccessful_status",
+                http_status: Some(404),
+                attempts: 1,
+            }
+        );
         assert_eq!(server.finish().await?, vec!["/".to_owned()]);
         Ok(())
     }
