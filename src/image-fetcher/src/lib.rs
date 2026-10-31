@@ -15,7 +15,8 @@ const IMAGE_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Fetches external images after validating every network hop.
 ///
 /// Only HTTP(S) hosts resolving exclusively to public IP addresses are requested. Redirects,
-/// response bytes, and request duration are bounded. Fetch failures intentionally yield no image.
+/// response bytes, and request duration are bounded. A failed fetch returns the final attempt's
+/// [`ImageFetchError`]; callers degrade to their remaining evidence and log its bounded labels.
 pub struct ImageFetcher {
     request_timeout: Duration,
     max_response_bytes: usize,
@@ -53,24 +54,23 @@ impl ImageFetcher {
         }
     }
 
-    pub async fn fetch(&self, url: &Url) -> Option<FetchedImage> {
+    pub async fn fetch(&self, url: &Url) -> Result<FetchedImage, ImageFetchError> {
         tokio::time::timeout(IMAGE_FETCH_TOTAL_TIMEOUT, self.fetch_with_retries(url))
             .await
-            .ok()
-            .flatten()
+            .map_err(|_| ImageFetchError::DeadlineExceeded)?
     }
 
-    async fn fetch_with_retries(&self, url: &Url) -> Option<FetchedImage> {
-        for attempt in 1..=IMAGE_FETCH_MAX_ATTEMPTS {
+    async fn fetch_with_retries(&self, url: &Url) -> Result<FetchedImage, ImageFetchError> {
+        let mut attempt = 1;
+        loop {
             match self.fetch_once(url).await {
-                Ok(image) => return Some(image),
-                Err(error) if attempt == IMAGE_FETCH_MAX_ATTEMPTS || !error.is_retryable() => {
-                    return None;
+                Err(error) if attempt < IMAGE_FETCH_MAX_ATTEMPTS && error.is_retryable() => {
+                    tokio::time::sleep(image_fetch_backoff(attempt)).await;
+                    attempt += 1;
                 }
-                Err(_) => tokio::time::sleep(image_fetch_backoff(attempt)).await,
+                result => return result,
             }
         }
-        None
     }
 
     async fn fetch_once(&self, url: &Url) -> Result<FetchedImage, ImageFetchError> {
@@ -90,7 +90,9 @@ impl ImageFetcher {
             }
 
             if !response.status().is_success() {
-                return Err(ImageFetchError::Response);
+                return Err(ImageFetchError::UnsuccessfulStatus {
+                    status: response.status(),
+                });
             }
             if let Some(content_type) = response.headers().get(reqwest::header::CONTENT_TYPE) {
                 let content_type = content_type
@@ -122,7 +124,7 @@ impl ImageFetcher {
         let addresses =
             tokio::time::timeout(self.request_timeout, self.lookup_addresses(&host, port))
                 .await
-                .map_err(|_| ImageFetchError::Timeout)?
+                .map_err(|_| ImageFetchError::ResolutionTimeout)?
                 .map_err(ImageFetchError::Resolution)?;
 
         if !self.resolved_addresses_are_safe(&host, &addresses) {
@@ -312,18 +314,24 @@ fn content_type_can_be_supported_image(content_type: &str) -> bool {
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("image/"))
 }
 
+/// Why an image could not be fetched.
+///
+/// Neither messages nor sources carry the image URL, which may be signed. Callers recording a
+/// failed fetch log [`Self::category`] and [`Self::http_status`], never the error chain.
 #[derive(Debug, thiserror::Error)]
-enum ImageFetchError {
+pub enum ImageFetchError {
     #[error("image request failed")]
-    Request(#[from] reqwest::Error),
+    Request(#[source] reqwest::Error),
     #[error("image target resolution failed")]
     Resolution(#[source] std::io::Error),
-    #[error("image request timed out")]
-    Timeout,
+    #[error("image target resolution timed out")]
+    ResolutionTimeout,
+    #[error("image fetch exceeded its total deadline")]
+    DeadlineExceeded,
     #[error("image target is unsafe")]
     UnsafeTarget,
-    #[error("image response is unsuccessful")]
-    Response,
+    #[error("image response status {status} is unsuccessful")]
+    UnsuccessfulStatus { status: reqwest::StatusCode },
     #[error("image redirect is invalid")]
     InvalidRedirect,
     #[error("image redirect limit exceeded")]
@@ -337,13 +345,53 @@ enum ImageFetchError {
 }
 
 impl ImageFetchError {
+    /// A bounded label for operational logs.
+    pub fn category(&self) -> &'static str {
+        match self {
+            Self::Request(error) => match (error.is_connect(), error.is_timeout()) {
+                (true, true) => "connect_timeout",
+                (true, false) => "connect",
+                (false, true) => "request_timeout",
+                (false, false) => "request",
+            },
+            Self::Resolution(_) => "resolution",
+            Self::ResolutionTimeout => "resolution_timeout",
+            Self::DeadlineExceeded => "deadline_exceeded",
+            Self::UnsafeTarget => "unsafe_target",
+            Self::UnsuccessfulStatus { .. } => "unsuccessful_status",
+            Self::InvalidRedirect => "invalid_redirect",
+            Self::RedirectLimitExceeded => "redirect_limit_exceeded",
+            Self::InvalidContentType => "unsupported_content_type",
+            Self::BodyTooLarge => "body_too_large",
+            Self::UnsupportedImage => "unsupported_image",
+        }
+    }
+
+    /// The status code of an unsuccessful image response.
+    pub fn http_status(&self) -> Option<u16> {
+        match self {
+            Self::UnsuccessfulStatus { status } => Some(status.as_u16()),
+            _ => None,
+        }
+    }
+
     fn is_retryable(&self) -> bool {
         matches!(
             self,
-            Self::Request(_) | Self::Resolution(_) | Self::Timeout | Self::Response
+            Self::Request(_)
+                | Self::Resolution(_)
+                | Self::ResolutionTimeout
+                | Self::UnsuccessfulStatus { .. }
         )
     }
 }
+
+impl From<reqwest::Error> for ImageFetchError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Request(error.without_url())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -526,11 +574,82 @@ mod tests {
         let server = spawn_mock_image_server(vec![response]).await?;
         let fetcher = ImageFetcher::for_test(Duration::from_millis(25), 64, "127.0.0.1");
 
-        assert!(matches!(
-            fetcher.fetch_once(&server.url).await,
-            Err(ImageFetchError::Request(error)) if error.is_timeout()
-        ));
+        let error = fetcher
+            .fetch_once(&server.url)
+            .await
+            .err()
+            .ok_or("slow image was fetched")?;
+
+        assert!(matches!(&error, ImageFetchError::Request(source) if source.is_timeout()));
+        assert_eq!(error.category(), "request_timeout");
         assert_eq!(server.finish().await?, vec!["/".to_owned()]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_the_failure_of_a_fetch_that_is_not_retried()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let html = http_response(
+            "200 OK",
+            &[("Content-Type", "text/html"), ("Content-Length", "0")],
+            &[],
+        );
+        let server = spawn_mock_image_server(vec![html]).await?;
+        let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
+
+        let error = fetcher
+            .fetch(&server.url)
+            .await
+            .err()
+            .ok_or("HTML was fetched as an image")?;
+
+        assert_eq!(error.category(), "unsupported_content_type");
+        assert_eq!(server.finish().await?, vec!["/".to_owned()]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_report_the_status_of_an_unsuccessful_image_response()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let not_found = http_response("404 Not Found", &[("Content-Length", "0")], &[]);
+        let server = spawn_mock_image_server(vec![not_found]).await?;
+        let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
+
+        let error = fetcher
+            .fetch_once(&server.url)
+            .await
+            .err()
+            .ok_or("missing image was fetched")?;
+
+        assert_eq!(error.category(), "unsuccessful_status");
+        assert_eq!(error.http_status(), Some(404));
+        assert_eq!(server.finish().await?, vec!["/".to_owned()]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_label_connect_failures_without_exposing_the_image_url()
+    -> Result<(), Box<dyn std::error::Error>> {
+        const IPV6_ONLY_HOST: &str = "ipv6-only.image.test";
+        // Holds the port on IPv4 only, so nothing answers on the IPv6 loopback peer.
+        let ipv4_listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = ipv4_listener.local_addr()?.port();
+        let unreachable = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
+        let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, IPV6_ONLY_HOST)
+            .with_dns_answers(IPV6_ONLY_HOST, vec![unreachable]);
+        let url = Url::parse(&format!(
+            "http://{IPV6_ONLY_HOST}:{port}/image.png?signature=secret-token"
+        ))?;
+
+        let error = fetcher
+            .fetch_once(&url)
+            .await
+            .err()
+            .ok_or("unreachable peer answered")?;
+
+        assert_eq!(error.category(), "connect");
+        let rendered = format!("{error:?} {}", error_chain(&error));
+        assert!(!rendered.contains("secret-token"), "{rendered}");
         Ok(())
     }
 
@@ -557,6 +676,13 @@ mod tests {
         }
         assert_eq!(server.finish().await?, vec!["/".to_owned(), "/".to_owned()]);
         Ok(())
+    }
+
+    fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+        std::iter::successors(Some(error), |error| error.source())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(": ")
     }
 
     struct MockResponse {

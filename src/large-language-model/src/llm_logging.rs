@@ -164,6 +164,23 @@ pub fn log_llm_invocation_failure(
     );
 }
 
+/// A request image left out because it could not be fetched, with the image fetcher's bounded
+/// failure labels.
+pub(crate) fn log_llm_image_omission(
+    operation: LlmOperation,
+    image_fetch_failure: &'static str,
+    image_fetch_http_status: Option<u16>,
+) {
+    tracing::info!(
+        eventType = "LLM_IMAGE_OMITTED",
+        llmOperation = %operation,
+        imageOmissionReason = "fetch_failed",
+        imageFetchFailure = image_fetch_failure,
+        imageFetchHttpStatus = image_fetch_http_status,
+        "LLM image omitted."
+    );
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LlmInvocationOutcome {
     Completed,

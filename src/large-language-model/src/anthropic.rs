@@ -174,7 +174,7 @@ impl LargeLanguageModel for AnthropicClaude {
     where
         Output: DeserializeOwned + Send,
     {
-        let images = fetch_images(&self.image_fetcher, &request.image_urls).await;
+        let images = fetch_images(&self.image_fetcher, &request).await;
         self.generate_with_images(request, images).await
     }
 

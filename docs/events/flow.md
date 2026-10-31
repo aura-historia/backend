@@ -356,7 +356,9 @@ controls activation and fallback.
 
 Image selection is primary-first, URL-deduplicated and policy-bounded. Free never fetches
 images. Absent source media is normal; fetching/format/size failures degrade to the remaining
-permitted evidence, including text-only, with requested/sent counts and omission reasons.
+permitted evidence, including text-only, with requested/sent counts and omission reasons. An
+omitted image whose fetch failed also logs the fetcher's bounded failure category and HTTP
+status, never the image URL, which may be signed.
 Exact prepared-image duplicates are omitted. The adapter enforces four images, per-image
 and aggregate media/body limits and a conservative context bound before provider truncation.
 A technical failure is never a negative semantic decision. Permanent candidate failures

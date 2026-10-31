@@ -316,8 +316,21 @@ impl VertexAiEmbeddingGenerator {
             .into_embedding_vector()
     }
 
+    /// An image that cannot be fetched is left out of the embedding; its bounded cause is logged.
     async fn fetch_image(&self, image_url: &EmbeddingImageUrl) -> Option<FetchedImage> {
-        self.image_fetcher.fetch(image_url.as_url()).await
+        self.image_fetcher
+            .fetch(image_url.as_url())
+            .await
+            .inspect_err(|error| {
+                tracing::info!(
+                    eventType = "EMBEDDING_IMAGE_OMITTED",
+                    imageOmissionReason = "fetch_failed",
+                    imageFetchFailure = error.category(),
+                    imageFetchHttpStatus = error.http_status(),
+                    "Embedding image omitted."
+                );
+            })
+            .ok()
     }
 }
 

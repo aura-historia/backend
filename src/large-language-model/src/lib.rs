@@ -13,6 +13,7 @@ use gemini_model::GeminiThinkingConfig;
 pub use gemini_model::{GeminiModel, GeminiProThinkingLevel, GeminiThinkingLevel};
 use google_cloud_auth::credentials::AccessTokenCredentials;
 use image_fetcher::{FetchedImage, ImageFetcher};
+use llm_logging::log_llm_image_omission;
 pub use llm_logging::{
     GeminiServiceTier, LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider,
     log_llm_invocation, log_llm_invocation_failure,
@@ -381,7 +382,7 @@ impl LargeLanguageModel for VertexAiGemini {
     where
         Output: DeserializeOwned + Send,
     {
-        let images = fetch_images(&self.image_fetcher, &request.image_urls).await;
+        let images = fetch_images(&self.image_fetcher, &request).await;
         self.generate_with_images(request, images).await
     }
 
@@ -479,10 +480,13 @@ impl VertexAiGemini {
     }
 }
 
-async fn fetch_images(image_fetcher: &ImageFetcher, urls: &[Url]) -> Vec<FetchedImage> {
+async fn fetch_images(
+    image_fetcher: &ImageFetcher,
+    request: &StructuredGenerationRequest,
+) -> Vec<FetchedImage> {
     let mut images = Vec::with_capacity(MAX_IMAGES_PER_REQUEST);
-    for url in urls.iter().take(MAX_IMAGES_PER_REQUEST) {
-        if let Some(image) = image_fetcher.fetch(url).await {
+    for url in request.image_urls.iter().take(MAX_IMAGES_PER_REQUEST) {
+        if let Some(image) = fetch_image(image_fetcher, request.operation, url).await {
             images.push(image);
         }
     }
@@ -498,17 +502,32 @@ async fn fetch_images_for_requests(
     for request in requests {
         for url in request.image_urls.iter().take(MAX_IMAGES_PER_REQUEST) {
             if seen.insert(url.as_str()) {
-                unique_urls.push(url);
+                unique_urls.push((request.operation, url));
             }
         }
     }
     let mut images = HashMap::with_capacity(unique_urls.len());
-    for url in unique_urls {
-        if let Some(image) = image_fetcher.fetch(url).await {
+    for (operation, url) in unique_urls {
+        if let Some(image) = fetch_image(image_fetcher, operation, url).await {
             images.insert(url.as_str().to_owned(), image);
         }
     }
     images
+}
+
+/// A request image that cannot be fetched is left out; its bounded cause is logged.
+async fn fetch_image(
+    image_fetcher: &ImageFetcher,
+    operation: LlmOperation,
+    url: &Url,
+) -> Option<FetchedImage> {
+    image_fetcher
+        .fetch(url)
+        .await
+        .inspect_err(|error| {
+            log_llm_image_omission(operation, error.category(), error.http_status());
+        })
+        .ok()
 }
 
 fn images_for_request(

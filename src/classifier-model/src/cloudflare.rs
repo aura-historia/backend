@@ -6,7 +6,7 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures::StreamExt;
 use image::{ImageDecoder, ImageFormat, ImageReader, Limits};
-use image_fetcher::{FetchedImage, ImageFetcher};
+use image_fetcher::{FetchedImage, ImageFetchError, ImageFetcher};
 use reqwest::{StatusCode, header::RETRY_AFTER};
 use serde::Serialize;
 use serde_json::Value;
@@ -16,6 +16,7 @@ use std::{
     io::Cursor,
     num::NonZeroUsize,
     str::FromStr,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use url::Url;
@@ -318,11 +319,8 @@ impl ClassifierModel for CloudflareClassifierModel {
         let requested_image_count = request.image_urls.len();
         let unique_urls = unique_image_urls(std::slice::from_ref(&request), self.model);
         let image_results = fetch_unique_images(unique_urls, NonZeroUsize::MIN, |url| async move {
-            self.image_fetcher
-                .fetch(&url)
-                .await
-                .ok_or(ImageOmissionReason::FetchFailed)
-                .and_then(cloudflare_image)
+            let image = self.image_fetcher.fetch(&url).await?;
+            cloudflare_image(image).map_err(ImageOmission::from)
         })
         .await;
         let (images, omission_reason, duration) = prepare_request_images(&request, &image_results);
@@ -415,8 +413,34 @@ fn request_limits(model: CloudflareModel) -> ClassificationRequestLimits {
 #[derive(Debug, Clone, Default)]
 struct ImagePreparation {
     image: Option<PreparedCloudflareImage>,
-    omission_reason: Option<ImageOmissionReason>,
+    omission: Option<ImageOmission>,
     duration: Duration,
+}
+
+/// Why an image is left out. A failed fetch keeps the fetcher's error, so the omission log can
+/// name its bounded cause.
+#[derive(Debug, Clone)]
+struct ImageOmission {
+    reason: ImageOmissionReason,
+    fetch_error: Option<Arc<ImageFetchError>>,
+}
+
+impl From<ImageOmissionReason> for ImageOmission {
+    fn from(reason: ImageOmissionReason) -> Self {
+        Self {
+            reason,
+            fetch_error: None,
+        }
+    }
+}
+
+impl From<ImageFetchError> for ImageOmission {
+    fn from(error: ImageFetchError) -> Self {
+        Self {
+            reason: ImageOmissionReason::FetchFailed,
+            fetch_error: Some(Arc::new(error)),
+        }
+    }
 }
 
 fn unique_image_urls(
@@ -440,56 +464,80 @@ fn prepare_request_images(
     Duration,
 ) {
     let mut images = Vec::new();
-    let mut omission = None;
+    let mut first_omission_reason = None;
     let mut duration = Duration::ZERO;
     let mut total_bytes = 0;
     let mut seen_urls = BTreeSet::new();
     for (index, url) in request.image_urls.iter().enumerate() {
         if !seen_urls.insert(url.as_str()) {
-            log_image_omission(request.correlation_id.as_deref(), index, "duplicate_url");
+            log_image_omission(
+                request.correlation_id.as_deref(),
+                index,
+                "duplicate_url",
+                None,
+            );
             continue;
         }
         let Some(prepared) = results.get(url.as_str()) else {
-            omission.get_or_insert(ImageOmissionReason::FetchFailed);
+            first_omission_reason.get_or_insert(ImageOmissionReason::FetchFailed);
             log_image_omission(
                 request.correlation_id.as_deref(),
                 index,
                 ImageOmissionReason::FetchFailed.as_str(),
+                None,
             );
             continue;
         };
         duration = duration.saturating_add(prepared.duration);
         if let Some(image) = &prepared.image {
             if images.contains(image) {
-                log_image_omission(request.correlation_id.as_deref(), index, "duplicate_image");
+                log_image_omission(
+                    request.correlation_id.as_deref(),
+                    index,
+                    "duplicate_image",
+                    None,
+                );
                 continue;
             }
             let bytes = image.decoded_bytes();
             if total_bytes + bytes > MAX_TOTAL_IMAGE_BYTES {
-                omission.get_or_insert(ImageOmissionReason::AggregateLimit);
+                first_omission_reason.get_or_insert(ImageOmissionReason::AggregateLimit);
                 log_image_omission(
                     request.correlation_id.as_deref(),
                     index,
                     ImageOmissionReason::AggregateLimit.as_str(),
+                    None,
                 );
                 continue;
             }
             total_bytes += bytes;
             images.push(image.clone());
-        } else if let Some(reason) = prepared.omission_reason {
-            omission.get_or_insert(reason);
-            log_image_omission(request.correlation_id.as_deref(), index, reason.as_str());
+        } else if let Some(omission) = &prepared.omission {
+            first_omission_reason.get_or_insert(omission.reason);
+            log_image_omission(
+                request.correlation_id.as_deref(),
+                index,
+                omission.reason.as_str(),
+                omission.fetch_error.as_deref(),
+            );
         }
     }
-    (images, omission, duration)
+    (images, first_omission_reason, duration)
 }
 
-fn log_image_omission(correlation_id: Option<&str>, index: usize, reason: &'static str) {
+fn log_image_omission(
+    correlation_id: Option<&str>,
+    index: usize,
+    reason: &'static str,
+    fetch_error: Option<&ImageFetchError>,
+) {
     tracing::info!(
         eventType = "CLASSIFIER_IMAGE_OMITTED",
         correlationId = correlation_id,
         requestedImageIndex = index,
         imageOmissionReason = reason,
+        imageFetchFailure = fetch_error.map(ImageFetchError::category),
+        imageFetchHttpStatus = fetch_error.and_then(ImageFetchError::http_status),
         "Classifier image omitted."
     );
 }
@@ -501,7 +549,7 @@ async fn fetch_unique_images<F, Fut>(
 ) -> BTreeMap<String, ImagePreparation>
 where
     F: Fn(Url) -> Fut + Sync,
-    Fut: Future<Output = Result<PreparedCloudflareImage, ImageOmissionReason>> + Send,
+    Fut: Future<Output = Result<PreparedCloudflareImage, ImageOmission>> + Send,
 {
     futures::stream::iter(urls)
         .map(|url| {
@@ -510,7 +558,7 @@ where
                 let started = Instant::now();
                 let result = match Url::parse(&url) {
                     Ok(url) => fetch(url).await,
-                    Err(_) => Err(ImageOmissionReason::FetchFailed),
+                    Err(_) => Err(ImageOmissionReason::FetchFailed.into()),
                 };
                 let mut preparation = ImagePreparation {
                     duration: started.elapsed(),
@@ -518,7 +566,7 @@ where
                 };
                 match result {
                     Ok(image) => preparation.image = Some(image),
-                    Err(reason) => preparation.omission_reason = Some(reason),
+                    Err(omission) => preparation.omission = Some(omission),
                 }
                 (url, preparation)
             }
@@ -1586,7 +1634,10 @@ mod tests {
                                 base64_data: "valid-test-image".to_owned(),
                             })
                         } else {
-                            Err(ImageOmissionReason::FetchFailed)
+                            Err(ImageFetchError::UnsuccessfulStatus {
+                                status: StatusCode::FORBIDDEN,
+                            }
+                            .into())
                         }
                     }
                 }
@@ -1595,9 +1646,15 @@ mod tests {
         .await;
         assert_eq!(2, fetch_count.load(std::sync::atomic::Ordering::SeqCst));
         assert!(images[successful_url.as_str()].image.is_some());
+        let failed = images[failed_url.as_str()]
+            .omission
+            .as_ref()
+            .expect("failed fetch is omitted");
+        assert_eq!(ImageOmissionReason::FetchFailed, failed.reason);
+        let fetch_error = failed.fetch_error.as_deref().expect("fetch error is kept");
         assert_eq!(
-            Some(ImageOmissionReason::FetchFailed),
-            images[failed_url.as_str()].omission_reason
+            ("unsuccessful_status", Some(403)),
+            (fetch_error.category(), fetch_error.http_status())
         );
     }
 
@@ -1787,7 +1844,7 @@ mod tests {
             ..Default::default()
         };
         let failed = ImagePreparation {
-            omission_reason: Some(ImageOmissionReason::FetchFailed),
+            omission: Some(ImageOmissionReason::FetchFailed.into()),
             ..Default::default()
         };
         let request = request(vec![
