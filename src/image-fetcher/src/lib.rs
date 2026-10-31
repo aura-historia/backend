@@ -21,6 +21,8 @@ pub struct ImageFetcher {
     max_response_bytes: usize,
     #[cfg(test)]
     unsafe_host_allowlist: Vec<String>,
+    #[cfg(test)]
+    dns_answers: std::collections::HashMap<String, Vec<SocketAddr>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +48,8 @@ impl ImageFetcher {
             max_response_bytes: IMAGE_FETCH_MAX_BYTES,
             #[cfg(test)]
             unsafe_host_allowlist: Vec::new(),
+            #[cfg(test)]
+            dns_answers: std::collections::HashMap::new(),
         }
     }
 
@@ -129,6 +133,10 @@ impl ImageFetcher {
     }
 
     async fn lookup_addresses(&self, host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
+        #[cfg(test)]
+        if let Some(addresses) = self.dns_answers.get(host) {
+            return Ok(addresses.clone());
+        }
         Ok(tokio::net::lookup_host((host, port)).await?.collect())
     }
 
@@ -155,7 +163,16 @@ impl ImageFetcher {
             request_timeout,
             max_response_bytes,
             unsafe_host_allowlist: vec![unsafe_host.into()],
+            dns_answers: std::collections::HashMap::new(),
         }
+    }
+
+    /// Answers lookups of `host` with `addresses` instead of the system resolver, so tests can
+    /// serve a named host from chosen loopback peers.
+    #[cfg(test)]
+    fn with_dns_answers(mut self, host: impl Into<String>, addresses: Vec<SocketAddr>) -> Self {
+        self.dns_answers.insert(host.into(), addresses);
+        self
     }
 }
 
@@ -189,7 +206,10 @@ fn build_image_fetch_client(
     addresses: &[SocketAddr],
     request_timeout: Duration,
 ) -> Result<reqwest::Client, reqwest::Error> {
-    let mut builder = reqwest::Client::builder()
+    // Reqwest keeps one override per host, and a later one replaces an earlier one. Pinning the
+    // whole validated answer set in one call lets the connector fall back from an unreachable peer,
+    // such as IPv6 in an IPv4-only network, to a reachable one.
+    reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(request_timeout)
         .connect_timeout(request_timeout)
@@ -197,11 +217,9 @@ fn build_image_fetch_client(
         .no_gzip()
         .no_brotli()
         .no_deflate()
-        .no_zstd();
-    for address in addresses {
-        builder = builder.resolve(host, *address);
-    }
-    builder.build()
+        .no_zstd()
+        .resolve_to_addrs(host, addresses)
+        .build()
 }
 
 fn redirect_target(
@@ -329,7 +347,11 @@ impl ImageFetchError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{io, net::IpAddr, sync::Arc};
+    use std::{
+        io,
+        net::{IpAddr, Ipv4Addr, Ipv6Addr},
+        sync::Arc,
+    };
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
@@ -509,6 +531,31 @@ mod tests {
             Err(ImageFetchError::Request(error)) if error.is_timeout()
         ));
         assert_eq!(server.finish().await?, vec!["/".to_owned()]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fetch_from_a_reachable_pinned_peer_when_another_approved_peer_is_unreachable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        const DUAL_STACK_HOST: &str = "dual-stack.image.test";
+        let png = b"\x89PNG\r\n\x1a\n";
+        let server =
+            spawn_mock_image_server(vec![image_response(png), image_response(png)]).await?;
+        let port = server.url.port().ok_or("mock server URL has no port")?;
+        let reachable = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+        // The server listens on IPv4 only, like an IPv4-only network reaching a dual-stack host.
+        let unreachable = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
+        let url = Url::parse(&format!("http://{DUAL_STACK_HOST}:{port}/"))?;
+
+        for peers in [vec![reachable, unreachable], vec![unreachable, reachable]] {
+            let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, DUAL_STACK_HOST)
+                .with_dns_answers(DUAL_STACK_HOST, peers);
+
+            let image = fetcher.fetch_once(&url).await?;
+
+            assert_eq!(image.base64_data, BASE64.encode(png));
+        }
+        assert_eq!(server.finish().await?, vec!["/".to_owned(), "/".to_owned()]);
         Ok(())
     }
 
