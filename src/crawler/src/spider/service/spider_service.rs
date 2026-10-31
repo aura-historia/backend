@@ -207,7 +207,11 @@ impl SpiderServiceImpl {
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
-        record_product_pages(&state.page_buffer, &state.pattern, &mut state.product_pages);
+        record_pattern_matches(
+            &state.page_buffer,
+            &state.pattern,
+            &mut state.pattern_matched_pages,
+        );
         self.persist_url_metadata_batch(
             listing_source_id,
             domain_id,
@@ -255,7 +259,7 @@ impl SpiderServiceImpl {
             "URL pattern review was decided during the crawl, classifying its stored URLs with the decision"
         );
         for pages in stored_pages.chunks(self.config.db_batch_size.max(1)) {
-            record_product_pages(pages, &state.pattern, &mut state.product_pages);
+            record_pattern_matches(pages, &state.pattern, &mut state.pattern_matched_pages);
             self.persist_url_metadata_batch(listing_source_id, domain_id, pages, &state.pattern)
                 .await?;
         }
@@ -433,8 +437,8 @@ impl SpiderServiceImpl {
         // Pages still buffered count too: a crawl smaller than one batch has
         // flushed nothing yet.
         if state.pattern_loaded_from_store
-            && state.products_found() == 0
-            && !has_product_page(&state.page_buffer, &state.pattern)
+            && !state.pattern_matched_any()
+            && !has_pattern_match(&state.page_buffer, &state.pattern)
             && !state.inference_sample.is_empty()
         {
             warn!("Persisted product URL pattern did not match crawl results, reclassifying");
@@ -672,17 +676,17 @@ impl SpiderService for SpiderServiceImpl {
     }
 }
 
-/// Adds the product pages among `pages` to `product_pages` by their page spelling, so a page a
-/// shop links with and without its trailing slash, in one batch or two, counts once.
-fn record_product_pages(
+/// Adds the pages among `pages` the product pattern matches to `matched` by their page spelling,
+/// so a page a shop links with and without its trailing slash, in one batch or two, counts once.
+fn record_pattern_matches(
     pages: &[CrawledPage],
     pattern: &ProductListingPattern,
-    product_pages: &mut HashSet<Url>,
+    matched: &mut HashSet<Url>,
 ) {
     let Some(regex) = pattern.as_regex() else {
         return;
     };
-    product_pages.extend(
+    matched.extend(
         pages
             .iter()
             .filter(|page| page.url.matches_pattern(regex))
@@ -690,7 +694,7 @@ fn record_product_pages(
     );
 }
 
-fn has_product_page(pages: &[CrawledPage], pattern: &ProductListingPattern) -> bool {
+fn has_pattern_match(pages: &[CrawledPage], pattern: &ProductListingPattern) -> bool {
     pattern
         .as_regex()
         .is_some_and(|regex| pages.iter().any(|page| page.url.matches_pattern(regex)))
@@ -2173,7 +2177,7 @@ fn no_product_urls_error(
     state: &CrawlRunState,
     completion: CrawlCompletion,
 ) -> Option<SpiderServiceError> {
-    if state.products_found() > 0 {
+    if state.pattern_matched_any() {
         return None;
     }
     Some(match state.pattern.as_regex() {

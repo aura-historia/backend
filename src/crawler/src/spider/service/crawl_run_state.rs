@@ -9,9 +9,9 @@ use crate::spider::utils::url::CrawledUrl;
 
 pub struct CrawlRunState {
     pub total_crawled: usize,
-    /// The [page spelling](CrawledUrl::page_spelling) of each product page the crawl stored, so
-    /// a page the shop links with and without its trailing slash counts once.
-    pub product_pages: HashSet<url::Url>,
+    /// The [page spelling](CrawledUrl::page_spelling) of each crawled page the product pattern
+    /// matched, so a page the shop links with and without its trailing slash counts once.
+    pub pattern_matched_pages: HashSet<url::Url>,
     pub pattern: ProductListingPattern,
     pub classification_done: bool,
     pub pattern_loaded_from_store: bool,
@@ -41,7 +41,7 @@ impl CrawlRunState {
 
         Self {
             total_crawled: 0,
-            product_pages: HashSet::new(),
+            pattern_matched_pages: HashSet::new(),
             pattern,
             classification_done,
             pattern_loaded_from_store,
@@ -53,7 +53,13 @@ impl CrawlRunState {
 
     /// How many product pages the crawl stored.
     pub fn products_found(&self) -> usize {
-        self.product_pages.len()
+        self.pattern_matched_pages.len()
+    }
+
+    /// Whether the product pattern matched any page the crawl stored: what decides whether a
+    /// stored pattern still fits the shop and whether the crawl found product URLs at all.
+    pub fn pattern_matched_any(&self) -> bool {
+        !self.pattern_matched_pages.is_empty()
     }
 
     /// The pending URL-pattern review the crawl waits on.
