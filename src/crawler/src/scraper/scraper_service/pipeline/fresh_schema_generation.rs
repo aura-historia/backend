@@ -98,14 +98,8 @@ impl ScraperServiceImpl {
                 .await);
         }
 
-        let (generated_schema, reapplied, evaluation) = self
-            .generate_single_schema_for_page(
-                ctx.listing_source_id,
-                ctx.url,
-                ctx.html,
-                ctx.expected_last_captured_raw_input_sha256,
-            )
-            .await?;
+        let (generated_schema, reapplied, evaluation) =
+            self.generate_single_schema_for_page(&ctx).await?;
 
         let findings = PlausibilityFindings::of(&reapplied);
         if findings.rejects_candidate() {

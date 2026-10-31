@@ -8,6 +8,7 @@ use crate::scraper::css_selector::removed_page_schema::{
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
+use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use time::OffsetDateTime;
@@ -30,18 +31,15 @@ impl ScraperServiceImpl {
     /// On success returns the generated schema, its raw extraction, and the
     /// LLM evaluation so the caller can persist them together.
     #[tracing::instrument(
-        skip(self, html, expected_last_captured_raw_input_sha256),
+        skip(self, ctx),
         fields(
-            listing_source_id = %listing_source_id,
-            url = %url,
+            listing_source_id = %ctx.listing_source_id,
+            url = %ctx.url,
         )
     )]
     pub(crate) async fn generate_single_schema_for_page(
         &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
-        html: &str,
-        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+        ctx: &FreshSchemaGenerationContext<'_>,
     ) -> Result<
         (
             ProductCssSelectorSchema,
@@ -50,6 +48,7 @@ impl ScraperServiceImpl {
         ),
         ScraperError,
     > {
+        let (listing_source_id, url, html) = (ctx.listing_source_id, ctx.url, ctx.html);
         self.consume_llm_budget_or_err(listing_source_id, url)
             .await?;
 
@@ -91,7 +90,7 @@ impl ScraperServiceImpl {
                 self.mark_url_other_best_effort(
                     listing_source_id,
                     url,
-                    expected_last_captured_raw_input_sha256,
+                    ctx.expected_last_captured_raw_input_sha256,
                 )
                 .await;
                 return Err(ScraperError::NotProductPage {
