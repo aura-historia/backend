@@ -63,6 +63,21 @@ impl ReviewPageIdentity {
         spellings.dedup();
         spellings
     }
+
+    /// The stored URL `stored_url` first, then the other [spellings](Self::spellings) of its
+    /// page: what a review page and a crawler URL naming one page may each be stored under. A
+    /// value that is not a URL is only itself.
+    pub(super) fn stored_spellings(stored_url: &str) -> Vec<String> {
+        let mut spellings = vec![stored_url.to_owned()];
+        if let Ok(url) = Url::parse(stored_url) {
+            spellings.extend(
+                Self::spellings(&url)
+                    .into_iter()
+                    .filter(|spelling| spelling != stored_url),
+            );
+        }
+        spellings
+    }
 }
 
 pub(super) fn without_credentials(url: &Url) -> Url {
@@ -140,6 +155,59 @@ mod tests {
                 "{page}"
             );
         }
+    }
+
+    /// The rejected-page lookup and its revocation match a crawler URL and a review page with the
+    /// same notion of one page as the console: trailing slash, `http`/`https` and `www.`.
+    #[test]
+    fn should_spell_a_stored_url_as_every_spelling_of_its_page() {
+        for (stored, same_page) in [
+            (
+                "https://example.com/products/1",
+                [
+                    "https://example.com/products/1/",
+                    "http://example.com/products/1",
+                    "https://www.example.com/products/1",
+                    "http://www.example.com/products/1/",
+                ],
+            ),
+            (
+                "http://www.example.com/products/1/?q=1",
+                [
+                    "https://example.com/products/1?q=1",
+                    "https://example.com/products/1/?q=1",
+                    "http://example.com/products/1?q=1",
+                    "https://www.example.com/products/1/?q=1",
+                ],
+            ),
+        ] {
+            let spellings = ReviewPageIdentity::stored_spellings(stored);
+
+            assert_eq!(spellings.first().map(String::as_str), Some(stored));
+            for spelling in same_page {
+                assert!(
+                    spellings.iter().any(|s| s == spelling),
+                    "{stored}: {spelling}"
+                );
+            }
+            assert!(
+                !spellings.iter().any(|s| s.contains("/products/2")),
+                "{stored}: {spellings:?}"
+            );
+        }
+        assert_eq!(
+            ReviewPageIdentity::stored_spellings("https://example.com/"),
+            vec![
+                "https://example.com/",
+                "http://example.com/",
+                "http://www.example.com/",
+                "https://www.example.com/",
+            ]
+        );
+        assert_eq!(
+            ReviewPageIdentity::stored_spellings("not a url"),
+            vec!["not a url"]
+        );
     }
 
     #[test]

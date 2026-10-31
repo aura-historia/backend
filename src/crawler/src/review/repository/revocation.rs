@@ -5,9 +5,10 @@
 //! trail.
 
 use super::review_events::{DomainUrlPattern, ReviewMutation, commit_with_event};
+use super::reviewer_page_url::ReviewPageIdentity;
 use super::{
     CrawlerReviewRepository, ROLES_NO_REJECTION_JUDGES, ReviewRepositoryError,
-    listing_source_id_from_uuid, page_url_spellings,
+    listing_source_id_from_uuid,
 };
 use crate::CrawlerReviewId;
 use crate::review::model::{
@@ -101,8 +102,8 @@ async fn lock_revocable_rejection(
     )?)
 }
 
-/// Classifies the crawler URLs of the review's seed and triggering pages, in either trailing-slash
-/// spelling, again by their domain's live URL-pattern decision with `url_classifier` and clears
+/// Classifies the crawler URLs of the review's seed and triggering pages, in every spelling the
+/// rejected-page lookup matches, again by their domain's live URL-pattern decision with `url_classifier` and clears
 /// their retry delay. The rejection classified them `other` whether they were active or sold, so
 /// both are classified again. The decision is read under a share lock until the revocation
 /// commits, so an approval or restore of the domain's URL pattern that commits meanwhile
@@ -123,7 +124,7 @@ async fn classify_rejected_pages_again(
     .await?;
     let spellings: Vec<String> = page_urls
         .iter()
-        .flat_map(|url| page_url_spellings(url))
+        .flat_map(|url| ReviewPageIdentity::stored_spellings(url))
         .collect();
     let stored = sqlx::query(
         "SELECT u.url, u.url_class, d.url_pattern, d.url_pattern_state \

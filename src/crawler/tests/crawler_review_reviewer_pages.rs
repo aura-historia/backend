@@ -335,10 +335,12 @@ async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_
 }
 
 /// The spider moves a crawler URL stored without its trailing slash to the slashed spelling it
-/// fetches, while a review page keeps the spelling it was recorded under: a rejection holds for
-/// its seed and triggering pages in either spelling, and still for no other page.
+/// fetches, and a shop may move between `http` and `https` or the `www.` and bare host, while a
+/// review page keeps the spelling it was recorded under: a rejection holds for its seed and
+/// triggering pages in every spelling the console treats as the same page, and still for no other
+/// page.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_treat_rejected_page_as_rejected_in_either_trailing_slash_spelling() {
+async fn should_treat_rejected_page_as_rejected_in_every_spelling_of_the_page() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     // The seed page is recorded as https://www.example.com/products/1.
@@ -390,9 +392,13 @@ async fn should_treat_rejected_page_as_rejected_in_either_trailing_slash_spellin
         ("https://www.example.com/products/1/", true),
         ("https://www.example.com/products/2/", true),
         ("https://www.example.com/products/2", true),
+        ("https://example.com/products/1", true),
+        ("http://www.example.com/products/1/", true),
+        ("http://example.com/products/2", true),
         ("https://www.example.com/products/10/", false),
         ("https://www.example.com/products/sold", false),
         ("https://www.example.com/products/sold/", false),
+        ("http://example.com/products/sold", false),
     ] {
         assert_eq!(
             repository
