@@ -87,14 +87,16 @@ impl ScraperServiceImpl {
                         details: "not-product classification requires HIGH confidence".to_string(),
                     });
                 }
+                // The requested row, not a redirect target's, so the requested URL is not
+                // fetched again every pass (as for a rejected page, `skip_rejected_page`).
                 self.mark_url_other_best_effort(
                     listing_source_id,
-                    url,
+                    ctx.requested_url,
                     ctx.expected_last_captured_raw_input_sha256,
                 )
                 .await;
                 return Err(ScraperError::NotProductPage {
-                    url: url.clone(),
+                    url: ctx.requested_url.clone(),
                     details: reason,
                 });
             }
