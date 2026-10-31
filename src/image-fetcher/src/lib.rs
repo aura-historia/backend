@@ -115,20 +115,21 @@ impl ImageFetcher {
     ) -> Result<(String, Vec<SocketAddr>), ImageFetchError> {
         let (host, port) = image_url_target(url)?;
         let host = host.to_owned();
-        let addresses = tokio::time::timeout(
-            self.request_timeout,
-            tokio::net::lookup_host((host.as_str(), port)),
-        )
-        .await
-        .map_err(|_| ImageFetchError::Timeout)?
-        .map_err(ImageFetchError::Resolution)?
-        .collect::<Vec<_>>();
+        let addresses =
+            tokio::time::timeout(self.request_timeout, self.lookup_addresses(&host, port))
+                .await
+                .map_err(|_| ImageFetchError::Timeout)?
+                .map_err(ImageFetchError::Resolution)?;
 
         if !self.resolved_addresses_are_safe(&host, &addresses) {
             return Err(ImageFetchError::UnsafeTarget);
         }
 
         Ok((host, addresses))
+    }
+
+    async fn lookup_addresses(&self, host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
+        Ok(tokio::net::lookup_host((host, port)).await?.collect())
     }
 
     #[cfg(not(test))]
