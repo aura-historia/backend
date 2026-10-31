@@ -6,7 +6,7 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use futures::StreamExt;
 use image::{ImageDecoder, ImageFormat, ImageReader, Limits};
-use image_fetcher::{FetchedImage, ImageFetchError, ImageFetcher};
+use image_fetcher::{FetchedImage, ImageFetchDiagnostics, ImageFetchError, ImageFetcher};
 use reqwest::{StatusCode, header::RETRY_AFTER};
 use serde::Serialize;
 use serde_json::Value;
@@ -16,7 +16,6 @@ use std::{
     io::Cursor,
     num::NonZeroUsize,
     str::FromStr,
-    sync::Arc,
     time::{Duration, Instant},
 };
 use url::Url;
@@ -417,19 +416,19 @@ struct ImagePreparation {
     duration: Duration,
 }
 
-/// Why an image is left out. A failed fetch keeps the fetcher's error, so the omission log can
-/// name its bounded cause.
-#[derive(Debug, Clone)]
+/// Why an image is left out. A failed fetch keeps the fetcher's diagnostics, so the omission log
+/// can name its bounded cause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ImageOmission {
     reason: ImageOmissionReason,
-    fetch_error: Option<Arc<ImageFetchError>>,
+    fetch_failure: Option<ImageFetchDiagnostics>,
 }
 
 impl From<ImageOmissionReason> for ImageOmission {
     fn from(reason: ImageOmissionReason) -> Self {
         Self {
             reason,
-            fetch_error: None,
+            fetch_failure: None,
         }
     }
 }
@@ -438,7 +437,7 @@ impl From<ImageFetchError> for ImageOmission {
     fn from(error: ImageFetchError) -> Self {
         Self {
             reason: ImageOmissionReason::FetchFailed,
-            fetch_error: Some(Arc::new(error)),
+            fetch_failure: Some(error.diagnostics()),
         }
     }
 }
@@ -512,13 +511,13 @@ fn prepare_request_images(
             }
             total_bytes += bytes;
             images.push(image.clone());
-        } else if let Some(omission) = &prepared.omission {
+        } else if let Some(omission) = prepared.omission {
             first_omission_reason.get_or_insert(omission.reason);
             log_image_omission(
                 request.correlation_id.as_deref(),
                 index,
                 omission.reason.as_str(),
-                omission.fetch_error.as_deref(),
+                omission.fetch_failure,
             );
         }
     }
@@ -529,15 +528,16 @@ fn log_image_omission(
     correlation_id: Option<&str>,
     index: usize,
     reason: &'static str,
-    fetch_error: Option<&ImageFetchError>,
+    fetch_failure: Option<ImageFetchDiagnostics>,
 ) {
     tracing::info!(
         eventType = "CLASSIFIER_IMAGE_OMITTED",
         correlationId = correlation_id,
         requestedImageIndex = index,
         imageOmissionReason = reason,
-        imageFetchFailure = fetch_error.map(ImageFetchError::category),
-        imageFetchHttpStatus = fetch_error.and_then(ImageFetchError::http_status),
+        imageFetchFailure = fetch_failure.map(|failure| failure.category),
+        imageFetchHttpStatus = fetch_failure.and_then(|failure| failure.http_status),
+        imageFetchAttempts = fetch_failure.map(|failure| failure.attempts),
         "Classifier image omitted."
     );
 }
@@ -1618,6 +1618,14 @@ mod tests {
         ];
         let unique_urls = unique_image_urls(&requests, CloudflareModel::ClefFlash);
         assert_eq!(unique_urls.len(), 2);
+        let failed_fetch = ImageOmission {
+            reason: ImageOmissionReason::FetchFailed,
+            fetch_failure: Some(ImageFetchDiagnostics {
+                category: "unsuccessful_status",
+                http_status: Some(403),
+                attempts: 5,
+            }),
+        };
         let fetch_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let images = fetch_unique_images(
             unique_urls,
@@ -1634,10 +1642,7 @@ mod tests {
                                 base64_data: "valid-test-image".to_owned(),
                             })
                         } else {
-                            Err(ImageFetchError::UnsuccessfulStatus {
-                                status: StatusCode::FORBIDDEN,
-                            }
-                            .into())
+                            Err(failed_fetch)
                         }
                     }
                 }
@@ -1646,16 +1651,7 @@ mod tests {
         .await;
         assert_eq!(2, fetch_count.load(std::sync::atomic::Ordering::SeqCst));
         assert!(images[successful_url.as_str()].image.is_some());
-        let failed = images[failed_url.as_str()]
-            .omission
-            .as_ref()
-            .expect("failed fetch is omitted");
-        assert_eq!(ImageOmissionReason::FetchFailed, failed.reason);
-        let fetch_error = failed.fetch_error.as_deref().expect("fetch error is kept");
-        assert_eq!(
-            ("unsuccessful_status", Some(403)),
-            (fetch_error.category(), fetch_error.http_status())
-        );
+        assert_eq!(Some(failed_fetch), images[failed_url.as_str()].omission);
     }
 
     #[test]

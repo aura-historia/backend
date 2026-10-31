@@ -524,9 +524,7 @@ async fn fetch_image(
     image_fetcher
         .fetch(url)
         .await
-        .inspect_err(|error| {
-            log_llm_image_omission(operation, error.category(), error.http_status());
-        })
+        .inspect_err(|error| log_llm_image_omission(operation, error.diagnostics()))
         .ok()
 }
 

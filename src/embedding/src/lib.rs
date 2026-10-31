@@ -322,11 +322,13 @@ impl VertexAiEmbeddingGenerator {
             .fetch(image_url.as_url())
             .await
             .inspect_err(|error| {
+                let fetch_failure = error.diagnostics();
                 tracing::info!(
                     eventType = "EMBEDDING_IMAGE_OMITTED",
                     imageOmissionReason = "fetch_failed",
-                    imageFetchFailure = error.category(),
-                    imageFetchHttpStatus = error.http_status(),
+                    imageFetchFailure = fetch_failure.category,
+                    imageFetchHttpStatus = fetch_failure.http_status,
+                    imageFetchAttempts = fetch_failure.attempts,
                     "Embedding image omitted."
                 );
             })
