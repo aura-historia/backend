@@ -829,7 +829,11 @@ enum LocalRejection {
 }
 
 /// Local admission of the pages Spider delivers: the configured host only,
-/// nothing the URL blacklist or the link decoder refused, each URL once.
+/// nothing the URL blacklist or the link decoder refused, each page once. The
+/// two trailing-slash spellings of a page are one page, except that the slashed
+/// spelling is still admitted after the unslashed one, because storage keeps a
+/// page under its slashed spelling and moves its row there
+/// (`docs/crawler/networking.md#stored-urls`).
 struct LocalFilter {
     configured_root: Url,
     /// An unrelated root redirect makes every delivered page off-host.
@@ -853,12 +857,26 @@ impl LocalFilter {
         if normalized.is_blacklisted() {
             return Err(LocalRejection::Blacklist);
         }
-        let key = normalized.to_string();
-        if self.seen.check(&key) {
+        if self.seen.check(&admission_key(&normalized)) {
             return Err(LocalRejection::Duplicate);
         }
-        self.seen.set(&key);
+        let page = normalized.page_spelling().to_string();
+        self.seen.set(&page);
+        if normalized.as_url().as_str() != page {
+            self.seen.set(&normalized.to_string());
+        }
         Ok(normalized)
+    }
+}
+
+/// What a page must not have been seen under to be admitted: an unslashed URL
+/// its page in either spelling, a slashed URL that same slashed spelling.
+fn admission_key(url: &CrawledUrl) -> String {
+    let page = url.page_spelling();
+    if url.as_url() == &page {
+        page.to_string()
+    } else {
+        url.to_string()
     }
 }
 
@@ -2525,6 +2543,50 @@ mod tests {
             assert_eq!(diagnostics.robots_policy, Some("unavailable_allow_all"));
             site.finish().await;
         }
+    }
+
+    fn local_filter() -> LocalFilter {
+        LocalFilter {
+            configured_root: Url::parse("https://example.com/").unwrap(),
+            root_redirect_rejected: false,
+            refused_links: RefusedLinks::default(),
+            seen: Bloom::new_for_fp_rate(1_000, 0.0001).unwrap(),
+        }
+    }
+
+    /// Storage keeps a page linked in both trailing-slash spellings under the slashed one: the
+    /// slashed spelling is admitted after the unslashed one so its row moves there, and an
+    /// unslashed spelling after the slashed one is a duplicate of the stored page.
+    #[rstest::rstest]
+    #[case::unslashed_then_slashed(
+        &["https://example.com/p/1", "https://example.com/p/1/", "https://example.com/p/1"],
+        &[true, true, false]
+    )]
+    #[case::slashed_then_unslashed(
+        &["https://example.com/p/1/", "https://example.com/p/1", "https://example.com/p/1/"],
+        &[true, false, false]
+    )]
+    #[case::query_keeps_its_page(
+        &["https://example.com/p/1/?q=1", "https://example.com/p/1?q=1", "https://example.com/p/1/"],
+        &[true, false, true]
+    )]
+    #[case::root(&["https://example.com/", "https://example.com"], &[true, false])]
+    fn should_admit_each_page_once_and_its_slashed_spelling_after_the_unslashed_one(
+        #[case] delivered: &[&str],
+        #[case] admitted: &[bool],
+    ) {
+        let mut filter = local_filter();
+
+        let results: Vec<bool> = delivered
+            .iter()
+            .map(|url| match filter.admit(url) {
+                Ok(_) => true,
+                Err(LocalRejection::Duplicate) => false,
+                Err(other) => panic!("{url}: {other:?}"),
+            })
+            .collect();
+
+        assert_eq!(results, admitted, "{delivered:?}");
     }
 
     #[test]
