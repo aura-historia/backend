@@ -330,7 +330,7 @@ All metrics use the namespace `AuraHistoria/Crawler`. Dimension values are Listi
 | `UrlFailures` | Count | `listing_source_id`, `domain`, `failure_kind` | Per scraper domain batch and failure kind: the URL failures that recorded that `last_error_kind`, such as `HTTP_503` or `Timeout`. |
 | `ProductsCaptured` | Count | `listing_source_id`, `domain` | Per raw-capture batch: observations raw capture persisted durably; 0 when every capture of the domain failed. |
 | `CrawlOutcome` | Count | `listing_source_id`, `domain`, `crawl_outcome` | 1 per spider crawl that [recorded](scheduling-and-retries.md#spider-crawl-completion) a `last_crawl_outcome`, with that outcome. A URL-pattern decision that clears a domain's `AWAITING_URL_PATTERN_REVIEW` is no crawl and emits none. |
-| `CrawlProductUrls`, `CrawlTruncated` | Count | `listing_source_id`, `domain` | Per spider crawl that classified its URLs with a product pattern, including a pattern that matched nothing: the product pages found, a page linked with and without its trailing slash counting once, and 1 when the crawl was cut short, else 0. |
+| `CrawlProductUrls`, `CrawlTruncated` | Count | `listing_source_id`, `domain` | Per spider crawl that classified its URLs with a product pattern, including a pattern that matched nothing: the product URLs the crawl stored, each page once whether the shop links it with or without its trailing slash, and without the pages the pattern matches that are stored `other` because an operator [rejected](#manual-authoring) them, and 1 when the crawl was cut short, else 0. |
 | `ScraperDueUrls` | Count | none | URLs due for scraping when a scraper pass starts. |
 | `ScraperPassDuration`, `SpiderPassDuration` | Milliseconds | none | Per scheduler pass, including a pass that finds no work. |
 
@@ -339,7 +339,7 @@ Create these alarms from the metrics; each is an operator requirement, not a dep
 | Alarm | Metric and statistic | Period and threshold | Missing data |
 |---|---|---|---|
 | A ListingSource domain made no successful scrape in 24 hours and waits on no review | `ScrapedOrAwaitingReview` Maximum per `listing_source_id`, `domain` | 1 day, `<= 0` | Breaching: a domain that is never scraped and waits on no review records nothing. |
-| A product pattern matched no URL | `CrawlProductUrls` Maximum per `listing_source_id`, `domain` | 1 hour, `<= 0` | Ignore: the alarm holds until the next crawl records a count. |
+| A product pattern matched no URL, or only pages an operator rejected | `CrawlProductUrls` Maximum per `listing_source_id`, `domain` | 1 hour, `<= 0` | Ignore: the alarm holds until the next crawl records a count. |
 | A scraper pass took more than 15 minutes, or none finished | `ScraperPassDuration` Maximum | 15 minutes, `> 900000` | Breaching: every pass records a duration, so silence means a stall. |
 | The LLM governor made a call wait more than 60 seconds | Not recorded yet | 1 minute, `> 60000` | Not breaching |
 

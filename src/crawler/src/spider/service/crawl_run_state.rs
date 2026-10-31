@@ -12,6 +12,9 @@ pub struct CrawlRunState {
     /// The [page spelling](CrawledUrl::page_spelling) of each crawled page the product pattern
     /// matched, so a page the shop links with and without its trailing slash counts once.
     pub pattern_matched_pages: HashSet<url::Url>,
+    /// The page spelling of each page the crawl stored as a product URL: a page the pattern
+    /// matches unless storage keeps it `other`, such as a page an operator rejected.
+    pub stored_product_pages: HashSet<url::Url>,
     pub pattern: ProductListingPattern,
     pub classification_done: bool,
     pub pattern_loaded_from_store: bool,
@@ -42,6 +45,7 @@ impl CrawlRunState {
         Self {
             total_crawled: 0,
             pattern_matched_pages: HashSet::new(),
+            stored_product_pages: HashSet::new(),
             pattern,
             classification_done,
             pattern_loaded_from_store,
@@ -51,9 +55,9 @@ impl CrawlRunState {
         }
     }
 
-    /// How many product pages the crawl stored.
+    /// How many product URLs the crawl stored, each page once.
     pub fn products_found(&self) -> usize {
-        self.pattern_matched_pages.len()
+        self.stored_product_pages.len()
     }
 
     /// Whether the product pattern matched any page the crawl stored: what decides whether a

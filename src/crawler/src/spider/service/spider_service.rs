@@ -6,7 +6,10 @@ use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
 use crate::spider::classification::url_classifier::UrlClassifier;
-use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
+use crate::spider::classification::url_metadata::UrlClass;
+use crate::spider::classification::url_metadata_repository::{
+    SpiderUrlRecord, UrlMetadataRepository,
+};
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
@@ -16,6 +19,7 @@ use crate::spider::discovery::website_spider::{
 };
 use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
+use crate::spider::utils::url::CrawledUrl;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
@@ -169,9 +173,9 @@ impl SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
         pages: &[CrawledPage],
         pattern: &ProductListingPattern,
-    ) -> Result<usize, SpiderServiceError> {
+    ) -> Result<Vec<SpiderUrlRecord>, SpiderServiceError> {
         if pages.is_empty() {
-            return Ok(0);
+            return Ok(Vec::new());
         }
 
         let mut urls = Vec::with_capacity(pages.len());
@@ -186,16 +190,10 @@ impl SpiderServiceImpl {
             );
         }
 
-        if !urls.is_empty() {
-            let records = self
-                .url_metadata_repository
-                .upsert_links_batch(listing_source_id, domain_id, &urls, &classes)
-                .await
-                .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))?;
-            Ok(records.len())
-        } else {
-            Ok(0)
-        }
+        self.url_metadata_repository
+            .upsert_links_batch(listing_source_id, domain_id, &urls, &classes)
+            .await
+            .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))
     }
 
     /// Stores the buffered pages under the crawl's pattern, counts its product URLs among them
@@ -212,13 +210,15 @@ impl SpiderServiceImpl {
             &state.pattern,
             &mut state.pattern_matched_pages,
         );
-        self.persist_url_metadata_batch(
-            listing_source_id,
-            domain_id,
-            &state.page_buffer,
-            &state.pattern,
-        )
-        .await?;
+        let stored = self
+            .persist_url_metadata_batch(
+                listing_source_id,
+                domain_id,
+                &state.page_buffer,
+                &state.pattern,
+            )
+            .await?;
+        record_stored_products(&stored, &mut state.stored_product_pages);
         match &mut state.url_pattern_review_wait {
             Some(wait) => wait.stored_pages.append(&mut state.page_buffer),
             None => state.page_buffer.clear(),
@@ -260,8 +260,10 @@ impl SpiderServiceImpl {
         );
         for pages in stored_pages.chunks(self.config.db_batch_size.max(1)) {
             record_pattern_matches(pages, &state.pattern, &mut state.pattern_matched_pages);
-            self.persist_url_metadata_batch(listing_source_id, domain_id, pages, &state.pattern)
+            let stored = self
+                .persist_url_metadata_batch(listing_source_id, domain_id, pages, &state.pattern)
                 .await?;
+            record_stored_products(&stored, &mut state.stored_product_pages);
         }
         Ok(())
     }
@@ -694,6 +696,17 @@ fn record_pattern_matches(
     );
 }
 
+/// Adds the rows storage keeps as product URLs to `products` by their page spelling. Storage decides
+/// the class, so a page the pattern matches but an operator rejected is no product URL.
+fn record_stored_products(stored: &[SpiderUrlRecord], products: &mut HashSet<Url>) {
+    products.extend(
+        stored
+            .iter()
+            .filter(|record| record.url_class == UrlClass::ProductListing)
+            .map(|record| CrawledUrl::new(record.url.clone()).page_spelling()),
+    );
+}
+
 fn has_pattern_match(pages: &[CrawledPage], pattern: &ProductListingPattern) -> bool {
     pattern
         .as_regex()
@@ -799,7 +812,7 @@ mod tests {
 mod service_tests {
     use super::*;
     use crate::spider::classification::url_classifier::UrlClassifier;
-    use crate::spider::classification::url_metadata::UrlClass;
+    use crate::spider::classification::url_metadata::CrawlerDisposition;
     use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
     use crate::spider::classification::url_pattern_service::{
         DecidedUrlPattern, MockUrlPatternService,
@@ -812,6 +825,30 @@ mod service_tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::{mpsc, oneshot};
 
+    /// The rows the URL repository answers a batch with when it stores each URL as it was given.
+    fn stored_as_given(
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        urls: &[Url],
+        classes: &[UrlClass],
+    ) -> Vec<SpiderUrlRecord> {
+        let now = time::OffsetDateTime::now_utc();
+        urls.iter()
+            .zip(classes)
+            .map(|(url, class)| SpiderUrlRecord {
+                listing_source_id: *listing_source_id,
+                domain_id: *domain_id,
+                url: url.clone(),
+                url_class: *class,
+                disposition: CrawlerDisposition::Active,
+                last_scraped_hash: None,
+                last_scraped: None,
+                created: now,
+                updated: now,
+            })
+            .collect()
+    }
+
     fn setup_mock_url_repo(
         mock: &mut MockUrlMetadataRepository,
         call_count: usize,
@@ -820,7 +857,10 @@ mod service_tests {
         mock.expect_upsert_links_batch()
             .times(call_count)
             .withf(move |_, domain_id, _, _| *domain_id == expected_domain_id)
-            .returning(|_, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
+            .returning(|listing_source_id, domain_id, urls, classes| {
+                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                Box::pin(async move { Ok(stored) })
+            });
     }
 
     fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, _crawl_root_url: &'static str) {
@@ -970,7 +1010,10 @@ mod service_tests {
             .expect_upsert_links_batch()
             .times(1)
             .withf(|_, _, urls, _| urls.len() == 25)
-            .returning(|_, _, _, _| Box::pin(async { Ok(Vec::new()) }));
+            .returning(|listing_source_id, domain_id, urls, classes| {
+                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                Box::pin(async move { Ok(stored) })
+            });
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -1042,7 +1085,10 @@ mod service_tests {
                         .iter()
                         .all(|class| *class != UrlClass::ProductListing)
             })
-            .returning(|_, _, _, _| Box::pin(async { Ok(Vec::new()) }));
+            .returning(|listing_source_id, domain_id, urls, classes| {
+                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                Box::pin(async move { Ok(stored) })
+            });
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -1098,7 +1144,10 @@ mod service_tests {
             .expect_upsert_links_batch()
             .times(1)
             .withf(|_, _, urls, _| urls.len() == 25)
-            .returning(|_, _, _, _| Box::pin(async { Ok(Vec::new()) }));
+            .returning(|listing_source_id, domain_id, urls, classes| {
+                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                Box::pin(async move { Ok(stored) })
+            });
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -1208,17 +1257,18 @@ mod service_tests {
             .returning(|_, _| Box::pin(async { Ok(()) }));
         let stored: StoredBatches = Arc::default();
         let recorded = Arc::clone(&stored);
-        mock_url_repo
-            .expect_upsert_links_batch()
-            .returning(move |_, _, urls, classes| {
+        mock_url_repo.expect_upsert_links_batch().returning(
+            move |listing_source_id, domain_id, urls, classes| {
                 recorded.lock().unwrap().push(
                     urls.iter()
                         .map(|url| url.path().to_owned())
                         .zip(classes.iter().copied())
                         .collect(),
                 );
-                Box::pin(async { Ok(Vec::new()) })
-            });
+                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                Box::pin(async move { Ok(stored) })
+            },
+        );
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig {
                 db_batch_size: 10,
@@ -1695,9 +1745,12 @@ mod service_tests {
             .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
-        mock_url_repo
-            .expect_upsert_links_batch()
-            .returning(|_, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
+        mock_url_repo.expect_upsert_links_batch().returning(
+            |listing_source_id, domain_id, urls, classes| {
+                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                Box::pin(async move { Ok(stored) })
+            },
+        );
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig {
@@ -1715,6 +1768,67 @@ mod service_tests {
             .unwrap();
         assert_eq!(run_result.total_links, 25);
         assert_eq!(run_result.product_urls_count, 20);
+    }
+
+    /// Crawls the 20 `/item/` pages under a stored `/item/` pattern while storage keeps the
+    /// first `kept_other` of them `other`, as it keeps a page an operator rejected.
+    async fn crawl_with_pages_kept_other(kept_other: usize) -> SpiderRunResult {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+        mock_pattern_service.expect_classify_and_save().times(0);
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        let kept: Vec<String> = item_pages().into_iter().take(kept_other).collect();
+        mock_url_repo.expect_upsert_links_batch().returning(
+            move |listing_source_id, domain_id, urls, classes| {
+                let mut stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                for record in &mut stored {
+                    if kept.iter().any(|path| path == record.url.path()) {
+                        record.url_class = UrlClass::Other;
+                    }
+                }
+                Box::pin(async move { Ok(stored) })
+            },
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .await
+            .unwrap()
+    }
+
+    /// The crawl reports the product URLs storage keeps, not every page the pattern matches.
+    #[tokio::test]
+    async fn should_count_only_the_product_urls_storage_keeps() {
+        let run_result = crawl_with_pages_kept_other(3).await;
+
+        assert_eq!(run_result.total_links, 20);
+        assert_eq!(run_result.product_urls_count, 17);
+        assert_eq!(run_result.completion, CrawlCompletion::Completed);
+    }
+
+    /// Whether the pattern still fits the shop is decided by what it matches, so a crawl whose
+    /// every match storage keeps `other` completes with the stored pattern instead of failing or
+    /// inferring a new one.
+    #[tokio::test]
+    async fn should_keep_the_stored_pattern_when_storage_keeps_every_match_other() {
+        let run_result = crawl_with_pages_kept_other(20).await;
+
+        assert_eq!(run_result.product_urls_count, 0);
+        assert_eq!(run_result.completion, CrawlCompletion::Completed);
     }
 
     #[tokio::test]
@@ -2098,16 +2212,17 @@ mod service_tests {
             .returning(|_, _| Box::pin(async { Ok(()) }));
         let stored = Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = Arc::clone(&stored);
-        mock_url_repo
-            .expect_upsert_links_batch()
-            .returning(move |_, _, urls, classes| {
+        mock_url_repo.expect_upsert_links_batch().returning(
+            move |listing_source_id, domain_id, urls, classes| {
                 recorded.lock().unwrap().extend(
                     urls.iter()
                         .map(|url| url.path().to_owned())
                         .zip(classes.iter().copied()),
                 );
-                Box::pin(async { Ok(Vec::new()) })
-            });
+                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                Box::pin(async move { Ok(stored) })
+            },
+        );
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig {
                 url_classifier,
