@@ -153,14 +153,14 @@ impl ScraperServiceImpl {
     }
 }
 
-/// A fetched product page a schema is selected for.
+/// A fetched product page schemas are obtained or selected for.
 #[derive(Clone, Copy)]
-struct FetchedPage<'a> {
-    listing_source_id: &'a ListingSourceId,
-    domain: &'a str,
-    url: &'a Url,
-    html: &'a str,
-    expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
+pub(crate) struct FetchedPage<'a> {
+    pub(crate) listing_source_id: &'a ListingSourceId,
+    pub(crate) domain: &'a str,
+    pub(crate) url: &'a Url,
+    pub(crate) html: &'a str,
+    pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
 }
 
 impl<'a> FetchedPage<'a> {
@@ -538,16 +538,21 @@ impl ScraperServiceImpl {
         )
         .await?;
 
+        let fetched_page = FetchedPage {
+            listing_source_id,
+            domain,
+            url: &page.effective_url,
+            html: &page.html,
+            expected_last_captured_raw_input_sha256,
+        };
         // Obtain the effective schema set before the fast path: the page hash is what that set
         // extracts from the page, and the fingerprint forces extraction whenever the set changes.
         let listing_source_product_schemas = match cached_product_schemas {
             Some(existing) => existing,
             None => {
                 self.obtain_schemas(
-                    listing_source_id,
-                    &page.effective_url,
+                    fetched_page,
                     request.product_url_pattern.as_deref(),
-                    &page.html,
                     request.domain_id.as_ref(),
                     request.mode,
                 )
@@ -574,16 +579,7 @@ impl ScraperServiceImpl {
         }
 
         let (listing_source_product_schemas, selection) = self
-            .select_schema_for_page(
-                listing_source_product_schemas,
-                FetchedPage {
-                    listing_source_id,
-                    domain,
-                    url: &page.effective_url,
-                    html: &page.html,
-                    expected_last_captured_raw_input_sha256,
-                },
-            )
+            .select_schema_for_page(listing_source_product_schemas, fetched_page)
             .await?;
         let scraped = capture_selection(
             request,
