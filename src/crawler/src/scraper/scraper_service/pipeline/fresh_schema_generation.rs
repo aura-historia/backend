@@ -16,6 +16,9 @@ use url::Url;
 pub(crate) struct FreshSchemaGenerationContext<'a> {
     pub(crate) listing_source_id: &'a ListingSourceId,
     pub(crate) domain: &'a str,
+    /// The crawler URL the scrape requested, which differs from `url` after a redirect that
+    /// moved the page.
+    pub(crate) requested_url: &'a Url,
     pub(crate) url: &'a Url,
     pub(crate) html: &'a str,
     pub(crate) existing_schemas: &'a [ProductCssSelectorSchema],
@@ -23,16 +26,17 @@ pub(crate) struct FreshSchemaGenerationContext<'a> {
 }
 
 impl ScraperServiceImpl {
-    /// Makes a page that failed every cached schema wait instead of authoring a schema: in manual
-    /// and agent mode a page whose manual review was rejected while it was scraped is classified
-    /// as other, and in every mode the page joins a pending product-schema review. Returns `Ok`
-    /// when the page may author a fresh schema.
+    /// Makes a page that failed every cached schema wait instead of authoring a schema: a page
+    /// whose manual review was rejected while it was scraped is classified as other, and
+    /// otherwise the page joins a pending product-schema review. Returns `Ok` when the page may
+    /// author a fresh schema.
     pub(crate) async fn wait_instead_of_authoring(
         &self,
         ctx: &FreshSchemaGenerationContext<'_>,
     ) -> Result<(), ScraperError> {
         self.skip_rejected_page(
             ctx.listing_source_id,
+            ctx.requested_url,
             ctx.url,
             ctx.expected_last_captured_raw_input_sha256,
         )

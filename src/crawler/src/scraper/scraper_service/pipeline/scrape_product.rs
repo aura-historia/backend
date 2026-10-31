@@ -158,6 +158,10 @@ impl ScraperServiceImpl {
 pub(crate) struct FetchedPage<'a> {
     pub(crate) listing_source_id: &'a ListingSourceId,
     pub(crate) domain: &'a str,
+    /// The crawler URL the scrape requested, whose row the scrape writes.
+    pub(crate) requested_url: &'a Url,
+    /// The URL the page is captured under: `requested_url`, or the redirect target when a
+    /// redirect moved the page.
     pub(crate) url: &'a Url,
     pub(crate) html: &'a str,
     pub(crate) expected_last_captured_raw_input_sha256: Option<&'a [u8]>,
@@ -174,6 +178,7 @@ impl<'a> FetchedPage<'a> {
         FreshSchemaGenerationContext {
             listing_source_id: self.listing_source_id,
             domain: self.domain,
+            requested_url: self.requested_url,
             url: self.url,
             html: self.html,
             existing_schemas,
@@ -533,6 +538,7 @@ impl ScraperServiceImpl {
         // is never captured, whichever schema extracts it.
         self.skip_rejected_page(
             listing_source_id,
+            url,
             &page.effective_url,
             expected_last_captured_raw_input_sha256,
         )
@@ -541,6 +547,7 @@ impl ScraperServiceImpl {
         let fetched_page = FetchedPage {
             listing_source_id,
             domain,
+            requested_url: url,
             url: &page.effective_url,
             html: &page.html,
             expected_last_captured_raw_input_sha256,

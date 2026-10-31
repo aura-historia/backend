@@ -52,6 +52,7 @@ impl ScraperServiceImpl {
     ) -> Result<ListingSourceProductSchema, ScraperError> {
         let FetchedPage {
             listing_source_id,
+            requested_url,
             url,
             html,
             ..
@@ -111,7 +112,7 @@ impl ScraperServiceImpl {
             })
             .collect::<Vec<_>>();
         if let Some(review_repository) = self.manual_schema_review_repository() {
-            self.skip_rejected_page(listing_source_id, url, None)
+            self.skip_rejected_page(listing_source_id, requested_url, url, None)
                 .await?;
             return Err(self
                 .open_manual_schema_review(review_repository, listing_source_id, url, &[], pages)

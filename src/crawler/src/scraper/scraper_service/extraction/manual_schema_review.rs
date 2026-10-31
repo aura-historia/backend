@@ -21,23 +21,29 @@ pub const MANUAL_SCHEMA_REASON: &str = "manual_schema_required";
 
 impl ScraperServiceImpl {
     /// Rejecting a manual review is the operator's verdict that its seed and triggering pages are
-    /// not product pages, whichever schema extracts them. Classifies `url` as other and fails with
+    /// not product pages, whichever schema extracts them. When a rejection covers `page_url`, the
+    /// page the scrape fetched, classifies the crawler URL `requested_url` as other and fails with
     /// [`ScraperError::NotProductPage`], so the page is neither captured nor reopens the review;
-    /// `Ok` when no operator rejected a manual review over it, or when the mode authors no manual
-    /// schemas. A scrape checks its page before it obtains schemas, and again before it authors
-    /// one, which a rejection given while the page was scraped must still stop.
+    /// `Ok` when no operator rejected a manual review over it. A scrape checks its page before it
+    /// obtains schemas, and again before it authors one, which a rejection given while the page
+    /// was scraped must still stop.
     ///
-    /// `expected_last_captured_raw_input_sha256` is the scrape's guard for its URL writes, as for
-    /// any crawler URL write. Without it the classification of a page captured before is skipped
-    /// and left to the page's next scrape.
+    /// The two URLs differ after a redirect that moved the page. The requested row is the one
+    /// classified, so the scrape does not request it again every pass; the redirect target's own
+    /// row, if the spider stored one, is classified when it is scraped.
+    ///
+    /// `expected_last_captured_raw_input_sha256` is the scrape's guard for its writes to the
+    /// requested row, as for any crawler URL write. Without it the classification of a page
+    /// captured before is skipped and left to the page's next scrape.
     pub(crate) async fn skip_rejected_page(
         &self,
         listing_source_id: &ListingSourceId,
-        url: &Url,
+        requested_url: &Url,
+        page_url: &Url,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<(), ScraperError> {
         let rejected = self
-            .is_rejected_page(listing_source_id, url)
+            .is_rejected_page(listing_source_id, page_url)
             .await
             .map_err(|error| {
                 ScraperError::from(review_error_to_schema_service_error(error.into()))
@@ -47,25 +53,27 @@ impl ScraperServiceImpl {
         }
         self.mark_url_other_best_effort(
             listing_source_id,
-            url,
+            requested_url,
             expected_last_captured_raw_input_sha256,
         )
         .await;
         Err(ScraperError::NotProductPage {
-            url: url.clone(),
+            url: requested_url.clone(),
             details: "an operator rejected the manual schema review for this page".to_owned(),
         })
     }
 
-    /// Whether a rejected manual review covers the page of the crawler URL `url`, in either
-    /// trailing-slash spelling: the verdict that it is no product page. `false` when the mode
-    /// authors no manual schemas.
+    /// Whether a rejected manual review covers the page of the crawler URL `url`, in any spelling
+    /// of that page: the verdict that it is no product page. A rejection is persisted state of the
+    /// ListingSource, so it applies in every authoring mode, also after a switch away from the
+    /// mode that opened the review (`docs/crawler/operations.md#manual-authoring`). `false`
+    /// without a review gate, which only tests omit.
     pub(crate) async fn is_rejected_page(
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
     ) -> Result<bool, sqlx::Error> {
-        let Some(review_repository) = self.manual_schema_review_repository() else {
+        let Some(review_repository) = &self.review_repository else {
             return Ok(false);
         };
         review_repository

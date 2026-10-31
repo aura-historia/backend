@@ -270,12 +270,16 @@ async fn should_classify_page_as_other_instead_of_reopening_a_rejected_manual_re
     );
 }
 
-/// Rejecting a manual review is a verdict on its triggering page, whichever schemas extract it:
-/// once a cached schema extracts the page, such as one another review approved since, the page is
-/// still classified as other instead of captured, under the scrape's capture guard, and no review
-/// reopens for it. `rescrape` builds the request of the scrape after the rejection from the
-/// schemas that extract the page.
+/// Rejecting a manual review is a verdict on its triggering page, whichever schemas extract it
+/// and whichever authoring mode scrapes it later: once a cached schema extracts the page, such as
+/// one another review approved since, the page is still classified as other instead of captured,
+/// under the scrape's capture guard, and no review reopens for it. The scrape after the rejection
+/// runs in `authoring` mode and requests `requested_url`, which the shop answers with the rejected
+/// page; that requested row is the one classified. `rescrape` builds its request from the
+/// requested URL and the schemas that extract the page.
 async fn assert_rejected_triggering_page_is_not_captured(
+    authoring: CrawlerAuthoringMode,
+    requested_url: Url,
     rescrape: impl FnOnce(&ListingSourceId, &Url, &ListingSourceProductSchema) -> ScrapeRequest,
 ) {
     let pool = test_api::get_postgres_client().await;
@@ -304,9 +308,9 @@ async fn assert_rejected_triggering_page_is_not_captured(
         .await
         .unwrap_or_else(|error| panic!("reject manual review: {error}"));
     let extracting = cached_schemas(id, vec![minimal_schema()]);
-    let request = rescrape(&id, &url, &extracting);
+    let request = rescrape(&id, &requested_url, &extracting);
     let mut candidates = MockScraperCandidateService::new();
-    let expected_url = url.clone();
+    let expected_url = requested_url.clone();
     let capture_guard = request.expected_last_captured_raw_input_sha256.clone();
     candidates
         .expect_set_class()
@@ -317,15 +321,20 @@ async fn assert_rejected_triggering_page_is_not_captured(
                 && *received_guard == capture_guard.as_deref()
         })
         .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
-    let rescraping = manual_scraper(
+    let rescraping = scraper_with_review_gate(
+        fetcher_returning_sample_page_at(&url, 1),
         schema_service_without_generation(Some(extracting)),
         repository.clone(),
         candidates,
+        authoring,
     );
 
     let result = rescraping.scrape(request).await.result;
 
-    assert!(matches!(result, Err(ScraperError::NotProductPage { .. })));
+    assert!(
+        matches!(&result, Err(ScraperError::NotProductPage { url, .. }) if *url == requested_url),
+        "{result:?}"
+    );
     assert_eq!(
         repository
             .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
@@ -337,8 +346,49 @@ async fn assert_rejected_triggering_page_is_not_captured(
 
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_classify_rejected_triggering_page_as_other_when_a_cached_schema_extracts_it() {
-    assert_rejected_triggering_page_is_not_captured(|id, url, _| primary_only_request(id, url))
-        .await;
+    assert_rejected_triggering_page_is_not_captured(
+        CrawlerAuthoringMode::Manual,
+        product_url(),
+        |id, url, _| primary_only_request(id, url),
+    )
+    .await;
+}
+
+/// A rejection is persisted state of the ListingSource, so it still applies after a switch to an
+/// authoring mode that opens no manual reviews.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_classify_rejected_triggering_page_as_other_when_authoring_is_review() {
+    assert_rejected_triggering_page_is_not_captured(
+        CrawlerAuthoringMode::Review,
+        product_url(),
+        |id, url, _| primary_only_request(id, url),
+    )
+    .await;
+}
+
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_classify_rejected_triggering_page_as_other_when_authoring_is_auto() {
+    assert_rejected_triggering_page_is_not_captured(
+        CrawlerAuthoringMode::Auto,
+        product_url(),
+        |id, url, _| primary_only_request(id, url),
+    )
+    .await;
+}
+
+/// A crawler URL that redirects onto a rejected page is the row classified, under its own capture
+/// guard, so it is not requested again every pass.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_classify_requested_url_as_other_when_it_redirects_onto_a_rejected_page() {
+    assert_rejected_triggering_page_is_not_captured(
+        CrawlerAuthoringMode::Manual,
+        Url::parse("https://example.com/old-products/123").unwrap(),
+        |id, url, _| ScrapeRequest {
+            expected_last_captured_raw_input_sha256: Some(vec![7; 32]),
+            ..primary_only_request(id, url)
+        },
+    )
+    .await;
 }
 
 /// A rejected page captured before, such as by a cached schema before the rejection took effect,
@@ -346,15 +396,19 @@ async fn should_classify_rejected_triggering_page_as_other_when_a_cached_schema_
 /// unchanged-page skip, under the guard of that capture.
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
 async fn should_classify_rejected_triggering_page_as_other_when_it_was_captured_and_is_unchanged() {
-    assert_rejected_triggering_page_is_not_captured(|id, url, extracting| ScrapeRequest {
-        last_scraped_hash: Some(hash_page(&sample_html(), &extracting.product_schemas)),
-        last_scraped_schema_fingerprint: Some(
-            fingerprint_scraper_context(EXTRACTOR_VERSION, &extracting.product_schemas, None)
-                .unwrap_or_else(|error| panic!("test schemas must serialize: {error}")),
-        ),
-        expected_last_captured_raw_input_sha256: Some(vec![7; 32]),
-        ..primary_only_request(id, url)
-    })
+    assert_rejected_triggering_page_is_not_captured(
+        CrawlerAuthoringMode::Manual,
+        product_url(),
+        |id, url, extracting| ScrapeRequest {
+            last_scraped_hash: Some(hash_page(&sample_html(), &extracting.product_schemas)),
+            last_scraped_schema_fingerprint: Some(
+                fingerprint_scraper_context(EXTRACTOR_VERSION, &extracting.product_schemas, None)
+                    .unwrap_or_else(|error| panic!("test schemas must serialize: {error}")),
+            ),
+            expected_last_captured_raw_input_sha256: Some(vec![7; 32]),
+            ..primary_only_request(id, url)
+        },
+    )
     .await;
 }
 
