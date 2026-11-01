@@ -194,7 +194,9 @@ async function loadReviews() {
         api('/api/listing_sources').catch(() => null)
     ]);
     const list = document.getElementById('reviewList');
-    list.innerHTML = renderDomainsNeedingOperator(listingSources) + renderReviewGroups(reviews);
+    list.innerHTML = renderDomainsNeedingOperator(listingSources)
+        + renderMissingValueSources(listingSources)
+        + renderReviewGroups(reviews);
     updateSelectedReviewFreshness(reviews);
     return reviews;
 }
@@ -280,6 +282,79 @@ function renderDomainsNeedingOperator(listingSources) {
         </div>`).join('')}
       </div>
     </div>`;
+}
+
+// A page whose last scrape left a required value empty opens and joins no review, such as a
+// removal page that keeps an empty title element. The queue lists the ListingSources with such
+// pages, so a reviewer adds one to the product-schema review (opened for it when none is
+// pending) and declares a removed-page template for it there.
+const expandedMissingValueSources = new Map();
+
+function renderMissingValueSources(listingSources) {
+    if (!listingSources) return '';
+    const query = reviewSearchTerm.trim().toLowerCase();
+    const sources = listingSources
+        .filter(source => source.crawl_enabled && source.missing_value_urls > 0)
+        .filter(source => !query || String(source.listing_source_name || source.listing_source_id).toLowerCase().includes(query));
+    if (!sources.length) return '';
+    return `<div class="listing-source-group">
+      <div class="listing-source-group-head">
+        <div>
+          <div class="queue-title">Pages missing a required value</div>
+          <div class="queue-meta">Open no review on their own; add one to a review to declare a removed-page template</div>
+        </div>
+      </div>
+      <div class="listing-source-review-list">
+        ${sources.map(source => {
+            const id = escapeHtmlAttr(source.listing_source_id);
+            const pages = expandedMissingValueSources.get(source.listing_source_id);
+            return `<div class="item" onclick="toggleMissingValuePages('${id}')">
+              <div class="queue-row">
+                <span class="queue-artifact">${escapeHtml(source.listing_source_name || source.listing_source_id)}</span>
+                ${statusBadge(`${source.missing_value_urls} missing`)}
+              </div>
+              ${pages ? renderMissingValuePages(source.listing_source_id, pages) : ''}
+            </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+function renderMissingValuePages(listingSourceId, pages) {
+    if (pages.error) return `<div class="queue-meta">${escapeHtml(pages.error)}</div>`;
+    return pages.map(page => `<div class="queue-meta" onclick="event.stopPropagation()">
+        ${productPageLink(page.url)} ${escapeHtml(page.missing || '')}
+        <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', '${escapeHtmlAttr(page.url)}')">Add to review</button>
+      </div>`).join('');
+}
+
+async function toggleMissingValuePages(listingSourceId) {
+    if (expandedMissingValueSources.has(listingSourceId)) {
+        expandedMissingValueSources.delete(listingSourceId);
+    } else {
+        try {
+            const answer = await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/missing-value-pages`);
+            expandedMissingValueSources.set(listingSourceId, answer.pages || []);
+        } catch (error) {
+            expandedMissingValueSources.set(listingSourceId, {error: apiErrorMessage(error)});
+        }
+    }
+    loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
+}
+
+async function reviewMissingValuePage(listingSourceId, url) {
+    await confirmDiscardingEdits('Adding the page', async () => {
+        try {
+            const added = await api(
+                `/api/listing-sources/${encodeURIComponent(listingSourceId)}/missing-value-pages/review`,
+                {method: 'POST', body: JSON.stringify({url})}
+            );
+            await loadReviews();
+            await selectReview(added.review_id);
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        }
+    });
 }
 
 function reviewMatchesSearch(review, query) {

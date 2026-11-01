@@ -29,6 +29,7 @@ use tracing::info;
 use url::Url;
 
 mod live_matrix;
+mod missing_value_pages;
 mod pending_reviews;
 mod rearm;
 mod rejected_pages;
@@ -44,6 +45,9 @@ mod url_pattern_sample;
 mod verdicts;
 
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
+pub use missing_value_pages::{
+    MAX_LISTED_MISSING_VALUE_PAGES, MISSING_REQUIRED_VALUE_REVIEW_REASON, MissingValuePage,
+};
 pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
@@ -160,6 +164,14 @@ pub enum ReviewRepositoryError {
         "approved review {0} no longer holds the live product schemas; edit the review whose candidate is live"
     )]
     StaleApprovedReview(CrawlerReviewId),
+    #[error(
+        "`{0}` is no product page of the ListingSource whose last scrape recorded MissingRequiredValue"
+    )]
+    NotMissingValuePage(String),
+    #[error(
+        "ListingSource {0} has no live product schemas; its pages need a product schema, not a removed-page template"
+    )]
+    NoLiveProductSchemas(ListingSourceId),
     #[error(
         "URL `{0}` is not an http(s) URL on the default port, without credentials, on a domain of the review's ListingSource"
     )]
@@ -484,7 +496,8 @@ impl CrawlerReviewRepository {
                 d.last_successful_crawl,
                 COALESCE(r.pending_reviews, 0) AS pending_reviews,
                 COALESCE(u.product_urls, 0) AS product_urls,
-                COALESCE(u.blocked_urls, 0) AS blocked_urls
+                COALESCE(u.blocked_urls, 0) AS blocked_urls,
+                COALESCE(u.missing_value_urls, 0) AS missing_value_urls
              FROM listing_sources s
              LEFT JOIN (
                 SELECT listing_source_id, COUNT(*) AS domain_count, MAX(last_crawled) AS last_successful_crawl,
@@ -500,7 +513,8 @@ impl CrawlerReviewRepository {
              LEFT JOIN (
                 SELECT listing_source_id,
                        COUNT(*) FILTER (WHERE url_class = 'product') AS product_urls,
-                       COUNT(*) FILTER (WHERE last_error_kind IN ('PendingSchemaReview', 'PendingUrlPatternReview')) AS blocked_urls
+                       COUNT(*) FILTER (WHERE last_error_kind IN ('PendingSchemaReview', 'PendingUrlPatternReview')) AS blocked_urls,
+                       COUNT(*) FILTER (WHERE url_class = 'product' AND last_error_kind = 'MissingRequiredValue') AS missing_value_urls
                 FROM listing_source_urls
                 GROUP BY listing_source_id
              ) u ON u.listing_source_id = s.listing_source_id
@@ -527,6 +541,7 @@ impl CrawlerReviewRepository {
                 pending_reviews: row.try_get("pending_reviews")?,
                 product_urls: row.try_get("product_urls")?,
                 blocked_urls: row.try_get("blocked_urls")?,
+                missing_value_urls: row.try_get("missing_value_urls")?,
                 domains: Vec::new(),
             });
         }
