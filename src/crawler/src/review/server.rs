@@ -1579,13 +1579,29 @@ mod tests {
             .await
             .to_string();
 
+        let live_html = server
+            .route("GET /api/live-html?url=https%3A%2F%2Fexample.com HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+        let page_html = server
+            .route("GET /api/review-pages/not-a-page/html HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+
         assert!(inspection.starts_with("HTTP/1.1 200 OK"));
         for preview in [&inspection, &missing_url, &invalid_page] {
             assert!(preview.contains("Content-Security-Policy: sandbox allow-scripts;"));
+            assert!(preview.contains("img-src https: data:;"));
+            assert!(preview.contains("base-uri https:;"));
             assert!(preview.contains("frame-ancestors 'self'\r\n"));
+            assert!(preview.contains("\r\nReferrer-Policy: no-referrer\r\n"));
         }
-        assert!(!console.contains("sandbox"));
-        assert!(console.contains("frame-ancestors 'none'\r\n"));
+        for strict in [&console, &live_html, &page_html] {
+            assert!(!strict.contains("sandbox"));
+            assert!(strict.contains("default-src 'self';"));
+            assert!(strict.contains("base-uri 'none';"));
+            assert!(strict.contains("frame-ancestors 'none'\r\n"));
+        }
         Ok(())
     }
 
