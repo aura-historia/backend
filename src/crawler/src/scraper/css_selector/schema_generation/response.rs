@@ -1,4 +1,5 @@
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::rule::ExtractionError;
 use schemars::{JsonSchema, schema_for};
@@ -110,6 +111,10 @@ pub(super) enum ProductListingSchemaResponseValidationError {
         source: ExtractionError,
     },
     #[error(
+        "field `schemas[{schema_index}].raw_attributes` contained key `{key}`, which is not a configured raw attribute key"
+    )]
+    UnregisteredRawAttributeKey { schema_index: usize, key: String },
+    #[error(
         "field `schemas` must contain exactly one schema for page_kind `product`, got {schema_count}"
     )]
     SingleProductSchemaCount { schema_count: usize },
@@ -132,6 +137,7 @@ impl ProductListingSchemaResponseValidationError {
         match self {
             Self::InitialEmptySchemas => "initial_empty_schemas",
             Self::InvalidProductSchemaRule { .. } => "invalid_product_schema_rule",
+            Self::UnregisteredRawAttributeKey { .. } => "unregistered_raw_attribute_key",
             Self::SingleProductSchemaCount { .. } => "single_product_schema_count",
             Self::RemovedContainsProductSchemas { .. } => "removed_contains_product_schemas",
             Self::RemovedMissingSchema => "removed_missing_schema",
@@ -141,7 +147,11 @@ impl ProductListingSchemaResponseValidationError {
     }
 }
 
-fn validate_schema_rules(
+/// Validates the rules of generated schemas and refuses raw attribute keys outside the
+/// registry, as a console edit does. A refusal goes back to the model as correction feedback
+/// rather than dropping the key, so a mis-keyed value is re-keyed or omitted by the model
+/// instead of silently lost, and a schema never goes live or into review unchecked.
+fn validate_generated_schemas(
     schemas: &[ProductCssSelectorSchema],
 ) -> Result<(), ProductListingSchemaResponseValidationError> {
     ProductCssSelectorSchema::validate_all_indexed(schemas).map_err(|(schema_index, source)| {
@@ -149,7 +159,31 @@ fn validate_schema_rules(
             schema_index,
             source,
         }
-    })
+    })?;
+    refuse_unregistered_raw_attribute_keys(schemas)
+}
+
+fn refuse_unregistered_raw_attribute_keys(
+    schemas: &[ProductCssSelectorSchema],
+) -> Result<(), ProductListingSchemaResponseValidationError> {
+    schemas
+        .iter()
+        .enumerate()
+        .try_for_each(|(schema_index, schema)| {
+            match schema
+                .raw_attributes
+                .keys()
+                .find(|key| !is_registered_key(key))
+            {
+                Some(key) => Err(
+                    ProductListingSchemaResponseValidationError::UnregisteredRawAttributeKey {
+                        schema_index,
+                        key: key.clone(),
+                    },
+                ),
+                None => Ok(()),
+            }
+        })
 }
 
 fn evaluation_from_response(
@@ -194,7 +228,7 @@ impl ProductListingSchemasGenerationResponse {
         if self.schemas.is_empty() {
             return Err(ProductListingSchemaResponseValidationError::InitialEmptySchemas);
         }
-        validate_schema_rules(&self.schemas)?;
+        validate_generated_schemas(&self.schemas)?;
         let evaluation = evaluation_from_response(self.confidence, self.summary, self.risks);
         Ok(GeneratedProductSchemas {
             schemas: self.schemas,
@@ -236,7 +270,7 @@ impl ProductListingSchemaGenerationResponse {
                         },
                     );
                 };
-                validate_schema_rules(std::slice::from_ref(&schema))?;
+                validate_generated_schemas(std::slice::from_ref(&schema))?;
                 Ok(GeneratedSingleSchema::ProductListing {
                     schema: Box::new(schema),
                     evaluation,
@@ -527,5 +561,83 @@ mod tests {
             "summary": "Complete product schema"
         });
         assert!(serde_json::from_value::<ProductListingSchemaGenerationResponse>(response).is_ok());
+    }
+
+    fn product_schema_json_with_raw_attribute(key: &str) -> serde_json::Value {
+        let mut schema = valid_product_schema_json();
+        schema["raw_attributes"] = serde_json::json!({ key: complete_rule(".detail", "text") });
+        schema
+    }
+
+    fn initial_response(
+        schemas: Vec<serde_json::Value>,
+    ) -> ProductListingSchemasGenerationResponse {
+        serde_json::from_value(serde_json::json!({
+            "schemas": schemas,
+            "confidence": "HIGH",
+            "summary": "generated schemas"
+        }))
+        .unwrap_or_else(|error| panic!("initial response should deserialize: {error}"))
+    }
+
+    #[test]
+    fn should_refuse_initial_response_when_a_schema_holds_an_unregistered_raw_attribute_key() {
+        let response = initial_response(vec![
+            product_schema_json_with_raw_attribute("rawShipment"),
+            product_schema_json_with_raw_attribute("rawFoo"),
+        ]);
+
+        let error = response
+            .try_into_initial()
+            .err()
+            .unwrap_or_else(|| panic!("an unregistered raw attribute key should be refused"));
+
+        assert!(matches!(
+            &error,
+            ProductListingSchemaResponseValidationError::UnregisteredRawAttributeKey {
+                schema_index: 1,
+                key,
+            } if key == "rawFoo"
+        ));
+        assert_eq!(error.feedback_code(), "unregistered_raw_attribute_key");
+        assert!(error.to_string().contains("`schemas[1].raw_attributes`"));
+        assert!(error.to_string().contains("`rawFoo`"));
+    }
+
+    #[test]
+    fn should_accept_initial_response_when_every_raw_attribute_key_is_registered() {
+        let response =
+            initial_response(vec![product_schema_json_with_raw_attribute("rawShipment")]);
+
+        let generated = response
+            .try_into_initial()
+            .unwrap_or_else(|error| panic!("registered raw attribute keys should pass: {error}"));
+
+        assert!(
+            generated.schemas[0]
+                .raw_attributes
+                .contains_key("rawShipment")
+        );
+    }
+
+    #[test]
+    fn should_refuse_single_product_response_when_its_schema_holds_an_unregistered_raw_attribute_key()
+     {
+        let response: ProductListingSchemaGenerationResponse =
+            serde_json::from_value(serde_json::json!({
+                "page_kind": "product",
+                "schemas": [product_schema_json_with_raw_attribute("rawFoo")],
+                "confidence": "HIGH",
+                "summary": "generated schema"
+            }))
+            .unwrap_or_else(|error| panic!("single response should deserialize: {error}"));
+
+        assert!(matches!(
+            response.try_into_single(),
+            Err(ProductListingSchemaResponseValidationError::UnregisteredRawAttributeKey {
+                schema_index: 0,
+                ref key,
+            }) if key == "rawFoo"
+        ));
     }
 }
