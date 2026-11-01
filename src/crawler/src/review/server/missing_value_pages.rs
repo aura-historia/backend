@@ -61,7 +61,8 @@ impl ReviewServer {
 
     /// Adds the page to the ListingSource's pending product-schema review as a page the reviewer
     /// added, opening the review when none is pending. The page is checked before it is fetched,
-    /// and the review is opened only once the fetch succeeded, so a failed fetch opens none.
+    /// and the review is opened only once the fetch succeeded and led to a page the review
+    /// accepts, so a failed fetch or a redirect away from the product opens none.
     async fn review_missing_value_page(
         &self,
         request: &ParsedRequest<'_>,
@@ -84,6 +85,10 @@ impl ReviewServer {
             .await
             .map_err(review_error)?;
         let fetched = self.fetch_reviewer_page(&url).await?;
+        self.repository
+            .check_missing_value_page_fetch(&listing_source_id, &url, &fetched.final_url)
+            .await
+            .map_err(review_error)?;
         let review_id = self
             .repository
             .open_review_for_missing_value_page(&listing_source_id, &url)

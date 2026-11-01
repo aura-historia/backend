@@ -4,11 +4,12 @@
 
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
-    parse_product_schema_payload,
+    parse_product_schema_payload, review_source_url_pattern, reviewer_page_url,
 };
 use crate::CrawlerReviewId;
 use crate::review::model::STATUS_PENDING_REVIEW;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use listing_source_core::ListingSourceId;
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -93,6 +94,28 @@ impl CrawlerReviewRepository {
         .transpose()?
         .filter(|schemas| !schemas.is_empty())
         .ok_or(ReviewRepositoryError::NoLiveProductSchemas(*listing_source_id))
+    }
+
+    /// Refuses a page fetched from `requested_url` that the review it would join refuses as a
+    /// reviewer-added page: one served from a URL on no domain of the ListingSource, or one the
+    /// shop redirected to a page that is no product page, such as a sold listing sent to its
+    /// category. Checked before the review is opened, so a page it would refuse opens none.
+    pub async fn check_missing_value_page_fetch(
+        &self,
+        listing_source_id: &ListingSourceId,
+        requested_url: &Url,
+        fetched_url: &Url,
+    ) -> Result<(), ReviewRepositoryError> {
+        let url = reviewer_page_url(fetched_url);
+        let product_url_pattern =
+            review_source_url_pattern(&self.pool, uuid::Uuid::from(*listing_source_id), &url)
+                .await?;
+        if is_redirect_to_non_product_page(requested_url, &url, product_url_pattern.as_deref()) {
+            return Err(ReviewRepositoryError::RedirectedToNonProductPage(
+                url.to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// The pending product-schema review of the ListingSource a reviewer adds `url`, a page

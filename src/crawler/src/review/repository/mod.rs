@@ -1663,21 +1663,12 @@ async fn lock_reviewer_page_target(
         return Err(ReviewRepositoryError::NotPending(review_id));
     }
 
-    let domains = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT listing_source_domain, \
-                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END \
-         FROM listing_source_domains WHERE listing_source_id = $1",
+    let product_url_pattern = review_source_url_pattern(
+        &mut **transaction,
+        review.try_get::<uuid::Uuid, _>("listing_source_id")?,
+        url,
     )
-    .bind(review.try_get::<uuid::Uuid, _>("listing_source_id")?)
-    .fetch_all(&mut **transaction)
     .await?;
-    let (domain_names, product_url_patterns): (Vec<String>, Vec<Option<String>>) =
-        domains.into_iter().unzip();
-    if !is_review_source_url(url, &domain_names) {
-        return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
-            without_credentials(url).to_string(),
-        ));
-    }
 
     let pages = sqlx::query_as::<_, (String, String)>(
         "SELECT url, role FROM crawler_review_pages WHERE review_id = $1",
@@ -1698,6 +1689,32 @@ async fn lock_reviewer_page_target(
         .count();
     if reviewer_pages >= MAX_REVIEWER_ADDED_PAGES {
         return Err(ReviewRepositoryError::ReviewPageLimitReached(review_id));
+    }
+    Ok(product_url_pattern)
+}
+
+/// The approved product URL pattern of the ListingSource's domain that `url` is on, `None`
+/// without one. A URL a reviewer may not add, on no domain of the ListingSource or not an
+/// http(s) URL on the default port without credentials, is refused.
+async fn review_source_url_pattern<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    listing_source_id: uuid::Uuid,
+    url: &Url,
+) -> Result<Option<String>, ReviewRepositoryError> {
+    let domains = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT listing_source_domain, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END \
+         FROM listing_source_domains WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id)
+    .fetch_all(executor)
+    .await?;
+    let (domain_names, product_url_patterns): (Vec<String>, Vec<Option<String>>) =
+        domains.into_iter().unzip();
+    if !is_review_source_url(url, &domain_names) {
+        return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
+            without_credentials(url).to_string(),
+        ));
     }
     Ok(domain_names
         .iter()
