@@ -388,8 +388,10 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
             }
             // A refresh stores its matrix on the review and so moves the review's `updated`: the
             // review read after it is the baseline, so the refresh does not look like a change
-            // made elsewhere. A candidate another writer changed meanwhile still does.
-            if (refreshed) {
+            // made elsewhere. A candidate another writer changed meanwhile still does. The console
+            // refuses to refresh a candidate that fails validation and stores nothing, so such a
+            // review is not read again, which would log its candidate's failure a second time.
+            if (refreshed && !detail.candidate_error) {
                 const before = detail.review.candidate_version;
                 detail = await api(`/api/reviews/${reviewId}`);
                 candidateChangedMeanwhile = detail.review.candidate_version !== before;
