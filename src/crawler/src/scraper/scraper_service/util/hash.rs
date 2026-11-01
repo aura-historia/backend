@@ -10,10 +10,8 @@ pub(crate) fn hash_page(html: &str, schemas: &[ProductCssSelectorSchema]) -> Str
         .iter()
         .map(|schema| {
             schema
-                .extract(
-                    &document,
-                    crate::scraper::css_selector::product_schema::ExtractionLogging::Silent,
-                )
+                .extract_keeping_misses(&document)
+                .outcome
                 .map(|extraction| extraction.raw)
                 .ok()
         })
@@ -249,6 +247,7 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(CountEvents(Arc::clone(&events)));
 
         tracing::subscriber::with_default(subscriber, || {
+            tracing::callsite::rebuild_interest_cache();
             hash_page(&page, std::slice::from_ref(&schema));
             let logged_by_hash = events.load(Ordering::SeqCst);
             apply_schema_to_document(&schema, &scraper::Html::parse_document(&page))

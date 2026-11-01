@@ -270,7 +270,9 @@ fn removed_page_verdict<'a>(
 
 /// One parse of a fetched page: the stored removed-page schemas that match it and what the
 /// cached product schemas extract from it. Synchronous, so the `!Send` document is dropped
-/// before the scrape awaits again; a page with neither is not parsed here.
+/// before the scrape awaits again; a page with neither is not parsed here. A schema set known
+/// only after a later await is extracted from a second parse
+/// ([`ExtractedSchemaSet::parse_and_extract`] says when and why).
 fn parse_fetched_page(
     html: &str,
     removed_page_schemas: Vec<RemovedPageSchema>,
@@ -576,6 +578,7 @@ impl ScraperServiceImpl {
         };
         // Obtain the effective schema set before the fast path: the page hash is what that set
         // extracts from the page, and the fingerprint forces extraction whenever the set changes.
+        // Obtained schemas are known only after awaits, so they are extracted from a second parse.
         let extracted = match cached_extraction {
             Some(extracted) => extracted,
             None => ExtractedSchemaSet::parse_and_extract(
@@ -654,6 +657,7 @@ impl ScraperServiceImpl {
                     "Live product schemas changed during the scrape; selecting again"
                 );
                 reread = true;
+                // The live set is known only after awaits, so it is extracted from a second parse.
                 extracted = ExtractedSchemaSet::parse_and_extract(live, page.html);
                 continue;
             }
