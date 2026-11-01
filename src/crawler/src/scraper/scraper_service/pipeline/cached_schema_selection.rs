@@ -158,19 +158,19 @@ impl ExtractedSchemaSet {
 
     /// The raw extraction of each schema that applies, in schema order.
     pub(crate) fn raw_extractions(&self) -> impl Iterator<Item = &RawExtractedProduct> {
+        self.extraction_outcomes().flatten()
+    }
+
+    /// The raw extraction of each schema in schema order, or `None` where it does not apply.
+    pub(crate) fn extraction_outcomes(&self) -> impl Iterator<Item = Option<&RawExtractedProduct>> {
         self.extractions
             .iter()
-            .filter_map(|extraction| extraction.as_ref().ok())
-            .map(|extraction| &extraction.raw)
+            .map(|extraction| extraction.as_ref().ok().map(|extraction| &extraction.raw))
     }
 
     /// The page hash of the page for this schema set (see [`hash_extractions`]).
     pub(crate) fn page_hash(&self) -> String {
-        hash_extractions(
-            self.extractions
-                .iter()
-                .map(|extraction| extraction.as_ref().ok().map(|extraction| &extraction.raw)),
-        )
+        hash_extractions(self.extraction_outcomes())
     }
 
     /// The schemas that apply, with their raw extraction, for selection. Logs the outcome and

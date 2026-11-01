@@ -1,17 +1,19 @@
-use crate::scraper::css_selector::product_schema::{
-    ExtractionLogging, ProductCssSelectorSchema, RawExtractedProduct,
-};
+use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
 use sha2::{Digest, Sha256};
 
 /// Returns the page hash of `html` for `schemas` (see [`hash_extractions`]), parsing the page
-/// and extracting it silently, so it adds no log line to a scrape.
+/// and extracting it silently: the hash a scrape stores, for tests to compare with.
+#[cfg(test)]
 pub(crate) fn hash_page(html: &str, schemas: &[ProductCssSelectorSchema]) -> String {
     let document = scraper::Html::parse_document(html);
     let extractions = schemas
         .iter()
         .map(|schema| {
             schema
-                .extract(&document, ExtractionLogging::Silent)
+                .extract(
+                    &document,
+                    crate::scraper::css_selector::product_schema::ExtractionLogging::Silent,
+                )
                 .map(|extraction| extraction.raw)
                 .ok()
         })

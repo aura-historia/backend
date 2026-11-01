@@ -384,8 +384,8 @@ fn keep_first_occurrences(values: Vec<String>) -> Vec<String> {
 /// Whether an extraction logs its diagnostics, the optional-field misses it tolerates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExtractionLogging {
-    /// Logs each miss at its field's [`OptionalMissLog`] level, as schema authoring and
-    /// the schema review matrix do.
+    /// Logs each miss at its field's [`OptionalMissLog`] level as it happens, as every
+    /// extraction outside a scrape's cached-schema pass does.
     Log,
     /// Logs nothing and keeps the misses on the extraction instead, for a scrape, which
     /// extracts a page before it knows whether the page changed: an unchanged page would

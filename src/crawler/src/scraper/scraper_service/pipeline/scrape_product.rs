@@ -18,7 +18,7 @@ use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
-    EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
+    EXTRACTOR_VERSION, fingerprint_scraper_context, hash_extractions,
 };
 use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
@@ -473,17 +473,17 @@ fn capture_selection(
     extracted: ExtractedSchemaSet,
     selection: SelectedSchemaCandidate,
 ) -> Result<ScrapedProduct, ScraperError> {
-    // The set with a fresh schema appended was never extracted as a whole, so its page hash
-    // parses the page once more; schema authoring dominates that path anyway.
-    let (schemas, hash) = if selection.fresh_schema {
-        let mut schemas = extracted.into_schemas().product_schemas;
+    // A fresh schema's raw values are its extraction of this page, so the set with it appended
+    // hashes without another parse.
+    let hash = hash_extractions(
+        extracted
+            .extraction_outcomes()
+            .chain(selection.fresh_schema.then_some(Some(&selection.raw))),
+    );
+    let mut schemas = extracted.into_schemas().product_schemas;
+    if selection.fresh_schema {
         schemas.push(selection.schema.clone());
-        let hash = hash_page(&page.html, &schemas);
-        (schemas, hash)
-    } else {
-        let hash = extracted.page_hash();
-        (extracted.into_schemas().product_schemas, hash)
-    };
+    }
     let schema_fingerprint =
         fingerprint_scraper_context(EXTRACTOR_VERSION, &schemas, request.fallback_currency)
             .map_err(ScraperError::SchemaFingerprint)?;
