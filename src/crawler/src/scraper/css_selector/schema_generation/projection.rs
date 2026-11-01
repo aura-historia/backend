@@ -336,12 +336,15 @@ fn projected_attr_value(name: &str, value: &str) -> String {
     }
 }
 
-/// A `srcset` of several candidates as its largest candidate, verbatim, and the number of the
-/// others. Image extraction reads the whole attribute and picks the same candidate: the widest
-/// by its `w` descriptor, the last of equally wide ones. Its URL is a substring of the page's
-/// attribute, so a selector such as `img[srcset*="…"]` written from the projection matches the
-/// page.
+/// A `srcset` of several candidates as its widest candidate by the `w` descriptor, the last of
+/// equally wide ones, verbatim, and the number of the others: the candidate image extraction
+/// picks from a `srcset`. Its URL is a substring of the page's attribute, so a selector such as
+/// `img[srcset*="…"]` written from the projection matches the page. A `data:` URI, a lazy
+/// loader's placeholder, is no candidate list: its commas belong to the URI.
 fn condensed_srcset(value: &str) -> String {
+    if is_data_uri(value) {
+        return truncate_chars(value.trim(), DSL_ATTR_LIMIT);
+    }
     let candidates = value
         .split(',')
         .map(str::trim)
@@ -358,6 +361,13 @@ fn condensed_srcset(value: &str) -> String {
         0 => largest,
         others => format!("{largest} (+{others} more srcset candidates)"),
     }
+}
+
+fn is_data_uri(value: &str) -> bool {
+    value
+        .trim_start()
+        .get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
 }
 
 fn srcset_candidate_width(candidate: &str) -> usize {
@@ -495,6 +505,10 @@ mod tests {
         "/p.jpg 1x, /p@2x.jpg 2x",
         "/p@2x.jpg 2x (+1 more srcset candidates)"
     )]
+    #[case::data_uri_placeholder_kept_whole(
+        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+    )]
     #[case::single_candidate_unchanged("/image/abc 1200w", "/image/abc 1200w")]
     #[case::empty_candidates_ignored(
         " , /a.jpg 100w,, /b.jpg 200w ,",
@@ -606,6 +620,10 @@ mod tests {
         let dsl = html_to_schema_prompt_dsl(&html);
 
         assert!(dsl.chars().count() <= DSL_CHAR_BUDGET);
+        assert!(
+            dsl.contains("omitted_nodes:"),
+            "the page exceeds the budget"
+        );
         for product_content in [
             "Borghese Vase",
             "€11.327,95",
