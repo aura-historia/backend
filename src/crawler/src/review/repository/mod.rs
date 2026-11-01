@@ -16,7 +16,6 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
 use crate::spider::classification::url_classifier::UrlClassifier;
-use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -26,7 +25,7 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::time::Duration;
 use time::OffsetDateTime;
-use tracing::{error, info};
+use tracing::info;
 use url::Url;
 
 mod live_matrix;
@@ -40,6 +39,7 @@ mod reviewer_page_url;
 mod revocation;
 mod sample_labels;
 mod schema_payload;
+mod url_pattern_sample;
 mod verdicts;
 
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
@@ -47,6 +47,7 @@ pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
+pub use schema_payload::ProductSchemaCandidateFailure;
 pub use verdicts::Approval;
 
 use review_events::{
@@ -59,6 +60,9 @@ use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentia
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, holds_live_schemas,
     update_schema_field_payload, validate_product_schemas,
+};
+use url_pattern_sample::{
+    CandidateClassification, candidate_product_count, pattern_takes, reclassify_sample,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -126,8 +130,13 @@ pub enum ReviewRepositoryError {
         "a candidate edit keeps the sample labels; change them with POST /api/reviews/{{id}}/sample-labels"
     )]
     SampleLabelsChangedThroughCandidate,
+    /// The schemas a new review is created from fail validation.
     #[error("invalid ProductSchema review candidate")]
     InvalidProductSchemaCandidate,
+    /// A review's candidate, as an edit or approval reads it, fails validation; the failure names
+    /// what to repair.
+    #[error("invalid ProductSchema review candidate: {0}")]
+    RefusedProductSchemaCandidate(#[from] ProductSchemaCandidateFailure),
     #[error("invalid removed-page template {index}: {reason}")]
     InvalidRemovedPageTemplate { index: usize, reason: String },
     #[error(
@@ -685,20 +694,15 @@ impl CrawlerReviewRepository {
         urls: &[String],
         current_pattern: Option<&Regex>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        let candidate_regex = match &decision {
-            UrlPatternDecision::Pattern { value } => Some(
-                Regex::new(value).map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?,
-            ),
-            UrlPatternDecision::NoPattern | UrlPatternDecision::Undecided => None,
-        };
+        let candidate_regex = decision
+            .candidate_regex()
+            .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
         let candidate_pattern = candidate_regex.as_ref();
         let candidate_payload =
             serde_json::to_value(UrlPatternReviewCandidate::new(decision, current_pattern))?;
         let validation_summary = json!({
             "sample_count": urls.len(),
-            "candidate_product_count": candidate_pattern
-                .map(|pattern| urls.iter().filter(|url| pattern_takes(pattern, url)).count())
-                .unwrap_or(0),
+            "candidate_product_count": candidate_product_count(urls, candidate_pattern),
         });
         let mut transaction = self.pool.begin().await?;
         let domain_owned = sqlx::query_scalar::<_, bool>(
@@ -746,12 +750,8 @@ impl CrawlerReviewRepository {
         if is_new {
             for raw_url in urls {
                 let current_match = current_pattern.map(|pattern| pattern_takes(pattern, raw_url));
-                let candidate_match =
-                    candidate_pattern.map(|pattern| pattern_takes(pattern, raw_url));
-                let candidate_class = self
-                    .url_classifier
-                    .classify(raw_url, candidate_pattern)
-                    .to_string();
+                let candidate =
+                    CandidateClassification::of(self.url_classifier, raw_url, candidate_pattern);
                 let review_url_id = CrawlerReviewUrlId::new();
                 sqlx::query(
                     "INSERT INTO crawler_review_urls (
@@ -762,8 +762,8 @@ impl CrawlerReviewRepository {
                 .bind(review_id.as_uuid())
                 .bind(raw_url)
                 .bind(current_match)
-                .bind(candidate_match)
-                .bind(candidate_class)
+                .bind(candidate.pattern_match)
+                .bind(candidate.class)
                 .execute(&mut *transaction)
                 .await?;
             }
@@ -812,7 +812,9 @@ impl CrawlerReviewRepository {
             status,
             notes,
         } = input;
-        validate_product_schemas(schemas)?;
+        // Schema generation classifies this refusal as an invalid generated schema by its variant.
+        validate_product_schemas(schemas)
+            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
         // The candidate starts from the stored removed-page templates, so the reviewer edits the
         // live list; the base records what was read for approval to rebase onto. Reading without
         // a lock keeps the lock order of approval, which locks the review first.
@@ -1104,10 +1106,18 @@ impl CrawlerReviewRepository {
 
         if status == STATUS_PENDING_REVIEW {
             let (candidate_payload, removed_page_schemas_changed) = match artifact_type.as_str() {
-                ARTIFACT_URL_PATTERN => (
-                    url_pattern_candidate_edit(candidate_payload, &stored_candidate_payload)?,
-                    false,
-                ),
+                ARTIFACT_URL_PATTERN => {
+                    let (candidate, candidate_pattern) =
+                        url_pattern_candidate_edit(candidate_payload, &stored_candidate_payload)?;
+                    reclassify_sample(
+                        &mut transaction,
+                        review_id,
+                        self.url_classifier,
+                        candidate_pattern.as_ref(),
+                    )
+                    .await?;
+                    (serde_json::to_value(candidate)?, false)
+                }
                 ARTIFACT_PRODUCT_SCHEMA => {
                     let edit = ProductSchemaCandidateEdit::parse(&candidate_payload)?;
                     let current =
@@ -1266,14 +1276,15 @@ impl CrawlerReviewRepository {
 /// Why the persisted candidate of `review` fails the validation approving it applies, for a
 /// review whose candidate can still change: a pending review, or the approved review whose
 /// candidate is live. The review still reads, so the reviewer sees the candidate and the reason
-/// next to it and can repair it; approval keeps refusing it. Such a candidate is invalid persisted
-/// state, so it is logged at ERROR without the candidate itself. A decided review's candidate is a
-/// record of what was decided and is not judged by today's validation.
+/// next to it and can repair it; approval keeps refusing it. The review API logs such invalid
+/// persisted state at ERROR once per load of the review detail, not on every internal read. A
+/// decided review's candidate is a record of what was decided and is not judged by today's
+/// validation.
 fn changeable_candidate_error(review: &CrawlerReview, candidate_is_live: bool) -> Option<String> {
     if review.status != STATUS_PENDING_REVIEW && !candidate_is_live {
         return None;
     }
-    let failure = match review.artifact_type.as_str() {
+    match review.artifact_type.as_str() {
         ARTIFACT_PRODUCT_SCHEMA => {
             ProductSchemaReviewCandidate::validation_failure(&review.candidate_payload)
         }
@@ -1281,30 +1292,27 @@ fn changeable_candidate_error(review: &CrawlerReview, candidate_is_live: bool) -
             UrlPatternReviewCandidate::validation_failure(&review.candidate_payload)
         }
         _ => None,
-    }?;
-    error!(
-        review_id = %review.review_id,
-        artifact_type = %review.artifact_type,
-        status = %review.status,
-        failure = %failure,
-        "Persisted review candidate fails validation"
-    );
-    Some(failure)
+    }
 }
 
-/// The URL-pattern candidate a whole-candidate edit with `posted` stores in place of `stored`: the
-/// posted decision, decoded with unknown keys refused and serialized again, with the stored sample
-/// labels, which change only through the sample labels. A posted candidate that names other labels
-/// is refused rather than silently losing them; one that names none keeps the stored ones. A
-/// stored candidate that no longer decodes keeps no labels, so an edit can still repair it.
+/// The URL-pattern candidate a whole-candidate edit with `posted` stores in place of `stored`, and
+/// the regex of its decision: the posted decision, decoded with unknown keys refused and refused
+/// when undecided or no regex, with the stored sample labels, which change only through the sample
+/// labels. A posted candidate that names other labels is refused rather than silently losing
+/// them; one that names none keeps the stored ones. A stored candidate that no longer decodes
+/// keeps no labels, so an edit can still repair it.
 fn url_pattern_candidate_edit(
     posted: serde_json::Value,
     stored: &serde_json::Value,
-) -> Result<serde_json::Value, ReviewRepositoryError> {
+) -> Result<(UrlPatternReviewCandidate, Option<Regex>), ReviewRepositoryError> {
     let candidate = UrlPatternReviewCandidate::decode_edit(posted)
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    candidate
-        .validated_pattern()
+    if candidate.decision == UrlPatternDecision::Undecided {
+        return Err(ReviewRepositoryError::InvalidUrlPatternCandidate);
+    }
+    let pattern = candidate
+        .decision
+        .candidate_regex()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let stored_labels = serde_json::from_value::<UrlPatternReviewCandidate>(stored.clone())
         .ok()
@@ -1316,9 +1324,7 @@ fn url_pattern_candidate_edit(
     {
         return Err(ReviewRepositoryError::SampleLabelsChangedThroughCandidate);
     }
-    Ok(serde_json::to_value(
-        candidate.with_sample_labels(stored_labels),
-    )?)
+    Ok((candidate.with_sample_labels(stored_labels), pattern))
 }
 
 /// Locks and reads the ListingSource's live product schemas for the rest of the transaction.
@@ -1777,12 +1783,6 @@ fn row_to_repair_request(
             "a review's repair request must record both its time and its note".into(),
         )),
     }
-}
-
-/// Whether `pattern` takes the stored URL `raw_url` as the spider matches it, with or without its
-/// trailing slash.
-fn pattern_takes(pattern: &Regex, raw_url: &str) -> bool {
-    CrawledUrl::try_from(raw_url).is_ok_and(|url| url.matches_pattern(pattern))
 }
 
 fn row_to_page(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewPage, sqlx::Error> {
