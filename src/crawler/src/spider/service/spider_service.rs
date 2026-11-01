@@ -13,9 +13,10 @@ use crate::spider::classification::url_metadata_repository::{
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
+use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlStopReason, CrawledPage, Spider,
-    SpiderDiscoveryError,
+    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace, CrawlStopReason, CrawledPage,
+    Spider, SpiderDiscoveryError,
 };
 use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
@@ -109,6 +110,16 @@ pub enum SpiderServiceError {
         completion: CrawlCompletion,
     },
 
+    /// The run failed after a shop's rate-limit answer had stopped its crawl.
+    /// The scheduler honours the answer whatever the failure; `failure` keeps
+    /// its own kind and evidence.
+    #[error("spider run failed after a rate-limit answer ({}) stopped its crawl", rate_limit.status)]
+    RateLimitedCrawl {
+        rate_limit: RateLimitSignal,
+        #[source]
+        failure: Box<SpiderServiceError>,
+    },
+
     /// The crawl delivered pages, but the domain's URL classification is
     /// complete without a product pattern, so no page can become a product
     /// URL until an operator decides or resets the pattern.
@@ -120,6 +131,25 @@ pub enum SpiderServiceError {
         total_links: usize,
         completion: CrawlCompletion,
     },
+}
+
+impl SpiderServiceError {
+    /// The failure itself, without the rate-limit answer that stopped the
+    /// crawl before it.
+    pub fn cause(&self) -> &SpiderServiceError {
+        match self {
+            SpiderServiceError::RateLimitedCrawl { failure, .. } => failure.cause(),
+            failure => failure,
+        }
+    }
+
+    /// The rate-limit answer that stopped the failed run's crawl, when one did.
+    pub fn rate_limit(&self) -> Option<RateLimitSignal> {
+        match self {
+            SpiderServiceError::RateLimitedCrawl { rate_limit, .. } => Some(*rate_limit),
+            _ => None,
+        }
+    }
 }
 
 impl Default for SpiderServiceConfig {
@@ -142,6 +172,7 @@ pub trait SpiderService: Send + Sync {
         domain_id: &CrawlerDomainId,
         _crawl_root_url: &str,
         classify_threshold: usize,
+        pace: CrawlPace,
     ) -> Result<SpiderRunResult, SpiderServiceError>;
 }
 
@@ -558,6 +589,7 @@ impl SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         classify_threshold: usize,
+        pace: CrawlPace,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let configured_root = Url::parse(crawl_root_url).map_err(|_| {
             SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
@@ -566,7 +598,7 @@ impl SpiderServiceImpl {
                 source: None,
             })
         })?;
-        let crawl = self.spider.crawl(crawl_root_url).await?;
+        let crawl = self.spider.crawl(crawl_root_url, pace).await?;
         let consumed = self
             .consume_pages(
                 crawl.pages,
@@ -591,11 +623,37 @@ impl SpiderServiceImpl {
                 diagnostic_reason: Some("crawl_diagnostics_missing".to_string()),
                 ..CrawlDiagnostics::default()
             });
+        let rate_limit = diagnostics.completion.rate_limit();
+        self.finish_crawl(
+            consumed,
+            &diagnostics,
+            listing_source_id,
+            domain_id,
+            crawl_root_url,
+        )
+        .await
+        .map_err(|error| match rate_limit {
+            Some(rate_limit) => SpiderServiceError::RateLimitedCrawl {
+                rate_limit,
+                failure: Box::new(error),
+            },
+            None => error,
+        })
+    }
+
+    /// Classifies, stores and judges what the ended crawl delivered.
+    async fn finish_crawl(
+        &self,
+        consumed: Result<CrawlRunState, SpiderServiceError>,
+        diagnostics: &CrawlDiagnostics,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
+    ) -> Result<SpiderRunResult, SpiderServiceError> {
         let mut state =
-            consumed.inspect_err(|error| log_crawl_stopped_early(&diagnostics, error))?;
-        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, &diagnostics)
-        {
-            log_crawl_stopped_early(&diagnostics, &error);
+            consumed.inspect_err(|error| log_crawl_stopped_early(diagnostics, error))?;
+        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, diagnostics) {
+            log_crawl_stopped_early(diagnostics, &error);
             return Err(error);
         }
 
@@ -635,7 +693,7 @@ impl SpiderServiceImpl {
                 .await;
         }
 
-        log_crawl_outcome(&state, &diagnostics, product_pattern.as_deref());
+        log_crawl_outcome(&state, diagnostics, product_pattern.as_deref());
 
         Ok(SpiderRunResult {
             total_links: state.total_crawled,
@@ -656,7 +714,8 @@ impl SpiderService for SpiderServiceImpl {
             listing_source_id = %listing_source_id,
             domain_id = %domain_id,
             crawl_root_url = %crawl_root_url,
-            classify_threshold
+            classify_threshold,
+            pace = ?pace
         )
     )]
     async fn run(
@@ -665,6 +724,7 @@ impl SpiderService for SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         classify_threshold: usize,
+        pace: CrawlPace,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
 
@@ -673,6 +733,7 @@ impl SpiderService for SpiderServiceImpl {
             domain_id,
             crawl_root_url,
             classify_threshold,
+            pace,
         )
         .await
     }
@@ -736,6 +797,7 @@ fn log_crawl_outcome(
         rejected_duplicate = diagnostics.rejected_duplicate,
         robots_policy = ?diagnostics.robots_policy,
         robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
+        request_delay_ms = diagnostics.request_delay_ms,
         robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
         lagged = diagnostics.lagged,
         initial_anti_bot = ?diagnostics.initial_anti_bot,
@@ -777,14 +839,17 @@ fn crawl_outcome_message(
         (_, true) => "Crawl waiting for URL pattern review, keeping discovered URLs",
         (CrawlCompletion::Completed, false) => "Crawl completed",
         (CrawlCompletion::PageBudgetReached, false) => "Crawl completed at page budget",
+        (CrawlCompletion::RateLimited(_), false) => {
+            "Crawl rate-limited: stopped early on a rate-limit answer, keeping discovered URLs"
+        }
         (CrawlCompletion::HardTimeoutTruncated, false) => match stopped_early {
-            Some(CrawlStopReason::RateLimited) => {
-                "Crawl truncated: stopped early on a rate-limit answer, keeping discovered URLs"
-            }
             Some(CrawlStopReason::RunEnded) => {
                 "Crawl truncated: stopped early because the run ended, keeping discovered URLs"
             }
-            None => "Crawl truncated by hard timeout, keeping discovered URLs",
+            // A rate-limit stop ends the crawl as rate-limited instead.
+            Some(CrawlStopReason::RateLimited) | None => {
+                "Crawl truncated by hard timeout, keeping discovered URLs"
+            }
         },
     }
 }
@@ -889,8 +954,11 @@ mod service_tests {
     {
         let paths: Vec<String> = paths.into_iter().map(Into::into).collect();
         mock.expect_crawl()
-            .with(mockall::predicate::eq(crawl_root_url))
-            .returning(move |_| {
+            .with(
+                mockall::predicate::eq(crawl_root_url),
+                mockall::predicate::eq(CrawlPace::default()),
+            )
+            .returning(move |_, _| {
                 let paths = paths.clone();
                 let diagnostics = diagnostics.clone();
                 let (tx, rx) = mpsc::channel(25);
@@ -964,7 +1032,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
@@ -1023,7 +1097,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
@@ -1098,7 +1178,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
@@ -1157,7 +1243,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
@@ -1201,7 +1293,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
@@ -1280,7 +1378,13 @@ mod service_tests {
         );
 
         let run = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await;
 
         (run, stored)
@@ -1375,7 +1479,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1427,7 +1537,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1478,20 +1594,42 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
         assert_eq!(run_result.completion, CrawlCompletion::PageBudgetReached);
     }
 
+    fn rate_limited_completion() -> CrawlCompletion {
+        CrawlCompletion::RateLimited(RateLimitSignal {
+            status: 429,
+            retry_after: None,
+        })
+    }
+
+    #[test]
+    fn should_log_rate_limited_run_as_rate_limited_not_as_hard_timeout() {
+        let message = crawl_outcome_message(
+            rate_limited_completion(),
+            Some(CrawlStopReason::RateLimited),
+            false,
+        );
+
+        assert!(message.contains("rate-limit"), "{message}");
+        assert!(!message.contains("hard timeout"), "{message}");
+        assert!(!message.contains("completed"), "{message}");
+    }
+
     #[test]
     fn should_never_log_hard_timeout_run_as_completed() {
-        for stopped_early in [
-            None,
-            Some(CrawlStopReason::RateLimited),
-            Some(CrawlStopReason::RunEnded),
-        ] {
+        for stopped_early in [None, Some(CrawlStopReason::RunEnded)] {
             let message =
                 crawl_outcome_message(CrawlCompletion::HardTimeoutTruncated, stopped_early, false);
 
@@ -1507,6 +1645,7 @@ mod service_tests {
             CrawlCompletion::Completed,
             CrawlCompletion::PageBudgetReached,
             CrawlCompletion::HardTimeoutTruncated,
+            rate_limited_completion(),
         ] {
             for awaiting_review in [false, true] {
                 let message = crawl_outcome_message(completion, None, awaiting_review);
@@ -1531,7 +1670,7 @@ mod service_tests {
         let library_stopped = Arc::new(AtomicBool::new(false));
 
         let stopped = Arc::clone(&library_stopped);
-        mock_spider.expect_crawl().times(1).returning(move |_| {
+        mock_spider.expect_crawl().times(1).returning(move |_, _| {
             let (tx, rx) = mpsc::channel(25);
             let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
             let stopped = Arc::clone(&stopped);
@@ -1581,7 +1720,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(
@@ -1635,7 +1780,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
@@ -1682,7 +1833,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
@@ -1718,7 +1875,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                400,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
         assert_eq!(run_result.product_urls_count, 20);
@@ -1763,7 +1926,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                400,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
         assert_eq!(run_result.total_links, 25);
@@ -1805,7 +1974,13 @@ mod service_tests {
         );
 
         service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                400,
+                CrawlPace::default(),
+            )
             .await
             .unwrap()
     }
@@ -1843,8 +2018,11 @@ mod service_tests {
 
         mock_spider
             .expect_crawl()
-            .with(mockall::predicate::eq(crawl_root_url))
-            .returning(|_| {
+            .with(
+                mockall::predicate::eq(crawl_root_url),
+                mockall::predicate::eq(CrawlPace::default()),
+            )
+            .returning(|_, _| {
                 let (_tx, rx) = mpsc::channel(10);
                 let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
                 diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
@@ -1873,7 +2051,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1916,7 +2100,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1962,7 +2152,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1974,6 +2170,64 @@ mod service_tests {
                 min_sample_size: 20,
             }) if url == crawl_root_url
         ));
+    }
+
+    #[tokio::test]
+    async fn should_carry_the_rate_limit_answer_on_a_failure_after_a_rate_limited_crawl() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let crawl_root_url = "https://example.com";
+        let rate_limit = RateLimitSignal {
+            status: 429,
+            retry_after: Some(std::time::Duration::from_secs(600)),
+        };
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            crawl_root_url,
+            vec!["/"],
+            CrawlDiagnostics {
+                failure_kind: Some(CrawlFailureKind::RateLimited),
+                completion: CrawlCompletion::RateLimited(rate_limit),
+                rate_limit: Some(rate_limit),
+                ..CrawlDiagnostics::default()
+            },
+        );
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo.expect_upsert_links_batch().times(0);
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let error = service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.rate_limit(), Some(rate_limit), "{error:?}");
+        assert!(
+            matches!(
+                error.cause(),
+                SpiderServiceError::CrawlFailed {
+                    kind: CrawlFailureKind::RateLimited,
+                    total_links: 1,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
     }
 
     #[tokio::test]
@@ -2016,7 +2270,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2068,7 +2328,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2119,7 +2385,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2156,7 +2428,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2234,7 +2512,13 @@ mod service_tests {
         );
 
         service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap_or_else(|error| panic!("crawl: {error}"));
 

@@ -205,7 +205,15 @@ mod tests {
         let first = RunnerLock::acquire(directory.path()).unwrap_or_else(|e| panic!("{e}"));
         let second = RunnerLock::acquire(directory.path()).unwrap_or_else(|e| panic!("{e}"));
         drop(first);
-        let third = RunnerLock::acquire(directory.path()).unwrap_or_else(|e| panic!("{e}"));
+        // A child another test thread forks while `first` is open holds a copy of its descriptor,
+        // and with it the lock, until it execs, so the release can take a moment to show.
+        let third = (0..250).find_map(|_| {
+            let lock = RunnerLock::acquire(directory.path()).unwrap_or_else(|e| panic!("{e}"));
+            if lock.is_none() {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            lock
+        });
 
         assert!(second.is_none());
         assert!(third.is_some());

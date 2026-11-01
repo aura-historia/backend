@@ -1,3 +1,7 @@
+use std::sync::LazyLock;
+
+use regex::Regex;
+
 use crate::review::model::CrawlerReviewPage;
 
 pub const INDEX_HTML: &str = include_str!("ui/index.html");
@@ -15,21 +19,19 @@ pub fn instrument_review_page(page: &CrawlerReviewPage, html: &str) -> String {
 }
 
 pub fn instrument_live_html(base_url: &str, html: &str) -> String {
-    let raw_html = expose_noscript_fallbacks(&disable_existing_scripts(html));
+    let raw_html =
+        expose_noscript_fallbacks(&disable_page_directives(&disable_existing_scripts(html)));
     let base = format!(
         r#"<base href="{}"><style>{}</style>"#,
         escape_html_attr(base_url),
         INSPECTOR_CSS
     );
+    // The preview policy admits this script by the hash of `INSPECTOR_JS`, so the element
+    // must hold exactly that text.
     let script = format!("<script>{INSPECTOR_JS}</script>");
 
-    let with_head = if raw_html.contains("<head>") {
-        raw_html.replacen("<head>", &format!("<head>{base}"), 1)
-    } else if raw_html.contains("<HEAD>") {
-        raw_html.replacen("<HEAD>", &format!("<HEAD>{base}"), 1)
-    } else {
-        format!("{base}{raw_html}")
-    };
+    let head_end = head_insert_position(&raw_html);
+    let with_head = format!("{}{base}{}", &raw_html[..head_end], &raw_html[head_end..]);
 
     if with_head.contains("</body>") {
         with_head.replacen("</body>", &format!("{script}</body>"), 1)
@@ -40,11 +42,52 @@ pub fn instrument_live_html(base_url: &str, html: &str) -> String {
     }
 }
 
+/// Where the injected `<base>` goes: right after the opening `<head>` tag, with or without
+/// attributes, else after `<html>`, else after the doctype. Text before a doctype would
+/// put the page into quirks mode and change its layout.
+fn head_insert_position(html: &str) -> usize {
+    let lower = html.to_ascii_lowercase();
+    ["<head", "<html", "<!doctype"]
+        .into_iter()
+        .find_map(|tag| after_opening_tag(&lower, tag))
+        .unwrap_or(0)
+}
+
+fn after_opening_tag(lower_html: &str, tag: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(found) = lower_html[from..].find(tag) {
+        let name_end = from + found + tag.len();
+        match lower_html.as_bytes().get(name_end) {
+            Some(&byte) if byte == b'>' || byte == b'/' || byte.is_ascii_whitespace() => {
+                return Some(name_end + lower_html[name_end..].find('>')? + 1);
+            }
+            _ => from = name_end,
+        }
+    }
+    None
+}
+
 fn expose_noscript_fallbacks(html: &str) -> String {
     html.replace("<noscript", r#"<div data-crawler-review-noscript="true""#)
         .replace("<NOSCRIPT", r#"<DIV data-crawler-review-noscript="true""#)
         .replace("</noscript>", "</div>")
         .replace("</NOSCRIPT>", "</DIV>")
+}
+
+/// Renames the attributes through which a page could act beyond its own rendering: a
+/// `<meta http-equiv>` refresh would navigate the preview frame to the live shop page, out of
+/// the preview policy, and a `<meta name="referrer">` or `referrerpolicy` attribute would
+/// override the preview's `no-referrer`.
+fn disable_page_directives(html: &str) -> String {
+    static DIRECTIVES: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r#"(?i)(<[a-z][^<>]*?\s)(http-equiv|referrerpolicy|name\s*=\s*["']?\s*referrer\b)"#,
+        )
+        .unwrap_or_else(|error| panic!("{error}"))
+    });
+    DIRECTIVES
+        .replace_all(html, "${1}data-crawler-review-disabled-$2")
+        .into_owned()
 }
 
 fn disable_existing_scripts(html: &str) -> String {
@@ -68,7 +111,7 @@ fn escape_html_attr(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::APP_JS;
+    use super::{APP_JS, INSPECTOR_JS, instrument_live_html};
     use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck, PlausibilityCheck};
 
     fn code(check: impl serde::Serialize) -> String {
@@ -113,6 +156,73 @@ mod tests {
             console_descriptions.matches(": '").count(),
             checks.len(),
             "app.js describes a check code the crawler does not report"
+        );
+    }
+
+    const BASE: &str = r#"<base href="https://shop.example/p?a=1&amp;b=2">"#;
+
+    #[test]
+    fn should_inject_the_base_right_after_a_head_tag_with_attributes() {
+        let html = r#"<!DOCTYPE html><html lang="de"><HEAD prefix="og: x"><title>T</title></HEAD><header></header><body></body></html>"#;
+
+        let preview = instrument_live_html("https://shop.example/p?a=1&b=2", html);
+
+        assert!(preview.starts_with(&format!(
+            r#"<!DOCTYPE html><html lang="de"><HEAD prefix="og: x">{BASE}<style>"#
+        )));
+        assert_eq!(preview.matches("<base ").count(), 1);
+    }
+
+    #[test]
+    fn should_keep_the_doctype_first_when_the_page_has_no_head() {
+        let doctype_only =
+            instrument_live_html("https://shop.example/p?a=1&b=2", "<!doctype html><p>x</p>");
+        let fragment = instrument_live_html("https://shop.example/p?a=1&b=2", "<p>x</p>");
+
+        assert!(doctype_only.starts_with(&format!("<!doctype html>{BASE}")));
+        assert!(fragment.starts_with(BASE));
+    }
+
+    /// The preview policy admits the inspector by the hash of `INSPECTOR_JS`, so the injected
+    /// element must hold exactly that text, and shop scripts must be inert.
+    #[test]
+    fn should_inject_the_inspector_verbatim_and_disable_shop_scripts() {
+        let preview = instrument_live_html(
+            "https://shop.example/",
+            "<html><head></head><body><script src=\"/a.js\"></script></body></html>",
+        );
+
+        assert!(preview.contains(&format!("<script>{INSPECTOR_JS}</script></body>")));
+        assert!(preview.contains(
+            r#"<script type="text/plain" data-crawler-review-disabled="true" src="/a.js">"#
+        ));
+    }
+
+    #[test]
+    fn should_not_take_a_header_element_for_the_head() {
+        let preview = instrument_live_html(
+            "https://shop.example/p?a=1&b=2",
+            "<html><body><header>h</header></body></html>",
+        );
+
+        assert!(preview.starts_with(&format!("<html>{BASE}<style>")));
+    }
+
+    /// A refresh would navigate the preview frame to the live page, outside the preview
+    /// policy; a referrer directive would override its `no-referrer`.
+    #[test]
+    fn should_disable_refresh_and_referrer_directives_of_the_shop_page() {
+        let preview = instrument_live_html(
+            "https://shop.example/",
+            r#"<head><META HTTP-EQUIV="refresh" content="0;url=https://shop.example/x"><meta name="referrer" content="unsafe-url"><meta name="description" content="d"></head><body><p>the http-equiv name=referrer text</p><img referrerPolicy="unsafe-url" src="a.png"></body>"#,
+        );
+
+        assert!(preview.contains(r#"<META data-crawler-review-disabled-HTTP-EQUIV="refresh""#));
+        assert!(preview.contains(r#"<meta data-crawler-review-disabled-name="referrer""#));
+        assert!(preview.contains(r#"<meta name="description""#));
+        assert!(preview.contains("<p>the http-equiv name=referrer text</p>"));
+        assert!(
+            preview.contains(r#"<img data-crawler-review-disabled-referrerPolicy="unsafe-url""#)
         );
     }
 }

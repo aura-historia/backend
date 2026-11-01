@@ -9,8 +9,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use url::Url;
 
-const MIN_LONGEST_SIDE: usize = 400;
-const MIN_SHORTEST_SIDE: usize = 250;
+/// The smallest image capture keeps, about 200×150 in either orientation: small archive photos
+/// such as a 228×200 product shot pass, while icons, badges, logo strips and 150×150 or smaller
+/// thumbnails stay below it. Larger shop resizes, such as a 300×300 catalogue thumbnail, pass, so
+/// the first candidate of a group that clears the floor is kept even when a later one is larger.
+const MIN_LONGEST_SIDE: usize = 200;
+const MIN_SHORTEST_SIDE: usize = 150;
 const IMAGE_PROBE_BYTES: &str = "bytes=0-32767";
 const IMAGE_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 const IMAGE_PROBE_MAX_REDIRECTS: usize = 3;
@@ -365,6 +369,7 @@ async fn read_probe_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, re
 mod tests {
     use super::*;
     use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
+    use rstest::rstest;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct StaticValidator {
@@ -626,7 +631,7 @@ mod tests {
         let base = Url::parse("https://example.com/products/1").unwrap();
         let raw_images = vec![
             format!("/image-100x100.jpg{IMAGE_CANDIDATE_SEPARATOR}/image-800x600.jpg"),
-            "/photo.jpg?width=1000&height=150&mode=max".to_string(),
+            "/photo.jpg?width=1000&height=100&mode=max".to_string(),
             THUMBNAIL_NAMED_UPLOAD.to_string(),
             "//".to_string(),
             "https://example.com/image-800x600.jpg".to_string(),
@@ -683,10 +688,43 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::small_archive_photo(228, 200)]
+    #[case::portrait_archive_photo(200, 228)]
+    #[case::smallest_landscape(200, 150)]
+    #[case::smallest_portrait(150, 200)]
+    fn should_accept_a_small_photo_at_or_above_the_floor(
+        #[case] width: usize,
+        #[case] height: usize,
+    ) {
+        assert_eq!(
+            validation_for_dimensions(width, height),
+            ImageValidation::Valid
+        );
+    }
+
+    #[rstest]
+    #[case::favicon(32, 32)]
+    #[case::icon(64, 64)]
+    #[case::square_thumbnail(150, 150)]
+    #[case::logo_strip(300, 80)]
+    #[case::wide_banner(1000, 120)]
+    #[case::just_below_the_longest_side(199, 150)]
+    #[case::just_below_the_shortest_side(200, 149)]
+    fn should_reject_an_icon_logo_or_thumbnail_below_the_floor(
+        #[case] width: usize,
+        #[case] height: usize,
+    ) {
+        assert_eq!(
+            validation_for_dimensions(width, height),
+            ImageValidation::Invalid
+        );
+    }
+
     #[tokio::test]
     async fn should_still_reject_resize_query_with_a_small_height() {
         let resized =
-            "https://example.com/Object/636610351541085812.jpg?width=1000&height=150&mode=max";
+            "https://example.com/Object/636610351541085812.jpg?width=1000&height=100&mode=max";
         let base = Url::parse("https://example.com/objects/1").unwrap();
         let result = filter_valid_image_urls(
             vec![resized.to_string()],

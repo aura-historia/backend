@@ -9,7 +9,9 @@ use crate::review::candidate_evaluations::CandidateEvaluations;
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
-use crate::review::model::{CrawlerReviewPage, RawAttributeKey, ReviewActor, SampleLabelInput};
+use crate::review::model::{
+    CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
+};
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
@@ -502,7 +504,10 @@ impl ReviewServer {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
             return match self.repository.get_review(review_id).await {
-                Ok(detail) => HttpResponse::json(200, &detail),
+                Ok(detail) => {
+                    log_invalid_candidate(&detail);
+                    HttpResponse::json(200, &detail)
+                }
                 Err(err) => review_error(err),
             };
         }
@@ -1093,6 +1098,7 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// Maps a refused review request to its answer, the same on every review route: 404 for an
 /// unknown review or review page, 400 for a request the review cannot take, 403 with a `reason`
 /// for a change the actor may not make, 409 for a request the review's current state refuses,
+/// a URL-pattern review whose domain is gone among them,
 /// 429 with `Retry-After` once the review agent made its decisions of the hour, and 500 for a
 /// technical failure. A 409 for a request based on an older candidate carries the review's
 /// current `candidate_version`, one for an approval of incomplete coverage, unacknowledged or
@@ -1114,6 +1120,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::UnregisteredRawAttributeKey(_)
         | ReviewRepositoryError::InvalidUrlPatternCandidate
         | ReviewRepositoryError::InvalidProductSchemaCandidate
+        | ReviewRepositoryError::RefusedProductSchemaCandidate(_)
         | ReviewRepositoryError::InvalidRemovedPageTemplate { .. }
         | ReviewRepositoryError::ReviewPageUrlNotAllowed(_)
         | ReviewRepositoryError::TooManyEvaluatedUrls
@@ -1153,7 +1160,9 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::DuplicateReviewPage(_)
         | ReviewRepositoryError::ApprovalAlreadyRestored(_)
         | ReviewRepositoryError::RejectionAlreadyRevoked(_)
-        | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_) => {
+        | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_)
+        | ReviewRepositoryError::UrlPatternReviewWithoutDomain(_)
+        | ReviewRepositoryError::UrlPatternReviewDomainMissing { .. } => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::IncompleteCoverage { coverage, .. }
@@ -1198,6 +1207,21 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::Json(_)
         | ReviewRepositoryError::Regex(_)
         | ReviewRepositoryError::MatrixEvaluationStopped { .. } => internal_error(error),
+    }
+}
+
+/// Logs at ERROR, without the candidate itself, why the loaded review's persisted candidate fails
+/// validation. Only the review detail a reviewer loads logs it; the matrix and other reads of the
+/// same review refuse or flag the candidate without logging it again.
+fn log_invalid_candidate(detail: &ReviewDetail) {
+    if let Some(failure) = &detail.candidate_error {
+        error!(
+            review_id = %detail.review.review_id,
+            artifact_type = %detail.review.artifact_type,
+            status = %detail.review.status,
+            failure = %failure,
+            "Persisted review candidate fails validation"
+        );
     }
 }
 
@@ -1579,13 +1603,29 @@ mod tests {
             .await
             .to_string();
 
+        let live_html = server
+            .route("GET /api/live-html?url=https%3A%2F%2Fexample.com HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+        let page_html = server
+            .route("GET /api/review-pages/not-a-page/html HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+
         assert!(inspection.starts_with("HTTP/1.1 200 OK"));
         for preview in [&inspection, &missing_url, &invalid_page] {
             assert!(preview.contains("Content-Security-Policy: sandbox allow-scripts;"));
+            assert!(preview.contains("img-src https: data:;"));
+            assert!(preview.contains("base-uri https:;"));
             assert!(preview.contains("frame-ancestors 'self'\r\n"));
+            assert!(preview.contains("\r\nReferrer-Policy: no-referrer\r\n"));
         }
-        assert!(!console.contains("sandbox"));
-        assert!(console.contains("frame-ancestors 'none'\r\n"));
+        for strict in [&console, &live_html, &page_html] {
+            assert!(!strict.contains("sandbox"));
+            assert!(strict.contains("default-src 'self';"));
+            assert!(strict.contains("base-uri 'none';"));
+            assert!(strict.contains("frame-ancestors 'none'\r\n"));
+        }
         Ok(())
     }
 
@@ -1968,6 +2008,34 @@ Origin: http://127.0.0.1:7878/x
             json!({ "schemas": [], "removed_page_schemas": [] }),
             "the version is no key of the candidate"
         );
+    }
+
+    /// A URL-pattern review without its domain answers 409 with an error that names the domain,
+    /// never the 404 of an unknown review or the 500 of a database failure.
+    #[test]
+    fn should_answer_a_url_pattern_review_without_its_domain_with_a_conflict_naming_it() {
+        let review_id = CrawlerReviewId::new();
+        let domain_id = CrawlerDomainId::new();
+
+        for (error, named) in [
+            (
+                ReviewRepositoryError::UrlPatternReviewDomainMissing {
+                    review_id,
+                    domain_id,
+                },
+                domain_id.to_string(),
+            ),
+            (
+                ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id),
+                "names no domain".to_owned(),
+            ),
+        ] {
+            let response = review_error(error).to_string();
+
+            assert!(response.starts_with("HTTP/1.1 409 Conflict"), "{response}");
+            assert!(response.contains(&review_id.to_string()), "{response}");
+            assert!(response.contains(&named), "{response}");
+        }
     }
 
     /// The answers a client such as the review agent acts on: a 403 names its `reason`, a guard
@@ -3164,6 +3232,158 @@ Origin: http://127.0.0.1:7878/x
                     .as_str()
                     .is_some_and(|error| error.contains("rawInvented")),
                 "{refused}"
+            );
+        }
+
+        /// A refused schema edit answers 400 with the schema, the field, the selector and why
+        /// the selector is invalid, which the console shows next to the edit.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_name_the_field_selector_and_reason_of_a_refused_schema_edit() {
+            let (server, review_id) = pending_review_server().await;
+            let version = candidate_version(&server, review_id).await;
+
+            let (field_status, field_refusal) = send(
+                &server,
+                &format!("POST /api/reviews/{review_id}/schema-field"),
+                &json!({
+                    "expected_candidate_version": version,
+                    "schema_index": 0,
+                    "field": "price",
+                    "rule": {"selector": "span[", "type": "text"},
+                })
+                .to_string(),
+            )
+            .await;
+            let (candidate_status, candidate_refusal) = send(
+                &server,
+                &format!("POST /api/reviews/{review_id}/candidate"),
+                &json!({
+                    "expected_candidate_version": version,
+                    "schemas": [schema("h1"), schema("h1[")],
+                })
+                .to_string(),
+            )
+            .await;
+
+            for (status, refusal, named) in [
+                (
+                    field_status,
+                    field_refusal,
+                    "schema 0, field `price`: invalid CSS selector `span[`: ",
+                ),
+                (
+                    candidate_status,
+                    candidate_refusal,
+                    "schema 1, field `title`: invalid CSS selector `h1[`: ",
+                ),
+            ] {
+                assert!(status.starts_with("HTTP/1.1 400"), "{status} {refusal}");
+                assert!(
+                    refusal["error"].as_str().is_some_and(|error| error
+                        .starts_with(&format!("invalid ProductSchema review candidate: {named}"))
+                        && error.len()
+                            > "invalid ProductSchema review candidate: ".len() + named.len()),
+                    "{refusal}"
+                );
+            }
+        }
+
+        /// The answer to a matrix refresh of `review_id` once it is no longer running.
+        async fn refused_matrix_refresh(
+            server: &ReviewServer,
+            review_id: CrawlerReviewId,
+        ) -> (String, serde_json::Value) {
+            let mut answer = send(
+                server,
+                &format!("GET /api/reviews/{review_id}/matrix?refresh=true"),
+                "",
+            )
+            .await;
+            for _ in 0..100 {
+                if !answer.0.starts_with("HTTP/1.1 202") {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                answer = send(server, &format!("GET /api/reviews/{review_id}/matrix"), "").await;
+            }
+            answer
+        }
+
+        /// Counts ERROR events.
+        #[derive(Clone, Default)]
+        struct ErrorEvents(Arc<std::sync::atomic::AtomicUsize>);
+
+        impl ErrorEvents {
+            fn count(&self) -> usize {
+                self.0.load(std::sync::atomic::Ordering::SeqCst)
+            }
+        }
+
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for ErrorEvents {
+            fn on_event(
+                &self,
+                event: &tracing::Event<'_>,
+                _: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                if *event.metadata().level() == tracing::Level::ERROR {
+                    self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+        }
+
+        /// A pending review whose persisted candidate fails validation is logged at ERROR once
+        /// per load of its detail, which shows the failure as `candidate_error`; the matrix read
+        /// and the repository's other reads of the same review log nothing.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_log_an_invalid_persisted_candidate_once_per_detail_load() {
+            use tracing::instrument::WithSubscriber as _;
+            use tracing_subscriber::layer::SubscriberExt as _;
+
+            let (server, review_id) = pending_review_server().await;
+            let mut invalid = schema("h1");
+            invalid.title.selector = "h1[".into();
+            sqlx::query("UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1")
+                .bind(review_id.as_uuid())
+                .bind(json!({ "schemas": [invalid] }))
+                .execute(&test_api::get_postgres_client().await)
+                .await
+                .unwrap_or_else(|error| panic!("store an invalid candidate: {error}"));
+            let errors = ErrorEvents::default();
+            let review = format!("GET /api/reviews/{review_id}");
+            let matrix = format!("GET /api/reviews/{review_id}/matrix");
+
+            let (logged_by_reads, detail, matrix_status, logged_by_detail) = async {
+                server
+                    .repository
+                    .get_review(review_id)
+                    .await
+                    .unwrap_or_else(|error| panic!("read review: {error}"));
+                let (matrix_status, _) = send(&server, &matrix, "").await;
+                let (second_matrix_status, _) = send(&server, &matrix, "").await;
+                assert_eq!(matrix_status, second_matrix_status);
+                let logged_by_reads = errors.count();
+                let (_, detail) = send(&server, &review, "").await;
+                (logged_by_reads, detail, matrix_status, errors.count())
+            }
+            .with_subscriber(tracing_subscriber::registry().with(errors.clone()))
+            .await;
+
+            let refused_refresh = refused_matrix_refresh(&server, review_id).await;
+
+            assert_eq!(logged_by_reads, 0);
+            assert!(matrix_status.starts_with("HTTP/1.1 404"), "{matrix_status}");
+            assert!(
+                refused_refresh.0.starts_with("HTTP/1.1 400")
+                    && refused_refresh.1["error"].as_str().is_some_and(|error| error.starts_with(
+                        "invalid ProductSchema review candidate: schema 0, field `title`: invalid CSS selector `h1[`: "
+                    )),
+                "{refused_refresh:?}"
+            );
+            assert_eq!(logged_by_detail, 1);
+            assert!(
+                detail["candidate_error"].as_str().is_some_and(|error| error
+                    .starts_with("schema 0, field `title`: invalid CSS selector `h1[`: ")),
+                "{detail}"
             );
         }
 

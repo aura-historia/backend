@@ -760,6 +760,11 @@ async fn assert_page_uses_schemas_approved_during_scrape(authoring: CrawlerAutho
         Some(&json!({ "action": "SET", "value": "Biedermeier Chair" }))
     );
     assert_eq!(
+        scraped.hash,
+        hash_page(&sample_html(), &[stale_schema(), minimal_schema()]),
+        "the page is hashed as the approved schemas extract it"
+    );
+    assert_eq!(
         repository
             .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
             .await

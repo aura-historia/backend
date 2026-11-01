@@ -4,6 +4,8 @@
 //! provisions (`docs/crawler/operations.md`, single-server deployment). The fixed local URLs and
 //! the Docker bootstrap below serve only the `dev` entry points, through [`DevDatabase`].
 
+use application::error::error_chain;
+use connect_retry::connect_with_retry;
 use sqlx::AssertSqlSafe;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -12,6 +14,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::time::Duration;
 
+pub mod connect_retry;
 pub mod crawler_domain_configuration_repository;
 
 pub const LOCAL_POSTGRES_HOST: &str = "localhost";
@@ -157,28 +160,20 @@ pub fn start_local_postgres() -> Result<(), String> {
 
 async fn connect_admin_pool_with_retry() -> Result<PgPool, String> {
     let admin_url = database_url(LOCAL_POSTGRES_ADMIN_DB);
-    let mut attempt = 0u32;
-    let mut delay = Duration::from_millis(200);
-
-    loop {
-        attempt += 1;
-        match PgPoolOptions::new()
+    let (pool, _) = connect_with_retry(&admin_url, || {
+        PgPoolOptions::new()
             .max_connections(2)
             .acquire_timeout(Duration::from_secs(5))
             .connect(&admin_url)
-            .await
-        {
-            Ok(pool) => return Ok(pool),
-            Err(e) if attempt < 30 => {
-                tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(Duration::from_secs(3));
-                if attempt >= 29 {
-                    return Err(format!("postgres did not become ready in time: {e}"));
-                }
-            }
-            Err(e) => return Err(format!("failed to connect to postgres admin DB: {e}")),
-        }
-    }
+    })
+    .await
+    .map_err(|error| {
+        error_chain(&error)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(": ")
+    })?;
+    Ok(pool)
 }
 
 async fn create_database_if_missing(pool: &PgPool, db_name: &str) -> Result<(), String> {

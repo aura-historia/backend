@@ -5,8 +5,9 @@ use crawler::scraper::candidate_service::{
     ScraperCandidateService, ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{
-    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
-    SpiderCandidateService, SpiderCandidateServiceImpl, UrlPatternReviewWaitWrite,
+    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, NEEDS_OPERATOR_CRAWL_OUTCOME,
+    RATE_LIMITED_CRAWL_OUTCOME, SpiderCandidateService, SpiderCandidateServiceImpl,
+    UrlPatternReviewWaitWrite,
 };
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -354,7 +355,13 @@ async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::hours(6);
 
     service
-        .mark_crawl_failure(&domain_id, "InsufficientInferenceSample", 3, next_crawl_at)
+        .mark_crawl_failure(
+            &domain_id,
+            "InsufficientInferenceSample",
+            3,
+            None,
+            next_crawl_at,
+        )
         .await
         .unwrap();
 
@@ -403,6 +410,197 @@ async fn crawl_state(pool: &sqlx::PgPool, domain_id: CrawlerDomainId) -> CrawlSt
 // crawl outcomes — truncation keeps failure state, completion clears it
 // ---------------------------------------------------------------------------
 
+async fn due_spider_candidate(
+    pool: &sqlx::PgPool,
+    service: &SpiderCandidateServiceImpl,
+    domain_id: CrawlerDomainId,
+) -> Option<crawler::spider::candidate_service::SpiderCandidate> {
+    sqlx::query(
+        "UPDATE listing_source_domains SET next_crawl_at = NOW() - INTERVAL '1 minute' WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    service
+        .get_candidates(10, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|candidate| candidate.domain_id == domain_id)
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        ListingSourceId::new(),
+        "spider-rate-limited.example.com",
+    )
+    .await;
+    service
+        .mark_crawl_failure(
+            &domain_id,
+            "ConnectError",
+            1,
+            None,
+            time::OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+
+    let not_before = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+    service
+        .mark_crawl_rate_limited(
+            &domain_id,
+            CrawlRateLimitWrite {
+                streak: 2,
+                not_before,
+            },
+        )
+        .await
+        .unwrap();
+
+    let (failure_count, error_kind, stored_next, outcome, truncations, last_crawled) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!(outcome.as_deref(), Some(RATE_LIMITED_CRAWL_OUTCOME));
+    assert_eq!(
+        (failure_count, error_kind.as_deref()),
+        (1, Some("ConnectError"))
+    );
+    assert_eq!(
+        truncations, 0,
+        "a rate-limited crawl is no hard-timeout truncation"
+    );
+    assert!(
+        last_crawled.is_none(),
+        "a rate-limited crawl is not a full crawl"
+    );
+    assert!((stored_next.unwrap() - not_before).whole_seconds().abs() <= 1);
+
+    service
+        .mark_crawl_truncated(&domain_id, 1, time::OffsetDateTime::now_utc())
+        .await
+        .unwrap();
+    assert!(
+        due_spider_candidate(&pool, &service, domain_id)
+            .await
+            .is_none(),
+        "no other crawl-timer write brings the next crawl before the shop's limit"
+    );
+    sqlx::query(
+        "UPDATE listing_source_domains
+         SET crawl_rate_limited_until = NOW() - INTERVAL '1 minute'
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let candidate = due_spider_candidate(&pool, &service, domain_id)
+        .await
+        .expect("a rate-limited domain is due again after its cooldown");
+    assert_eq!(
+        candidate.crawl_rate_limit_streak, 1,
+        "a crawl cut short without a rate limit steps the pace up by one level"
+    );
+
+    service
+        .mark_crawl_failure(
+            &domain_id,
+            "ConnectError",
+            2,
+            None,
+            time::OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+    let candidate = due_spider_candidate(&pool, &service, domain_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        candidate.crawl_rate_limit_streak, 1,
+        "a failure keeps the pace"
+    );
+
+    service
+        .mark_crawl_completed(&domain_id, CrawlCompletion::Completed)
+        .await
+        .unwrap();
+    let candidate = due_spider_candidate(&pool, &service, domain_id)
+        .await
+        .expect("the domain stays selectable in this test, which never marks it crawled");
+    assert_eq!(
+        candidate.crawl_rate_limit_streak, 0,
+        "a full crawl restores the configured pace"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_rate_limit_state_should_survive_a_review_releasing_the_domain() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        ListingSourceId::new(),
+        "spider-rate-limited-review.example.com",
+    )
+    .await;
+    service
+        .mark_crawl_rate_limited(
+            &domain_id,
+            CrawlRateLimitWrite {
+                streak: 1,
+                not_before: time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+            },
+        )
+        .await
+        .unwrap();
+
+    // What a review decision releasing the domain writes.
+    sqlx::query("UPDATE listing_source_domains SET next_crawl_at = NULL WHERE domain_id = $1")
+        .bind(domain_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert!(
+        !service
+            .get_candidates(10, &[])
+            .await
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate.domain_id == domain_id),
+        "the shop's limit still holds the domain back"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_rate_limit_streak_should_reject_a_negative_value() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        ListingSourceId::new(),
+        "spider-rate-limit-check.example.com",
+    )
+    .await;
+
+    let written = service
+        .mark_crawl_rate_limited(
+            &domain_id,
+            CrawlRateLimitWrite {
+                streak: -1,
+                not_before: time::OffsetDateTime::now_utc(),
+            },
+        )
+        .await;
+
+    assert!(written.is_err(), "{written:?}");
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retry() {
     let pool = get_postgres_client().await;
@@ -414,7 +612,7 @@ async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retr
             .await;
     let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
     service
-        .mark_crawl_failure(&domain_id, "RateLimited", 2, past)
+        .mark_crawl_failure(&domain_id, "RateLimited", 2, None, past)
         .await
         .unwrap();
     assert_eq!(
@@ -478,7 +676,7 @@ async fn spider_mark_crawl_completed_should_clear_failure_and_truncation_state()
             .await;
     let future = time::OffsetDateTime::now_utc() + time::Duration::hours(24);
     service
-        .mark_crawl_failure(&domain_id, "ConnectError", 1, future)
+        .mark_crawl_failure(&domain_id, "ConnectError", 1, None, future)
         .await
         .unwrap();
     service
@@ -514,7 +712,7 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
     .await;
     let future = time::OffsetDateTime::now_utc() + time::Duration::hours(6);
     service
-        .mark_crawl_failure(&domain_id, "RateLimited", 2, future)
+        .mark_crawl_failure(&domain_id, "RateLimited", 2, None, future)
         .await
         .unwrap();
 
@@ -562,13 +760,13 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
     let review_id = insert_pending_url_pattern_review(&pool, listing_source_id, domain_id).await;
     let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
     service
-        .mark_crawl_failure(&domain_id, "RateLimited", 2, past)
+        .mark_crawl_failure(&domain_id, "RateLimited", 2, None, past)
         .await
         .unwrap();
 
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::days(7);
     let wait_write = service
-        .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, next_crawl_at)
+        .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, None, next_crawl_at)
         .await
         .unwrap();
 
@@ -625,7 +823,7 @@ async fn spider_should_record_a_url_pattern_review_wait_only_on_a_pending_review
     ] {
         assert_eq!(
             service
-                .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, next_crawl_at)
+                .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, None, next_crawl_at)
                 .await
                 .unwrap(),
             UrlPatternReviewWaitWrite::ReviewNotPending,
@@ -1438,6 +1636,73 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
     .await
     .unwrap();
     assert_eq!(row, (None, None));
+}
+
+/// A removal whose capture commits but whose `mark_removed` write fails leaves the URL as
+/// `forget_capture_before_removal` left it, so the product page that returns unchanged is
+/// extracted and its capture completes against that state.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_forget_capture_before_removal_should_not_leave_the_url_on_the_product_capture() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "scraper-removal-forget.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://scraper-removal-forget.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    let product_capture = raw_input_hash();
+    let product_completion = || {
+        scrape_completion(
+            listing_source_id,
+            url.clone(),
+            (
+                "p".repeat(64),
+                "schema-fingerprint",
+                product_capture.clone(),
+                "SKU-123",
+                CrawlerDisposition::Active,
+                None,
+            ),
+        )
+    };
+    service.mark_as_scraped(product_completion()).await.unwrap();
+
+    assert_eq!(
+        service
+            .forget_capture_before_removal(&listing_source_id, &url, Some(&[1; 32]))
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::NoopStale,
+        "the write is fenced on the capture the removal observed"
+    );
+    assert_eq!(
+        service
+            .forget_capture_before_removal(&listing_source_id, &url, Some(&product_capture))
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    let row: (Option<String>, Option<String>, Option<Vec<u8>>) = sqlx::query_as(
+        "SELECT last_scraped_hash, last_scraped_schema_fingerprint, \
+         last_captured_raw_input_sha256 \
+         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row, (None, None, None));
+    assert_eq!(
+        service.mark_as_scraped(product_completion()).await.unwrap(),
+        CrawlerUrlWriteOutcome::Applied,
+        "the returning page's capture completes against the forgotten state"
+    );
 }
 
 // ---------------------------------------------------------------------------

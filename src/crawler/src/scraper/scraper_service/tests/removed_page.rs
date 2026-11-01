@@ -139,6 +139,63 @@ async fn should_mark_product_removed_when_removed_page_schema_matches_without_ca
     assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }
 
+/// The removal guard parses a page without cached schemas for the stored templates alone;
+/// the schemas generated after it extract the page and give its hash.
+#[tokio::test]
+async fn should_scrape_with_generated_schemas_when_removed_page_schema_does_not_match_without_cached_schemas()
+ {
+    let id = listing_source_id();
+    let url = product_url();
+    let generated = listing_source_product_schemas(id);
+    let schema_for_create = generated.product_schemas.clone();
+    let schema_for_save = generated.clone();
+    let mut schema_svc = MockProductListingSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(|_| Box::pin(async { Ok(None) }));
+    schema_svc
+        .expect_create_product_schemas()
+        .once()
+        .returning(move |_| {
+            let schemas = schema_for_create.clone();
+            Box::pin(async move {
+                Ok(generated_schemas(
+                    schemas,
+                    SchemaLlmEvaluationConfidence::High,
+                ))
+            })
+        });
+    schema_svc
+        .expect_save_product_schemas()
+        .once()
+        .returning(move |_, _| {
+            let saved = schema_for_save.clone();
+            Box::pin(async move { Ok(saved) })
+        });
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_budget_increment(&mut cand_svc, 1);
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher_returning(sample_html())),
+        Box::new(schema_svc),
+        Arc::new(cand_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+    )
+    .with_removed_page_schema_repository(Box::new(removed_repo_returning(removed_schema_set(id))));
+
+    let scraped = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .unwrap()
+        .unwrap_or_else(|| panic!("expected a scraped product"));
+
+    assert_eq!(
+        scraped.hash,
+        hash_page(&sample_html(), &generated.product_schemas)
+    );
+}
+
 #[tokio::test]
 async fn should_mark_product_removed_when_cached_schema_only_extracts_not_found_notice() {
     let id = listing_source_id();

@@ -601,69 +601,51 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
     assert_eq!(live().await, vec![schema("h1.current")]);
 }
 
+/// A pending review whose persisted candidate fails today's validation still reads, with the
+/// reason as `candidate_error`, and approval keeps refusing it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_keep_approved_append_review_editable_when_approval_merged_it_into_live_schemas() {
+async fn should_read_a_pending_review_whose_persisted_candidate_fails_validation_and_refuse_its_approval()
+ {
     let pool = get_postgres_client().await;
-    let review_repository = CrawlerReviewRepository::new(pool.clone());
-    let schema_repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
+    let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let initial_review_id = review_repository
+    let review_id = repository
         .create_schema_review(
             &listing_source_id,
             "manual_schema_required",
-            &[schema("h1.first")],
+            &[schema("h1")],
             review_pages(),
             json!({}),
         )
         .await
         .unwrap();
-    approve_acknowledging_coverage(&review_repository, initial_review_id)
-        .await
-        .unwrap();
-    let append_review_id = review_repository
-        .create_schema_review(
-            &listing_source_id,
-            "append_schema_generation",
-            &[schema("h1.appended")],
-            review_pages(),
-            json!({}),
-        )
+    let mut invalid = schema("h1");
+    invalid.title = rule("[");
+    sqlx::query("UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1")
+        .bind(review_id.as_uuid())
+        .bind(json!({ "schemas": [invalid] }))
+        .execute(&pool)
         .await
         .unwrap();
 
-    approve_acknowledging_coverage(&review_repository, append_review_id)
-        .await
-        .unwrap();
+    let detail = repository.get_review(review_id).await.unwrap();
+    let refused = approve_acknowledging_coverage(&repository, review_id).await;
 
-    let merged = vec![schema("h1.first"), schema("h1.appended")];
-    let appended = review_repository
-        .get_review(append_review_id)
-        .await
-        .unwrap();
-    assert_eq!(
-        appended.review.candidate_payload,
-        json!({ "schemas": merged })
+    assert!(
+        detail.candidate_error.as_deref().is_some_and(
+            |error| error.starts_with("schema 0, field `title`: invalid CSS selector `[`:")
+        ),
+        "{:?}",
+        detail.candidate_error
     );
-    review_repository
-        .update_schema_field(
-            append_review_id,
-            ReviewActor::Human,
-            candidate_version(&review_repository, append_review_id).await,
-            1,
-            "title",
-            Some(rule("h1.edited")),
-        )
-        .await
-        .unwrap();
+    assert!(matches!(
+        refused,
+        Err(ReviewRepositoryError::RefusedProductSchemaCandidate(_))
+    ));
     assert_eq!(
-        schema_repository
-            .find_product_schema(&listing_source_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .product_schemas,
-        vec![schema("h1.first"), schema("h1.edited")]
+        review_status(&repository, review_id).await,
+        STATUS_PENDING_REVIEW
     );
 }
 
@@ -1256,7 +1238,7 @@ async fn approved_schema_field_edit_rejects_invalid_rule_without_mutating_live_o
 
     assert!(matches!(
         result,
-        Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+        Err(ReviewRepositoryError::RefusedProductSchemaCandidate(_))
     ));
     assert_eq!(
         schema_repository
@@ -2018,6 +2000,330 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
             .await
             .unwrap();
     assert!(live_pattern.is_none());
+}
+
+/// A URL-pattern candidate edit is decoded and stored as the candidate it decodes to, so a key
+/// the candidate does not have is refused rather than stored.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_a_url_pattern_candidate_edit_with_an_unknown_key() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "unknown-key.example.com").await;
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "url_pattern_generation",
+            UrlPatternDecision::NoPattern,
+            &["https://unknown-key.example.com/products/1".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+    let opened = repository.get_review(review_id).await.unwrap().review;
+    let edit = json!({
+        "decision": { "type": "PATTERN", "value": "/products/" },
+        "current_pattern": null,
+    });
+    let mut with_unknown_key = edit.clone();
+    with_unknown_key["note"] = json!("not a candidate key");
+
+    let refused = repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            opened.candidate_version,
+            with_unknown_key,
+        )
+        .await;
+    let unchanged = repository.get_review(review_id).await.unwrap().review;
+    repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            opened.candidate_version,
+            edit.clone(),
+        )
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        refused,
+        Err(ReviewRepositoryError::InvalidUrlPatternCandidate)
+    ));
+    assert_eq!(unchanged.candidate_payload, opened.candidate_payload);
+    assert_eq!(
+        repository
+            .get_review(review_id)
+            .await
+            .unwrap()
+            .review
+            .candidate_payload,
+        edit
+    );
+}
+
+/// The sample's candidate matches, classes and product count after each URL-pattern edit.
+async fn candidate_classification(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+) -> (
+    Vec<(String, Option<bool>, Option<String>)>,
+    serde_json::Value,
+) {
+    let detail = repository.get_review(review_id).await.unwrap();
+    let mut urls: Vec<_> = detail
+        .urls
+        .into_iter()
+        .map(|url| (url.url, url.candidate_pattern_match, url.candidate_class))
+        .collect();
+    urls.sort();
+    (
+        urls,
+        detail.review.validation_summary["candidate_product_count"].clone(),
+    )
+}
+
+/// Saving a URL-pattern decision classifies the review's sample again under it in the edit's
+/// transaction, so the console shows the candidate's matches, classes and product count of the
+/// decision the review holds, not those of the decision it was opened with.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_reclassify_the_sample_when_a_url_pattern_decision_is_saved() {
+    let pool = get_postgres_client().await;
+    let repository =
+        CrawlerReviewRepository::new(pool.clone()).with_url_classifier(UrlClassifier::PatternOnly);
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "reclassify.example.com").await;
+    let sample = [
+        "https://reclassify.example.com/about",
+        "https://reclassify.example.com/product/chair",
+        "https://reclassify.example.com/product/table",
+    ]
+    .map(str::to_owned);
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "manual_url_pattern_required",
+            UrlPatternDecision::Undecided,
+            &sample,
+            None,
+        )
+        .await
+        .unwrap();
+    let other = Some(UrlClass::Other.to_string());
+    let product = Some(UrlClass::ProductListing.to_string());
+    let unmatched = |taken: [Option<bool>; 3]| {
+        sample
+            .iter()
+            .zip(taken)
+            .map(|(url, taken)| {
+                let class = if taken == Some(true) {
+                    &product
+                } else {
+                    &other
+                };
+                (url.clone(), taken, class.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let opened = candidate_classification(&repository, review_id).await;
+
+    let pattern_version = repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            json!({ "decision": { "type": "PATTERN", "value": "/product/[\\w-]+$" }, "current_pattern": null }),
+        )
+        .await
+        .unwrap();
+    let with_pattern = candidate_classification(&repository, review_id).await;
+    repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            pattern_version,
+            json!({ "decision": { "type": "NO_PATTERN" }, "current_pattern": null }),
+        )
+        .await
+        .unwrap();
+    let without_pattern = candidate_classification(&repository, review_id).await;
+
+    assert_eq!(opened, (unmatched([None; 3]), json!(0)));
+    assert_eq!(
+        with_pattern,
+        (unmatched([Some(false), Some(true), Some(true)]), json!(2))
+    );
+    assert_eq!(without_pattern, opened);
+    assert_eq!(
+        repository
+            .get_review(review_id)
+            .await
+            .unwrap()
+            .review
+            .validation_summary["sample_count"],
+        json!(3)
+    );
+}
+
+/// An edit refused for a pattern that is no regex writes nothing, so the sample stays classified
+/// under the decision the review holds.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_the_sample_classification_when_a_url_pattern_edit_is_refused() {
+    let pool = get_postgres_client().await;
+    let repository =
+        CrawlerReviewRepository::new(pool.clone()).with_url_classifier(UrlClassifier::PatternOnly);
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "refused.example.com").await;
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "url_pattern_generation",
+            UrlPatternDecision::Pattern {
+                value: "/product/".to_owned(),
+            },
+            &["https://refused.example.com/product/chair".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+    let opened = candidate_classification(&repository, review_id).await;
+
+    let refused = repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            json!({ "decision": { "type": "PATTERN", "value": "(" }, "current_pattern": null }),
+        )
+        .await;
+
+    assert!(matches!(
+        refused,
+        Err(ReviewRepositoryError::InvalidUrlPatternCandidate)
+    ));
+    assert_eq!(
+        candidate_classification(&repository, review_id).await,
+        opened
+    );
+    assert_eq!(opened.1, json!(1));
+}
+
+/// Drops the constraints that tie a URL-pattern review to a domain of its ListingSource, so a
+/// test can store the review state they forbid.
+async fn allow_url_pattern_reviews_without_their_domain(pool: &PgPool) {
+    sqlx::raw_sql(
+        "ALTER TABLE crawler_reviews \
+           DROP CONSTRAINT crawler_reviews_listing_source_domain_fkey, \
+           DROP CONSTRAINT crawler_reviews_artifact_domain_shape_check, \
+           DROP CONSTRAINT crawler_reviews_check",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Approving a URL-pattern review whose domain row is gone, or that names no domain, fails with
+/// the error that names the domain, not as an unknown review or a database error, and leaves the
+/// review pending.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_name_the_missing_domain_when_approving_a_url_pattern_review_without_it() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    allow_url_pattern_reviews_without_their_domain(&pool).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let mut reviews = Vec::new();
+    for host in ["gone-domain.example.com", "no-domain.example.com"] {
+        let domain_id = insert_domain(&pool, listing_source_id, host).await;
+        let review_id = repository
+            .create_url_pattern_review(
+                &listing_source_id,
+                &domain_id,
+                "url_pattern_generation",
+                UrlPatternDecision::NoPattern,
+                &[format!("https://{host}/products/1")],
+                None,
+            )
+            .await
+            .unwrap();
+        reviews.push((review_id, domain_id));
+    }
+    let [(gone_review_id, gone_domain_id), (no_domain_review_id, _)] = reviews[..] else {
+        panic!("two reviews were created");
+    };
+    sqlx::query("DELETE FROM listing_source_domains WHERE domain_id = $1")
+        .bind(gone_domain_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE crawler_reviews SET domain_id = NULL WHERE review_id = $1")
+        .bind(no_domain_review_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let gone = approve(
+        &repository,
+        gone_review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await;
+    let no_domain = approve(
+        &repository,
+        no_domain_review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await;
+    let labelled_without_domain = repository
+        .set_sample_labels(
+            no_domain_review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, no_domain_review_id).await,
+            Vec::new(),
+        )
+        .await;
+
+    assert!(
+        matches!(
+            gone,
+            Err(ReviewRepositoryError::UrlPatternReviewDomainMissing { review_id, domain_id })
+                if review_id == gone_review_id && domain_id == gone_domain_id
+        ),
+        "{gone:?}"
+    );
+    assert!(
+        matches!(
+            no_domain,
+            Err(ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id))
+                if review_id == no_domain_review_id
+        ),
+        "{no_domain:?}"
+    );
+    assert!(
+        matches!(
+            labelled_without_domain,
+            Err(ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id))
+                if review_id == no_domain_review_id
+        ),
+        "{labelled_without_domain:?}"
+    );
+    for review_id in [gone_review_id, no_domain_review_id] {
+        assert_eq!(
+            review_status(&repository, review_id).await,
+            STATUS_PENDING_REVIEW
+        );
+    }
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -2839,6 +3145,7 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> Domain
                 .mark_crawl_awaiting_url_pattern_review(
                     &domain_id,
                     &newer,
+                    None,
                     OffsetDateTime::now_utc() + time::Duration::days(7),
                 )
                 .await
@@ -3353,11 +3660,10 @@ async fn should_accept_a_schema_field_edit_while_a_stored_template_fails_validat
         regex: Some(".*".to_owned()),
     };
     store_removed_page_templates(&pool, listing_source_id, vec![rejected.clone()]).await;
-    // A generated append review: a field edit merges the live schemas into its candidate first.
     let review_id = repository
         .create_schema_review(
             &listing_source_id,
-            "append_schema_generation",
+            "manual_schema_required",
             &[schema("h1")],
             review_pages(),
             json!({}),
@@ -3642,11 +3948,10 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
     .execute(&pool)
     .await
     .unwrap();
-    // A generated append review: reading it merges the live schemas into its candidate.
     let review_id = repository
         .create_schema_review(
             &listing_source_id,
-            "append_schema_generation",
+            "manual_schema_required",
             &[schema("h1")],
             review_pages(),
             json!({}),
@@ -3675,6 +3980,14 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
     assert_eq!(
         opened.review.candidate_payload["removed_page_schemas"],
         json!([rejected])
+    );
+    assert!(
+        opened
+            .candidate_error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("invalid removed-page template 0:")),
+        "{:?}",
+        opened.candidate_error
     );
     assert!(evaluated.matrix.removed_page_matches.is_empty());
     assert!(

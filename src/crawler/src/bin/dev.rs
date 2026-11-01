@@ -3,8 +3,13 @@
 //!
 //! Unless `LOCAL_DB_URL` names another database, on startup it automatically runs
 //! `docker compose up -d` (using the `docker-compose.yml` inside the `crawler` crate), creates
-//! `crawler_demo` and waits for Postgres to become ready before applying migrations. No manual
-//! setup required — just:
+//! `crawler_demo` and waits for Postgres to become ready before applying migrations. It waits
+//! only while Postgres is starting: an unknown database, a refused login or a host that does not
+//! resolve fails startup at once, and a server on another host fails it after 30 seconds
+//! (`docs/crawler/operations.md#local-database`). It registers a demo shop's crawler domain only
+//! while the shop has none, so domains and crawl roots changed in the review console survive a
+//! restart.
+//! No manual setup required — just:
 //!
 //! ```powershell
 //! gcloud auth application-default login
@@ -65,6 +70,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use crawler::local_db::{
     DEMO_DB_NAME, DevDatabase,
+    connect_retry::{self, PostgresConnectError},
     crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
@@ -73,7 +79,9 @@ use crawler::review::server::ReviewServerConfig;
 use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
-use crawler::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
+use crawler::service::crawler_domain_configuration::{
+    CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
+};
 use crawler::service::cron::CrawlerCronConfig;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
@@ -184,7 +192,7 @@ async fn main() {
         let pool = match connect_with_retry(&config, &db_url).await {
             Ok(p) => p,
             Err(e) => {
-                error!(error = %e, "Failed to connect to Postgres after retries");
+                error!(error = ?e, "Failed to connect to Postgres");
                 return;
             }
         };
@@ -212,13 +220,12 @@ async fn main() {
             "freshfords.com",
             "antiquefurnituredirect.co.uk",
         ]) {
-            if let Err(error) = domain_configuration
-                .register(
-                    listing_source.listing_source_id,
-                    listing_source_core::Domain::try_from(domain)
-                        .unwrap_or_else(|error| panic!("invalid demo crawler domain: {error}")),
-                )
-                .await
+            if let Err(error) = seed_demo_crawler_domain(
+                domain_configuration.as_ref(),
+                listing_source.listing_source_id,
+                domain,
+            )
+            .await
             {
                 error!(error = ?error, domain, "Failed to configure demo crawler domain");
                 return;
@@ -266,44 +273,48 @@ async fn main() {
     .await;
 }
 
+/// Registers a demo shop's crawler domain unless the shop already has one. Registering a domain
+/// again applies its crawl root, so seeding every start would undo a crawl root or domain an
+/// operator set in the review console.
+async fn seed_demo_crawler_domain(
+    domain_configuration: &dyn CrawlerDomainConfigurationRepository,
+    listing_source_id: ListingSourceId,
+    domain: &str,
+) -> Result<(), CrawlerDomainConfigurationError> {
+    if !domain_configuration
+        .list_for_source(listing_source_id)
+        .await?
+        .is_empty()
+    {
+        return Ok(());
+    }
+    let domain = listing_source_core::Domain::try_from(domain)
+        .unwrap_or_else(|error| panic!("invalid demo crawler domain: {error}"));
+    domain_configuration
+        .register(listing_source_id, domain)
+        .await
+        .map(drop)
+}
+
 // ---------------------------------------------------------------------------
 // Database helpers
 // ---------------------------------------------------------------------------
 
-/// Attempts to connect to Postgres, retrying with exponential back-off.
-/// This handles the window between `docker compose up -d` returning and
-/// Postgres actually accepting connections.
+/// Connects to Postgres, waiting while it starts after `docker compose up -d` and failing at once
+/// on a permanent refusal such as an unknown database.
 #[tracing::instrument(skip_all)]
 async fn connect_with_retry(
     config: &CrawlerCronConfig,
     db_url: &str,
-) -> Result<sqlx::PgPool, String> {
-    let mut attempt = 0u32;
-    let mut delay = Duration::from_millis(200);
-
-    loop {
-        attempt += 1;
-        match config.connect_pool(db_url).await {
-            Ok(pool) => {
-                info!(
-                    attempt,
-                    max_connections = config.effective_db_max_connections(),
-                    "Connected to Postgres"
-                );
-                return Ok(pool);
-            }
-            Err(e) if attempt < 30 => {
-                info!(attempt, error = %e, "Postgres not ready yet, retrying…");
-                tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(Duration::from_secs(3));
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Could not connect to Postgres after {attempt} attempts: {e}"
-                ));
-            }
-        }
-    }
+) -> Result<sqlx::PgPool, PostgresConnectError> {
+    let (pool, attempt) =
+        connect_retry::connect_with_retry(db_url, || config.connect_pool(db_url)).await?;
+    info!(
+        attempt,
+        max_connections = config.effective_db_max_connections(),
+        "Connected to Postgres"
+    );
+    Ok(pool)
 }
 
 fn init_logging() {

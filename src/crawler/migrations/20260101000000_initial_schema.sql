@@ -45,6 +45,11 @@ CREATE TABLE listing_source_domains (
     next_crawl_at TIMESTAMPTZ,
     last_crawl_outcome TEXT,
     crawl_truncation_count INT NOT NULL DEFAULT 0,
+    -- A crawl stopped on a shop's rate-limit answer keeps a streak that slows the domain's next
+    -- crawls and the earliest time the shop allows the next one, which no other crawl-timer write
+    -- can bring forward (docs/crawler/scheduling-and-retries.md, rate-limited crawls).
+    crawl_rate_limit_streak INT NOT NULL DEFAULT 0,
+    crawl_rate_limited_until TIMESTAMPTZ,
     url_pattern_state TEXT NOT NULL DEFAULT 'UNKNOWN',
     scrape_failure_streak INT NOT NULL DEFAULT 0,
     last_scrape_error_kind TEXT,
@@ -74,12 +79,15 @@ CREATE TABLE listing_source_domains (
             'COMPLETED',
             'PAGE_BUDGET_REACHED',
             'HARD_TIMEOUT_TRUNCATED',
+            'RATE_LIMITED',
             'FAILED',
             'AWAITING_URL_PATTERN_REVIEW',
             'NEEDS_OPERATOR'
         )),
     CONSTRAINT listing_source_domains_crawl_truncation_count_check
-        CHECK (crawl_truncation_count >= 0)
+        CHECK (crawl_truncation_count >= 0),
+    CONSTRAINT listing_source_domains_crawl_rate_limit_streak_check
+        CHECK (crawl_rate_limit_streak >= 0)
 );
 
 CREATE INDEX idx_listing_source_domains_listing_source_id ON listing_source_domains (listing_source_id);
@@ -261,7 +269,8 @@ CREATE TABLE crawler_review_events (
             'REPAIR_REQUESTED',
             'APPROVED',
             'REJECTED',
-            'RESTORED'
+            'RESTORED',
+            'REJECTION_REVOKED'
         )
     ),
     -- The review's candidate version after the mutation.

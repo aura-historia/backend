@@ -2,7 +2,7 @@ use super::projection::html_to_schema_prompt_dsl;
 use crate::scraper::css_selector::raw_attribute_registry::RAW_ATTRIBUTE_GROUPS;
 
 const SAMPLE_LABEL: &str = "YAML";
-const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.";
+const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML. The projection condenses a srcset or data-srcset with several candidates to its largest candidate followed by \"(+N more srcset candidates)\": that suffix is a projection annotation, not page content, so never put it in a selector and never match srcset or data-srcset exactly; select the image element itself or match the kept URL with a contains or prefix attribute selector such as img[srcset*=\"/files/vase\"]. An attribute value such as data:image/svg+xml,… is a data: URI shortened to its media type: a placeholder whose payload is not shown, so never put it in a selector; select the element by its other attributes. A page_dsl with omitted_nodes was cut for size: that many trailing elements of the page are not shown.";
 const SELECTOR_GROUNDING_INSTRUCTION: &str = "Only use CSS selectors that can be derived from tags, attrs, text, and tree context visible in the YAML projection. Never invent class names, ids, attributes, or selector paths that are not present in the YAML. Every non-null selector must be product-specific and must apply to every sample covered by that schema. Optional fields must be null unless an exact selector is visible in the YAML and clearly extracts non-empty product-specific content from the page or template. Prefer null over guessed selectors, generic wrappers, layout containers, or whole-page content selectors. For description, use null unless a precise product-description selector is visible; do not use generic selectors such as .description-wrapper or .HTMLPageContent unless those exact classes appear in the YAML on nodes containing product description text.";
 const PRODUCT_SAMPLES_INSTRUCTION: &str = "Every sample was fetched from a URL matching the product-page pattern of this ListingSource and is expected to be a product detail page. Do not classify the samples: this response has no page_kind, removed_schema, or reason field. If a sample looks like a removed, sold-out, not-found, category, search, or other non-product page, exclude that sample from schema coverage, still return schemas for the remaining product samples, and name the excluded sample number in risks. The schemas array must contain at least one schema; when a sample is ambiguous, still cover the samples that are product detail pages and lower the confidence.";
 const PRICE_INSTRUCTION: &str = "Text extraction drops struck-through descendants (del, s, strike). For a sale price shown as a struck-through old amount next to the current amount, select the price element that contains both, not an ins element or the struck-through element, so the same selector also matches regular-price pages.";
@@ -120,4 +120,31 @@ pub(super) fn build_single_schema_instruction(html: &str) -> String {
         sample_description = SAMPLE_DESCRIPTION,
         sample_label = SAMPLE_LABEL
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_explain_the_projection_annotations_to_the_model() {
+        let html = r#"<main><h1 class="product-title">Vase</h1>
+            <img srcset="/files/vase-480.webp 480w, /files/vase-2048.webp 2048w"></main>"#;
+        let annotation = "(+1 more srcset candidates)";
+        assert!(html_to_schema_prompt_dsl(html).contains(annotation));
+        let placeholder =
+            r#"<main><img class="lazy" src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E"></main>"#;
+        assert!(html_to_schema_prompt_dsl(placeholder).contains("data:image/svg+xml,…"));
+
+        for prompt in [
+            build_create_schemas_instruction(&[html.to_owned()]),
+            build_single_schema_instruction(html),
+        ] {
+            assert!(prompt.contains("\"(+N more srcset candidates)\""));
+            assert!(prompt.contains("never put it in a selector"));
+            assert!(prompt.contains("never match srcset or data-srcset exactly"));
+            assert!(prompt.contains("data:image/svg+xml,… is a data: URI shortened"));
+            assert!(prompt.contains("omitted_nodes was cut for size"));
+        }
+    }
 }

@@ -5,8 +5,7 @@ use crate::review::model::{
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
 use crate::scraper::css_selector::product_schema::{
-    ApplySchemaError, ExtractionLogging, ProductCssSelectorSchema, RawExtractedProduct,
-    SchemaExtraction,
+    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
 };
 use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
 use crate::scraper::css_selector::rule::ExtractionRule;
@@ -438,7 +437,7 @@ fn evaluate_schema_page(
     page: &MatrixPage<'_>,
     html: &Html,
 ) -> SchemaPageEvaluation {
-    let extraction = schema.extract(html, ExtractionLogging::Log);
+    let extraction = schema.extract(html);
     let fields = evaluate_schema_fields(
         schema,
         html,
@@ -2353,7 +2352,7 @@ mod tests {
                 ..gallery_schema()
             };
 
-            let applied = applies.extract(&two_skipped, ExtractionLogging::Log);
+            let applied = applies.extract(&two_skipped);
             assert!(applied.is_ok());
             assert_eq!(
                 skipped_image_elements(&applies, &none_skipped, &applied),
@@ -2361,7 +2360,7 @@ mod tests {
                 "an applied page reports its extraction's count"
             );
 
-            let title_failed = fails_on_title.extract(&two_skipped, ExtractionLogging::Log);
+            let title_failed = fails_on_title.extract(&two_skipped);
             assert!(matches!(title_failed, Err(ApplySchemaError::Title(_))));
             assert_eq!(
                 skipped_image_elements(&fails_on_title, &none_skipped, &title_failed),
@@ -2369,7 +2368,7 @@ mod tests {
                 "a page another rule failed applies the images rule again"
             );
 
-            let images_failed = applies.extract(&all_skipped, ExtractionLogging::Log);
+            let images_failed = applies.extract(&all_skipped);
             assert!(matches!(images_failed, Err(ApplySchemaError::Images(_))));
             assert_eq!(
                 skipped_image_elements(&applies, &two_skipped, &images_failed),

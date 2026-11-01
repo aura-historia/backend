@@ -17,9 +17,6 @@ use crate::review::model::{
     ReviewSchemaMatrix, SchemaMatrix, SchemaReviewPageInput,
 };
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
-use crate::scraper::css_selector::product_schema_repository::{
-    ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
-};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
@@ -68,7 +65,6 @@ impl CandidateProposal {
 struct ReviewUnderEvaluation {
     listing_source_id: uuid::Uuid,
     artifact_type: String,
-    reason: String,
     candidate_payload: serde_json::Value,
     candidate_version: i64,
     candidate_hash: String,
@@ -77,9 +73,8 @@ struct ReviewUnderEvaluation {
 
 impl CrawlerReviewRepository {
     /// Evaluates, on the review `pages` fetched from `fetched_at` on, the product-schema
-    /// configuration approving the review's current candidate would make live: its schemas,
-    /// merged with the live list for a legacy single-schema append or repair, and its
-    /// removed-page templates rebased onto the stored ones. The matrix records what it evaluated
+    /// configuration approving the review's current candidate would make live: its schemas, and
+    /// its removed-page templates rebased onto the stored ones. The matrix records what it evaluated
     /// and when, so an approval can tell whether it still describes the review. The pages are
     /// parsed on a blocking thread awaited to its end, so a caller runs this within a console live
     /// job, whose place under the console's limit bounds that thread.
@@ -201,7 +196,7 @@ impl CrawlerReviewRepository {
         review_id: CrawlerReviewId,
     ) -> Result<ReviewUnderEvaluation, ReviewRepositoryError> {
         let review = sqlx::query(
-            "SELECT listing_source_id, artifact_type, reason, candidate_payload, candidate_version,
+            "SELECT listing_source_id, artifact_type, candidate_payload, candidate_version,
                     removed_page_schemas_base,
                     encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
              FROM crawler_reviews
@@ -214,7 +209,6 @@ impl CrawlerReviewRepository {
         Ok(ReviewUnderEvaluation {
             listing_source_id: review.try_get("listing_source_id")?,
             artifact_type: review.try_get("artifact_type")?,
-            reason: review.try_get("reason")?,
             candidate_payload: review.try_get("candidate_payload")?,
             candidate_version: review.try_get("candidate_version")?,
             candidate_hash: review.try_get("candidate_hash")?,
@@ -233,15 +227,12 @@ impl CrawlerReviewRepository {
         let base: Vec<RemovedPageSchema> =
             serde_json::from_value(review.removed_page_schemas_base.clone())
                 .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-        let live = ListingSourceProductSchemaRepositoryImpl::new(&self.pool)
-            .find_product_schema(&listing_source_id)
-            .await?;
         let stored = RemovedPageSchemaRepositoryImpl::new(&self.pool)
             .find_removed_page_schema(&listing_source_id)
             .await?
             .map(|stored| stored.removed_page_schemas)
             .unwrap_or_default();
-        candidate.going_live(&review.reason, live.as_ref(), &base, &stored)
+        Ok(candidate.going_live(&base, &stored))
     }
 
     /// The source listing id each page's listing was captured under, by page URL, for the
