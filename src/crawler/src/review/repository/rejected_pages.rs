@@ -115,7 +115,7 @@ mod tests {
         for other in [
             "https://www.example.com/products/10",
             "https://www.example.com/products/2",
-            "https://www.example.com/products/1?variant=sold",
+            "https://www.example.com/products/1?sku=sold",
             "https://other.example/products/1",
             "not a url",
         ] {

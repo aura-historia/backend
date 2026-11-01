@@ -8,9 +8,10 @@ mod blacklist;
 mod query;
 
 /// A crawled page URL in the spelling the crawler stores: the URL as fetched, with only the
-/// removals `docs/crawler/networking.md#stored-urls` documents.
-/// The path and query keep their percent-encoding and parameter order byte for byte, so the
-/// stored URL is the one robots.txt was checked against and the one the scraper requests.
+/// removals `docs/crawler/networking.md#stored-urls` documents, among them the query parameters
+/// that do not identify the page. The rest of the path and query keeps its percent-encoding and
+/// parameter order byte for byte, and the link decoder hands Spider links in this spelling, so
+/// the stored URL is the one robots.txt was checked against and the one the scraper requests.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CrawledUrl(url::Url);
 
@@ -20,7 +21,7 @@ impl CrawledUrl {
         // Both only fail for URLs without a host, which carry no credentials.
         let _ = url.set_username("");
         let _ = url.set_password(None);
-        query::drop_tracking_parameters(&mut url);
+        query::drop_non_identity_parameters(&mut url);
         Self(url)
     }
 
@@ -159,18 +160,19 @@ impl CrawledUrl {
         crate::spider::classification::url_metadata::UrlClass::Other
     }
 
+    /// Whether this URL is a shop action, back-office page, download or file the spider never
+    /// follows or stores.
     pub fn is_blacklisted(&self) -> bool {
-        Self::is_blacklisted_url(self.0.as_str())
+        blacklist::is_blacklisted(self.0.as_str())
     }
 
-    /// Applies the same rule as [`Self::blacklist_patterns`] to a URL that has not been
-    /// normalized, as Spider does with the links it admits.
-    pub fn is_blacklisted_url(url: &str) -> bool {
-        blacklist::is_blacklisted(url)
-    }
-
-    pub fn blacklist_patterns() -> Vec<CompactString> {
-        blacklist::patterns()
+    /// Spider's deny list for the links it finds: the [blacklist](Self::is_blacklisted), and
+    /// links carrying a facet, sort, view or currency parameter, whose page the shop
+    /// also links without it (`docs/crawler/networking.md#stored-urls`).
+    pub fn spider_deny_patterns() -> Vec<CompactString> {
+        let mut patterns = blacklist::patterns();
+        patterns.push(query::presentation_link_pattern());
+        patterns
     }
 }
 
@@ -344,6 +346,7 @@ mod tests {
             "https://example.com/products/1/",
             "https://example.com/products/1//",
             "https://example.com/products/1#gallery",
+            "https://example.com/products/1?variant=2",
         ] {
             assert!(
                 page.is_same_page(&CrawledUrl::try_from(same).unwrap()),
@@ -352,7 +355,7 @@ mod tests {
         }
         for other in [
             "https://example.com/products/1/details",
-            "https://example.com/products/1?variant=2",
+            "https://example.com/products/1?id=2",
             "https://example.com/products/10",
             "https://www.example.com/products/1",
         ] {
@@ -491,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn should_drop_only_tracking_parameters_when_query_holds_utm_parameters() {
+    fn should_drop_only_non_identity_parameters_when_query_holds_utm_parameters() {
         assert_eq!(
             normalize_for_test(
                 "https://example.com/products/1?utm_source=mail&q=A%20B&UTM_Campaign=x"
@@ -521,6 +524,7 @@ mod tests {
         for fetched in [
             "https://example.com/products/1/?q=A%20B#gallery",
             "https://example.com/products/1?utm_source=x&b=2&a=1",
+            "https://example.com/c?currency=EUR&page=8&sort=price",
             "https://example.com/products//",
         ] {
             let stored = normalize_for_test(fetched);
@@ -750,82 +754,41 @@ mod tests {
     }
 
     #[test]
-    fn should_build_blacklist_patterns_matching_junk_urls_for_spider_blacklist() {
-        let patterns = CrawledUrl::blacklist_patterns();
-        let regex_set = RegexSet::new(patterns.iter().map(|pattern| pattern.as_str()))
-            .expect("blacklist patterns should compile");
+    fn should_deny_blacklisted_and_presentation_links_in_spider_deny_list() {
+        let deny_list = RegexSet::new(CrawledUrl::spider_deny_patterns())
+            .expect("Spider deny patterns should compile");
 
-        assert!(regex_set.is_match("https://example.com/product/1?add-to-cart=123"));
-        assert!(regex_set.is_match("https://example.com/product/1?a=1&replytocom=456"));
-        assert!(regex_set.is_match("https://example.com/wp-admin/admin-ajax.php"));
-        assert!(regex_set.is_match("https://example.com/product/downloadproductimages/581341"));
-        assert!(regex_set.is_match("https://example.com/download/catalog.pdf"));
-        assert!(regex_set.is_match("https://example.com/files/product-data.json"));
-        assert!(regex_set.is_match("https://example.com/product/1/image.jpg"));
-        assert!(!regex_set.is_match("https://example.com/product/1?a=1&b=2"));
-    }
-
-    #[test]
-    fn should_return_true_when_blacklisted_query_parameter_exists_for_blacklist_check() {
-        let url = CrawledUrl::new(
-            url::Url::parse("https://example.com/product/1?add-to-cart=123").unwrap(),
-        );
-
-        assert!(url.is_blacklisted());
-    }
-
-    #[test]
-    fn should_return_true_when_blacklisted_path_exists_for_blacklist_check() {
-        let url = CrawledUrl::new(
-            url::Url::parse("https://example.com/wp-admin/admin-ajax.php").unwrap(),
-        );
-
-        assert!(url.is_blacklisted());
-    }
-
-    #[test]
-    fn should_return_true_when_download_or_file_path_exists_for_blacklist_check() {
-        for raw_url in [
-            "https://www.decorativecollective.com/product/downloadproductimages/581341",
-            "https://example.com/download/catalog",
-            "https://example.com/files/catalog",
-            "https://example.com/attachment/123",
-            "https://example.com/attachments/123",
+        for denied in [
+            "https://example.com/product/1?add-to-cart=123",
+            "https://example.com/wp-admin/admin-ajax.php",
+            "https://example.com/product/1/image.jpg",
+            "https://example.com/shop/?filter_material=eiche",
+            "https://example.com/c?currency=EUR",
         ] {
-            let url = CrawledUrl::new(url::Url::parse(raw_url).unwrap());
-
-            assert!(url.is_blacklisted(), "{raw_url} should be blacklisted");
+            assert!(deny_list.is_match(denied), "{denied}");
+        }
+        for followed in [
+            "https://example.com/product/1?a=1&b=2",
+            "https://example.com/products/1?utm_source=mail",
+            "https://example.com/products/1?variant=2",
+            "https://example.com/products/cartier-tank",
+        ] {
+            assert!(!deny_list.is_match(followed), "{followed}");
         }
     }
 
     #[test]
-    fn should_return_true_when_file_extension_exists_for_blacklist_check() {
-        for raw_url in [
-            "https://example.com/product/1.jpg",
-            "https://example.com/product/1.jpeg",
-            "https://example.com/product/1.png",
-            "https://example.com/product/1.webp",
-            "https://example.com/product/1.gif",
-            "https://example.com/product/1.svg",
-            "https://example.com/product/1.ico",
-            "https://example.com/catalog.pdf",
-            "https://example.com/archive.zip",
-            "https://example.com/export.csv",
-            "https://example.com/feed.xml",
-            "https://example.com/product-data.json",
-        ] {
-            let url = CrawledUrl::new(url::Url::parse(raw_url).unwrap());
-
-            assert!(url.is_blacklisted(), "{raw_url} should be blacklisted");
-        }
-    }
-
-    #[test]
-    fn should_return_false_when_url_not_blacklisted_for_blacklist_check() {
-        let url =
-            CrawledUrl::new(url::Url::parse("https://example.com/product/1?a=1&b=2").unwrap());
-
-        assert!(!url.is_blacklisted());
+    fn should_judge_blacklist_on_stored_url() {
+        assert!(
+            CrawledUrl::try_from("https://example.com/wishlist")
+                .unwrap()
+                .is_blacklisted()
+        );
+        assert!(
+            !CrawledUrl::try_from("https://example.com/products/cartel-clock")
+                .unwrap()
+                .is_blacklisted()
+        );
     }
 
     #[test]
