@@ -332,6 +332,19 @@ mod tests {
         }
     }
 
+    /// A challenge is the shop answering, so it closes a probed circuit and counts towards the
+    /// status burst like any answer that rejects the crawler.
+    #[test]
+    fn a_bot_challenge_proves_domain_health() {
+        for status in [200, 202, 403] {
+            assert_eq!(
+                domain_health_for_fetch_error(NetworkErrorKind::BotChallenge, Some(status), None),
+                DomainFetchHealth::Responsive,
+                "a challenge answered with {status} should be responsive"
+            );
+        }
+    }
+
     #[test]
     fn only_policy_network_failures_open_domain_circuit() {
         assert!(matches!(
