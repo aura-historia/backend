@@ -1107,12 +1107,8 @@ impl CrawlerReviewRepository {
         if status == STATUS_PENDING_REVIEW {
             let (candidate_payload, removed_page_schemas_changed) = match artifact_type.as_str() {
                 ARTIFACT_URL_PATTERN => {
-                    let candidate =
+                    let (candidate, candidate_pattern) =
                         url_pattern_candidate_edit(candidate_payload, &stored_candidate_payload)?;
-                    let candidate_pattern = candidate
-                        .decision
-                        .candidate_regex()
-                        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
                     reclassify_sample(
                         &mut transaction,
                         review_id,
@@ -1299,19 +1295,24 @@ fn changeable_candidate_error(review: &CrawlerReview, candidate_is_live: bool) -
     }
 }
 
-/// The URL-pattern candidate a whole-candidate edit with `posted` stores in place of `stored`: the
-/// posted decision, decoded with unknown keys refused, with the stored sample
-/// labels, which change only through the sample labels. A posted candidate that names other labels
-/// is refused rather than silently losing them; one that names none keeps the stored ones. A
-/// stored candidate that no longer decodes keeps no labels, so an edit can still repair it.
+/// The URL-pattern candidate a whole-candidate edit with `posted` stores in place of `stored`, and
+/// the regex of its decision: the posted decision, decoded with unknown keys refused and refused
+/// when undecided or no regex, with the stored sample labels, which change only through the sample
+/// labels. A posted candidate that names other labels is refused rather than silently losing
+/// them; one that names none keeps the stored ones. A stored candidate that no longer decodes
+/// keeps no labels, so an edit can still repair it.
 fn url_pattern_candidate_edit(
     posted: serde_json::Value,
     stored: &serde_json::Value,
-) -> Result<UrlPatternReviewCandidate, ReviewRepositoryError> {
+) -> Result<(UrlPatternReviewCandidate, Option<Regex>), ReviewRepositoryError> {
     let candidate = UrlPatternReviewCandidate::decode_edit(posted)
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    candidate
-        .validated_pattern()
+    if candidate.decision == UrlPatternDecision::Undecided {
+        return Err(ReviewRepositoryError::InvalidUrlPatternCandidate);
+    }
+    let pattern = candidate
+        .decision
+        .candidate_regex()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let stored_labels = serde_json::from_value::<UrlPatternReviewCandidate>(stored.clone())
         .ok()
@@ -1323,7 +1324,7 @@ fn url_pattern_candidate_edit(
     {
         return Err(ReviewRepositoryError::SampleLabelsChangedThroughCandidate);
     }
-    Ok(candidate.with_sample_labels(stored_labels))
+    Ok((candidate.with_sample_labels(stored_labels), pattern))
 }
 
 /// Locks and reads the ListingSource's live product schemas for the rest of the transaction.

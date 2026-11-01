@@ -3288,6 +3288,27 @@ Origin: http://127.0.0.1:7878/x
             }
         }
 
+        /// The answer to a matrix refresh of `review_id` once it is no longer running.
+        async fn refused_matrix_refresh(
+            server: &ReviewServer,
+            review_id: CrawlerReviewId,
+        ) -> (String, serde_json::Value) {
+            let mut answer = send(
+                server,
+                &format!("GET /api/reviews/{review_id}/matrix?refresh=true"),
+                "",
+            )
+            .await;
+            for _ in 0..100 {
+                if !answer.0.starts_with("HTTP/1.1 202") {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                answer = send(server, &format!("GET /api/reviews/{review_id}/matrix"), "").await;
+            }
+            answer
+        }
+
         /// Counts ERROR events.
         #[derive(Clone, Default)]
         struct ErrorEvents(Arc<std::sync::atomic::AtomicUsize>);
@@ -3347,8 +3368,17 @@ Origin: http://127.0.0.1:7878/x
             .with_subscriber(tracing_subscriber::registry().with(errors.clone()))
             .await;
 
+            let refused_refresh = refused_matrix_refresh(&server, review_id).await;
+
             assert_eq!(logged_by_reads, 0);
             assert!(matrix_status.starts_with("HTTP/1.1 404"), "{matrix_status}");
+            assert!(
+                refused_refresh.0.starts_with("HTTP/1.1 400")
+                    && refused_refresh.1["error"].as_str().is_some_and(|error| error.starts_with(
+                        "invalid ProductSchema review candidate: schema 0, field `title`: invalid CSS selector `h1[`: "
+                    )),
+                "{refused_refresh:?}"
+            );
             assert_eq!(logged_by_detail, 1);
             assert!(
                 detail["candidate_error"].as_str().is_some_and(|error| error

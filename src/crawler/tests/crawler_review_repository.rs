@@ -2400,7 +2400,8 @@ async fn should_reclassify_the_sample_when_a_url_pattern_decision_is_saved() {
     );
 }
 
-/// A refused URL-pattern edit leaves the sample classified under the decision the review holds.
+/// An edit refused for a pattern that is no regex writes nothing, so the sample stays classified
+/// under the decision the review holds.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_keep_the_sample_classification_when_a_url_pattern_edit_is_refused() {
     let pool = get_postgres_client().await;
