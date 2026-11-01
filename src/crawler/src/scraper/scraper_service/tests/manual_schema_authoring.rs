@@ -1035,7 +1035,7 @@ async fn should_capture_a_notice_page_as_removed_once_its_review_approves_a_temp
         .result;
 
     assert!(
-        matches!(result, Err(ScraperError::ProductListingRemoved { .. })),
+        matches!(result, Err(ScraperError::ProductListingRemoved(_))),
         "expected the verified removal that becomes the raw delete capture, got {result:?}"
     );
     assert_eq!(
@@ -1100,7 +1100,7 @@ async fn should_capture_a_rejected_page_as_removed_when_a_removed_page_template_
     let result = scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
 
     assert!(
-        matches!(result, Err(ScraperError::ProductListingRemoved { .. })),
+        matches!(result, Err(ScraperError::ProductListingRemoved(_))),
         "the verified removal must win over the rejection, got {result:?}"
     );
 }
@@ -1228,7 +1228,7 @@ async fn should_match_what_the_edited_template_declares_once_a_review_edits_it()
         scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
 
     assert!(
-        matches!(withdrawn, Err(ScraperError::ProductListingRemoved { .. })),
+        matches!(withdrawn, Err(ScraperError::ProductListingRemoved(_))),
         "the edited template must capture its notice page as removed, got {withdrawn:?}"
     );
     assert!(

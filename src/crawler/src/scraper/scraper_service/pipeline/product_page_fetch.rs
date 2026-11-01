@@ -38,13 +38,13 @@ impl ScraperServiceImpl {
                     request.product_url_pattern.as_deref(),
                 ) {
                     record_transport_success();
-                    return Err(ScraperError::ProductListingRemoved {
-                        url: url.clone(),
-                        details: format!(
+                    return Err(ScraperError::product_listing_removed(
+                        url.clone(),
+                        format!(
                             "product URL redirected to a non-product page robots.txt disallows: original={url}, final={final_url}"
                         ),
-                        removed_by_templates: Vec::new(),
-                    });
+                        Vec::new(),
+                    ));
                 }
                 record_transport_failure(
                     url,
@@ -82,11 +82,11 @@ impl ScraperServiceImpl {
                     None,
                     None,
                 );
-                Err(ScraperError::ProductListingRemoved {
-                    url: url.clone(),
+                Err(ScraperError::product_listing_removed(
+                    url.clone(),
                     details,
-                    removed_by_templates: Vec::new(),
-                })
+                    Vec::new(),
+                ))
             }
             Err(FetchError::Network { kind, details }) => {
                 record_transport_failure(

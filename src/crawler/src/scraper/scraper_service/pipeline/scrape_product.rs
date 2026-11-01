@@ -290,14 +290,14 @@ impl FetchedProductPage {
             });
         }
         if is_redirect_to_non_product_page(url, &fetched.final_url, product_url_pattern) {
-            return Err(ScraperError::ProductListingRemoved {
-                url: url.clone(),
-                details: format!(
+            return Err(ScraperError::product_listing_removed(
+                url.clone(),
+                format!(
                     "product URL redirected to non-product page: original={url}, final={}",
                     fetched.final_url
                 ),
-                removed_by_templates: Vec::new(),
-            });
+                Vec::new(),
+            ));
         }
         Ok(Self {
             acquired_at,
@@ -352,11 +352,11 @@ fn withdraw_removed_page(
 ) -> Result<(), ScraperError> {
     match verdict {
         RemovedPageVerdict::NotRemoved => Ok(()),
-        RemovedPageVerdict::Removed { matches } => Err(ScraperError::ProductListingRemoved {
-            url: request.url.clone(),
-            details: "soft-404 removed page matched configured removed-page schema".to_string(),
-            removed_by_templates: matches.into_iter().map(|matched| matched.schema).collect(),
-        }),
+        RemovedPageVerdict::Removed { matches } => Err(ScraperError::product_listing_removed(
+            request.url.clone(),
+            "soft-404 removed page matched configured removed-page schema".to_string(),
+            matches.into_iter().map(|matched| matched.schema).collect(),
+        )),
         RemovedPageVerdict::ProductStillExtracts { matches } => {
             let selectors = matches
                 .iter()

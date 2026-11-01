@@ -284,7 +284,7 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
             },
             None => DomainFetchHealth::Responsive,
         },
-        ScraperError::ProductListingRemoved { .. }
+        ScraperError::ProductListingRemoved(_)
         | ScraperError::NotProductPage { .. }
         | ScraperError::SchemaClassificationRejected { .. }
         | ScraperError::SchemaServiceError(_)

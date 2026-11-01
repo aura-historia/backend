@@ -685,10 +685,9 @@ async fn scrape_candidate_in_batch(
     let mut outcome = match scrape_outcome.result {
         Ok(Some(scraped)) => handle_successful_scrape(&candidate, ctx, scraped).await,
         Ok(None) => skipped_outcome(),
-        Err(ScraperError::ProductListingRemoved {
-            removed_by_templates,
-            ..
-        }) => handle_verified_removal(&candidate, ctx, removed_by_templates).await,
+        Err(ScraperError::ProductListingRemoved(removal)) => {
+            handle_verified_removal(&candidate, ctx, removal.removed_by_templates).await
+        }
         Err(error) => {
             handle_scrape_error(
                 &candidate,
@@ -1501,7 +1500,7 @@ async fn record_batch_error_state(ctx: &ScrapeDomainContext, error: &ScraperErro
         }
     } else if matches!(
         error,
-        ScraperError::ProductListingRemoved { .. }
+        ScraperError::ProductListingRemoved(_)
             | ScraperError::NotProductPage { .. }
             | ScraperError::PendingSchemaReview { .. }
     ) || is_robots_refusal(error)
@@ -1521,7 +1520,7 @@ async fn record_batch_error_state(ctx: &ScrapeDomainContext, error: &ScraperErro
 fn scraper_error_kind(e: &ScraperError) -> &'static str {
     match e {
         ScraperError::HttpError { .. } | ScraperError::HttpErrorWithMetadata(_) => "HttpError",
-        ScraperError::ProductListingRemoved { .. } => "ProductListingRemoved",
+        ScraperError::ProductListingRemoved(_) => "ProductListingRemoved",
         ScraperError::NotProductPage { .. } => "NotProductPage",
         ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
         ScraperError::NoHost { .. } => "NoHost",
@@ -3355,11 +3354,11 @@ mod tests {
             let mut scraper_service = MockScraperService::new();
             scraper_service.expect_scrape().once().returning(|_| {
                 Box::pin(async {
-                    scrape_outcome(Err(ScraperError::ProductListingRemoved {
-                        url: url::Url::parse(URL).unwrap(),
-                        details: "HTTP 404".to_owned(),
-                        removed_by_templates: Vec::new(),
-                    }))
+                    scrape_outcome(Err(ScraperError::product_listing_removed(
+                        url::Url::parse(URL).unwrap(),
+                        "HTTP 404".to_owned(),
+                        Vec::new(),
+                    )))
                 })
             });
             scraper_service

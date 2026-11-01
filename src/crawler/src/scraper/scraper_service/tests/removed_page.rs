@@ -110,15 +110,11 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
         .unwrap_err();
 
     // The removal names the templates whose match captured it, so retiring one re-arms it.
-    let ScraperError::ProductListingRemoved {
-        removed_by_templates,
-        ..
-    } = err
-    else {
+    let ScraperError::ProductListingRemoved(removal) = err else {
         panic!("expected a removal, got {err:?}");
     };
     assert_eq!(
-        removed_by_templates,
+        removal.removed_by_templates,
         removed_schema_set(id).removed_page_schemas
     );
 }
@@ -147,7 +143,7 @@ async fn should_mark_product_removed_when_removed_page_schema_matches_without_ca
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved(_)));
 }
 
 /// The removal guard parses a page without cached schemas for the stored templates alone;
@@ -231,7 +227,7 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_not_found_
         .unwrap_err();
 
     assert!(
-        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }
@@ -266,7 +262,7 @@ async fn should_mark_product_removed_although_page_hash_and_fingerprint_are_unch
     let err = service.scrape(request).await.unwrap_err();
 
     assert!(
-        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }
@@ -300,7 +296,7 @@ async fn should_mark_product_removed_when_cached_schema_extracts_a_notice_split_
         .unwrap_err();
 
     assert!(
-        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }
@@ -334,7 +330,7 @@ async fn should_mark_product_removed_when_container_level_removed_page_selector_
         .unwrap_err();
 
     assert!(
-        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }
@@ -368,7 +364,7 @@ async fn should_mark_product_removed_when_container_level_removed_page_regex_mat
         .unwrap_err();
 
     assert!(
-        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }
@@ -396,7 +392,7 @@ async fn should_mark_product_removed_when_regex_removed_page_schema_matches() {
         .unwrap_err();
 
     assert!(
-        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }
@@ -543,7 +539,7 @@ async fn should_not_mark_product_removed_on_transient_fetch_failure() {
         .unwrap_err();
 
     assert!(
-        !matches!(err, ScraperError::ProductListingRemoved { .. }),
+        !matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }
@@ -618,7 +614,7 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_a_related_
         .unwrap_err();
 
     assert!(
-        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }

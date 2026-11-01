@@ -143,7 +143,7 @@ async fn primary_removed_response_preserves_fence_and_responsive_health() {
 
     assert!(matches!(
         &outcome.result,
-        Err(ScraperError::ProductListingRemoved { .. })
+        Err(ScraperError::ProductListingRemoved(_))
     ));
     assert_eq!(outcome.domain_health, DomainFetchHealth::Responsive);
     let failure = outcome

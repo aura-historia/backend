@@ -1674,7 +1674,7 @@ async fn scraper_mark_removed_should_record_the_templates_until_a_product_captur
             &url,
             &removal,
             None,
-            &[template.clone()],
+            std::slice::from_ref(&template),
         )
         .await
         .unwrap();
