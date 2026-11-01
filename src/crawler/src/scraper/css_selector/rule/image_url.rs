@@ -22,7 +22,8 @@ pub(super) fn image_url_candidate_group(element: &scraper::ElementRef<'_>) -> Op
 /// product does not have (`<a rel="lightbox" href="#"></a>`, also with a hidden
 /// `<img src="//:0">` inside): its own attributes name an image context, and it holds no
 /// image URL candidate, no image markup, no attribute that names an image file and no
-/// visible text, where a URL without a host names no image. An element that holds an image
+/// visible text, where a URL capture can never fetch names no image (see
+/// [`is_unfetchable_url`]). An element that holds an image
 /// the rule cannot read, such as a gallery wrapper around its `<img>` or a slot whose
 /// `data-largeimg` names the photo, is no placeholder, and neither is a control with a label
 /// or a layout element such as `<div class="w-full"></div>`.
@@ -43,7 +44,7 @@ fn element_names_image_file(element: &scraper::ElementRef<'_>) -> bool {
         .filter_map(scraper::ElementRef::wrap)
         .any(|node| {
             node.value().attrs().any(|(_, value)| {
-                has_known_image_extension(value) && !holds_only_hostless_urls(value)
+                has_known_image_extension(value) && !holds_only_unfetchable_urls(value)
             })
         })
 }
@@ -260,28 +261,54 @@ fn picture_source_srcsets<'a>(element: &scraper::ElementRef<'a>) -> Vec<&'a str>
 }
 
 fn largest_srcset_candidate(srcset: Option<&str>) -> Option<(String, usize)> {
-    srcset?
-        .split(',')
-        .filter_map(|candidate| {
-            let mut parts = candidate.split_whitespace();
-            let url = parts.next()?.trim();
-            let width = parts
+    srcset_candidates(srcset?)
+        .map(|(url, descriptors)| {
+            let width = descriptors
+                .split_whitespace()
                 .find_map(|part| part.strip_suffix('w'))
                 .and_then(|raw| raw.parse::<usize>().ok())
                 .unwrap_or_default();
-            if url.is_empty() {
-                None
-            } else {
-                Some((url.to_owned(), width))
-            }
+            (url.to_owned(), width)
         })
         .max_by_key(|(_, width)| *width)
 }
 
-/// Whether `url`, read from `source`, can name an image. A URL without a host never does
-/// (see [`is_hostless_url`]).
+/// The candidates of a `srcset`, each as its URL and its descriptors, such as `2x` or
+/// `800w`. A comma ends a URL, except in a `data:` URI, which, as browsers parse a `srcset`,
+/// runs to the next whitespace because its payload holds commas itself
+/// (`data:image/gif;base64,R0lGOD 1x`). A value without a comma is one candidate, so a
+/// single-URL attribute such as `src` parses the same way.
+fn srcset_candidates(srcset: &str) -> impl Iterator<Item = (&str, &str)> {
+    let mut rest = srcset;
+    std::iter::from_fn(move || {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
+        if rest.is_empty() {
+            return None;
+        }
+        let url_end = if is_data_url(rest) {
+            rest.find(char::is_whitespace)
+        } else {
+            rest.find(|c: char| c.is_whitespace() || c == ',')
+        }
+        .unwrap_or(rest.len());
+        let (url, after_url) = rest.split_at(url_end);
+        let url = url.trim_end_matches(',');
+        let descriptors_end = if url.len() < url_end {
+            // A comma closed the `data:` URI, so no descriptors follow it.
+            0
+        } else {
+            after_url.find(',').unwrap_or(after_url.len())
+        };
+        let (descriptors, after_candidate) = after_url.split_at(descriptors_end);
+        rest = after_candidate;
+        Some((url, descriptors))
+    })
+}
+
+/// Whether `url`, read from `source`, can name an image. A URL capture can never fetch
+/// never does (see [`is_unfetchable_url`]).
 fn is_probably_image_url(url: &str, source: ImageCandidateSource) -> bool {
-    if is_hostless_url(url) {
+    if is_unfetchable_url(url) {
         return false;
     }
     match source {
@@ -297,10 +324,24 @@ fn is_url_like(url: &str) -> bool {
     lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with('/')
 }
 
+/// Whether capture can never fetch `url`, whatever page it stands on: it names an authority
+/// without a host (see [`is_hostless_url`]) or it is a `data:` URI, which galleries and lazy
+/// loaders use as a blank or blurred placeholder until a script sets the real source and
+/// which capture rejects because it fetches only `http` and `https` URLs. Such a URL names
+/// no image, so an element whose only image is one is an empty slot.
+fn is_unfetchable_url(url: &str) -> bool {
+    is_hostless_url(url) || is_data_url(url)
+}
+
+/// Whether `url` is a `data:` URI, its scheme compared case-insensitively.
+fn is_data_url(url: &str) -> bool {
+    url.get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+}
+
 /// Whether `url` names an authority without a host, such as the `//:0` some galleries give
-/// the hidden image of an empty slot. Such a URL can never be fetched: capture resolves
-/// image URLs with the same parser and discards it. A relative URL names no authority and
-/// takes the page's host.
+/// the hidden image of an empty slot. Capture resolves image URLs with the same parser and
+/// discards such a URL. A relative URL names no authority and takes the page's host.
 fn is_hostless_url(url: &str) -> bool {
     let absolute = match url.strip_prefix("//") {
         Some(scheme_relative) => Cow::Owned(format!("https://{scheme_relative}")),
@@ -309,14 +350,12 @@ fn is_hostless_url(url: &str) -> bool {
     matches!(Url::parse(&absolute), Err(url::ParseError::EmptyHost))
 }
 
-/// Whether the attribute `value` holds at least one URL, one per candidate of a `srcset`,
-/// and none of them has a host (see [`is_hostless_url`]).
-fn holds_only_hostless_urls(value: &str) -> bool {
-    let mut urls = value
-        .split(',')
-        .filter_map(|candidate| candidate.split_whitespace().next())
-        .peekable();
-    urls.peek().is_some() && urls.all(is_hostless_url)
+/// Whether the attribute `value` holds at least one URL, one per candidate of a `srcset`
+/// (see [`srcset_candidates`]), and capture can fetch none of them (see
+/// [`is_unfetchable_url`]).
+fn holds_only_unfetchable_urls(value: &str) -> bool {
+    let mut urls = srcset_candidates(value).map(|(url, _)| url).peekable();
+    urls.peek().is_some() && urls.all(is_unfetchable_url)
 }
 
 /// Whether `url` mentions a known image file extension anywhere, case-insensitively.
@@ -348,15 +387,17 @@ const IMAGE_SOURCE_ATTRIBUTES: [&str; 10] = [
 ];
 
 /// Whether `element` or a descendant carries image markup: an `img`, `picture` or `source`
-/// element, an image source attribute or a CSS background image. A host-less image (see
-/// [`is_hostless_image`]) is none, because it can never be fetched. A hidden image with a
-/// real URL still is: lazy-loading galleries hide their images until a script runs.
+/// element, an image source attribute or a CSS background image. An unfetchable image or
+/// picture (see [`is_unfetchable_image`] and [`is_unfetchable_picture`]) is none, because
+/// capture can never fetch it. A hidden image with a real URL still is: lazy-loading
+/// galleries hide their images until a script runs.
 pub(crate) fn element_has_image_like_evidence(element: &scraper::ElementRef<'_>) -> bool {
     let markup = element
         .descendants()
         .filter_map(scraper::ElementRef::wrap)
-        .filter(is_hostless_image)
-        // `img` and `source` are void elements: their markup holds nothing else.
+        .filter(|node| is_unfetchable_image(node) || is_unfetchable_picture(node))
+        // `img` and `source` are void elements and an unfetchable `picture` holds only
+        // them, so their markup holds nothing else.
         .fold(element.html(), |markup, image| {
             markup.replace(&image.html(), "")
         });
@@ -364,21 +405,47 @@ pub(crate) fn element_has_image_like_evidence(element: &scraper::ElementRef<'_>)
 }
 
 /// Whether `element` is an `img` or `source` element whose every image source attribute
-/// holds only URLs without a host (see [`holds_only_hostless_urls`]) and whose style names
-/// no background image, such as the hidden `<img src="//:0">` of an empty gallery slot. An
-/// image element without an image source is not: a script may still fill it in.
-fn is_hostless_image(element: &scraper::ElementRef<'_>) -> bool {
-    let element = element.value();
-    let mut sources = IMAGE_SOURCE_ATTRIBUTES
-        .iter()
-        .filter_map(|attribute| element.attr(attribute))
+/// holds only URLs capture can never fetch (see [`holds_only_unfetchable_urls`]) and whose
+/// style names no background image, such as the hidden `<img src="//:0">` of an empty
+/// gallery slot or an `<img src="data:image/gif;base64,…">` placeholder. An image element
+/// without an image source is not: a script may still fill it in.
+fn is_unfetchable_image(element: &scraper::ElementRef<'_>) -> bool {
+    matches!(element.value().name(), "img" | "source")
+        && !names_background_image(element)
+        && image_sources(element).next().is_some()
+        && image_sources(element).all(holds_only_unfetchable_urls)
+}
+
+/// Whether `element` is a `picture` element that holds at least one element, all of them
+/// unfetchable images (see [`is_unfetchable_image`]), and that itself names no image a
+/// script could load: no image source attribute with a URL capture can fetch and no
+/// background image. An empty `picture` is not: a script may still fill it in.
+fn is_unfetchable_picture(element: &scraper::ElementRef<'_>) -> bool {
+    let mut children = element
+        .children()
+        .filter_map(scraper::ElementRef::wrap)
         .peekable();
-    matches!(element.name(), "img" | "source")
-        && !element
-            .attr("style")
-            .is_some_and(|style| style.to_ascii_lowercase().contains("background-image"))
-        && sources.peek().is_some()
-        && sources.all(holds_only_hostless_urls)
+    element.value().name() == "picture"
+        && !names_background_image(element)
+        && image_sources(element).all(holds_only_unfetchable_urls)
+        && children.peek().is_some()
+        && children.all(|child| is_unfetchable_image(&child))
+}
+
+/// The values of `element`'s image source attributes.
+fn image_sources<'a>(element: &scraper::ElementRef<'a>) -> impl Iterator<Item = &'a str> {
+    let element = element.value();
+    IMAGE_SOURCE_ATTRIBUTES
+        .iter()
+        .filter_map(move |attribute| element.attr(attribute))
+}
+
+/// Whether `element`'s own style names a background image.
+fn names_background_image(element: &scraper::ElementRef<'_>) -> bool {
+    element
+        .value()
+        .attr("style")
+        .is_some_and(|style| style.to_ascii_lowercase().contains("background-image"))
 }
 
 /// Whether serialized `markup` names an image element, an image source attribute or a CSS
@@ -421,6 +488,46 @@ mod tests {
         }
     }
 
+    /// A `data:` URI, which capture never fetches, is no image URL candidate wherever it is
+    /// read from, even when its payload mentions an image file.
+    #[rstest]
+    #[case::base64_gif("data:image/gif;base64,R0lGODlhAQABAAAAACw=")]
+    #[case::uppercase_scheme("DATA:image/png;base64,iVBORw0KGgo=")]
+    #[case::svg_naming_an_image_file("data:image/svg+xml,%3Csvg%3E%3Cimage href='a.jpg'/%3E")]
+    fn should_reject_a_data_uri_as_an_image_url_candidate(#[case] url: &str) {
+        for source in ALL_SOURCES {
+            assert!(!is_probably_image_url(url, source), "{source:?} took {url}");
+        }
+    }
+
+    #[rstest]
+    #[case::urls_and_descriptors("a.jpg 1x, b.jpg 2x", &[("a.jpg", " 1x"), ("b.jpg", " 2x")])]
+    #[case::no_space_after_a_comma("a.jpg,b.jpg", &[("a.jpg", ""), ("b.jpg", "")])]
+    #[case::single_url(" /uploads/photo.jpg ", &[("/uploads/photo.jpg", " ")])]
+    #[case::data_uri_with_descriptor(
+        "data:image/gif;base64,R0lG 1x, /a.jpg 2x",
+        &[("data:image/gif;base64,R0lG", " 1x"), ("/a.jpg", " 2x")]
+    )]
+    #[case::data_uri_closed_by_a_comma(
+        "data:image/gif;base64,R0lG,, /a.jpg",
+        &[("data:image/gif;base64,R0lG", ""), ("/a.jpg", "")]
+    )]
+    #[case::empty(" , ", &[])]
+    fn should_split_a_srcset_into_its_candidates(
+        #[case] srcset: &str,
+        #[case] expected: &[(&str, &str)],
+    ) {
+        assert_eq!(srcset_candidates(srcset).collect::<Vec<_>>(), expected);
+    }
+
+    #[test]
+    fn should_take_the_widest_real_candidate_of_a_srcset_with_a_data_uri() {
+        assert_eq!(
+            largest_srcset_candidate(Some("data:image/gif;base64,R0lG 1w, /a.jpg 800w")),
+            Some(("/a.jpg".to_owned(), 800))
+        );
+    }
+
     #[rstest]
     #[case::scheme_relative("//cdn.example.com/photo.jpg")]
     #[case::absolute_with_a_port("https://cdn.example.com:8443/photo.jpg")]
@@ -449,6 +556,17 @@ mod tests {
     #[case::hostless_srcset(r#"<source srcset="//:0 1x, //:0 2x">"#)]
     #[case::several_hostless_images(r#"<img src="//:0"><img src="//:0">"#)]
     #[case::padded_hostless_src(r#"<img src=" //:0 ">"#)]
+    #[case::hostless_picture(
+        r#"<picture><source srcset="//:0 1x, //:0 2x"><img src="//:0"></picture>"#
+    )]
+    #[case::data_uri_image(r#"<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">"#)]
+    #[case::data_uri_srcset(r#"<source srcset="data:image/gif;base64,R0lG 1x, //:0 2x">"#)]
+    #[case::data_uri_picture(
+        r#"<picture>
+            <source type="image/webp" srcset="data:image/webp;base64,UklG">
+            <img src="data:image/gif;base64,R0lG" alt="">
+        </picture>"#
+    )]
     fn should_find_no_image_markup_when_every_image_source_has_no_host(#[case] markup: &str) {
         assert!(!has_image_markup(markup));
     }
@@ -467,6 +585,28 @@ mod tests {
     #[case::real_image_inside_an_element_with_a_hostless_source(
         r#"<div data-src="//:0"><img src="/uploads/photo"></div>"#
     )]
+    #[case::lazy_image_behind_a_data_uri_src(
+        r#"<img src="data:image/gif;base64,R0lG" data-src="/uploads/photo">"#
+    )]
+    #[case::picture_with_a_real_source(
+        r#"<picture><source srcset="/uploads/photo.webp"><img src="//:0"></picture>"#
+    )]
+    #[case::picture_with_a_lazy_source(
+        r#"<picture><source data-srcset="/uploads/photo.webp"><img src="data:image/gif;base64,R0lG"></picture>"#
+    )]
+    #[case::picture_with_an_image_without_a_source(
+        r#"<picture><source srcset="//:0"><img class="lazy"></picture>"#
+    )]
+    #[case::empty_picture(r#"<picture></picture>"#)]
+    #[case::hostless_picture_with_a_lazy_source_of_its_own(
+        r#"<picture data-src="/uploads/photo"><img src="//:0"></picture>"#
+    )]
+    #[case::hostless_picture_with_a_background(
+        r#"<picture style="background-image: url(/uploads/photo)"><img src="//:0"></picture>"#
+    )]
+    #[case::hostless_picture_next_to_a_real_image(
+        r#"<picture><img src="//:0"></picture><img src="/uploads/photo">"#
+    )]
     fn should_find_image_markup_when_an_image_may_have_a_source(#[case] markup: &str) {
         assert!(has_image_markup(markup));
     }
@@ -476,6 +616,23 @@ mod tests {
     fn should_take_a_slot_whose_hidden_image_file_has_no_host_for_a_placeholder() {
         let html =
             Html::parse_fragment(r##"<a href="#" rel="lightbox"><img src="//:0/blank.gif"></a>"##);
+        let selector = scraper::Selector::parse("a").unwrap();
+        let slot = html.select(&selector).next().unwrap();
+
+        assert!(is_gallery_placeholder(&slot));
+    }
+
+    /// A gallery slot whose only image is a host-less `picture` or a `data:` URI placeholder
+    /// holds no image capture can fetch.
+    #[rstest]
+    #[case::hostless_picture(
+        r##"<a href="#" rel="lightbox"><picture><source srcset="//:0"><img src="//:0"></picture></a>"##
+    )]
+    #[case::data_uri_image(
+        r##"<a href="#" rel="lightbox"><img src="data:image/png;base64,iVBORw0KGgo=" alt=""></a>"##
+    )]
+    fn should_take_a_slot_whose_only_image_is_unfetchable_for_a_placeholder(#[case] markup: &str) {
+        let html = Html::parse_fragment(markup);
         let selector = scraper::Selector::parse("a").unwrap();
         let slot = html.select(&selector).next().unwrap();
 
