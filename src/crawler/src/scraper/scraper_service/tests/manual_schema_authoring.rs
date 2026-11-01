@@ -783,6 +783,37 @@ async fn should_use_schemas_approved_during_scrape_when_authoring_is_review() {
     assert_page_uses_schemas_approved_during_scrape(CrawlerAuthoringMode::Review).await;
 }
 
+/// A page that leaves its title blank under the schemas read before an approval is selected again
+/// against the approved schemas, whose title fallback finds a name, instead of recording
+/// `MissingRequiredValue` until its next scrape interval.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_capture_a_missing_value_page_with_schemas_approved_during_scrape() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let mut fixed = item_title_schema();
+    fixed.title.additional_selectors = vec![CssSelector::from("#product-id")];
+    let service = scraper_with_review_gate(
+        fetcher_returning_once(untitled_html()),
+        schema_service_approving_during_scrape(
+            cached_schemas(id, vec![item_title_schema()]),
+            cached_schemas(id, vec![fixed]),
+        ),
+        CrawlerReviewRepository::new(pool.clone()),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let scraped = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .result
+        .unwrap_or_else(|error| panic!("expected a scraped product: {error}"))
+        .unwrap_or_else(|| panic!("expected a scraped product"));
+
+    assert_eq!(scraped.title, "1208922");
+}
+
 async fn product_schema_review_count(pool: &PgPool, listing_source_id: &ListingSourceId) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(*) FROM crawler_reviews \
