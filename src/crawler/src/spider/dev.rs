@@ -51,6 +51,7 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceError
 use crawler::spider::classification::url_pattern_service::{
     UrlPatternAuthoring, UrlPatternServiceImpl,
 };
+use crawler::spider::discovery::website_spider::CrawlPace;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
@@ -189,6 +190,7 @@ async fn main() {
                 &demo_domain_id,
                 &crawl_root_url,
                 DEFAULT_CLASSIFY_THRESHOLD,
+                CrawlPace::default(),
             )
             .await
         {

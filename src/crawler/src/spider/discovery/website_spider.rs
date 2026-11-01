@@ -139,10 +139,13 @@ pub enum CrawlCompletion {
     /// The configured page budget bounded discovery on purpose.
     PageBudgetReached,
     /// Discovery was cut short before its bounds: the whole-crawl wall-clock
-    /// budget ran out, or the spider stopped on a rate-limit answer
-    /// (`CrawlDiagnostics::rate_limit`). The pages delivered before it are
-    /// valid but the crawl is incomplete.
+    /// budget ran out, or discovery stopped the crawl because its run ended.
+    /// The pages delivered before it are valid but the crawl is incomplete.
     HardTimeoutTruncated,
+    /// The shop answered a page with a rate limit and the spider stopped the
+    /// crawl, carrying the answer and its `Retry-After`. The pages delivered
+    /// before it are valid but the crawl is incomplete.
+    RateLimited(RateLimitSignal),
 }
 
 impl CrawlCompletion {
@@ -151,12 +154,24 @@ impl CrawlCompletion {
             CrawlCompletion::Completed => "COMPLETED",
             CrawlCompletion::PageBudgetReached => "PAGE_BUDGET_REACHED",
             CrawlCompletion::HardTimeoutTruncated => "HARD_TIMEOUT_TRUNCATED",
+            CrawlCompletion::RateLimited(_) => "RATE_LIMITED",
         }
     }
 
     /// Whether discovery covered everything the configured bounds allow.
     pub const fn is_full(self) -> bool {
-        !matches!(self, CrawlCompletion::HardTimeoutTruncated)
+        matches!(
+            self,
+            CrawlCompletion::Completed | CrawlCompletion::PageBudgetReached
+        )
+    }
+
+    /// The rate-limit answer that ended the crawl, when one did.
+    pub const fn rate_limit(self) -> Option<RateLimitSignal> {
+        match self {
+            CrawlCompletion::RateLimited(signal) => Some(signal),
+            _ => None,
+        }
     }
 }
 
@@ -242,6 +257,10 @@ pub struct CrawlDiagnostics {
     /// `unavailable_allow_all`.
     pub robots_policy: Option<&'static str>,
     pub robots_crawl_delay_ms: Option<u64>,
+    /// Delay between request starts the crawl ran with: the configured delay,
+    /// slowed after rate-limited crawls (`CrawlPace`) and raised by
+    /// robots.txt `Crawl-delay`.
+    pub request_delay_ms: u64,
     /// robots.txt Disallow rules whose written Allow exception Spider's deny
     /// list cannot carve out, so Spider skips URLs robots.txt permits.
     pub robots_rules_failing_closed: usize,
@@ -355,7 +374,7 @@ pub struct CrawlerConfig {
 impl Default for CrawlerConfig {
     fn default() -> Self {
         Self {
-            delay_millis: 500,
+            delay_millis: DEFAULT_DELAY_MILLIS,
             request_timeout_secs: 15,
             concurrency_limit: 8,
             // Twice the page budget keeps false "duplicate" drops near `bloom_fp_rate`.
@@ -375,10 +394,51 @@ impl Default for CrawlerConfig {
     }
 }
 
+/// Longest delay between request starts a slowed crawl uses; the same bound
+/// Spider's adaptive throttle and robots.txt `Crawl-delay` are held to.
+const MAX_CRAWL_DELAY_MILLIS: u64 = 60_000;
+
+/// The request rate of one crawl. A domain whose crawls a shop rate-limited
+/// is crawled more slowly: each consecutive rate-limited crawl doubles the
+/// delay between request starts, from at least the default delay, up to
+/// [`MAX_CRAWL_DELAY_MILLIS`] (`docs/crawler/scheduling-and-retries.md#rate-limited-crawls`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CrawlPace {
+    rate_limited_crawls: u32,
+}
+
+impl CrawlPace {
+    /// The pace after `rate_limited_crawls` consecutive rate-limited crawls;
+    /// zero is the configured pace.
+    pub const fn after_rate_limited_crawls(rate_limited_crawls: u32) -> Self {
+        Self {
+            rate_limited_crawls,
+        }
+    }
+
+    /// Delay between request starts for a crawl configured with
+    /// `configured_millis`.
+    pub fn delay_millis(self, configured_millis: u64) -> u64 {
+        if self.rate_limited_crawls == 0 {
+            return configured_millis;
+        }
+        let base = configured_millis.max(DEFAULT_DELAY_MILLIS);
+        let factor = 1_u64 << self.rate_limited_crawls.min(16);
+        base.saturating_mul(factor)
+            .min(MAX_CRAWL_DELAY_MILLIS.max(base))
+    }
+}
+
+const DEFAULT_DELAY_MILLIS: u64 = 500;
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait Spider: Send + Sync {
-    async fn crawl(&self, crawl_root_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError>;
+    async fn crawl(
+        &self,
+        crawl_root_url: &str,
+        pace: CrawlPace,
+    ) -> Result<SpiderCrawl, SpiderDiscoveryError>;
 }
 
 /// Builds the HTTP client used for the crawl root and every Spider request.
@@ -956,6 +1016,7 @@ impl SpiderImpl {
     async fn crawl_with_body_limit(
         &self,
         crawl_root_url: &str,
+        pace: CrawlPace,
         configured_body_limit: Option<&str>,
     ) -> Result<SpiderCrawl, SpiderDiscoveryError> {
         configured_spider_body_limit(configured_body_limit, self.config.max_response_body_bytes)?;
@@ -988,7 +1049,10 @@ impl SpiderImpl {
         })?;
         let robots =
             admit_crawl(self.transport.as_ref(), &root_url, &client, request_timeout).await?;
-        let delay_millis = crawl_delay_millis(self.config.delay_millis, robots.crawl_delay);
+        let delay_millis = crawl_delay_millis(
+            pace.delay_millis(self.config.delay_millis),
+            robots.crawl_delay,
+        );
         let refused_links = RefusedLinks::default();
         let decoder_refused_links = Arc::clone(&refused_links);
         let mut website = Website::new(root_url.as_str());
@@ -1072,6 +1136,7 @@ impl SpiderImpl {
                 .crawl_delay
                 .map(|delay| u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)),
             robots_rules_failing_closed: robots.deny_list.failing_closed.len(),
+            request_delay_ms: delay_millis,
             ..CrawlDiagnostics::default()
         };
         tokio::spawn(async move {
@@ -1095,7 +1160,8 @@ impl SpiderImpl {
                 }
                 // The crawl task died without reporting; never call that full.
                 Err(_) => {
-                    diagnostics.completion = CrawlCompletion::HardTimeoutTruncated;
+                    diagnostics.completion =
+                        rate_limited_or(&diagnostics, CrawlCompletion::HardTimeoutTruncated);
                     diagnostics.diagnostic_reason =
                         Some("crawl_task_ended_without_outcome".to_string());
                 }
@@ -1208,9 +1274,13 @@ async fn relay_library_pages(
 
 #[async_trait::async_trait]
 impl Spider for SpiderImpl {
-    async fn crawl(&self, crawl_root_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
+    async fn crawl(
+        &self,
+        crawl_root_url: &str,
+        pace: CrawlPace,
+    ) -> Result<SpiderCrawl, SpiderDiscoveryError> {
         let configured_body_limit = std::env::var(SPIDER_MAX_BODY_BYTES_ENV).ok();
-        self.crawl_with_body_limit(crawl_root_url, configured_body_limit.as_deref())
+        self.crawl_with_body_limit(crawl_root_url, pace, configured_body_limit.as_deref())
             .await
     }
 }
@@ -1311,8 +1381,16 @@ fn apply_rate_limit_signal(diagnostics: &mut CrawlDiagnostics, signal: RateLimit
 
 const RATE_LIMIT_ANSWER_STOPPED_CRAWL: &str = "rate_limit_answer_stopped_crawl";
 
+/// A rate-limit answer ends the crawl as rate-limited however Spider stopped
+/// afterwards: the answered page and the links behind it were not crawled.
+fn rate_limited_or(diagnostics: &CrawlDiagnostics, completion: CrawlCompletion) -> CrawlCompletion {
+    diagnostics
+        .rate_limit
+        .map_or(completion, CrawlCompletion::RateLimited)
+}
+
 fn apply_library_outcome(diagnostics: &mut CrawlDiagnostics, outcome: LibraryOutcome) {
-    diagnostics.completion = outcome.completion;
+    diagnostics.completion = rate_limited_or(diagnostics, outcome.completion);
     diagnostics.initial_html_length = Some(outcome.initial_html_length);
     diagnostics.initial_should_retry = outcome.initial_should_retry;
     diagnostics.initial_anti_bot = (outcome.initial_anti_bot != AntiBotTech::None)
@@ -1683,7 +1761,9 @@ mod tests {
         let SpiderCrawl {
             mut pages,
             diagnostics,
-        } = spider.crawl_with_body_limit(root, Some("8388608")).await?;
+        } = spider
+            .crawl_with_body_limit(root, CrawlPace::default(), Some("8388608"))
+            .await?;
         let mut discovered = HashSet::new();
         while let Some(page) = pages.recv().await {
             discovered.insert(page.url.to_string());
@@ -1983,9 +2063,18 @@ mod tests {
                 CrawlCompletion::Completed,
                 CrawlCompletion::PageBudgetReached,
                 CrawlCompletion::HardTimeoutTruncated,
+                CrawlCompletion::RateLimited(RateLimitSignal {
+                    status: 429,
+                    retry_after: None,
+                }),
             ]
             .map(CrawlCompletion::as_str),
-            ["COMPLETED", "PAGE_BUDGET_REACHED", "HARD_TIMEOUT_TRUNCATED"]
+            [
+                "COMPLETED",
+                "PAGE_BUDGET_REACHED",
+                "HARD_TIMEOUT_TRUNCATED",
+                "RATE_LIMITED"
+            ]
         );
         assert_eq!(
             serde_json::to_string(&CrawlCompletion::HardTimeoutTruncated).unwrap(),
@@ -1994,6 +2083,76 @@ mod tests {
         assert!(CrawlCompletion::Completed.is_full());
         assert!(CrawlCompletion::PageBudgetReached.is_full());
         assert!(!CrawlCompletion::HardTimeoutTruncated.is_full());
+        assert!(
+            !CrawlCompletion::RateLimited(RateLimitSignal {
+                status: 503,
+                retry_after: Some(Duration::from_secs(60)),
+            })
+            .is_full()
+        );
+    }
+
+    #[test]
+    fn crawl_pace_should_double_the_delay_per_rate_limited_crawl_up_to_one_minute() {
+        let pace = CrawlPace::after_rate_limited_crawls;
+
+        assert_eq!(CrawlPace::default().delay_millis(500), 500);
+        assert_eq!(pace(0).delay_millis(0), 0);
+        assert_eq!(pace(1).delay_millis(500), 1_000);
+        assert_eq!(pace(2).delay_millis(500), 2_000);
+        assert_eq!(
+            pace(1).delay_millis(0),
+            1_000,
+            "slows from the default delay"
+        );
+        assert_eq!(pace(1).delay_millis(5_000), 10_000);
+        assert_eq!(pace(7).delay_millis(500), MAX_CRAWL_DELAY_MILLIS);
+        assert_eq!(pace(u32::MAX).delay_millis(500), MAX_CRAWL_DELAY_MILLIS);
+        assert_eq!(
+            pace(3).delay_millis(90_000),
+            90_000,
+            "never faster than configured"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_crawl_at_the_slowed_pace_after_rate_limited_crawls() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/a">a</a><a href="/b">b</a>"#.to_string(),
+            ),
+            _ => SiteResponse::Html("200 OK", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let started = tokio::time::Instant::now();
+
+        let SpiderCrawl {
+            mut pages,
+            diagnostics,
+        } = spider
+            .crawl_with_body_limit(
+                "http://example.com/",
+                CrawlPace::after_rate_limited_crawls(1),
+                Some("8388608"),
+            )
+            .await
+            .unwrap();
+        let mut delivered = 0;
+        while pages.recv().await.is_some() {
+            delivered += 1;
+        }
+        let diagnostics = diagnostics.await.unwrap();
+        let elapsed = started.elapsed();
+        site.finish().await;
+
+        assert_eq!(delivered, 3, "{diagnostics:?}");
+        assert_eq!(diagnostics.request_delay_ms, 1_000);
+        assert!(
+            elapsed >= Duration::from_millis(900),
+            "the links behind the root wait for the slowed delay: {elapsed:?}"
+        );
     }
 
     #[tokio::test]
@@ -2110,7 +2269,7 @@ mod tests {
             );
             assert_eq!(
                 diagnostics.completion,
-                CrawlCompletion::HardTimeoutTruncated,
+                CrawlCompletion::RateLimited(expected),
                 "{diagnostics:?}"
             );
             assert_eq!(
@@ -2159,7 +2318,7 @@ mod tests {
             mut pages,
             diagnostics,
         } = spider
-            .crawl_with_body_limit("http://example.com/", Some("8388608"))
+            .crawl_with_body_limit("http://example.com/", CrawlPace::default(), Some("8388608"))
             .await
             .unwrap();
         for _ in 0..3 {
@@ -2713,7 +2872,7 @@ mod tests {
             mut pages,
             diagnostics,
         } = spider
-            .crawl_with_body_limit("http://example.com/", Some("8388608"))
+            .crawl_with_body_limit("http://example.com/", CrawlPace::default(), Some("8388608"))
             .await
             .unwrap();
 

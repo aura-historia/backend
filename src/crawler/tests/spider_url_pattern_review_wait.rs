@@ -15,7 +15,7 @@ use crawler::spider::classification::url_pattern_service::{
     MANUAL_URL_PATTERN_REASON, UrlPatternAuthoring, UrlPatternServiceImpl,
 };
 use crawler::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlDiagnostics, CrawledPage, MockSpider, SpiderCrawl,
+    CrawlCompletion, CrawlDiagnostics, CrawlPace, CrawledPage, MockSpider, SpiderCrawl,
 };
 use crawler::spider::service::{
     SpiderRunResult, SpiderService, SpiderServiceConfig, SpiderServiceError, SpiderServiceImpl,
@@ -47,7 +47,7 @@ fn crawl_fed_by_the_test() -> (mpsc::Sender<CrawledPage>, MockSpider) {
     let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
     diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
     let mut spider = MockSpider::new();
-    spider.expect_crawl().return_once(move |_| {
+    spider.expect_crawl().return_once(move |_, _| {
         Box::pin(async move {
             Ok(SpiderCrawl {
                 pages: pages_rx,
@@ -168,6 +168,7 @@ impl ManualCrawlFixture {
                     &domain_id,
                     &format!("https://{DOMAIN}"),
                     THRESHOLD,
+                    CrawlPace::default(),
                 )
                 .await
         });
@@ -202,6 +203,7 @@ impl ManualCrawlFixture {
             .mark_crawl_awaiting_url_pattern_review(
                 &self.domain_id,
                 &review_id,
+                0,
                 OffsetDateTime::now_utc() + SPIDER_RECRAWL_INTERVAL,
             )
             .await

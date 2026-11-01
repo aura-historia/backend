@@ -14,8 +14,8 @@ use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
 use crate::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlStopReason, CrawledPage, Spider,
-    SpiderDiscoveryError,
+    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace, CrawlStopReason, CrawledPage,
+    Spider, SpiderDiscoveryError,
 };
 use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
@@ -142,6 +142,7 @@ pub trait SpiderService: Send + Sync {
         domain_id: &CrawlerDomainId,
         _crawl_root_url: &str,
         classify_threshold: usize,
+        pace: CrawlPace,
     ) -> Result<SpiderRunResult, SpiderServiceError>;
 }
 
@@ -558,6 +559,7 @@ impl SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         classify_threshold: usize,
+        pace: CrawlPace,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let configured_root = Url::parse(crawl_root_url).map_err(|_| {
             SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
@@ -566,7 +568,7 @@ impl SpiderServiceImpl {
                 source: None,
             })
         })?;
-        let crawl = self.spider.crawl(crawl_root_url).await?;
+        let crawl = self.spider.crawl(crawl_root_url, pace).await?;
         let consumed = self
             .consume_pages(
                 crawl.pages,
@@ -656,7 +658,8 @@ impl SpiderService for SpiderServiceImpl {
             listing_source_id = %listing_source_id,
             domain_id = %domain_id,
             crawl_root_url = %crawl_root_url,
-            classify_threshold
+            classify_threshold,
+            pace = ?pace
         )
     )]
     async fn run(
@@ -665,6 +668,7 @@ impl SpiderService for SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         classify_threshold: usize,
+        pace: CrawlPace,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
 
@@ -673,6 +677,7 @@ impl SpiderService for SpiderServiceImpl {
             domain_id,
             crawl_root_url,
             classify_threshold,
+            pace,
         )
         .await
     }
@@ -736,6 +741,7 @@ fn log_crawl_outcome(
         rejected_duplicate = diagnostics.rejected_duplicate,
         robots_policy = ?diagnostics.robots_policy,
         robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
+        request_delay_ms = diagnostics.request_delay_ms,
         robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
         lagged = diagnostics.lagged,
         initial_anti_bot = ?diagnostics.initial_anti_bot,
@@ -777,14 +783,17 @@ fn crawl_outcome_message(
         (_, true) => "Crawl waiting for URL pattern review, keeping discovered URLs",
         (CrawlCompletion::Completed, false) => "Crawl completed",
         (CrawlCompletion::PageBudgetReached, false) => "Crawl completed at page budget",
+        (CrawlCompletion::RateLimited(_), false) => {
+            "Crawl rate-limited: stopped early on a rate-limit answer, keeping discovered URLs"
+        }
         (CrawlCompletion::HardTimeoutTruncated, false) => match stopped_early {
-            Some(CrawlStopReason::RateLimited) => {
-                "Crawl truncated: stopped early on a rate-limit answer, keeping discovered URLs"
-            }
             Some(CrawlStopReason::RunEnded) => {
                 "Crawl truncated: stopped early because the run ended, keeping discovered URLs"
             }
-            None => "Crawl truncated by hard timeout, keeping discovered URLs",
+            // A rate-limit stop ends the crawl as rate-limited instead.
+            Some(CrawlStopReason::RateLimited) | None => {
+                "Crawl truncated by hard timeout, keeping discovered URLs"
+            }
         },
     }
 }
@@ -817,6 +826,7 @@ mod service_tests {
     use crate::spider::classification::url_pattern_service::{
         DecidedUrlPattern, MockUrlPatternService,
     };
+    use crate::spider::discovery::page_status::RateLimitSignal;
     use crate::spider::discovery::website_spider::{
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
@@ -889,8 +899,11 @@ mod service_tests {
     {
         let paths: Vec<String> = paths.into_iter().map(Into::into).collect();
         mock.expect_crawl()
-            .with(mockall::predicate::eq(crawl_root_url))
-            .returning(move |_| {
+            .with(
+                mockall::predicate::eq(crawl_root_url),
+                mockall::predicate::eq(CrawlPace::default()),
+            )
+            .returning(move |_, _| {
                 let paths = paths.clone();
                 let diagnostics = diagnostics.clone();
                 let (tx, rx) = mpsc::channel(25);
@@ -964,7 +977,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
@@ -1023,7 +1042,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
@@ -1098,7 +1123,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
@@ -1157,7 +1188,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
@@ -1201,7 +1238,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
@@ -1280,7 +1323,13 @@ mod service_tests {
         );
 
         let run = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await;
 
         (run, stored)
@@ -1375,7 +1424,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1427,7 +1482,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1478,20 +1539,42 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
 
         assert_eq!(run_result.completion, CrawlCompletion::PageBudgetReached);
     }
 
+    fn rate_limited_completion() -> CrawlCompletion {
+        CrawlCompletion::RateLimited(RateLimitSignal {
+            status: 429,
+            retry_after: None,
+        })
+    }
+
+    #[test]
+    fn should_log_rate_limited_run_as_rate_limited_not_as_hard_timeout() {
+        let message = crawl_outcome_message(
+            rate_limited_completion(),
+            Some(CrawlStopReason::RateLimited),
+            false,
+        );
+
+        assert!(message.contains("rate-limit"), "{message}");
+        assert!(!message.contains("hard timeout"), "{message}");
+        assert!(!message.contains("completed"), "{message}");
+    }
+
     #[test]
     fn should_never_log_hard_timeout_run_as_completed() {
-        for stopped_early in [
-            None,
-            Some(CrawlStopReason::RateLimited),
-            Some(CrawlStopReason::RunEnded),
-        ] {
+        for stopped_early in [None, Some(CrawlStopReason::RunEnded)] {
             let message =
                 crawl_outcome_message(CrawlCompletion::HardTimeoutTruncated, stopped_early, false);
 
@@ -1507,6 +1590,7 @@ mod service_tests {
             CrawlCompletion::Completed,
             CrawlCompletion::PageBudgetReached,
             CrawlCompletion::HardTimeoutTruncated,
+            rate_limited_completion(),
         ] {
             for awaiting_review in [false, true] {
                 let message = crawl_outcome_message(completion, None, awaiting_review);
@@ -1531,7 +1615,7 @@ mod service_tests {
         let library_stopped = Arc::new(AtomicBool::new(false));
 
         let stopped = Arc::clone(&library_stopped);
-        mock_spider.expect_crawl().times(1).returning(move |_| {
+        mock_spider.expect_crawl().times(1).returning(move |_, _| {
             let (tx, rx) = mpsc::channel(25);
             let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
             let stopped = Arc::clone(&stopped);
@@ -1581,7 +1665,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(
@@ -1635,7 +1725,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
@@ -1682,7 +1778,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                25,
+                CrawlPace::default(),
+            )
             .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
@@ -1718,7 +1820,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                400,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
         assert_eq!(run_result.product_urls_count, 20);
@@ -1763,7 +1871,13 @@ mod service_tests {
         );
 
         let run_result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                400,
+                CrawlPace::default(),
+            )
             .await
             .unwrap();
         assert_eq!(run_result.total_links, 25);
@@ -1805,7 +1919,13 @@ mod service_tests {
         );
 
         service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 400)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                400,
+                CrawlPace::default(),
+            )
             .await
             .unwrap()
     }
@@ -1843,8 +1963,11 @@ mod service_tests {
 
         mock_spider
             .expect_crawl()
-            .with(mockall::predicate::eq(crawl_root_url))
-            .returning(|_| {
+            .with(
+                mockall::predicate::eq(crawl_root_url),
+                mockall::predicate::eq(CrawlPace::default()),
+            )
+            .returning(|_, _| {
                 let (_tx, rx) = mpsc::channel(10);
                 let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
                 diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
@@ -1873,7 +1996,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1916,7 +2045,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -1962,7 +2097,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2016,7 +2157,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2068,7 +2215,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2119,7 +2272,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2156,7 +2315,13 @@ mod service_tests {
         );
 
         let result = service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
             .await;
 
         assert!(matches!(
@@ -2234,7 +2399,13 @@ mod service_tests {
         );
 
         service
-            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                20,
+                CrawlPace::default(),
+            )
             .await
             .unwrap_or_else(|error| panic!("crawl: {error}"));
 

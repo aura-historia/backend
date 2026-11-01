@@ -58,7 +58,7 @@ Rows stored under an earlier spelling move to the fetched spelling when the spid
 
 ## Rate-limit answers
 
-A shop that answers a spider page with 429, or with 503, after Spider's own retries has asked for less traffic, so the spider stops the crawl instead of pacing it down. The pages delivered before that answer are kept, the crawl diagnostics record the answer with the shop's `Retry-After`, and the crawl ends as a truncated crawl ([scheduling](scheduling-and-retries.md#spider-crawl-completion)); with at most one usable page it fails as `RateLimited`. A 429 limits the client, not the page, so Spider does not retry it; a 503 keeps Spider's bounded retries. Spider's own reading of a refused root (a vendor block, a JavaScript challenge) keeps precedence over the rate-limit signal.
+A shop that answers a spider page with 429, or with 503, after Spider's own retries has asked for less traffic, so the spider stops the crawl instead of pacing it down. The pages delivered before that answer are kept, the crawl diagnostics record the answer with the shop's `Retry-After`, and the crawl ends as `RATE_LIMITED`; the domain's next crawls then run slower until one completes ([scheduling](scheduling-and-retries.md#rate-limited-crawls)). With at most one usable page it fails as `RateLimited`. A 429 limits the client, not the page, so Spider does not retry it; a 503 keeps Spider's bounded retries. Spider's own reading of a refused root (a vendor block, a JavaScript challenge) keeps precedence over the rate-limit signal.
 
 The crawl diagnostics also count every delivered page by the status class of its final answer (2xx, 3xx, 4xx other than 429, 429, 5xx), so a crawl that was refused or throttled part-way no longer looks complete.
 
