@@ -248,7 +248,8 @@ async fn replace_crawl_root(
              next_crawl_at = NULL, \
              crawl_failure_count = 0, \
              last_crawl_error_kind = NULL, \
-             last_crawl_outcome = NULL \
+             last_crawl_outcome = NULL, \
+             crawl_truncation_count = 0 \
          WHERE domain_id = $1",
     )
     .bind(domain_id.as_uuid())

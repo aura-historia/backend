@@ -184,13 +184,14 @@ async fn should_treat_bare_www_and_trailing_dot_as_one_crawler_domain_identity()
 }
 
 /// The crawl state of a domain: `(crawl_root_host, url_pattern, last_crawled IS NULL,
-/// crawl_failure_count, last_crawl_outcome)`.
+/// crawl_failure_count + crawl_truncation_count, last_crawl_outcome)`.
 async fn crawl_state(
     pool: &sqlx::PgPool,
     domain_id: CrawlerDomainId,
 ) -> (String, Option<String>, bool, i32, Option<String>) {
     sqlx::query_as(
-        "SELECT crawl_root_host, url_pattern, last_crawled IS NULL, crawl_failure_count, \
+        "SELECT crawl_root_host, url_pattern, last_crawled IS NULL, \
+                crawl_failure_count + crawl_truncation_count, \
                 last_crawl_outcome \
          FROM listing_source_domains WHERE domain_id = $1",
     )
@@ -219,7 +220,7 @@ async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_
         "UPDATE listing_source_domains \
          SET url_pattern = '^/product/', url_pattern_state = 'MATCHED', last_crawled = NOW(), \
              crawl_failure_count = 5, last_crawl_error_kind = 'REDIRECT_OFF_DOMAIN', \
-             last_crawl_outcome = 'NEEDS_OPERATOR' \
+             last_crawl_outcome = 'NEEDS_OPERATOR', crawl_truncation_count = 2 \
          WHERE domain_id = $1",
     )
     .bind(bare.domain_id.as_uuid())
@@ -238,7 +239,7 @@ async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_
             "example.com".to_owned(),
             Some("^/product/".to_owned()),
             false,
-            5,
+            7,
             Some("NEEDS_OPERATOR".to_owned())
         ),
         "registering the same crawl root again must keep the crawl state"
