@@ -6,6 +6,7 @@ use crate::spider::discovery::website_spider::CrawledPage;
 use crate::spider::service::product_pattern::ProductListingPattern;
 #[cfg(doc)]
 use crate::spider::utils::url::CrawledUrl;
+use crate::spider::utils::url::canonical::ShopPlatform;
 
 pub struct CrawlRunState {
     pub total_crawled: usize,
@@ -23,6 +24,9 @@ pub struct CrawlRunState {
     /// Set once classification stops at a pending URL-pattern review; the crawl then keeps
     /// `pattern` as it is and asks no further, until it finds the review decided.
     pub url_pattern_review_wait: Option<UrlPatternReviewWait>,
+    /// The shop system a crawled page showed the markers of; its product URL rules then apply to
+    /// every page the crawl stores.
+    pub shop_platform: Option<ShopPlatform>,
 }
 
 /// A crawl's wait on a pending URL-pattern review.
@@ -52,6 +56,7 @@ impl CrawlRunState {
             page_buffer: Vec::new(),
             inference_sample: Vec::new(),
             url_pattern_review_wait: None,
+            shop_platform: None,
         }
     }
 

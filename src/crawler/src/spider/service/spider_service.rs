@@ -21,6 +21,7 @@ use crate::spider::discovery::website_spider::{
 use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
 use crate::spider::utils::url::CrawledUrl;
+use crate::spider::utils::url::canonical::{ShopPlatform, canonical_product_url};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
@@ -198,12 +199,16 @@ impl SpiderServiceImpl {
         }
     }
 
+    /// Stores `pages` classified by `pattern`, each product page under its canonical URL
+    /// ([`canonical_product_url`]). This is the one path every discovered URL is stored through,
+    /// so the canonical rules cover every page a crawl stores.
     async fn persist_url_metadata_batch(
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         pages: &[CrawledPage],
         pattern: &ProductListingPattern,
+        shop_platform: Option<ShopPlatform>,
     ) -> Result<Vec<SpiderUrlRecord>, SpiderServiceError> {
         if pages.is_empty() {
             return Ok(Vec::new());
@@ -211,19 +216,37 @@ impl SpiderServiceImpl {
 
         let links = pages
             .iter()
-            .map(|page| DiscoveredUrl {
-                url: page.url.as_url().clone(),
-                url_class: self
-                    .config
-                    .url_classifier
-                    .classify(page.url.as_url().as_str(), pattern.as_regex()),
-            })
+            .map(|page| self.discovered_url(page, pattern, shop_platform))
             .collect::<Vec<_>>();
 
         self.url_metadata_repository
             .upsert_links_batch(listing_source_id, domain_id, &links)
             .await
             .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))
+    }
+
+    fn discovered_url(
+        &self,
+        page: &CrawledPage,
+        pattern: &ProductListingPattern,
+        shop_platform: Option<ShopPlatform>,
+    ) -> DiscoveredUrl {
+        let url_class = self
+            .config
+            .url_classifier
+            .classify(page.url.as_url().as_str(), pattern.as_regex());
+        let canonical = pattern
+            .as_regex()
+            .filter(|_| url_class == UrlClass::ProductListing)
+            .and_then(|regex| {
+                canonical_product_url(&page.url, &page.identity, shop_platform, regex)
+            })
+            .map(|canonical| canonical.as_url().clone());
+        DiscoveredUrl {
+            url: page.url.as_url().clone(),
+            url_class,
+            canonical,
+        }
     }
 
     /// Stores the buffered pages under the crawl's pattern, counts its product URLs among them
@@ -246,6 +269,7 @@ impl SpiderServiceImpl {
                 domain_id,
                 &state.page_buffer,
                 &state.pattern,
+                state.shop_platform,
             )
             .await?;
         record_stored_products(&stored, &mut state.stored_product_pages);
@@ -291,7 +315,13 @@ impl SpiderServiceImpl {
         for pages in stored_pages.chunks(self.config.db_batch_size.max(1)) {
             record_pattern_matches(pages, &state.pattern, &mut state.pattern_matched_pages);
             let stored = self
-                .persist_url_metadata_batch(listing_source_id, domain_id, pages, &state.pattern)
+                .persist_url_metadata_batch(
+                    listing_source_id,
+                    domain_id,
+                    pages,
+                    &state.pattern,
+                    state.shop_platform,
+                )
                 .await?;
             record_stored_products(&stored, &mut state.stored_product_pages);
         }
@@ -548,6 +578,7 @@ impl SpiderServiceImpl {
                 continue;
             }
             state.total_crawled += 1;
+            state.shop_platform = state.shop_platform.or(page.identity.platform);
 
             if state.inference_sample.len() < self.config.max_sample_urls {
                 state.inference_sample.push(page.url.to_string());
@@ -885,6 +916,7 @@ mod service_tests {
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
     use crate::spider::utils::url::CrawledUrl;
+    use crate::spider::utils::url::canonical::PageIdentityEvidence;
     use regex::Regex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::{mpsc, oneshot};
@@ -901,7 +933,7 @@ mod service_tests {
             .map(|link| SpiderUrlRecord {
                 listing_source_id: *listing_source_id,
                 domain_id: *domain_id,
-                url: link.url.clone(),
+                url: link.canonical.clone().unwrap_or_else(|| link.url.clone()),
                 url_class: link.url_class,
                 disposition: CrawlerDisposition::Active,
                 last_scraped_hash: None,
@@ -1931,6 +1963,144 @@ mod service_tests {
             .unwrap();
         assert_eq!(run_result.total_links, 25);
         assert_eq!(run_result.product_urls_count, 20);
+    }
+
+    fn shop_page(path: &str, identity: PageIdentityEvidence) -> CrawledPage {
+        CrawledPage::new(
+            CrawledUrl::try_from(format!("https://example.com{path}").as_str()).unwrap(),
+        )
+        .with_identity(identity)
+    }
+
+    fn page_url(path: &str) -> CrawledUrl {
+        CrawledUrl::try_from(format!("https://example.com{path}").as_str()).unwrap()
+    }
+
+    /// Every product page reaches storage with its canonical URL: from its canonical link, as a
+    /// language copy, or by the Shopify rule the crawl applies once a page showed Shopify's
+    /// markers, also to pages that carry no evidence of their own.
+    #[tokio::test]
+    async fn should_store_each_duplicate_product_page_under_its_canonical_url() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        let mut pages = vec![
+            shop_page(
+                "/",
+                PageIdentityEvidence {
+                    platform: Some(ShopPlatform::Shopify),
+                    ..PageIdentityEvidence::default()
+                },
+            ),
+            shop_page(
+                "/collections/all/products/ladle",
+                PageIdentityEvidence {
+                    canonical_link: Some(page_url("/products/ladle")),
+                    ..PageIdentityEvidence::default()
+                },
+            ),
+            shop_page(
+                "/collections/sale/products/spoon",
+                PageIdentityEvidence::default(),
+            ),
+            shop_page(
+                "/en/products/bowl",
+                PageIdentityEvidence {
+                    canonical_link: Some(page_url("/en/products/bowl")),
+                    language_alternates: vec![
+                        page_url("/products/bowl"),
+                        page_url("/en/products/bowl"),
+                    ],
+                    platform: Some(ShopPlatform::Shopify),
+                },
+            ),
+            shop_page("/products/ladle", PageIdentityEvidence::default()),
+            shop_page("/collections/all", PageIdentityEvidence::default()),
+        ];
+        pages.extend(
+            (1..20).map(|i| shop_page(&format!("/pages/{i}"), PageIdentityEvidence::default())),
+        );
+        mock_spider.expect_crawl().returning(move |_, _| {
+            let pages = pages.clone();
+            let (tx, rx) = mpsc::channel(50);
+            tokio::spawn(async move {
+                for page in pages {
+                    tx.send(page).await.unwrap();
+                }
+            });
+            let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+            diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
+            Box::pin(async {
+                Ok(SpiderCrawl {
+                    pages: rx,
+                    diagnostics: diagnostics_rx,
+                })
+            })
+        });
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/products/[^/]+$").unwrap())) })
+            });
+        mock_pattern_service.expect_classify_and_save().times(0);
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        let stored: Arc<std::sync::Mutex<Vec<DiscoveredUrl>>> = Arc::default();
+        let recorded = Arc::clone(&stored);
+        mock_url_repo.expect_upsert_links_batch().returning(
+            move |listing_source_id, domain_id, links| {
+                recorded.lock().unwrap().extend_from_slice(links);
+                let stored = stored_as_given(listing_source_id, domain_id, links);
+                Box::pin(async move { Ok(stored) })
+            },
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let run_result = service
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                400,
+                CrawlPace::default(),
+            )
+            .await
+            .unwrap();
+
+        let canonical_of = |path: &str| {
+            stored
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|link| link.url.path() == path)
+                .unwrap_or_else(|| panic!("{path} was not stored"))
+                .canonical
+                .as_ref()
+                .map(|url| url.path().to_owned())
+        };
+        assert_eq!(
+            canonical_of("/collections/all/products/ladle").as_deref(),
+            Some("/products/ladle")
+        );
+        assert_eq!(
+            canonical_of("/collections/sale/products/spoon").as_deref(),
+            Some("/products/spoon")
+        );
+        assert_eq!(
+            canonical_of("/en/products/bowl").as_deref(),
+            Some("/products/bowl")
+        );
+        assert_eq!(canonical_of("/products/ladle"), None);
+        assert_eq!(canonical_of("/collections/all"), None);
+        assert_eq!(run_result.product_urls_count, 3, "each product counts once");
     }
 
     /// Crawls the 20 `/item/` pages under a stored `/item/` pattern while storage keeps the
