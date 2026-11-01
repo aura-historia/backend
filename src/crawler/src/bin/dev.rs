@@ -220,13 +220,12 @@ async fn main() {
             "freshfords.com",
             "antiquefurnituredirect.co.uk",
         ]) {
-            if let Err(error) = domain_configuration
-                .register(
-                    listing_source.listing_source_id,
-                    listing_source_core::Domain::try_from(domain)
-                        .unwrap_or_else(|error| panic!("invalid demo crawler domain: {error}")),
-                )
-                .await
+            if let Err(error) = seed_demo_crawler_domain(
+                domain_configuration.as_ref(),
+                listing_source.listing_source_id,
+                domain,
+            )
+            .await
             {
                 error!(error = ?error, domain, "Failed to configure demo crawler domain");
                 return;
@@ -308,7 +307,8 @@ async fn connect_with_retry(
     config: &CrawlerCronConfig,
     db_url: &str,
 ) -> Result<sqlx::PgPool, PostgresConnectError> {
-    let (pool, attempt) = connect_retry::connect_with_retry(|| config.connect_pool(db_url)).await?;
+    let (pool, attempt) =
+        connect_retry::connect_with_retry(db_url, || config.connect_pool(db_url)).await?;
     info!(
         attempt,
         max_connections = config.effective_db_max_connections(),

@@ -44,6 +44,8 @@ The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From 
 
 To run `server` against this container, start it with `db-up` and set `LOCAL_DB_URL=postgres://postgres:postgres@localhost:5432/crawler_server`; `server` never starts Docker itself.
 
+The `dev` entry points wait for this container while it starts: a server on a Unix socket or on a host that resolves only to loopback addresses is retried 30 times with back-off. They fail at once on answers that waiting cannot change, an unknown database or a refused login, and on a `LOCAL_DB_URL` host that does not resolve. A server on any other host, which no dev run starts, fails startup when it has not accepted a connection within 30 seconds. On every start `dev` registers a demo shop's crawler domain only while the shop has none, so a domain or crawl root changed in the review console survives a restart.
+
 ## Review service
 
 The server also hosts the crawler review console. It binds to `127.0.0.1:7878` unless `CRAWLER_REVIEW_BIND_ADDR` overrides it.
