@@ -118,23 +118,101 @@ impl SeedAdmission<'_> {
     }
 }
 
-/// The links Spider found on crawled pages, in the spelling it requests them.
-#[derive(Clone, Default)]
-pub(super) struct FoundLinks(Arc<Mutex<HashSet<String>>>);
+/// The links on the pages a crawl delivered, in the spelling the crawler stores, so what the
+/// crawl did not reach can carry over. Spider reports a page's links with the page; it hands its
+/// link callback only the links it goes on to fetch.
+#[derive(Clone)]
+pub(super) struct FoundLinks {
+    root: Arc<Url>,
+    deny_list: Arc<RegexSet>,
+    links: Arc<Mutex<HashSet<String>>>,
+    /// The pages Spider delivered. Spider counts a link visited once it starts
+    /// the fetch, also when its crawl ended before the page arrived.
+    delivered: Arc<Mutex<HashSet<CaseInsensitiveString>>>,
+}
 
 impl FoundLinks {
-    pub(super) fn record(&self, link: &str) {
-        let mut found = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if found.len() < MAX_FOUND_LINKS {
-            found.insert(link.to_string());
+    /// Links on `root`'s host that neither the URL blacklist nor `deny_list` refuses.
+    pub(super) fn new(root: Url, deny_list: RegexSet) -> Self {
+        Self {
+            root: Arc::new(root),
+            deny_list: Arc::new(deny_list),
+            links: Arc::default(),
+            delivered: Arc::default(),
+        }
+    }
+
+    pub(super) fn record_delivered(&self, page_url: &str) {
+        let mut delivered = self
+            .delivered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if delivered.len() < MAX_FOUND_LINKS {
+            delivered.insert(CaseInsensitiveString::from(page_url));
+        }
+    }
+
+    /// The seeds and found links whose page the crawl neither delivered nor already knew, at
+    /// most [`MAX_FRONTIER_URLS`].
+    pub(super) fn frontier(
+        &self,
+        seeds: &[String],
+        known: &HashSet<CaseInsensitiveString>,
+    ) -> Vec<Url> {
+        let found = self.snapshot();
+        let delivered = self
+            .delivered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        unvisited(
+            seeds.iter().chain(found.iter()),
+            |link| delivered.contains(link) || known.contains(link),
+            MAX_FRONTIER_URLS,
+        )
+        .iter()
+        .filter_map(|url| Url::parse(url).ok())
+        .collect()
+    }
+
+    /// Records the links of the page at `page_url`, written as the page writes them: Spider
+    /// reports them unresolved.
+    pub(super) fn record<'a>(
+        &self,
+        page_url: &str,
+        page_links: impl IntoIterator<Item = &'a CaseInsensitiveString>,
+    ) {
+        let Ok(page_url) = Url::parse(page_url) else {
+            return;
+        };
+        let stored: Vec<String> = page_links
+            .into_iter()
+            .filter_map(|link| self.stored_spelling(&page_url, link.inner()))
+            .collect();
+        let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
+        for link in stored {
+            if links.len() >= MAX_FOUND_LINKS {
+                break;
+            }
+            links.insert(link);
         }
     }
 
     pub(super) fn snapshot(&self) -> HashSet<String> {
-        self.0
+        self.links
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// The link as Spider would request it (`FoundLinkDecoder`), when the crawl may follow it.
+    fn stored_spelling(&self, page_url: &Url, link: &str) -> Option<String> {
+        let decoded = html_escape::decode_html_entities(link);
+        let stored = CrawledUrl::new(page_url.join(decoded.trim()).ok()?);
+        let followed = is_same_or_www_host(&self.root, stored.as_url())
+            && !stored.is_blacklisted()
+            && !self.deny_list.is_match(stored.as_url().as_str());
+        followed.then(|| stored.as_url().as_str().to_string())
     }
 }
 
@@ -234,6 +312,34 @@ mod tests {
         assert_eq!(
             unvisited(&candidates, |link| visited.contains(link), 1).len(),
             1
+        );
+    }
+
+    #[test]
+    fn should_record_page_links_the_crawl_may_follow_in_their_stored_spelling() {
+        let deny_list = RegexSet::new([r"/denied"]).unwrap();
+        let found = FoundLinks::new(url("/"), deny_list);
+        let links: Vec<CaseInsensitiveString> = [
+            "item.php?id=1&amp;utm_source=x",
+            "https://www.shop.example/product/2",
+            "https://other.example/product/3",
+            "https://shop.example/denied/4",
+            "https://shop.example/cart",
+        ]
+        .into_iter()
+        .map(CaseInsensitiveString::from)
+        .collect();
+
+        found.record("https://shop.example/catalogue/", &links);
+
+        assert_eq!(
+            found.snapshot(),
+            [
+                "https://shop.example/catalogue/item.php?id=1".to_string(),
+                "https://www.shop.example/product/2".to_string()
+            ]
+            .into_iter()
+            .collect()
         );
     }
 
