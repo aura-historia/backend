@@ -3226,7 +3226,7 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> Domain
                 .mark_crawl_awaiting_url_pattern_review(
                     &domain_id,
                     &newer,
-                    0,
+                    None,
                     OffsetDateTime::now_utc() + time::Duration::days(7),
                 )
                 .await

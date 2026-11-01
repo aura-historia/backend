@@ -13,6 +13,7 @@ use crate::spider::classification::url_metadata_repository::{
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
+use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
     CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace, CrawlStopReason, CrawledPage,
     Spider, SpiderDiscoveryError,
@@ -109,6 +110,16 @@ pub enum SpiderServiceError {
         completion: CrawlCompletion,
     },
 
+    /// The run failed after a shop's rate-limit answer had stopped its crawl.
+    /// The scheduler honours the answer whatever the failure; `failure` keeps
+    /// its own kind and evidence.
+    #[error("spider run failed after a rate-limit answer ({}) stopped its crawl", rate_limit.status)]
+    RateLimitedCrawl {
+        rate_limit: RateLimitSignal,
+        #[source]
+        failure: Box<SpiderServiceError>,
+    },
+
     /// The crawl delivered pages, but the domain's URL classification is
     /// complete without a product pattern, so no page can become a product
     /// URL until an operator decides or resets the pattern.
@@ -120,6 +131,25 @@ pub enum SpiderServiceError {
         total_links: usize,
         completion: CrawlCompletion,
     },
+}
+
+impl SpiderServiceError {
+    /// The failure itself, without the rate-limit answer that stopped the
+    /// crawl before it.
+    pub fn cause(&self) -> &SpiderServiceError {
+        match self {
+            SpiderServiceError::RateLimitedCrawl { failure, .. } => failure.cause(),
+            failure => failure,
+        }
+    }
+
+    /// The rate-limit answer that stopped the failed run's crawl, when one did.
+    pub fn rate_limit(&self) -> Option<RateLimitSignal> {
+        match self {
+            SpiderServiceError::RateLimitedCrawl { rate_limit, .. } => Some(*rate_limit),
+            _ => None,
+        }
+    }
 }
 
 impl Default for SpiderServiceConfig {
@@ -593,11 +623,37 @@ impl SpiderServiceImpl {
                 diagnostic_reason: Some("crawl_diagnostics_missing".to_string()),
                 ..CrawlDiagnostics::default()
             });
+        let rate_limit = diagnostics.completion.rate_limit();
+        self.finish_crawl(
+            consumed,
+            &diagnostics,
+            listing_source_id,
+            domain_id,
+            crawl_root_url,
+        )
+        .await
+        .map_err(|error| match rate_limit {
+            Some(rate_limit) => SpiderServiceError::RateLimitedCrawl {
+                rate_limit,
+                failure: Box::new(error),
+            },
+            None => error,
+        })
+    }
+
+    /// Classifies, stores and judges what the ended crawl delivered.
+    async fn finish_crawl(
+        &self,
+        consumed: Result<CrawlRunState, SpiderServiceError>,
+        diagnostics: &CrawlDiagnostics,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
+    ) -> Result<SpiderRunResult, SpiderServiceError> {
         let mut state =
-            consumed.inspect_err(|error| log_crawl_stopped_early(&diagnostics, error))?;
-        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, &diagnostics)
-        {
-            log_crawl_stopped_early(&diagnostics, &error);
+            consumed.inspect_err(|error| log_crawl_stopped_early(diagnostics, error))?;
+        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, diagnostics) {
+            log_crawl_stopped_early(diagnostics, &error);
             return Err(error);
         }
 
@@ -637,7 +693,7 @@ impl SpiderServiceImpl {
                 .await;
         }
 
-        log_crawl_outcome(&state, &diagnostics, product_pattern.as_deref());
+        log_crawl_outcome(&state, diagnostics, product_pattern.as_deref());
 
         Ok(SpiderRunResult {
             total_links: state.total_crawled,
@@ -826,7 +882,6 @@ mod service_tests {
     use crate::spider::classification::url_pattern_service::{
         DecidedUrlPattern, MockUrlPatternService,
     };
-    use crate::spider::discovery::page_status::RateLimitSignal;
     use crate::spider::discovery::website_spider::{
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
@@ -2115,6 +2170,64 @@ mod service_tests {
                 min_sample_size: 20,
             }) if url == crawl_root_url
         ));
+    }
+
+    #[tokio::test]
+    async fn should_carry_the_rate_limit_answer_on_a_failure_after_a_rate_limited_crawl() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let crawl_root_url = "https://example.com";
+        let rate_limit = RateLimitSignal {
+            status: 429,
+            retry_after: Some(std::time::Duration::from_secs(600)),
+        };
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            crawl_root_url,
+            vec!["/"],
+            CrawlDiagnostics {
+                failure_kind: Some(CrawlFailureKind::RateLimited),
+                completion: CrawlCompletion::RateLimited(rate_limit),
+                rate_limit: Some(rate_limit),
+                ..CrawlDiagnostics::default()
+            },
+        );
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo.expect_upsert_links_batch().times(0);
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let error = service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                crawl_root_url,
+                10,
+                CrawlPace::default(),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.rate_limit(), Some(rate_limit), "{error:?}");
+        assert!(
+            matches!(
+                error.cause(),
+                SpiderServiceError::CrawlFailed {
+                    kind: CrawlFailureKind::RateLimited,
+                    total_links: 1,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
     }
 
     #[tokio::test]

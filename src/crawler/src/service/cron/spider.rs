@@ -6,9 +6,9 @@ use crate::network::policy::{
     MAX_EXPONENTIAL_COOLDOWN, NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown,
 };
 use crate::spider::candidate_service::{
-    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, FAILED_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
-    RATE_LIMITED_CRAWL_OUTCOME, SPIDER_RECRAWL_INTERVAL, SpiderCandidate, SpiderCandidateService,
-    UrlPatternReviewWaitWrite,
+    AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, FAILED_CRAWL_OUTCOME,
+    NEEDS_OPERATOR_CRAWL_OUTCOME, RATE_LIMITED_CRAWL_OUTCOME, SPIDER_RECRAWL_INTERVAL,
+    SpiderCandidate, SpiderCandidateService, UrlPatternReviewWaitWrite,
 };
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::discovery::page_status::RateLimitSignal;
@@ -74,15 +74,20 @@ fn rate_limited_crawl_cooldown(rate_limit_streak: i32, retry_after: Option<Durat
     retry_after.map_or(backoff, |retry_after| retry_after.max(backoff))
 }
 
-/// A run the shop rate-limited extends the domain's rate-limit streak; any
-/// other run that is not a full crawl keeps it, so the slower pace holds until
-/// a crawl completes without a rate-limit answer.
-fn next_rate_limit_streak(candidate: &SpiderCandidate, rate_limit: Option<RateLimitSignal>) -> i32 {
-    let streak = candidate.crawl_rate_limit_streak.max(0);
-    match rate_limit {
-        Some(_) => streak.saturating_add(1),
-        None => streak,
-    }
+/// What a run whose crawl a shop's rate-limit answer stopped records,
+/// whatever its outcome: the domain's rate-limit streak grows by one and its
+/// next crawl waits for the rate-limit cooldown, returned for the log.
+fn rate_limited_crawl_write(
+    candidate: &SpiderCandidate,
+    rate_limit: RateLimitSignal,
+) -> (CrawlRateLimitWrite, Duration) {
+    let streak = candidate.crawl_rate_limit_streak.max(0).saturating_add(1);
+    let cooldown = rate_limited_crawl_cooldown(streak, rate_limit.retry_after);
+    let write = CrawlRateLimitWrite {
+        streak,
+        not_before: next_crawl_after(cooldown),
+    };
+    (write, cooldown)
 }
 
 /// The pace of the domain's next crawl, slowed by its rate-limit streak.
@@ -90,16 +95,6 @@ fn crawl_pace(candidate: &SpiderCandidate) -> CrawlPace {
     CrawlPace::after_rate_limited_crawls(
         u32::try_from(candidate.crawl_rate_limit_streak).unwrap_or(0),
     )
-}
-
-/// The rate-limit answer that ended the crawl behind a failed run.
-fn failure_rate_limit(error: &SpiderServiceError) -> Option<RateLimitSignal> {
-    match error {
-        SpiderServiceError::CrawlFailed { diagnostics, .. } => diagnostics.completion.rate_limit(),
-        SpiderServiceError::NoProductUrls { completion, .. }
-        | SpiderServiceError::NoUrlPattern { completion, .. } => completion.rate_limit(),
-        _ => None,
-    }
 }
 
 fn next_truncation_count(candidate: &SpiderCandidate) -> i32 {
@@ -117,7 +112,7 @@ fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
 /// Typed crawl failure behind a spider run error, whether Spider or the root
 /// preflight detected it.
 fn crawl_failure_kind(error: &SpiderServiceError) -> Option<CrawlFailureKind> {
-    match error {
+    match error.cause() {
         SpiderServiceError::CrawlFailed { kind, .. }
         | SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight { kind, .. }) => {
             Some(*kind)
@@ -127,7 +122,7 @@ fn crawl_failure_kind(error: &SpiderServiceError) -> Option<CrawlFailureKind> {
 }
 
 fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownProfile> {
-    match error {
+    match error.cause() {
         SpiderServiceError::InsufficientInferenceSample { .. }
         | SpiderServiceError::NoProductUrls { .. }
         | SpiderServiceError::NoUrlPattern { .. } => Some(CrawlCooldownProfile::Recoverable),
@@ -170,7 +165,7 @@ fn cooldown_for_spider_failure(error: &SpiderServiceError, failure_count: i32) -
 /// Persisted `last_crawl_error_kind` identifier; these strings are a stable
 /// contract with existing rows.
 fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
-    match error {
+    match error.cause() {
         SpiderServiceError::UrlPattern(UrlPatternServiceError::PendingReview { .. }) => {
             "PendingUrlPatternReview"
         }
@@ -244,17 +239,23 @@ async fn record_review_wait_run(
     review_id: CrawlerReviewId,
 ) -> SpiderSlotStatus {
     let next_crawl_at = next_crawl_after(URL_PATTERN_REVIEW_WAIT);
-    let rate_limit_streak = next_rate_limit_streak(candidate, result.completion.rate_limit());
+    let rate_limit = result.completion.rate_limit();
+    let rate_limit_write =
+        rate_limit.map(|rate_limit| rate_limited_crawl_write(candidate, rate_limit).0);
     match spider_candidates
         .mark_crawl_awaiting_url_pattern_review(
             &candidate.domain_id,
             &review_id,
-            rate_limit_streak,
+            rate_limit_write,
             next_crawl_at,
         )
         .await
     {
         Ok(UrlPatternReviewWaitWrite::Recorded) => {}
+        // The decision released the domain, but not from the shop's limit.
+        Ok(UrlPatternReviewWaitWrite::ReviewNotPending) if let Some(rate_limit) = rate_limit => {
+            return record_rate_limited_run(spider_candidates, candidate, result, rate_limit).await;
+        }
         Ok(UrlPatternReviewWaitWrite::ReviewNotPending) => {
             info!(
                 domain = %candidate.listing_source_domain,
@@ -326,12 +327,10 @@ async fn record_rate_limited_run(
     result: &SpiderRunResult,
     rate_limit: RateLimitSignal,
 ) -> SpiderSlotStatus {
-    let rate_limit_streak = next_rate_limit_streak(candidate, Some(rate_limit));
-    let cooldown = rate_limited_crawl_cooldown(rate_limit_streak, rate_limit.retry_after);
-    let next_crawl_at = next_crawl_after(cooldown);
+    let (write, cooldown) = rate_limited_crawl_write(candidate, rate_limit);
 
     if let Err(err) = spider_candidates
-        .mark_crawl_rate_limited(&candidate.domain_id, rate_limit_streak, next_crawl_at)
+        .mark_crawl_rate_limited(&candidate.domain_id, write)
         .await
     {
         warn!(
@@ -347,9 +346,9 @@ async fn record_rate_limited_run(
         retry_after_seconds = ?rate_limit.retry_after.map(|retry_after| retry_after.as_secs()),
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
-        rate_limit_streak,
+        rate_limit_streak = write.streak,
         crawl_failure_count = candidate.crawl_failure_count,
-        next_crawl_at = %next_crawl_at,
+        next_crawl_at = %write.not_before,
         cooldown_seconds = cooldown.as_secs(),
         "Spider run stopped on a rate-limit answer; the next crawl runs slower"
     );
@@ -373,14 +372,12 @@ async fn record_failed_run(
         )
         .await;
     }
-    let rate_limit = failure_rate_limit(error);
-    let rate_limit_streak = next_rate_limit_streak(candidate, rate_limit);
+    let rate_limit = error
+        .rate_limit()
+        .map(|rate_limit| (rate_limit, rate_limited_crawl_write(candidate, rate_limit)));
     let failure_cooldown = cooldown_for_spider_failure(error, failure_count);
-    let cooldown = rate_limit.map_or(failure_cooldown, |rate_limit| {
-        failure_cooldown.max(rate_limited_crawl_cooldown(
-            rate_limit_streak,
-            rate_limit.retry_after,
-        ))
+    let cooldown = rate_limit.map_or(failure_cooldown, |(_, (_, rate_limit_cooldown))| {
+        failure_cooldown.max(rate_limit_cooldown)
     });
     let next_crawl_at = next_crawl_after(cooldown);
 
@@ -389,7 +386,7 @@ async fn record_failed_run(
             &candidate.domain_id,
             error_kind,
             failure_count,
-            rate_limit_streak,
+            rate_limit.map(|(_, (write, _))| write),
             next_crawl_at,
         )
         .await
@@ -402,12 +399,22 @@ async fn record_failed_run(
     }
     log_spider_failure(
         candidate,
-        error,
+        error.cause(),
         error_kind,
         failure_count,
         next_crawl_at,
         cooldown,
     );
+    if let Some((rate_limit, (write, _))) = rate_limit {
+        warn!(
+            domain = %candidate.listing_source_domain,
+            rate_limit_status = rate_limit.status,
+            retry_after_seconds = ?rate_limit.retry_after.map(|retry_after| retry_after.as_secs()),
+            rate_limit_streak = write.streak,
+            error_kind,
+            "Spider run failed after a rate-limit answer stopped its crawl; the next crawl runs slower"
+        );
+    }
     SpiderSlotStatus::Failed
 }
 
@@ -432,7 +439,7 @@ async fn record_run_stopped_for_operator(
     }
     warn!(
         domain = %candidate.listing_source_domain,
-        error = %error,
+        error = %error.cause(),
         error_kind,
         failure_count,
         "Spider run failed repeatedly with the same kind; domain waits for an operator"
@@ -613,7 +620,10 @@ fn classified_crawl(
         Ok(result) if result.pending_url_pattern_review.is_none() => {
             Some((result.product_urls_count, result.completion))
         }
-        Err(SpiderServiceError::NoProductUrls { completion, .. }) => Some((0, *completion)),
+        Err(error) => match error.cause() {
+            SpiderServiceError::NoProductUrls { completion, .. } => Some((0, *completion)),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -1860,20 +1870,30 @@ mod tests {
         );
     }
 
+    fn signal(retry_after: Option<Duration>) -> RateLimitSignal {
+        RateLimitSignal {
+            status: 429,
+            retry_after,
+        }
+    }
+
     #[test]
-    fn rate_limit_streak_should_grow_only_on_a_rate_limited_run() {
+    fn rate_limited_crawl_should_extend_the_streak_and_wait_for_its_cooldown() {
         let mut candidate = spider_candidate(CrawlerDomainId::new());
         candidate.crawl_rate_limit_streak = 2;
-        let signal = rate_limited(None).rate_limit();
 
-        assert_eq!(next_rate_limit_streak(&candidate, signal), 3);
-        assert_eq!(next_rate_limit_streak(&candidate, None), 2);
+        let (write, cooldown) = rate_limited_crawl_write(&candidate, signal(None));
+        assert_eq!(write.streak, 3);
+        assert_eq!(cooldown, HOUR * 4);
+        assert!(next_crawl_at_is_about(write.not_before, cooldown));
         assert_eq!(
             crawl_pace(&candidate),
             CrawlPace::after_rate_limited_crawls(2)
         );
+
         candidate.crawl_rate_limit_streak = -4;
-        assert_eq!(next_rate_limit_streak(&candidate, signal), 1);
+        let (write, cooldown) = rate_limited_crawl_write(&candidate, signal(Some(HOUR * 3)));
+        assert_eq!((write.streak, cooldown), (1, HOUR * 3));
         assert_eq!(crawl_pace(&candidate), CrawlPace::default());
     }
 
@@ -1899,12 +1919,12 @@ mod tests {
         spider_candidates
             .expect_mark_crawl_rate_limited()
             .times(1)
-            .withf(move |domain_id, rate_limit_streak, next_crawl_at| {
+            .withf(move |domain_id, write| {
                 *domain_id == expected_domain_id
-                    && *rate_limit_streak == 2
-                    && next_crawl_at_is_about(*next_crawl_at, HOUR * 2)
+                    && write.streak == 2
+                    && next_crawl_at_is_about(write.not_before, HOUR * 2)
             })
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(()) }));
         spider_candidates.expect_mark_crawl_truncated().times(0);
         spider_candidates.expect_mark_crawl_completed().times(0);
         spider_candidates.expect_mark_crawl_failure().times(0);
@@ -1942,12 +1962,12 @@ mod tests {
         spider_candidates
             .expect_mark_crawl_rate_limited()
             .times(1)
-            .withf(move |domain_id, rate_limit_streak, next_crawl_at| {
+            .withf(move |domain_id, write| {
                 *domain_id == expected_domain_id
-                    && *rate_limit_streak == 1
-                    && next_crawl_at_is_about(*next_crawl_at, HOUR * 5)
+                    && write.streak == 1
+                    && next_crawl_at_is_about(write.not_before, HOUR * 5)
             })
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
         spider_service
@@ -1961,6 +1981,60 @@ mod tests {
         spider_job(spider_candidates, spider_service, 1)
             .run_spider_once()
             .await;
+    }
+
+    /// The incident's shape: a 429 after a few dozen pages leaves too small a
+    /// sample to infer a URL pattern, so the run fails with its own kind.
+    #[tokio::test]
+    async fn should_slow_the_next_crawl_and_honour_retry_after_when_a_rate_limited_run_fails() {
+        let mut spider_candidates = failing_candidate_service(CrawlerDomainId::new(), 0, "None");
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .times(1)
+            .withf(
+                move |_, error_kind, failure_count, rate_limit, next_crawl_at| {
+                    error_kind == "InsufficientInferenceSample"
+                        && *failure_count == 1
+                        && rate_limit.is_some_and(|write| {
+                            write.streak == 1 && next_crawl_at_is_about(write.not_before, HOUR * 12)
+                        })
+                        && next_crawl_at_is_about(*next_crawl_at, HOUR * 12)
+                },
+            )
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(()) }));
+        spider_candidates.expect_mark_crawl_rate_limited().times(0);
+
+        spider_job(
+            spider_candidates,
+            spider_service_failing_with(|| SpiderServiceError::RateLimitedCrawl {
+                rate_limit: RateLimitSignal {
+                    status: 429,
+                    retry_after: Some(Duration::from_secs(12 * 60 * 60)),
+                },
+                failure: Box::new(insufficient_sample()),
+            }),
+            1,
+        )
+        .run_spider_once()
+        .await;
+    }
+
+    #[tokio::test]
+    async fn should_keep_the_rate_limit_state_when_a_failure_saw_no_rate_limit() {
+        let mut spider_candidates = failing_candidate_service(CrawlerDomainId::new(), 0, "None");
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .times(1)
+            .withf(|_, _, _, rate_limit, _| rate_limit.is_none())
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        spider_job(
+            spider_candidates,
+            spider_service_failing_with(insufficient_sample),
+            1,
+        )
+        .run_spider_once()
+        .await;
     }
 
     #[tokio::test]
@@ -1983,11 +2057,11 @@ mod tests {
             .expect_mark_crawl_failure()
             .times(1)
             .withf(
-                move |domain_id, error_kind, failure_count, rate_limit_streak, next_crawl_at| {
+                move |domain_id, error_kind, failure_count, rate_limit, next_crawl_at| {
                     *domain_id == expected_domain_id
                         && error_kind == "RateLimited"
                         && *failure_count == 1
-                        && *rate_limit_streak == 1
+                        && rate_limit.is_some_and(|write| write.streak == 1)
                         && next_crawl_at_is_about(*next_crawl_at, HOUR * 20)
                 },
             )
@@ -2010,11 +2084,14 @@ mod tests {
                         unreachable!("crawl_failed builds a crawl failure")
                     };
                     diagnostics.completion = rate_limited(Some(HOUR * 20));
-                    Err(SpiderServiceError::CrawlFailed {
-                        crawl_root_url,
-                        kind,
-                        total_links,
-                        diagnostics,
+                    Err(SpiderServiceError::RateLimitedCrawl {
+                        rate_limit: signal(Some(HOUR * 20)),
+                        failure: Box::new(SpiderServiceError::CrawlFailed {
+                            crawl_root_url,
+                            kind,
+                            total_links,
+                            diagnostics,
+                        }),
                     })
                 })
             });
@@ -2344,6 +2421,13 @@ mod tests {
 
     /// A spider service whose one run waits on the URL-pattern review `review_id`.
     fn spider_service_waiting_on(review_id: CrawlerReviewId) -> MockSpiderService {
+        spider_service_waiting_after(review_id, CrawlCompletion::HardTimeoutTruncated)
+    }
+
+    fn spider_service_waiting_after(
+        review_id: CrawlerReviewId,
+        completion: CrawlCompletion,
+    ) -> MockSpiderService {
         let mut spider_service = MockSpiderService::new();
         spider_service
             .expect_run()
@@ -2354,11 +2438,54 @@ mod tests {
                         pending_url_pattern_review: Some(review_id),
                         product_urls_count: 0,
                         product_pattern: None,
-                        ..run_result(CrawlCompletion::HardTimeoutTruncated)
+                        ..run_result(completion)
                     })
                 })
             });
         spider_service
+    }
+
+    #[tokio::test]
+    async fn should_record_a_rate_limited_crawl_even_when_its_review_was_decided_first() {
+        let review_id = CrawlerReviewId::new();
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let domain_id = CrawlerDomainId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    Ok(if first_call {
+                        vec![spider_candidate(domain_id)]
+                    } else {
+                        vec![]
+                    })
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_awaiting_url_pattern_review()
+            .times(1)
+            .withf(|_, _, rate_limit, _| rate_limit.is_some_and(|write| write.streak == 1))
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(UrlPatternReviewWaitWrite::ReviewNotPending) })
+            });
+        spider_candidates
+            .expect_mark_crawl_rate_limited()
+            .times(1)
+            .withf(move |written_domain_id, write| {
+                *written_domain_id == domain_id
+                    && write.streak == 1
+                    && next_crawl_at_is_about(write.not_before, HOUR)
+            })
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+
+        spider_job(
+            spider_candidates,
+            spider_service_waiting_after(review_id, rate_limited(None)),
+            1,
+        )
+        .run_spider_once()
+        .await;
     }
 
     /// A candidate service with one due domain that records no outcome but a review wait, which
@@ -2387,10 +2514,10 @@ mod tests {
             .expect_mark_crawl_awaiting_url_pattern_review()
             .times(1)
             .withf(
-                move |written_domain_id, written_review_id, rate_limit_streak, next_crawl_at| {
+                move |written_domain_id, written_review_id, rate_limit, next_crawl_at| {
                     *written_domain_id == domain_id
                         && *written_review_id == review_id
-                        && *rate_limit_streak == 0
+                        && rate_limit.is_none()
                         && next_crawl_at_is_about(*next_crawl_at, URL_PATTERN_REVIEW_WAIT)
                 },
             )

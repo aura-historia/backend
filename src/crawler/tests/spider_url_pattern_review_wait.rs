@@ -203,7 +203,7 @@ impl ManualCrawlFixture {
             .mark_crawl_awaiting_url_pattern_review(
                 &self.domain_id,
                 &review_id,
-                0,
+                None,
                 OffsetDateTime::now_utc() + SPIDER_RECRAWL_INTERVAL,
             )
             .await

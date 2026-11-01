@@ -36,6 +36,16 @@ pub enum UrlPatternReviewWaitWrite {
     ReviewNotPending,
 }
 
+/// What a run whose crawl a shop's rate-limit answer stopped records,
+/// whatever its outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CrawlRateLimitWrite {
+    /// The domain's new consecutive rate-limit streak.
+    pub streak: i32,
+    /// The earliest the domain's next crawl may start.
+    pub not_before: time::OffsetDateTime,
+}
+
 pub struct SpiderCandidate {
     pub listing_source_id: ListingSourceId,
     pub domain_id: CrawlerDomainId,
@@ -44,8 +54,10 @@ pub struct SpiderCandidate {
     pub last_crawl_error_kind: Option<String>,
     /// Consecutive hard-timeout truncations since the last full crawl.
     pub crawl_truncation_count: i32,
-    /// Consecutive crawls a shop's rate-limit answer ended since the last
-    /// full crawl; it slows the domain's next crawl.
+    /// The domain's rate-limit streak: it grows with each crawl a shop's
+    /// rate-limit answer stopped, shrinks with each crawl the wall-clock budget
+    /// cut short without one and clears with a full crawl. It slows the
+    /// domain's next crawls.
     pub crawl_rate_limit_streak: i32,
 }
 
@@ -62,7 +74,7 @@ pub trait SpiderCandidateService: Send + Sync {
         domain_id: &CrawlerDomainId,
         error_kind: &str,
         crawl_failure_count: i32,
-        crawl_rate_limit_streak: i32,
+        rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error>;
     /// Records a full crawl (`completion.is_full()`) and clears failure,
@@ -72,7 +84,8 @@ pub trait SpiderCandidateService: Send + Sync {
         domain_id: &CrawlerDomainId,
         completion: CrawlCompletion,
     ) -> Result<(), sqlx::Error>;
-    /// Records a hard-timeout truncation without touching failure state.
+    /// Records a hard-timeout truncation without touching failure state; it
+    /// steps the rate-limit streak down by one.
     async fn mark_crawl_truncated(
         &self,
         domain_id: &CrawlerDomainId,
@@ -80,12 +93,11 @@ pub trait SpiderCandidateService: Send + Sync {
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error>;
     /// Records a crawl a shop's rate-limit answer ended, without touching
-    /// failure or truncation state.
+    /// failure or truncation state; the next crawl is due at `not_before`.
     async fn mark_crawl_rate_limited(
         &self,
         domain_id: &CrawlerDomainId,
-        crawl_rate_limit_streak: i32,
-        next_crawl_at: time::OffsetDateTime,
+        rate_limit: CrawlRateLimitWrite,
     ) -> Result<(), sqlx::Error>;
     /// Records a crawl that waits for the URL-pattern review `review_id` without touching
     /// failure or truncation state, while that review is still a pending review of the domain.
@@ -94,7 +106,7 @@ pub trait SpiderCandidateService: Send + Sync {
         &self,
         domain_id: &CrawlerDomainId,
         review_id: &CrawlerReviewId,
-        crawl_rate_limit_streak: i32,
+        rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<UrlPatternReviewWaitWrite, sqlx::Error>;
     /// Records a repeated deterministic failure and takes the domain out of
@@ -154,6 +166,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
             WHERE s.crawl_enabled = TRUE
               AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - make_interval(secs => $3))
               AND (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
+              AND (sd.crawl_rate_limited_until IS NULL OR sd.crawl_rate_limited_until <= NOW())
               AND sd.last_crawl_outcome IS DISTINCT FROM $4
               AND NOT (sd.domain_id = ANY($2))
             ORDER BY sd.last_crawled NULLS FIRST
@@ -189,7 +202,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         domain_id: &CrawlerDomainId,
         error_kind: &str,
         crawl_failure_count: i32,
-        crawl_rate_limit_streak: i32,
+        rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -198,7 +211,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                  last_crawl_error_kind = $2,
                  next_crawl_at = $4,
                  last_crawl_outcome = $5,
-                 crawl_rate_limit_streak = $6
+                 crawl_rate_limit_streak = COALESCE($6, crawl_rate_limit_streak),
+                 crawl_rate_limited_until = COALESCE($7, crawl_rate_limited_until)
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())
@@ -206,7 +220,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         .bind(crawl_failure_count)
         .bind(next_crawl_at)
         .bind(FAILED_CRAWL_OUTCOME)
-        .bind(crawl_rate_limit_streak)
+        .bind(rate_limit.map(|rate_limit| rate_limit.streak))
+        .bind(rate_limit.map(|rate_limit| rate_limit.not_before))
         .execute(&self.pool)
         .await?;
 
@@ -231,6 +246,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                  next_crawl_at = NULL,
                  crawl_truncation_count = 0,
                  crawl_rate_limit_streak = 0,
+                 crawl_rate_limited_until = NULL,
                  last_crawl_outcome = $2
              WHERE domain_id = $1",
         )
@@ -251,6 +267,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_truncation_count = $2,
+                 crawl_rate_limit_streak = GREATEST(crawl_rate_limit_streak - 1, 0),
                  next_crawl_at = $3,
                  last_crawl_outcome = $4
              WHERE domain_id = $1",
@@ -268,19 +285,19 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
     async fn mark_crawl_rate_limited(
         &self,
         domain_id: &CrawlerDomainId,
-        crawl_rate_limit_streak: i32,
-        next_crawl_at: time::OffsetDateTime,
+        rate_limit: CrawlRateLimitWrite,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_rate_limit_streak = $2,
+                 crawl_rate_limited_until = $3,
                  next_crawl_at = $3,
                  last_crawl_outcome = $4
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())
-        .bind(crawl_rate_limit_streak)
-        .bind(next_crawl_at)
+        .bind(rate_limit.streak)
+        .bind(rate_limit.not_before)
         .bind(RATE_LIMITED_CRAWL_OUTCOME)
         .execute(&self.pool)
         .await?;
@@ -297,14 +314,15 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         &self,
         domain_id: &CrawlerDomainId,
         review_id: &CrawlerReviewId,
-        crawl_rate_limit_streak: i32,
+        rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<UrlPatternReviewWaitWrite, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE listing_source_domains
              SET next_crawl_at = $2,
                  last_crawl_outcome = $3,
-                 crawl_rate_limit_streak = $5
+                 crawl_rate_limit_streak = COALESCE($5, crawl_rate_limit_streak),
+                 crawl_rate_limited_until = COALESCE($6, crawl_rate_limited_until)
              WHERE domain_id = $1
                AND EXISTS (
                    SELECT 1
@@ -320,7 +338,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         .bind(next_crawl_at)
         .bind(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
         .bind(review_id.as_uuid())
-        .bind(crawl_rate_limit_streak)
+        .bind(rate_limit.map(|rate_limit| rate_limit.streak))
+        .bind(rate_limit.map(|rate_limit| rate_limit.not_before))
         .execute(&self.pool)
         .await?;
 

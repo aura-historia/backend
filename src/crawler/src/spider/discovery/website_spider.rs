@@ -399,7 +399,7 @@ impl Default for CrawlerConfig {
 const MAX_CRAWL_DELAY_MILLIS: u64 = 60_000;
 
 /// The request rate of one crawl. A domain whose crawls a shop rate-limited
-/// is crawled more slowly: each consecutive rate-limited crawl doubles the
+/// is crawled more slowly: each step of its rate-limit streak doubles the
 /// delay between request starts, from at least the default delay, up to
 /// [`MAX_CRAWL_DELAY_MILLIS`] (`docs/crawler/scheduling-and-retries.md#rate-limited-crawls`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -408,8 +408,8 @@ pub struct CrawlPace {
 }
 
 impl CrawlPace {
-    /// The pace after `rate_limited_crawls` consecutive rate-limited crawls;
-    /// zero is the configured pace.
+    /// The pace at a rate-limit streak of `rate_limited_crawls`; zero is the
+    /// configured pace.
     pub const fn after_rate_limited_crawls(rate_limited_crawls: u32) -> Self {
         Self {
             rate_limited_crawls,
