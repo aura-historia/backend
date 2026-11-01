@@ -122,11 +122,13 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
         .map_err(database_error)?;
         let requested_domain_id = CrawlerDomainId::new();
         let (domain_id, registered_root_host, created) = match existing {
-            Some((owner, domain_id, root_host)) if owner == listing_source_id_uuid => (
-                persisted_domain_id(domain_id)?,
-                persisted_domain(root_host)?,
-                false,
-            ),
+            Some((owner, domain_id, root_host)) if owner == listing_source_id_uuid => {
+                let domain_id = persisted_domain_id(domain_id)?;
+                if persisted_domain(root_host)? != crawl_root_host {
+                    replace_crawl_root(&mut transaction, domain_id, &crawl_root_host).await?;
+                }
+                (domain_id, crawl_root_host, false)
+            }
             Some((owner, _, _)) => {
                 return Err(
                     CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource {
@@ -227,6 +229,34 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
             removed_url_pattern_review_count,
         })
     }
+}
+
+/// Moves an already registered domain to the crawl root it is registered with again, for example
+/// from `example.com` to `www.example.com`. The crawl state recorded for the old root, including a
+/// `NEEDS_OPERATOR` stop, no longer describes the domain, so the next spider cycle crawls the new
+/// root as if the domain were new. The URL pattern, the crawled URLs and the scrape state belong to
+/// the site and stay.
+async fn replace_crawl_root(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    domain_id: CrawlerDomainId,
+    crawl_root_host: &Domain,
+) -> Result<(), CrawlerDomainConfigurationError> {
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET crawl_root_host = $2, \
+             last_crawled = NULL, \
+             next_crawl_at = NULL, \
+             crawl_failure_count = 0, \
+             last_crawl_error_kind = NULL, \
+             last_crawl_outcome = NULL \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .bind(crawl_root_host.as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(database_error)?;
+    Ok(())
 }
 
 fn persisted_listing_source_id(

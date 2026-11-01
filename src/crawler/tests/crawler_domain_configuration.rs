@@ -177,11 +177,101 @@ async fn should_treat_bare_www_and_trailing_dot_as_one_crawler_domain_identity()
         .await;
 
     assert_eq!(bare.domain_id, equivalent.domain_id);
-    assert_eq!(equivalent.domain.as_str(), "example.com");
     assert!(matches!(
         conflict,
         Err(CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource { .. })
     ));
+}
+
+/// The crawl state of a domain: `(crawl_root_host, url_pattern, last_crawled IS NULL,
+/// crawl_failure_count, last_crawl_outcome)`.
+async fn crawl_state(
+    pool: &sqlx::PgPool,
+    domain_id: CrawlerDomainId,
+) -> (String, Option<String>, bool, i32, Option<String>) {
+    sqlx::query_as(
+        "SELECT crawl_root_host, url_pattern, last_crawled IS NULL, crawl_failure_count, \
+                last_crawl_outcome \
+         FROM listing_source_domains WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_again() {
+    let pool = get_postgres_client().await;
+    let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let domains = CrawlerDomainConfigurationRepositoryImpl::new(pool.clone());
+    let candidates = SpiderCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    registration
+        .apply_snapshot(&[source(listing_source_id, true)])
+        .await
+        .unwrap();
+    let bare = domains
+        .register(listing_source_id, Domain::try_from("example.com").unwrap())
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET url_pattern = '^/product/', url_pattern_state = 'MATCHED', last_crawled = NOW(), \
+             crawl_failure_count = 5, last_crawl_error_kind = 'REDIRECT_OFF_DOMAIN', \
+             last_crawl_outcome = 'NEEDS_OPERATOR' \
+         WHERE domain_id = $1",
+    )
+    .bind(bare.domain_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let unchanged = domains
+        .register(listing_source_id, Domain::try_from("Example.com.").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(unchanged.domain.as_str(), "example.com");
+    assert_eq!(
+        crawl_state(&pool, bare.domain_id).await,
+        (
+            "example.com".to_owned(),
+            Some("^/product/".to_owned()),
+            false,
+            5,
+            Some("NEEDS_OPERATOR".to_owned())
+        ),
+        "registering the same crawl root again must keep the crawl state"
+    );
+    assert!(candidates.get_candidates(10, &[]).await.unwrap().is_empty());
+
+    let moved = domains
+        .register(
+            listing_source_id,
+            Domain::try_from("www.example.com").unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(moved.domain_id, bare.domain_id);
+    assert!(!moved.created);
+    assert_eq!(moved.domain.as_str(), "www.example.com");
+    let listed = domains.list_for_source(listing_source_id).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].domain.as_str(), "www.example.com");
+    assert_eq!(
+        crawl_state(&pool, bare.domain_id).await,
+        (
+            "www.example.com".to_owned(),
+            Some("^/product/".to_owned()),
+            true,
+            0,
+            None
+        )
+    );
+    let candidates = candidates.get_candidates(10, &[]).await.unwrap();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].listing_source_domain, "www.example.com");
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
