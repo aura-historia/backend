@@ -2,12 +2,30 @@ use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageSchema, rebase_reviewed_removed_page_schemas,
 };
-use crate::scraper::css_selector::rule::ExtractionRule;
+use crate::scraper::css_selector::rule::{ExtractionError, ExtractionRule};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 use super::ReviewRepositoryError;
 use serde::{Deserialize, Deserializer, Serialize};
+
+/// Why a product-schema candidate is refused, named for the reviewer who has to repair it.
+#[derive(Debug, thiserror::Error)]
+pub enum ProductSchemaCandidateFailure {
+    #[error("the candidate does not decode: {0}")]
+    Undecodable(#[source] serde_json::Error),
+    #[error("the candidate holds no schema")]
+    NoSchema,
+    /// `source` names the rule's selector and why it is invalid.
+    #[error("schema {schema_index}, field `{field}`: {source}")]
+    InvalidRule {
+        schema_index: usize,
+        /// The field's name on the wire, a raw attribute as `raw_attributes.<key>`.
+        field: String,
+        #[source]
+        source: ExtractionError,
+    },
+}
 
 /// The candidate a product-schema review holds, as its `candidate_payload` stores it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -38,8 +56,8 @@ impl ProductSchemaReviewCandidate {
     pub(super) fn read(
         candidate_payload: &serde_json::Value,
     ) -> Result<Self, ReviewRepositoryError> {
-        let candidate = serde_json::from_value::<Self>(candidate_payload.clone())
-            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
+        let candidate = Self::decode_stored(candidate_payload)
+            .map_err(ProductSchemaCandidateFailure::Undecodable)?;
         validate_product_schemas(&candidate.schemas)?;
         Ok(candidate)
     }
@@ -48,21 +66,14 @@ impl ProductSchemaReviewCandidate {
     /// once it passes: it does not decode, holds no schema, a schema has an invalid rule, or a
     /// removed-page template fails validation.
     pub(super) fn validation_failure(candidate_payload: &serde_json::Value) -> Option<String> {
-        let candidate = match Self::decode_stored(candidate_payload) {
-            Ok(candidate) => candidate,
-            Err(error) => return Some(format!("the candidate does not decode: {error}")),
-        };
-        if candidate.schemas.is_empty() {
-            return Some("the candidate holds no schema".to_owned());
-        }
-        if let Err((index, error)) =
-            ProductCssSelectorSchema::validate_all_indexed(&candidate.schemas)
-        {
-            return Some(format!("invalid schema {index}: {error}"));
-        }
-        validate_removed_page_schemas(&candidate.removed_page_schemas)
+        Self::parse(candidate_payload)
             .err()
-            .map(|error| error.to_string())
+            .map(|error| match error {
+                ReviewRepositoryError::RefusedProductSchemaCandidate(failure) => {
+                    failure.to_string()
+                }
+                other => other.to_string(),
+            })
     }
 
     pub(super) fn new(
@@ -139,7 +150,7 @@ impl ProductSchemaCandidateEdit {
     /// Decodes an edit and validates its schemas.
     pub(super) fn parse(payload: &serde_json::Value) -> Result<Self, ReviewRepositoryError> {
         let edit = serde_json::from_value::<Self>(payload.clone())
-            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
+            .map_err(ProductSchemaCandidateFailure::Undecodable)?;
         validate_product_schemas(&edit.schemas)?;
         Ok(edit)
     }
@@ -177,13 +188,27 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
+/// Validates the rules of every schema, as [`ProductCssSelectorSchema::validate_rules`] does, and
+/// names the first invalid rule by its schema and field.
 pub(super) fn validate_product_schemas(
     schemas: &[ProductCssSelectorSchema],
-) -> Result<(), ReviewRepositoryError> {
-    if schemas.is_empty() || ProductCssSelectorSchema::validate_all(schemas).is_err() {
-        return Err(ReviewRepositoryError::InvalidProductSchemaCandidate);
+) -> Result<(), ProductSchemaCandidateFailure> {
+    if schemas.is_empty() {
+        return Err(ProductSchemaCandidateFailure::NoSchema);
     }
-    Ok(())
+    schemas
+        .iter()
+        .enumerate()
+        .try_for_each(|(schema_index, schema)| {
+            SchemaField::rules_of(schema).try_for_each(|(field, rule)| {
+                rule.validate()
+                    .map_err(|source| ProductSchemaCandidateFailure::InvalidRule {
+                        schema_index,
+                        field: field.to_string(),
+                        source,
+                    })
+            })
+        })
 }
 
 /// Validates removed-page templates against the contract a generated template meets.
@@ -280,6 +305,30 @@ enum SchemaField {
 const RAW_ATTRIBUTE_FIELD_PREFIX: &str = "raw_attributes.";
 
 impl SchemaField {
+    /// The rules `schema` holds, each with its field.
+    fn rules_of(
+        schema: &ProductCssSelectorSchema,
+    ) -> impl Iterator<Item = (Self, &ExtractionRule)> {
+        [
+            (Self::SourceListingId, schema.source_listing_id.as_ref()),
+            (Self::Title, Some(&schema.title)),
+            (Self::Description, schema.description.as_ref()),
+            (Self::Price, schema.price.as_ref()),
+            (Self::PriceEstimateMin, schema.price_estimate_min.as_ref()),
+            (Self::PriceEstimateMax, schema.price_estimate_max.as_ref()),
+            (Self::State, Some(&schema.state)),
+            (Self::Images, Some(&schema.images)),
+        ]
+        .into_iter()
+        .filter_map(|(field, rule)| rule.map(|rule| (field, rule)))
+        .chain(
+            schema
+                .raw_attributes
+                .iter()
+                .map(|(key, rule)| (Self::RawAttribute(key.clone()), rule)),
+        )
+    }
+
     fn parse(field: &str) -> Result<Self, ReviewRepositoryError> {
         if let Some(key) = field.strip_prefix(RAW_ATTRIBUTE_FIELD_PREFIX) {
             if key.is_empty() || key.trim() != key {
@@ -402,7 +451,7 @@ mod tests {
         ] {
             assert!(matches!(
                 ProductSchemaReviewCandidate::parse(&payload),
-                Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+                Err(ReviewRepositoryError::RefusedProductSchemaCandidate(_))
             ));
         }
     }
@@ -545,7 +594,7 @@ mod tests {
             assert!(
                 matches!(
                     ProductSchemaCandidateEdit::parse(&payload),
-                    Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+                    Err(ReviewRepositoryError::RefusedProductSchemaCandidate(_))
                 ),
                 "{payload} must be refused"
             );
@@ -593,9 +642,97 @@ mod tests {
         for payload in [invalid_primary, invalid_additional] {
             assert!(matches!(
                 ProductSchemaReviewCandidate::parse(&payload),
-                Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+                Err(ReviewRepositoryError::RefusedProductSchemaCandidate(_))
             ));
         }
+    }
+
+    /// A refused schema names the schema, the field on the wire, the selector and why it fails.
+    #[test]
+    fn should_name_the_schema_field_and_selector_of_an_invalid_rule() {
+        let mut invalid_additional = schema("h1.product");
+        invalid_additional.price = Some(ExtractionRule {
+            additional_selectors: vec![CssSelector::from("[")],
+            ..text_rule(".price")
+        });
+        let invalid_raw_attribute = with_raw_attribute(schema("h1.product"), "rawMaterial", "a[");
+        let cases = [
+            (
+                vec![schema("h1.product"), schema("h1[")],
+                "invalid ProductSchema review candidate: schema 1, field `title`: invalid CSS selector `h1[`:",
+            ),
+            (
+                vec![invalid_additional],
+                "invalid ProductSchema review candidate: schema 0, field `price`: invalid CSS selector `[`:",
+            ),
+            (
+                vec![invalid_raw_attribute],
+                "invalid ProductSchema review candidate: schema 0, field `raw_attributes.rawMaterial`: invalid CSS selector `a[`:",
+            ),
+        ];
+
+        for (schemas, expected) in cases {
+            let payload = serde_json::json!({ "schemas": schemas });
+            let refusals = [
+                ProductSchemaCandidateEdit::parse(&payload).map(|_| ()),
+                ProductSchemaReviewCandidate::parse(&payload).map(|_| ()),
+            ];
+
+            for refusal in refusals {
+                let message = refusal.map_err(|error| error.to_string());
+                assert!(
+                    message
+                        .as_ref()
+                        .is_err_and(|message| message.starts_with(expected)),
+                    "{message:?} must start with {expected}"
+                );
+            }
+        }
+    }
+
+    /// A field edit that makes a rule invalid is refused with the field it edited.
+    #[test]
+    fn should_name_the_edited_field_when_a_field_edit_makes_its_rule_invalid() {
+        let error = update_schema_field_payload(
+            &serde_json::json!({ "schemas": [schema("h1.product")] }),
+            0,
+            "raw_attributes.rawMaterial",
+            Some(text_rule("a[")),
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string());
+
+        assert!(
+            error.as_ref().is_err_and(|message| message.starts_with(
+                "invalid ProductSchema review candidate: schema 0, field `raw_attributes.rawMaterial`: invalid CSS selector `a[`:"
+            )),
+            "{error:?}"
+        );
+    }
+
+    /// An edit that does not decode is refused with what serde could not decode, such as an
+    /// unknown key, and an empty edit with that it holds no schema.
+    #[test]
+    fn should_say_why_an_edit_does_not_decode_or_holds_no_schema() {
+        let unknown_key = ProductSchemaCandidateEdit::parse(
+            &serde_json::json!({ "schemas": [schema("h1.product")], "unexpected": true }),
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string());
+        let empty = ProductSchemaCandidateEdit::parse(&serde_json::json!({ "schemas": [] }))
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+
+        assert!(
+            unknown_key.as_ref().is_err_and(|message| message.starts_with(
+                "invalid ProductSchema review candidate: the candidate does not decode: unknown field `unexpected`"
+            )),
+            "{unknown_key:?}"
+        );
+        assert_eq!(
+            empty,
+            Err("invalid ProductSchema review candidate: the candidate holds no schema".to_owned())
+        );
     }
 
     #[test]
@@ -643,7 +780,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            ReviewRepositoryError::InvalidProductSchemaCandidate
+            ReviewRepositoryError::RefusedProductSchemaCandidate(_)
         ));
     }
 
@@ -655,7 +792,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            ReviewRepositoryError::InvalidProductSchemaCandidate
+            ReviewRepositoryError::RefusedProductSchemaCandidate(_)
         ));
     }
 
@@ -819,7 +956,7 @@ mod tests {
             ),
             (
                 serde_json::json!({ "schemas": [schema("h1.product"), invalid_rule] }),
-                Some("invalid schema 1:"),
+                Some("schema 1, field `title`: invalid CSS selector `[`:"),
             ),
             (
                 serde_json::json!({

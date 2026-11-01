@@ -25,7 +25,7 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::time::Duration;
 use time::OffsetDateTime;
-use tracing::{error, info};
+use tracing::info;
 use url::Url;
 
 mod live_matrix;
@@ -47,6 +47,7 @@ pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
+pub use schema_payload::ProductSchemaCandidateFailure;
 pub use verdicts::Approval;
 
 use review_events::{
@@ -60,7 +61,9 @@ use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, holds_live_schemas,
     update_schema_field_payload, validate_product_schemas,
 };
-use url_pattern_sample::{CandidateClassification, candidate_product_count, pattern_takes};
+use url_pattern_sample::{
+    CandidateClassification, candidate_product_count, pattern_takes, reclassify_sample,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReviewRepositoryError {
@@ -127,8 +130,13 @@ pub enum ReviewRepositoryError {
         "a candidate edit keeps the sample labels; change them with POST /api/reviews/{{id}}/sample-labels"
     )]
     SampleLabelsChangedThroughCandidate,
+    /// The schemas a new review is created from fail validation.
     #[error("invalid ProductSchema review candidate")]
     InvalidProductSchemaCandidate,
+    /// A review's candidate, as an edit or approval reads it, fails validation; the failure names
+    /// what to repair.
+    #[error("invalid ProductSchema review candidate: {0}")]
+    RefusedProductSchemaCandidate(#[from] ProductSchemaCandidateFailure),
     #[error("invalid removed-page template {index}: {reason}")]
     InvalidRemovedPageTemplate { index: usize, reason: String },
     #[error(
@@ -804,7 +812,9 @@ impl CrawlerReviewRepository {
             status,
             notes,
         } = input;
-        validate_product_schemas(schemas)?;
+        // Schema generation classifies this refusal as an invalid generated schema by its variant.
+        validate_product_schemas(schemas)
+            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
         // The candidate starts from the stored removed-page templates, so the reviewer edits the
         // live list; the base records what was read for approval to rebase onto. Reading without
         // a lock keeps the lock order of approval, which locks the review first.
@@ -1096,10 +1106,22 @@ impl CrawlerReviewRepository {
 
         if status == STATUS_PENDING_REVIEW {
             let (candidate_payload, removed_page_schemas_changed) = match artifact_type.as_str() {
-                ARTIFACT_URL_PATTERN => (
-                    url_pattern_candidate_edit(candidate_payload, &stored_candidate_payload)?,
-                    false,
-                ),
+                ARTIFACT_URL_PATTERN => {
+                    let candidate =
+                        url_pattern_candidate_edit(candidate_payload, &stored_candidate_payload)?;
+                    let candidate_pattern = candidate
+                        .decision
+                        .candidate_regex()
+                        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+                    reclassify_sample(
+                        &mut transaction,
+                        review_id,
+                        self.url_classifier,
+                        candidate_pattern.as_ref(),
+                    )
+                    .await?;
+                    (serde_json::to_value(candidate)?, false)
+                }
                 ARTIFACT_PRODUCT_SCHEMA => {
                     let edit = ProductSchemaCandidateEdit::parse(&candidate_payload)?;
                     let current =
@@ -1258,14 +1280,15 @@ impl CrawlerReviewRepository {
 /// Why the persisted candidate of `review` fails the validation approving it applies, for a
 /// review whose candidate can still change: a pending review, or the approved review whose
 /// candidate is live. The review still reads, so the reviewer sees the candidate and the reason
-/// next to it and can repair it; approval keeps refusing it. Such a candidate is invalid persisted
-/// state, so it is logged at ERROR without the candidate itself. A decided review's candidate is a
-/// record of what was decided and is not judged by today's validation.
+/// next to it and can repair it; approval keeps refusing it. The review API logs such invalid
+/// persisted state at ERROR once per load of the review detail, not on every internal read. A
+/// decided review's candidate is a record of what was decided and is not judged by today's
+/// validation.
 fn changeable_candidate_error(review: &CrawlerReview, candidate_is_live: bool) -> Option<String> {
     if review.status != STATUS_PENDING_REVIEW && !candidate_is_live {
         return None;
     }
-    let failure = match review.artifact_type.as_str() {
+    match review.artifact_type.as_str() {
         ARTIFACT_PRODUCT_SCHEMA => {
             ProductSchemaReviewCandidate::validation_failure(&review.candidate_payload)
         }
@@ -1273,26 +1296,18 @@ fn changeable_candidate_error(review: &CrawlerReview, candidate_is_live: bool) -
             UrlPatternReviewCandidate::validation_failure(&review.candidate_payload)
         }
         _ => None,
-    }?;
-    error!(
-        review_id = %review.review_id,
-        artifact_type = %review.artifact_type,
-        status = %review.status,
-        failure = %failure,
-        "Persisted review candidate fails validation"
-    );
-    Some(failure)
+    }
 }
 
 /// The URL-pattern candidate a whole-candidate edit with `posted` stores in place of `stored`: the
-/// posted decision, decoded with unknown keys refused and serialized again, with the stored sample
+/// posted decision, decoded with unknown keys refused, with the stored sample
 /// labels, which change only through the sample labels. A posted candidate that names other labels
 /// is refused rather than silently losing them; one that names none keeps the stored ones. A
 /// stored candidate that no longer decodes keeps no labels, so an edit can still repair it.
 fn url_pattern_candidate_edit(
     posted: serde_json::Value,
     stored: &serde_json::Value,
-) -> Result<serde_json::Value, ReviewRepositoryError> {
+) -> Result<UrlPatternReviewCandidate, ReviewRepositoryError> {
     let candidate = UrlPatternReviewCandidate::decode_edit(posted)
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     candidate
@@ -1308,9 +1323,7 @@ fn url_pattern_candidate_edit(
     {
         return Err(ReviewRepositoryError::SampleLabelsChangedThroughCandidate);
     }
-    Ok(serde_json::to_value(
-        candidate.with_sample_labels(stored_labels),
-    )?)
+    Ok(candidate.with_sample_labels(stored_labels))
 }
 
 /// Locks and reads the ListingSource's live product schemas for the rest of the transaction.

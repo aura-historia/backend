@@ -863,16 +863,15 @@ async fn should_read_a_pending_review_whose_persisted_candidate_fails_validation
     let refused = approve_acknowledging_coverage(&repository, review_id).await;
 
     assert!(
-        detail
-            .candidate_error
-            .as_deref()
-            .is_some_and(|error| error.starts_with("invalid schema 0:")),
+        detail.candidate_error.as_deref().is_some_and(
+            |error| error.starts_with("schema 0, field `title`: invalid CSS selector `[`:")
+        ),
         "{:?}",
         detail.candidate_error
     );
     assert!(matches!(
         refused,
-        Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+        Err(ReviewRepositoryError::RefusedProductSchemaCandidate(_))
     ));
     assert_eq!(
         review_status(&repository, review_id).await,
@@ -1469,7 +1468,7 @@ async fn approved_schema_field_edit_rejects_invalid_rule_without_mutating_live_o
 
     assert!(matches!(
         result,
-        Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+        Err(ReviewRepositoryError::RefusedProductSchemaCandidate(_))
     ));
     assert_eq!(
         schema_repository
@@ -2294,6 +2293,155 @@ async fn should_refuse_a_url_pattern_candidate_edit_with_an_unknown_key() {
             .candidate_payload,
         edit
     );
+}
+
+/// The sample's candidate matches, classes and product count after each URL-pattern edit.
+async fn candidate_classification(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+) -> (
+    Vec<(String, Option<bool>, Option<String>)>,
+    serde_json::Value,
+) {
+    let detail = repository.get_review(review_id).await.unwrap();
+    let mut urls: Vec<_> = detail
+        .urls
+        .into_iter()
+        .map(|url| (url.url, url.candidate_pattern_match, url.candidate_class))
+        .collect();
+    urls.sort();
+    (
+        urls,
+        detail.review.validation_summary["candidate_product_count"].clone(),
+    )
+}
+
+/// Saving a URL-pattern decision classifies the review's sample again under it in the edit's
+/// transaction, so the console shows the candidate's matches, classes and product count of the
+/// decision the review holds, not those of the decision it was opened with.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_reclassify_the_sample_when_a_url_pattern_decision_is_saved() {
+    let pool = get_postgres_client().await;
+    let repository =
+        CrawlerReviewRepository::new(pool.clone()).with_url_classifier(UrlClassifier::PatternOnly);
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "reclassify.example.com").await;
+    let sample = [
+        "https://reclassify.example.com/about",
+        "https://reclassify.example.com/product/chair",
+        "https://reclassify.example.com/product/table",
+    ]
+    .map(str::to_owned);
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "manual_url_pattern_required",
+            UrlPatternDecision::Undecided,
+            &sample,
+            None,
+        )
+        .await
+        .unwrap();
+    let other = Some(UrlClass::Other.to_string());
+    let product = Some(UrlClass::ProductListing.to_string());
+    let unmatched = |taken: [Option<bool>; 3]| {
+        sample
+            .iter()
+            .zip(taken)
+            .map(|(url, taken)| {
+                let class = if taken == Some(true) {
+                    &product
+                } else {
+                    &other
+                };
+                (url.clone(), taken, class.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let opened = candidate_classification(&repository, review_id).await;
+
+    let pattern_version = repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            json!({ "decision": { "type": "PATTERN", "value": "/product/[\\w-]+$" }, "current_pattern": null }),
+        )
+        .await
+        .unwrap();
+    let with_pattern = candidate_classification(&repository, review_id).await;
+    repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            pattern_version,
+            json!({ "decision": { "type": "NO_PATTERN" }, "current_pattern": null }),
+        )
+        .await
+        .unwrap();
+    let without_pattern = candidate_classification(&repository, review_id).await;
+
+    assert_eq!(opened, (unmatched([None; 3]), json!(0)));
+    assert_eq!(
+        with_pattern,
+        (unmatched([Some(false), Some(true), Some(true)]), json!(2))
+    );
+    assert_eq!(without_pattern, opened);
+    assert_eq!(
+        repository
+            .get_review(review_id)
+            .await
+            .unwrap()
+            .review
+            .validation_summary["sample_count"],
+        json!(3)
+    );
+}
+
+/// A refused URL-pattern edit leaves the sample classified under the decision the review holds.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_the_sample_classification_when_a_url_pattern_edit_is_refused() {
+    let pool = get_postgres_client().await;
+    let repository =
+        CrawlerReviewRepository::new(pool.clone()).with_url_classifier(UrlClassifier::PatternOnly);
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "refused.example.com").await;
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "url_pattern_generation",
+            UrlPatternDecision::Pattern {
+                value: "/product/".to_owned(),
+            },
+            &["https://refused.example.com/product/chair".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+    let opened = candidate_classification(&repository, review_id).await;
+
+    let refused = repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            json!({ "decision": { "type": "PATTERN", "value": "(" }, "current_pattern": null }),
+        )
+        .await;
+
+    assert!(matches!(
+        refused,
+        Err(ReviewRepositoryError::InvalidUrlPatternCandidate)
+    ));
+    assert_eq!(
+        candidate_classification(&repository, review_id).await,
+        opened
+    );
+    assert_eq!(opened.1, json!(1));
 }
 
 /// Drops the constraints that tie a URL-pattern review to a domain of its ListingSource, so a
