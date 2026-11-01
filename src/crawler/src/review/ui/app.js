@@ -320,11 +320,14 @@ function renderMissingValueSources(listingSources) {
     </div>`;
 }
 
+// The handler names a page by its position in the listed pages, never by its URL: a shop's URL
+// may hold a quote, which the browser decodes from an HTML entity before the handler runs, so a
+// URL in the handler's source would let the shop run script in the console.
 function renderMissingValuePages(listingSourceId, pages) {
     if (pages.error) return `<div class="queue-meta">${escapeHtml(pages.error)}</div>`;
-    return pages.map(page => `<div class="queue-meta" onclick="event.stopPropagation()">
+    return pages.map((page, index) => `<div class="queue-meta" onclick="event.stopPropagation()">
         ${productPageLink(page.url)} ${escapeHtml(page.missing || '')}
-        <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', '${escapeHtmlAttr(page.url)}')">Add to review</button>
+        <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', ${index})">Add to review</button>
       </div>`).join('');
 }
 
@@ -342,7 +345,10 @@ async function toggleMissingValuePages(listingSourceId) {
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
-async function reviewMissingValuePage(listingSourceId, url) {
+async function reviewMissingValuePage(listingSourceId, index) {
+    const pages = expandedMissingValueSources.get(listingSourceId);
+    const url = Array.isArray(pages) ? pages[index]?.url : undefined;
+    if (!url) return;
     await confirmDiscardingEdits('Adding the page', async () => {
         try {
             const added = await api(
