@@ -1638,6 +1638,8 @@ mod tests {
         SlowHtml(Duration, &'static str, String),
         /// An empty answer with extra header lines, each `Name: value\r\n`.
         WithHeaders(&'static str, &'static str),
+        /// `Html` with extra header lines, each `Name: value\r\n`.
+        HtmlWithHeaders(&'static str, &'static str, String),
         Redirect(&'static str),
         /// Close the connection without answering, like a crashed server.
         Drop,
@@ -1733,17 +1735,20 @@ mod tests {
                     log.push((host, target.clone(), user_agent, accept_encoding));
                     previous
                 };
-                let html_response = |status: &str, body: &str| {
+                let html_response = |status: &str, extra_headers: &str, body: &str| {
                     format!(
-                        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status}\r\n{extra_headers}Content-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     )
                 };
                 let response = match handler(&target, previous) {
-                    SiteResponse::Html(status, body) => html_response(status, &body),
+                    SiteResponse::Html(status, body) => html_response(status, "", &body),
+                    SiteResponse::HtmlWithHeaders(status, extra_headers, body) => {
+                        html_response(status, extra_headers, &body)
+                    }
                     SiteResponse::SlowHtml(delay, status, body) => {
                         tokio::time::sleep(delay).await;
-                        html_response(status, &body)
+                        html_response(status, "", &body)
                     }
                     SiteResponse::WithHeaders(status, extra_headers) => format!(
                         "HTTP/1.1 {status}\r\n{extra_headers}Content-Length: 0\r\nConnection: close\r\n\r\n"
@@ -2191,6 +2196,37 @@ mod tests {
                 Some("bot_challenge_root_page")
             );
             assert_eq!(diagnostics.bot_challenge_pages, 1);
+        }
+
+        /// A vendor's challenge header reaches the detector through the page Spider delivers, so a
+        /// `202` interstitial is recognised by it even when its markup names no vendor.
+        #[tokio::test]
+        async fn should_fail_a_crawl_whose_root_answers_a_202_interstitial_by_its_header() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+                SiteResponse::HtmlWithHeaders(
+                    "202 Accepted",
+                    "sg-captcha: challenge\r\n",
+                    "<html><head><title>shop.example</title></head><body><p>Please wait.</p></body></html>"
+                        .to_string(),
+                )
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::BotProtection),
+                "{diagnostics:?}"
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some("bot_challenge_root_page")
+            );
+            assert_eq!(diagnostics.http_status, Some(202));
         }
 
         #[tokio::test]
