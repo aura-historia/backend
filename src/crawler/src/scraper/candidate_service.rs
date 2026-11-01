@@ -14,6 +14,7 @@ use url::Url;
 
 use crate::network::policy::DomainFailureKind;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::scraper::css_selector::removed_page_schema_repository::share_stored_removed_page_schemas;
 use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE;
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -264,7 +265,10 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Records a verified removal whose raw delete is durably captured, or was captured by an
     /// earlier check, and makes the URL eligible for later rechecks. It forgets the page hash and
     /// scraper-context fingerprint of the last product scrape, so a page that comes back
-    /// unchanged is extracted and captured again instead of skipped.
+    /// unchanged is extracted and captured again instead of skipped. A removal that
+    /// `removed_by_templates` captured is recorded with them; when the stored list no longer
+    /// holds one of them unchanged, retired or narrowed since the page was matched, the URL is
+    /// left due at once, as the change's re-arm leaves the removals it finds.
     async fn mark_removed(
         &self,
         listing_source_id: &ListingSourceId,
@@ -1111,13 +1115,27 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         removed_by_templates: &[RemovedPageSchema],
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
+        let mut transaction = self.pool.begin().await?;
+        // A scrape that matched a template the reviewer retires or narrows before this write
+        // commits would otherwise record a removal the approval's re-arm never saw. The share
+        // lock orders the write against the approval, which locks the stored templates before it
+        // re-arms: either the approval re-arms this removal, or the write sees the new list and
+        // leaves the URL due at once, as the re-arm would have.
+        let templates_still_stored = removed_by_templates.is_empty() || {
+            let stored = share_stored_removed_page_schemas(&mut transaction, listing_source_id)
+                .await?
+                .unwrap_or_default();
+            removed_by_templates
+                .iter()
+                .all(|template| stored.contains(template))
+        };
         let removed_by_templates = (!removed_by_templates.is_empty())
             .then(|| serde_json::to_value(removed_by_templates))
             .transpose()
             .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
         let result = sqlx::query(
             "UPDATE listing_source_urls
-             SET last_scraped = NOW(),
+             SET last_scraped = CASE WHEN $6::boolean THEN NOW() END,
                  last_scraped_hash = NULL,
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = $3,
@@ -1141,8 +1159,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(raw_input_sha256)
         .bind(expected_last_captured_raw_input_sha256)
         .bind(removed_by_templates)
-        .execute(&self.pool)
+        .bind(templates_still_stored)
+        .execute(&mut *transaction)
         .await?;
+        transaction.commit().await?;
 
         Ok(if result.rows_affected() == 1 {
             CrawlerUrlWriteOutcome::Applied

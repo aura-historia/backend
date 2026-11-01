@@ -956,6 +956,86 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
     assert_eq!(rearmed, expected);
 }
 
+/// A scrape that matched a template before a change of the stored templates committed records
+/// its removal after the change's re-arm ran. The write waits for the change and then reads the
+/// new list: a removal by a template the change narrowed is left due at once, as the re-arm
+/// would have left it, while one by a template the list still holds waits for the next scrape.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_leave_a_removal_by_a_template_narrowed_meanwhile_due_at_once() {
+    let pool = get_postgres_client().await;
+    let fixture = WaitingPageFixture::new(&pool).await;
+    let narrowed = notice_schema("no longer available");
+    let kept = notice_schema("sold out");
+    store_removed_page_templates(
+        &pool,
+        fixture.listing_source_id,
+        vec![narrowed.clone(), kept.clone()],
+    )
+    .await;
+    let removed_by_kept = fixture
+        .add_product_url(&pool, "https://example.com/products/kept-removal")
+        .await;
+
+    // The change holds the stored templates' lock, as an approval does until it commits.
+    let mut change = pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT 1 FROM listing_source_removed_page_schemas WHERE listing_source_id = $1 FOR UPDATE",
+    )
+    .bind(fixture.listing_source_id.as_uuid())
+    .execute(&mut *change)
+    .await
+    .unwrap();
+    let removal = tokio::spawn({
+        let pool = pool.clone();
+        let listing_source_id = fixture.listing_source_id;
+        let url = fixture.url.clone();
+        let narrowed = narrowed.clone();
+        async move {
+            ScraperCandidateServiceImpl::new(pool)
+                .mark_removed(&listing_source_id, &url, &[1; 32], None, &[narrowed])
+                .await
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        !removal.is_finished(),
+        "the removal must wait for the change of the templates it was matched by"
+    );
+    sqlx::query(
+        "UPDATE listing_source_removed_page_schemas SET removed_page_schema = $2 \
+         WHERE listing_source_id = $1",
+    )
+    .bind(fixture.listing_source_id.as_uuid())
+    .bind(json!([
+        notice_template("this item is no longer available"),
+        notice_template("sold out"),
+    ]))
+    .execute(&mut *change)
+    .await
+    .unwrap();
+    change.commit().await.unwrap();
+    assert_eq!(
+        removal.await.unwrap().unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+    assert_eq!(
+        fixture
+            .candidates
+            .mark_removed(
+                &fixture.listing_source_id,
+                &removed_by_kept,
+                &[2; 32],
+                None,
+                &[kept],
+            )
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    assert_eq!(fixture.candidate_urls().await, vec![fixture.url.clone()]);
+}
+
 /// Opens a product-schema review of the fixture's ListingSource with its live schema.
 async fn open_schema_review(fixture: &WaitingPageFixture) -> CrawlerReviewId {
     fixture
