@@ -244,9 +244,21 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         redirect_move: RedirectUrlMove,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    /// Records a durable crawler removal capture and makes the URL eligible for later rechecks.
-    /// It forgets the page hash and scraper-context fingerprint of the last product scrape, so a
-    /// page that comes back unchanged is extracted and captured again instead of skipped.
+    /// Forgets the URL's last capture before a verified removal is captured: the page hash,
+    /// scraper-context fingerprint and captured raw-input hash become `NULL`. Neither a failed
+    /// removal capture nor a failed [`mark_removed`](Self::mark_removed) afterwards can then
+    /// leave the URL matching the product capture before the removal, which would skip a page
+    /// that comes back unchanged and leave the listing removed.
+    async fn forget_capture_before_removal(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+    /// Records a verified removal whose raw delete is durably captured, or was captured by an
+    /// earlier check, and makes the URL eligible for later rechecks. It forgets the page hash and
+    /// scraper-context fingerprint of the last product scrape, so a page that comes back
+    /// unchanged is extracted and captured again instead of skipped.
     async fn mark_removed(
         &self,
         listing_source_id: &ListingSourceId,
@@ -1035,6 +1047,38 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         }
         transaction.commit().await?;
         Ok(CrawlerUrlWriteOutcome::Applied)
+    }
+
+    async fn forget_capture_before_removal(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        expected_last_captured_raw_input_sha256: Option<&[u8]>,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
+        let result = sqlx::query(
+            "UPDATE listing_source_urls
+             SET last_scraped_hash = NULL,
+                 last_scraped_schema_fingerprint = NULL,
+                 last_captured_raw_input_sha256 = NULL,
+                 updated = NOW()
+             WHERE listing_source_id = $1
+               AND url = $2
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $3::bytea",
+        )
+        .bind(listing_source_id_uuid)
+        .bind(url.to_string())
+        .bind(expected_last_captured_raw_input_sha256)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(if result.rows_affected() == 1 {
+            CrawlerUrlWriteOutcome::Applied
+        } else {
+            CrawlerUrlWriteOutcome::NoopStale
+        })
     }
 
     async fn mark_removed(

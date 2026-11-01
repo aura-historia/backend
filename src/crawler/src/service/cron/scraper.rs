@@ -492,18 +492,27 @@ async fn enqueue_raw_capture(
     Ok(wait_started_at.elapsed())
 }
 
+/// Captures a verified removal once. A recheck of a page that is still removed finds the raw
+/// delete it would capture already recorded as the URL's last capture and refreshes only the
+/// crawler scrape metadata, as an unchanged product page does.
 #[tracing::instrument(
     name = "crawler_scrape_candidate",
-    skip(candidate),
+    skip(candidate, ctx),
     fields(
         listing_source_id = %candidate.listing_source_id,
         url = %candidate.url
     )
 )]
-fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutcome {
+async fn handle_verified_removal(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+) -> ScrapeCandidateOutcome {
     let Some((input, raw_input_sha256)) = verified_removal_input(candidate) else {
         return errored_outcome();
     };
+    if candidate.last_captured_raw_input_sha256.as_deref() == Some(raw_input_sha256.as_slice()) {
+        return refresh_repeated_removal(candidate, ctx, &raw_input_sha256).await;
+    }
     let provenance = match crawler_provenance(None, None) {
         Ok(provenance) => provenance,
         Err(error) => {
@@ -511,6 +520,28 @@ fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutco
             return errored_outcome();
         }
     };
+    match ctx
+        .scraper_candidates
+        .forget_capture_before_removal(
+            &candidate.listing_source_id,
+            &candidate.url,
+            candidate.last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => {
+            debug!(
+                crawler_url_write_outcome = "stale_noop",
+                "Skipped verified removal of a URL another writer changed"
+            );
+            return skipped_outcome();
+        }
+        Err(error) => {
+            warn!(error = %error, "Failed to forget the last capture before a verified removal");
+            return errored_outcome();
+        }
+    }
 
     ScrapeCandidateOutcome {
         capture: Some(removal_capture_request(
@@ -520,6 +551,36 @@ fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutco
             raw_input_sha256,
         )),
         ..Default::default()
+    }
+}
+
+async fn refresh_repeated_removal(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    raw_input_sha256: &[u8],
+) -> ScrapeCandidateOutcome {
+    match ctx
+        .scraper_candidates
+        .mark_removed(
+            &candidate.listing_source_id,
+            &candidate.url,
+            raw_input_sha256,
+            Some(raw_input_sha256),
+        )
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => ScrapeCandidateOutcome::default(),
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => {
+            debug!(
+                crawler_url_write_outcome = "stale_noop",
+                "Skipped stale crawler completion of a repeated removal"
+            );
+            skipped_outcome()
+        }
+        Err(error) => {
+            warn!(error = %error, "Failed to persist repeated removal scrape metadata");
+            errored_outcome()
+        }
     }
 }
 
@@ -546,6 +607,9 @@ fn verified_removal_input(
     }
 }
 
+/// The capture of a verified removal, queued after
+/// [`forget_capture_before_removal`](ScraperCandidateService::forget_capture_before_removal) left
+/// the URL without a captured raw input, which is the fence of its completion writes.
 fn removal_capture_request(
     candidate: &ScraperCandidate,
     input: ProductListingNormalizationInput,
@@ -563,16 +627,12 @@ fn removal_capture_request(
             listing_source_id: candidate.listing_source_id,
             url: candidate.url.clone(),
             raw_input_sha256,
-            expected_last_captured_raw_input_sha256: candidate
-                .last_captured_raw_input_sha256
-                .clone(),
+            expected_last_captured_raw_input_sha256: None,
         },
         on_failure: RawCaptureFailureAction::MarkScraperFailure {
             listing_source_id: candidate.listing_source_id,
             url: candidate.url.clone(),
-            expected_last_captured_raw_input_sha256: candidate
-                .last_captured_raw_input_sha256
-                .clone(),
+            expected_last_captured_raw_input_sha256: None,
         },
     }
 }
@@ -611,7 +671,9 @@ async fn scrape_candidate_in_batch(
     let mut outcome = match scrape_outcome.result {
         Ok(Some(scraped)) => handle_successful_scrape(&candidate, ctx, scraped).await,
         Ok(None) => skipped_outcome(),
-        Err(ScraperError::ProductListingRemoved { .. }) => handle_verified_removal(&candidate),
+        Err(ScraperError::ProductListingRemoved { .. }) => {
+            handle_verified_removal(&candidate, ctx).await
+        }
         Err(error) => {
             handle_scrape_error(
                 &candidate,
@@ -3042,7 +3104,13 @@ mod tests {
         let url = url::Url::parse("https://example.com/product/removed").unwrap();
         let candidate = scraper_candidate("ListingSource", url.clone());
         let listing_source_id = candidate.listing_source_id;
-        let outcome = handle_verified_removal(&candidate);
+        let mut forgetting = MockScraperCandidateService::new();
+        forgetting
+            .expect_forget_capture_before_removal()
+            .once()
+            .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        let ctx = scrape_candidate_context(forgetting, MockScraperService::new());
+        let outcome = handle_verified_removal(&candidate, &ctx).await;
         let request = outcome.capture.expect("removal must be queued for capture");
 
         let mut raw_capture = MockProductListingRawCaptureService::new();
@@ -3201,10 +3269,15 @@ mod tests {
     async fn should_keep_removed_url_active_when_raw_capture_fails() {
         let url = url::Url::parse("https://example.com/product/removed").unwrap();
         let mut candidate = scraper_candidate("ListingSource", url);
-        let expected_last_captured_raw_input_sha256 = vec![5; 32];
-        candidate.last_captured_raw_input_sha256 =
-            Some(expected_last_captured_raw_input_sha256.clone());
-        let outcome = handle_verified_removal(&candidate);
+        candidate.last_captured_raw_input_sha256 = Some(vec![5; 32]);
+        let mut forgetting = MockScraperCandidateService::new();
+        forgetting
+            .expect_forget_capture_before_removal()
+            .once()
+            .withf(|_, _, expected| *expected == Some(&[5_u8; 32][..]))
+            .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        let ctx = scrape_candidate_context(forgetting, MockScraperService::new());
+        let outcome = handle_verified_removal(&candidate, &ctx).await;
         let request = outcome.capture.expect("removal must be queued for capture");
 
         let mut raw_capture = MockProductListingRawCaptureService::new();
@@ -3217,10 +3290,10 @@ mod tests {
             .expect_mark_scraper_failure()
             .once()
             .withf(move |_, _, kind, message, received_raw_input_sha256| {
+                // The fence is the forgotten capture the removal left behind.
                 kind == "RawCaptureFailed"
                     && message == "verified removal raw capture did not commit"
-                    && *received_raw_input_sha256
-                        == Some(expected_last_captured_raw_input_sha256.as_slice())
+                    && received_raw_input_sha256.is_none()
             })
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         scraper_candidates.expect_mark_removed().never();
@@ -3238,6 +3311,249 @@ mod tests {
             0,
         )
         .await;
+    }
+
+    mod repeated_removal {
+        use super::*;
+        use crate::scraper::css_selector::product_schema::RawExtractedProduct;
+        use crate::scraper::raw_input::crawler_raw_input;
+        use product_listing_normalization::RawProductListingOperation;
+
+        const URL: &str = "https://example.com/product/removed";
+
+        fn removal_sha256() -> Vec<u8> {
+            let url = url::Url::parse(URL).unwrap();
+            crawler_verified_removal_input(&url)
+                .and_then(|input| input.hash())
+                .map(|hash| hash.as_bytes().to_vec())
+                .unwrap_or_else(|error| panic!("test removal hash: {error}"))
+        }
+
+        fn removed_scraper() -> MockScraperService {
+            let mut scraper_service = MockScraperService::new();
+            scraper_service.expect_scrape().once().returning(|_| {
+                Box::pin(async {
+                    scrape_outcome(Err(ScraperError::ProductListingRemoved {
+                        url: url::Url::parse(URL).unwrap(),
+                        details: "HTTP 404".to_owned(),
+                    }))
+                })
+            });
+            scraper_service
+        }
+
+        /// A scraper that finds the product page back, with the raw input of the product
+        /// capture before the removal.
+        fn returned_product_scraper(product_sha256: Vec<u8>) -> MockScraperService {
+            let url = url::Url::parse(URL).unwrap();
+            let raw_input = crawler_raw_input(
+                &RawExtractedProduct {
+                    source_listing_id: "SKU-1".to_owned(),
+                    title: "Chair".to_owned(),
+                    description: vec!["Oak".to_owned()],
+                    price: Some("100 EUR".to_owned()),
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    state: "In Stock".to_owned(),
+                    images: vec!["https://example.com/chair.jpg".to_owned()],
+                    raw_attributes: BTreeMap::new(),
+                },
+                &["https://example.com/chair.jpg".to_owned()],
+                &url,
+                "SKU-1",
+                None,
+            )
+            .unwrap_or_else(|error| panic!("test product input: {error}"));
+            let mut scraper_service = MockScraperService::new();
+            scraper_service
+                .expect_scrape()
+                .once()
+                .return_once(move |_| {
+                    Box::pin(async move {
+                        scrape_outcome(Ok(Some(ScrapedProduct {
+                            acquired_at: time::OffsetDateTime::now_utc(),
+                            raw_input,
+                            hash: "product-hash".to_owned(),
+                            schema_fingerprint: "product-schema".to_owned(),
+                            raw_input_sha256: product_sha256,
+                            effective_url: url,
+                            source_listing_id: "SKU-1".to_owned(),
+                        })))
+                    })
+                });
+            scraper_service
+        }
+
+        fn assert_upsert_capture(outcome: ScrapeCandidateOutcome) {
+            let request = outcome
+                .capture
+                .expect("a page that returns must be captured again");
+            assert_eq!(
+                request.item.command.input.operation(),
+                RawProductListingOperation::Upsert
+            );
+            assert!(matches!(
+                request.on_success,
+                RawCaptureSuccessAction::MarkScraped(_)
+            ));
+        }
+
+        #[tokio::test]
+        async fn should_refresh_only_metadata_when_a_still_removed_page_is_rechecked() {
+            let mut candidate = scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
+            candidate.last_captured_raw_input_sha256 = Some(removal_sha256());
+            let listing_source_id = candidate.listing_source_id;
+
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_forget_capture_before_removal()
+                .never();
+            scraper_candidates
+                .expect_mark_removed()
+                .once()
+                .withf(move |source_id, url, raw_input_sha256, expected| {
+                    *source_id == listing_source_id
+                        && url.as_str() == URL
+                        && raw_input_sha256 == removal_sha256().as_slice()
+                        && *expected == Some(removal_sha256().as_slice())
+                })
+                .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(
+                outcome.capture.is_none(),
+                "the raw delete is already the URL's last capture"
+            );
+            assert!(!outcome.errored);
+            assert!(!outcome.skipped);
+        }
+
+        #[tokio::test]
+        async fn should_capture_a_removal_again_after_the_page_was_captured_as_a_product() {
+            let mut candidate = scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
+            candidate.last_captured_raw_input_sha256 = Some(vec![3; 32]);
+
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_forget_capture_before_removal()
+                .once()
+                .withf(|_, _, expected| *expected == Some(&[3_u8; 32][..]))
+                .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            scraper_candidates.expect_mark_removed().never();
+            let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            let request = outcome.capture.expect("the removal must be captured");
+            assert_eq!(
+                request.item.command.input.operation(),
+                RawProductListingOperation::Delete
+            );
+            assert!(matches!(
+                request.on_success,
+                RawCaptureSuccessAction::MarkRemoved {
+                    expected_last_captured_raw_input_sha256: None,
+                    ..
+                }
+            ));
+        }
+
+        #[tokio::test]
+        async fn should_not_capture_a_removal_when_its_capture_cannot_be_forgotten() {
+            for (write, errored, skipped) in [
+                (Ok(CrawlerUrlWriteOutcome::NoopStale), false, true),
+                (Err(sqlx::Error::PoolTimedOut), true, false),
+            ] {
+                let mut candidate =
+                    scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
+                candidate.last_captured_raw_input_sha256 = Some(vec![3; 32]);
+                let mut scraper_candidates = MockScraperCandidateService::new();
+                scraper_candidates
+                    .expect_forget_capture_before_removal()
+                    .once()
+                    .return_once(move |_, _, _| Box::pin(async move { write }));
+                let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
+
+                let outcome = scrape_candidate(candidate, &ctx).await;
+
+                assert!(outcome.capture.is_none());
+                assert_eq!((outcome.errored, outcome.skipped), (errored, skipped));
+            }
+        }
+
+        #[tokio::test]
+        async fn should_capture_a_removed_page_that_returns_as_an_upsert() {
+            let mut candidate = scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
+            candidate.last_captured_raw_input_sha256 = Some(removal_sha256());
+            let ctx = scrape_candidate_context(
+                MockScraperCandidateService::new(),
+                returned_product_scraper(vec![3; 32]),
+            );
+
+            assert_upsert_capture(scrape_candidate(candidate, &ctx).await);
+        }
+
+        /// The removal capture commits and its metadata write fails. The URL keeps the state the
+        /// removal left before capturing, so the product page that returns unchanged does not
+        /// match the product capture before the removal and is captured again.
+        #[tokio::test]
+        async fn should_capture_an_unchanged_returning_page_after_a_failed_removal_metadata_write()
+        {
+            let product_sha256 = vec![3; 32];
+            let mut candidate = scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
+            candidate.last_captured_raw_input_sha256 = Some(product_sha256.clone());
+            candidate.last_scraped_hash = Some("product-hash".to_owned());
+            candidate.last_scraped_schema_fingerprint = Some("product-schema".to_owned());
+
+            let mut removal_candidates = MockScraperCandidateService::new();
+            removal_candidates
+                .expect_forget_capture_before_removal()
+                .once()
+                .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let ctx = scrape_candidate_context(removal_candidates, removed_scraper());
+            let request = scrape_candidate(candidate, &ctx)
+                .await
+                .capture
+                .expect("the removal must be captured");
+
+            let mut raw_capture = MockProductListingRawCaptureService::new();
+            raw_capture.expect_capture().once().returning(|_| {
+                Box::pin(async { vec![ProductListingRawCaptureOutcome::Persisted] })
+            });
+            let mut failing_candidates = MockScraperCandidateService::new();
+            failing_candidates
+                .expect_mark_removed()
+                .once()
+                .returning(|_, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
+            let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
+            let failing_candidates: Arc<dyn ScraperCandidateService> = Arc::new(failing_candidates);
+            flush_batch(
+                &raw_capture,
+                &failing_candidates,
+                vec![QueuedRawCapture {
+                    request,
+                    listing_source_domain: "example.com".to_owned(),
+                    enqueued_at: tokio::time::Instant::now(),
+                }],
+                0,
+            )
+            .await;
+
+            // `forget_capture_before_removal` cleared these before the capture (proven against
+            // PostgreSQL in `tests/candidates.rs`), and the failed write left them so.
+            let mut returning = scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
+            returning.last_captured_raw_input_sha256 = None;
+            returning.last_scraped_hash = None;
+            returning.last_scraped_schema_fingerprint = None;
+            let ctx = scrape_candidate_context(
+                MockScraperCandidateService::new(),
+                returned_product_scraper(product_sha256),
+            );
+
+            assert_upsert_capture(scrape_candidate(returning, &ctx).await);
+        }
     }
 
     #[tokio::test]
