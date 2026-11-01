@@ -453,6 +453,7 @@ function renderDetail(detail, matrix) {
       </div>
       <div id="actionPanel">${renderActionPanel()}</div>
       <div id="editMessages">${renderEditMessages()}</div>
+      ${renderCandidateError(detail)}
       ${renderHumanRequired(review)}
       ${renderRepairRequest(review)}
       ${renderReviewEvents(detail)}
@@ -463,6 +464,15 @@ function renderDetail(detail, matrix) {
     if (matrix) postHighlightSoon();
     updateRefreshBanner();
     updateReloadState();
+}
+
+// The stored candidate fails the validation approval applies: the review still shows it so the
+// reviewer can repair it, and approval stays refused until then.
+function renderCandidateError(detail) {
+    if (!detail.candidate_error) return '';
+    return `<div class="hint-card finding-hint" role="alert">
+      <span>The candidate fails validation and cannot be approved until it is repaired: ${escapeHtml(detail.candidate_error)}</span>
+    </div>`;
 }
 
 function renderApprovalPanel(detail) {
