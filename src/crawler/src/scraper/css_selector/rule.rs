@@ -3,7 +3,7 @@ use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use visible_text::{TextBoundaries, has_visible_text, visible_text};
+use visible_text::{TextLayout, has_visible_text, visible_text};
 
 pub(crate) use image_url::{
     element_has_image_like_evidence, has_known_image_extension, srcset_descriptor_width,
@@ -200,25 +200,28 @@ impl ExtractionRule {
     ///   of every selector is taken, in selector order, each element at most once: an
     ///   element nested inside, or containing, an element the rule already extracted is
     ///   skipped, so a description container and its own paragraphs are never captured
-    ///   together.
+    ///   together. An item that is empty after trimming is dropped.
     ///
-    /// Text extraction separates lines at `<br>` and block boundaries, and table cells
-    /// with a space, wherever markup whitespace does not already separate them.
+    /// Text is laid out as [`TextLayout::Rendered`] describes: visually hidden text is
+    /// dropped, `<br>` and block boundaries start a new line, table cells are separated by
+    /// a space and every other whitespace run collapses to one space. Attribute values
+    /// have their whitespace collapsed too.
     ///
-    /// When no selector yields a value, a text rule with cardinality `first` that matched
-    /// only empty elements returns `Err(EmptyValue)`; a rule that matched no element
-    /// returns `Err(NoElementMatched)`.
+    /// When no selector yields a value, a text rule with cardinality `first`, or a rule
+    /// with cardinality `all`, that matched only empty elements returns
+    /// `Err(EmptyValue)`; a rule that matched no element returns `Err(NoElementMatched)`.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
-        self.extract(html, TextBoundaries::Separate, ElementWithoutValue::Fails)
+        self.extract(html, TextLayout::Rendered, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
     }
 
-    /// Applies this rule like [`Self::apply`], except that text joins its nodes as written
-    /// instead of separating lines at `<br>` and block boundaries. A captured listing
-    /// identity must not change with how text is laid out: a changed identity captures the
-    /// product again as a new listing.
+    /// Applies this rule like [`Self::apply`], except that text joins its nodes as written,
+    /// hidden text and whitespace included, and attribute values stay as written. A
+    /// captured listing identity must not change with how text is laid out: a scrape whose
+    /// identity differs from the one its listing was captured under is rejected as a
+    /// conflict.
     pub(crate) fn apply_as_identity(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
-        self.extract(html, TextBoundaries::Ignore, ElementWithoutValue::Fails)
+        self.extract(html, TextLayout::AsWritten, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
     }
 
@@ -236,18 +239,18 @@ impl ExtractionRule {
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut all_images_rule = self.clone();
         all_images_rule.cardinality = ExtractionCardinality::All;
-        all_images_rule.extract(html, TextBoundaries::Separate, ElementWithoutValue::Skipped)
+        all_images_rule.extract(html, TextLayout::Rendered, ElementWithoutValue::Skipped)
     }
 
     fn extract(
         &self,
         html: &Html,
-        boundaries: TextBoundaries,
+        layout: TextLayout,
         without_value: ElementWithoutValue,
     ) -> Result<RuleExtraction, ExtractionError> {
         match self.cardinality {
-            ExtractionCardinality::First => self.extract_first(html, boundaries),
-            ExtractionCardinality::All => self.extract_all(html, boundaries, without_value),
+            ExtractionCardinality::First => self.extract_first(html, layout),
+            ExtractionCardinality::All => self.extract_all(html, layout, without_value),
         }
     }
 
@@ -256,12 +259,12 @@ impl ExtractionRule {
     fn extract_first(
         &self,
         html: &Html,
-        boundaries: TextBoundaries,
+        layout: TextLayout,
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut first_selector_with_empty_elements = None;
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
-            match self.first_value(html.select(&parsed), css_selector, boundaries)? {
+            match self.first_value(html.select(&parsed), css_selector, layout)? {
                 SelectorValue::Value(value) => {
                     return Ok(RuleExtraction {
                         values: vec![value],
@@ -276,9 +279,7 @@ impl ExtractionRule {
         }
 
         Err(match first_selector_with_empty_elements {
-            Some(selector) => ExtractionError::EmptyValue {
-                selector: selector.to_string(),
-            },
+            Some(selector) => empty_value(selector),
             None => self.no_element_matched(),
         })
     }
@@ -289,12 +290,13 @@ impl ExtractionRule {
     fn extract_all(
         &self,
         html: &Html,
-        boundaries: TextBoundaries,
+        layout: TextLayout,
         without_value: ElementWithoutValue,
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut extraction = RuleExtraction::default();
         let mut extracted = ExtractedElements::new();
         let mut first_non_placeholder_error = None;
+        let mut first_selector_with_empty_elements = None;
 
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
@@ -306,10 +308,21 @@ impl ExtractionRule {
                 if extracted.contains_any(overlapping_elements) {
                     continue;
                 }
-                match extract_from_element(&element, &self.extract, css_selector, boundaries) {
+                let value = extract_from_element(&element, &self.extract, css_selector, layout)
+                    .and_then(|value| match layout {
+                        TextLayout::Rendered => non_empty(value, css_selector),
+                        // An identity keeps its items as written, empty ones included.
+                        TextLayout::AsWritten => Ok(value),
+                    });
+                match value {
                     Ok(value) => {
                         extracted.insert(element.id());
                         extraction.values.push(value);
+                    }
+                    Err(ExtractionError::EmptyValue { .. })
+                        if without_value == ElementWithoutValue::Fails =>
+                    {
+                        first_selector_with_empty_elements.get_or_insert(css_selector);
                     }
                     Err(error) if without_value == ElementWithoutValue::Skipped => {
                         extraction.skipped_elements += 1;
@@ -328,7 +341,10 @@ impl ExtractionRule {
             return match first_non_placeholder_error {
                 Some(error) => Err(error),
                 None if extraction.skipped_elements > 0 => Ok(extraction),
-                None => Err(self.no_element_matched()),
+                None => Err(match first_selector_with_empty_elements {
+                    Some(selector) => empty_value(selector),
+                    None => self.no_element_matched(),
+                }),
             };
         }
 
@@ -373,13 +389,13 @@ impl ExtractionRule {
         &self,
         mut elements: scraper::html::Select<'_, '_>,
         css_selector: &CssSelector,
-        boundaries: TextBoundaries,
+        layout: TextLayout,
     ) -> Result<SelectorValue, ExtractionError> {
         match &self.extract {
-            ExtractionKind::Text => first_non_empty_text(elements, css_selector, boundaries),
+            ExtractionKind::Text => first_non_empty_text(elements, css_selector, layout),
             kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => {
                 match elements.next() {
-                    Some(element) => extract_from_element(&element, kind, css_selector, boundaries)
+                    Some(element) => extract_from_element(&element, kind, css_selector, layout)
                         .map(SelectorValue::Value),
                     None => Ok(SelectorValue::NoElement),
                 }
@@ -425,12 +441,11 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
 fn first_non_empty_text(
     elements: scraper::html::Select<'_, '_>,
     selector_str: &str,
-    boundaries: TextBoundaries,
+    layout: TextLayout,
 ) -> Result<SelectorValue, ExtractionError> {
     let mut found = SelectorValue::NoElement;
     for element in elements {
-        let value =
-            extract_from_element(&element, &ExtractionKind::Text, selector_str, boundaries)?;
+        let value = extract_from_element(&element, &ExtractionKind::Text, selector_str, layout)?;
         if !value.is_empty() {
             return Ok(SelectorValue::Value(value));
         }
@@ -440,14 +455,33 @@ fn first_non_empty_text(
     Ok(found)
 }
 
+/// `value`, unless it is empty after trimming: cardinality `all` drops such an item, as
+/// cardinality `first` skips an empty text, so a list never holds a blank value.
+fn non_empty(value: String, css_selector: &CssSelector) -> Result<String, ExtractionError> {
+    if value.trim().is_empty() {
+        Err(empty_value(css_selector))
+    } else {
+        Ok(value)
+    }
+}
+
+fn empty_value(css_selector: &CssSelector) -> ExtractionError {
+    ExtractionError::EmptyValue {
+        selector: css_selector.to_string(),
+    }
+}
+
+/// The value of `element`. Text is laid out as `layout` says and trimmed. An attribute
+/// value laid out as [`TextLayout::Rendered`] has each run of HTML whitespace collapsed
+/// to one space and is trimmed; [`TextLayout::AsWritten`] keeps it as written.
 fn extract_from_element(
     element: &scraper::ElementRef<'_>,
     kind: &ExtractionKind,
     selector_str: &str,
-    boundaries: TextBoundaries,
+    layout: TextLayout,
 ) -> Result<String, ExtractionError> {
     match kind {
-        ExtractionKind::Text => Ok(visible_text(element, boundaries).trim().to_owned()),
+        ExtractionKind::Text => Ok(visible_text(element, layout).trim().to_owned()),
         ExtractionKind::Attribute { name } => {
             let attr_value = element.value().attr(name.as_ref()).ok_or_else(|| {
                 ExtractionError::MissingAttribute {
@@ -455,7 +489,10 @@ fn extract_from_element(
                     attribute: name.to_string(),
                 }
             })?;
-            Ok(attr_value.to_owned())
+            Ok(match layout {
+                TextLayout::Rendered => collapse_whitespace(attr_value).trim().to_owned(),
+                TextLayout::AsWritten => attr_value.to_owned(),
+            })
         }
         ExtractionKind::ImageUrl => {
             image_url_candidate_group(element).ok_or_else(|| ExtractionError::MissingAttribute {
@@ -464,6 +501,10 @@ fn extract_from_element(
             })
         }
     }
+}
+
+fn collapse_whitespace(value: &str) -> String {
+    value.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
@@ -624,10 +665,13 @@ mod tests {
     }
 
     #[test]
-    fn should_return_empty_text_when_selected_element_is_a_non_text_element() {
+    fn should_report_an_empty_value_when_selected_element_is_a_non_text_element() {
         let doc = html("<div><script>window.a = 1;</script><p>Visible</p></div>");
         let r = rule("script", text_kind(), ExtractionCardinality::All);
-        assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+        assert!(matches!(
+            r.apply(&doc),
+            Err(ExtractionError::EmptyValue { selector }) if selector == "script"
+        ));
     }
 
     #[rstest]
@@ -688,7 +732,7 @@ mod tests {
         let r = rule(".desc p", text_kind(), ExtractionCardinality::All);
         assert_eq!(
             r.apply(&doc).unwrap(),
-            vec!["Provenance: Château", "Oak,  two drawers"]
+            vec!["Provenance: Château", "Oak, two drawers"]
         );
     }
 
@@ -1297,14 +1341,122 @@ mod tests {
     }
 
     #[test]
-    fn should_handle_multiple_empty_text_nodes_for_all_cardinality() {
-        let doc = html("<ul><li>  </li><li></li><li>Real</li></ul>");
+    fn should_drop_empty_items_for_all_cardinality() {
+        let doc = html("<ul><li>  </li><li></li><li>Real</li><li>\n\t</li></ul>");
         let r = rule("li", text_kind(), ExtractionCardinality::All);
-        let result = r.apply(&doc).unwrap();
-        assert_eq!(result.len(), 3);
-        assert_eq!(result[0], "");
-        assert_eq!(result[1], "");
-        assert_eq!(result[2], "Real");
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Real"]);
+    }
+
+    mod empty_items {
+        use super::*;
+
+        #[test]
+        fn should_report_an_empty_value_when_every_match_is_empty_for_all_cardinality() {
+            let doc = html("<div class=\"note\"> </div><p class=\"desc\"><br></p>");
+            let r = rule_with_additional(
+                ".missing",
+                vec![".desc", ".note"],
+                text_kind(),
+                ExtractionCardinality::All,
+            );
+
+            assert!(matches!(
+                r.apply(&doc),
+                Err(ExtractionError::EmptyValue { selector }) if selector == ".desc"
+            ));
+        }
+
+        /// An empty element is not extracted, so it does not hide a container or
+        /// descendant that a later selector of the rule matches.
+        #[test]
+        fn should_extract_a_containing_element_when_the_nested_match_was_empty() {
+            let doc = html("<div class=\"desc\"><p class=\"intro\"> </p><p>Oak bureau</p></div>");
+            let r = rule_with_additional(
+                ".intro",
+                vec![".desc"],
+                text_kind(),
+                ExtractionCardinality::All,
+            );
+
+            assert_eq!(r.apply(&doc).unwrap(), vec!["Oak bureau"]);
+        }
+
+        #[test]
+        fn should_drop_blank_attribute_values_for_all_cardinality() {
+            let doc = html("<meta content=\"  \"><meta content=\"Oak\"><meta content=\"\">");
+            let r = rule("meta", attr_kind("content"), ExtractionCardinality::All);
+
+            assert_eq!(r.apply(&doc).unwrap(), vec!["Oak"]);
+        }
+
+        #[test]
+        fn should_skip_and_count_an_image_element_with_a_blank_attribute() {
+            let doc = html(
+                "<a class=\"g\" href=\"https://shop.example/oak.jpg\"></a><a class=\"g\" href=\" \"></a>",
+            );
+            let r = rule("a.g", attr_kind("href"), ExtractionCardinality::All);
+
+            let extraction = r.apply_image_url_candidate_groups(&doc).unwrap();
+
+            assert_eq!(extraction.values, vec!["https://shop.example/oak.jpg"]);
+            assert_eq!(extraction.skipped_elements, 1);
+        }
+    }
+
+    mod whitespace_in_values {
+        use super::*;
+
+        #[test]
+        fn should_collapse_whitespace_in_attribute_values() {
+            let doc = html("<meta content=\"\n    Antique Silver\n      Early English\tSpoons \">");
+            let r = rule("meta", attr_kind("content"), ExtractionCardinality::First);
+
+            assert_eq!(
+                r.apply(&doc).unwrap(),
+                vec!["Antique Silver Early English Spoons"]
+            );
+        }
+
+        #[test]
+        fn should_keep_empty_identity_items_as_written() {
+            let doc = html("<span class=\"sku\"> </span><span class=\"sku\">AB-12</span>");
+            let r = rule(".sku", text_kind(), ExtractionCardinality::All);
+
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["", "AB-12"]);
+        }
+
+        #[test]
+        fn should_keep_identity_attribute_values_as_written() {
+            let doc = html("<span data-sku=\"AB  12\"></span>");
+            let r = rule("span", attr_kind("data-sku"), ExtractionCardinality::First);
+
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["AB  12"]);
+        }
+
+        #[test]
+        fn should_collapse_indentation_in_multi_match_text() {
+            let doc = html(
+                "<ul class=\"crumbs\">\n  <li>\n    Antique Silver\n  </li>\n  <li>\n    Early English\n    Antique Spoons\n  </li>\n</ul>",
+            );
+            let r = rule(".crumbs li", text_kind(), ExtractionCardinality::All);
+
+            assert_eq!(
+                r.apply(&doc).unwrap(),
+                vec!["Antique Silver", "Early English Antique Spoons"]
+            );
+        }
+
+        /// The WooCommerce sale price of a live capture (georgianantiques.net) came out as
+        /// `Original price was: £3,450.£2,950Current price is: £2,950.`.
+        #[test]
+        fn should_extract_the_woocommerce_sale_price_without_screen_reader_text() {
+            let doc = html(
+                "<div class=\"summary\"><p class=\"price\">\n  <del aria-hidden=\"true\"><span class=\"woocommerce-Price-amount amount\"><bdi><span class=\"woocommerce-Price-currencySymbol\">&pound;</span>3,450</bdi></span></del> <span class=\"screen-reader-text\">Original price was: &pound;3,450.</span><ins aria-hidden=\"true\"><span class=\"woocommerce-Price-amount amount\"><bdi><span class=\"woocommerce-Price-currencySymbol\">&pound;</span>2,950</bdi></span></ins><span class=\"screen-reader-text\">Current price is: &pound;2,950.</span>\n</p></div>",
+            );
+            let r = rule(".summary .price", text_kind(), ExtractionCardinality::First);
+
+            assert_eq!(r.apply(&doc).unwrap(), vec!["£2,950"]);
+        }
     }
 
     #[test]
