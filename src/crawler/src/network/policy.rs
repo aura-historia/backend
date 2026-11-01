@@ -106,6 +106,10 @@ pub struct PublicTarget {
     pub addresses: Vec<SocketAddr>,
 }
 
+/// Checks what a URL alone decides about a crawler target: an `http` or `https` scheme, no
+/// credentials, a DNS host that is neither empty nor made only of dots (`http://./`) and is no
+/// IP literal, and an allowed port. Offline checks such as image ranking run only this check,
+/// so it rejects every URL that [`resolve_public_http_target`] rejects before resolving.
 pub fn validate_public_http_url(url: &Url) -> Result<(&str, u16), PublicTargetError> {
     if !matches!(url.scheme(), "http" | "https")
         || !url.username().is_empty()
@@ -116,7 +120,7 @@ pub fn validate_public_http_url(url: &Url) -> Result<(&str, u16), PublicTargetEr
 
     let host = url
         .host_str()
-        .filter(|host| !host.is_empty())
+        .filter(|host| !host.trim_end_matches('.').is_empty())
         .ok_or(PublicTargetError::InvalidUrl)?;
     if matches!(url.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)))
         || host.trim_matches(['[', ']']).parse::<IpAddr>().is_ok()
@@ -137,9 +141,6 @@ pub async fn resolve_public_http_target(
 ) -> Result<PublicTarget, PublicTargetError> {
     let (host, port) = validate_public_http_url(url)?;
     let host = host.trim_end_matches('.').to_ascii_lowercase();
-    if host.is_empty() {
-        return Err(PublicTargetError::InvalidUrl);
-    }
     let addresses = tokio::time::timeout(timeout, tokio::net::lookup_host((host.as_str(), port)))
         .await
         .map_err(|_| PublicTargetError::ResolutionTimeout)?
@@ -817,6 +818,29 @@ mod tests {
                 "{raw_url} must be rejected"
             );
         }
+    }
+
+    #[rstest::rstest]
+    #[case::single_dot("http://./a.jpg")]
+    #[case::several_dots("https://.../a.jpg")]
+    #[case::dots_with_a_port("https://..:443/")]
+    fn should_reject_a_host_made_only_of_dots(#[case] raw_url: &str) {
+        let url = Url::parse(raw_url).unwrap();
+
+        assert!(matches!(
+            validate_public_http_url(&url),
+            Err(PublicTargetError::InvalidUrl)
+        ));
+    }
+
+    #[test]
+    fn should_accept_a_fully_qualified_host_with_a_trailing_dot() {
+        let url = Url::parse("https://example.com./a.jpg").unwrap();
+
+        assert_eq!(
+            validate_public_http_url(&url).unwrap(),
+            ("example.com.", 443)
+        );
     }
 
     #[test]

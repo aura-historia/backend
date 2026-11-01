@@ -3,6 +3,7 @@ use crate::scraper::css_selector::rule::{
     split_image_candidate_group,
 };
 
+use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use listing_source_core::ListingSourceId;
 use schemars::JsonSchema;
 use scraper::Html;
@@ -155,6 +156,15 @@ impl ProductCssSelectorSchema {
         .flatten()
         .chain(self.raw_attributes.values())
         .try_for_each(ExtractionRule::validate)
+    }
+
+    /// The raw attribute keys outside the raw attribute registry, in key order. Generated schemas
+    /// may hold none of them; a console edit may keep only those its candidate already held.
+    pub(crate) fn unregistered_raw_attribute_keys(&self) -> impl Iterator<Item = &str> {
+        self.raw_attributes
+            .keys()
+            .map(String::as_str)
+            .filter(|key| !is_registered_key(key))
     }
 
     /// Validates the rules of every schema and returns the first invalid rule.
@@ -2103,6 +2113,24 @@ mod tests {
         assert!(
             matches!(err, ApplySchemaError::RawAttribute { ref field, .. } if field == "rawMaterial"),
             "unexpected variant: {err}"
+        );
+    }
+
+    #[test]
+    fn should_list_only_unregistered_raw_attribute_keys_in_key_order() {
+        let schema = ProductCssSelectorSchema {
+            raw_attributes: [
+                ("rawShipment".to_string(), text_rule(".shipping")),
+                ("rawZed".to_string(), text_rule(".zed")),
+                ("rawFoo".to_string(), text_rule(".foo")),
+            ]
+            .into(),
+            ..full_schema()
+        };
+
+        assert_eq!(
+            schema.unregistered_raw_attribute_keys().collect::<Vec<_>>(),
+            vec!["rawFoo", "rawZed"]
         );
     }
 }

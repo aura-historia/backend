@@ -8,6 +8,12 @@ const DSL_TEXT_LIMIT: usize = 180;
 const DSL_ATTR_LIMIT: usize = 250;
 const DSL_IMAGE_ATTR_LIMIT: usize = 1_000;
 const DSL_NODE_LIMIT: usize = 2_000;
+/// The most characters of YAML one projection takes: the first elements of the page in document
+/// order that fit, with the number of those left out. Navigation, header and footer are gone by
+/// then, so a page's product content comes early: on every parser fixture within the first
+/// 92,000 characters, the deepest behind a shop's 55,000-character currency selector. Image-heavy
+/// pages reached 120,000 to 220,000 characters before `srcset` was condensed.
+const DSL_CHAR_BUDGET: usize = 100_000;
 const REMOVED_DSL_TAGS: &[&str] = &[
     "script", "style", "noscript", "svg", "canvas", "header", "footer", "nav", "aside",
 ];
@@ -20,6 +26,10 @@ struct PageDslRoot {
 
 #[derive(Debug, Default, Serialize)]
 struct PageDsl {
+    /// How many elements, the last in document order, the projection left out to stay within
+    /// [`DSL_CHAR_BUDGET`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    omitted_nodes: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     nodes: Vec<HtmlYamlNode>,
 }
@@ -49,10 +59,68 @@ pub fn html_to_schema_prompt_dsl(input: &str) -> String {
 
     let mut projected_count = 0;
     let nodes = project_children(&document, &mut projected_count);
-    let page = PageDsl { nodes };
+    serialize_within_budget(nodes, DSL_CHAR_BUDGET)
+}
 
-    yaml_serde::to_string(&PageDslRoot { page_dsl: page })
+/// The YAML of the longest document-order prefix of `nodes` within `budget` characters. A prefix
+/// in document order keeps every kept element's ancestors, so the kept tree reads as the page
+/// does and its selectors stay derivable.
+fn serialize_within_budget(nodes: Vec<HtmlYamlNode>, budget: usize) -> String {
+    let total = count_nodes(&nodes);
+    let page_of_prefix = |kept: usize| {
+        let mut remaining = kept;
+        serialize_page(PageDsl {
+            omitted_nodes: (kept < total).then_some(total - kept),
+            nodes: document_order_prefix(&nodes, &mut remaining),
+        })
+    };
+
+    let whole = page_of_prefix(total);
+    if whole.chars().count() <= budget {
+        return whole;
+    }
+    // The YAML grows with every element kept, so the longest prefix within the budget is found by
+    // bisecting the number of elements kept.
+    let (mut fits, mut exceeds) = (0, total);
+    while exceeds - fits > 1 {
+        let middle = fits + (exceeds - fits) / 2;
+        if page_of_prefix(middle).chars().count() <= budget {
+            fits = middle;
+        } else {
+            exceeds = middle;
+        }
+    }
+    page_of_prefix(fits)
+}
+
+fn serialize_page(page_dsl: PageDsl) -> String {
+    yaml_serde::to_string(&PageDslRoot { page_dsl })
         .unwrap_or_else(|_| "page_dsl: {}\n".to_string())
+}
+
+fn count_nodes(nodes: &[HtmlYamlNode]) -> usize {
+    nodes
+        .iter()
+        .map(|node| 1 + count_nodes(&node.children))
+        .sum()
+}
+
+/// The first `remaining` elements of `nodes` in document order, each parent before its children.
+fn document_order_prefix(nodes: &[HtmlYamlNode], remaining: &mut usize) -> Vec<HtmlYamlNode> {
+    let mut prefix = Vec::new();
+    for node in nodes {
+        if *remaining == 0 {
+            break;
+        }
+        *remaining -= 1;
+        prefix.push(HtmlYamlNode {
+            tag: node.tag.clone(),
+            attrs: node.attrs.clone(),
+            text: node.text.clone(),
+            children: document_order_prefix(&node.children, remaining),
+        });
+    }
+    prefix
 }
 
 fn project_children(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode> {
@@ -171,10 +239,7 @@ fn projected_attrs(
         if !should_project_attr(node, tag, attrs, name, value) {
             continue;
         }
-        result.insert(
-            (*name).to_string(),
-            truncate_chars(value, projected_attr_limit(name)),
-        );
+        result.insert((*name).to_string(), projected_attr_value(name, value));
     }
     result
 }
@@ -264,11 +329,61 @@ fn path_has_image_context(href: &str) -> bool {
     .any(|term| lower.contains(term))
 }
 
+fn projected_attr_value(name: &str, value: &str) -> String {
+    match name {
+        "srcset" | "data-srcset" => condensed_srcset(value),
+        _ => truncate_chars(value, projected_attr_limit(name)),
+    }
+}
+
+/// A `srcset` of several candidates as its widest candidate by the `w` descriptor, the last of
+/// equally wide ones, verbatim, and the number of the others: the candidate image extraction
+/// picks from a `srcset`. Its URL is a substring of the page's attribute, so a selector such as
+/// `img[srcset*="…"]` written from the projection matches the page. A `data:` URI, a lazy
+/// loader's placeholder, is no candidate list: its commas belong to the URI.
+fn condensed_srcset(value: &str) -> String {
+    if is_data_uri(value) {
+        return truncate_chars(value.trim(), DSL_ATTR_LIMIT);
+    }
+    let candidates = value
+        .split(',')
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+        .collect::<Vec<_>>();
+    let Some(largest) = candidates
+        .iter()
+        .max_by_key(|candidate| srcset_candidate_width(candidate))
+    else {
+        return truncate_chars(value, DSL_IMAGE_ATTR_LIMIT);
+    };
+    let largest = truncate_chars(largest, DSL_IMAGE_ATTR_LIMIT);
+    match candidates.len() - 1 {
+        0 => largest,
+        others => format!("{largest} (+{others} more srcset candidates)"),
+    }
+}
+
+fn is_data_uri(value: &str) -> bool {
+    value
+        .trim_start()
+        .get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+}
+
+fn srcset_candidate_width(candidate: &str) -> usize {
+    candidate
+        .split_whitespace()
+        .skip(1)
+        .find_map(|descriptor| descriptor.strip_suffix('w'))
+        .and_then(|width| width.parse().ok())
+        .unwrap_or_default()
+}
+
 fn projected_attr_limit(name: &str) -> usize {
     match name {
-        "href" | "src" | "srcset" | "content" | "data-lazy" | "data-lazy-src" | "data-src"
-        | "data-srcset" | "data-large_image" | "data-full" | "data-original"
-        | "data-zoom-image" | "data-image" | "data-images" => DSL_IMAGE_ATTR_LIMIT,
+        "href" | "src" | "content" | "data-lazy" | "data-lazy-src" | "data-src"
+        | "data-large_image" | "data-full" | "data-original" | "data-zoom-image" | "data-image"
+        | "data-images" => DSL_IMAGE_ATTR_LIMIT,
         _ => DSL_ATTR_LIMIT,
     }
 }
@@ -373,5 +488,161 @@ fn remove_comments(node: &NodeRef) {
         } else {
             remove_comments(&child);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::widest_by_w_descriptor(
+        "/p-150.jpg 150w, /p-1200.jpg 1200w, /p-768.jpg 768w",
+        "/p-1200.jpg 1200w (+2 more srcset candidates)"
+    )]
+    #[case::last_of_equally_wide_as_extraction_picks(
+        "/p.jpg 1x, /p@2x.jpg 2x",
+        "/p@2x.jpg 2x (+1 more srcset candidates)"
+    )]
+    #[case::data_uri_placeholder_kept_whole(
+        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+    )]
+    #[case::single_candidate_unchanged("/image/abc 1200w", "/image/abc 1200w")]
+    #[case::empty_candidates_ignored(
+        " , /a.jpg 100w,, /b.jpg 200w ,",
+        "/b.jpg 200w (+1 more srcset candidates)"
+    )]
+    fn should_condense_srcset_to_its_largest_candidate_and_count(
+        #[case] srcset: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(condensed_srcset(srcset), expected);
+    }
+
+    #[test]
+    fn should_condense_srcset_and_data_srcset_attributes_in_the_projection() {
+        let candidates = (1..=12)
+            .map(|step| {
+                format!(
+                    "https://cdn.example.com/oak-chair.jpg?width={0} {0}w",
+                    step * 200
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let html = format!(
+            r#"<main><img class="product-image" src="/oak-chair.jpg" srcset="{candidates}">
+            <img class="product-image lazy" data-srcset="{candidates}"></main>"#
+        );
+
+        let dsl = html_to_schema_prompt_dsl(&html);
+
+        let condensed =
+            "https://cdn.example.com/oak-chair.jpg?width=2400 2400w (+11 more srcset candidates)";
+        assert!(dsl.contains(&format!("srcset: {condensed}")), "{dsl}");
+        assert!(dsl.contains(&format!("data-srcset: {condensed}")), "{dsl}");
+        assert!(!dsl.contains("width=1200"), "{dsl}");
+    }
+
+    #[test]
+    fn should_keep_a_selector_written_from_the_condensed_srcset_matching_the_page() {
+        let html = r#"<main>
+            <img class="thumb" srcset="/files/logo-100.png 100w, /files/logo-200.png 200w">
+            <img class="thumb" srcset="/files/vase-480.webp 480w, /files/vase-1080.webp 1080w, /files/vase-2048.webp 2048w">
+            </main>"#;
+        let dsl = html_to_schema_prompt_dsl(html);
+        let projected_url = dsl
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("srcset: "))
+            .find_map(|value| {
+                value
+                    .split_whitespace()
+                    .next()
+                    .filter(|url| url.contains("vase"))
+            })
+            .expect("the vase srcset is projected");
+
+        let page = scraper::Html::parse_document(html);
+        let selector =
+            scraper::Selector::parse(&format!(r#"img[srcset*="{projected_url}"]"#)).unwrap();
+        let matched = page.select(&selector).collect::<Vec<_>>();
+
+        assert_eq!(projected_url, "/files/vase-2048.webp");
+        assert_eq!(matched.len(), 1);
+        assert!(
+            matched[0]
+                .value()
+                .attr("srcset")
+                .unwrap()
+                .contains("vase-480")
+        );
+    }
+
+    #[test]
+    fn should_keep_the_document_order_prefix_with_its_ancestors_and_name_the_rest_when_over_budget()
+    {
+        let items = (0..50)
+            .map(|item| format!(r#"<li class="item">Item number {item}</li>"#))
+            .collect::<String>();
+        let html = format!(
+            r#"<main><h1 class="product-title">Oak chair</h1><ul class="list">{items}</ul></main>"#
+        );
+        let project = || project_children(&parse_html().one(html.as_str()), &mut 0);
+
+        let whole = serialize_within_budget(project(), usize::MAX);
+        let dsl = serialize_within_budget(project(), 1_000);
+
+        assert!(!whole.contains("omitted_nodes"));
+        assert!(whole.contains("Item number 49"));
+        assert!(dsl.chars().count() <= 1_000, "{dsl}");
+        assert!(dsl.contains("Oak chair"));
+        assert!(dsl.contains("class: list"));
+        assert!(dsl.contains("Item number 0"));
+        assert!(!dsl.contains("Item number 49"));
+        let omitted = dsl
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("omitted_nodes: "))
+            .and_then(|count| count.parse::<usize>().ok())
+            .expect("the projection names what it left out");
+        let kept_items = dsl.matches("Item number").count();
+        assert_eq!(omitted, 50 - kept_items);
+    }
+
+    #[test]
+    fn should_project_an_image_heavy_page_within_the_budget_with_its_product_content() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/html/nicholaswells_available.html");
+        let html = std::fs::read_to_string(&path).expect("the fixture page is readable");
+        assert!(html.matches("srcset=").count() > 150);
+
+        let dsl = html_to_schema_prompt_dsl(&html);
+
+        assert!(dsl.chars().count() <= DSL_CHAR_BUDGET);
+        assert!(
+            dsl.contains("omitted_nodes:"),
+            "the page exceeds the budget"
+        );
+        for product_content in [
+            "Borghese Vase",
+            "€11.327,95",
+            "This distinguished Borghese Vase",
+            "borghese-vase-grand-tour.webp",
+        ] {
+            assert!(dsl.contains(product_content), "missing {product_content}");
+        }
+        let srcset_chars = dsl
+            .lines()
+            .filter(|line| {
+                let line = line.trim_start();
+                line.starts_with("srcset:") || line.starts_with("data-srcset:")
+            })
+            .map(str::len)
+            .sum::<usize>();
+        assert!(
+            srcset_chars * 10 < dsl.len(),
+            "srcset takes {srcset_chars} characters"
+        );
     }
 }

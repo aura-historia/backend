@@ -1,6 +1,6 @@
 ---
 name: crawler-soak-test
-description: "Run the local crawler dev binary against a batch of real small/medium antique shops for a timed round, collect evidence from the crawler_demo database, the JSON log and the review console, and write ranked reliability findings with code references and ticket coverage. Invoke only on request; it spends LLM budget and fetches live shops."
+description: "Run the local crawler dev binary against a batch of real small/medium antique shops for a timed round, collect evidence from the crawler database (crawler_demo or a copy), the JSON log and the review console, and write ranked reliability findings with code references and ticket coverage. Invoke only on request; it spends LLM budget and fetches live shops."
 disable-model-invocation: true
 ---
 
@@ -21,14 +21,25 @@ log filters for the platform you are on (curl, `psql` through `docker exec`, Pyt
 log and captures) in the scratchpad, never in the repo. The evidence table at the end says what
 each check must answer.
 
+The round runs the same way on Linux and Windows. Platform commands, the run against a copy
+database and parallel runs follow the
+[`crawler-dev-verify` skill](../crawler-dev-verify/SKILL.md) (its preconditions and steps 3, 4
+and 7); this skill names only what a soak round does differently. Below, `<db>` is the database
+the round uses and `<console>` the review console address, `CRAWLER_REVIEW_BIND_ADDR`
+(default `127.0.0.1:7878`).
+
 ## Preconditions
 
-- Docker Desktop running. The dev binary runs `docker compose up -d` itself; `crawler-postgres-1`
-  serves `crawler_demo` on `localhost:5432` (user/password `postgres`).
+- The [`crawler-dev-verify` preconditions](../crawler-dev-verify/SKILL.md#preconditions) hold:
+  Docker, `.env`, no `dev` from the same target directory running, and for parallel runs a copy
+  database, a review port and a working directory of the round's own.
 - `.env` provides `VERTEX_AI_PROJECT_ID` and `VERTEX_AI_LOCATION`; Application Default
   Credentials are valid (`gcloud auth application-default login`). Never print `.env` values.
-- No `dev.exe` running. While it runs, cargo cannot rebuild crawler bins; for tests in parallel use
-  `--target-dir target/scratch` from PowerShell.
+- Choose `<db>`: `crawler_demo`, the default, keeps the state earlier rounds left, which is what a
+  round normally observes. Use a copy through `LOCAL_DB_URL`
+  ([crawler-dev-verify step 3](../crawler-dev-verify/SKILL.md#procedure)) when another session
+  uses `crawler_demo` or the round must not change it; the binary then fails at once on a
+  missing database or a refused login instead of waiting for Postgres.
 - Check `CRAWLER_AUTHORING_MODE` in `.env` before the round (`auto`, `review` (default),
   `manual` or `agent`; an invalid value or any of the removed `CRAWLER_REVIEW_*`/`CRAWLER_SCHEMA_LLM_REVIEW_MODE`
   variables fails startup, #2126). Note the effective mode in the findings; do not fix it mid-round.
@@ -50,11 +61,16 @@ each check must answer.
    revert with `git checkout -- src/crawler/src/bin/dev.rs` at the end. Make sure the checkout is
    on an up-to-date `develop` first (`git fetch` and compare with `origin/develop`), so the
    findings describe current code.
-3. **Start the round.** Build with `cargo build --locked -p crawler --bin dev` and run the binary
-   from the repo root with `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS=3` (use `1` to reproduce the
+3. **Start the round.** Build and start as in
+   [crawler-dev-verify step 4](../crawler-dev-verify/SKILL.md#procedure), from the round's working
+   directory (the repo root unless rounds run in parallel), with `LOCAL_DB_URL` and
+   `CRAWLER_REVIEW_BIND_ADDR` when the round uses a copy or its own port. Keep the authoring mode
+   from `.env` instead of the one that step sets, and set
+   `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS=3` (use `1` to reproduce the
    default head-of-line stall) and `CRAWLER_LOG_LEVEL=info` (`debug` for per-URL outcomes; about
    14 KB per URL); stdout to `target/soak/<date>/round-<n>.jsonl`, stderr to a separate file. Run
-   it in a terminal tab or in the background and note the start time in UTC.
+   it in a terminal tab or in the background and note the start time in UTC and the binary's own
+   process ID.
    Do not wait for cooldowns or recrawl timers when the round needs a domain to run now: set
    `next_crawl_at = now()` (spider) or `next_scrape_at = now()` (scraper circuit) for that domain
    in `listing_source_domains`, and list every such reset in the note's local state.
@@ -115,7 +131,9 @@ each check must answer.
    approved review whose candidate is still live accepts edits (`candidate_is_live`), and
    removed-page templates change only while a review is pending. Make a change after approval
    on that review, not in the `listing_source_product_schemas` row, and say so in the note.
-5. **Stop** after 60–90 minutes, or earlier if every domain is terminal, with Ctrl+C in the tab.
+5. **Stop** after 60–90 minutes, or earlier if every domain is terminal, with SIGINT as in
+   [crawler-dev-verify step 7](../crawler-dev-verify/SKILL.md#procedure) (Ctrl+C in the tab), and
+   wait for the process to exit.
    Take a final database snapshot and log summary. The scraper pass is a barrier, so a pass that
    is still running at stop time is itself a finding.
 6. **Audit the code** for each anomaly before writing it up: find the exact file and line that
@@ -128,8 +146,9 @@ each check must answer.
    note for known items instead of restating them. Leading-dot filenames are deliberately temporary:
    the note is deleted once its findings are issues.
 8. **Clean up.** Revert `dev.rs`, stop the dev process, and list the local state left behind in the
-   note (demo sources still in `crawler_demo`, reviews you approved, the size of
-   `scraped_raw_observations.json`). Reset the database with the `db-reset` script under
+   note (`<db>`, demo sources still in it, reviews you approved, the size of
+   `scraped_raw_observations.json`). Keep a copy database while its findings are open, and drop it
+   once they are issues. Reset `crawler_demo` with the `db-reset` script under
    `src/crawler/scripts/linux/` or `src/crawler/scripts/windows/` only when the next round needs
    a clean slate.
 
@@ -137,13 +156,13 @@ each check must answer.
 
 | Source | Where | What it answers |
 |---|---|---|
-| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d crawler_demo`: `listing_source_domains` (pattern state, crawl outcome and timers, scrape failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, identity), `crawler_reviews` and `crawler_review_pages`, `listing_sources.llm_calls_count`, `listing_source_product_schemas` | spider state per domain, URL classes, scrape outcomes, retry timers, reviews, LLM budget |
+| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d <db>`: `listing_source_domains` (pattern state, crawl outcome and timers, scrape failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, identity), `crawler_reviews` and `crawler_review_pages`, `listing_sources.llm_calls_count`, `listing_source_product_schemas` | spider state per domain, URL classes, scrape outcomes, retry timers, reviews, LLM budget |
 | JSON log | `target/soak/<date>/round-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url` and `spans[*].domain` | pass totals and durations (`Scraper scheduler pass complete`, `Spider scheduler pass complete`), LLM retries/timeouts, crawl diagnostics, circuits, every `WARN` and `ERROR` kind |
-| Review console | http://127.0.0.1:7878 (`GET /api/reviews`, `GET /api/listing_sources`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair\|candidate\|schema-field`) | schema candidates, deterministic gate, blocked URLs, review decisions |
+| Review console | `http://<console>` (`GET /api/reviews`, `GET /api/listing_sources`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair\|candidate\|schema-field`) | schema candidates, deterministic gate, blocked URLs, review decisions |
 | Raw captures | `scraped_raw_observations.json` in the binary's working directory (a JSON array; `sourceRecordKey`, `sourcePayload`, `rawValues`) | what was actually extracted |
 | Live pages | curl with the crawler user agent (`CRAWLER_USER_AGENT`) | whether a selector or pattern is right |
 
-Mutations on the console need an `Origin: http://127.0.0.1:7878` header on the request.
+Mutations on the console need an `Origin: http://<console>` header on the request.
 
 ## Rules
 
