@@ -345,13 +345,13 @@ impl Drop for EmptyDirectory {
 mod tests {
     use super::*;
     use crate::review_agent_runner::ledger::tests::StateDirectory;
-    use std::os::unix::fs::PermissionsExt;
 
+    /// Writes the child's shell script. The child runs it through `/bin/sh` instead of executing
+    /// it: a sibling test that forks while this file is open for writing leaves the fork holding
+    /// the write descriptor until it execs, and executing the file meanwhile fails with ETXTBSY.
     fn script(directory: &StateDirectory, body: &str) -> PathBuf {
         let path = directory.path().join("child.sh");
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap_or_default();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-            .unwrap_or_else(|error| panic!("{error}"));
+        std::fs::write(&path, format!("{body}\n")).unwrap_or_else(|error| panic!("{error}"));
         path
     }
 
@@ -366,10 +366,15 @@ mod tests {
         })
     }
 
-    fn command(program: PathBuf) -> AgentCommand {
+    fn command(script: PathBuf) -> AgentCommand {
         AgentCommand {
-            program,
-            args: vec!["-p".to_owned(), "--tools".to_owned(), String::new()],
+            program: PathBuf::from("/bin/sh"),
+            args: vec![
+                script.display().to_string(),
+                "-p".to_owned(),
+                "--tools".to_owned(),
+                String::new(),
+            ],
             env: child_env(),
             prompt: "Work review cr_1.".to_owned(),
         }

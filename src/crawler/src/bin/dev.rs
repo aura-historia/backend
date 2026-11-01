@@ -4,7 +4,11 @@
 //! Unless `LOCAL_DB_URL` names another database, on startup it automatically runs
 //! `docker compose up -d` (using the `docker-compose.yml` inside the `crawler` crate), creates
 //! `crawler_demo` and waits for Postgres to become ready before applying migrations. It waits
-//! only while Postgres is starting: an unknown database or a refused login fails startup at once.
+//! only while Postgres is starting: an unknown database, a refused login or a host that does not
+//! resolve fails startup at once, and a server on another host fails it after 30 seconds
+//! (`docs/crawler/operations.md#local-database`). It registers a demo shop's crawler domain only
+//! while the shop has none, so domains and crawl roots changed in the review console survive a
+//! restart.
 //! No manual setup required — just:
 //!
 //! ```powershell
@@ -75,7 +79,9 @@ use crawler::review::server::ReviewServerConfig;
 use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
-use crawler::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
+use crawler::service::crawler_domain_configuration::{
+    CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
+};
 use crawler::service::cron::CrawlerCronConfig;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
@@ -214,13 +220,12 @@ async fn main() {
             "freshfords.com",
             "antiquefurnituredirect.co.uk",
         ]) {
-            if let Err(error) = domain_configuration
-                .register(
-                    listing_source.listing_source_id,
-                    listing_source_core::Domain::try_from(domain)
-                        .unwrap_or_else(|error| panic!("invalid demo crawler domain: {error}")),
-                )
-                .await
+            if let Err(error) = seed_demo_crawler_domain(
+                domain_configuration.as_ref(),
+                listing_source.listing_source_id,
+                domain,
+            )
+            .await
             {
                 error!(error = ?error, domain, "Failed to configure demo crawler domain");
                 return;
@@ -268,6 +273,29 @@ async fn main() {
     .await;
 }
 
+/// Registers a demo shop's crawler domain unless the shop already has one. Registering a domain
+/// again applies its crawl root, so seeding every start would undo a crawl root or domain an
+/// operator set in the review console.
+async fn seed_demo_crawler_domain(
+    domain_configuration: &dyn CrawlerDomainConfigurationRepository,
+    listing_source_id: ListingSourceId,
+    domain: &str,
+) -> Result<(), CrawlerDomainConfigurationError> {
+    if !domain_configuration
+        .list_for_source(listing_source_id)
+        .await?
+        .is_empty()
+    {
+        return Ok(());
+    }
+    let domain = listing_source_core::Domain::try_from(domain)
+        .unwrap_or_else(|error| panic!("invalid demo crawler domain: {error}"));
+    domain_configuration
+        .register(listing_source_id, domain)
+        .await
+        .map(drop)
+}
+
 // ---------------------------------------------------------------------------
 // Database helpers
 // ---------------------------------------------------------------------------
@@ -279,7 +307,8 @@ async fn connect_with_retry(
     config: &CrawlerCronConfig,
     db_url: &str,
 ) -> Result<sqlx::PgPool, PostgresConnectError> {
-    let (pool, attempt) = connect_retry::connect_with_retry(|| config.connect_pool(db_url)).await?;
+    let (pool, attempt) =
+        connect_retry::connect_with_retry(db_url, || config.connect_pool(db_url)).await?;
     info!(
         attempt,
         max_connections = config.effective_db_max_connections(),

@@ -160,7 +160,7 @@ pub fn start_local_postgres() -> Result<(), String> {
 
 async fn connect_admin_pool_with_retry() -> Result<PgPool, String> {
     let admin_url = database_url(LOCAL_POSTGRES_ADMIN_DB);
-    let (pool, _) = connect_with_retry(|| {
+    let (pool, _) = connect_with_retry(&admin_url, || {
         PgPoolOptions::new()
             .max_connections(2)
             .acquire_timeout(Duration::from_secs(5))

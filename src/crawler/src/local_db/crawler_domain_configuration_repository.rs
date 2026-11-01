@@ -51,17 +51,11 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
         .map_err(database_error)?;
 
         rows.into_iter()
-            .map(|(domain_id, raw_domain)| {
-                let domain_id = persisted_domain_id(domain_id)?;
-                let domain = Domain::try_from(raw_domain).map_err(|source| {
-                    CrawlerDomainConfigurationError::Database {
-                        source: box_error(source),
-                    }
-                })?;
+            .map(|(domain_id, crawl_root_host)| {
                 Ok(CrawlerDomainConfiguration {
-                    domain_id,
+                    domain_id: persisted_domain_id(domain_id)?,
                     listing_source_id,
-                    domain,
+                    domain: persisted_domain(crawl_root_host)?,
                     created: false,
                 })
             })
@@ -117,8 +111,8 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
             });
         }
 
-        let existing_owner = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT listing_source_id FROM listing_source_domains \
+        let existing = sqlx::query_as::<_, (uuid::Uuid, uuid::Uuid, String)>(
+            "SELECT listing_source_id, domain_id, crawl_root_host FROM listing_source_domains \
              WHERE regexp_replace(lower(rtrim(listing_source_domain, '.')), '^www[.]', '') = $1 \
              FOR UPDATE",
         )
@@ -127,24 +121,15 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
         .await
         .map_err(database_error)?;
         let requested_domain_id = CrawlerDomainId::new();
-        let (domain_id, registered_root_host, created) = match existing_owner {
-            Some(owner) if owner == listing_source_id_uuid => {
-                let (domain_id, root_host) = sqlx::query_as::<_, (uuid::Uuid, String)>(
-                    "SELECT domain_id, crawl_root_host FROM listing_source_domains \
-                     WHERE regexp_replace(lower(rtrim(listing_source_domain, '.')), '^www[.]', '') = $1",
-                )
-                .bind(canonical_domain.as_str())
-                .fetch_one(&mut *transaction)
-                .await
-                .map_err(database_error)?;
-                let root_host = Domain::try_from(root_host).map_err(|source| {
-                    CrawlerDomainConfigurationError::Database {
-                        source: box_error(source),
-                    }
-                })?;
-                (persisted_domain_id(domain_id)?, root_host, false)
+        let (domain_id, registered_root_host, created) = match existing {
+            Some((owner, domain_id, root_host)) if owner == listing_source_id_uuid => {
+                let domain_id = persisted_domain_id(domain_id)?;
+                if persisted_domain(root_host)? != crawl_root_host {
+                    replace_crawl_root(&mut transaction, domain_id, &crawl_root_host).await?;
+                }
+                (domain_id, crawl_root_host, false)
             }
-            Some(owner) => {
+            Some((owner, _, _)) => {
                 return Err(
                     CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource {
                         domain,
@@ -246,6 +231,35 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
     }
 }
 
+/// Moves an already registered domain to the crawl root it is registered with again, for example
+/// from `example.com` to `www.example.com`. The crawl state recorded for the old root, including a
+/// `NEEDS_OPERATOR` stop, no longer describes the domain, so the next spider cycle crawls the new
+/// root as if the domain were new. The URL pattern, the crawled URLs and the scrape state belong to
+/// the site and stay.
+async fn replace_crawl_root(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    domain_id: CrawlerDomainId,
+    crawl_root_host: &Domain,
+) -> Result<(), CrawlerDomainConfigurationError> {
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET crawl_root_host = $2, \
+             last_crawled = NULL, \
+             next_crawl_at = NULL, \
+             crawl_failure_count = 0, \
+             last_crawl_error_kind = NULL, \
+             last_crawl_outcome = NULL, \
+             crawl_truncation_count = 0 \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .bind(crawl_root_host.as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(database_error)?;
+    Ok(())
+}
+
 fn persisted_listing_source_id(
     value: uuid::Uuid,
 ) -> Result<ListingSourceId, CrawlerDomainConfigurationError> {
@@ -258,6 +272,12 @@ fn persisted_domain_id(
     value: uuid::Uuid,
 ) -> Result<CrawlerDomainId, CrawlerDomainConfigurationError> {
     CrawlerDomainId::try_from(value).map_err(|source| CrawlerDomainConfigurationError::Database {
+        source: box_error(source),
+    })
+}
+
+fn persisted_domain(value: String) -> Result<Domain, CrawlerDomainConfigurationError> {
+    Domain::try_from(value).map_err(|source| CrawlerDomainConfigurationError::Database {
         source: box_error(source),
     })
 }
