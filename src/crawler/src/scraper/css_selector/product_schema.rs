@@ -246,18 +246,19 @@ impl ProductCssSelectorSchema {
         html: &Html,
         logging: ExtractionLogging,
     ) -> Result<SchemaExtraction, ApplySchemaError> {
+        let mut misses = OptionalMisses::new(logging);
         let source_listing_id = match &self.source_listing_id {
             None => String::new(),
-            Some(rule) => tolerate_optional_miss(
-                "source_listing_id",
-                rule.apply_as_identity(html),
-                OptionalMissLog::Debug,
-                logging,
-            )
-            .map_err(ApplySchemaError::SourceListingId)?
-            .into_iter()
-            .next()
-            .unwrap_or_default(),
+            Some(rule) => misses
+                .tolerate(
+                    "source_listing_id",
+                    rule.apply_as_identity(html),
+                    OptionalMissLog::Debug,
+                )
+                .map_err(ApplySchemaError::SourceListingId)?
+                .into_iter()
+                .next()
+                .unwrap_or_default(),
         };
 
         let title = required_value(self.title.apply(html)).map_err(ApplySchemaError::Title)?;
@@ -265,13 +266,9 @@ impl ProductCssSelectorSchema {
         let description = match &self.description {
             None => vec![],
             Some(rule) => keep_first_occurrences(
-                tolerate_optional_miss(
-                    "description",
-                    rule.apply(html),
-                    OptionalMissLog::Warn,
-                    logging,
-                )
-                .map_err(ApplySchemaError::Description)?,
+                misses
+                    .tolerate("description", rule.apply(html), OptionalMissLog::Warn)
+                    .map_err(ApplySchemaError::Description)?,
             ),
         };
 
@@ -279,38 +276,37 @@ impl ProductCssSelectorSchema {
         // checks and the raw-values patch see "no price on this page".
         let price = match &self.price {
             None => None,
-            Some(rule) => {
-                tolerate_optional_miss("price", rule.apply(html), OptionalMissLog::Warn, logging)
-                    .map_err(ApplySchemaError::Price)?
-                    .into_iter()
-                    .next()
-            }
+            Some(rule) => misses
+                .tolerate("price", rule.apply(html), OptionalMissLog::Warn)
+                .map_err(ApplySchemaError::Price)?
+                .into_iter()
+                .next(),
         };
 
         let price_estimate_min = match &self.price_estimate_min {
             None => None,
-            Some(rule) => tolerate_optional_miss(
-                "price_estimate_min",
-                rule.apply(html),
-                OptionalMissLog::Debug,
-                logging,
-            )
-            .map_err(ApplySchemaError::PriceEstimateMin)?
-            .into_iter()
-            .next(),
+            Some(rule) => misses
+                .tolerate(
+                    "price_estimate_min",
+                    rule.apply(html),
+                    OptionalMissLog::Debug,
+                )
+                .map_err(ApplySchemaError::PriceEstimateMin)?
+                .into_iter()
+                .next(),
         };
 
         let price_estimate_max = match &self.price_estimate_max {
             None => None,
-            Some(rule) => tolerate_optional_miss(
-                "price_estimate_max",
-                rule.apply(html),
-                OptionalMissLog::Debug,
-                logging,
-            )
-            .map_err(ApplySchemaError::PriceEstimateMax)?
-            .into_iter()
-            .next(),
+            Some(rule) => misses
+                .tolerate(
+                    "price_estimate_max",
+                    rule.apply(html),
+                    OptionalMissLog::Debug,
+                )
+                .map_err(ApplySchemaError::PriceEstimateMax)?
+                .into_iter()
+                .next(),
         };
 
         let state = required_value(self.state.apply(html)).map_err(ApplySchemaError::State)?;
@@ -322,7 +318,8 @@ impl ProductCssSelectorSchema {
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
             let values = keep_first_occurrences(
-                tolerate_optional_miss(field, rule.apply(html), OptionalMissLog::Trace, logging)
+                misses
+                    .tolerate(field, rule.apply(html), OptionalMissLog::Trace)
                     .map_err(|source| ApplySchemaError::RawAttribute {
                         field: field.clone(),
                         source,
@@ -349,6 +346,7 @@ impl ProductCssSelectorSchema {
                 raw_attributes,
             },
             skipped_image_elements: images.skipped_elements,
+            unlogged_misses: misses.unlogged,
         })
     }
 }
@@ -386,12 +384,13 @@ fn keep_first_occurrences(values: Vec<String>) -> Vec<String> {
 /// Whether an extraction logs its diagnostics, the optional-field misses it tolerates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExtractionLogging {
-    /// Logs each miss at its field's [`OptionalMissLog`] level, as scraping and the
-    /// schema review matrix do.
+    /// Logs each miss at its field's [`OptionalMissLog`] level, as schema authoring and
+    /// the schema review matrix do.
     Log,
-    /// Logs nothing, for the page hash, which extracts a page only to compare it with
-    /// the last scrape: an unchanged page would otherwise log its misses on every
-    /// scrape, and a changed page twice.
+    /// Logs nothing and keeps the misses on the extraction instead, for a scrape, which
+    /// extracts a page before it knows whether the page changed: an unchanged page would
+    /// otherwise log its misses on every scrape. A changed page logs them once it is
+    /// selected from ([`SchemaExtraction::log_unlogged_misses`]).
     Silent,
 }
 
@@ -401,58 +400,92 @@ pub(crate) enum ExtractionLogging {
 /// shows up in the log: description and price misses are warnings so they stay
 /// visible at the production log level, identity and estimate misses are debug
 /// diagnostics, and raw attributes (absent on most pages by design) stay at trace.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum OptionalMissLog {
     Warn,
     Debug,
     Trace,
 }
 
-/// Turns a miss of an optional field's rule, no matched element or only empty ones, into
-/// an empty result.
-///
-/// Unless `logging` is silent, the miss is still recorded as a per-field diagnostic so
-/// the scrape log explains why the field is empty, and which of the two misses it was;
-/// the page itself keeps extracting.
-fn tolerate_optional_miss(
-    field: &str,
-    extraction: Result<Vec<String>, ExtractionError>,
-    miss_log: OptionalMissLog,
-    logging: ExtractionLogging,
-) -> Result<Vec<String>, ExtractionError> {
-    match extraction {
-        Ok(values) => Ok(values),
-        Err(
-            miss @ (ExtractionError::NoElementMatched { .. } | ExtractionError::EmptyValue { .. }),
-        ) => {
-            if logging == ExtractionLogging::Log {
-                log_optional_miss(field, &miss, miss_log);
-            }
-            Ok(Vec::new())
+/// A miss of an optional field's rule that an extraction tolerated.
+#[derive(Debug)]
+pub(crate) struct OptionalMiss {
+    field: String,
+    miss: ExtractionError,
+    level: OptionalMissLog,
+}
+
+impl OptionalMiss {
+    fn log(&self) {
+        let field = self.field.as_str();
+        let miss = &self.miss;
+        // The message must be a literal in each arm: a `const` in message position
+        // becomes a field named after the constant and leaves `message` empty.
+        match self.level {
+            OptionalMissLog::Warn => tracing::warn!(
+                field,
+                miss = %miss,
+                "Optional schema rule yielded no value; leaving the field empty"
+            ),
+            OptionalMissLog::Debug => tracing::debug!(
+                field,
+                miss = %miss,
+                "Optional schema rule yielded no value; leaving the field empty"
+            ),
+            OptionalMissLog::Trace => tracing::trace!(
+                field,
+                miss = %miss,
+                "Optional schema rule yielded no value; leaving the field empty"
+            ),
         }
-        Err(err) => Err(err),
     }
 }
 
-fn log_optional_miss(field: &str, miss: &ExtractionError, miss_log: OptionalMissLog) {
-    // The message must be a literal in each arm: a `const` in message position
-    // becomes a field named after the constant and leaves `message` empty.
-    match miss_log {
-        OptionalMissLog::Warn => tracing::warn!(
-            field,
-            miss = %miss,
-            "Optional schema rule yielded no value; leaving the field empty"
-        ),
-        OptionalMissLog::Debug => tracing::debug!(
-            field,
-            miss = %miss,
-            "Optional schema rule yielded no value; leaving the field empty"
-        ),
-        OptionalMissLog::Trace => tracing::trace!(
-            field,
-            miss = %miss,
-            "Optional schema rule yielded no value; leaving the field empty"
-        ),
+/// The optional-field misses of one extraction, logged as they happen or kept for later
+/// as its [`ExtractionLogging`] says.
+struct OptionalMisses {
+    logging: ExtractionLogging,
+    unlogged: Vec<OptionalMiss>,
+}
+
+impl OptionalMisses {
+    fn new(logging: ExtractionLogging) -> Self {
+        Self {
+            logging,
+            unlogged: Vec::new(),
+        }
+    }
+
+    /// Turns a miss of an optional field's rule, no matched element or only empty ones,
+    /// into an empty result.
+    ///
+    /// The miss is still a per-field diagnostic so the scrape log explains why the field
+    /// is empty, and which of the two misses it was; the page itself keeps extracting.
+    fn tolerate(
+        &mut self,
+        field: &str,
+        extraction: Result<Vec<String>, ExtractionError>,
+        level: OptionalMissLog,
+    ) -> Result<Vec<String>, ExtractionError> {
+        match extraction {
+            Ok(values) => Ok(values),
+            Err(
+                miss @ (ExtractionError::NoElementMatched { .. }
+                | ExtractionError::EmptyValue { .. }),
+            ) => {
+                let miss = OptionalMiss {
+                    field: field.to_owned(),
+                    miss,
+                    level,
+                };
+                match self.logging {
+                    ExtractionLogging::Log => miss.log(),
+                    ExtractionLogging::Silent => self.unlogged.push(miss),
+                }
+                Ok(Vec::new())
+            }
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -518,6 +551,18 @@ pub(crate) struct SchemaExtraction {
     /// Matched `images` elements without a value (see
     /// [`RuleExtraction::skipped_elements`]).
     pub(crate) skipped_image_elements: usize,
+    /// The optional-field misses a [silent](ExtractionLogging::Silent) extraction kept
+    /// instead of logging them; empty for a logged one.
+    pub(crate) unlogged_misses: Vec<OptionalMiss>,
+}
+
+impl SchemaExtraction {
+    /// Logs the optional-field misses a silent extraction kept.
+    pub(crate) fn log_unlogged_misses(&self) {
+        for miss in &self.unlogged_misses {
+            miss.log();
+        }
+    }
 }
 
 #[cfg(test)]
