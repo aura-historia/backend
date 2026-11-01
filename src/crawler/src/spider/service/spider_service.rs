@@ -898,6 +898,7 @@ fn log_crawl_outcome(
         lagged = diagnostics.lagged,
         initial_anti_bot = ?diagnostics.initial_anti_bot,
         status_counts = ?diagnostics.status_counts,
+        bot_challenge_pages = diagnostics.bot_challenge_pages,
         rate_limit = ?diagnostics.rate_limit,
         pending_url_pattern_review = ?state.pending_url_pattern_review().map(|id| id.to_string()),
         stopped_early = ?diagnostics.stopped_early.map(CrawlStopReason::as_str),
