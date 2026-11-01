@@ -10,8 +10,9 @@ use std::sync::Mutex;
 use url::Url;
 
 /// The smallest image capture keeps, about 200×150 in either orientation: small archive photos
-/// such as a 228×200 product shot pass, while icons, badges, logo strips and the 150×150 and
-/// 100×100 thumbnails shops resize to stay below it.
+/// such as a 228×200 product shot pass, while icons, badges, logo strips and 150×150 or smaller
+/// thumbnails stay below it. Larger shop resizes, such as a 300×300 catalogue thumbnail, pass, so
+/// the first candidate of a group that clears the floor is kept even when a later one is larger.
 const MIN_LONGEST_SIDE: usize = 200;
 const MIN_SHORTEST_SIDE: usize = 150;
 const IMAGE_PROBE_BYTES: &str = "bytes=0-32767";

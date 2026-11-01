@@ -332,9 +332,16 @@ fn path_has_image_context(href: &str) -> bool {
 fn projected_attr_value(name: &str, value: &str) -> String {
     match name {
         "srcset" | "data-srcset" => condensed_srcset(value),
-        _ if is_data_uri(value) => data_uri_marker(value),
-        _ => truncate_chars(value, projected_attr_limit(name)),
+        _ => truncate_chars(&with_data_uris_marked(value), projected_attr_limit(name)),
     }
+}
+
+/// `value` with every `data:` URI in it replaced by its [`data_uri_marker`]: the whole value, or
+/// one inside it such as an entry of a gallery's JSON list. A URI's payload runs to the next
+/// double quote, which ends a JSON string, or to the end of the value.
+fn with_data_uris_marked(value: &str) -> std::borrow::Cow<'_, str> {
+    regex::regex!(r#"(?i)\bdata:[^,"\s]*,[^"]*"#)
+        .replace_all(value, |uri: &regex::Captures<'_>| data_uri_marker(&uri[0]))
 }
 
 /// A `srcset` of several candidates as its widest candidate by the `w` descriptor, the last of
@@ -724,6 +731,10 @@ mod tests {
     #[case::base64_lazy_source(
         r#"<img class="product-image" data-lazy-src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" src="/files/vase.jpg">"#,
         "data-lazy-src: data:image/gif;base64,…"
+    )]
+    #[case::entry_of_a_json_gallery_list(
+        r#"<div class="product-gallery" data-images='["data:image/svg+xml,%3Csvg%20viewBox=%270%200%208%206%27%3E%3C/svg%3E","/files/vase.jpg"]'></div>"#,
+        r#"data-images: '["data:image/svg+xml,…","/files/vase.jpg"]'"#
     )]
     fn should_shorten_a_data_uri_attribute_to_its_marker(#[case] img: &str, #[case] marker: &str) {
         let dsl = html_to_schema_prompt_dsl(&format!("<main>{img}</main>"));
