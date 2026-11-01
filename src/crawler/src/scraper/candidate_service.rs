@@ -13,6 +13,7 @@ use time::OffsetDateTime;
 use url::Url;
 
 use crate::network::policy::DomainFailureKind;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE;
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -270,6 +271,7 @@ pub trait ScraperCandidateService: Send + Sync {
         url: &Url,
         raw_input_sha256: &[u8],
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
+        removed_by_templates: &[RemovedPageSchema],
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Touch a page/schema fast-path scrape without changing the raw input or disposition.
     async fn touch_scraped(
@@ -913,6 +915,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_captured_raw_input_sha256 = $5,
                  last_source_listing_id = $6,
                  last_captured_title = $9,
+                 removed_by_templates = NULL,
                  crawler_disposition = $7,
                  failure_count = 0,
                  last_error_kind = NULL,
@@ -1030,6 +1033,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET url = $3,
                  last_source_listing_id = $4,
                  last_captured_title = $10,
+                 removed_by_templates = NULL,
                  last_scraped = NOW(),
                  last_scraped_hash = $5,
                  last_scraped_schema_fingerprint = $6,
@@ -1077,6 +1081,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = NULL,
                  last_captured_title = NULL,
+                 removed_by_templates = NULL,
                  updated = NOW()
              WHERE listing_source_id = $1
                AND url = $2
@@ -1103,8 +1108,13 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         url: &Url,
         raw_input_sha256: &[u8],
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
+        removed_by_templates: &[RemovedPageSchema],
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
+        let removed_by_templates = (!removed_by_templates.is_empty())
+            .then(|| serde_json::to_value(removed_by_templates))
+            .transpose()
+            .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
         let result = sqlx::query(
             "UPDATE listing_source_urls
              SET last_scraped = NOW(),
@@ -1112,6 +1122,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = $3,
                  last_captured_title = NULL,
+                 removed_by_templates = $5,
                  crawler_disposition = 'ACTIVE',
                  failure_count = 0,
                  last_error_kind = NULL,
@@ -1129,6 +1140,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(url.to_string())
         .bind(raw_input_sha256)
         .bind(expected_last_captured_raw_input_sha256)
+        .bind(removed_by_templates)
         .execute(&self.pool)
         .await?;
 

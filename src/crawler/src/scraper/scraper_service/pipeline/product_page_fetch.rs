@@ -43,6 +43,7 @@ impl ScraperServiceImpl {
                         details: format!(
                             "product URL redirected to a non-product page robots.txt disallows: original={url}, final={final_url}"
                         ),
+                        removed_by_templates: Vec::new(),
                     });
                 }
                 record_transport_failure(
@@ -84,6 +85,7 @@ impl ScraperServiceImpl {
                 Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
                     details,
+                    removed_by_templates: Vec::new(),
                 })
             }
             Err(FetchError::Network { kind, details }) => {

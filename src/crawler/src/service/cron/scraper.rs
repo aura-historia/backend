@@ -12,6 +12,7 @@ use crate::scraper::candidate_service::{
     ScraperCandidateService, next_domain_failure_streak,
 };
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::domain_circuit::{DomainBatchEvidence, DomainCircuitDecision};
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::scraper_service::domain::product::{
@@ -96,6 +97,7 @@ enum RawCaptureSuccessAction {
         url: url::Url,
         raw_input_sha256: Vec<u8>,
         expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+        removed_by_templates: Vec<RemovedPageSchema>,
     },
 }
 
@@ -361,6 +363,7 @@ async fn flush_batch(
                     url,
                     raw_input_sha256,
                     expected_last_captured_raw_input_sha256,
+                    removed_by_templates,
                 },
                 _,
             ) => match scraper_candidates
@@ -369,6 +372,7 @@ async fn flush_batch(
                     &url,
                     &raw_input_sha256,
                     expected_last_captured_raw_input_sha256.as_deref(),
+                    &removed_by_templates,
                 )
                 .await
             {
@@ -509,12 +513,14 @@ async fn enqueue_raw_capture(
 async fn handle_verified_removal(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
+    removed_by_templates: Vec<RemovedPageSchema>,
 ) -> ScrapeCandidateOutcome {
     let Some((input, raw_input_sha256)) = verified_removal_input(candidate) else {
         return errored_outcome();
     };
     if candidate.last_captured_raw_input_sha256.as_deref() == Some(raw_input_sha256.as_slice()) {
-        return refresh_repeated_removal(candidate, ctx, &raw_input_sha256).await;
+        return refresh_repeated_removal(candidate, ctx, &raw_input_sha256, &removed_by_templates)
+            .await;
     }
     let provenance = match crawler_provenance(None, None) {
         Ok(provenance) => provenance,
@@ -552,6 +558,7 @@ async fn handle_verified_removal(
             input,
             provenance,
             raw_input_sha256,
+            removed_by_templates,
         )),
         ..Default::default()
     }
@@ -561,6 +568,7 @@ async fn refresh_repeated_removal(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
     raw_input_sha256: &[u8],
+    removed_by_templates: &[RemovedPageSchema],
 ) -> ScrapeCandidateOutcome {
     match ctx
         .scraper_candidates
@@ -569,6 +577,7 @@ async fn refresh_repeated_removal(
             &candidate.url,
             raw_input_sha256,
             Some(raw_input_sha256),
+            removed_by_templates,
         )
         .await
     {
@@ -618,6 +627,7 @@ fn removal_capture_request(
     input: ProductListingNormalizationInput,
     provenance: RawProductListingProvenance,
     raw_input_sha256: Vec<u8>,
+    removed_by_templates: Vec<RemovedPageSchema>,
 ) -> RawCaptureRequest {
     RawCaptureRequest {
         item: ProductListingRawCaptureItem::crawler(
@@ -631,6 +641,7 @@ fn removal_capture_request(
             url: candidate.url.clone(),
             raw_input_sha256,
             expected_last_captured_raw_input_sha256: None,
+            removed_by_templates,
         },
         on_failure: RawCaptureFailureAction::MarkScraperFailure {
             listing_source_id: candidate.listing_source_id,
@@ -674,9 +685,10 @@ async fn scrape_candidate_in_batch(
     let mut outcome = match scrape_outcome.result {
         Ok(Some(scraped)) => handle_successful_scrape(&candidate, ctx, scraped).await,
         Ok(None) => skipped_outcome(),
-        Err(ScraperError::ProductListingRemoved { .. }) => {
-            handle_verified_removal(&candidate, ctx).await
-        }
+        Err(ScraperError::ProductListingRemoved {
+            removed_by_templates,
+            ..
+        }) => handle_verified_removal(&candidate, ctx, removed_by_templates).await,
         Err(error) => {
             handle_scrape_error(
                 &candidate,
@@ -3118,7 +3130,7 @@ mod tests {
             .once()
             .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(forgetting, MockScraperService::new());
-        let outcome = handle_verified_removal(&candidate, &ctx).await;
+        let outcome = handle_verified_removal(&candidate, &ctx, Vec::new()).await;
         let request = outcome.capture.expect("removal must be queued for capture");
 
         let mut raw_capture = MockProductListingRawCaptureService::new();
@@ -3140,14 +3152,14 @@ mod tests {
             .expect_mark_removed()
             .once()
             .withf(
-                move |source_id, candidate_url, raw_input_sha256, expected_raw_input_sha256| {
+                move |source_id, candidate_url, raw_input_sha256, expected_raw_input_sha256, _| {
                     *source_id == listing_source_id
                         && candidate_url.as_str() == "https://example.com/product/removed"
                         && raw_input_sha256.len() == 32
                         && expected_raw_input_sha256.is_none()
                 },
             )
-            .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
@@ -3287,7 +3299,7 @@ mod tests {
             .withf(|_, _, expected| *expected == Some(&[5_u8; 32][..]))
             .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(forgetting, MockScraperService::new());
-        let outcome = handle_verified_removal(&candidate, &ctx).await;
+        let outcome = handle_verified_removal(&candidate, &ctx, Vec::new()).await;
         let request = outcome.capture.expect("removal must be queued for capture");
 
         let mut raw_capture = MockProductListingRawCaptureService::new();
@@ -3346,6 +3358,7 @@ mod tests {
                     scrape_outcome(Err(ScraperError::ProductListingRemoved {
                         url: url::Url::parse(URL).unwrap(),
                         details: "HTTP 404".to_owned(),
+                        removed_by_templates: Vec::new(),
                     }))
                 })
             });
@@ -3423,13 +3436,13 @@ mod tests {
             scraper_candidates
                 .expect_mark_removed()
                 .once()
-                .withf(move |source_id, url, raw_input_sha256, expected| {
+                .withf(move |source_id, url, raw_input_sha256, expected, _| {
                     *source_id == listing_source_id
                         && url.as_str() == URL
                         && raw_input_sha256 == removal_sha256().as_slice()
                         && *expected == Some(removal_sha256().as_slice())
                 })
-                .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
             let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
 
             let outcome = scrape_candidate(candidate, &ctx).await;
@@ -3458,7 +3471,7 @@ mod tests {
                 scraper_candidates
                     .expect_mark_removed()
                     .once()
-                    .return_once(move |_, _, _, _| Box::pin(async move { write }));
+                    .return_once(move |_, _, _, _, _| Box::pin(async move { write }));
                 let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
 
                 let outcome = scrape_candidate(candidate, &ctx).await;
@@ -3564,7 +3577,7 @@ mod tests {
             failing_candidates
                 .expect_mark_removed()
                 .once()
-                .returning(|_, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
+                .returning(|_, _, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
             let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
             let failing_candidates: Arc<dyn ScraperCandidateService> = Arc::new(failing_candidates);
             flush_batch(

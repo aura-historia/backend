@@ -6,6 +6,7 @@
 //! no agent verdict is taken on a review that waits for a human, so no caller decides for an agent
 //! without them.
 
+use super::rearm::rearm_pages_for_new_configuration;
 use super::rejected_pages::RejectedPages;
 use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_events::{
@@ -135,17 +136,24 @@ impl CrawlerReviewRepository {
                     &pages,
                     approval.incomplete_coverage,
                 )?;
+                let configuration = make_product_schemas_live(
+                    &mut transaction,
+                    review_id,
+                    &review.listing_source_id,
+                    going_live,
+                )
+                .await?;
+                rearm_pages_for_new_configuration(
+                    &mut transaction,
+                    &review.listing_source_id,
+                    &configuration.approved_removed_page_schemas,
+                )
+                .await?;
                 ReviewMutation::ProductSchemasApproved {
                     notes: approval.notes,
                     coverage,
                     live_evaluation: matrix.and_then(|matrix| matrix.live_evaluation),
-                    configuration: make_product_schemas_live(
-                        &mut transaction,
-                        review_id,
-                        &review.listing_source_id,
-                        going_live,
-                    )
-                    .await?,
+                    configuration,
                 }
             }
             other => {

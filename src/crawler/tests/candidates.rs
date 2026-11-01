@@ -1558,7 +1558,7 @@ async fn scraper_mark_removed_should_reactivate_sold_url_after_durable_capture()
     let removal_hash = vec![7; 32];
     assert_eq!(
         service
-            .mark_removed(&listing_source_id, &url, &removal_hash, None)
+            .mark_removed(&listing_source_id, &url, &removal_hash, None, &[])
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1619,7 +1619,13 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
 
     assert_eq!(
         service
-            .mark_removed(&listing_source_id, &url, &[9; 32], Some(&product_capture))
+            .mark_removed(
+                &listing_source_id,
+                &url,
+                &[9; 32],
+                Some(&product_capture),
+                &[]
+            )
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1638,6 +1644,68 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
     .await
     .unwrap();
     assert_eq!(row, (None, None, None));
+}
+
+/// A template removal records the templates that captured it, and the next product capture of
+/// the page forgets them, so only a page a template still holds removed is re-armed when it is
+/// retired.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_mark_removed_should_record_the_templates_until_a_product_capture() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "scraper-removed-by-templates.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://scraper-removed-by-templates.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    let template = crawler::scraper::css_selector::removed_page_schema::RemovedPageSchema {
+        selector: "p.notice".into(),
+        text: Some("no longer available".to_owned()),
+        regex: None,
+    };
+    let removal = [7; 32];
+    service
+        .mark_removed(
+            &listing_source_id,
+            &url,
+            &removal,
+            None,
+            &[template.clone()],
+        )
+        .await
+        .unwrap();
+    let recorded = || async {
+        sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT removed_by_templates FROM listing_source_urls WHERE url = $1",
+        )
+        .bind(url.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    assert_eq!(recorded().await, Some(serde_json::json!([template])));
+
+    service
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            url.clone(),
+            (
+                "p".repeat(64),
+                "schema-fingerprint",
+                raw_input_hash(),
+                "SKU-123",
+                CrawlerDisposition::Active,
+                Some(removal.to_vec()),
+            ),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(recorded().await, None);
 }
 
 /// The title a product capture recorded reaches the next scrape of the URL, which carries it

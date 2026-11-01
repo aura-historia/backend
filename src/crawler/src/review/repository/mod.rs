@@ -30,6 +30,7 @@ use url::Url;
 
 mod live_matrix;
 mod pending_reviews;
+mod rearm;
 mod rejected_pages;
 mod repair_rounds;
 mod restore;

@@ -2,6 +2,7 @@ use crate::CrawlerReviewId;
 use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::plausibility::PlausibilityFindings;
 use listing_source_core::ListingSourceId;
 use product_listing_normalization::{NormalizationError, NormalizationInputError};
@@ -40,7 +41,13 @@ pub enum ScraperError {
     HttpErrorWithMetadata(Box<HttpErrorMetadata>),
 
     #[error("ProductListing URL removed while fetching '{url}': {details}")]
-    ProductListingRemoved { url: Url, details: String },
+    ProductListingRemoved {
+        url: Url,
+        details: String,
+        /// The stored removed-page templates whose match withdrew the page; empty for a removal
+        /// the shop's response showed. A template retired or narrowed later re-arms the page.
+        removed_by_templates: Vec<RemovedPageSchema>,
+    },
 
     #[error("URL is not a product page while scraping '{url}': {details}")]
     NotProductPage { url: Url, details: String },

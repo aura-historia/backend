@@ -109,7 +109,18 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
+    // The removal names the templates whose match captured it, so retiring one re-arms it.
+    let ScraperError::ProductListingRemoved {
+        removed_by_templates,
+        ..
+    } = err
+    else {
+        panic!("expected a removal, got {err:?}");
+    };
+    assert_eq!(
+        removed_by_templates,
+        removed_schema_set(id).removed_page_schemas
+    );
 }
 
 #[tokio::test]

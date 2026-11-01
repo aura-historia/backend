@@ -863,6 +863,114 @@ async fn should_release_pages_backed_off_on_a_schema_review_for_immediate_retry_
     assert_closing_the_review_releases_its_backed_off_page(ClosingVerdict::Reject).await;
 }
 
+/// Approving a product-schema review re-arms, for an immediate scrape, the ListingSource's pages
+/// that recorded `MissingRequiredValue` and the pages a removed-page template the approval
+/// retires or narrows captured as removed. A rejection changes no configuration and re-arms
+/// nothing; a removal the shop's response showed and one by a kept template stay as they are.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_approved() {
+    let pool = get_postgres_client().await;
+    let fixture = WaitingPageFixture::new(&pool).await;
+    fixture
+        .review_repository
+        .reject_review(fixture.review_id, ReviewActor::Human, Some("superseded"))
+        .await
+        .unwrap();
+    let narrowed = notice_schema("no longer available");
+    let kept = notice_schema("sold out");
+    store_removed_page_templates(
+        &pool,
+        fixture.listing_source_id,
+        vec![narrowed.clone(), kept.clone()],
+    )
+    .await;
+    let removed_by_narrowed = fixture.url.clone();
+    let removed_by_kept = fixture
+        .add_product_url(&pool, "https://example.com/products/kept-removal")
+        .await;
+    let removed_by_response = fixture
+        .add_product_url(&pool, "https://example.com/products/gone")
+        .await;
+    let missing_value = fixture
+        .add_product_url(&pool, "https://example.com/products/untitled")
+        .await;
+    let candidates = &fixture.candidates;
+    for (url, templates, hash) in [
+        (&removed_by_narrowed, vec![narrowed], [1; 32]),
+        (&removed_by_kept, vec![kept], [2; 32]),
+        (&removed_by_response, vec![], [3; 32]),
+    ] {
+        candidates
+            .mark_removed(&fixture.listing_source_id, url, &hash, None, &templates)
+            .await
+            .unwrap();
+    }
+    candidates
+        .mark_scraped_without_capture(
+            &fixture.listing_source_id,
+            &missing_value,
+            "MissingRequiredValue",
+            "`title` is blank",
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(fixture.candidate_urls().await.is_empty());
+
+    let rejected = open_schema_review(&fixture).await;
+    fixture
+        .review_repository
+        .reject_review(rejected, ReviewActor::Human, Some("not now"))
+        .await
+        .unwrap();
+    assert!(
+        fixture.candidate_urls().await.is_empty(),
+        "a rejection changes no configuration and re-arms nothing"
+    );
+
+    let approved = open_schema_review(&fixture).await;
+    fixture
+        .review_repository
+        .update_candidate_payload(
+            approved,
+            ReviewActor::Human,
+            candidate_version(&fixture.review_repository, approved).await,
+            json!({
+                "schemas": [schema("h1.first")],
+                "removed_page_schemas": [
+                    notice_template("this item is no longer available"),
+                    notice_template("sold out"),
+                ],
+            }),
+        )
+        .await
+        .unwrap();
+    approve_acknowledging_coverage(&fixture.review_repository, approved)
+        .await
+        .unwrap();
+
+    let mut rearmed = fixture.candidate_urls().await;
+    rearmed.sort();
+    let mut expected = vec![missing_value, removed_by_narrowed];
+    expected.sort();
+    assert_eq!(rearmed, expected);
+}
+
+/// Opens a product-schema review of the fixture's ListingSource with its live schema.
+async fn open_schema_review(fixture: &WaitingPageFixture) -> CrawlerReviewId {
+    fixture
+        .review_repository
+        .create_schema_review(
+            &fixture.listing_source_id,
+            "manual_schema_required",
+            &[schema("h1.first")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap()
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_not_hold_back_a_released_page_when_a_scrape_that_overlapped_approval_waits() {
     let pool = get_postgres_client().await;
