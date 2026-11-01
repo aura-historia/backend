@@ -15,16 +15,16 @@ const NON_TEXT_ELEMENTS: [&str; 4] = ["style", "script", "template", "noscript"]
 /// whose whole title is struck through, the full text is kept instead.
 const STRUCK_THROUGH_ELEMENTS: [&str; 3] = ["del", "s", "strike"];
 
-/// Whether text extraction separates the text on either side of a `<br>` or of a block
-/// element or table cell boundary.
+/// How text extraction lays out the text nodes below an element: whether it separates the
+/// text on either side of a `<br>` or of a block element or table cell boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TextBoundaries {
+pub(super) enum TextLayout {
     /// Separates it, as a browser lays it out, wherever markup whitespace does not
     /// already: shops write `Top Hat<br>Pen` or minify their markup, and without a
     /// separator the two lines run into one word.
-    Separate,
+    Rendered,
     /// Joins the text nodes as written.
-    Ignore,
+    AsWritten,
 }
 
 /// How a browser lays out an element's text relative to the text around it.
@@ -67,17 +67,14 @@ impl ElementFlow {
 
 /// The text below `element`, skipping [`NON_TEXT_ELEMENTS`] subtrees and descendant
 /// [`STRUCK_THROUGH_ELEMENTS`] subtrees, with its element boundaries handled as
-/// `boundaries` says.
-pub(super) fn visible_text(
-    element: &scraper::ElementRef<'_>,
-    boundaries: TextBoundaries,
-) -> String {
+/// `layout` says.
+pub(super) fn visible_text(element: &scraper::ElementRef<'_>, layout: TextLayout) -> String {
     // Only descendants are struck-through candidates: a rule that selects `del` itself
     // still extracts its text, while a selected non-text element never does.
     if NON_TEXT_ELEMENTS.contains(&element.value().name()) {
         return String::new();
     }
-    let mut text = VisibleText::new(boundaries);
+    let mut text = VisibleText::new(layout);
     push_visible_text(element, false, &mut text);
     text.into_value()
 }
@@ -86,7 +83,7 @@ pub(super) fn visible_text(
 /// a blank value, which `first` cardinality skips. Line separators only ever stand
 /// between visible text, so they never make a blank element count as text.
 pub(super) fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
-    !visible_text(element, TextBoundaries::Separate)
+    !visible_text(element, TextLayout::Rendered)
         .trim()
         .is_empty()
 }
@@ -120,16 +117,16 @@ fn push_visible_text(
 
 /// Visible text of an element, kept with and without its struck-through descendants.
 struct VisibleText {
-    boundaries: TextBoundaries,
+    layout: TextLayout,
     without_struck_through: SeparatedText,
     with_struck_through: SeparatedText,
     after_dropped_text: bool,
 }
 
 impl VisibleText {
-    fn new(boundaries: TextBoundaries) -> Self {
+    fn new(layout: TextLayout) -> Self {
         Self {
-            boundaries,
+            layout,
             without_struck_through: SeparatedText::default(),
             with_struck_through: SeparatedText::default(),
             after_dropped_text: false,
@@ -137,7 +134,7 @@ impl VisibleText {
     }
 
     fn mark_boundary(&mut self, flow: ElementFlow) {
-        if self.boundaries == TextBoundaries::Separate {
+        if self.layout == TextLayout::Rendered {
             self.without_struck_through.mark_boundary(flow);
             self.with_struck_through.mark_boundary(flow);
         }
@@ -212,15 +209,13 @@ mod tests {
     use scraper::Html;
 
     /// The visible text of a fragment, trimmed as text extraction trims it.
-    fn text_of(markup: &str, boundaries: TextBoundaries) -> String {
+    fn text_of(markup: &str, layout: TextLayout) -> String {
         let html = Html::parse_fragment(markup);
-        visible_text(&html.root_element(), boundaries)
-            .trim()
-            .to_owned()
+        visible_text(&html.root_element(), layout).trim().to_owned()
     }
 
     fn separated_text_of(markup: &str) -> String {
-        text_of(markup, TextBoundaries::Separate)
+        text_of(markup, TextLayout::Rendered)
     }
 
     mod line_breaks_without_surrounding_whitespace {
@@ -375,7 +370,7 @@ mod tests {
             assert_eq!(
                 text_of(
                     "<span>SKU:<br>1234</span><p>-B</p><table><tr><td>7</td></tr></table>",
-                    TextBoundaries::Ignore
+                    TextLayout::AsWritten
                 ),
                 "SKU:1234-B7"
             );

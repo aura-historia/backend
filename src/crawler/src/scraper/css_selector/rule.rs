@@ -3,7 +3,7 @@ use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use visible_text::{TextBoundaries, has_visible_text, visible_text};
+use visible_text::{TextLayout, has_visible_text, visible_text};
 
 pub(crate) use image_url::{
     element_has_image_like_evidence, has_known_image_extension, srcset_descriptor_width,
@@ -209,7 +209,7 @@ impl ExtractionRule {
     /// only empty elements returns `Err(EmptyValue)`; a rule that matched no element
     /// returns `Err(NoElementMatched)`.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
-        self.extract(html, TextBoundaries::Separate, ElementWithoutValue::Fails)
+        self.extract(html, TextLayout::Rendered, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
     }
 
@@ -218,7 +218,7 @@ impl ExtractionRule {
     /// identity must not change with how text is laid out: a changed identity captures the
     /// product again as a new listing.
     pub(crate) fn apply_as_identity(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
-        self.extract(html, TextBoundaries::Ignore, ElementWithoutValue::Fails)
+        self.extract(html, TextLayout::AsWritten, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
     }
 
@@ -236,18 +236,18 @@ impl ExtractionRule {
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut all_images_rule = self.clone();
         all_images_rule.cardinality = ExtractionCardinality::All;
-        all_images_rule.extract(html, TextBoundaries::Separate, ElementWithoutValue::Skipped)
+        all_images_rule.extract(html, TextLayout::Rendered, ElementWithoutValue::Skipped)
     }
 
     fn extract(
         &self,
         html: &Html,
-        boundaries: TextBoundaries,
+        layout: TextLayout,
         without_value: ElementWithoutValue,
     ) -> Result<RuleExtraction, ExtractionError> {
         match self.cardinality {
-            ExtractionCardinality::First => self.extract_first(html, boundaries),
-            ExtractionCardinality::All => self.extract_all(html, boundaries, without_value),
+            ExtractionCardinality::First => self.extract_first(html, layout),
+            ExtractionCardinality::All => self.extract_all(html, layout, without_value),
         }
     }
 
@@ -256,12 +256,12 @@ impl ExtractionRule {
     fn extract_first(
         &self,
         html: &Html,
-        boundaries: TextBoundaries,
+        layout: TextLayout,
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut first_selector_with_empty_elements = None;
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
-            match self.first_value(html.select(&parsed), css_selector, boundaries)? {
+            match self.first_value(html.select(&parsed), css_selector, layout)? {
                 SelectorValue::Value(value) => {
                     return Ok(RuleExtraction {
                         values: vec![value],
@@ -289,7 +289,7 @@ impl ExtractionRule {
     fn extract_all(
         &self,
         html: &Html,
-        boundaries: TextBoundaries,
+        layout: TextLayout,
         without_value: ElementWithoutValue,
     ) -> Result<RuleExtraction, ExtractionError> {
         let mut extraction = RuleExtraction::default();
@@ -306,7 +306,7 @@ impl ExtractionRule {
                 if extracted.contains_any(overlapping_elements) {
                     continue;
                 }
-                match extract_from_element(&element, &self.extract, css_selector, boundaries) {
+                match extract_from_element(&element, &self.extract, css_selector, layout) {
                     Ok(value) => {
                         extracted.insert(element.id());
                         extraction.values.push(value);
@@ -373,13 +373,13 @@ impl ExtractionRule {
         &self,
         mut elements: scraper::html::Select<'_, '_>,
         css_selector: &CssSelector,
-        boundaries: TextBoundaries,
+        layout: TextLayout,
     ) -> Result<SelectorValue, ExtractionError> {
         match &self.extract {
-            ExtractionKind::Text => first_non_empty_text(elements, css_selector, boundaries),
+            ExtractionKind::Text => first_non_empty_text(elements, css_selector, layout),
             kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => {
                 match elements.next() {
-                    Some(element) => extract_from_element(&element, kind, css_selector, boundaries)
+                    Some(element) => extract_from_element(&element, kind, css_selector, layout)
                         .map(SelectorValue::Value),
                     None => Ok(SelectorValue::NoElement),
                 }
@@ -425,12 +425,11 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
 fn first_non_empty_text(
     elements: scraper::html::Select<'_, '_>,
     selector_str: &str,
-    boundaries: TextBoundaries,
+    layout: TextLayout,
 ) -> Result<SelectorValue, ExtractionError> {
     let mut found = SelectorValue::NoElement;
     for element in elements {
-        let value =
-            extract_from_element(&element, &ExtractionKind::Text, selector_str, boundaries)?;
+        let value = extract_from_element(&element, &ExtractionKind::Text, selector_str, layout)?;
         if !value.is_empty() {
             return Ok(SelectorValue::Value(value));
         }
@@ -444,10 +443,10 @@ fn extract_from_element(
     element: &scraper::ElementRef<'_>,
     kind: &ExtractionKind,
     selector_str: &str,
-    boundaries: TextBoundaries,
+    layout: TextLayout,
 ) -> Result<String, ExtractionError> {
     match kind {
-        ExtractionKind::Text => Ok(visible_text(element, boundaries).trim().to_owned()),
+        ExtractionKind::Text => Ok(visible_text(element, layout).trim().to_owned()),
         ExtractionKind::Attribute { name } => {
             let attr_value = element.value().attr(name.as_ref()).ok_or_else(|| {
                 ExtractionError::MissingAttribute {
