@@ -15,6 +15,10 @@ use crawler::spider::classification::url_metadata::{
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
+use crawler::spider::crawl_frontier_repository::{
+    CrawlFrontierRepository, CrawlFrontierRepositoryImpl,
+};
+use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::CrawlCompletion;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
@@ -190,17 +194,225 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
         insert_listing_source_with_domain(&pool, listing_source_id, "spider-recent.example.com")
             .await;
 
-    sqlx::query("UPDATE listing_source_domains SET last_crawled = NOW() WHERE domain_id = $1")
-        .bind(domain_id.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_domains SET last_crawled = NOW(), last_crawl_run_at = NOW() \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.domain_id == domain_id),
         "a domain crawled just now should not be returned as a candidate"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// get_candidates — a recent full crawl makes the domain due for an incremental crawl a day after
+//                  its last run; an old one for a full crawl
+// ---------------------------------------------------------------------------
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_should_select_full_and_incremental_crawls_by_their_intervals() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let incremental =
+        insert_listing_source_with_domain(&pool, listing_source_id, "spider-daily.example.com")
+            .await;
+    let full =
+        insert_domain_for_listing_source(&pool, listing_source_id, "spider-weekly.example.com")
+            .await;
+    let ran_today =
+        insert_domain_for_listing_source(&pool, listing_source_id, "spider-today.example.com")
+            .await;
+    let held = insert_domain_for_listing_source(
+        &pool,
+        listing_source_id,
+        "spider-rate-limit-held.example.com",
+    )
+    .await;
+    let set_timers =
+        |domain_id: CrawlerDomainId, last_crawled: &'static str, last_run: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query(
+                    "UPDATE listing_source_domains \
+                 SET last_crawled = NOW() - $2::text::interval, \
+                     last_crawl_run_at = NOW() - $3::text::interval \
+                 WHERE domain_id = $1",
+                )
+                .bind(domain_id.as_uuid())
+                .bind(last_crawled)
+                .bind(last_run)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        };
+    set_timers(incremental, "3 days", "25 hours").await;
+    set_timers(full, "8 days", "25 hours").await;
+    set_timers(ran_today, "3 days", "2 hours").await;
+    set_timers(held, "3 days", "25 hours").await;
+    sqlx::query(
+        "UPDATE listing_source_domains SET crawl_rate_limited_until = NOW() + INTERVAL '1 hour' \
+         WHERE domain_id = $1",
+    )
+    .bind(held.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let candidates: HashMap<CrawlerDomainId, CrawlKind> = service
+        .get_candidates(10, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|candidate| (candidate.domain_id, candidate.kind))
+        .collect();
+
+    assert_eq!(candidates.get(&incremental), Some(&CrawlKind::Incremental));
+    assert_eq!(candidates.get(&full), Some(&CrawlKind::Full));
+    assert_eq!(candidates.get(&ran_today), None);
+    assert_eq!(
+        candidates.get(&held),
+        None,
+        "an incremental crawl must not bypass a rate-limit hold"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_limit_state() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        ListingSourceId::new(),
+        "spider-incremental.example.com",
+    )
+    .await;
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET last_crawled = NOW() - INTERVAL '3 days', crawl_truncation_count = 2, \
+             crawl_rate_limit_streak = 1, crawl_failure_count = 1, \
+             last_crawl_error_kind = 'ConnectError' \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    service
+        .mark_incremental_crawl_finished(&domain_id, CrawlCompletion::HardTimeoutTruncated)
+        .await
+        .unwrap();
+    let (failures, error_kind, next_crawl_at, outcome, truncations, last_crawled) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!((failures, error_kind.as_deref()), (1, Some("ConnectError")));
+    assert_eq!(next_crawl_at, None);
+    assert_eq!(outcome.as_deref(), Some("HARD_TIMEOUT_TRUNCATED"));
+    assert_eq!(truncations, 2);
+
+    service
+        .mark_incremental_crawl_finished(&domain_id, CrawlCompletion::Completed)
+        .await
+        .unwrap();
+    let (failures, error_kind, _, outcome, truncations, last_crawled_after) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!((failures, error_kind), (0, None));
+    assert_eq!(outcome.as_deref(), Some("COMPLETED"));
+    assert_eq!(truncations, 2);
+    assert_eq!(last_crawled_after, last_crawled, "never a full crawl");
+    let (streak, last_run): (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT crawl_rate_limit_streak, last_crawl_run_at FROM listing_source_domains \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(streak, 1, "only a full crawl clears the rate-limit streak");
+    assert!(last_run.is_some());
+    assert!(service.get_candidates(10, &[]).await.unwrap().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// crawl frontier — replaced per crawl, read back in full, cleared with the domain
+// ---------------------------------------------------------------------------
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_products_listed() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlFrontierRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "spider-frontier.example.com")
+            .await;
+    let other =
+        insert_domain_for_listing_source(&pool, listing_source_id, "spider-other.example.com")
+            .await;
+    let url = |path: &str| {
+        url::Url::parse(&format!("https://spider-frontier.example.com{path}")).unwrap()
+    };
+
+    repository
+        .replace_frontier(&domain_id, &[url("/a"), url("/b"), url("/a")])
+        .await
+        .unwrap();
+    repository
+        .replace_frontier(&other, &[url("/other")])
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.load_frontier(&domain_id).await.unwrap(),
+        [url("/a"), url("/b")]
+    );
+
+    repository
+        .replace_frontier(&domain_id, &[url("/c")])
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.load_frontier(&domain_id).await.unwrap(),
+        [url("/c")]
+    );
+    repository.replace_frontier(&domain_id, &[]).await.unwrap();
+    assert!(
+        repository
+            .load_frontier(&domain_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        repository.load_frontier(&other).await.unwrap(),
+        [url("/other")]
+    );
+
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://spider-frontier.example.com/product/1",
+    )
+    .await;
+    UrlMetadataRepositoryImpl::new(pool.clone())
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url("/about"),
+            &UrlClass::Other,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.known_product_urls(&domain_id).await.unwrap(),
+        [url("/product/1")]
     );
 }
 
