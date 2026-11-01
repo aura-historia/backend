@@ -1005,3 +1005,154 @@ async fn should_store_a_page_as_fetched_when_its_canonical_url_cannot_take_it() 
         ]
     );
 }
+
+/// A canonical URL that is only another spelling of the page itself, or of a page the batch
+/// canonicalizes too, is no canonical URL: no row is retired for it and nothing is stored along
+/// the chain.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_store_a_page_as_fetched_when_its_canonical_url_is_its_own_page_or_a_chain() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let (listing_source_id, domain_id) = canonical_shop(&pool).await;
+    insert_scraped_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        &format!("{SHOP}/products/self/"),
+    )
+    .await;
+
+    repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[
+                product("/products/self", Some("/products/self/")),
+                product("/collections/a/products/chain", Some("/products/chain/")),
+                product("/products/chain", Some("/products/chain-1")),
+            ],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        dispositions(&pool, listing_source_id).await,
+        vec![
+            (
+                format!("{SHOP}/collections/a/products/chain"),
+                "ACTIVE".to_owned()
+            ),
+            (format!("{SHOP}/products/chain"), "ACTIVE".to_owned()),
+            (format!("{SHOP}/products/self/"), "ACTIVE".to_owned()),
+        ]
+    );
+}
+
+/// The canonical URL's own row is never retired as a duplicate of itself, also when it is the
+/// earlier, re-encoded spelling of the duplicate (`+` for `%20`).
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_the_canonical_row_when_it_is_an_earlier_spelling_of_the_duplicate() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let (listing_source_id, domain_id) = canonical_shop(&pool).await;
+    let canonical = format!("{SHOP}/product?name=oak+chair");
+    insert_scraped_url(&pool, listing_source_id, domain_id, &canonical).await;
+
+    let stored = repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[DiscoveredUrl {
+                url: shop_url("/product?name=oak%20chair"),
+                url_class: UrlClass::ProductListing,
+                canonical: Some(Url::parse(&canonical).unwrap()),
+            }],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].disposition, CrawlerDisposition::Active);
+    assert_eq!(
+        dispositions(&pool, listing_source_id).await,
+        vec![(canonical, "ACTIVE".to_owned())]
+    );
+}
+
+/// Two pages that name each other canonical in different batches leave one of them active: a
+/// canonical URL already retired as a duplicate takes no page.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_one_row_active_when_two_pages_name_each_other_canonical() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let (listing_source_id, domain_id) = canonical_shop(&pool).await;
+    for path in ["/products/a", "/products/b"] {
+        insert_scraped_url(
+            &pool,
+            listing_source_id,
+            domain_id,
+            &format!("{SHOP}{path}"),
+        )
+        .await;
+    }
+
+    for (page, canonical) in [
+        ("/products/a", "/products/b"),
+        ("/products/b", "/products/a"),
+    ] {
+        repository
+            .upsert_links_batch(
+                &listing_source_id,
+                &domain_id,
+                &[product(page, Some(canonical))],
+            )
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(
+        dispositions(&pool, listing_source_id).await,
+        vec![
+            (format!("{SHOP}/products/a"), "DUPLICATE".to_owned()),
+            (format!("{SHOP}/products/b"), "ACTIVE".to_owned()),
+        ]
+    );
+}
+
+/// A retired duplicate stays retired: its row does not move onto a canonical URL that has no row,
+/// which is stored as a new active row instead.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_move_a_retired_duplicate_row_onto_its_canonical_url() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let (listing_source_id, domain_id) = canonical_shop(&pool).await;
+    let retired = format!("{SHOP}/collections/a/products/vase");
+    insert_scraped_url(&pool, listing_source_id, domain_id, &retired).await;
+    sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
+        .bind(&retired)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let stored = repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[product(
+                "/collections/a/products/vase",
+                Some("/products/vase"),
+            )],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(stored[0].url, shop_url("/products/vase"));
+    assert_eq!(stored[0].disposition, CrawlerDisposition::Active);
+    assert_eq!(
+        dispositions(&pool, listing_source_id).await,
+        vec![
+            (retired, "DUPLICATE".to_owned()),
+            (format!("{SHOP}/products/vase"), "ACTIVE".to_owned()),
+        ]
+    );
+}
