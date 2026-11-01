@@ -3431,6 +3431,32 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn should_not_capture_a_repeated_removal_when_its_metadata_refresh_fails() {
+            for (write, errored, skipped) in [
+                (Ok(CrawlerUrlWriteOutcome::NoopStale), false, true),
+                (Err(sqlx::Error::PoolTimedOut), true, false),
+            ] {
+                let mut candidate =
+                    scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
+                candidate.last_captured_raw_input_sha256 = Some(removal_sha256());
+                let mut scraper_candidates = MockScraperCandidateService::new();
+                scraper_candidates
+                    .expect_forget_capture_before_removal()
+                    .never();
+                scraper_candidates
+                    .expect_mark_removed()
+                    .once()
+                    .return_once(move |_, _, _, _| Box::pin(async move { write }));
+                let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
+
+                let outcome = scrape_candidate(candidate, &ctx).await;
+
+                assert!(outcome.capture.is_none());
+                assert_eq!((outcome.errored, outcome.skipped), (errored, skipped));
+            }
+        }
+
+        #[tokio::test]
         async fn should_capture_a_removal_again_after_the_page_was_captured_as_a_product() {
             let mut candidate = scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
             candidate.last_captured_raw_input_sha256 = Some(vec![3; 32]);
