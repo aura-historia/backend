@@ -1,3 +1,4 @@
+use image_fetcher::ImageFetchDiagnostics;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,6 +162,23 @@ pub fn log_llm_invocation_failure(
         latency,
         metrics,
         LlmInvocationOutcome::StructuredResponseFailure { failure_kind },
+    );
+}
+
+/// A request image left out because it could not be fetched, with the image fetcher's bounded
+/// diagnostics.
+pub(crate) fn log_llm_image_omission(
+    operation: LlmOperation,
+    fetch_failure: ImageFetchDiagnostics,
+) {
+    tracing::info!(
+        eventType = "LLM_IMAGE_OMITTED",
+        llmOperation = %operation,
+        imageOmissionReason = "fetch_failed",
+        imageFetchFailure = fetch_failure.category,
+        imageFetchHttpStatus = fetch_failure.http_status,
+        imageFetchAttempts = fetch_failure.attempts,
+        "LLM image omitted."
     );
 }
 
