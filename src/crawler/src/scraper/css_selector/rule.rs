@@ -359,33 +359,32 @@ impl ExtractionRule {
 
     /// How many of the elements `selector` (this rule's primary or an additional
     /// selector) matches the rule can take a value from, as the schema review matrix
-    /// counts matches. A text rule counts only elements with visible text and an
-    /// attribute rule only elements whose attribute holds a non-blank value: `first`
+    /// counts matches. A text rule counts only elements with visible text: `first`
     /// cardinality skips a blank element, so a rule that matches only blank elements
-    /// misses. Image URL rules count every element.
+    /// misses. Attribute and image URL rules count every element.
     pub(crate) fn match_count(&self, html: &Html, selector: &Selector) -> usize {
         let elements = html.select(selector);
-        match &self.extract {
-            ExtractionKind::ImageUrl => elements.count(),
-            kind => elements.filter(|element| has_value(element, kind)).count(),
+        match self.extract {
+            ExtractionKind::Text => elements.filter(has_visible_text).count(),
+            ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => elements.count(),
         }
     }
 
-    /// How many of the elements `selector` matches hold no value, for a text or attribute
-    /// rule: the elements [`Self::match_count`] leaves out. `0` for image URL rules, whose
-    /// match count includes every element.
+    /// How many of the elements `selector` matches hold no visible text, for a text rule:
+    /// the elements [`Self::match_count`] leaves out. `0` for attribute and image URL
+    /// rules, whose match count includes every element.
     pub(crate) fn empty_element_count(&self, html: &Html, selector: &Selector) -> usize {
-        match &self.extract {
-            ExtractionKind::ImageUrl => 0,
-            kind => html
+        match self.extract {
+            ExtractionKind::Text => html
                 .select(selector)
-                .filter(|element| !has_value(element, kind))
+                .filter(|element| !has_visible_text(element))
                 .count(),
+            ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => 0,
         }
     }
 
-    /// The first non-empty text or attribute value of the elements `css_selector` matched;
-    /// an image URL rule takes the value of the first element instead.
+    /// The value of the first element `css_selector` matched; a text rule takes the first
+    /// non-empty text instead.
     fn first_value(
         &self,
         mut elements: scraper::html::Select<'_, '_>,
@@ -393,12 +392,14 @@ impl ExtractionRule {
         layout: TextLayout,
     ) -> Result<SelectorValue, ExtractionError> {
         match &self.extract {
-            kind @ ExtractionKind::ImageUrl => match elements.next() {
-                Some(element) => extract_from_element(&element, kind, css_selector, layout)
-                    .map(SelectorValue::Value),
-                None => Ok(SelectorValue::NoElement),
-            },
-            kind => first_non_empty(elements, kind, css_selector, layout),
+            ExtractionKind::Text => first_non_empty_text(elements, css_selector, layout),
+            kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => {
+                match elements.next() {
+                    Some(element) => extract_from_element(&element, kind, css_selector, layout)
+                        .map(SelectorValue::Value),
+                    None => Ok(SelectorValue::NoElement),
+                }
+            }
         }
     }
 }
@@ -406,7 +407,7 @@ impl ExtractionRule {
 /// What one selector of a rule with cardinality `first` found on the page.
 enum SelectorValue {
     Value(String),
-    /// A text or attribute rule matched elements, but none has a non-empty value.
+    /// A text rule matched elements, but none has visible text.
     OnlyEmptyElements,
     NoElement,
 }
@@ -437,15 +438,14 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
     })
 }
 
-fn first_non_empty(
+fn first_non_empty_text(
     elements: scraper::html::Select<'_, '_>,
-    kind: &ExtractionKind,
     selector_str: &str,
     layout: TextLayout,
 ) -> Result<SelectorValue, ExtractionError> {
     let mut found = SelectorValue::NoElement;
     for element in elements {
-        let value = extract_from_element(&element, kind, selector_str, layout)?;
+        let value = extract_from_element(&element, &ExtractionKind::Text, selector_str, layout)?;
         if !value.is_empty() {
             return Ok(SelectorValue::Value(value));
         }
@@ -500,18 +500,6 @@ fn extract_from_element(
                 attribute: "image URL candidate".to_owned(),
             })
         }
-    }
-}
-
-/// Whether a text or attribute rule takes a value from `element`: it has visible text, or the
-/// attribute holds more than whitespace.
-fn has_value(element: &scraper::ElementRef<'_>, kind: &ExtractionKind) -> bool {
-    match kind {
-        ExtractionKind::Attribute { name } => element
-            .value()
-            .attr(name.as_ref())
-            .is_some_and(|value| !value.trim().is_empty()),
-        _ => has_visible_text(element),
     }
 }
 
@@ -1311,47 +1299,10 @@ mod tests {
     // ─── Edge cases ────────────────────────────────────────────────────
 
     #[test]
-    fn should_report_an_empty_value_when_the_only_attribute_is_present_but_blank() {
-        let doc = html(r#"<div data-value=" ">Content</div>"#);
+    fn should_extract_empty_attribute_value_when_attribute_is_present_but_empty() {
+        let doc = html(r#"<div data-value="">Content</div>"#);
         let r = rule("div", attr_kind("data-value"), ExtractionCardinality::First);
-        assert!(matches!(
-            r.apply(&doc),
-            Err(ExtractionError::EmptyValue { selector }) if selector == "div"
-        ));
-    }
-
-    /// A blank attribute is no value, as a blank text is not: `first` takes the next
-    /// element's value, and then the fallback selector's, and the matrix counts the blank
-    /// element as empty rather than as a match.
-    #[test]
-    fn should_skip_blank_attribute_values_for_first_cardinality_and_not_count_them_as_matches() {
-        let doc = html(
-            r#"<meta property="og:title" content=""><meta itemprop="name" content=" "><meta itemprop="name" content="Oak bureau">"#,
-        );
-        let r = rule_with_additional(
-            "meta[property='og:title']",
-            vec!["meta[itemprop='name']"],
-            attr_kind("content"),
-            ExtractionCardinality::First,
-        );
-        let primary = Selector::parse("meta[property='og:title']").unwrap();
-        let fallback = Selector::parse("meta[itemprop='name']").unwrap();
-
-        assert_eq!(r.apply(&doc).unwrap(), vec!["Oak bureau"]);
-        assert_eq!(
-            (
-                r.match_count(&doc, &primary),
-                r.empty_element_count(&doc, &primary)
-            ),
-            (0, 1)
-        );
-        assert_eq!(
-            (
-                r.match_count(&doc, &fallback),
-                r.empty_element_count(&doc, &fallback)
-            ),
-            (1, 1)
-        );
+        assert_eq!(r.apply(&doc).unwrap(), vec![""]);
     }
 
     #[test]
