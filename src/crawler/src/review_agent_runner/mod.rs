@@ -908,10 +908,32 @@ echo "end $role $review" >> "$dir/order.log"
     }
 
     async fn run_with(settings: &RunnerSettings) -> RunOutcome {
-        run(settings, &RunnerStop::default())
+        run_once_unlocked(settings)
             .await
             .unwrap_or_else(|error| panic!("{error}: {error:?}"))
     }
+
+    /// Runs the runner, waiting out a lock that only a sibling test holds. A run releases the
+    /// lock when it ends, but a child another test thread forks in that moment holds a copy of
+    /// the lock file's descriptor, and with it the `flock`, until it execs: the `pre_exec` hook
+    /// makes every spawn fork, then exec. A run right after another on the same state directory
+    /// can therefore find the lock held for a moment under parallel tests. A locked run returns
+    /// before it does anything else, so running again is safe; a test that expects the lock to
+    /// be held calls [`run`] itself.
+    async fn run_once_unlocked(settings: &RunnerSettings) -> Result<RunOutcome, RunnerError> {
+        for _ in 0..LOCKED_RETRIES {
+            match run(settings, &RunnerStop::default()).await {
+                Ok(RunOutcome::Locked) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+                outcome => return outcome,
+            }
+        }
+        run(settings, &RunnerStop::default()).await
+    }
+
+    /// How often [`run_once_unlocked`] runs again while the lock is held, 20 ms apart.
+    const LOCKED_RETRIES: usize = 250;
 
     fn summary(outcome: &RunOutcome) -> PassSummary {
         match outcome {
@@ -1544,7 +1566,7 @@ echo "end $role $review" >> "$dir/order.log"
             "",
         )
         .unwrap_or_default();
-        let without_limits = run(&settings, &RunnerStop::default()).await;
+        let without_limits = run_once_unlocked(&settings).await;
 
         let calls = fixture.claude.calls();
         assert_eq!(
@@ -1571,9 +1593,9 @@ echo "end $role $review" >> "$dir/order.log"
             .claude
             .login(json!({ "loggedIn": false, "authMethod": "none" }));
 
-        let logged_out = run(&settings, &RunnerStop::default()).await;
+        let logged_out = run_once_unlocked(&settings).await;
         std::fs::remove_file(&settings.console.token_file).unwrap_or_default();
-        let no_token_file = run(&settings, &RunnerStop::default()).await;
+        let no_token_file = run_once_unlocked(&settings).await;
 
         assert!(matches!(
             logged_out,
@@ -1591,7 +1613,9 @@ echo "end $role $review" >> "$dir/order.log"
             .unwrap_or_else(|e| panic!("{e}"))
             .unwrap_or_else(|| panic!("lock taken"));
 
-        let outcome = run_with(&settings).await;
+        let outcome = run(&settings, &RunnerStop::default())
+            .await
+            .unwrap_or_else(|error| panic!("{error}: {error:?}"));
 
         assert_eq!(outcome, RunOutcome::Locked);
         assert!(fixture.claude.calls().is_empty());
