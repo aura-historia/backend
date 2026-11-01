@@ -29,6 +29,9 @@ use crate::spider::local_lock::{
     DomainLock, DomainLockScope, ListingSourceLock, LocalLockManager, UrlLock,
 };
 use listing_source_core::ListingSourceId;
+use product_listing_normalization::{
+    ProductListingNormalizationInput, RawProductListingProvenance,
+};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -498,70 +501,79 @@ async fn enqueue_raw_capture(
     )
 )]
 fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutcome {
-    let input = match crawler_verified_removal_input(&candidate.url) {
-        Ok(input) => input,
-        Err(error) => {
-            warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to build verified-removal raw input");
-            return ScrapeCandidateOutcome {
-                capture: None,
-                errored: true,
-                skipped: false,
-                ..Default::default()
-            };
-        }
-    };
-    let raw_input_sha256 = match input.hash() {
-        Ok(hash) => hash.as_bytes().to_vec(),
-        Err(error) => {
-            warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to hash verified-removal raw input");
-            return ScrapeCandidateOutcome {
-                capture: None,
-                errored: true,
-                skipped: false,
-                ..Default::default()
-            };
-        }
+    let Some((input, raw_input_sha256)) = verified_removal_input(candidate) else {
+        return errored_outcome();
     };
     let provenance = match crawler_provenance(None, None) {
         Ok(provenance) => provenance,
         Err(error) => {
             warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to build verified-removal provenance");
-            return ScrapeCandidateOutcome {
-                capture: None,
-                errored: true,
-                skipped: false,
-                ..Default::default()
-            };
+            return errored_outcome();
         }
     };
 
     ScrapeCandidateOutcome {
-        capture: Some(RawCaptureRequest {
-            item: ProductListingRawCaptureItem::crawler(
-                candidate.listing_source_id,
-                &candidate.source_record_key,
-                input,
-                provenance,
-            ),
-            on_success: RawCaptureSuccessAction::MarkRemoved {
-                listing_source_id: candidate.listing_source_id,
-                url: candidate.url.clone(),
-                raw_input_sha256,
-                expected_last_captured_raw_input_sha256: candidate
-                    .last_captured_raw_input_sha256
-                    .clone(),
-            },
-            on_failure: RawCaptureFailureAction::MarkScraperFailure {
-                listing_source_id: candidate.listing_source_id,
-                url: candidate.url.clone(),
-                expected_last_captured_raw_input_sha256: candidate
-                    .last_captured_raw_input_sha256
-                    .clone(),
-            },
-        }),
-        errored: false,
-        skipped: false,
+        capture: Some(removal_capture_request(
+            candidate,
+            input,
+            provenance,
+            raw_input_sha256,
+        )),
         ..Default::default()
+    }
+}
+
+/// The raw delete a verified removal of `candidate` captures, with its raw-input hash.
+fn verified_removal_input(
+    candidate: &ScraperCandidate,
+) -> Option<(ProductListingNormalizationInput, Vec<u8>)> {
+    let input = match crawler_verified_removal_input(&candidate.url) {
+        Ok(input) => input,
+        Err(error) => {
+            warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to build verified-removal raw input");
+            return None;
+        }
+    };
+    match input.hash() {
+        Ok(hash) => {
+            let raw_input_sha256 = hash.as_bytes().to_vec();
+            Some((input, raw_input_sha256))
+        }
+        Err(error) => {
+            warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to hash verified-removal raw input");
+            None
+        }
+    }
+}
+
+fn removal_capture_request(
+    candidate: &ScraperCandidate,
+    input: ProductListingNormalizationInput,
+    provenance: RawProductListingProvenance,
+    raw_input_sha256: Vec<u8>,
+) -> RawCaptureRequest {
+    RawCaptureRequest {
+        item: ProductListingRawCaptureItem::crawler(
+            candidate.listing_source_id,
+            &candidate.source_record_key,
+            input,
+            provenance,
+        ),
+        on_success: RawCaptureSuccessAction::MarkRemoved {
+            listing_source_id: candidate.listing_source_id,
+            url: candidate.url.clone(),
+            raw_input_sha256,
+            expected_last_captured_raw_input_sha256: candidate
+                .last_captured_raw_input_sha256
+                .clone(),
+        },
+        on_failure: RawCaptureFailureAction::MarkScraperFailure {
+            listing_source_id: candidate.listing_source_id,
+            url: candidate.url.clone(),
+            expected_last_captured_raw_input_sha256: candidate
+                .last_captured_raw_input_sha256
+                .clone(),
+        },
     }
 }
 
@@ -621,6 +633,13 @@ async fn scrape_candidate_in_batch(
 fn skipped_outcome() -> ScrapeCandidateOutcome {
     ScrapeCandidateOutcome {
         skipped: true,
+        ..Default::default()
+    }
+}
+
+fn errored_outcome() -> ScrapeCandidateOutcome {
+    ScrapeCandidateOutcome {
+        errored: true,
         ..Default::default()
     }
 }
