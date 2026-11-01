@@ -1440,6 +1440,73 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
     assert_eq!(row, (None, None));
 }
 
+/// A removal whose capture commits but whose `mark_removed` write fails leaves the URL as
+/// `forget_capture_before_removal` left it, so the product page that returns unchanged is
+/// extracted and its capture completes against that state.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_forget_capture_before_removal_should_not_leave_the_url_on_the_product_capture() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "scraper-removal-forget.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://scraper-removal-forget.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    let product_capture = raw_input_hash();
+    let product_completion = || {
+        scrape_completion(
+            listing_source_id,
+            url.clone(),
+            (
+                "p".repeat(64),
+                "schema-fingerprint",
+                product_capture.clone(),
+                "SKU-123",
+                CrawlerDisposition::Active,
+                None,
+            ),
+        )
+    };
+    service.mark_as_scraped(product_completion()).await.unwrap();
+
+    assert_eq!(
+        service
+            .forget_capture_before_removal(&listing_source_id, &url, Some(&[1; 32]))
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::NoopStale,
+        "the write is fenced on the capture the removal observed"
+    );
+    assert_eq!(
+        service
+            .forget_capture_before_removal(&listing_source_id, &url, Some(&product_capture))
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    let row: (Option<String>, Option<String>, Option<Vec<u8>>) = sqlx::query_as(
+        "SELECT last_scraped_hash, last_scraped_schema_fingerprint, \
+         last_captured_raw_input_sha256 \
+         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row, (None, None, None));
+    assert_eq!(
+        service.mark_as_scraped(product_completion()).await.unwrap(),
+        CrawlerUrlWriteOutcome::Applied,
+        "the returning page's capture completes against the forgotten state"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // get_candidates — limit is respected
 // ---------------------------------------------------------------------------
