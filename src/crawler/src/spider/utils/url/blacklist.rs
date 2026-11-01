@@ -1,7 +1,8 @@
 //! URLs the spider never follows or stores: shop actions, back office, downloads and files.
 //!
-//! The rules match whole path segments and parameter names, never substrings, so a product slug
-//! such as `cartier-watch` or `cartel-clock` stays crawlable while `/cart` does not.
+//! The rules match whole path segments, whole tokens of a segment and parameter names, never
+//! substrings, so a product slug such as `cartier-watch` or `cartel-clock` stays crawlable while
+//! `/cart` does not.
 
 use regex::RegexSet;
 use spider::compact_str::CompactString;
@@ -68,6 +69,36 @@ const ACTION_SEGMENTS: &[&str] = &[
     "files",
     "attachment",
     "attachments",
+    // printer-friendly copies of a page
+    "print",
+    "printable",
+    "printer-friendly",
+    "print-friendly",
+];
+
+/// Action words that also name the action as one token of a segment or file stem whose tokens
+/// `-`, `_` or `.` separate (`/product-compare`, `/wishlist_add/12`,
+/// `catalogue_detail_printerfriendly.php`). Only words no product slug uses as a word: `cart`,
+/// `basket`, `register`, `search`, `file` and `print` name products too (`tea-cart`,
+/// `wicker-basket`, `cash-register`, `woodblock-print`), so they match as whole segments only.
+const ACTION_TOKENS: &[&str] = &[
+    "wishlist",
+    "whishlist",
+    "wunschliste",
+    "wunschzettel",
+    "merkzettel",
+    "compare",
+    "login",
+    "logout",
+    "signin",
+    "signup",
+    "checkout",
+    "warenkorb",
+    "myaccount",
+    "catalogsearch",
+    "printerfriendly",
+    "printer[-_.]friendly",
+    "print[-_.]friendly",
 ];
 
 /// Query parameters that trigger an action or a site search when the link is followed. `s` is
@@ -81,6 +112,7 @@ const ACTION_PARAMETERS: &[&str] = &[
     "add_to_wishlist",
     "remove_item",
     "replytocom",
+    "print",
 ];
 
 /// Parameters whose value is a route of path-like segments, with the [`ACTION_SEGMENTS`] and
@@ -112,6 +144,11 @@ pub(super) fn patterns() -> Vec<CompactString> {
     let segments = alternation(ACTION_SEGMENTS);
     vec![
         format!(r"{ORIGIN}/(?:[^?#]*/)?(?i:{segments})(?:\.[A-Za-z0-9]+)?(?:[/?#;]|$)").into(),
+        format!(
+            r"{ORIGIN}/(?:[^?#]*/)?(?:[^/?#;]*[-_.])?(?i:{})(?:[-_.][^/?#;]*)?(?:[/?#;]|$)",
+            ACTION_TOKENS.join("|")
+        )
+        .into(),
         format!(
             r"{PARAMETER_START}(?i:{})(?:[=&#]|$)",
             alternation(ACTION_PARAMETERS)
@@ -173,6 +210,17 @@ mod tests {
             "https://example.com/en/add-to-whishlist/4512",
             "https://example.com/wp-admin/admin-ajax.php",
             "https://example.com/wp-login.php?action=lostpassword",
+            "https://www.antique-silver.com/product-compare?item=4711",
+            "https://example.com/wishlist_add/12",
+            "https://example.com/customer-login.html",
+            "https://example.com/en/quick-checkout/",
+            "https://www.marlboroughantiques.com/catalogue_detail_printerfriendly.php?id=1234",
+            "https://example.com/products/oak-chair/printer-friendly",
+            "https://example.com/products/oak-chair/print",
+            "https://example.com/print.php?id=12",
+            "https://example.com/printable/12",
+            "https://example.com/product_print_friendly.php?id=12",
+            "https://example.com/products/oak-chair?print=1",
         ] {
             assert!(is_blacklisted(action), "{action} should be refused");
         }
@@ -227,6 +275,15 @@ mod tests {
             "https://example.com/products/1?sku=s",
             "https://example.com/order/how-to-order",
             "https://example.com/index.php?controller=product&id_product=12&order=x",
+            "https://example.com/products/printed-cotton-quilt",
+            "https://example.com/products/japanese-woodblock-print",
+            "https://example.com/products/victorian-mahogany-tea-cart",
+            "https://example.com/products/wicker-picnic-basket",
+            "https://example.com/products/national-cash-register-1910",
+            "https://example.com/products/blueprint-of-a-steam-engine",
+            "https://example.com/products/comparison-of-hallmarks",
+            "https://example.com/products/printers-tray-1900",
+            "https://example.com/products/logo-plate?view=print-room",
         ] {
             assert!(!is_blacklisted(page), "{page} should be followed");
         }
