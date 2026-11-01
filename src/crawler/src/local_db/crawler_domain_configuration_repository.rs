@@ -233,8 +233,8 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
 
 /// Moves an already registered domain to the crawl root it is registered with again, for example
 /// from `example.com` to `www.example.com`. The crawl state recorded for the old root, including a
-/// `NEEDS_OPERATOR` stop, no longer describes the domain, so the next spider cycle crawls the new
-/// root as if the domain were new. The URL pattern, the crawled URLs and the scrape state belong to
+/// `NEEDS_OPERATOR` stop and a rate-limit streak and hold, no longer describes the domain, so the
+/// next spider cycle crawls the new root as if the domain were new. The URL pattern, the crawled URLs and the scrape state belong to
 /// the site and stay.
 async fn replace_crawl_root(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -249,7 +249,9 @@ async fn replace_crawl_root(
              crawl_failure_count = 0, \
              last_crawl_error_kind = NULL, \
              last_crawl_outcome = NULL, \
-             crawl_truncation_count = 0 \
+             crawl_truncation_count = 0, \
+             crawl_rate_limit_streak = 0, \
+             crawl_rate_limited_until = NULL \
          WHERE domain_id = $1",
     )
     .bind(domain_id.as_uuid())

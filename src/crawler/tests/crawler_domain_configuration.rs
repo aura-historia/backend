@@ -184,14 +184,16 @@ async fn should_treat_bare_www_and_trailing_dot_as_one_crawler_domain_identity()
 }
 
 /// The crawl state of a domain: `(crawl_root_host, url_pattern, last_crawled IS NULL,
-/// crawl_failure_count + crawl_truncation_count, last_crawl_outcome)`.
+/// crawl_failure_count + crawl_truncation_count + crawl_rate_limit_streak, last_crawl_outcome)`;
+/// a pending rate-limit hold counts as one more.
 async fn crawl_state(
     pool: &sqlx::PgPool,
     domain_id: CrawlerDomainId,
 ) -> (String, Option<String>, bool, i32, Option<String>) {
     sqlx::query_as(
         "SELECT crawl_root_host, url_pattern, last_crawled IS NULL, \
-                crawl_failure_count + crawl_truncation_count, \
+                crawl_failure_count + crawl_truncation_count + crawl_rate_limit_streak \
+                    + (crawl_rate_limited_until IS NOT NULL)::INT, \
                 last_crawl_outcome \
          FROM listing_source_domains WHERE domain_id = $1",
     )
@@ -220,7 +222,8 @@ async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_
         "UPDATE listing_source_domains \
          SET url_pattern = '^/product/', url_pattern_state = 'MATCHED', last_crawled = NOW(), \
              crawl_failure_count = 5, last_crawl_error_kind = 'REDIRECT_OFF_DOMAIN', \
-             last_crawl_outcome = 'NEEDS_OPERATOR', crawl_truncation_count = 2 \
+             last_crawl_outcome = 'NEEDS_OPERATOR', crawl_truncation_count = 2, \
+             crawl_rate_limit_streak = 3, crawl_rate_limited_until = NOW() + INTERVAL '1 day' \
          WHERE domain_id = $1",
     )
     .bind(bare.domain_id.as_uuid())
@@ -239,7 +242,7 @@ async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_
             "example.com".to_owned(),
             Some("^/product/".to_owned()),
             false,
-            7,
+            11,
             Some("NEEDS_OPERATOR".to_owned())
         ),
         "registering the same crawl root again must keep the crawl state"
