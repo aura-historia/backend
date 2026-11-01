@@ -10,6 +10,13 @@ let selectedPageId = null;
 let activeWorkbenchPanel = 'selector';
 let pickedSelector = '';
 let editRefusal = null;
+// The confirmation of the selected review's last successful request, shown until the next one.
+let editNotice = null;
+// The in-page panel a review mutation waits in for the reviewer's confirmation and notes.
+let pendingAction = null;
+// How many matrix refreshes this console waits for, per review: a refresh moves the review's
+// `updated`, which is not a change made elsewhere.
+const matrixRefreshesInFlight = new Map();
 let rawAttributeKeys = null;
 let dirty = false;
 let selectedReviewUpdatedAt = null;
@@ -102,10 +109,22 @@ async function clearReviewAuthToken() {
     document.getElementById('reloadState').textContent = 'Review token and browser session cleared';
 }
 
+// A request the browser could not send, or whose answer never arrived, carries no HTTP status;
+// `apiErrorMessage` reports it as a network failure.
+async function fetchOrNetworkError(path, options) {
+    try {
+        return await fetch(path, options);
+    } catch (cause) {
+        const error = new Error(String((cause && cause.message) || cause));
+        error.network = true;
+        throw error;
+    }
+}
+
 async function requestReviewAuthToken() {
     const token = window.prompt('Enter crawler review token');
     if (token === null || !token.trim()) return false;
-    const response = await fetch('/api/session', {
+    const response = await fetchOrNetworkError('/api/session', {
         method: 'POST',
         headers: {authorization: `Bearer ${token.trim()}`},
         credentials: 'same-origin'
@@ -118,7 +137,7 @@ async function requestReviewAuthToken() {
 
 async function ensureReviewSession() {
     if (!reviewAuthToken || reviewSessionEstablished) return;
-    const response = await fetch('/api/session', {
+    const response = await fetchOrNetworkError('/api/session', {
         method: 'POST',
         headers: {authorization: `Bearer ${reviewAuthToken}`},
         credentials: 'same-origin'
@@ -133,13 +152,14 @@ async function api(path, options = {}, allowPrompt = true) {
     const headers = new Headers(options.headers || {});
     headers.set('content-type', 'application/json');
     if (reviewAuthToken) headers.set('authorization', `Bearer ${reviewAuthToken}`);
-    const res = await fetch(path, {...options, headers, credentials: 'same-origin'});
+    const res = await fetchOrNetworkError(path, {...options, headers, credentials: 'same-origin'});
     if (res.status === 401 && allowPrompt && await requestReviewAuthToken()) {
         return api(path, options, false);
     }
     if (!res.ok) {
         const error = new Error(await res.text());
         error.status = res.status;
+        error.statusText = res.statusText;
         throw error;
     }
     return res.json();
@@ -306,9 +326,15 @@ async function selectReview(id) {
     selectedId = id;
     dirty = false;
     sampleLabelDraft = null;
+    editNotice = null;
+    pendingAction = null;
     activeWorkbenchPanel = 'selector';
-    await loadReviews();
-    await loadSelectedReview(true);
+    await loadReviews().catch(reportQueueFailure);
+    await submitEdit(() => loadSelectedReview(true));
+}
+
+function reportQueueFailure(error) {
+    document.getElementById('reloadState').textContent = `Queue refresh failed: ${apiErrorMessage(error)}`;
 }
 
 const MATRIX_POLL_INTERVAL_MS = 3000;
@@ -316,10 +342,12 @@ const MATRIX_POLL_INTERVAL_MS = 3000;
 // A refresh fetches every review page at the shop's robots.txt Crawl-delay, so the server
 // answers 202 while it runs in the background; poll until the matrix or its error arrives. A read
 // without refresh never fetches: without a stored matrix it is refused with `NO_MATRIX`, and the
-// console asks for a refresh only when the reviewer does.
+// console asks for a refresh only when the reviewer does. `refreshed` tells whether a refresh,
+// the console's own or one it joined, stored the matrix meanwhile.
 async function loadSchemaMatrix(reviewId, refresh) {
     const matrix = await api(`/api/reviews/${reviewId}/matrix${refresh ? '?refresh=true' : ''}`);
-    return pollSchemaMatrix(reviewId, matrix);
+    const refreshed = refresh || matrix?.status === 'refreshing';
+    return {matrix: await pollSchemaMatrix(reviewId, matrix), refreshed};
 }
 
 async function pollSchemaMatrix(reviewId, matrix) {
@@ -339,19 +367,39 @@ async function pollSchemaMatrix(reviewId, matrix) {
 async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     if (!selectedId) return;
     const reviewId = selectedId;
-    const detail = await api(`/api/reviews/${reviewId}`);
+    let detail = await api(`/api/reviews/${reviewId}`);
     let matrix = null;
     let matrixFailure = '';
     let matrixMissing = false;
+    let candidateChangedMeanwhile = false;
     if (detail.review.artifact_type === 'PRODUCT_SCHEMA') {
+        matrixRefreshesInFlight.set(reviewId, (matrixRefreshesInFlight.get(reviewId) || 0) + 1);
         try {
-            matrix = await loadSchemaMatrix(reviewId, refreshMatrix);
-        } catch (error) {
-            matrix = {review_id: reviewId, candidates: [], removed_page_matches: []};
-            if (refusalReason(error) === 'NO_MATRIX') {
-                matrixMissing = true;
+            let refreshed = refreshMatrix;
+            try {
+                ({matrix, refreshed} = await loadSchemaMatrix(reviewId, refreshMatrix));
+            } catch (error) {
+                matrix = {review_id: reviewId, candidates: [], removed_page_matches: []};
+                if (refusalReason(error) === 'NO_MATRIX') {
+                    matrixMissing = true;
+                } else {
+                    matrixFailure = apiErrorMessage(error);
+                }
+            }
+            // A refresh stores its matrix on the review and so moves the review's `updated`: the
+            // review read after it is the baseline, so the refresh does not look like a change
+            // made elsewhere. A candidate another writer changed meanwhile still does.
+            if (refreshed) {
+                const before = detail.review.candidate_version;
+                detail = await api(`/api/reviews/${reviewId}`);
+                candidateChangedMeanwhile = detail.review.candidate_version !== before;
+            }
+        } finally {
+            const left = (matrixRefreshesInFlight.get(reviewId) || 1) - 1;
+            if (left > 0) {
+                matrixRefreshesInFlight.set(reviewId, left);
             } else {
-                matrixFailure = apiErrorMessage(error);
+                matrixRefreshesInFlight.delete(reviewId);
             }
         }
     }
@@ -365,8 +413,10 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     selectedMatrixMissing = matrixMissing;
     selectedReviewUpdatedAt = detail.review.updated;
     selectedReviewStatus = detail.review.status;
-    selectedReviewNeedsRefresh = false;
-    selectedReviewRefreshReason = '';
+    selectedReviewNeedsRefresh = candidateChangedMeanwhile;
+    selectedReviewRefreshReason = candidateChangedMeanwhile
+        ? 'The candidate was changed elsewhere while the schema matrix was evaluated; it is shown as it is now.'
+        : '';
     if (resetSelection) {
         selectedSchemaIndex = 0;
         compareSchemaIndex = 1;
@@ -401,10 +451,11 @@ function renderDetail(detail, matrix) {
         </div>
         ${renderApprovalPanel(detail)}
       </div>
+      <div id="actionPanel">${renderActionPanel()}</div>
+      <div id="editMessages">${renderEditMessages()}</div>
       ${renderHumanRequired(review)}
       ${renderRepairRequest(review)}
       ${renderReviewEvents(detail)}
-      ${renderEditRefusal()}
       ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
@@ -891,13 +942,14 @@ function addSampleLabel() {
 async function saveSampleLabels() {
     const labels = currentSampleLabels(selectedDetail.review)
         .map(({url, label, reason}) => ({url, label, reason}));
-    await submitEdit(async () => {
+    await submitMutation(async () => {
         const saved = await api(`/api/reviews/${selectedId}/sample-labels`, {
             method: 'POST',
             body: JSON.stringify({expected_candidate_version: expectedCandidateVersion(), labels})
         });
         recordSavedCandidateVersion(saved);
         sampleLabelDraft = null;
+    }, 'Sample labels saved.', async () => {
         await loadSelectedReview(false);
         await loadReviews();
     });
@@ -1067,6 +1119,7 @@ function renderRuleOptions(rule) {
           <select onchange="setCurrentRuleType(this.value)">
             <option value="text" ${type === 'text' ? 'selected' : ''}>Text</option>
             <option value="attribute" ${type === 'attribute' ? 'selected' : ''}>Attribute</option>
+            <option value="image_url" ${type === 'image_url' ? 'selected' : ''} title="The best full-size image URL candidate of each matched element">Image URL</option>
           </select>
         </label>
       </div>
@@ -1289,15 +1342,22 @@ async function saveRemovedPageTemplates() {
     await saveCandidatePayload(schemasPayload());
 }
 
-// The server refuses an edit or a verdict with a message (an invalid rule or template, a stale
-// approved review, a page outside the ListingSource, a closed review, incomplete coverage); it
-// stays above the workbench with the unsaved edits so the reviewer can correct them. Returns
-// whether the request went through.
-async function submitEdit(edit) {
+// Every request the console makes for the selected review goes through here, so none fails
+// unreported. The server refuses an edit or a verdict with a message (an invalid rule or template,
+// a stale approved review, a page outside the ListingSource, a closed review, incomplete
+// coverage); the message, with the HTTP status, or the network failure stays above the workbench
+// with the unsaved edits so the reviewer can correct them. A request with a `successMessage`
+// confirms itself with it. Returns whether the request went through.
+async function submitEdit(edit, successMessage = '') {
     const reviewId = selectedId;
     editRefusal = null;
+    if (successMessage) editNotice = null;
     try {
         await edit();
+        if (successMessage && !editRefusal && selectedId === reviewId) {
+            editNotice = {reviewId, message: successMessage};
+            updateEditMessages();
+        }
         return true;
     } catch (error) {
         editRefusal = {reviewId, message: apiErrorMessage(error)};
@@ -1311,9 +1371,48 @@ async function submitEdit(edit) {
             selectedReviewNeedsRefresh = true;
             selectedReviewRefreshReason = `Not approved: the review's coverage is ${coverageText({...coverage, notEvaluated: coverage.not_evaluated})}. Refresh the review and confirm its current coverage.`;
         }
-        if (selectedDetail && selectedId === reviewId) rerenderWorkbench();
+        if (selectedId === reviewId) {
+            if (selectedDetail?.review.review_id === reviewId) {
+                rerenderWorkbench();
+            } else {
+                renderReviewLoadFailure();
+            }
+        }
         return false;
     }
+}
+
+// Sends `mutation`, confirms it with `successMessage`, and then reloads the review with `reload`:
+// a reload that fails is reported apart from the mutation, which went through. Returns whether
+// the mutation went through.
+async function submitMutation(mutation, successMessage, reload) {
+    if (!await submitEdit(mutation, successMessage)) return false;
+    await submitEdit(reload);
+    return true;
+}
+
+// Reloading the review discards its local edits; a reload that fails keeps them, as they are
+// still on screen.
+async function reloadDiscardingEdits(reload) {
+    const edits = {dirty, sampleLabelDraft};
+    dirty = false;
+    sampleLabelDraft = null;
+    const loaded = await submitEdit(reload);
+    if (!loaded) {
+        ({dirty, sampleLabelDraft} = edits);
+        updateReloadState();
+    }
+    return loaded;
+}
+
+// The selected review could not be loaded, so no detail of it is shown to keep the message with.
+function renderReviewLoadFailure() {
+    selectedDetail = null;
+    selectedMatrix = null;
+    document.getElementById('detail').innerHTML = `<div class="hint-card finding-hint" role="alert">
+      <span>The review could not be loaded: ${escapeHtml(editRefusal?.message || '')}</span>
+      <button onclick="selectReview(selectedId)">Retry</button>
+    </div>`;
 }
 
 // Every candidate edit names the candidate version it was based on, so the server refuses it
@@ -1352,18 +1451,50 @@ function renderMatrixNotice(detail, matrix) {
     </div>`;
 }
 
-function renderEditRefusal() {
-    if (!editRefusal || editRefusal.reviewId !== selectedId) return '';
-    return `<div class="hint-card finding-hint"><span>${escapeHtml(editRefusal.message)}</span></div>`;
+function renderEditMessages() {
+    const refusal = editRefusal && editRefusal.reviewId === selectedId
+        ? `<div class="hint-card finding-hint edit-message" role="alert">
+            <span>${escapeHtml(editRefusal.message)}</span>
+            <button class="message-dismiss" onclick="dismissEditMessage('refusal')" title="Dismiss" aria-label="Dismiss">&times;</button>
+          </div>`
+        : '';
+    const notice = editNotice && editNotice.reviewId === selectedId
+        ? `<div class="hint-card success-hint edit-message" role="status">
+            <span>${escapeHtml(editNotice.message)}</span>
+            <button class="message-dismiss" onclick="dismissEditMessage('notice')" title="Dismiss" aria-label="Dismiss">&times;</button>
+          </div>`
+        : '';
+    return refusal + notice;
 }
 
+// Updates the messages alone, so unsaved edits in the workbench's inputs stay as typed.
+function updateEditMessages() {
+    const messages = document.getElementById('editMessages');
+    if (messages) messages.innerHTML = renderEditMessages();
+}
+
+function dismissEditMessage(kind) {
+    if (kind === 'refusal') {
+        editRefusal = null;
+    } else {
+        editNotice = null;
+    }
+    updateEditMessages();
+}
+
+// The server's `error` with the HTTP status, or the network failure of a request that got no answer.
 function apiErrorMessage(error) {
     const message = String((error && error.message) || error);
+    let text = message;
     try {
-        return JSON.parse(message).error || message;
-    } catch (_) {
-        return message;
+        text = JSON.parse(message).error || message;
+    } catch (_) {}
+    if (error?.network) return `Request failed, the console server did not answer: ${text}`;
+    if (Number.isInteger(error?.status)) {
+        const status = `HTTP ${error.status}${error.statusText ? ` ${error.statusText}` : ''}`;
+        return text ? `${status}: ${text}` : status;
     }
+    return text;
 }
 
 function renderJsonPanel(detail) {
@@ -1892,20 +2023,22 @@ async function reloadMatrix() {
 }
 
 // Re-evaluating reloads the review's candidate, so it asks before discarding unsaved edits,
-// and with them a refusal of those edits.
+// and with them a refusal of those edits. The matrix, or why there is none, shows its outcome.
 async function reevaluateMatrix() {
-    if (!confirmDiscardingEdits()) return;
-    editRefusal = null;
-    await reloadMatrix();
+    await confirmDiscardingEdits('Re-evaluating', () => {
+        editNotice = null;
+        return reloadDiscardingEdits(reloadMatrix);
+    });
 }
 
 // Loading the current review discards the local edits, and with them a refusal of those edits.
 async function refreshSelectedReview() {
-    dirty = false;
-    sampleLabelDraft = null;
-    editRefusal = null;
-    await loadSelectedReview(false);
-    await loadReviews();
+    editNotice = null;
+    pendingAction = null;
+    return reloadDiscardingEdits(async () => {
+        await loadSelectedReview(false);
+        await loadReviews();
+    });
 }
 
 function schemasPayload() {
@@ -2090,7 +2223,7 @@ async function deleteCurrentRule() {
 }
 
 async function saveSchemaField(rule) {
-    await submitEdit(async () => {
+    await submitMutation(async () => {
         const saved = await api(`/api/reviews/${selectedId}/schema-field`, {
             method: 'POST',
             body: JSON.stringify({
@@ -2101,36 +2234,48 @@ async function saveSchemaField(rule) {
             })
         });
         recordSavedCandidateVersion(saved);
-        await loadSelectedReview(false, true);
-        await loadReviews();
-    });
+    }, rule ? 'Field saved.' : 'Rule deleted.', reloadSavedCandidate);
 }
 
+const DISCARDS_EDITS = 'reloads the review and discards its unsaved edits.';
+
 // Re-evaluating the matrix, or adding or removing a review page, reloads the review and
-// evaluates the matrix on its page set, so unsaved edits would be lost.
-function confirmDiscardingEdits() {
-    return !dirty || confirm('Discard the unsaved edits of this review?');
+// evaluates the matrix on its page set, so unsaved edits would be lost: `run` waits for the
+// reviewer to discard them.
+function confirmDiscardingEdits(what, run) {
+    if (!dirty) return run();
+    openActionPanel({
+        title: 'Discard unsaved edits?',
+        message: `${what} ${DISCARDS_EDITS}`,
+        confirmLabel: 'Discard edits and continue',
+        danger: true,
+        run
+    });
 }
 
 async function addReviewPage() {
     const input = document.getElementById('livePreviewUrl');
     const url = ((input && input.value) || '').trim();
-    if (!url || !confirmDiscardingEdits()) return;
-    await submitEdit(async () => {
+    if (!url) return;
+    await confirmDiscardingEdits('Adding the page', () => submitMutation(async () => {
         const page = await api(`/api/reviews/${selectedId}/pages`, {method: 'POST', body: JSON.stringify({url})});
         selectedPageId = page.review_page_id;
         previewUrlOverride = '';
-        await reloadMatrix();
-    });
+    }, 'Page added to the review.', reloadMatrix));
 }
 
-async function removeReviewPage() {
+function removeReviewPage() {
     const page = (selectedDetail.pages || []).find(p => p.review_page_id === selectedPageId);
-    if (!pageRemovable(page) || !confirmDiscardingEdits() || !confirm(`Remove ${page.url} from the review pages?`)) return;
-    await submitEdit(async () => {
-        await api(`/api/review-pages/${page.review_page_id}`, {method: 'DELETE'});
-        selectedPageId = null;
-        await reloadMatrix();
+    if (!pageRemovable(page)) return;
+    openActionPanel({
+        title: 'Remove review page',
+        message: `Remove ${page.url} from the review pages?${dirty ? ` Removing it ${DISCARDS_EDITS}` : ''}`,
+        confirmLabel: 'Remove page',
+        danger: true,
+        run: () => submitMutation(async () => {
+            await api(`/api/review-pages/${page.review_page_id}`, {method: 'DELETE'});
+            selectedPageId = null;
+        }, 'Page removed from the review.', reloadMatrix)
     });
 }
 
@@ -2177,66 +2322,202 @@ function postHighlightSoon() {
     }, 350);
 }
 
-// A product-schema candidate that does not cover every review page is approved only once the
-// reviewer confirms the counts; the approval names them, and the server refuses it without them
-// or once the review's coverage differs from them. Cancelling either dialog sends no verdict.
-async function approveReview() {
-    const coverage = selectedDetail?.review.artifact_type === 'PRODUCT_SCHEMA'
-        ? reviewPageCoverage(selectedDetail, selectedMatrix)
-        : null;
-    const incompleteCoverage = coverage !== null && !coverageComplete(coverage);
-    if (incompleteCoverage && !confirm(`Coverage is incomplete: ${coverageText(coverage)}.\n\nApprove this candidate anyway?`)) return;
-    const notes = prompt('Notes');
-    if (notes === null) return;
-    const verdict = {notes: notes || null, expected_candidate_version: expectedCandidateVersion()};
-    if (incompleteCoverage) verdict.acknowledged_coverage = acknowledgedCoverage(coverage);
-    await submitVerdict('approve', verdict);
+// The review an action panel acts on, as the reviewer finds it in the queue.
+function selectedReviewName() {
+    const review = selectedDetail?.review || {};
+    return `${review.listing_source_name || review.listing_source_id || 'review'}, ${displayName(review.artifact_type)}`;
+}
+
+// Approve takes the stored candidate, so unsaved edits are saved or discarded first; it never
+// approves past them.
+function approveReview() {
+    if (dirty) {
+        openActionPanel({
+            title: 'Unsaved edits',
+            message: 'Approve takes the stored candidate, not your unsaved edits. Save them with their Save button, or discard them, before approving.',
+            confirmLabel: 'Discard edits',
+            danger: true,
+            run: discardEdits
+        });
+        return;
+    }
+    // A product-schema candidate that does not cover every review page is approved only once the
+    // reviewer confirms the counts; the approval names them, and the server refuses it without
+    // them or once the review's coverage differs from them.
+    const shownCoverage = incompleteApprovalCoverage();
+    openActionPanel({
+        title: `Approve ${selectedReviewName()}`,
+        message: shownCoverage
+            ? `Coverage is incomplete: ${coverageText(shownCoverage)}. Approving confirms these counts.`
+            : '',
+        notes: 'optional',
+        confirmLabel: shownCoverage ? 'Approve anyway' : 'Approve',
+        // The panel stays open while the reviewer works on: edits made since it opened, or a
+        // coverage that changed, ask again instead of approving past them.
+        run: notes => {
+            const coverage = incompleteApprovalCoverage();
+            if (dirty || JSON.stringify(coverage) !== JSON.stringify(shownCoverage)) {
+                pendingAction = null;
+                approveReview();
+                return false;
+            }
+            const verdict = {notes, expected_candidate_version: expectedCandidateVersion()};
+            if (coverage) verdict.acknowledged_coverage = acknowledgedCoverage(coverage);
+            return submitVerdict('approve', verdict, 'Approved.');
+        }
+    });
+}
+
+// The selected product-schema review's coverage while it is incomplete, or null.
+function incompleteApprovalCoverage() {
+    if (selectedDetail?.review.artifact_type !== 'PRODUCT_SCHEMA') return null;
+    const coverage = reviewPageCoverage(selectedDetail, selectedMatrix);
+    return coverageComplete(coverage) ? null : coverage;
 }
 
 // Brings back what this review's approval replaced, while what it made live is still live.
-// Cancelling either dialog sends nothing.
-async function restoreApproval() {
+function restoreApproval() {
     const what = selectedDetail?.review.artifact_type === 'URL_PATTERN'
         ? 'the URL pattern'
         : 'the schema list and removed-page templates';
-    if (!confirm(`Restore ${what} this approval replaced? Pages waiting on a review are retried with it.`)) return;
-    const notes = prompt('Why restore?');
-    if (notes === null) return;
-    await submitVerdict('restore', {notes: notes || null});
+    openActionPanel({
+        title: `Restore previous: ${selectedReviewName()}`,
+        message: `Restore ${what} this approval replaced? Pages waiting on a review are retried with it.`,
+        notes: 'optional',
+        notesLabel: 'Why restore? (optional)',
+        confirmLabel: 'Restore previous',
+        run: notes => submitVerdict('restore', {notes}, 'Previous configuration restored.')
+    });
 }
 
-// Lets the crawler scrape this review's seed and triggering pages again. Cancelling either dialog
-// sends nothing.
-async function revokeRejection() {
-    if (!confirm('Revoke this rejection? Its seed and triggering pages are classified again by their URL pattern and scraped again; a page no cached schema extracts opens a new review.')) return;
-    const notes = prompt('Why revoke?');
-    if (notes === null) return;
-    await submitVerdict('revoke-rejection', {notes: notes || null});
+// Lets the crawler scrape this review's seed and triggering pages again.
+function revokeRejection() {
+    openActionPanel({
+        title: `Revoke rejection: ${selectedReviewName()}`,
+        message: 'Revoke this rejection? Its seed and triggering pages are classified again by their URL pattern and scraped again; a page no cached schema extracts opens a new review.',
+        notes: 'optional',
+        notesLabel: 'Why revoke? (optional)',
+        confirmLabel: 'Revoke rejection',
+        run: notes => submitVerdict('revoke-rejection', {notes}, 'Rejection revoked.')
+    });
 }
 
-async function rejectReview() {
-    const notes = prompt('Notes');
-    if (notes === null) return;
-    await submitVerdict('reject', {notes: notes || null});
+function rejectReview() {
+    openActionPanel({
+        title: `Reject ${selectedReviewName()}`,
+        notes: 'optional',
+        confirmLabel: 'Reject',
+        danger: true,
+        run: notes => submitVerdict('reject', {notes}, 'Rejected.')
+    });
 }
 
-async function needsRepair() {
-    const notes = (prompt('What needs repair?') || '').trim();
-    if (!notes) return;
-    await submitVerdict('needs-repair', {notes});
+function needsRepair() {
+    openActionPanel({
+        title: `Needs repair: ${selectedReviewName()}`,
+        notes: 'required',
+        notesLabel: 'What needs repair?',
+        confirmLabel: 'Request repair',
+        run: notes => submitVerdict('needs-repair', {notes}, 'Repair requested.')
+    });
 }
 
 // A refused verdict leaves the review on screen as it was and shows why; only an accepted one
 // reloads the review and the queue.
-async function submitVerdict(verdict, body) {
+async function submitVerdict(verdict, body, successMessage) {
     const reviewId = selectedId;
-    const decided = await submitEdit(() => api(`/api/reviews/${reviewId}/${verdict}`, {
+    return submitMutation(() => api(`/api/reviews/${reviewId}/${verdict}`, {
         method: 'POST',
         body: JSON.stringify(body)
-    }));
-    if (!decided) return;
-    await loadReviews();
-    await loadSelectedReview(false);
+    }), successMessage, async () => {
+        await loadReviews();
+        await loadSelectedReview(false);
+    });
+}
+
+// Review mutations take the reviewer's confirmation and notes in a panel on the page, never in
+// prompt() or confirm(): browsers embedded in other apps or run headless do not implement them,
+// and the panel shows which review it acts on. Cancelling it sends nothing; a refused request
+// keeps it open with the notes as typed. `notes` is null, 'optional' or 'required'.
+function openActionPanel(action) {
+    if (pendingAction?.busy) return;
+    pendingAction = {notesLabel: 'Notes (optional)', ...action, reviewId: selectedId, notesText: '', busy: false};
+    updateActionPanel();
+    const panel = document.getElementById('actionPanel');
+    if (!panel) return;
+    panel.scrollIntoView({block: 'nearest'});
+    (document.getElementById('actionPanelNotes') || document.getElementById('actionPanelConfirm'))?.focus();
+}
+
+function renderActionPanel() {
+    const action = pendingAction;
+    if (!action || action.reviewId !== selectedId) return '';
+    const busy = action.busy ? 'disabled' : '';
+    const blocked = action.notes === 'required' && !action.notesText.trim() ? 'disabled' : '';
+    return `<div class="action-panel ${action.danger ? 'action-panel-danger' : ''}" role="dialog" aria-label="${escapeHtmlAttr(action.title)}" onkeydown="actionPanelKeydown(event)">
+      <strong>${escapeHtml(action.title)}</strong>
+      ${action.message ? `<div class="action-panel-message">${escapeHtml(action.message)}</div>` : ''}
+      ${action.notes ? `<label>${escapeHtml(action.notesLabel)}
+        <textarea id="actionPanelNotes" rows="3" ${busy} oninput="setActionPanelNotes(this.value)">${escapeHtml(action.notesText)}</textarea>
+      </label>` : ''}
+      <div class="actions">
+        <button id="actionPanelConfirm" class="${action.danger ? 'danger' : 'primary'}" ${busy || blocked} onclick="confirmActionPanel()">${escapeHtml(action.busy ? 'Sending…' : action.confirmLabel)}</button>
+        <button ${busy} onclick="cancelActionPanel()">Cancel</button>
+      </div>
+    </div>`;
+}
+
+// Updates the panel alone, so unsaved edits in the workbench's inputs stay as typed.
+function updateActionPanel() {
+    const panel = document.getElementById('actionPanel');
+    if (panel) panel.innerHTML = renderActionPanel();
+}
+
+// Typing keeps the textarea focused, so it changes the notes without rendering the panel again.
+function setActionPanelNotes(value) {
+    if (!pendingAction) return;
+    pendingAction.notesText = value;
+    const confirmButton = document.getElementById('actionPanelConfirm');
+    if (confirmButton && pendingAction.notes === 'required') confirmButton.disabled = !value.trim();
+}
+
+function actionPanelKeydown(event) {
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelActionPanel();
+    } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        confirmActionPanel();
+    }
+}
+
+function cancelActionPanel() {
+    if (pendingAction?.busy) return;
+    pendingAction = null;
+    updateActionPanel();
+}
+
+async function confirmActionPanel() {
+    const action = pendingAction;
+    if (!action || action.busy || action.reviewId !== selectedId) return;
+    // Notes go as before the panel: required notes trimmed, optional ones as typed or null.
+    const notes = action.notes === 'required' ? action.notesText.trim() : (action.notesText || null);
+    if (action.notes === 'required' && !notes) return;
+    action.busy = true;
+    updateActionPanel();
+    let done = false;
+    try {
+        done = (await action.run(notes)) !== false;
+    } catch (error) {
+        editRefusal = {reviewId: action.reviewId, message: apiErrorMessage(error)};
+        updateEditMessages();
+    } finally {
+        if (pendingAction === action) {
+            action.busy = false;
+            if (done) pendingAction = null;
+            updateActionPanel();
+        }
+    }
 }
 
 async function saveCandidate() {
@@ -2251,15 +2532,19 @@ async function saveCandidate() {
 async function saveCandidatePayload(payload) {
     selectedDetail.review.candidate_payload = payload;
     markDirty();
-    await submitEdit(async () => {
+    return submitMutation(async () => {
         const saved = await api(`/api/reviews/${selectedId}/candidate`, {
             method: 'POST',
             body: JSON.stringify({...payload, expected_candidate_version: expectedCandidateVersion()})
         });
         recordSavedCandidateVersion(saved);
-        await loadSelectedReview(false, true);
-        await loadReviews();
-    });
+    }, 'Candidate saved.', reloadSavedCandidate);
+}
+
+// A saved candidate drops the stored matrix, so the review is evaluated again on its pages.
+async function reloadSavedCandidate() {
+    await loadSelectedReview(false, true);
+    await loadReviews();
 }
 
 async function moveCurrentSchema(delta) {
@@ -2289,27 +2574,36 @@ async function addNewSchema() {
     await saveCandidatePayload(payload);
 }
 
-async function deleteCurrentSchema() {
-    const payload = schemasPayload();
-    const schemas = payload.schemas || [];
-    if (schemas.length <= 1) return;
-    if (!confirm(`Delete ${schemaLabel(selectedSchemaIndex)}?`)) return;
-    schemas.splice(selectedSchemaIndex, 1);
-    payload.schemas = schemas;
-    selectedSchemaIndex = Math.min(selectedSchemaIndex, schemas.length - 1);
-    compareSchemaIndex = Math.min(compareSchemaIndex, Math.max(0, schemas.length - 1));
-    if (compareSchemaIndex === selectedSchemaIndex && schemas.length > 1) {
-        compareSchemaIndex = selectedSchemaIndex === 0 ? 1 : 0;
-    }
-    selectedDetail.review.candidate_payload = payload;
-    await saveCandidatePayload(payload);
+function deleteCurrentSchema() {
+    if (currentSchemas().length <= 1) return;
+    const deletedIndex = selectedSchemaIndex;
+    openActionPanel({
+        title: `Delete ${schemaLabel(deletedIndex)}?`,
+        message: 'Saves the candidate\'s schema list without it.',
+        confirmLabel: 'Delete schema',
+        danger: true,
+        run: () => {
+            const payload = schemasPayload();
+            const schemas = payload.schemas || [];
+            if (schemas.length <= 1 || deletedIndex >= schemas.length) return false;
+            schemas.splice(deletedIndex, 1);
+            payload.schemas = schemas;
+            selectedSchemaIndex = Math.min(deletedIndex, schemas.length - 1);
+            compareSchemaIndex = Math.min(compareSchemaIndex, Math.max(0, schemas.length - 1));
+            if (compareSchemaIndex === selectedSchemaIndex && schemas.length > 1) {
+                compareSchemaIndex = selectedSchemaIndex === 0 ? 1 : 0;
+            }
+            selectedDetail.review.candidate_payload = payload;
+            // A refused save keeps the deletion as an unsaved edit, so the panel closes either
+            // way and confirming again never deletes another schema.
+            return saveCandidatePayload(payload).then(() => true);
+        }
+    });
 }
 
 async function discardEdits() {
-    dirty = false;
-    sampleLabelDraft = null;
-    editRefusal = null;
-    await loadSelectedReview(false);
+    editNotice = null;
+    return reloadDiscardingEdits(() => loadSelectedReview(false));
 }
 
 function markDirty() {
@@ -2362,7 +2656,7 @@ function updateSelectedReviewFreshness(reviews) {
     } else if (selectedReviewStatus && current.status !== selectedReviewStatus) {
         selectedReviewNeedsRefresh = true;
         selectedReviewRefreshReason = `Status changed from ${selectedReviewStatus} to ${current.status}.`;
-    } else if (isNewerTimestamp(current.updated, selectedReviewUpdatedAt)) {
+    } else if (!matrixRefreshesInFlight.has(selectedId) && isNewerTimestamp(current.updated, selectedReviewUpdatedAt)) {
         selectedReviewNeedsRefresh = true;
         selectedReviewRefreshReason = 'Selected review was updated elsewhere.';
     } else {
@@ -2500,7 +2794,7 @@ setInterval(async () => {
     try {
         await loadReviews();
     } catch (err) {
-        document.getElementById('reloadState').textContent = String(err);
+        reportQueueFailure(err);
     }
 }, 5000);
 
