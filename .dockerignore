@@ -16,6 +16,7 @@
 /infra/cdk.out
 **/target
 **/validation
+/src/search-filter-service/benchmarks/real-world-v1
 **/certs
 **/certs/**
 **/secrets

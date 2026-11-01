@@ -1,0 +1,35 @@
+{
+  "id": 168181,
+  "accession_number": "2009.77",
+  "title": "Cabinet Clock",
+  "creation_date": "c.  1770–75",
+  "creation_date_earliest": 1770,
+  "creation_date_latest": 1775,
+  "culture": [
+    "England, late 18th century"
+  ],
+  "technique": "gold, agate, enamel dial, glass",
+  "type": "Miscellaneous",
+  "measurements": "Overall: 16.5 x 8.9 cm (6 1/2 x 3 1/2 in.)",
+  "creators": [
+    {
+      "id": 55084,
+      "description": "James Cox (British)",
+      "extent": null,
+      "qualifier": "attributed to",
+      "role": "artist",
+      "biography": "Though James Cox was celebrated during his lifetime, the date and place of birth are unknown. According to the Clockmaker's Records, J. Cox was established at the Racquet Court in London in 1749 and a trade-card now in the British Museum, engraved as his address Racquet Court, Fleet Street, at the sign of the Golden Urn. From 1756-1759 he was in partnership with the clockmaker Edward Grace when, according to a later trade-card in the British Museum, Cox was at the Golden Urn, Shoe Lane. Nothing further is known of his activities between 1751-1766. Objects signed by James Cox belong to the British Royal Collection, the British Museum, the Louvre, the Metropolitan Museum, the Walters Art Gallery, and the private collectors.",
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "In the 1700s and early 1800s, luxurious objects such as jewelry, miniatures, snuff boxes, and vanity cases emphasized their owner’s refinement and wealth. Especially popular were small cases with clocks and moving mechanical devices that played a handful of musical tunes. James Cox, the London goldsmith responsible for this clock and case, was known for creating such tuneful surprises, although this work no longer contains such a mechanism. Its glittering surface disguises a system based on the labor and suffering of enslaved people, whether in gold and stone mines or in shops where these goods were made by indentured apprentices. Many of these timepieces were designed for export and sold to the Chinese emperor Ch'ien Lung (1711–1799) and his court in attempt to balance out the substantial amount of tea that Britain was importing at the time.",
+  "url": "https://clevelandart.org/art/2009.77",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Howard F. Stirn",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2009.77/2009.77_web.jpg",
+  "image_path": "../assets/cma-168181.jpg"
+}

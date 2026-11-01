@@ -1,0 +1,37 @@
+{
+  "id": 160091,
+  "accession_number": "1997.6",
+  "title": "On the Harlem River",
+  "creation_date": "1855",
+  "creation_date_earliest": 1855,
+  "creation_date_latest": 1855,
+  "culture": [
+    "America"
+  ],
+  "technique": "watercolor with gouache, over graphite, framing lines in graphite",
+  "type": "Drawing",
+  "measurements": "Sheet: 37.8 x 51.4 cm (14 7/8 x 20 1/4 in.)",
+  "creators": [
+    {
+      "id": 6680,
+      "description": "William Rickarby Miller (American, 1818–1893)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1818",
+      "death_year": "1893",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "When William Rickarby Miller arrived in America from England in 1845, he found watercolor painting in a dismal state—“a branch of Painting scarcely at all cultivated here.” Nonetheless, Miller made his living producing watercolors for print publications, depicting picturesque American woodlands with the staid British technique of his training. In <em>On the Harlem</em> <em>River, </em>Miller overlays delicate graphite line work with tints of luminous watercolor and dense gouache, capturing the color and light effects of a crisp autumn day. His meticulous transcription of individual leaves, branches, and stones displays his technical finesse, as well as his interest in documenting the particularities of nature. He shared this preoccupation with the Hudson River School, a mid-century American landscape painting movement whose members used detailed, on-site drawings of natural subjects as aids in making oil paintings. Miller’s great innovation was to marry the Hudson River manner to the medium of watercolor, anticipating the landscapes of American watercolorists in the decades to follow.",
+  "url": "https://clevelandart.org/art/1997.6",
+  "share_license_status": "CC0",
+  "creditline": "Leonard C. Hanna Jr. Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1997.6/1997.6_web.jpg",
+  "image_path": "../assets/cma-160091.jpg"
+}

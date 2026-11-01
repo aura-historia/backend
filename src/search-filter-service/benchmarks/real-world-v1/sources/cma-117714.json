@@ -1,0 +1,35 @@
+{
+  "id": 117714,
+  "accession_number": "1938.331",
+  "title": "Punch Bowl",
+  "creation_date": "c. 1770",
+  "creation_date_earliest": 1765,
+  "creation_date_latest": 1775,
+  "culture": [
+    "England, Worcester"
+  ],
+  "technique": "soft-paste porcelain",
+  "type": "Ceramic",
+  "measurements": "Face: 11.5 x 27.7 cm (4 1/2 x 10 7/8 in.)",
+  "creators": [
+    {
+      "id": 14375,
+      "description": "Worcester Porcelain Factory (British, established 1751)",
+      "extent": null,
+      "qualifier": null,
+      "role": "maker",
+      "biography": "The longest-lived and considered one of the best English porcelain factories, the Worcester factory was founded in 1751. The first era of the factory's history is known as the \"Dr. Wall Period\" (1751-1776) after John Wall, who was one of the founders and shareholders.",
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Encircling the exterior of this bowl are four segments containing fanciful birds with wide eyes, long necks, and colorful feathers. Both the birds and their frames were inspired by Chinese motifs that had been adapted and popularized by the French. During the 1700s, punch drinking was well suited for large social gatherings and served as a popular alternative to tea drinking. In fact, the exotic birds and scrolling cartouches featured on this porcelain punch bowl also adorned many of Worcester’s tea services.",
+  "url": "https://clevelandart.org/art/1938.331",
+  "share_license_status": "CC0",
+  "creditline": "Given in memory of John MacGregor Jr. and Mary Folger MacGregor, by Mrs. John F. McGuire",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1938.331/1938.331_web.jpg",
+  "image_path": "../assets/cma-117714.jpg"
+}

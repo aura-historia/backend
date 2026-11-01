@@ -1,0 +1,36 @@
+{
+  "id": 154558,
+  "accession_number": "1989.183.a",
+  "title": "Covered Milk Jug",
+  "creation_date": "c. 1765",
+  "creation_date_earliest": 1760,
+  "creation_date_latest": 1770,
+  "culture": [
+    "Germany, Meissen, 18th century"
+  ],
+  "technique": "porcelain with gilt metal mounts",
+  "type": "Ceramic",
+  "measurements": "Overall: 20.5 x 15.5 x 12.3 cm (8 1/16 x 6 1/8 x 4 13/16 in.)",
+  "creators": [
+    {
+      "id": 11685,
+      "description": "Meissen Porcelain Factory (German, est. c. 1710)",
+      "extent": null,
+      "qualifier": null,
+      "role": "made by",
+      "biography": "the first and for half a century the best in Europe. It set a high standard which was emulated everywhere, even in China. Founded in 1710 as the Royal Saxon Porcelain Manufacture by Augustus the Strong, Elector of Saxony and King of Poland, at Meissen, near Dresden.",
+      "name_in_original_language": null,
+      "birth_year": "1710",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1989.183.a",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Mrs. Severance A. Millikin",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1989.183.a/1989.183.a_web.jpg",
+  "image_path": "../assets/cma-154558.jpg"
+}

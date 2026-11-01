@@ -1,0 +1,50 @@
+{
+  "id": 128088,
+  "accession_number": "1951.103",
+  "title": "Plate from the Swan Service",
+  "creation_date": "c. 1737–1741",
+  "creation_date_earliest": 1732,
+  "creation_date_latest": 1746,
+  "culture": [
+    "Germany, Meissen, 18th century"
+  ],
+  "technique": "porcelain",
+  "type": "Ceramic",
+  "measurements": "Diameter: 42 cm (16 9/16 in.)",
+  "creators": [
+    {
+      "id": 11685,
+      "description": "Meissen Porcelain Factory (German, est. c. 1710)",
+      "extent": null,
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": "the first and for half a century the best in Europe. It set a high standard which was emulated everywhere, even in China. Founded in 1710 as the Royal Saxon Porcelain Manufacture by Augustus the Strong, Elector of Saxony and King of Poland, at Meissen, near Dresden.",
+      "name_in_original_language": null,
+      "birth_year": "1710",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 40976,
+      "description": "Johann Joachim Kändler (German, 1706–1768)",
+      "extent": null,
+      "qualifier": null,
+      "role": "designed by",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1706",
+      "death_year": "1768",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "The Swan service was made for Count Brühl, director of the Meissen factory between 1737 and 1741.",
+  "url": "https://clevelandart.org/art/1951.103",
+  "share_license_status": "CC0",
+  "creditline": "Thirty-fifth anniversary gift from Rosenberg & Stiebel, Inc.",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1951.103/1951.103_web.jpg",
+  "image_path": "../assets/cma-128088.jpg"
+}

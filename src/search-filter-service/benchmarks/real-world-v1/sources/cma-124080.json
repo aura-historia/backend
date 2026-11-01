@@ -1,0 +1,37 @@
+{
+  "id": 124080,
+  "accession_number": "1944.82",
+  "title": "Portrait of Mary Wise",
+  "creation_date": "c. 1774",
+  "creation_date_earliest": 1773,
+  "creation_date_latest": 1774,
+  "culture": [
+    "England, 18th century"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Unframed: 76.2 x 63.6 cm (30 x 25 1/16 in.)",
+  "creators": [
+    {
+      "id": 1313,
+      "description": "Thomas Gainsborough (British, 1727–1788)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1727",
+      "death_year": "1788",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Mary’s modest and contemplative demeanor is a counterpoint to a rather elaborate ensemble consisting of a gown embroidered with gold flower sprigs, trimmed with lace and pearls, and tied with a gold sash, as well as a gold-striped veil and a bracelet with eight gold bands. Gainsborough’s compact oval format and the sitter’s informal pose lend this portrait an air of intimacy.",
+  "url": "https://clevelandart.org/art/1944.82",
+  "share_license_status": "CC0",
+  "creditline": "The Elisabeth Severance Prentiss Collection",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1944.82/1944.82_web.jpg",
+  "image_path": "../assets/cma-124080.jpg"
+}

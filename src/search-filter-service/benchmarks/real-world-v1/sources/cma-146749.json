@@ -1,0 +1,35 @@
+{
+  "id": 146749,
+  "accession_number": "1972.189",
+  "title": "Cup and Saucer (tasse et soucoupe)",
+  "creation_date": "1700–1720",
+  "creation_date_earliest": 1700,
+  "creation_date_latest": 1720,
+  "culture": [
+    "France, Saint Cloud, 18th century"
+  ],
+  "technique": "soft-paste porcelain with underglaze blue decoration",
+  "type": "Ceramic",
+  "measurements": "Overall: 7.5 x 7.5 cm (2 15/16 x 2 15/16 in.)",
+  "creators": [
+    {
+      "id": 11810,
+      "description": "Saint Cloud Porcelain Factory (French)",
+      "extent": null,
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": "Established c. 1690s",
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "The cobalt blue and white decoration that borders the edges of the cup and saucer was one of the earliest types of decoration used at the Saint-Cloud porcelain factory. This type of cup and saucer pair may have been called a <em>trembleuse </em>(trembler) due to the raised ring around the well of the saucer that would have secured the cup in trembling hands.",
+  "url": "https://clevelandart.org/art/1972.189",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Mrs. Everett R. Castle",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1972.189/1972.189_web.jpg",
+  "image_path": "../assets/cma-146749.jpg"
+}

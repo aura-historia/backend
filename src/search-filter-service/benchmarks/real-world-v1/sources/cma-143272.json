@@ -1,0 +1,37 @@
+{
+  "id": 143272,
+  "accession_number": "1967.21",
+  "title": "Seascape",
+  "creation_date": "1892",
+  "creation_date_earliest": 1892,
+  "creation_date_latest": 1892,
+  "culture": [
+    "United States"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Unframed: 46.3 x 64.7 cm (18 1/4 x 25 1/2 in.)",
+  "creators": [
+    {
+      "id": 3249,
+      "description": "Henry Ward Ranger (American, 1858–1916)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1858",
+      "death_year": "1916",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1967.21",
+  "share_license_status": "CC0",
+  "creditline": "The A. W. Ellenberger, Sr., Endowment Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1967.21/1967.21_web.jpg",
+  "image_path": "../assets/cma-143272.jpg"
+}

@@ -1,0 +1,37 @@
+{
+  "id": 103275,
+  "accession_number": "1921.345",
+  "title": "The Hour of the Snake (from the series A Clock for Young Women)",
+  "creation_date": "c. 1796",
+  "creation_date_earliest": 1791,
+  "creation_date_latest": 1801,
+  "culture": [
+    "Japan, Edo period (1615–1868)"
+  ],
+  "technique": "color woodblock print",
+  "type": "Print",
+  "measurements": "Sheet: 36.2 x 23.2 cm (14 1/4 x 9 1/8 in.)",
+  "creators": [
+    {
+      "id": 23355,
+      "description": "Kitagawa Utamaro (Japanese, c. 1754–1806)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": "喜多川 歌麿",
+      "birth_year": "1754",
+      "death_year": "1806",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1921.345",
+  "share_license_status": "CC0",
+  "creditline": "Gift from J. H. Wade",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1921.345/1921.345_web.jpg",
+  "image_path": "../assets/cma-103275.jpg"
+}

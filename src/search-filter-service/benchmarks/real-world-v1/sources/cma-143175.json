@@ -1,0 +1,51 @@
+{
+  "id": 143175,
+  "accession_number": "1967.153",
+  "title": "Clock",
+  "creation_date": "c. 1695",
+  "creation_date_earliest": 1690,
+  "creation_date_latest": 1700,
+  "culture": [
+    "France, late 17th Century"
+  ],
+  "technique": "tortoise shell and brass inlay, gilt bronze",
+  "type": "Furniture and woodwork",
+  "measurements": "Overall: 113.7 cm (44 3/4 in.)",
+  "creators": [
+    {
+      "id": 12058,
+      "description": "André-Charles Boulle (French, 1642–1732)",
+      "extent": null,
+      "qualifier": null,
+      "role": "maker",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1642",
+      "death_year": "1732",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 12904,
+      "description": "Balthazar Martinot II (French, 1636–1714)",
+      "extent": null,
+      "qualifier": null,
+      "role": "clockmaker",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1636",
+      "death_year": "1714",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 2
+    }
+  ],
+  "description": "Appointed cabinetmaker to King Louis XIV in 1672, André-Charles Boulle became a master of furniture making in France during the late 1600s until his death in 1732. Known primarily for his use of marquetry, in which metal patterns are inlaid into tortoiseshell then applied within the veneered surface of the furniture, Boulle established a level of quality and craftsmanship few others could achieve. As a result, his work found favor at the royal court and among other aristocrats and diplomats eager to impress the king. Often exhibiting stout architectural proportions with elegant groups of inlaid motifs, Boulle’s designs are an example of the intellectual fashion for contrasting ideas, materials, and motifs. With its relatively new scientific invention of a pendulum mechanism and the addition of a barometer, the mantel clock represented the wealth, prestige, and intellect of its owner.",
+  "url": "https://clevelandart.org/art/1967.153",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Family and Friends in honor of Emery May Holden Norweb and Raymond Henry Norweb on their fiftieth wedding anniversary",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1967.153/1967.153_web.jpg",
+  "image_path": "../assets/cma-143175.jpg"
+}

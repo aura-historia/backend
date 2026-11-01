@@ -1,0 +1,37 @@
+{
+  "id": 169614,
+  "accession_number": "2011.43",
+  "title": "Haverstraw Bay",
+  "creation_date": "1868",
+  "creation_date_earliest": 1868,
+  "creation_date_latest": 1868,
+  "culture": [
+    "United States"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Unframed: 24.2 x 50.8 cm (9 1/2 x 20 in.)",
+  "creators": [
+    {
+      "id": 2816,
+      "description": "Sanford Robinson Gifford (American, 1823–1880)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1823",
+      "death_year": "1880",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Located about 40 miles north of New York City, Haverstraw Bay is the widest point on the Hudson River. During the 1860s, it was a prime area for shad fishing, and Gifford’s painting records this activity taking place amid a delicately luminous morning haze.",
+  "url": "https://clevelandart.org/art/2011.43",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Dr. Paul J. Vignos Jr.",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2011.43/2011.43_web.jpg",
+  "image_path": "../assets/cma-169614.jpg"
+}

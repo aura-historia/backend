@@ -1,0 +1,36 @@
+{
+  "id": 156855,
+  "accession_number": "1992.70",
+  "title": "Tall Clock",
+  "creation_date": "c. 1880",
+  "creation_date_earliest": 1875,
+  "creation_date_latest": 1885,
+  "culture": [
+    "America, New York"
+  ],
+  "technique": "mahogany, teak with dial faces of gilded and patinated metal, glass",
+  "type": "Furniture and woodwork",
+  "measurements": "Overall: 247.3 x 66 x 36.5 cm (97 3/8 x 26 x 14 3/8 in.)",
+  "creators": [
+    {
+      "id": 7431,
+      "description": "Tiffany & Co. (America, New York, est. 1837)",
+      "extent": "manufactured by",
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1837",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "In 1879, Louis Comfort Tiffany joined several other artisans to create an interior decoration firm called Associated Artists. The firm was very influential in advocating a rejection of historical styles in favor of the new fashion from more eclectic sources of inspiration, including the Islamic world and Japan. One of Tiffany's partners, Lockwood De Forest, traveled extensively in India to find carved wood and other decorative accessories that could be used in their designs. This clock's design was one result of this collaboration. The heavily carved panels on the clock were likely purchased in India during this time and assembled with a clock mechanism from Tiffany's father's shop, Tiffany and Co., whose name appears on the clock face.",
+  "url": "https://clevelandart.org/art/1992.70",
+  "share_license_status": "CC0",
+  "creditline": "The Severance and Greta Millikin Purchase Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1992.70/1992.70_web.jpg",
+  "image_path": "../assets/cma-156855.jpg"
+}

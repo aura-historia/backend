@@ -1,0 +1,37 @@
+{
+  "id": 447836,
+  "accession_number": "2022.158",
+  "title": "Sake Pourer with Chrysanthemum, Orchid, and Plum",
+  "creation_date": "c. 1887",
+  "creation_date_earliest": 1887,
+  "creation_date_latest": 1887,
+  "culture": [
+    "Japan, Meiji period (1868–1912)"
+  ],
+  "technique": "Porcelain with underglaze blue",
+  "type": "Ceramic",
+  "measurements": "height with handle: 23 cm (9 1/16 in.); width with spout: 24 cm (9 7/16 in.); Diameter: 18.5 cm (7 5/16 in.)",
+  "creators": [
+    {
+      "id": 299428,
+      "description": "Seifū Yohei III (Japanese, 1851–1914)",
+      "extent": null,
+      "qualifier": null,
+      "role": null,
+      "biography": null,
+      "name_in_original_language": "三代清風与平",
+      "birth_year": "1851",
+      "death_year": "1914",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Seifū Yohei II and his successor, Seifū Yohei III, trained in ink painting. Their brush skills are seen in their underglaze cobalt blue designs. Orchid, bamboo, chrysanthemum, and plum, appearing on Yohei III’s sake pourer, are known as the Four Gentlemen. They symbolize the virtues of humility, integrity, endurance, and perseverance.",
+  "url": "https://clevelandart.org/art/2022.158",
+  "share_license_status": "CC0",
+  "creditline": "Gift of James and Christine Heusinger",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2022.158/2022.158_web.jpg",
+  "image_path": "../assets/cma-447836.jpg"
+}

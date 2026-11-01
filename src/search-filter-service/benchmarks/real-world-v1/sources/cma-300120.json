@@ -1,0 +1,49 @@
+{
+  "id": 300120,
+  "accession_number": "2018.261",
+  "title": "\"Pony\" Wisteria Lamp",
+  "creation_date": "c. 1902–10",
+  "creation_date_earliest": 1902,
+  "creation_date_latest": 1910,
+  "culture": [
+    "America, New York"
+  ],
+  "technique": "leaded glass, bronze",
+  "type": "Lamp",
+  "measurements": "Overall: 43.2 cm (17 in.); Diameter: 26.7 cm (10 1/2 in.)",
+  "creators": [
+    {
+      "id": 356976,
+      "description": "Clara Wolcott Driscoll (American, 1861–1944)",
+      "extent": null,
+      "qualifier": null,
+      "role": "designer",
+      "biography": "Cleveland Institute of Art alumni.",
+      "name_in_original_language": null,
+      "birth_year": "1861",
+      "death_year": "1944",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    },
+    {
+      "id": 292194,
+      "description": "Tiffany Studios (United States, New York, 1902–32)",
+      "extent": "execution",
+      "qualifier": null,
+      "role": "maker",
+      "biography": "American jewelry and glass manufactory, 1902-1932",
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 2
+    }
+  ],
+  "description": "The dawn of the 20th century spurred fresh approaches to design. Louis Comfort Tiffany’s great contribution to this new art movement, termed the Art Nouveau, was not only the shimmering iridescence of his Favrile glass but also the naturalistic compositions of his lamps and windows, which brought him commercial and critical success in both Europe and America. The artistic blend of sculpture and function in the <em>Wisteria </em>lamp, in which the base rises up to form the branches of the vine, became a hallmark of Tiffany's Art Nouveau production. This lamp, designed by Clara Wolcott Driscoll, Tiffany's chief lamp designer, won a grand prize for Tiffany Studios at the 1902 international exposition in Turin, Italy.",
+  "url": "https://clevelandart.org/art/2018.261",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Charles Maurer",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2018.261/2018.261_web.jpg",
+  "image_path": "../assets/cma-300120.jpg"
+}

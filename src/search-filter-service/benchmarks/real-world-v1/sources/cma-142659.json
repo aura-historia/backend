@@ -1,0 +1,37 @@
+{
+  "id": 142659,
+  "accession_number": "1966.382",
+  "title": "The Cliffs at Beg-ar-Fry, Saint-Jean-du-Doigt",
+  "creation_date": "1895",
+  "creation_date_earliest": 1895,
+  "creation_date_latest": 1895,
+  "culture": [
+    "France, 19th century"
+  ],
+  "technique": "oil on fabric",
+  "type": "Painting",
+  "measurements": "Framed: 66.5 x 80 x 4.5 cm (26 3/16 x 31 1/2 x 1 3/4 in.); Unframed: 60 x 73.3 cm (23 5/8 x 28 7/8 in.)",
+  "creators": [
+    {
+      "id": 1810,
+      "description": "Maxime Maufra (French, 1861–1918)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": "Maxime Maufra, taught by local artists, began painting in his hometown of Nantes. It was not until 1883, after having returned from Great Britain, where he had discovered the Old Masters and the English painters Thomas Gainsborough (1727-1788), Constable (q.v.), and Turner (q.v.), that Maufra gave up a business career and began to devote himself entirely to painting. Three years later he exhibited two landscapes at the 1886 Paris Salon to critical acclaim. He then traveled throughout Normandy and Brittany painting seascapes and landscapes and settled in Paris in 1892, returning every year to Brittany. It was during a visit in Pont-Aven in 1890 that he met Gauguin (q.v.) and Paul Sérusier (1864-1927). The work of these artists overshadowed the influence he had undergone from such painters as Pissarro (q.v.) and Sisley (q.v.). By 1890 he was greatly affected by synthetism, the style invented by Émile Bernard (1868-1941) and developed by Gauguin, that translates forms into flat colored planes arranged in a decorative pattern. This style is most apparent in Maufra's prints and drawings. In 1894 Le Barc de Bouteville held an exhibition of Maufra's work, and the dealer Durand-Ruel supported his artistic career until the end.",
+      "name_in_original_language": null,
+      "birth_year": "1861",
+      "death_year": "1918",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Maxime Maufra was initially an amateur artist, but in 1883 he gave up a career in business to devote himself entirely to painting. He traveled throughout Normandy and Britany painting sea- and landscapes. During a visit to Pont-Aven in northwestern France in 1890 he met Paul Gauguin and a group of young artists who were inspired by Gauguin’s approaches to color and composition in his art. In particular, Maufra began to translate forms into flat planes of bold color arranged in decorative patterns as seen in this seascape of the Breton coast. Perhaps the most striking aspect of this painting is the way the artist framed the composition at the left with the view of a steep cliff.",
+  "url": "https://clevelandart.org/art/1966.382",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Ellen Wade Chinn, Elizabeth Wade Sedgwick and J. H. Wade III in memory of their mother Irene Love Wade",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1966.382/1966.382_web.jpg",
+  "image_path": "../assets/cma-142659.jpg"
+}

@@ -1,0 +1,36 @@
+{
+  "id": 99563,
+  "accession_number": "1919.186",
+  "title": "Saucer",
+  "creation_date": "c. 1723",
+  "creation_date_earliest": 1718,
+  "creation_date_latest": 1728,
+  "culture": [
+    "Germany, Meissen, 18th century"
+  ],
+  "technique": "porcelain",
+  "type": "Ceramic",
+  "measurements": "Overall: 2.2 x 12.3 cm (7/8 x 4 13/16 in.)",
+  "creators": [
+    {
+      "id": 11685,
+      "description": "Meissen Porcelain Factory (German, est. c. 1710)",
+      "extent": null,
+      "qualifier": null,
+      "role": "manufacturer",
+      "biography": "the first and for half a century the best in Europe. It set a high standard which was emulated everywhere, even in China. Founded in 1710 as the Royal Saxon Porcelain Manufacture by Augustus the Strong, Elector of Saxony and King of Poland, at Meissen, near Dresden.",
+      "name_in_original_language": null,
+      "birth_year": "1710",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "In 1720 Johann Gregor Herold became art director of the Meissen factory and developed the styles of decoration that made it famous. Both the quality and the variety of enamel colors were improved, and the paste achieved the brilliant whiteness and perfection of surface that characterizes mature Meissen wares. Herold introduced \"chinoiserie\" decorations, in which comparatively large-scale half-length figures were set against landscapes with cloudy skies. The high quality of its painting suggests that Herold himself may have decorated this saucer.",
+  "url": "https://clevelandart.org/art/1919.186",
+  "share_license_status": "CC0",
+  "creditline": "Gift of Rev. Alfred Duane Pell",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1919.186/1919.186_web.jpg",
+  "image_path": "../assets/cma-99563.jpg"
+}

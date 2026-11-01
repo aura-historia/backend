@@ -1,0 +1,37 @@
+{
+  "id": 147464,
+  "accession_number": "1973.2",
+  "title": "Castle on a River",
+  "creation_date": "1644",
+  "creation_date_earliest": 1644,
+  "creation_date_latest": 1644,
+  "culture": [
+    "Netherlands"
+  ],
+  "technique": "oil on wood",
+  "type": "Painting",
+  "measurements": "Framed: 57 x 79 x 5.5 cm (22 7/16 x 31 1/8 x 2 3/16 in.); Unframed: 39.3 x 60.5 cm (15 1/2 x 23 13/16 in.)",
+  "creators": [
+    {
+      "id": 2835,
+      "description": "Salomon van Ruysdael (Dutch, 1602–1670)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1602",
+      "death_year": "1670",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Salomon van Ruysdael, the uncle of Jacob van Ruisdael, here represents a free interpretation of the Castle Loevenstein. In addition to its picturesque qualities, the castle had great political and cultural importance as the official state prison and a key fort in the southern Netherlands. Painted just before the Dutch won independence from Spain in 1648, the painting likely expressed nationalist pride for its owner.",
+  "url": "https://clevelandart.org/art/1973.2",
+  "share_license_status": "CC0",
+  "creditline": "Mr. and Mrs. William H. Marlatt Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1973.2/1973.2_web.jpg",
+  "image_path": "../assets/cma-147464.jpg"
+}

@@ -1,0 +1,37 @@
+{
+  "id": 100953,
+  "accession_number": "1920.1301",
+  "title": "Rocky River Bridge",
+  "creation_date": "before 1920",
+  "creation_date_earliest": 1899,
+  "creation_date_latest": 1920,
+  "culture": [
+    "America, Ohio, Cleveland"
+  ],
+  "technique": "etching",
+  "type": "Print",
+  "measurements": "Plate: 28.1 x 22.7 cm (11 1/16 x 8 15/16 in.)",
+  "creators": [
+    {
+      "id": 32514,
+      "description": "Orville Houghton Peets (American, 1884–1968)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": "Orville Houghton Peets was a printmaker and painter whose early career was closely tied to Cleveland. After showing promise as an illustrator in high school, Peets traveled to Paris in 1903, where he studied at the Académie Julian and the École des Beaux-Arts under painters such as Jean-Léon Gérôme, William-Adolphe Bouguereau, and Fernand Cormon. Through his courses, he acquired an appreciation for technique above all else and emphasized realism throughout his career. The artist quickly gained recognition for his painting of the Cuyahoga River that was hung in the prestigious Salon des Artistes Français of 1913, later followed by his articles about the international role of American art. Peets traveled between Cleveland and France throughout the 1910s, publishing drawings of Senlis Cathedral and the destruction of World War I in <em>The Century </em>magazine. In 1914, he met and married fellow artist Ethel Canby, who was his etching student. After the war, Peets was again taken abroad by a commission for The Hispanic Society of America, which involved creating art to promote interest in Portuguese culture. During this period, he produced a significant volume of work, especially prints. Peets continued to send his work back home to his wife, who entered it in the Cleveland Museum of Art’s May Shows throughout the 1920s. In 1926, he returned to America, and the two lived at the artists’ colony at Woodstock, New York, until differences with artistic direction caused Peets to leave in 1931. The artist worked as a professor at the new Wilmington Academy of Art in Delaware during the Great Depression, eventually transferring to be an instructor at the Rehoboth Art League in 1937. By the 1940s, Peets worked as a professional portrait painter. His works from Portugal were not exhibited together until 1967, a year before his death.",
+      "name_in_original_language": null,
+      "birth_year": "1884",
+      "death_year": "1968",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "A bridge spanning the Rocky River to the west of Cleveland was built and rebuilt many times since its original construction in 1819. This image depicts the 1910 bridge, which was the longest stretch of unreinforced concrete in the world at the time. The area was a popular boating spot: Peets depicted a boatyard with “Launches for Sale” below the bridge. The small rowboats of Rocky River differ significantly from the images that Peets and other Cleveland artists made of the Cuyahoga, which often featured large steamboats and barges.",
+  "url": "https://clevelandart.org/art/1920.1301",
+  "share_license_status": "CC0",
+  "creditline": "Gift of George W. Bierce",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1920.1301/1920.1301_web.jpg",
+  "image_path": "../assets/cma-100953.jpg"
+}

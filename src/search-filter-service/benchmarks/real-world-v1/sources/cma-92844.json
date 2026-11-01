@@ -1,0 +1,37 @@
+{
+  "id": 92844,
+  "accession_number": "2020.110",
+  "title": "Blessing of a Yacht on the Belon River",
+  "creation_date": "1899",
+  "creation_date_earliest": 1899,
+  "creation_date_latest": 1899,
+  "culture": [
+    "France"
+  ],
+  "technique": "oil on canvas",
+  "type": "Painting",
+  "measurements": "Unframed: 75 x 80 cm (29 1/2 x 31 1/2 in.)",
+  "creators": [
+    {
+      "id": 22965,
+      "description": "Maurice Denis (French, 1870–1943)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1870",
+      "death_year": "1943",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Maurice Denis made this painting during the summer of 1899 while vacationing with his family in the coastal village of Le Pouldu in Brittany in northwestern France. Two-thirds of this canvas is filled by the lavender-pink surface of the water, dotted with touches of color that suggest reflections of flags and sails on the Belon River. Local women wearing traditional headdresses observe the scene from the riverbank in the foreground, shaded by trees whose foliage frames the top of the composition.",
+  "url": "https://clevelandart.org/art/2020.110",
+  "share_license_status": "CC0",
+  "creditline": "Nancy F. and Joseph P. Keithley Collection Gift",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2020.110/2020.110_web.jpg",
+  "image_path": "../assets/cma-92844.jpg"
+}

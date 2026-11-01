@@ -1,0 +1,37 @@
+{
+  "id": 155626,
+  "accession_number": "1990.7",
+  "title": "The Lock at Pontoise",
+  "creation_date": "1872",
+  "creation_date_earliest": 1872,
+  "creation_date_latest": 1872,
+  "culture": [
+    "France, 19th century"
+  ],
+  "technique": "oil on fabric",
+  "type": "Painting",
+  "measurements": "Framed: 76.8 x 105.7 x 11.4 cm (30 1/4 x 41 5/8 x 4 1/2 in.); Unframed: 53 x 83 cm (20 7/8 x 32 11/16 in.)",
+  "creators": [
+    {
+      "id": 1836,
+      "description": "Camille Pissarro (French, 1830–1903)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": "Camille Pissarro's parents ran a general merchandise business on St. Thomas. After attending boarding school in Paris, Pissarro returned to the West Indies to work for his father from 1847 until 1852. As an artist he was largely self-taught, receiving some instruction from Fritz Melbye (1826-1896), a Danish artist with whom he traveled to Venezuela in 1852. When Pissarro returned to Paris in 1855, he shared a studio with Anton Melbye (1818-1875), Fritz's brother, and with David Jacobsen (1821-1871). He took classes at the École des Beaux-Arts in 1856 and three years later attended the Académie Suisse, where he befriended artists such as Cézanne (q.v.), Monet (q.v.), and Guillaumin (q.v.). Corot (q.v.) encouraged him to paint landscapes around Paris, and he was listed as Corot's pupil in the catalogues of the Salons of 1864 and 1865. He had met Julie Vellay in 1860, with whom he would have eight children; they married in 1871. Pissarro exhibited regularly at the Salons from 1859 to 1870, although his work received little attention and he sold hardly anything. In 1866 he settled in Pontoise, often returning to Paris where he kept a studio. He frequented Émile Zola's \"Thursdays\" (weekly literary gatherings) and associated with Manet's (q.v.) artistic circle that gathered in the Café Guerbois. During the Franco-Prussian War (1870-71) Pissarro fled with his family, first to Montfoucault and then to London, where he worked with Monet and Daubigny (q.v.) and was introduced to the dealer Durand-Ruel. In 1872 he returned to Pontoise, where he painted with Cézanne. Around 1869 Pissarro began painting in a purely impressionist style, and in 1874 he helped organize the first impressionist exhibition. He moved to Éragny-sur-Epte in 1884, where he came into contact with Seurat (q.v.) and Paul Signac (1863-1935) and subsequently began to work in a pointillist style. He eventually found this technique too limiting, and returned to an impressionist mode, often working in series. By the end of his career his landscapes and depictions of city life sold well, and in 1892 he was given a retrospective exhibition at Durand-Ruel. By now, the artist had developed strongly anarchist convictions. Pissarro not only painted and made drawings, he also experimented with etching and lithography.",
+      "name_in_original_language": null,
+      "birth_year": "1830",
+      "death_year": "1903",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Pissarro was instrumental in developing the radically new Impressionist technique of painting quickly outdoors to capture fleeting effects of light and atmosphere. The rushing water and overcast sky in this view of a river lock near the artist’s home at Pontoise, a rural commune about 17 miles northwest of Paris, are rendered with rapid, broken brushstrokes of pure color. Painting directly on canvas without preliminary drawing, Pissarro may have executed this work in a single session. The shimmering surface of broken color conveys the sensation of natural, outdoor light.",
+  "url": "https://clevelandart.org/art/1990.7",
+  "share_license_status": "CC0",
+  "creditline": "Leonard C. Hanna Jr. Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1990.7/1990.7_web.jpg",
+  "image_path": "../assets/cma-155626.jpg"
+}

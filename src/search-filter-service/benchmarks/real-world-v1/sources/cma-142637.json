@@ -1,0 +1,35 @@
+{
+  "id": 142637,
+  "accession_number": "1966.362",
+  "title": "Clock",
+  "creation_date": "c. 1750",
+  "creation_date_earliest": 1745,
+  "creation_date_latest": 1755,
+  "culture": [
+    "Germany, 18th century"
+  ],
+  "technique": "carved and gilded wood, faience",
+  "type": "Furniture and woodwork",
+  "measurements": "Overall: 97.8 x 59.7 x 37.2 cm (38 1/2 x 23 1/2 x 14 5/8 in.)",
+  "creators": [
+    {
+      "id": 12875,
+      "description": "Baumgartinger (German)",
+      "extent": null,
+      "qualifier": null,
+      "role": "movement maker",
+      "biography": "several members of a family of clockmakers named Baumgartinger are recorded as having worked in Mergentheim, a town in Württemberg close to the border of Bavaria, in the 18th century.",
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": null,
+  "url": "https://clevelandart.org/art/1966.362",
+  "share_license_status": "CC0",
+  "creditline": "John L. Severance Fund",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1966.362/1966.362_web.jpg",
+  "image_path": "../assets/cma-142637.jpg"
+}

@@ -1,0 +1,37 @@
+{
+  "id": 105638,
+  "accession_number": "1923.745",
+  "title": "River Landscape with Large Tree at Left",
+  "creation_date": "1546",
+  "creation_date_earliest": 1546,
+  "creation_date_latest": 1546,
+  "culture": [
+    "Germany"
+  ],
+  "technique": "etching",
+  "type": "Print",
+  "measurements": "Image: 13.9 x 20.8 cm (5 1/2 x 8 3/16 in.); Sheet: 13.9 x 20.8 cm (5 1/2 x 8 3/16 in.)",
+  "creators": [
+    {
+      "id": 26076,
+      "description": "Augustin Hirschvogel (German, 1503–1553)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "birth_year": "1503",
+      "death_year": "1553",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Within a decade, Augustin Hirschvogel and Hanns Lautensack were aware of the landscapes by Wolfgang Huber and Albrecht Altdorfer and began to expand their artistic vocabulary. Hirschvogel probably made this group of etchings after traveling down the Danube from Nuremberg, through Regensburg and Passau, to his residence in Vienna. The many buildings, cultivated fields, and roads emphasize human activity and its mark on the landscape but always in the service of articulating a particular topography. Hirschvogel’s etchings found an international audience, informing the development of the landscape genre as far away as Italy and the Netherlands.",
+  "url": "https://clevelandart.org/art/1923.745",
+  "share_license_status": "CC0",
+  "creditline": "Gift of The Print Club of Cleveland",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1923.745/1923.745_web.jpg",
+  "image_path": "../assets/cma-105638.jpg"
+}

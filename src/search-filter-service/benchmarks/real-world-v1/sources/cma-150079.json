@@ -1,0 +1,37 @@
+{
+  "id": 150079,
+  "accession_number": "1980.284",
+  "title": "Still Life with Asparagus",
+  "creation_date": "c. 1880",
+  "creation_date_earliest": 1880,
+  "creation_date_latest": 1890,
+  "culture": [
+    "France, 19th century"
+  ],
+  "technique": "oil on fabric",
+  "type": "Painting",
+  "measurements": "Unframed: 36 x 65 cm (14 3/16 x 25 9/16 in.)",
+  "creators": [
+    {
+      "id": 1591,
+      "description": "Philippe Rousseau (French, 1816–1887)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": "The son of an opera singer, Philippe Rousseau is said to have apprenticed with Gros (q.v.) and Bertin (q.v.). Their impact, however, remains minor, and Rousseau appears to have been largely self-taught. He made his debut at the Salon of 1834, and would exhibit there throughout his life. He initially painted landscapes, often depicting scenes from Normandy. It was not until 1844 that he began exhibiting still lifes. One year later he combined what would become his two principal genres, the still life and the animal painting, in a work entitled The City Rat and the Country Rat (1845, location unknown), for which he received his first Salon prize, a third-class medal. Based on a fable by La Fontaine, this sort of anecdotal painting would become representative of his oeuvre. When he painted animals, he typically chose small ones, such as birds, cats, and dogs, and he often integrated them in a still-life setting. For this latter specialty he had proclaimed Jean-Baptiste-Siméon Chardin (1699-1779) \"his God.\" Rousseau paid an impressive tribute to his eighteenth-century predecessor in Chardin et ses modèles (1867, Musée d'Orsay, Paris). In the center of that composition, Rousseau depicted a framed portrait of Chardin surrounded by many of the objects the artist used in his still lifes. Fortune shined on Rousseau and he was adopted by the establishment of the Second Empire-the court of Napoleon III, Princess Mathilde, Baron James de Rothschild, Alexandre Dumas, etc. He thus received a comfortable income at a time when many of his colleagues and friends were living in poverty. His art, moderately realist, gravitated around the styles of such artists as Bonvin (q.v.), but was less \"sophisticated\"; Vollon, but less \"Dutch\"; Fantin-Latour (q.v.), but less \"idealist\"; and Manet (q.v.), but less \"radical.\"",
+      "name_in_original_language": null,
+      "birth_year": "1816",
+      "death_year": "1887",
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "Rousseau was profoundly influenced by the atmospheric still lifes of Jean Siméon Chardin (1699-1779), whom the artist and other French painters like François Bonvin (1817-1877) rediscovered in the mid-1800s. A comparison with Chardin's work, also shown in this gallery, indicates that Rousseau similarly depicted foodstuffs on a simple kitchen table, concentrating on rich textures and restrained colors.",
+  "url": "https://clevelandart.org/art/1980.284",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Noah L. Butkin",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/1980.284/1980.284_web.jpg",
+  "image_path": "../assets/cma-150079.jpg"
+}

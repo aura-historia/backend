@@ -1,0 +1,35 @@
+{
+  "id": 172939,
+  "accession_number": "2018.287",
+  "title": "Turtleback Reading Lamp",
+  "creation_date": "c. 1895–1902",
+  "creation_date_earliest": 1895,
+  "creation_date_latest": 1902,
+  "culture": [
+    "America, New York"
+  ],
+  "technique": "Favrile glass, bronze",
+  "type": "Lamp",
+  "measurements": "Overall: 35.6 cm (14 in.); Diameter of top: 35.6 x 21.6 cm (14 x 8 1/2 in.); Diameter of base: 35.6 x 15.2 cm (14 x 6 in.)",
+  "creators": [
+    {
+      "id": 55726,
+      "description": "Tiffany Glass & Decorating Company (America, New York, 1892–1902)",
+      "extent": null,
+      "qualifier": null,
+      "role": "artist",
+      "biography": null,
+      "name_in_original_language": null,
+      "use_in_caption": true,
+      "include_extent": false,
+      "weight": 1
+    }
+  ],
+  "description": "By 1900 Louis Comfort Tiffany had expanded his empire by increasing the firm’s production of “fancy goods,” including inkstands, candlesticks, clocks, small boxes, desk sets, tea screens, and other functional objects, such as this small reading lamp for a desk. These smaller, more affordable luxury items were designed with as much thought to artistry as the great stained glass windows and table lamps through which the firm enjoyed unrivaled success.",
+  "url": "https://clevelandart.org/art/2018.287",
+  "share_license_status": "CC0",
+  "creditline": "Bequest of Charles Maurer",
+  "image_credit": null,
+  "downloaded_image_source": "https://openaccess-cdn.clevelandart.org/2018.287/2018.287_web.jpg",
+  "image_path": "../assets/cma-172939.jpg"
+}
