@@ -1,26 +1,44 @@
-use crate::scraper::css_selector::product_schema::{
-    ExtractionLogging, ProductCssSelectorSchema, RawExtractedProduct,
-};
+use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
 use sha2::{Digest, Sha256};
 
-/// Returns the page hash: the SHA-256 hex digest of what each schema of `schemas`, in order,
-/// extracts from `html`, or of the fact that it does not apply.
+/// Returns the page hash of `html` for `schemas` (see [`hash_extractions`]), parsing the page
+/// and extracting it silently: the hash a scrape stores, for tests to compare with.
+#[cfg(test)]
+pub(crate) fn hash_page(html: &str, schemas: &[ProductCssSelectorSchema]) -> String {
+    let document = scraper::Html::parse_document(html);
+    let extractions = schemas
+        .iter()
+        .map(|schema| {
+            schema
+                .extract(
+                    &document,
+                    crate::scraper::css_selector::product_schema::ExtractionLogging::Silent,
+                )
+                .map(|extraction| extraction.raw)
+                .ok()
+        })
+        .collect::<Vec<_>>();
+    hash_extractions(extractions.iter().map(Option::as_ref))
+}
+
+/// Returns the page hash: the SHA-256 hex digest of what each schema of the effective schema
+/// set, in order, extracts from the page, or of the fact that it does not apply (`None`).
 ///
 /// It covers exactly what extraction reads, wherever it is on the page. Content no schema
 /// extracts, such as the form tokens, nonces, session ids in links and randomised form labels
 /// some shops render on every request, leaves it unchanged; a change to any value a schema
-/// extracts changes it (`docs/crawler/extraction-and-review.md#extraction-contract`). It
-/// extracts silently, so it adds no log line to a scrape.
-pub(crate) fn hash_page(html: &str, schemas: &[ProductCssSelectorSchema]) -> String {
-    let document = scraper::Html::parse_document(html);
+/// extracts changes it (`docs/crawler/extraction-and-review.md#extraction-contract`).
+pub(crate) fn hash_extractions<'a>(
+    extractions: impl IntoIterator<Item = Option<&'a RawExtractedProduct>>,
+) -> String {
     let mut page = Sha256::new();
-    for schema in schemas {
-        match schema.extract(&document, ExtractionLogging::Silent) {
-            Ok(extraction) => {
+    for extraction in extractions {
+        match extraction {
+            Some(raw) => {
                 page.update([1]);
-                hash_extraction(&mut page, &extraction.raw);
+                hash_extraction(&mut page, raw);
             }
-            Err(_) => page.update([0]),
+            None => page.update([0]),
         }
     }
     hex(&page.finalize())
