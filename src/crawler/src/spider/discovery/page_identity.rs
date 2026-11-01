@@ -15,8 +15,9 @@ const MAX_HEAD_BYTES: usize = 512 * 1024;
 
 const HEAD_END: &[u8] = b"</head>";
 
-/// Markers Shopify puts into the head of every storefront page.
-const SHOPIFY_MARKERS: [&str; 2] = ["Shopify.shop", "cdn.shopify.com"];
+/// The marker Shopify puts into the head of every storefront page. `cdn.shopify.com` alone is no
+/// proof: other sites embed Shopify's Buy Button or host assets there.
+const SHOPIFY_MARKER: &str = "Shopify.shop";
 
 static IDENTITY_LINKS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("link[rel][href]").expect("identity link selector"));
@@ -34,9 +35,8 @@ pub fn page_identity_evidence(
     admits: impl Fn(&CrawledUrl) -> bool,
 ) -> PageIdentityEvidence {
     let head = String::from_utf8_lossy(head_of(html));
-    let platform = SHOPIFY_MARKERS
-        .iter()
-        .any(|marker| head.contains(marker))
+    let platform = head
+        .contains(SHOPIFY_MARKER)
         .then_some(ShopPlatform::Shopify);
     let lowercase_head = head.to_ascii_lowercase();
     if !lowercase_head.contains("canonical") && !lowercase_head.contains("hreflang") {
@@ -221,7 +221,12 @@ mod tests {
             evidence_of(r#"<script>Shopify.shop = "frenchmetro.myshopify.com";</script>"#).platform,
             Some(ShopPlatform::Shopify)
         );
-        assert_eq!(evidence_of("<title>Shop</title>").platform, None);
+        for head in [
+            "<title>Shop</title>",
+            r#"<script src="https://cdn.shopify.com/buy-button/buybutton.js"></script>"#,
+        ] {
+            assert_eq!(evidence_of(head).platform, None, "{head}");
+        }
     }
 
     #[test]
