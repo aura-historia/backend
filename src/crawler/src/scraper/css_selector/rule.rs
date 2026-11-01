@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use visible_text::{TextBoundaries, has_visible_text, visible_text};
 
-pub(crate) use image_url::{element_has_image_like_evidence, has_known_image_extension};
+pub(crate) use image_url::{
+    element_has_image_like_evidence, has_known_image_extension, srcset_descriptor_width,
+};
 
 mod image_url;
 mod visible_text;

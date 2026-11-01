@@ -1,4 +1,4 @@
-use crate::scraper::css_selector::rule::has_known_image_extension;
+use crate::scraper::css_selector::rule::{has_known_image_extension, srcset_descriptor_width};
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, parse_html};
 use serde::Serialize;
@@ -370,13 +370,12 @@ fn is_data_uri(value: &str) -> bool {
         .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
 }
 
+/// The width of a trimmed `srcset` candidate, its URL followed by its descriptors, as image
+/// extraction reads it.
 fn srcset_candidate_width(candidate: &str) -> usize {
     candidate
-        .split_whitespace()
-        .skip(1)
-        .find_map(|descriptor| descriptor.strip_suffix('w'))
-        .and_then(|width| width.parse().ok())
-        .unwrap_or_default()
+        .split_once(char::is_whitespace)
+        .map_or(0, |(_, descriptors)| srcset_descriptor_width(descriptors))
 }
 
 fn projected_attr_limit(name: &str) -> usize {

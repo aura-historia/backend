@@ -262,15 +262,19 @@ fn picture_source_srcsets<'a>(element: &scraper::ElementRef<'a>) -> Vec<&'a str>
 
 fn largest_srcset_candidate(srcset: Option<&str>) -> Option<(String, usize)> {
     srcset_candidates(srcset?)
-        .map(|(url, descriptors)| {
-            let width = descriptors
-                .split_whitespace()
-                .find_map(|part| part.strip_suffix('w'))
-                .and_then(|raw| raw.parse::<usize>().ok())
-                .unwrap_or_default();
-            (url.to_owned(), width)
-        })
+        .map(|(url, descriptors)| (url.to_owned(), srcset_descriptor_width(descriptors)))
         .max_by_key(|(_, width)| *width)
+}
+
+/// The width a `srcset` candidate's `descriptors` give with a `w` descriptor (`800w`), 0 without
+/// one. The widest candidate, the last of equally wide ones, is the one image extraction takes,
+/// and the one the page projection keeps.
+pub(crate) fn srcset_descriptor_width(descriptors: &str) -> usize {
+    descriptors
+        .split_whitespace()
+        .find_map(|part| part.strip_suffix('w'))
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or_default()
 }
 
 /// The candidates of a `srcset`, each as its URL and its descriptors, such as `2x` or
