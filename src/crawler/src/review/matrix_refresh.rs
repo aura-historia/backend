@@ -313,6 +313,7 @@ mod tests {
             &ReviewDetail {
                 review,
                 candidate_is_live: false,
+                candidate_error: None,
                 pages: Vec::new(),
                 urls: Vec::new(),
                 events: Vec::new(),
@@ -346,6 +347,7 @@ mod tests {
                 ..review.review.clone()
             },
             candidate_is_live: false,
+            candidate_error: None,
             pages: Vec::new(),
             urls: Vec::new(),
             events,

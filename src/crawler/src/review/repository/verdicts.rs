@@ -12,7 +12,7 @@ use super::review_events::{
     DomainUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
     commit_with_event,
 };
-use super::sample_labels::url_pattern_review_domain;
+use super::sample_labels::{missing_url_pattern_review_domain, url_pattern_review_domain};
 use super::schema_payload::ProductSchemaReviewCandidate;
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, crawler_domain_id_from_uuid,
@@ -402,7 +402,7 @@ async fn close_approved_review(
     review: &ReviewUnderVerdict,
     approval: Approval<'_>,
 ) -> Result<(), ReviewRepositoryError> {
-    // Storing a merged or rebased candidate already moved the version once; it moves once.
+    // Storing a rebased candidate already moved the version once; it moves once.
     sqlx::query(
         "UPDATE crawler_reviews \
          SET status = 'APPROVED', reviewer_notes = COALESCE($2, reviewer_notes), \
@@ -443,10 +443,12 @@ async fn make_reviewed_url_pattern_live(
     let pattern = candidate
         .validated_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    let domain_id = review.domain_id.ok_or(sqlx::Error::RowNotFound)?;
+    let domain_id = review
+        .domain_id
+        .ok_or_else(|| missing_url_pattern_review_domain(review_id, None))?;
     let replaced = lock_domain_url_pattern(transaction, &review.listing_source_id, domain_id)
         .await?
-        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        .ok_or_else(|| missing_url_pattern_review_domain(review_id, Some(domain_id)))?;
     let approved = DomainUrlPattern {
         url_pattern: pattern.map(str::to_owned),
         url_pattern_state: if pattern.is_some() {
@@ -556,7 +558,7 @@ async fn lock_product_schemas_going_live(
     let stored = lock_stored_removed_page_schemas(transaction, &review.listing_source_id)
         .await?
         .unwrap_or_default();
-    let live = reviewed.going_live(&review.reason, existing.as_ref(), &base, &stored)?;
+    let live = reviewed.going_live(&base, &stored);
     Ok(ProductSchemasGoingLive {
         reviewed,
         live,
@@ -615,7 +617,6 @@ struct ReviewUnderVerdict {
     listing_source_id: ListingSourceId,
     domain_id: Option<CrawlerDomainId>,
     artifact_type: String,
-    reason: String,
     candidate_payload: serde_json::Value,
     candidate_version: i64,
     validation_summary: serde_json::Value,
@@ -660,7 +661,7 @@ async fn lock_review_for_verdict(
     agent_decisions: &AgentDecisionPolicy,
 ) -> Result<ReviewUnderVerdict, ReviewRepositoryError> {
     let review = sqlx::query(
-        "SELECT status, listing_source_id, domain_id, artifact_type, reason, candidate_payload, \
+        "SELECT status, listing_source_id, domain_id, artifact_type, candidate_payload, \
                 candidate_version, validation_summary, removed_page_schemas_base \
          FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
     )
@@ -683,7 +684,6 @@ async fn lock_review_for_verdict(
             .map(crawler_domain_id_from_uuid)
             .transpose()?,
         artifact_type: review.try_get("artifact_type")?,
-        reason: review.try_get("reason")?,
         candidate_payload: review.try_get("candidate_payload")?,
         candidate_version: review.try_get("candidate_version")?,
         validation_summary: review.try_get("validation_summary")?,

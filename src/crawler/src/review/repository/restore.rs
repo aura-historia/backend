@@ -7,6 +7,7 @@ use super::review_events::{
     ProductSchemaApprovalRecord, RecordedApproval, ReviewMutation, UrlPatternApprovalRecord,
     commit_with_event, fetch_recorded_approval,
 };
+use super::sample_labels::missing_url_pattern_review_domain;
 use super::verdicts::{
     WaitingWork, lock_domain_url_pattern, make_url_pattern_live, release_work_waiting_on,
 };
@@ -185,10 +186,12 @@ async fn restore_url_pattern<'a>(
     url_classifier: UrlClassifier,
 ) -> Result<ReviewMutation<'a>, ReviewRepositoryError> {
     let record: UrlPatternApprovalRecord = approval_record(review_id, approval)?;
-    let domain_id = review.domain_id.ok_or(sqlx::Error::RowNotFound)?;
+    let domain_id = review
+        .domain_id
+        .ok_or_else(|| missing_url_pattern_review_domain(review_id, None))?;
     let live = lock_domain_url_pattern(transaction, &review.listing_source_id, domain_id)
         .await?
-        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        .ok_or_else(|| missing_url_pattern_review_domain(review_id, Some(domain_id)))?;
     if live != record.approved_url_pattern {
         return Err(ReviewRepositoryError::LiveConfigurationChangedSinceApproval(review_id));
     }

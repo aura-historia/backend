@@ -8,10 +8,9 @@
 use super::review_events::{ReviewMutation, commit_with_event};
 use super::reviewer_page_url::{ReviewPageIdentity, without_credentials};
 use super::{
-    CrawlerReviewRepository, ReviewRepositoryError, ReviewUnderEdit, lock_review_for_edit,
-    store_pending_candidate,
+    CrawlerReviewRepository, ReviewRepositoryError, ReviewUnderEdit, crawler_domain_id_from_uuid,
+    lock_review_for_edit, store_pending_candidate,
 };
-use crate::CrawlerReviewId;
 use crate::network::policy::url_matches_configured_domain;
 use crate::review::model::{
     ARTIFACT_URL_PATTERN, LabelledSampleUrl, ReviewActor, STATUS_PENDING_REVIEW, SampleLabelInput,
@@ -19,9 +18,10 @@ use crate::review::model::{
 };
 use crate::review::source_url::is_review_source_url;
 use crate::spider::utils::url::CrawledUrl;
+use crate::{CrawlerDomainId, CrawlerReviewId};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::{error, info};
 use url::Url;
 
 /// The most URLs one review's sample labels hold.
@@ -73,11 +73,9 @@ impl CrawlerReviewRepository {
         let domain = url_pattern_review_domain(&mut transaction, review_id).await?;
         let labels = validated_sample_labels(labels, &sample, &domain, OffsetDateTime::now_utc())?;
         let counts = labels.as_ref().map(SampleLabels::counts);
-        let candidate_payload = UrlPatternReviewCandidate::payload_with_sample_labels(
-            candidate_payload,
-            labels.as_ref(),
-        )
-        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+        let candidate = serde_json::from_value::<UrlPatternReviewCandidate>(candidate_payload)
+            .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+        let candidate_payload = serde_json::to_value(candidate.with_sample_labels(labels))?;
         let candidate_version =
             store_pending_candidate(&mut transaction, review_id, candidate_payload).await?;
         let counts = counts.unwrap_or_default();
@@ -103,21 +101,43 @@ impl CrawlerReviewRepository {
 }
 
 /// The domain the URL-pattern review `review_id` decides, the only one its labels may name URLs
-/// of. A URL-pattern review always names a domain of its ListingSource, so a review without one
-/// fails as an invalid stored review.
+/// of. A URL-pattern review always names a domain of its ListingSource, so a review without one,
+/// or whose domain is gone, fails with the error that names it (see
+/// [`missing_url_pattern_review_domain`]).
 pub(super) async fn url_pattern_review_domain(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
-) -> Result<String, sqlx::Error> {
-    sqlx::query_scalar(
-        "SELECT d.listing_source_domain FROM crawler_reviews r \
-         JOIN listing_source_domains d \
+) -> Result<String, ReviewRepositoryError> {
+    let (domain_id, domain) = sqlx::query_as::<_, (Option<uuid::Uuid>, Option<String>)>(
+        "SELECT r.domain_id, d.listing_source_domain FROM crawler_reviews r \
+         LEFT JOIN listing_source_domains d \
            ON d.listing_source_id = r.listing_source_id AND d.domain_id = r.domain_id \
          WHERE r.review_id = $1",
     )
     .bind(review_id.as_uuid())
-    .fetch_one(&mut **transaction)
-    .await
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+    let domain_id = domain_id.map(crawler_domain_id_from_uuid).transpose()?;
+    domain.ok_or_else(|| missing_url_pattern_review_domain(review_id, domain_id))
+}
+
+/// The error of the URL-pattern review `review_id` whose domain, `domain_id` or none, is not a
+/// domain of its ListingSource. The schema forbids both, so this is invalid persisted state and is
+/// logged at ERROR.
+pub(super) fn missing_url_pattern_review_domain(
+    review_id: CrawlerReviewId,
+    domain_id: Option<CrawlerDomainId>,
+) -> ReviewRepositoryError {
+    let error = match domain_id {
+        Some(domain_id) => ReviewRepositoryError::UrlPatternReviewDomainMissing {
+            review_id,
+            domain_id,
+        },
+        None => ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id),
+    };
+    error!(review_id = %review_id, error = %error, "URL-pattern review has no domain");
+    error
 }
 
 /// The sample labels `inputs` describe, labelled at `labelled_at`, or `None` for no label. Each

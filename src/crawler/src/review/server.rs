@@ -1093,6 +1093,7 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// Maps a refused review request to its answer, the same on every review route: 404 for an
 /// unknown review or review page, 400 for a request the review cannot take, 403 with a `reason`
 /// for a change the actor may not make, 409 for a request the review's current state refuses,
+/// a URL-pattern review whose domain is gone among them,
 /// 429 with `Retry-After` once the review agent made its decisions of the hour, and 500 for a
 /// technical failure. A 409 for a request based on an older candidate carries the review's
 /// current `candidate_version`, one for an approval of incomplete coverage, unacknowledged or
@@ -1153,7 +1154,9 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::DuplicateReviewPage(_)
         | ReviewRepositoryError::ApprovalAlreadyRestored(_)
         | ReviewRepositoryError::RejectionAlreadyRevoked(_)
-        | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_) => {
+        | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_)
+        | ReviewRepositoryError::UrlPatternReviewWithoutDomain(_)
+        | ReviewRepositoryError::UrlPatternReviewDomainMissing { .. } => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::IncompleteCoverage { coverage, .. }
@@ -1968,6 +1971,34 @@ Origin: http://127.0.0.1:7878/x
             json!({ "schemas": [], "removed_page_schemas": [] }),
             "the version is no key of the candidate"
         );
+    }
+
+    /// A URL-pattern review without its domain answers 409 with an error that names the domain,
+    /// never the 404 of an unknown review or the 500 of a database failure.
+    #[test]
+    fn should_answer_a_url_pattern_review_without_its_domain_with_a_conflict_naming_it() {
+        let review_id = CrawlerReviewId::new();
+        let domain_id = CrawlerDomainId::new();
+
+        for (error, named) in [
+            (
+                ReviewRepositoryError::UrlPatternReviewDomainMissing {
+                    review_id,
+                    domain_id,
+                },
+                domain_id.to_string(),
+            ),
+            (
+                ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id),
+                "names no domain".to_owned(),
+            ),
+        ] {
+            let response = review_error(error).to_string();
+
+            assert!(response.starts_with("HTTP/1.1 409 Conflict"), "{response}");
+            assert!(response.contains(&review_id.to_string()), "{response}");
+            assert!(response.contains(&named), "{response}");
+        }
     }
 
     /// The answers a client such as the review agent acts on: a 403 names its `reason`, a guard

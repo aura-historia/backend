@@ -601,8 +601,24 @@ async fn should_refuse_edit_of_approved_review_when_its_candidate_is_no_longer_l
     assert_eq!(live().await, vec![schema("h1.current")]);
 }
 
+/// Stores, once, the live-list merge a pending legacy single-schema append or repair review used
+/// to get only when read, edited or approved.
+async fn materialize_legacy_single_schema_reviews(pool: &PgPool) {
+    sqlx::raw_sql(include_str!(
+        "../migrations/20261101093715_materialize_legacy_single_schema_reviews.sql"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// A pending legacy append review holding one schema gets the live list merged into its stored
+/// candidate once, at a new candidate version, so it shows and approves exactly what goes live:
+/// an edit or approval based on the version before the merge is stale, and approval makes the
+/// stored candidate live as it is, without merging the live list again.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_keep_approved_append_review_editable_when_approval_merged_it_into_live_schemas() {
+async fn should_materialize_the_live_merge_of_a_legacy_append_review_and_approve_exactly_its_candidate()
+ {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
     let schema_repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
@@ -612,7 +628,7 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
         .create_schema_review(
             &listing_source_id,
             "manual_schema_required",
-            &[schema("h1.first")],
+            &[schema("h1.first"), schema("h1.second")],
             review_pages(),
             json!({}),
         )
@@ -631,31 +647,62 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
         )
         .await
         .unwrap();
-
-    approve_acknowledging_coverage(&review_repository, append_review_id)
+    let legacy_version = candidate_version(&review_repository, append_review_id).await;
+    let unmerged = review_repository
+        .get_review(append_review_id)
         .await
         .unwrap();
 
-    let merged = vec![schema("h1.first"), schema("h1.appended")];
-    let appended = review_repository
+    materialize_legacy_single_schema_reviews(&pool).await;
+    materialize_legacy_single_schema_reviews(&pool).await;
+
+    let merged = vec![
+        schema("h1.first"),
+        schema("h1.second"),
+        schema("h1.appended"),
+    ];
+    let materialized = review_repository
         .get_review(append_review_id)
         .await
         .unwrap();
     assert_eq!(
-        appended.review.candidate_payload,
+        unmerged.review.candidate_payload,
+        json!({ "schemas": [schema("h1.appended")] }),
+        "reading the review merges nothing"
+    );
+    assert_eq!(
+        materialized.review.candidate_payload,
         json!({ "schemas": merged })
     );
+    assert_eq!(materialized.review.candidate_version, legacy_version + 1);
+    assert_eq!(materialized.candidate_error, None);
+    assert!(matches!(
+        review_repository
+            .update_schema_field(
+                append_review_id,
+                ReviewActor::Human,
+                legacy_version,
+                0,
+                "title",
+                Some(rule("h1.edited")),
+            )
+            .await,
+        Err(ReviewRepositoryError::StaleCandidateVersion { .. })
+    ));
+
     review_repository
-        .update_schema_field(
+        .update_candidate_payload(
             append_review_id,
             ReviewActor::Human,
-            candidate_version(&review_repository, append_review_id).await,
-            1,
-            "title",
-            Some(rule("h1.edited")),
+            legacy_version + 1,
+            json!({ "schemas": [schema("h1.appended")] }),
         )
         .await
         .unwrap();
+    approve_acknowledging_coverage(&review_repository, append_review_id)
+        .await
+        .unwrap();
+
     assert_eq!(
         schema_repository
             .find_product_schema(&listing_source_id)
@@ -663,7 +710,173 @@ async fn should_keep_approved_append_review_editable_when_approval_merged_it_int
             .unwrap()
             .unwrap()
             .product_schemas,
-        vec![schema("h1.first"), schema("h1.edited")]
+        vec![schema("h1.appended")],
+        "a reviewer who deleted the live schemas from the candidate gets none of them back"
+    );
+}
+
+/// Stores `product_schema` as the ListingSource's live schema row as it is, in any spelling an
+/// older crawler wrote.
+async fn store_live_schema_row(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+    product_schema: serde_json::Value,
+) {
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas \
+         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW()) \
+         ON CONFLICT (listing_source_id) DO UPDATE SET product_schema = EXCLUDED.product_schema",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(product_schema)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// The materialization touches only pending legacy append or repair reviews of one schema whose
+/// ListingSource has a live list: a live row stored as a single schema counts as a list of one,
+/// and a review schema the live list already holds, in another spelling, is not added twice.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_materialize_only_pending_single_schema_legacy_reviews_with_a_live_list() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let legacy_review = |reason: &'static str, schemas: Vec<ProductCssSelectorSchema>| {
+        let pool = pool.clone();
+        let repository = repository.clone();
+        async move {
+            let listing_source_id = ListingSourceId::new();
+            insert_listing_source(&pool, listing_source_id).await;
+            let review_id = repository
+                .create_schema_review(
+                    &listing_source_id,
+                    reason,
+                    &schemas,
+                    review_pages(),
+                    json!({}),
+                )
+                .await
+                .unwrap();
+            (listing_source_id, review_id)
+        }
+    };
+    let (repair_source, repair) =
+        legacy_review("normalization_schema_repair", vec![schema("h1.repair")]).await;
+    store_live_schema_row(&pool, repair_source, json!(schema("h1.live"))).await;
+    let (already_live_source, already_live) =
+        legacy_review("append_schema_generation", vec![schema("h1.same")]).await;
+    let mut live_spelling = json!(schema("h1.same"));
+    live_spelling["description"] = json!(null);
+    live_spelling["rawAttributes"] = json!({});
+    store_live_schema_row(
+        &pool,
+        already_live_source,
+        json!([schema("h1.other"), live_spelling]),
+    )
+    .await;
+    let (two_schemas_source, two_schemas) = legacy_review(
+        "append_schema_generation",
+        vec![schema("h1.a"), schema("h1.b")],
+    )
+    .await;
+    store_live_schema_row(&pool, two_schemas_source, json!([schema("h1.live")])).await;
+    let (_, without_live_list) =
+        legacy_review("append_schema_generation", vec![schema("h1.alone")]).await;
+    let (approved_source, approved) =
+        legacy_review("append_schema_generation", vec![schema("h1.approved")]).await;
+    approve_acknowledging_coverage(&repository, approved)
+        .await
+        .unwrap();
+    store_live_schema_row(&pool, approved_source, json!([schema("h1.later")])).await;
+    let reviews = [
+        repair,
+        already_live,
+        two_schemas,
+        without_live_list,
+        approved,
+    ];
+    let mut before = Vec::new();
+    for review_id in reviews {
+        before.push(repository.get_review(review_id).await.unwrap().review);
+    }
+
+    materialize_legacy_single_schema_reviews(&pool).await;
+
+    let mut after = Vec::new();
+    for review_id in reviews {
+        after.push(repository.get_review(review_id).await.unwrap().review);
+    }
+    assert_eq!(
+        after[0].candidate_payload,
+        json!({ "schemas": [schema("h1.live"), schema("h1.repair")] })
+    );
+    assert_eq!(after[0].candidate_version, before[0].candidate_version + 1);
+    let already_live_schemas: Vec<ProductCssSelectorSchema> =
+        serde_json::from_value(after[1].candidate_payload["schemas"].clone()).unwrap();
+    assert_eq!(
+        already_live_schemas,
+        vec![schema("h1.other"), schema("h1.same")],
+        "the schema already live is not added twice"
+    );
+    assert_eq!(after[1].candidate_version, before[1].candidate_version + 1);
+    for index in 2..reviews.len() {
+        assert_eq!(
+            after[index].candidate_payload,
+            before[index].candidate_payload
+        );
+        assert_eq!(
+            after[index].candidate_version,
+            before[index].candidate_version
+        );
+    }
+}
+
+/// A pending review whose persisted candidate fails today's validation still reads, with the
+/// reason as `candidate_error`, and approval keeps refusing it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_read_a_pending_review_whose_persisted_candidate_fails_validation_and_refuse_its_approval()
+ {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema("h1")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+    let mut invalid = schema("h1");
+    invalid.title = rule("[");
+    sqlx::query("UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1")
+        .bind(review_id.as_uuid())
+        .bind(json!({ "schemas": [invalid] }))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let detail = repository.get_review(review_id).await.unwrap();
+    let refused = approve_acknowledging_coverage(&repository, review_id).await;
+
+    assert!(
+        detail
+            .candidate_error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("invalid schema 0:")),
+        "{:?}",
+        detail.candidate_error
+    );
+    assert!(matches!(
+        refused,
+        Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+    ));
+    assert_eq!(
+        review_status(&repository, review_id).await,
+        STATUS_PENDING_REVIEW
     );
 }
 
@@ -2020,6 +2233,180 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
     assert!(live_pattern.is_none());
 }
 
+/// A URL-pattern candidate edit is decoded and stored as the candidate it decodes to, so a key
+/// the candidate does not have is refused rather than stored.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_a_url_pattern_candidate_edit_with_an_unknown_key() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "unknown-key.example.com").await;
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "url_pattern_generation",
+            UrlPatternDecision::NoPattern,
+            &["https://unknown-key.example.com/products/1".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+    let opened = repository.get_review(review_id).await.unwrap().review;
+    let edit = json!({
+        "decision": { "type": "PATTERN", "value": "/products/" },
+        "current_pattern": null,
+    });
+    let mut with_unknown_key = edit.clone();
+    with_unknown_key["note"] = json!("not a candidate key");
+
+    let refused = repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            opened.candidate_version,
+            with_unknown_key,
+        )
+        .await;
+    let unchanged = repository.get_review(review_id).await.unwrap().review;
+    repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            opened.candidate_version,
+            edit.clone(),
+        )
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        refused,
+        Err(ReviewRepositoryError::InvalidUrlPatternCandidate)
+    ));
+    assert_eq!(unchanged.candidate_payload, opened.candidate_payload);
+    assert_eq!(
+        repository
+            .get_review(review_id)
+            .await
+            .unwrap()
+            .review
+            .candidate_payload,
+        edit
+    );
+}
+
+/// Drops the constraints that tie a URL-pattern review to a domain of its ListingSource, so a
+/// test can store the review state they forbid.
+async fn allow_url_pattern_reviews_without_their_domain(pool: &PgPool) {
+    sqlx::raw_sql(
+        "ALTER TABLE crawler_reviews \
+           DROP CONSTRAINT crawler_reviews_listing_source_domain_fkey, \
+           DROP CONSTRAINT crawler_reviews_artifact_domain_shape_check, \
+           DROP CONSTRAINT crawler_reviews_check",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Approving a URL-pattern review whose domain row is gone, or that names no domain, fails with
+/// the error that names the domain, not as an unknown review or a database error, and leaves the
+/// review pending.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_name_the_missing_domain_when_approving_a_url_pattern_review_without_it() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    allow_url_pattern_reviews_without_their_domain(&pool).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let mut reviews = Vec::new();
+    for host in ["gone-domain.example.com", "no-domain.example.com"] {
+        let domain_id = insert_domain(&pool, listing_source_id, host).await;
+        let review_id = repository
+            .create_url_pattern_review(
+                &listing_source_id,
+                &domain_id,
+                "url_pattern_generation",
+                UrlPatternDecision::NoPattern,
+                &[format!("https://{host}/products/1")],
+                None,
+            )
+            .await
+            .unwrap();
+        reviews.push((review_id, domain_id));
+    }
+    let [(gone_review_id, gone_domain_id), (no_domain_review_id, _)] = reviews[..] else {
+        panic!("two reviews were created");
+    };
+    sqlx::query("DELETE FROM listing_source_domains WHERE domain_id = $1")
+        .bind(gone_domain_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE crawler_reviews SET domain_id = NULL WHERE review_id = $1")
+        .bind(no_domain_review_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let gone = approve(
+        &repository,
+        gone_review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await;
+    let no_domain = approve(
+        &repository,
+        no_domain_review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await;
+    let labelled_without_domain = repository
+        .set_sample_labels(
+            no_domain_review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, no_domain_review_id).await,
+            Vec::new(),
+        )
+        .await;
+
+    assert!(
+        matches!(
+            gone,
+            Err(ReviewRepositoryError::UrlPatternReviewDomainMissing { review_id, domain_id })
+                if review_id == gone_review_id && domain_id == gone_domain_id
+        ),
+        "{gone:?}"
+    );
+    assert!(
+        matches!(
+            no_domain,
+            Err(ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id))
+                if review_id == no_domain_review_id
+        ),
+        "{no_domain:?}"
+    );
+    assert!(
+        matches!(
+            labelled_without_domain,
+            Err(ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id))
+                if review_id == no_domain_review_id
+        ),
+        "{labelled_without_domain:?}"
+    );
+    for review_id in [gone_review_id, no_domain_review_id] {
+        assert_eq!(
+            review_status(&repository, review_id).await,
+            STATUS_PENDING_REVIEW
+        );
+    }
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_roll_back_pattern_approval_when_status_update_fails() {
     let pool = get_postgres_client().await;
@@ -3353,11 +3740,10 @@ async fn should_accept_a_schema_field_edit_while_a_stored_template_fails_validat
         regex: Some(".*".to_owned()),
     };
     store_removed_page_templates(&pool, listing_source_id, vec![rejected.clone()]).await;
-    // A generated append review: a field edit merges the live schemas into its candidate first.
     let review_id = repository
         .create_schema_review(
             &listing_source_id,
-            "append_schema_generation",
+            "manual_schema_required",
             &[schema("h1")],
             review_pages(),
             json!({}),
@@ -3642,11 +4028,10 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
     .execute(&pool)
     .await
     .unwrap();
-    // A generated append review: reading it merges the live schemas into its candidate.
     let review_id = repository
         .create_schema_review(
             &listing_source_id,
-            "append_schema_generation",
+            "manual_schema_required",
             &[schema("h1")],
             review_pages(),
             json!({}),
@@ -3675,6 +4060,14 @@ async fn should_keep_a_stored_template_that_validation_now_rejects_editable_unti
     assert_eq!(
         opened.review.candidate_payload["removed_page_schemas"],
         json!([rejected])
+    );
+    assert!(
+        opened
+            .candidate_error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("invalid removed-page template 0:")),
+        "{:?}",
+        opened.candidate_error
     );
     assert!(evaluated.matrix.removed_page_matches.is_empty());
     assert!(

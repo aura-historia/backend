@@ -1,6 +1,4 @@
-use crate::scraper::css_selector::product_schema::{
-    ListingSourceProductSchema, ProductCssSelectorSchema,
-};
+use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageSchema, rebase_reviewed_removed_page_schemas,
@@ -47,6 +45,27 @@ impl ProductSchemaReviewCandidate {
         Ok(candidate)
     }
 
+    /// Why the stored `candidate_payload` fails what [`Self::parse`] checks before approval, `None`
+    /// once it passes: it does not decode, holds no schema, a schema has an invalid rule, or a
+    /// removed-page template fails validation.
+    pub(super) fn validation_failure(candidate_payload: &serde_json::Value) -> Option<String> {
+        let candidate = match Self::decode_stored(candidate_payload) {
+            Ok(candidate) => candidate,
+            Err(error) => return Some(format!("the candidate does not decode: {error}")),
+        };
+        if candidate.schemas.is_empty() {
+            return Some("the candidate holds no schema".to_owned());
+        }
+        if let Err((index, error)) =
+            ProductCssSelectorSchema::validate_all_indexed(&candidate.schemas)
+        {
+            return Some(format!("invalid schema {index}: {error}"));
+        }
+        validate_removed_page_schemas(&candidate.removed_page_schemas)
+            .err()
+            .map(|error| error.to_string())
+    }
+
     pub(super) fn new(
         schemas: &[ProductCssSelectorSchema],
         removed_page_schemas: Vec<RemovedPageSchema>,
@@ -84,25 +103,23 @@ impl ProductSchemaReviewCandidate {
             .collect())
     }
 
-    /// The product-schema configuration approving this reviewed candidate makes live: the schema
-    /// list approval stores, merged with the `live` list for a legacy single-schema append or
-    /// repair, and the removed-page templates rebased onto the changes other writers made to the
-    /// `stored` list since the review read it as `base`. The live matrix evaluates exactly this,
-    /// and approval stores exactly this.
+    /// The product-schema configuration approving this reviewed candidate makes live: its schemas
+    /// as they are, and its removed-page templates rebased onto the changes other writers made to
+    /// the `stored` list since the review read it as `base`. The live matrix evaluates exactly
+    /// this, and approval stores exactly this.
     pub(super) fn going_live(
         &self,
-        reason: &str,
-        live: Option<&ListingSourceProductSchema>,
         base: &[RemovedPageSchema],
         stored: &[RemovedPageSchema],
-    ) -> Result<Self, ReviewRepositoryError> {
-        let schemas = approval_product_schemas(reason, live, self.schemas.clone())?;
-        let removed_page_schemas =
-            rebase_reviewed_removed_page_schemas(base, self.removed_page_schemas.clone(), stored);
-        Ok(Self {
-            schemas,
-            removed_page_schemas,
-        })
+    ) -> Self {
+        Self {
+            schemas: self.schemas.clone(),
+            removed_page_schemas: rebase_reviewed_removed_page_schemas(
+                base,
+                self.removed_page_schemas.clone(),
+                stored,
+            ),
+        }
     }
 }
 
@@ -198,27 +215,6 @@ pub(super) fn holds_live_schemas(
         ProductSchemaReviewCandidate::decode_stored(stored_candidate_payload)
             .is_ok_and(|stored| stored.schemas == live)
     })
-}
-
-pub(super) fn approval_product_schemas(
-    reason: &str,
-    existing: Option<&ListingSourceProductSchema>,
-    reviewed_schemas: Vec<ProductCssSelectorSchema>,
-) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
-    let should_backfill_existing = matches!(
-        reason,
-        "append_schema_generation" | "normalization_schema_repair"
-    ) && reviewed_schemas.len() == 1;
-
-    let schemas = if !should_backfill_existing {
-        reviewed_schemas
-    } else if let Some(existing) = existing {
-        merge_product_schema_lists(&existing.product_schemas, reviewed_schemas)?
-    } else {
-        reviewed_schemas
-    };
-    validate_product_schemas(&schemas)?;
-    Ok(schemas)
 }
 
 /// The candidate in `candidate_payload` with `field` of the schema at `schema_index` set to
@@ -352,27 +348,6 @@ impl SchemaField {
     fn required_field_error(&self) -> ReviewRepositoryError {
         ReviewRepositoryError::RequiredSchemaField(self.name().into())
     }
-}
-
-fn merge_product_schema_lists(
-    existing_schemas: &[ProductCssSelectorSchema],
-    reviewed_schemas: Vec<ProductCssSelectorSchema>,
-) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
-    let mut merged = existing_schemas.to_vec();
-    let mut seen = existing_schemas
-        .iter()
-        .map(serde_json::to_value)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    for schema in reviewed_schemas {
-        let key = serde_json::to_value(&schema)?;
-        if !seen.contains(&key) {
-            seen.push(key);
-            merged.push(schema);
-        }
-    }
-
-    Ok(merged)
 }
 
 #[cfg(test)]
@@ -620,32 +595,6 @@ mod tests {
     }
 
     #[test]
-    fn merge_product_schema_lists_appends_new_schema_after_existing_schemas() {
-        let existing_a = schema("h1.template-a");
-        let existing_b = schema("h1.template-b");
-        let appended = schema("h1.template-c");
-
-        let merged = merge_product_schema_lists(
-            &[existing_a.clone(), existing_b.clone()],
-            vec![appended.clone()],
-        )
-        .expect("schema merge should serialize");
-
-        assert_eq!(merged, vec![existing_a, existing_b, appended]);
-    }
-
-    #[test]
-    fn merge_product_schema_lists_deduplicates_existing_schema() {
-        let existing = schema("h1.template-a");
-
-        let merged =
-            merge_product_schema_lists(std::slice::from_ref(&existing), vec![existing.clone()])
-                .expect("schema merge should serialize");
-
-        assert_eq!(merged, vec![existing]);
-    }
-
-    #[test]
     fn update_schema_rule_deletes_optional_rule() {
         let mut schema = schema("h1.template-a");
         schema.price = Some(text_rule(".price"));
@@ -841,5 +790,58 @@ mod tests {
             &serde_json::json!({ "schemas": [], "unexpected": true }),
             Some(&live)
         ));
+    }
+
+    /// A stored candidate names a validation failure exactly when approval's [`parse`] refuses
+    /// it, and says what fails.
+    ///
+    /// [`parse`]: ProductSchemaReviewCandidate::parse
+    #[test]
+    fn should_name_the_validation_failure_of_exactly_the_candidates_approval_refuses() {
+        let mut invalid_rule = schema("h1.product");
+        invalid_rule.title = text_rule("[");
+        let cases = [
+            (
+                serde_json::json!({ "schemas": [schema("h1.product")] }),
+                None,
+            ),
+            (
+                serde_json::json!({ "schemas": [] }),
+                Some("the candidate holds no schema"),
+            ),
+            (
+                serde_json::json!({ "schemas": [schema("h1.product")], "unexpected": true }),
+                Some("the candidate does not decode"),
+            ),
+            (
+                serde_json::json!({ "schemas": [schema("h1.product"), invalid_rule] }),
+                Some("invalid schema 1:"),
+            ),
+            (
+                serde_json::json!({
+                    "schemas": [schema("h1.product")],
+                    "removed_page_schemas": [{ "selector": "p.notice", "regex": ".*" }],
+                }),
+                Some("invalid removed-page template 0:"),
+            ),
+        ];
+
+        for (payload, expected) in cases {
+            let failure = ProductSchemaReviewCandidate::validation_failure(&payload);
+            assert_eq!(
+                failure.is_some(),
+                ProductSchemaReviewCandidate::parse(&payload).is_err(),
+                "{payload}"
+            );
+            match expected {
+                None => assert_eq!(failure, None, "{payload}"),
+                Some(prefix) => assert!(
+                    failure
+                        .as_deref()
+                        .is_some_and(|failure| failure.starts_with(prefix)),
+                    "{payload}: {failure:?}"
+                ),
+            }
+        }
     }
 }
