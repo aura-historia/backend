@@ -18,6 +18,7 @@ use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use url::Url;
 
 use crate::network::CRAWLER_USER_AGENT;
+use crate::network::bot_challenge::{BotChallenge, ChallengeVendor, detect_bot_challenge};
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
@@ -268,6 +269,8 @@ pub struct CrawlDiagnostics {
     pub lagged: u64,
     /// Delivered pages by the status class of their final answer.
     pub status_counts: StatusCounts,
+    /// Delivered pages that were a bot challenge instead of the page asked for.
+    pub bot_challenge_pages: usize,
     /// The rate-limit answer that stopped the crawl, with the shop's
     /// `Retry-After`; the pages delivered before it were kept.
     pub rate_limit: Option<RateLimitSignal>,
@@ -1237,6 +1240,10 @@ async fn relay_library_pages(
         diagnostics.pages_received += 1;
         let status_code = page.status_code.as_u16();
         diagnostics.status_counts.count(status_code);
+        let challenge = page_bot_challenge(status_code, &page);
+        if challenge.is_some() {
+            diagnostics.bot_challenge_pages += 1;
+        }
 
         if !first_page_seen {
             apply_library_page(
@@ -1245,7 +1252,10 @@ async fn relay_library_pages(
                 page.get_url(),
                 status_code,
                 page.final_redirect_destination.as_deref(),
-                page.anti_bot_tech,
+                RootRefusal {
+                    anti_bot_tech: page.anti_bot_tech,
+                    challenge,
+                },
             );
             filter.root_redirect_rejected = matches!(
                 diagnostics.failure_kind,
@@ -1285,24 +1295,41 @@ impl Spider for SpiderImpl {
     }
 }
 
+/// The bot challenge a delivered page is instead of the page it was asked for, if it provably
+/// is one.
+fn page_bot_challenge(status_code: u16, page: &Page) -> Option<BotChallenge> {
+    let no_headers = HeaderMap::new();
+    detect_bot_challenge(
+        status_code,
+        page.headers.as_ref().unwrap_or(&no_headers),
+        page.get_html_bytes_u8(),
+    )
+}
+
+/// What says the shop refused the root page: Spider's reading of the vendor
+/// in front of it, and a bot challenge it answered instead of the page.
+#[derive(Debug, Clone, Copy)]
+struct RootRefusal {
+    anti_bot_tech: AntiBotTech,
+    challenge: Option<BotChallenge>,
+}
+
 /// Records the root page Spider delivered: its status, where it ended up and
-/// any failure signal the library attached to it.
+/// any failure signal the library or the challenge detector attached to it.
 fn apply_library_page(
     diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
     page_url: &str,
     status_code: u16,
     final_redirect_destination: Option<&str>,
-    anti_bot_tech: AntiBotTech,
+    refusal: RootRefusal,
 ) {
     let final_url = final_redirect_destination.unwrap_or(page_url).to_string();
     diagnostics.http_status = Some(status_code);
     diagnostics.redirect_url =
         (final_redirect_destination != Some(page_url)).then(|| final_url.clone());
 
-    if let Some(signal) =
-        page_diagnostic_signal(crawl_root_url, &final_url, status_code, anti_bot_tech)
-    {
+    if let Some(signal) = page_diagnostic_signal(crawl_root_url, &final_url, status_code, refusal) {
         diagnostics.apply_signal(signal);
     }
     diagnostics.final_url = Some(final_url);
@@ -1312,9 +1339,10 @@ fn page_diagnostic_signal(
     crawl_root_url: &str,
     final_url: &str,
     status_code: u16,
-    anti_bot_tech: AntiBotTech,
+    refusal: RootRefusal,
 ) -> Option<DiagnosticSignal> {
-    anti_bot_signal(status_code, anti_bot_tech)
+    anti_bot_signal(status_code, refusal.anti_bot_tech)
+        .or_else(|| refusal.challenge.map(bot_challenge_signal))
         .or_else(|| status_code_signal(status_code))
         .or_else(|| redirect_signal(crawl_root_url, final_url))
 }
@@ -1335,6 +1363,23 @@ fn anti_bot_signal(status_code: u16, anti_bot_tech: AntiBotTech) -> Option<Diagn
             CrawlFailureKind::BotProtection,
             "library_bot_protection_antibot",
         )),
+    }
+}
+
+/// A root answered with a bot challenge, a success status included, is refused
+/// rather than a tiny crawl.
+fn bot_challenge_signal(challenge: BotChallenge) -> DiagnosticSignal {
+    match challenge.vendor {
+        ChallengeVendor::Cloudflare => DiagnosticSignal::new(
+            CrawlFailureKind::CloudflareChallenge,
+            "bot_challenge_root_page",
+        ),
+        ChallengeVendor::AwsWaf
+        | ChallengeVendor::DataDome
+        | ChallengeVendor::SiteGround
+        | ChallengeVendor::Unattributed => {
+            DiagnosticSignal::new(CrawlFailureKind::BotProtection, "bot_challenge_root_page")
+        }
     }
 }
 
@@ -1500,7 +1545,10 @@ mod tests {
             page_url,
             status_code,
             final_redirect_destination,
-            anti_bot_tech,
+            RootRefusal {
+                anti_bot_tech,
+                challenge: None,
+            },
         );
         diagnostics
     }
@@ -1590,6 +1638,8 @@ mod tests {
         SlowHtml(Duration, &'static str, String),
         /// An empty answer with extra header lines, each `Name: value\r\n`.
         WithHeaders(&'static str, &'static str),
+        /// `Html` with extra header lines, each `Name: value\r\n`.
+        HtmlWithHeaders(&'static str, &'static str, String),
         Redirect(&'static str),
         /// Close the connection without answering, like a crashed server.
         Drop,
@@ -1685,17 +1735,20 @@ mod tests {
                     log.push((host, target.clone(), user_agent, accept_encoding));
                     previous
                 };
-                let html_response = |status: &str, body: &str| {
+                let html_response = |status: &str, extra_headers: &str, body: &str| {
                     format!(
-                        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status}\r\n{extra_headers}Content-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     )
                 };
                 let response = match handler(&target, previous) {
-                    SiteResponse::Html(status, body) => html_response(status, &body),
+                    SiteResponse::Html(status, body) => html_response(status, "", &body),
+                    SiteResponse::HtmlWithHeaders(status, extra_headers, body) => {
+                        html_response(status, extra_headers, &body)
+                    }
                     SiteResponse::SlowHtml(delay, status, body) => {
                         tokio::time::sleep(delay).await;
-                        html_response(status, &body)
+                        html_response(status, "", &body)
                     }
                     SiteResponse::WithHeaders(status, extra_headers) => format!(
                         "HTTP/1.1 {status}\r\n{extra_headers}Content-Length: 0\r\nConnection: close\r\n\r\n"
@@ -2113,6 +2166,89 @@ mod tests {
             90_000,
             "never faster than configured"
         );
+    }
+
+    mod bot_challenge_pages {
+        use super::*;
+
+        const CHALLENGE: &str =
+            "<html><head><title>Just a moment...</title></head><body></body></html>";
+
+        #[tokio::test]
+        async fn should_fail_a_crawl_whose_root_answers_a_challenge_with_200_as_that_challenge() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+                SiteResponse::Html("200 OK", CHALLENGE.to_string())
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::CloudflareChallenge),
+                "{diagnostics:?}"
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some("bot_challenge_root_page")
+            );
+            assert_eq!(diagnostics.bot_challenge_pages, 1);
+        }
+
+        /// A vendor's challenge header reaches the detector through the page Spider delivers, so a
+        /// `202` interstitial is recognised by it even when its markup names no vendor.
+        #[tokio::test]
+        async fn should_fail_a_crawl_whose_root_answers_a_202_interstitial_by_its_header() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+                SiteResponse::HtmlWithHeaders(
+                    "202 Accepted",
+                    "sg-captcha: challenge\r\n",
+                    "<html><head><title>shop.example</title></head><body><p>Please wait.</p></body></html>"
+                        .to_string(),
+                )
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::BotProtection),
+                "{diagnostics:?}"
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some("bot_challenge_root_page")
+            );
+            assert_eq!(diagnostics.http_status, Some(202));
+        }
+
+        #[tokio::test]
+        async fn should_count_a_challenged_listing_page_without_failing_an_ordinary_root() {
+            let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<html><head><title>Antiques</title></head><body><a href="/chairs">Chairs</a></body></html>"#
+                        .to_string(),
+                ),
+                _ => SiteResponse::Html("200 OK", CHALLENGE.to_string()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
+            assert_eq!(diagnostics.bot_challenge_pages, 1);
+        }
     }
 
     #[tokio::test]

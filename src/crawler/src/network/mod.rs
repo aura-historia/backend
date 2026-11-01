@@ -1,3 +1,4 @@
+pub mod bot_challenge;
 pub mod policy;
 pub mod robots;
 mod tls;

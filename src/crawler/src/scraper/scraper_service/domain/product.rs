@@ -222,8 +222,9 @@ pub(crate) fn record_transport_failure(
 /// Converts one fetch result into an independent transport observation.
 ///
 /// HTTP responses outside the circuit-opening policy are responsive even when
-/// they are non-2xx. Connection, DNS, timeout, unsafe-target, and unknown
-/// failures do not prove that the remote domain responded.
+/// they are non-2xx, and so is a bot challenge the shop answered with.
+/// Connection, DNS, timeout, unsafe-target, and unknown failures do not prove
+/// that the remote domain responded.
 pub(crate) fn domain_health_for_fetch_error(
     network_kind: NetworkErrorKind,
     status_code: Option<u16>,
@@ -239,7 +240,11 @@ pub(crate) fn domain_health_for_fetch_error(
             status_code,
             retry_after,
         },
-        None if matches!(network_kind, NetworkErrorKind::HttpStatus(_)) => {
+        None if matches!(
+            network_kind,
+            NetworkErrorKind::HttpStatus(_) | NetworkErrorKind::BotChallenge
+        ) =>
+        {
             DomainFetchHealth::Responsive
         }
         None => DomainFetchHealth::NotObserved,
@@ -323,6 +328,19 @@ mod tests {
                 ),
                 DomainFetchHealth::Responsive,
                 "HTTP {status} should remain responsive"
+            );
+        }
+    }
+
+    /// A challenge is the shop answering, so it closes a probed circuit and counts towards the
+    /// status burst like any answer that rejects the crawler.
+    #[test]
+    fn a_bot_challenge_proves_domain_health() {
+        for status in [200, 202, 403] {
+            assert_eq!(
+                domain_health_for_fetch_error(NetworkErrorKind::BotChallenge, Some(status), None),
+                DomainFetchHealth::Responsive,
+                "a challenge answered with {status} should be responsive"
             );
         }
     }
