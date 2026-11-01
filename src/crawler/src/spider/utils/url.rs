@@ -4,31 +4,8 @@ use spider::compact_str::CompactString;
 use std::collections::{BTreeMap, HashSet};
 use url_normalize::Options;
 
-const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
-    "cart",
-    "wishlist",
-    "?replytocom=",
-    "&replytocom=",
-    "/wp-admin/",
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".webp",
-    ".gif",
-    ".svg",
-    ".ico",
-    ".pdf",
-    ".zip",
-    ".csv",
-    ".xml",
-    ".json",
-    "/download",
-    "downloadproductimages",
-    "/file",
-    "/files",
-    "/attachment",
-    "/attachments",
-];
+mod blacklist;
+mod query;
 
 /// A crawled page URL in the spelling the crawler stores: the URL as fetched, with only the
 /// removals `docs/crawler/networking.md#stored-urls` documents.
@@ -43,7 +20,7 @@ impl CrawledUrl {
         // Both only fail for URLs without a host, which carry no credentials.
         let _ = url.set_username("");
         let _ = url.set_password(None);
-        drop_tracking_parameters(&mut url);
+        query::drop_tracking_parameters(&mut url);
         Self(url)
     }
 
@@ -189,16 +166,11 @@ impl CrawledUrl {
     /// Applies the same rule as [`Self::blacklist_patterns`] to a URL that has not been
     /// normalized, as Spider does with the links it admits.
     pub fn is_blacklisted_url(url: &str) -> bool {
-        BLACKLIST_URL_SUBSTRINGS
-            .iter()
-            .any(|pattern| url.contains(pattern))
+        blacklist::is_blacklisted(url)
     }
 
     pub fn blacklist_patterns() -> Vec<CompactString> {
-        BLACKLIST_URL_SUBSTRINGS
-            .iter()
-            .map(|pattern| CompactString::from(regex::escape(pattern)))
-            .collect()
+        blacklist::patterns()
     }
 }
 
@@ -301,33 +273,6 @@ fn with_trailing_slash(url: &url::Url) -> Option<url::Url> {
     let mut slashed = url.clone();
     slashed.set_path(&format!("{path}/"));
     Some(slashed)
-}
-
-/// Drops `utm_*` campaign parameters and keeps every other parameter exactly as fetched. A
-/// query left empty is dropped with its `?`.
-fn drop_tracking_parameters(url: &mut url::Url) {
-    let Some(query) = url.query() else {
-        return;
-    };
-    let kept = query
-        .split('&')
-        .filter(|pair| !is_tracking_parameter(pair))
-        .collect::<Vec<_>>()
-        .join("&");
-    if kept.is_empty() {
-        url.set_query(None);
-    } else if kept != query {
-        url.set_query(Some(&kept));
-    }
-}
-
-fn is_tracking_parameter(pair: &str) -> bool {
-    url::form_urlencoded::parse(pair.as_bytes())
-        .next()
-        .is_some_and(|(key, _)| {
-            key.get(..4)
-                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("utm_"))
-        })
 }
 
 /// The normalization the crawler applied before it kept the fetched encoding, kept only to find
