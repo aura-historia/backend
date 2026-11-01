@@ -521,40 +521,25 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
     );
 }
 
-/// A legacy append review goes live merged with the live list, so its live matrix evaluates
-/// that merge, and a live list changed since the evaluation outdates it.
+/// A legacy single-schema append review makes exactly its candidate live, so its live matrix
+/// evaluates that candidate and a live list changed since the evaluation does not outdate it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_evaluate_the_merged_list_an_append_makes_live_and_refuse_it_once_the_live_list_changed()
- {
+async fn should_evaluate_and_approve_exactly_the_candidate_of_a_legacy_append_review() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
     let (listing_source_id, _) = listing_source(&pool).await;
-    set_live_schemas(&pool, &listing_source_id, &[schema("h1")]).await;
+    set_live_schemas(&pool, &listing_source_id, &[schema("h2")]).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
         "append_schema_generation",
-        &[schema("h2")],
-        vec![page("chair"), page("table")],
+        &[schema("h1")],
+        vec![page("chair")],
     )
     .await;
 
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
-    set_live_schemas(&pool, &listing_source_id, &[schema("h1.changed")]).await;
-    let outdated = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
-        .await;
-
-    assert!(
-        matches!(
-            failed_checks(outdated).as_slice(),
-            [FailedApprovalCheck::LiveMatrixOutdated { .. }]
-        ),
-        "the matrix evaluated a merge with the live list that changed since"
-    );
-
-    set_live_schemas(&pool, &listing_source_id, &[schema("h1")]).await;
-    store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+    set_live_schemas(&pool, &listing_source_id, &[schema("h2.changed")]).await;
     repository
         .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
         .await
@@ -562,7 +547,7 @@ async fn should_evaluate_the_merged_list_an_append_makes_live_and_refuse_it_once
 
     assert_eq!(
         live_schemas(&pool, &listing_source_id).await,
-        Some(vec![schema("h1"), schema("h2")])
+        Some(vec![schema("h1")])
     );
 }
 

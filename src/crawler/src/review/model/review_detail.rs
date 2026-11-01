@@ -8,6 +8,10 @@ pub struct ReviewDetail {
     /// ListingSource's live schema list: edits through it change the live list, and edits through
     /// any other approved review are refused.
     pub candidate_is_live: bool,
+    /// Why the persisted candidate of a pending review, or of the approved review whose candidate
+    /// is live, fails the validation approving it applies; `null` when it passes. The review
+    /// still reads so the reviewer can repair the candidate, and approval refuses it until then.
+    pub candidate_error: Option<String>,
     pub pages: Vec<CrawlerReviewPage>,
     pub urls: Vec<CrawlerReviewUrl>,
     /// Who changed the review and how, oldest first.

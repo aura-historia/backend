@@ -38,10 +38,6 @@ pub enum UrlPatternCandidateError {
     Undecided,
     #[error("invalid URL pattern: {0}")]
     InvalidRegex(#[from] regex::Error),
-    #[error("a URL-pattern candidate is a JSON object")]
-    NotAnObject,
-    #[error("the sample labels of a URL-pattern candidate do not serialize")]
-    Payload(#[source] serde_json::Error),
 }
 
 impl UrlPatternReviewCandidate {
@@ -53,28 +49,31 @@ impl UrlPatternReviewCandidate {
         }
     }
 
-    /// The stored or posted candidate `payload` with `labels` as its sample labels, and without
-    /// any when `labels` is `None`; its other keys stay as they are. A payload that is no JSON
-    /// object holds no candidate.
-    pub fn payload_with_sample_labels(
-        mut payload: serde_json::Value,
-        labels: Option<&SampleLabels>,
-    ) -> Result<serde_json::Value, UrlPatternCandidateError> {
-        let candidate = payload
-            .as_object_mut()
-            .ok_or(UrlPatternCandidateError::NotAnObject)?;
-        match labels {
-            Some(labels) => {
-                candidate.insert(
-                    SAMPLE_LABELS_KEY.to_owned(),
-                    serde_json::to_value(labels).map_err(UrlPatternCandidateError::Payload)?,
-                );
-            }
-            None => {
-                candidate.remove(SAMPLE_LABELS_KEY);
-            }
+    /// Decodes a candidate a reviewer posts as an edit, refusing a key the candidate does not
+    /// have, so the stored candidate holds only what it is decoded from.
+    pub fn decode_edit(payload: serde_json::Value) -> Result<Self, serde_json::Error> {
+        serde_json::from_value::<PostedUrlPatternReviewCandidate>(payload).map(Self::from)
+    }
+
+    /// This candidate with `labels` as its sample labels, and without any when `labels` is `None`.
+    pub fn with_sample_labels(self, labels: Option<SampleLabels>) -> Self {
+        Self {
+            sample_labels: labels,
+            ..self
         }
-        Ok(payload)
+    }
+
+    /// Why the stored candidate `payload` is invalid: it does not decode, or it proposes a pattern
+    /// that is no regex. An undecided candidate is valid, it only waits for a decision. `None`
+    /// once it is valid.
+    pub fn validation_failure(payload: &serde_json::Value) -> Option<String> {
+        match serde_json::from_value::<Self>(payload.clone()) {
+            Err(error) => Some(format!("the candidate does not decode: {error}")),
+            Ok(candidate) => match candidate.validated_pattern() {
+                Err(error @ UrlPatternCandidateError::InvalidRegex(_)) => Some(error.to_string()),
+                _ => None,
+            },
+        }
     }
 
     /// The pattern approval would store: `Some` regex, or `None` for a decided `NO_PATTERN`.
@@ -90,8 +89,49 @@ impl UrlPatternReviewCandidate {
     }
 }
 
-/// The key of a URL-pattern candidate that holds its sample labels.
-const SAMPLE_LABELS_KEY: &str = "sample_labels";
+/// A [`UrlPatternReviewCandidate`] as an edit posts it, with exactly the candidate's keys.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PostedUrlPatternReviewCandidate {
+    decision: PostedUrlPatternDecision,
+    current_pattern: Option<String>,
+    #[serde(default)]
+    sample_labels: Option<SampleLabels>,
+}
+
+impl From<PostedUrlPatternReviewCandidate> for UrlPatternReviewCandidate {
+    fn from(posted: PostedUrlPatternReviewCandidate) -> Self {
+        let PostedUrlPatternReviewCandidate {
+            decision,
+            current_pattern,
+            sample_labels,
+        } = posted;
+        Self {
+            decision: decision.into(),
+            current_pattern,
+            sample_labels,
+        }
+    }
+}
+
+/// A [`UrlPatternDecision`] as an edit posts it, with exactly the decision's keys.
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+enum PostedUrlPatternDecision {
+    Pattern { value: String },
+    NoPattern,
+    Undecided,
+}
+
+impl From<PostedUrlPatternDecision> for UrlPatternDecision {
+    fn from(posted: PostedUrlPatternDecision) -> Self {
+        match posted {
+            PostedUrlPatternDecision::Pattern { value } => Self::Pattern { value },
+            PostedUrlPatternDecision::NoPattern => Self::NoPattern,
+            PostedUrlPatternDecision::Undecided => Self::Undecided,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -133,47 +173,69 @@ mod tests {
         assert_eq!(no_pattern.validated_pattern().ok(), Some(None));
     }
 
-    /// Sample labels go in and out of a candidate's payload without touching its other keys,
-    /// and a candidate without labels reads and stores as before they existed.
+    /// A posted candidate is decoded with exactly the candidate's keys, so an unknown key is
+    /// refused rather than stored, and one without labels reads as before they existed.
     #[test]
-    fn should_set_and_drop_sample_labels_keeping_the_other_keys_of_the_payload() {
+    fn should_decode_a_posted_candidate_and_refuse_unknown_keys() {
+        let posted = serde_json::json!({
+            "decision": { "type": "PATTERN", "value": "/item/" },
+            "current_pattern": null,
+        });
+        let mut with_unknown_key = posted.clone();
+        with_unknown_key["note"] = serde_json::json!("kept");
+        let mut with_unknown_decision_key = posted.clone();
+        with_unknown_decision_key["decision"]["note"] = serde_json::json!("kept");
+
+        let decoded = UrlPatternReviewCandidate::decode_edit(posted.clone())
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(serde_json::to_value(&decoded).ok(), Some(posted));
+        assert!(UrlPatternReviewCandidate::decode_edit(with_unknown_key).is_err());
+        assert!(UrlPatternReviewCandidate::decode_edit(with_unknown_decision_key).is_err());
+    }
+
+    #[test]
+    fn should_set_and_drop_sample_labels() {
         let labels = SampleLabels {
             labelled_at: time::OffsetDateTime::UNIX_EPOCH,
             labels: Vec::new(),
         };
-        let stored = serde_json::json!({
-            "decision": { "type": "PATTERN", "value": "/item/" },
-            "current_pattern": null,
-            "note": "kept",
-        });
+        let candidate = UrlPatternReviewCandidate::new(UrlPatternDecision::NoPattern, None);
 
-        let labelled =
-            UrlPatternReviewCandidate::payload_with_sample_labels(stored.clone(), Some(&labels))
-                .unwrap_or_else(|error| panic!("{error}"));
-        let unlabelled =
-            UrlPatternReviewCandidate::payload_with_sample_labels(labelled.clone(), None)
-                .unwrap_or_else(|error| panic!("{error}"));
+        let labelled = candidate.clone().with_sample_labels(Some(labels.clone()));
 
-        assert_eq!(labelled["note"], "kept");
-        assert_eq!(
-            serde_json::from_value::<UrlPatternReviewCandidate>(labelled)
-                .ok()
-                .and_then(|candidate| candidate.sample_labels),
-            Some(labels)
+        assert_eq!(labelled.sample_labels.as_ref(), Some(&labels));
+        assert_eq!(labelled.with_sample_labels(None), candidate);
+    }
+
+    /// A stored candidate that does not decode or proposes no regex is invalid; an undecided one
+    /// only waits for a decision.
+    #[test]
+    fn should_name_why_a_stored_candidate_is_invalid() {
+        let stored =
+            |decision| serde_json::json!({ "decision": decision, "current_pattern": null });
+
+        assert!(
+            UrlPatternReviewCandidate::validation_failure(&stored(
+                serde_json::json!({ "type": "UNDECIDED" })
+            ))
+            .is_none()
         );
-        assert_eq!(unlabelled, stored);
-        assert_eq!(
-            serde_json::to_value(
-                serde_json::from_value::<UrlPatternReviewCandidate>(stored.clone())
-                    .unwrap_or_else(|error| panic!("{error}"))
-            )
-            .ok()
-            .map(|payload| payload.get("sample_labels").is_none()),
-            Some(true)
+        assert!(
+            UrlPatternReviewCandidate::validation_failure(&stored(
+                serde_json::json!({ "type": "PATTERN", "value": "/item/" })
+            ))
+            .is_none()
         );
-        assert!(matches!(
-            UrlPatternReviewCandidate::payload_with_sample_labels(serde_json::json!([]), None),
-            Err(UrlPatternCandidateError::NotAnObject)
-        ));
+        assert!(
+            UrlPatternReviewCandidate::validation_failure(&stored(
+                serde_json::json!({ "type": "PATTERN", "value": "(" })
+            ))
+            .is_some_and(|failure| failure.starts_with("invalid URL pattern"))
+        );
+        assert!(
+            UrlPatternReviewCandidate::validation_failure(&serde_json::json!([]))
+                .is_some_and(|failure| failure.starts_with("the candidate does not decode"))
+        );
     }
 }
