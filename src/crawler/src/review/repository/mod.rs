@@ -16,7 +16,6 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
 use crate::spider::classification::url_classifier::UrlClassifier;
-use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -40,6 +39,7 @@ mod reviewer_page_url;
 mod revocation;
 mod sample_labels;
 mod schema_payload;
+mod url_pattern_sample;
 mod verdicts;
 
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
@@ -60,6 +60,7 @@ use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, holds_live_schemas,
     update_schema_field_payload, validate_product_schemas,
 };
+use url_pattern_sample::{CandidateClassification, candidate_product_count, pattern_takes};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReviewRepositoryError {
@@ -685,20 +686,15 @@ impl CrawlerReviewRepository {
         urls: &[String],
         current_pattern: Option<&Regex>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        let candidate_regex = match &decision {
-            UrlPatternDecision::Pattern { value } => Some(
-                Regex::new(value).map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?,
-            ),
-            UrlPatternDecision::NoPattern | UrlPatternDecision::Undecided => None,
-        };
+        let candidate_regex = decision
+            .candidate_regex()
+            .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
         let candidate_pattern = candidate_regex.as_ref();
         let candidate_payload =
             serde_json::to_value(UrlPatternReviewCandidate::new(decision, current_pattern))?;
         let validation_summary = json!({
             "sample_count": urls.len(),
-            "candidate_product_count": candidate_pattern
-                .map(|pattern| urls.iter().filter(|url| pattern_takes(pattern, url)).count())
-                .unwrap_or(0),
+            "candidate_product_count": candidate_product_count(urls, candidate_pattern),
         });
         let mut transaction = self.pool.begin().await?;
         let domain_owned = sqlx::query_scalar::<_, bool>(
@@ -746,12 +742,8 @@ impl CrawlerReviewRepository {
         if is_new {
             for raw_url in urls {
                 let current_match = current_pattern.map(|pattern| pattern_takes(pattern, raw_url));
-                let candidate_match =
-                    candidate_pattern.map(|pattern| pattern_takes(pattern, raw_url));
-                let candidate_class = self
-                    .url_classifier
-                    .classify(raw_url, candidate_pattern)
-                    .to_string();
+                let candidate =
+                    CandidateClassification::of(self.url_classifier, raw_url, candidate_pattern);
                 let review_url_id = CrawlerReviewUrlId::new();
                 sqlx::query(
                     "INSERT INTO crawler_review_urls (
@@ -762,8 +754,8 @@ impl CrawlerReviewRepository {
                 .bind(review_id.as_uuid())
                 .bind(raw_url)
                 .bind(current_match)
-                .bind(candidate_match)
-                .bind(candidate_class)
+                .bind(candidate.pattern_match)
+                .bind(candidate.class)
                 .execute(&mut *transaction)
                 .await?;
             }
@@ -1777,12 +1769,6 @@ fn row_to_repair_request(
             "a review's repair request must record both its time and its note".into(),
         )),
     }
-}
-
-/// Whether `pattern` takes the stored URL `raw_url` as the spider matches it, with or without its
-/// trailing slash.
-fn pattern_takes(pattern: &Regex, raw_url: &str) -> bool {
-    CrawledUrl::try_from(raw_url).is_ok_and(|url| url.matches_pattern(pattern))
 }
 
 fn row_to_page(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewPage, sqlx::Error> {

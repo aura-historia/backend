@@ -24,6 +24,14 @@ pub enum UrlPatternDecision {
 }
 
 impl UrlPatternDecision {
+    /// The regex of a `PATTERN` decision, `None` for a decision without a pattern.
+    pub fn candidate_regex(&self) -> Result<Option<Regex>, regex::Error> {
+        match self {
+            Self::Pattern { value } => Regex::new(value).map(Some),
+            Self::NoPattern | Self::Undecided => Ok(None),
+        }
+    }
+
     /// The decision for an inferred pattern, where `None` means no product pattern exists.
     pub fn inferred(pattern: Option<&Regex>) -> Self {
         pattern.map_or(Self::NoPattern, |pattern| Self::Pattern {

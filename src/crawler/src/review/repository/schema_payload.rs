@@ -300,20 +300,6 @@ impl SchemaField {
         })
     }
 
-    fn name(&self) -> &str {
-        match self {
-            Self::SourceListingId => "source_listing_id",
-            Self::Title => "title",
-            Self::Description => "description",
-            Self::Price => "price",
-            Self::PriceEstimateMin => "price_estimate_min",
-            Self::PriceEstimateMax => "price_estimate_max",
-            Self::State => "state",
-            Self::Images => "images",
-            Self::RawAttribute(key) => key,
-        }
-    }
-
     /// Sets this field of `schema` to `rule`, or deletes it when `rule` is `None`; a required
     /// field cannot be deleted.
     fn set_rule(
@@ -345,7 +331,26 @@ impl SchemaField {
     }
 
     fn required_field_error(&self) -> ReviewRepositoryError {
-        ReviewRepositoryError::RequiredSchemaField(self.name().into())
+        ReviewRepositoryError::RequiredSchemaField(self.to_string())
+    }
+}
+
+/// The field's name on the wire: the schema's JSON key, a raw attribute as
+/// `raw_attributes.<key>`.
+impl std::fmt::Display for SchemaField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::SourceListingId => "source_listing_id",
+            Self::Title => "title",
+            Self::Description => "description",
+            Self::Price => "price",
+            Self::PriceEstimateMin => "price_estimate_min",
+            Self::PriceEstimateMax => "price_estimate_max",
+            Self::State => "state",
+            Self::Images => "images",
+            Self::RawAttribute(key) => return write!(f, "{RAW_ATTRIBUTE_FIELD_PREFIX}{key}"),
+        };
+        f.write_str(name)
     }
 }
 
