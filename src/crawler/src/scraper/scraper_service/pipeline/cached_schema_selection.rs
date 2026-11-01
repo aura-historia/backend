@@ -4,8 +4,7 @@ use crate::scraper::css_selector::product_schema::{
 };
 use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
-    AppliedSchemaCandidate, CheckedSchemaCandidate, collect_applicable_candidates,
-    rank_checked_candidates,
+    AppliedSchemaCandidate, CheckedSchemaCandidate, rank_checked_candidates,
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -72,24 +71,6 @@ pub(crate) struct CheckedCachedCandidates<'a> {
     /// required values alone rejected (see [`PlausibilityFindings::missing_required_values`]).
     pub(crate) missing_required_values: Option<PlausibilityFindings>,
     pub(crate) candidates: Vec<CheckedSchemaCandidate<'a>>,
-}
-
-/// Applies every cached schema to an already parsed page and logs the outcome.
-/// Synchronous so the `!Send` document never lives across an await.
-pub(crate) fn apply_cached_schemas<'a>(
-    schemas: &'a [ProductCssSelectorSchema],
-    parsed: &scraper::Html,
-) -> Vec<AppliedSchemaCandidate<'a>> {
-    let candidate_set = collect_applicable_candidates(schemas, parsed);
-    log_cached_schema_application(
-        schemas.len(),
-        candidate_set.candidates.len(),
-        candidate_set
-            .apply_failures
-            .iter()
-            .map(|(schema_index, err)| (*schema_index, err, None)),
-    );
-    candidate_set.candidates
 }
 
 /// Logs how many cached schemas applied, and each apply failure with its field and error

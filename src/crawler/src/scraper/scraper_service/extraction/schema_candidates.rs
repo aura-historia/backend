@@ -1,6 +1,4 @@
-use crate::scraper::css_selector::product_schema::{
-    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
-};
+use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
 use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::image_validation::filter_image_urls_offline;
 use scraper::Html;
@@ -138,48 +136,27 @@ impl<'a> CheckedSchemaCandidate<'a> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SchemaCandidateSet
-// ---------------------------------------------------------------------------
-
-/// Result of applying every cached schema to one parsed HTML document.
-pub(crate) struct SchemaCandidateSet<'a> {
-    pub candidates: Vec<AppliedSchemaCandidate<'a>>,
-    /// Diagnostics for schemas that failed to apply, in original schema order.
-    pub apply_failures: Vec<(usize, ApplySchemaError)>,
-}
-
-/// Applies every schema in `schemas` to the already-parsed `html` document.
-///
-/// Does not stop at the first successful application — every schema is tried.
-/// Schemas that fail application are excluded from the candidate set but their
-/// diagnostics are preserved for logging.
+/// Applies every schema in `schemas` to the already-parsed `html` document and keeps those that
+/// apply, in schema order. Every schema is tried, not only up to the first that applies.
 pub(crate) fn collect_applicable_candidates<'a>(
     schemas: &'a [ProductCssSelectorSchema],
     html: &Html,
-) -> SchemaCandidateSet<'a> {
-    let mut candidates = Vec::new();
-    let mut apply_failures = Vec::new();
-
-    for (schema_index, schema) in schemas.iter().enumerate() {
-        match crate::scraper::scraper_service::extraction::engine::apply_schema_to_document(
-            schema, html,
-        ) {
-            Ok(raw) => candidates.push(AppliedSchemaCandidate {
+) -> Vec<AppliedSchemaCandidate<'a>> {
+    schemas
+        .iter()
+        .enumerate()
+        .filter_map(|(schema_index, schema)| {
+            crate::scraper::scraper_service::extraction::engine::apply_schema_to_document(
+                schema, html,
+            )
+            .ok()
+            .map(|raw| AppliedSchemaCandidate {
                 schema_index,
                 schema,
                 raw,
-            }),
-            Err(err) => {
-                apply_failures.push((schema_index, err));
-            }
-        }
-    }
-
-    SchemaCandidateSet {
-        candidates,
-        apply_failures,
-    }
+            })
+        })
+        .collect()
 }
 
 /// A cached schema that the fixture ranking seam kept, with its per-page findings.
@@ -202,7 +179,7 @@ pub fn rank_applicable_schemas(
     html: &str,
 ) -> Vec<RankedSchemaCandidate> {
     let parsed = Html::parse_document(html);
-    let candidates = collect_applicable_candidates(schemas, &parsed).candidates;
+    let candidates = collect_applicable_candidates(schemas, &parsed);
     let base_url = url::Url::parse("https://example.com/").expect("static ranking base URL");
     let mut checked_candidates = Vec::new();
     for candidate in candidates {

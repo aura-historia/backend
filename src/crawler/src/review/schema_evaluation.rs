@@ -7,15 +7,15 @@ use crate::review::model::{
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
 };
-use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
+use crate::scraper::css_selector::removed_page_schema::{
+    RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
+    removed_page_verdict,
+};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{
     CrossPageFindings, IdentityAgreementFindings, PageExtraction, PlausibilityFindings,
 };
 use crate::scraper::scraper_service::image_validation::filter_image_urls_offline;
-use crate::scraper::scraper_service::pipeline::scrape_product::{
-    RemovedPageVerdict, removed_page_verdict_in,
-};
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 use url::Url;
@@ -115,15 +115,15 @@ fn evaluate_matrix(
             .map(|schema| evaluate_schema_page(schema, page, &html))
             .collect();
         add_identity_agreement_findings(&mut page_evaluations, page.captured_identity);
-        for (candidate, evaluation) in candidates.iter_mut().zip(page_evaluations) {
-            candidate.pages.push(evaluation);
-        }
         removed_page_matches.extend(removed_page_match(
             removed_page_schemas,
-            schemas,
+            &page_evaluations,
             page,
             &html,
         ));
+        for (candidate, evaluation) in candidates.iter_mut().zip(page_evaluations) {
+            candidate.pages.push(evaluation);
+        }
     }
     let mut matrix = SchemaMatrix {
         review_id,
@@ -162,20 +162,23 @@ fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
     }
 }
 
-/// The verdict the scraper's removal guard reaches on a parsed review page once `schemas`
-/// are live, so a reviewer sees an over-broad template before approving it; `None` when no
-/// removed-page template matches the page. The page URL stands in for the crawler URL's
-/// record key: it only matters for a page that yields no identity of its own.
+/// The verdict the scraper's removal guard reaches on a parsed review page once the candidate
+/// schemas, whose evaluations of the page are `page_evaluations`, are live, so a reviewer sees an
+/// over-broad template before approving it; `None` when no removed-page template matches the
+/// page. The page URL stands in for the crawler URL's record key: it only matters for a page that
+/// yields no identity of its own.
 fn removed_page_match(
     removed_page_schemas: &[RemovedPageSchema],
-    schemas: &[ProductCssSelectorSchema],
+    page_evaluations: &[SchemaPageEvaluation],
     page: &MatrixPage<'_>,
     html: &Html,
 ) -> Option<RemovedPageTemplateMatch> {
-    let (outcome, matches) = match removed_page_verdict_in(
-        removed_page_schemas.to_vec(),
-        schemas,
-        html,
+    let matches = match_removed_page(removed_page_schemas.iter().cloned(), html);
+    let (outcome, matches) = match removed_page_verdict(
+        matches,
+        page_evaluations
+            .iter()
+            .filter_map(|evaluation| evaluation.extracted.as_ref()),
         page.url,
         page.captured_identity,
     ) {
@@ -190,26 +193,15 @@ fn removed_page_match(
         url: page.url.to_owned(),
         role: page.role.to_owned(),
         outcome,
-        templates: matched_templates(removed_page_schemas, matches),
+        templates: matches.into_iter().map(matched_template).collect(),
     })
 }
 
-fn matched_templates(
-    removed_page_schemas: &[RemovedPageSchema],
-    matches: Vec<RemovedPageMatch>,
-) -> Vec<MatchedRemovedPageTemplate> {
-    matches
-        .into_iter()
-        .filter_map(|matched| {
-            let template_index = removed_page_schemas
-                .iter()
-                .position(|schema| *schema == matched.schema)?;
-            Some(MatchedRemovedPageTemplate {
-                template_index,
-                notices: matched.notices,
-            })
-        })
-        .collect()
+fn matched_template(matched: RemovedPageMatch) -> MatchedRemovedPageTemplate {
+    MatchedRemovedPageTemplate {
+        template_index: matched.template_index,
+        notices: matched.notices,
+    }
 }
 
 /// Compares one candidate's extractions of the review pages, each of a different
