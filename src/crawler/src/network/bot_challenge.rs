@@ -61,8 +61,15 @@ const CHALLENGE_BODY_MARKERS: &[(&str, ChallengeVendor, &str)] = &[
         ChallengeVendor::Cloudflare,
         "cloudflare_challenge_script",
     ),
+    // The script of DataDome's captcha or device-check page itself; a protected page's policy
+    // or preconnect hints name the same host without it.
     (
-        "captcha-delivery.com",
+        "ct.captcha-delivery.com/c.js",
+        ChallengeVendor::DataDome,
+        "datadome_captcha_script",
+    ),
+    (
+        "ct.captcha-delivery.com/i.js",
         ChallengeVendor::DataDome,
         "datadome_captcha_script",
     ),
@@ -238,6 +245,14 @@ document.getElementsByTagName('head')[0].appendChild(a);}());</script></body></h
 <script src="https://ct.captcha-delivery.com/c.js"></script></body></html>"#;
             let challenge = detect(403, &[("x-datadome", "protected")], page).unwrap();
             assert_eq!(challenge.vendor, ChallengeVendor::DataDome);
+
+            let device_check = page
+                .replace("'rt':'c'", "'rt':'i'")
+                .replace("/c.js", "/i.js");
+            assert_eq!(
+                detect(403, &[], &device_check).map(|challenge| challenge.vendor),
+                Some(ChallengeVendor::DataDome)
+            );
         }
 
         #[test]
@@ -275,6 +290,8 @@ document.getElementsByTagName('head')[0].appendChild(a);}());</script></body></h
         #[test]
         fn should_not_take_a_datadome_protected_page_for_a_challenge() {
             let page = r#"<html><head><title>Oak Chair</title>
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' https://ct.captcha-delivery.com; frame-src https://geo.captcha-delivery.com">
+<link rel="preconnect" href="https://geo.captcha-delivery.com">
 <script src="https://js.datadome.co/tags.js" async></script></head><body><h1>Oak Chair</h1></body></html>"#;
             assert_eq!(detect(200, &[("x-datadome", "protected")], page), None);
         }
