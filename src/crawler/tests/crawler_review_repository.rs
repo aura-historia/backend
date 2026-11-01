@@ -715,6 +715,122 @@ async fn should_materialize_the_live_merge_of_a_legacy_append_review_and_approve
     );
 }
 
+/// Stores `product_schema` as the ListingSource's live schema row as it is, in any spelling an
+/// older crawler wrote.
+async fn store_live_schema_row(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+    product_schema: serde_json::Value,
+) {
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas \
+         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW()) \
+         ON CONFLICT (listing_source_id) DO UPDATE SET product_schema = EXCLUDED.product_schema",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(product_schema)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// The materialization touches only pending legacy append or repair reviews of one schema whose
+/// ListingSource has a live list: a live row stored as a single schema counts as a list of one,
+/// and a review schema the live list already holds, in another spelling, is not added twice.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_materialize_only_pending_single_schema_legacy_reviews_with_a_live_list() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let legacy_review = |reason: &'static str, schemas: Vec<ProductCssSelectorSchema>| {
+        let pool = pool.clone();
+        let repository = repository.clone();
+        async move {
+            let listing_source_id = ListingSourceId::new();
+            insert_listing_source(&pool, listing_source_id).await;
+            let review_id = repository
+                .create_schema_review(
+                    &listing_source_id,
+                    reason,
+                    &schemas,
+                    review_pages(),
+                    json!({}),
+                )
+                .await
+                .unwrap();
+            (listing_source_id, review_id)
+        }
+    };
+    let (repair_source, repair) =
+        legacy_review("normalization_schema_repair", vec![schema("h1.repair")]).await;
+    store_live_schema_row(&pool, repair_source, json!(schema("h1.live"))).await;
+    let (already_live_source, already_live) =
+        legacy_review("append_schema_generation", vec![schema("h1.same")]).await;
+    let mut live_spelling = json!(schema("h1.same"));
+    live_spelling["description"] = json!(null);
+    live_spelling["rawAttributes"] = json!({});
+    store_live_schema_row(
+        &pool,
+        already_live_source,
+        json!([schema("h1.other"), live_spelling]),
+    )
+    .await;
+    let (two_schemas_source, two_schemas) = legacy_review(
+        "append_schema_generation",
+        vec![schema("h1.a"), schema("h1.b")],
+    )
+    .await;
+    store_live_schema_row(&pool, two_schemas_source, json!([schema("h1.live")])).await;
+    let (_, without_live_list) =
+        legacy_review("append_schema_generation", vec![schema("h1.alone")]).await;
+    let (approved_source, approved) =
+        legacy_review("append_schema_generation", vec![schema("h1.approved")]).await;
+    approve_acknowledging_coverage(&repository, approved)
+        .await
+        .unwrap();
+    store_live_schema_row(&pool, approved_source, json!([schema("h1.later")])).await;
+    let reviews = [
+        repair,
+        already_live,
+        two_schemas,
+        without_live_list,
+        approved,
+    ];
+    let mut before = Vec::new();
+    for review_id in reviews {
+        before.push(repository.get_review(review_id).await.unwrap().review);
+    }
+
+    materialize_legacy_single_schema_reviews(&pool).await;
+
+    let mut after = Vec::new();
+    for review_id in reviews {
+        after.push(repository.get_review(review_id).await.unwrap().review);
+    }
+    assert_eq!(
+        after[0].candidate_payload,
+        json!({ "schemas": [schema("h1.live"), schema("h1.repair")] })
+    );
+    assert_eq!(after[0].candidate_version, before[0].candidate_version + 1);
+    let already_live_schemas: Vec<ProductCssSelectorSchema> =
+        serde_json::from_value(after[1].candidate_payload["schemas"].clone()).unwrap();
+    assert_eq!(
+        already_live_schemas,
+        vec![schema("h1.other"), schema("h1.same")],
+        "the schema already live is not added twice"
+    );
+    assert_eq!(after[1].candidate_version, before[1].candidate_version + 1);
+    for index in 2..reviews.len() {
+        assert_eq!(
+            after[index].candidate_payload,
+            before[index].candidate_payload
+        );
+        assert_eq!(
+            after[index].candidate_version,
+            before[index].candidate_version
+        );
+    }
+}
+
 /// A pending review whose persisted candidate fails today's validation still reads, with the
 /// reason as `candidate_error`, and approval keeps refusing it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

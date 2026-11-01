@@ -114,21 +114,23 @@ impl From<PostedUrlPatternReviewCandidate> for UrlPatternReviewCandidate {
     }
 }
 
-/// A [`UrlPatternDecision`] as an edit posts it, with exactly the decision's keys.
+/// A [`UrlPatternDecision`] as an edit posts it, with exactly the decision's keys. Its variants
+/// are struct variants because serde ignores extra keys of an internally tagged unit variant
+/// despite `deny_unknown_fields`.
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum PostedUrlPatternDecision {
     Pattern { value: String },
-    NoPattern,
-    Undecided,
+    NoPattern {},
+    Undecided {},
 }
 
 impl From<PostedUrlPatternDecision> for UrlPatternDecision {
     fn from(posted: PostedUrlPatternDecision) -> Self {
         match posted {
             PostedUrlPatternDecision::Pattern { value } => Self::Pattern { value },
-            PostedUrlPatternDecision::NoPattern => Self::NoPattern,
-            PostedUrlPatternDecision::Undecided => Self::Undecided,
+            PostedUrlPatternDecision::NoPattern {} => Self::NoPattern,
+            PostedUrlPatternDecision::Undecided {} => Self::Undecided,
         }
     }
 }
@@ -183,15 +185,34 @@ mod tests {
         });
         let mut with_unknown_key = posted.clone();
         with_unknown_key["note"] = serde_json::json!("kept");
-        let mut with_unknown_decision_key = posted.clone();
-        with_unknown_decision_key["decision"]["note"] = serde_json::json!("kept");
 
         let decoded = UrlPatternReviewCandidate::decode_edit(posted.clone())
             .unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(serde_json::to_value(&decoded).ok(), Some(posted));
         assert!(UrlPatternReviewCandidate::decode_edit(with_unknown_key).is_err());
-        assert!(UrlPatternReviewCandidate::decode_edit(with_unknown_decision_key).is_err());
+        for decision in [
+            serde_json::json!({ "type": "PATTERN", "value": "/item/" }),
+            serde_json::json!({ "type": "NO_PATTERN" }),
+            serde_json::json!({ "type": "UNDECIDED" }),
+        ] {
+            let candidate =
+                serde_json::json!({ "decision": decision.clone(), "current_pattern": null });
+            let mut with_unknown_decision_key = candidate.clone();
+            with_unknown_decision_key["decision"]["note"] = serde_json::json!("kept");
+
+            assert_eq!(
+                UrlPatternReviewCandidate::decode_edit(candidate.clone())
+                    .ok()
+                    .and_then(|decoded| serde_json::to_value(decoded).ok()),
+                Some(candidate),
+                "{decision}"
+            );
+            assert!(
+                UrlPatternReviewCandidate::decode_edit(with_unknown_decision_key).is_err(),
+                "{decision}"
+            );
+        }
     }
 
     #[test]

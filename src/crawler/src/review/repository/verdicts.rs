@@ -402,7 +402,7 @@ async fn close_approved_review(
     review: &ReviewUnderVerdict,
     approval: Approval<'_>,
 ) -> Result<(), ReviewRepositoryError> {
-    // Storing a merged or rebased candidate already moved the version once; it moves once.
+    // Storing a rebased candidate already moved the version once; it moves once.
     sqlx::query(
         "UPDATE crawler_reviews \
          SET status = 'APPROVED', reviewer_notes = COALESCE($2, reviewer_notes), \
