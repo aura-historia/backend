@@ -309,12 +309,11 @@ mod tests {
         CrawlerReview, PendingReviewPage, PendingReviewSummary, PendingReviewTotals,
     };
     use crate::review_agent_runner::ledger::LEDGER_FILE;
-    use crate::review_agent_runner::ledger::tests::StateDirectory;
+    use crate::review_agent_runner::ledger::tests::{StateDirectory, write_executable};
     use crate::review_agent_runner::settings::RunnerLocation;
     use listing_source_core::ListingSourceId;
     use serde_json::{Value, json};
     use std::collections::HashMap;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -616,9 +615,7 @@ echo "end $role $review" >> "$dir/order.log"
         fn new() -> Self {
             let directory = StateDirectory::new();
             let path = directory.path().join("claude");
-            std::fs::write(&path, FAKE_CLAUDE).unwrap_or_default();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-                .unwrap_or_else(|error| panic!("{error}"));
+            write_executable(&path, FAKE_CLAUDE);
             for subdirectory in [
                 "envelopes",
                 "decisions",

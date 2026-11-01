@@ -292,6 +292,28 @@ pub(super) mod tests {
         }
     }
 
+    /// Writes `contents` to `path` as an executable shell script through a short-lived
+    /// `/bin/sh`, so this test process never holds a write descriptor to the file. A sibling test
+    /// that forks while such a descriptor is open keeps it until the fork execs, and executing the
+    /// file meanwhile fails with ETXTBSY; the runner starts these scripts as programs, so it
+    /// cannot run them through `/bin/sh` as `process.rs` does.
+    #[cfg(unix)]
+    pub(in crate::review_agent_runner) fn write_executable(path: &Path, contents: &str) {
+        let source = path.with_extension("src");
+        std::fs::write(&source, contents).unwrap_or_else(|error| panic!("{error}"));
+        let status = std::process::Command::new("/bin/sh")
+            .args(["-c", r#"cp "$0" "$1" && chmod 755 "$1""#])
+            .arg(&source)
+            .arg(path)
+            .status()
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            status.success(),
+            "writing {} failed: {status}",
+            path.display()
+        );
+    }
+
     pub(in crate::review_agent_runner) fn record(
         finished: OffsetDateTime,
         cost: f64,

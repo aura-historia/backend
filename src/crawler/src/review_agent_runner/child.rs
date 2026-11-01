@@ -254,22 +254,18 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn should_start_the_runner_with_only_its_environment_and_stop_it_with_sigterm() {
-        use crate::review_agent_runner::ledger::tests::StateDirectory;
-        use std::os::unix::fs::PermissionsExt;
+        use crate::review_agent_runner::ledger::tests::{StateDirectory, write_executable};
 
         let directory = StateDirectory::new();
         let record = directory.path().join("record");
         let program = directory.path().join("review-agent-runner");
-        std::fs::write(
+        write_executable(
             &program,
-            format!(
+            &format!(
                 "#!/bin/sh\nenv > '{record}'\ntrap 'echo stopped >> \"{record}\"; exit 143' TERM\nwhile :; do sleep 0.1; done\n",
                 record = record.display()
             ),
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
-            .unwrap_or_else(|error| panic!("{error}"));
+        );
         assert!(std::env::var_os("CARGO_PKG_NAME").is_some());
 
         let runner = RunnerChild::start(
