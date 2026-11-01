@@ -887,22 +887,26 @@ fn crawl_delay_millis(configured_millis: u64, crawl_delay: Option<Duration>) -> 
     })
 }
 
-/// Decodes HTML character references in the links Spider finds. Spider reads `href` values
-/// raw, so `?c=&amp;id=113` would otherwise be requested with an `amp;id` parameter and
-/// answered with the wrong page. Spider has already resolved the link against the page URL, so
-/// this fixes references in the query and path text, not references that encode URL structure.
+/// Hands Spider each link it finds in the spelling the crawler stores
+/// (`docs/crawler/networking.md#stored-urls`), so Spider requests the stored URL.
 ///
-/// Spider admits a link (host whitelist, URL blacklist, robots.txt) on that raw text before it
-/// calls the decoder, so the decoded URL is only handed back when it passes the same rules.
+/// It decodes HTML character references first. Spider reads `href` values raw, so
+/// `?c=&amp;id=113` would otherwise be requested with an `amp;id` parameter and answered with the
+/// wrong page. Spider has already resolved the link against the page URL, so this fixes
+/// references in the query and path text, not references that encode URL structure. It then
+/// drops the query parameters that do not identify the page, such as `utm_*` or a session id.
+///
+/// Spider admits a link (host whitelist, deny list, robots.txt) on that raw text before it calls
+/// the decoder, so the rewritten URL is only handed back when it passes the same rules.
 /// Otherwise Spider fetches the raw link it admitted, and the filter task drops it.
 struct FoundLinkDecoder {
     host_whitelist: Regex,
-    /// Spider's URL deny list: the URL blacklist and the robots.txt rules.
+    /// Spider's URL deny list: [`CrawledUrl::spider_deny_patterns`] and the robots.txt rules.
     deny_list: RegexSet,
     refused: RefusedLinks,
 }
 
-/// Raw links whose decoded form the decoder refused, shared with the filter task.
+/// Raw links whose rewritten form the decoder refused, shared with the filter task.
 type RefusedLinks = Arc<Mutex<HashSet<String>>>;
 
 fn is_refused_link(refused: &RefusedLinks, url: &str) -> bool {
@@ -914,12 +918,25 @@ fn is_refused_link(refused: &RefusedLinks, url: &str) -> bool {
 
 impl FoundLinkDecoder {
     fn decode(&self, link: CaseInsensitiveString) -> CaseInsensitiveString {
-        let Cow::Owned(decoded) = html_escape::decode_html_entities(link.inner()) else {
-            return link;
-        };
+        let decoded = html_escape::decode_html_entities(link.inner());
+        let entities_decoded = matches!(decoded, Cow::Owned(_));
         // Judge the URL in the form reqwest requests.
-        match Url::parse(&decoded) {
-            Ok(url) if self.admits(url.as_str()) => String::from(url).into(),
+        let stored = match Url::parse(&decoded) {
+            Ok(url) => {
+                let stored = CrawledUrl::new(url.clone());
+                if !entities_decoded && stored.as_url() == &url {
+                    return link;
+                }
+                Some(stored)
+            }
+            // Spider fails such a link itself; only a link that decoding broke is refused.
+            Err(_) if !entities_decoded => return link,
+            Err(_) => None,
+        };
+        match stored {
+            Some(stored) if self.admits(stored.as_url().as_str()) => {
+                String::from(stored.as_url().clone()).into()
+            }
             _ => {
                 self.refused
                     .lock()
@@ -977,7 +994,7 @@ impl SpiderImpl {
         let mut website = Website::new(root_url.as_str());
         website.set_http_client(client);
 
-        let mut blacklist_regex = CrawledUrl::blacklist_patterns();
+        let mut blacklist_regex = CrawledUrl::spider_deny_patterns();
         blacklist_regex.extend(
             robots
                 .deny_list
@@ -1753,6 +1770,7 @@ mod tests {
                 r#"<!doctype html>
                     <a href="/single.asp?c=&amp;offset=20&amp;id=113">Product</a>
                     <a href="/shop?currency=EUR&amp;page=8">Currency page</a>
+                    <a href="/shop?page=9&amp;utm_source=mail">Tracked page</a>
                     <a href="/index.php?category=26245&amp;page=3">Category page</a>
                     <a href="/literal?x=1&y=2">Literal ampersand</a>
                     <a href="/encoded?q=a%26b">Percent-encoded ampersand</a>
@@ -1775,7 +1793,7 @@ mod tests {
 
         let expected = [
             "http://example.com/single.asp?c=&offset=20&id=113",
-            "http://example.com/shop?currency=EUR&page=8",
+            "http://example.com/shop?page=9",
             "http://example.com/index.php?category=26245&page=3",
             "http://example.com/literal?x=1&y=2",
             "http://example.com/encoded?q=a%26b",
@@ -1789,7 +1807,7 @@ mod tests {
         // and every link discovered from it inherits the mistake.
         for target in [
             "/single.asp?c=&offset=20&id=113",
-            "/shop?currency=EUR&page=8",
+            "/shop?page=9",
             "/index.php?category=26245&page=3",
         ] {
             assert!(
@@ -1799,6 +1817,14 @@ mod tests {
                 "missing request for {target}: {request_log:?}"
             );
         }
+        // Spider follows neither a presentation parameter nor an action, also behind `&amp;`,
+        // so the currency and reply-to links cost no request.
+        assert!(
+            !request_log.iter().any(|(_, target, ..)| target
+                .contains("currency")
+                || target.contains("replytocom")),
+            "presentation or action link fetched: {request_log:?}"
+        );
         // Decoding never turns a link Spider admitted into one that robots.txt or the
         // blacklist refuses.
         assert!(
@@ -1815,12 +1841,12 @@ mod tests {
                 .any(|url| url.contains("replytocom") || url.contains("sol;")),
             "refused link emitted: {discovered:?}"
         );
-        assert_eq!(diagnostics.rejected_blacklist, 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.rejected_blacklist, 1, "{diagnostics:?}");
     }
 
     fn link_decoder_with_robots(robots_txt: &str) -> FoundLinkDecoder {
         let root = Url::parse("https://www.example.com/").unwrap();
-        let mut deny_list: Vec<String> = CrawledUrl::blacklist_patterns()
+        let mut deny_list: Vec<String> = CrawledUrl::spider_deny_patterns()
             .into_iter()
             .map(String::from)
             .collect();
@@ -1847,7 +1873,7 @@ mod tests {
             ),
             (
                 "https://www.example.com/shop?currency=EUR&amp;page=8",
-                "https://www.example.com/shop?currency=EUR&page=8",
+                "https://www.example.com/shop?page=8",
             ),
             (
                 "https://www.example.com/index.php?category=26245&amp;page=3",
@@ -1868,6 +1894,33 @@ mod tests {
             ),
         ] {
             assert_eq!(decode_link(&decoder, link), expected);
+        }
+    }
+
+    #[test]
+    fn link_decoder_should_drop_non_identity_parameters_when_link_has_no_character_reference() {
+        let decoder = link_decoder_with_robots("");
+
+        for (link, expected) in [
+            (
+                "https://www.example.com/products/1?utm_source=mail&fbclid=x",
+                "https://www.example.com/products/1",
+            ),
+            (
+                "https://www.example.com/products/netsuke?variant=4211",
+                "https://www.example.com/products/netsuke",
+            ),
+            (
+                "https://www.example.com/catalog/product_info.php?products_id=7&osCsid=a1b2",
+                "https://www.example.com/catalog/product_info.php?products_id=7",
+            ),
+            (
+                "https://www.example.com/products/1?id=2",
+                "https://www.example.com/products/1?id=2",
+            ),
+        ] {
+            assert_eq!(decode_link(&decoder, link), expected);
+            assert!(!is_refused_link(&decoder.refused, link), "{link}");
         }
     }
 

@@ -117,7 +117,7 @@ mod tests {
         }
         for raw in [
             "https://www.example.com/products/2",
-            "https://www.example.com/products/1?variant=sold",
+            "https://www.example.com/products/1?sku=sold",
         ] {
             assert_ne!(stored, Some(ReviewPageIdentity::of(&url(raw))), "{raw}");
         }
