@@ -108,13 +108,6 @@ pub trait UrlMetadataRepository: Send + Sync {
         url_classes: &[UrlClass],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError>;
 
-    async fn mark_as_scraped(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &url::Url,
-        hash: &str,
-    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-
     async fn set_disposition(
         &self,
         listing_source_id: &ListingSourceId,
@@ -441,32 +434,6 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         }
         transaction.commit().await.map_err(database_error)?;
         Ok(records)
-    }
-
-    async fn mark_as_scraped(
-        &self,
-        listing_source_id: &ListingSourceId,
-        url: &url::Url,
-        hash: &str,
-    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
-        let result = sqlx::query(
-            "UPDATE listing_source_urls \
-             SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW() \
-             WHERE listing_source_id = $1 \
-               AND url = $2 \
-               AND crawler_disposition = 'ACTIVE'",
-        )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(url.as_str())
-        .bind(hash)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(if result.rows_affected() == 1 {
-            CrawlerUrlWriteOutcome::Applied
-        } else {
-            CrawlerUrlWriteOutcome::NoopStale
-        })
     }
 
     async fn set_disposition(

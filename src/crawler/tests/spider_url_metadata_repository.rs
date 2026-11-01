@@ -88,46 +88,6 @@ async fn should_insert_and_update_url_for_its_same_owner() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_mark_owned_url_as_scraped() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-    let listing_source_id = ListingSourceId::new();
-    insert_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "scraped.example.com").await;
-    let url = Url::parse("https://scraped.example.com/products/1").unwrap();
-    repository
-        .upsert_link(
-            &listing_source_id,
-            &domain_id,
-            &url,
-            &UrlClass::ProductListing,
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(
-        repository
-            .mark_as_scraped(&listing_source_id, &url, "content-hash")
-            .await
-            .unwrap(),
-        CrawlerUrlWriteOutcome::Applied
-    );
-
-    let scraped: (Option<String>, Option<String>, String) = sqlx::query_as(
-        "SELECT last_scraped_hash, last_scraped::text, crawler_disposition \
-         FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
-    )
-    .bind(listing_source_id.as_uuid())
-    .bind(url.as_str())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(scraped.0.as_deref(), Some("content-hash"));
-    assert!(scraped.1.is_some());
-    assert_eq!(scraped.2, CrawlerDisposition::Active.as_str());
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_transition_owned_url_to_dormant_without_reactivation() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -208,20 +168,13 @@ async fn should_keep_dormant_sold_url_absorbing_during_rediscovery_and_active_up
 
     assert_eq!(
         repository
-            .mark_as_scraped(&listing_source_id, &url, "delayed-active-hash")
-            .await
-            .unwrap(),
-        CrawlerUrlWriteOutcome::NoopStale
-    );
-    assert_eq!(
-        repository
             .set_disposition(&listing_source_id, &url, CrawlerDisposition::Active)
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::NoopStale
     );
-    let row: (String, Option<String>) = sqlx::query_as(
-        "SELECT crawler_disposition, last_scraped_hash FROM listing_source_urls \
+    let disposition: String = sqlx::query_scalar(
+        "SELECT crawler_disposition FROM listing_source_urls \
          WHERE listing_source_id = $1 AND url = $2",
     )
     .bind(listing_source_id.as_uuid())
@@ -229,8 +182,7 @@ async fn should_keep_dormant_sold_url_absorbing_during_rediscovery_and_active_up
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row.0, CrawlerDisposition::DormantSold.as_str());
-    assert!(row.1.is_none());
+    assert_eq!(disposition, CrawlerDisposition::DormantSold.as_str());
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
