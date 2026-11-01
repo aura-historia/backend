@@ -309,7 +309,11 @@ impl ExtractionRule {
                     continue;
                 }
                 let value = extract_from_element(&element, &self.extract, css_selector, layout)
-                    .and_then(|value| non_empty(value, css_selector));
+                    .and_then(|value| match layout {
+                        TextLayout::Rendered => non_empty(value, css_selector),
+                        // An identity keeps its items as written, empty ones included.
+                        TextLayout::AsWritten => Ok(value),
+                    });
                 match value {
                     Ok(value) => {
                         extracted.insert(element.id());
@@ -1411,6 +1415,14 @@ mod tests {
                 r.apply(&doc).unwrap(),
                 vec!["Antique Silver Early English Spoons"]
             );
+        }
+
+        #[test]
+        fn should_keep_empty_identity_items_as_written() {
+            let doc = html("<span class=\"sku\"> </span><span class=\"sku\">AB-12</span>");
+            let r = rule(".sku", text_kind(), ExtractionCardinality::All);
+
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["", "AB-12"]);
         }
 
         #[test]

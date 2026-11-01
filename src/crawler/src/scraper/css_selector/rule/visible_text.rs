@@ -80,7 +80,7 @@ pub(super) fn visible_text(element: &scraper::ElementRef<'_>, layout: TextLayout
         return String::new();
     }
     let mut text = VisibleText::new(layout);
-    push_visible_text(element, false, &mut text);
+    push_visible_text(element, TextContext::default(), &mut text);
     text.into_value()
 }
 
@@ -92,14 +92,32 @@ pub(super) fn has_visible_text(element: &scraper::ElementRef<'_>) -> bool {
         .is_empty()
 }
 
+/// The elements a text node sits in that change how it is captured.
+#[derive(Clone, Copy, Debug, Default)]
+struct TextContext {
+    /// Inside one of the [`STRUCK_THROUGH_ELEMENTS`].
+    struck_through: bool,
+    /// Inside a `<pre>`, whose line breaks a browser keeps.
+    preformatted: bool,
+}
+
+impl TextContext {
+    fn inside(self, element_name: &str) -> Self {
+        Self {
+            struck_through: self.struck_through || STRUCK_THROUGH_ELEMENTS.contains(&element_name),
+            preformatted: self.preformatted || element_name == "pre",
+        }
+    }
+}
+
 fn push_visible_text(
     element: &scraper::ElementRef<'_>,
-    inside_struck_through: bool,
+    context: TextContext,
     text: &mut VisibleText,
 ) {
     for child in element.children() {
         match child.value() {
-            scraper::Node::Text(value) => text.push(value, inside_struck_through),
+            scraper::Node::Text(value) => text.push(value, context),
             scraper::Node::Element(child_element) => {
                 let name = child_element.name();
                 let rendered = text.layout == TextLayout::Rendered;
@@ -113,11 +131,9 @@ fn push_visible_text(
                         .then(|| accessible_copy(&child_element))
                         .flatten()
                         .unwrap_or(child_element);
-                    let inside_struck_through =
-                        inside_struck_through || STRUCK_THROUGH_ELEMENTS.contains(&name);
                     let flow = ElementFlow::of(name);
                     text.mark_boundary(flow);
-                    push_visible_text(&source, inside_struck_through, text);
+                    push_visible_text(&source, context.inside(name), text);
                     text.mark_boundary(flow);
                 }
             }
@@ -129,13 +145,20 @@ fn push_visible_text(
 /// Whether a browser hides `element` from view: it carries the `hidden` attribute, one of
 /// the [`VISUALLY_HIDDEN_CLASSES`], or an inline `display: none`.
 ///
+/// `hidden="until-found"` does not count: it marks collapsed content, such as an accordion
+/// section, that the browser shows when a visitor searches the page or follows a link.
+/// Collapsed tab panels and accordions hidden any other way are dropped, unless the rule
+/// selects the panel itself.
+///
 /// `aria-hidden="true"` does not count: it hides an element from screen readers, not from
 /// view, and WooCommerce marks the visible sale price `<ins aria-hidden="true">` next to
 /// its screen-reader copy. Stylesheet rules and framework utility classes such as
 /// `hidden` or `d-none` do not count either, because responsive variants show the
 /// element again on other screen sizes.
 fn is_visually_hidden(element: &scraper::node::Element) -> bool {
-    element.attr("hidden").is_some()
+    element
+        .attr("hidden")
+        .is_some_and(|value| !value.trim().eq_ignore_ascii_case("until-found"))
         || is_screen_reader_only(element)
         || element.attr("style").is_some_and(declares_display_none)
 }
@@ -149,14 +172,16 @@ fn is_screen_reader_only(element: &scraper::node::Element) -> bool {
 
 /// The screen-reader-only copy that stands in for `element`, an `aria-hidden="true"`
 /// element: its next sibling, past whitespace and comments, when that sibling is
-/// [screen-reader-only](is_screen_reader_only) and spells the same letters and digits.
+/// [screen-reader-only](is_screen_reader_only) and only adds separators to the visible
+/// text (see [`adds_only_separators`]).
 ///
 /// Shops render a price for the eye and repeat it for screen readers, as Shopify themes
 /// do with `<span aria-hidden="true">€11.327<sup>95</sup></span><span
 /// class="visually-hidden">€11.327,95</span>`. The visible text, `€11.32795`, lost the
 /// separator that the superscript stood for, so the copy is captured in its place. A copy
-/// that adds words, such as WooCommerce's `Current price is: £2,950.`, is not the same
-/// text and stays dropped, as does one that follows a struck-through element.
+/// that adds words, such as WooCommerce's `Current price is: £2,950.`, or that moves or
+/// drops a separator is not the same text and stays dropped, as does one that follows a
+/// struck-through element.
 fn accessible_copy<'a>(element: &scraper::ElementRef<'a>) -> Option<scraper::ElementRef<'a>> {
     let aria_hidden = element
         .value()
@@ -176,15 +201,25 @@ fn accessible_copy<'a>(element: &scraper::ElementRef<'a>) -> Option<scraper::Ele
     if !is_screen_reader_only(copy.value()) {
         return None;
     }
-    let visible = letters_and_digits(element);
-    (!visible.is_empty() && visible == letters_and_digits(&copy)).then_some(copy)
+    let visible = visible_text(element, TextLayout::Rendered);
+    let copy_text = visible_text(&copy, TextLayout::Rendered);
+    (visible.chars().any(char::is_alphanumeric) && adds_only_separators(&visible, &copy_text))
+        .then_some(copy)
 }
 
-fn letters_and_digits(element: &scraper::ElementRef<'_>) -> String {
-    visible_text(element, TextLayout::Rendered)
-        .chars()
-        .filter(|character| character.is_alphanumeric())
-        .collect()
+/// Whether `copy` is `visible` with characters other than letters and digits inserted, so
+/// both keep every character of `visible` in its place: `€11.327,95` adds a separator to
+/// `€11.32795`, while `£29.50` moves the one in `£2,950`.
+fn adds_only_separators(visible: &str, copy: &str) -> bool {
+    let mut visible = visible.chars().peekable();
+    for character in copy.chars() {
+        if visible.peek() == Some(&character) {
+            visible.next();
+        } else if character.is_alphanumeric() {
+            return false;
+        }
+    }
+    visible.next().is_none()
 }
 
 /// Whether an inline `style` attribute sets `display` to `none`.
@@ -225,9 +260,9 @@ impl VisibleText {
         self.with_struck_through.mark_boundary(flow);
     }
 
-    fn push(&mut self, value: &str, struck_through: bool) {
-        self.with_struck_through.push(value);
-        if struck_through {
+    fn push(&mut self, value: &str, context: TextContext) {
+        self.with_struck_through.push(value, context.preformatted);
+        if context.struck_through {
             self.after_dropped_text = true;
             return;
         }
@@ -244,7 +279,8 @@ impl VisibleText {
         if !value.is_empty() {
             self.after_dropped_text = false;
         }
-        self.without_struck_through.push(value);
+        self.without_struck_through
+            .push(value, context.preformatted);
     }
 
     fn into_value(self) -> String {
@@ -286,12 +322,16 @@ impl LaidOutText {
         }
     }
 
-    fn push(&mut self, value: &str) {
+    /// Appends a text node. In [`TextLayout::Rendered`], a line break inside a `<pre>`
+    /// (`preformatted`) starts a new line as a `<br>` would.
+    fn push(&mut self, value: &str, preformatted: bool) {
         match self.layout {
             TextLayout::AsWritten => self.text.push_str(value),
             TextLayout::Rendered => {
                 for character in value.chars() {
-                    if character.is_ascii_whitespace() {
+                    if preformatted && character == '\n' {
+                        self.mark_boundary(ElementFlow::Block);
+                    } else if character.is_ascii_whitespace() {
                         self.pending_whitespace = true;
                     } else {
                         self.write_pending_gap();
@@ -309,10 +349,23 @@ impl LaidOutText {
             return;
         }
         match gap {
-            ElementFlow::Block => self.text.push('\n'),
+            ElementFlow::Block => self.start_line(),
             ElementFlow::Cell => self.text.push(' '),
             ElementFlow::Inline if whitespace => self.text.push(' '),
             ElementFlow::Inline => {}
+        }
+    }
+
+    /// Ends the current line. A line of only non-breaking spaces, such as the spacer
+    /// paragraph `<p>&nbsp;</p>` that editors write, is removed rather than left as a
+    /// blank line.
+    fn start_line(&mut self) {
+        let line_start = self.text.rfind('\n').map_or(0, |index| index + 1);
+        if self.text[line_start..].trim().is_empty() {
+            self.text.truncate(line_start);
+        }
+        if !self.text.is_empty() && !self.text.ends_with('\n') {
+            self.text.push('\n');
         }
     }
 
@@ -389,6 +442,25 @@ mod tests {
 
     mod whitespace_runs {
         use super::*;
+
+        /// Description editors separate paragraphs with `<p>&nbsp;</p>`.
+        #[rstest]
+        #[case::between_paragraphs("<div><p>Oak</p><p>&nbsp;</p><p>Circa 1880</p></div>")]
+        #[case::around_a_break("<div><p>Oak</p><p> &nbsp; <br>&nbsp;</p><p>Circa 1880</p></div>")]
+        #[case::first_and_last_line(
+            "<div><p>&nbsp;</p><p>Oak</p><p>Circa 1880</p><p>&nbsp;</p></div>"
+        )]
+        fn should_drop_a_line_of_only_non_breaking_spaces(#[case] markup: &str) {
+            assert_eq!(separated_text_of(markup), "Oak\nCirca 1880");
+        }
+
+        #[test]
+        fn should_keep_the_line_breaks_of_preformatted_text() {
+            assert_eq!(
+                separated_text_of("<div><pre>Height:   53 cm\nWidth: 65 cm\n\n</pre>Oak</div>"),
+                "Height: 53 cm\nWidth: 65 cm\nOak"
+            );
+        }
 
         /// A breadcrumb of a live capture, indented across text nodes and inline elements.
         #[test]
@@ -555,6 +627,7 @@ mod tests {
         #[case::display_block("<span style=\"display: block\">£2,950</span>")]
         #[case::other_property_none("<span style=\"text-decoration: none\">£2,950</span>")]
         #[case::utility_class("<span class=\"hidden md:inline\">£2,950</span>")]
+        #[case::hidden_until_found("<span hidden=\"until-found\">£2,950</span>")]
         #[case::class_name_prefix("<span class=\"sr-only-label\">£2,950</span>")]
         fn should_keep_text_that_is_not_visually_hidden(#[case] visible: &str) {
             let markup = format!("<div>{visible}</div>");
@@ -579,6 +652,10 @@ mod tests {
         #[case::not_aria_hidden(
             "<span>€11.327<sup>95</sup></span><span class=\"sr-only\">€11.327,95</span>",
             "€11.32795"
+        )]
+        #[case::moves_a_separator(
+            "<span aria-hidden=\"true\">£2,950</span><span class=\"sr-only\">£29.50</span>",
+            "£2,950"
         )]
         #[case::not_adjacent(
             "<span aria-hidden=\"true\">€11.327<sup>95</sup></span> / <span class=\"sr-only\">€11.327,95</span>",
