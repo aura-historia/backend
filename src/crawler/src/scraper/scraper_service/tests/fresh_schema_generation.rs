@@ -243,10 +243,11 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
     assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }
 
-#[tokio::test]
-async fn should_mark_other_when_fresh_generation_classifies_not_product() {
+/// A high-confidence not-product classification classifies the crawler URL the scrape requested,
+/// under its capture guard. The shop answers `requested_url` with the page at [`product_url`].
+async fn assert_not_product_classification_marks_requested_url_other(requested_url: Url) {
     let id = listing_source_id();
-    let url = product_url();
+    let url = requested_url;
     let category_html = r#"<main class="category"><h1>Latest antiques</h1></main>"#;
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -315,7 +316,25 @@ async fn should_mark_other_when_fresh_generation_classifies_not_product() {
         .result
         .unwrap_err();
 
-    assert!(matches!(err, ScraperError::NotProductPage { .. }));
+    assert!(
+        matches!(&err, ScraperError::NotProductPage { url: reported, .. } if *reported == url),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn should_mark_other_when_fresh_generation_classifies_not_product() {
+    assert_not_product_classification_marks_requested_url_other(product_url()).await;
+}
+
+/// After a redirect that moved the page, the requested row is the one classified, so it is not
+/// fetched again every pass while the redirect target's own row is classified when it is scraped.
+#[tokio::test]
+async fn should_mark_requested_url_other_when_it_redirects_onto_a_page_classified_not_product() {
+    assert_not_product_classification_marks_requested_url_other(
+        Url::parse("https://example.com/old-products/123").unwrap(),
+    )
+    .await;
 }
 
 async fn should_reject_low_confidence_fresh_classification(

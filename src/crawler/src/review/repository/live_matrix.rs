@@ -260,12 +260,7 @@ impl CrawlerReviewRepository {
             .collect();
         let spellings: Vec<String> = pages
             .iter()
-            .flat_map(|(url, _)| {
-                let spellings = Url::parse(url)
-                    .map(|url| ReviewPageIdentity::spellings(&url))
-                    .unwrap_or_default();
-                std::iter::once((*url).to_owned()).chain(spellings)
-            })
+            .flat_map(|(url, _)| ReviewPageIdentity::stored_spellings(url))
             .collect();
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT url, last_source_listing_id

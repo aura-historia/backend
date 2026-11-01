@@ -4,10 +4,12 @@
 //! a new review. The review stays rejected and keeps its history; the revocation joins its event
 //! trail.
 
+use super::rejected_pages::RejectedPages;
 use super::review_events::{DomainUrlPattern, ReviewMutation, commit_with_event};
+use super::reviewer_page_url::ReviewPageIdentity;
 use super::{
     CrawlerReviewRepository, ROLES_NO_REJECTION_JUDGES, ReviewRepositoryError,
-    listing_source_id_from_uuid, page_url_spellings,
+    listing_source_id_from_uuid,
 };
 use crate::CrawlerReviewId;
 use crate::review::model::{
@@ -15,6 +17,7 @@ use crate::review::model::{
 };
 use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
 use crate::spider::classification::url_classifier::UrlClassifier;
+use crate::spider::classification::url_metadata::UrlClass;
 use listing_source_core::ListingSourceId;
 use sqlx::Row;
 use tracing::info;
@@ -22,8 +25,8 @@ use tracing::info;
 impl CrawlerReviewRepository {
     /// Revokes the rejection of a manual product-schema review, so it classifies none of its pages
     /// as non-product pages any more, and classifies its seed and triggering pages again by their
-    /// domain's live URL-pattern decision, as the spider classifies a URL it finds, without a retry
-    /// delay: a page the pattern takes is scraped again when due and may open a new review. Only a
+    /// domain's live URL-pattern decision, as the spider classifies a URL it finds (a page another
+    /// rejection covers stays `other`), without a retry delay: a page the pattern takes is scraped again when due and may open a new review. Only a
     /// human revokes, and only once; the review stays rejected.
     pub async fn revoke_rejection(
         &self,
@@ -101,8 +104,9 @@ async fn lock_revocable_rejection(
     )?)
 }
 
-/// Classifies the crawler URLs of the review's seed and triggering pages, in either trailing-slash
-/// spelling, again by their domain's live URL-pattern decision with `url_classifier` and clears
+/// Classifies the crawler URLs of the review's seed and triggering pages, in every spelling the
+/// rejected-page lookup matches, again by their domain's live URL-pattern decision with
+/// `url_classifier`, or `other` where another unrevoked rejection covers the page, and clears
 /// their retry delay. The rejection classified them `other` whether they were active or sold, so
 /// both are classified again. The decision is read under a share lock until the revocation
 /// commits, so an approval or restore of the domain's URL pattern that commits meanwhile
@@ -123,8 +127,10 @@ async fn classify_rejected_pages_again(
     .await?;
     let spellings: Vec<String> = page_urls
         .iter()
-        .flat_map(|url| page_url_spellings(url))
+        .flat_map(|url| ReviewPageIdentity::stored_spellings(url))
         .collect();
+    let other_rejections =
+        RejectedPages::load_without(&mut **transaction, listing_source_id, review_id).await?;
     let stored = sqlx::query(
         "SELECT u.url, u.url_class, d.url_pattern, d.url_pattern_state \
          FROM listing_source_urls u \
@@ -146,9 +152,12 @@ async fn classify_rejected_pages_again(
             url_pattern: row.try_get("url_pattern")?,
             url_pattern_state: row.try_get("url_pattern_state")?,
         };
-        let class = url_classifier
-            .classify(&url, decision.live_pattern()?.as_ref())
-            .to_string();
+        let class = if other_rejections.covers(&url) {
+            UrlClass::Other
+        } else {
+            url_classifier.classify(&url, decision.live_pattern()?.as_ref())
+        }
+        .to_string();
         if class != row.try_get::<String, _>("url_class")? {
             urls.push(url);
             classes.push(class);

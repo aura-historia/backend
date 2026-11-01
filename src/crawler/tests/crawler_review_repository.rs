@@ -2433,6 +2433,141 @@ async fn should_list_pending_reviews_of_disabled_listing_sources_after_those_of_
     );
 }
 
+/// Rejects a manual product-schema review over `page_url`: the operator's verdict that the page is
+/// no product page.
+async fn reject_manual_review_over(
+    repository: &CrawlerReviewRepository,
+    listing_source_id: ListingSourceId,
+    page_url: &str,
+) {
+    let review_id = repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema("h1")],
+            vec![SchemaReviewPageInput {
+                url: page_url.to_owned(),
+                role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_owned(),
+                raw_html: "<h1>Our story</h1>".to_owned(),
+            }],
+            json!({ "manual_authoring": true }),
+        )
+        .await
+        .unwrap();
+    repository
+        .reject_review(review_id, ReviewActor::Human, Some("not a product page"))
+        .await
+        .unwrap();
+}
+
+/// An operator's rejection outranks the URL pattern: a crawl stores a page a rejection covers, in
+/// any spelling, as `other`, so the scraper does not fetch it again only to classify it `other`.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_store_a_rejected_page_as_other_when_a_crawl_finds_it_again() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "rejected-crawl.example.com").await;
+    reject_manual_review_over(
+        &repository,
+        listing_source_id,
+        "https://www.rejected-crawl.example.com/item/1",
+    )
+    .await;
+    let urls = [
+        "https://rejected-crawl.example.com/item/1/",
+        "https://rejected-crawl.example.com/item/2",
+    ]
+    .map(|url| url::Url::parse(url).unwrap());
+
+    url_repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &urls,
+            &[UrlClass::ProductListing; 2],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        stored_url_classes(&pool, domain_id).await,
+        vec![
+            (urls[0].to_string(), "other".to_owned()),
+            (urls[1].to_string(), "product".to_owned()),
+        ]
+    );
+}
+
+/// Approving a URL pattern classifies the stored URLs as a crawl would, so a page a rejection
+/// covers stays `other`.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "rejected-pattern.example.com").await;
+    let urls = [
+        "https://rejected-pattern.example.com/item/1",
+        "https://rejected-pattern.example.com/item/2",
+    ]
+    .map(|url| url::Url::parse(url).unwrap());
+    url_repository
+        .upsert_links_batch(&listing_source_id, &domain_id, &urls, &[UrlClass::Other; 2])
+        .await
+        .unwrap();
+    reject_manual_review_over(
+        &repository,
+        listing_source_id,
+        "http://rejected-pattern.example.com/item/2/",
+    )
+    .await;
+    let review_id = undecided_url_pattern_review(
+        &repository,
+        listing_source_id,
+        domain_id,
+        &urls.iter().map(ToString::to_string).collect::<Vec<_>>(),
+    )
+    .await;
+    repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            json!(UrlPatternReviewCandidate {
+                decision: UrlPatternDecision::Pattern {
+                    value: "/item/".to_owned(),
+                },
+                current_pattern: None,
+                sample_labels: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        stored_url_classes(&pool, domain_id).await,
+        vec![
+            (urls[0].to_string(), "product".to_owned()),
+            (urls[1].to_string(), "other".to_owned()),
+        ]
+    );
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern_is_approved() {
     let pool = get_postgres_client().await;

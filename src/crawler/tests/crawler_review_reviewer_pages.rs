@@ -335,10 +335,12 @@ async fn should_not_treat_reviewer_page_as_rejected_product_page_when_review_is_
 }
 
 /// The spider moves a crawler URL stored without its trailing slash to the slashed spelling it
-/// fetches, while a review page keeps the spelling it was recorded under: a rejection holds for
-/// its seed and triggering pages in either spelling, and still for no other page.
+/// fetches, and a shop may move between `http` and `https` or the `www.` and bare host, while a
+/// review page keeps the spelling it was recorded under: a rejection holds for its seed and
+/// triggering pages in every spelling the console treats as the same page, and still for no other
+/// page.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_treat_rejected_page_as_rejected_in_either_trailing_slash_spelling() {
+async fn should_treat_rejected_page_as_rejected_in_every_spelling_of_the_page() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     // The seed page is recorded as https://www.example.com/products/1.
@@ -390,9 +392,13 @@ async fn should_treat_rejected_page_as_rejected_in_either_trailing_slash_spellin
         ("https://www.example.com/products/1/", true),
         ("https://www.example.com/products/2/", true),
         ("https://www.example.com/products/2", true),
+        ("https://example.com/products/1", true),
+        ("http://www.example.com/products/1/", true),
+        ("http://example.com/products/2", true),
         ("https://www.example.com/products/10/", false),
         ("https://www.example.com/products/sold", false),
         ("https://www.example.com/products/sold/", false),
+        ("http://example.com/products/sold", false),
     ] {
         assert_eq!(
             repository
@@ -978,6 +984,77 @@ async fn crawler_url_state(pool: &PgPool, url: &str) -> (String, bool) {
     .fetch_one(pool)
     .await
     .unwrap()
+}
+
+/// Revoking one rejection lifts only its own verdict: a page another unrevoked rejection covers, in
+/// any spelling, stays `other` with its retry delay, while the revoked review's other pages are
+/// classified by the pattern again.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_a_page_other_when_another_rejection_still_covers_it() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    // The other review rejects https://www.example.com/products/1.
+    let (listing_source_id, other_review) = pending_schema_review(&pool).await;
+    repository
+        .reject_review(other_review, ReviewActor::Human, None)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let revoked_review = repository
+        .create_schema_review(
+            &listing_source_id,
+            "manual_schema_required",
+            &[schema()],
+            vec![
+                SchemaReviewPageInput {
+                    url: "https://example.com/products/1/".to_owned(),
+                    role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_owned(),
+                    raw_html: PRODUCT_HTML.to_owned(),
+                },
+                SchemaReviewPageInput {
+                    url: "https://www.example.com/products/5".to_owned(),
+                    role: PAGE_ROLE_PRIMARY.to_owned(),
+                    raw_html: PRODUCT_HTML.to_owned(),
+                },
+            ],
+            json!({ "manual_authoring": true }),
+        )
+        .await
+        .unwrap();
+    repository
+        .reject_review(revoked_review, ReviewActor::Human, None)
+        .await
+        .unwrap();
+    for crawler_url in [
+        "https://www.example.com/products/1",
+        "https://www.example.com/products/5",
+    ] {
+        insert_crawler_url(&pool, &listing_source_id, crawler_url, "other").await;
+    }
+
+    repository
+        .revoke_rejection(revoked_review, ReviewActor::Human, None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        crawler_url_state(&pool, "https://www.example.com/products/1").await,
+        ("other".to_owned(), false),
+        "the other rejection still covers this page"
+    );
+    assert_eq!(
+        crawler_url_state(&pool, "https://www.example.com/products/5").await,
+        ("product".to_owned(), true),
+        "only the revoked rejection covered this page"
+    );
 }
 
 /// A human's revocation lifts the rejection's verdict on its seed and triggering pages, in either

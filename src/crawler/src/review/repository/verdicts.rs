@@ -6,6 +6,7 @@
 //! no agent verdict is taken on a review that waits for a human, so no caller decides for an agent
 //! without them.
 
+use super::rejected_pages::RejectedPages;
 use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_events::{
     DomainUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
@@ -32,6 +33,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
 };
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
 use crate::spider::classification::url_classifier::UrlClassifier;
+use crate::spider::classification::url_metadata::UrlClass;
 use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -781,7 +783,8 @@ pub(super) async fn release_work_waiting_on(
 
 /// Classifies the domain's stored URLs with the pattern decision that just went live, as the
 /// spider would on its next crawl, so URLs a crawl stored while the review was pending need no
-/// second crawl from the root. Sold URLs keep their class, as a re-crawl leaves them.
+/// second crawl from the root. Sold URLs keep their class, as a re-crawl leaves them, and a page
+/// a rejection covers stays `other`, as the spider stores it.
 async fn reclassify_domain_urls(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
@@ -797,10 +800,16 @@ async fn reclassify_domain_urls(
     .bind(domain_id.as_uuid())
     .fetch_all(&mut **transaction)
     .await?;
+    let rejected = RejectedPages::load(&mut **transaction, listing_source_id).await?;
     let (urls, classes): (Vec<String>, Vec<String>) = stored
         .into_iter()
         .filter_map(|(url, current_class)| {
-            let class = url_classifier.classify(&url, pattern).to_string();
+            let class = if rejected.covers(&url) {
+                UrlClass::Other
+            } else {
+                url_classifier.classify(&url, pattern)
+            }
+            .to_string();
             (class != current_class).then_some((url, class))
         })
         .unzip();

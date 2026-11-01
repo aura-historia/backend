@@ -2,6 +2,7 @@ use crate::CrawlerDomainId;
 use crate::network::policy::{
     PublicTargetError, url_matches_configured_domain, validate_public_http_url,
 };
+use crate::review::repository::RejectedPages;
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
@@ -379,6 +380,22 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         .await?
         .into_iter()
         .unzip();
+        // An operator's rejection outranks the URL pattern: the page stays `other` instead of
+        // being scraped again only to be classified `other` by the rejection check.
+        let rejected = RejectedPages::load(&mut *transaction, listing_source_id)
+            .await
+            .map_err(database_error)?;
+        let url_classes: Vec<UrlClass> = urls
+            .iter()
+            .zip(url_classes)
+            .map(|(url, class)| {
+                if rejected.covers(url.as_str()) {
+                    UrlClass::Other
+                } else {
+                    class
+                }
+            })
+            .collect();
         Self::adopt_legacy_spellings(&mut transaction, *listing_source_id, *domain_id, &urls)
             .await?;
         let url_strings = urls.iter().map(ToString::to_string).collect::<Vec<_>>();

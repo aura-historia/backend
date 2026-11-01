@@ -9,11 +9,10 @@ use crate::scraper::css_selector::product_schema_service::GeneratedProductSchema
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::ScrapeMode;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
+use crate::scraper::scraper_service::pipeline::scrape_product::FetchedPage;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use listing_source_core::ListingSourceId;
 use serde_json::json;
 use tracing::debug;
-use url::Url;
 
 struct SchemaGenerationAttempt {
     generated: GeneratedProductSchemas,
@@ -42,17 +41,22 @@ impl ScraperServiceImpl {
     /// The dispatcher gates concurrent scraper work per ListingSource inside one process,
     /// while database uniqueness prevents duplicate pending reviews across
     /// processes.
-    #[tracing::instrument(skip(self, html), fields(listing_source_id = %listing_source_id, url = %url))]
+    #[tracing::instrument(skip(self, page), fields(listing_source_id = %page.listing_source_id, url = %page.url))]
     #[allow(clippy::result_large_err)]
     pub(crate) async fn obtain_schemas(
         &self,
-        listing_source_id: &ListingSourceId,
-        url: &Url,
+        page: FetchedPage<'_>,
         product_url_pattern: Option<&str>,
-        html: &str,
         domain_id: Option<&CrawlerDomainId>,
         mode: ScrapeMode,
     ) -> Result<ListingSourceProductSchema, ScraperError> {
+        let FetchedPage {
+            listing_source_id,
+            requested_url,
+            url,
+            html,
+            ..
+        } = page;
         debug!("No cached product CSS selector schema; generating");
         if let Some(review_id) = self
             .pending_product_schema_review_id(listing_source_id)
@@ -108,7 +112,7 @@ impl ScraperServiceImpl {
             })
             .collect::<Vec<_>>();
         if let Some(review_repository) = self.manual_schema_review_repository() {
-            self.skip_rejected_page(listing_source_id, url, None)
+            self.skip_rejected_page(listing_source_id, requested_url, url, None)
                 .await?;
             return Err(self
                 .open_manual_schema_review(review_repository, listing_source_id, url, &[], pages)

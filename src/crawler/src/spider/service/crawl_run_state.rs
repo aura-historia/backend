@@ -1,12 +1,20 @@
 use regex::Regex;
+use std::collections::HashSet;
 
 use crate::CrawlerReviewId;
 use crate::spider::discovery::website_spider::CrawledPage;
 use crate::spider::service::product_pattern::ProductListingPattern;
+#[cfg(doc)]
+use crate::spider::utils::url::CrawledUrl;
 
 pub struct CrawlRunState {
     pub total_crawled: usize,
-    pub products_found: usize,
+    /// The [page spelling](CrawledUrl::page_spelling) of each crawled page the product pattern
+    /// matched, so a page the shop links with and without its trailing slash counts once.
+    pub pattern_matched_pages: HashSet<url::Url>,
+    /// The page spelling of each page the crawl stored as a product URL: a page the pattern
+    /// matches unless storage keeps it `other`, such as a page an operator rejected.
+    pub stored_product_pages: HashSet<url::Url>,
     pub pattern: ProductListingPattern,
     pub classification_done: bool,
     pub pattern_loaded_from_store: bool,
@@ -36,7 +44,8 @@ impl CrawlRunState {
 
         Self {
             total_crawled: 0,
-            products_found: 0,
+            pattern_matched_pages: HashSet::new(),
+            stored_product_pages: HashSet::new(),
             pattern,
             classification_done,
             pattern_loaded_from_store,
@@ -44,6 +53,17 @@ impl CrawlRunState {
             inference_sample: Vec::new(),
             url_pattern_review_wait: None,
         }
+    }
+
+    /// How many product URLs the crawl stored, each page once.
+    pub fn products_found(&self) -> usize {
+        self.stored_product_pages.len()
+    }
+
+    /// Whether the product pattern matched any page the crawl stored: what decides whether a
+    /// stored pattern still fits the shop and whether the crawl found product URLs at all.
+    pub fn pattern_matched_any(&self) -> bool {
+        !self.pattern_matched_pages.is_empty()
     }
 
     /// The pending URL-pattern review the crawl waits on.
