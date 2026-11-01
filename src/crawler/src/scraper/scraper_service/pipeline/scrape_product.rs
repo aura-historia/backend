@@ -408,6 +408,7 @@ fn capture_selection(
         &page.effective_url,
         source_listing_id.as_ref(),
         request.fallback_currency,
+        selection.carried_forward_title.as_deref(),
     )
     .map_err(ScraperError::RawNormalizationInput)?;
     let raw_input_sha256 = raw_input
@@ -420,6 +421,9 @@ fn capture_selection(
         raw_input,
         effective_url: page.effective_url,
         source_listing_id: source_listing_id.to_string(),
+        title: selection
+            .carried_forward_title
+            .unwrap_or(selection.raw.title),
         hash,
         schema_fingerprint,
         raw_input_sha256,
@@ -518,7 +522,13 @@ impl ScraperServiceImpl {
             return Ok(None);
         }
 
-        let (extracted, selection) = self.select_schema_for_page(extracted, fetched_page).await?;
+        let (extracted, selection) = self
+            .select_schema_for_page(
+                extracted,
+                fetched_page,
+                request.last_captured_title.as_deref(),
+            )
+            .await?;
         let scraped = capture_selection(request, page, extracted, selection)?;
 
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
@@ -534,21 +544,35 @@ impl ScraperServiceImpl {
     ///
     /// Scraping continues while a product-schema review is pending, so its approval can replace the
     /// live schemas after `schemas` was read. A page that failed the stale list is therefore
-    /// selected once more against the live list before it may author a schema; otherwise it would
-    /// open a review whose candidate drops the schemas just approved.
+    /// selected once more against the live list before it may author a schema or record a missing
+    /// required value; otherwise it would open a review whose candidate drops the schemas just
+    /// approved, or wait a scrape interval for a fix the approval already made live.
     async fn select_schema_for_page(
         &self,
         mut extracted: ExtractedSchemaSet,
         page: FetchedPage<'_>,
+        last_captured_title: Option<&str>,
     ) -> Result<(ExtractedSchemaSet, SelectedSchemaCandidate), ScraperError> {
         let mut reread = false;
         loop {
-            let reason = match self
-                .select_cached_schema(page.listing_source_id, page.url, &extracted)
-                .await
-            {
+            let selection = self
+                .select_cached_schema(
+                    page.listing_source_id,
+                    page.url,
+                    &extracted,
+                    last_captured_title,
+                )
+                .await;
+            let reason = match selection {
                 ExistingSchemaSelection::Selected(selection) => return Ok((extracted, *selection)),
                 ExistingSchemaSelection::MissingRequiredValue { findings } => {
+                    if let Some(live) = self
+                        .live_schemas_changed_once(&mut reread, page, &extracted)
+                        .await?
+                    {
+                        extracted = live;
+                        continue;
+                    }
                     return Err(ScraperError::MissingRequiredValue {
                         url: page.url.clone(),
                         findings,
@@ -558,20 +582,14 @@ impl ScraperServiceImpl {
             };
             let ctx = page.with_existing_schemas(extracted.product_schemas());
             self.wait_instead_of_authoring(&ctx).await?;
-            if !reread
-                && let Some(live) = self
-                    .product_schemas_changed_since(page.listing_source_id, ctx.existing_schemas)
-                    .await?
+            if let Some(live) = self
+                .live_schemas_changed_once(&mut reread, page, &extracted)
+                .await?
             {
-                debug!(
-                    schemas = live.product_schemas.len(),
-                    "Live product schemas changed during the scrape; selecting again"
-                );
-                reread = true;
-                // The live set is known only after awaits, so it is extracted from a second parse.
-                extracted = ExtractedSchemaSet::parse_and_extract(live, page.html);
+                extracted = live;
                 continue;
             }
+            let ctx = page.with_existing_schemas(extracted.product_schemas());
             debug!(
                 domain = page.domain,
                 schemas = extracted.product_schemas().len(),
@@ -581,5 +599,31 @@ impl ScraperServiceImpl {
             let selection = self.generate_fresh_schema_for_page(ctx).await?;
             return Ok((extracted, selection));
         }
+    }
+
+    /// The live schemas extracted from the page when they changed since `extracted` was read,
+    /// looked up at most once per scrape (`reread` records it). The live set is known only after
+    /// awaits, so it is extracted from a second parse.
+    async fn live_schemas_changed_once(
+        &self,
+        reread: &mut bool,
+        page: FetchedPage<'_>,
+        extracted: &ExtractedSchemaSet,
+    ) -> Result<Option<ExtractedSchemaSet>, ScraperError> {
+        if *reread {
+            return Ok(None);
+        }
+        *reread = true;
+        let Some(live) = self
+            .product_schemas_changed_since(page.listing_source_id, extracted.product_schemas())
+            .await?
+        else {
+            return Ok(None);
+        };
+        debug!(
+            schemas = live.product_schemas.len(),
+            "Live product schemas changed during the scrape; selecting again"
+        );
+        Ok(Some(ExtractedSchemaSet::parse_and_extract(live, page.html)))
     }
 }

@@ -36,6 +36,8 @@ pub struct ScraperCandidate {
     /// Stable raw-stream identity retained when the crawler URL moves.
     pub source_record_key: String,
     pub last_source_listing_id: Option<String>,
+    /// The title of the URL's last product capture; `None` before one or after a removal.
+    pub last_captured_title: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub last_captured_raw_input_sha256: Option<Vec<u8>>,
@@ -83,6 +85,7 @@ pub struct RedirectUrlMove {
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
     pub source_listing_id: String,
+    pub title: String,
     pub disposition: CrawlerDisposition,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
@@ -96,6 +99,8 @@ pub struct ScrapeCompletion {
     pub schema_fingerprint: String,
     pub raw_input_sha256: Vec<u8>,
     pub source_listing_id: String,
+    /// The title the capture recorded, carried forward if the shop later blanks it.
+    pub title: String,
     pub disposition: CrawlerDisposition,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
@@ -570,6 +575,7 @@ struct ScraperCandidateRow {
     next_scrape_at: Option<OffsetDateTime>,
     is_domain_probe: bool,
     last_source_listing_id: Option<String>,
+    last_captured_title: Option<String>,
     schema_review_waited_on: Option<uuid::Uuid>,
     schema_review_wait_streak: i32,
 }
@@ -632,6 +638,7 @@ macro_rules! eligible_scraper_urls_cte {
                 AND sd.next_scrape_at IS NOT NULL
                 AND sd.next_scrape_at <= NOW()) AS is_domain_probe
             , su.last_source_listing_id
+            , su.last_captured_title
             , su.last_error_kind = 'PendingSchemaReview' AS waits_on_schema_review
             , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
                    THEN su.schema_review_waited_on END AS schema_review_waited_on
@@ -687,7 +694,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         last_scraped_schema_fingerprint,
         last_captured_raw_input_sha256,
         scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_domain_probe,
-        last_source_listing_id, schema_review_waited_on, schema_review_wait_streak
+        last_source_listing_id, last_captured_title, schema_review_waited_on,
+        schema_review_wait_streak
     FROM ranked_urls
     WHERE (is_domain_probe AND domain_url_rank = 1)
        OR (NOT is_domain_probe AND domain_url_rank <= $4)
@@ -793,6 +801,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 },
                 is_domain_probe: row.is_domain_probe,
                 last_source_listing_id: row.last_source_listing_id,
+                last_captured_title: row.last_captured_title,
                 schema_review_wait,
             });
         }
@@ -889,6 +898,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
             source_listing_id,
+            title,
             disposition,
             expected_last_captured_raw_input_sha256,
         } = completion;
@@ -902,6 +912,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = $4,
                  last_captured_raw_input_sha256 = $5,
                  last_source_listing_id = $6,
+                 last_captured_title = $9,
                  crawler_disposition = $7,
                  failure_count = 0,
                  last_error_kind = NULL,
@@ -925,6 +936,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(&source_listing_id)
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256.as_deref())
+        .bind(&title)
         .execute(&self.pool)
         .await?;
 
@@ -960,6 +972,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             schema_fingerprint,
             raw_input_sha256,
             source_listing_id,
+            title,
             disposition,
             expected_last_captured_raw_input_sha256,
         } = redirect_move;
@@ -1016,6 +1029,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "UPDATE listing_source_urls
              SET url = $3,
                  last_source_listing_id = $4,
+                 last_captured_title = $10,
                  last_scraped = NOW(),
                  last_scraped_hash = $5,
                  last_scraped_schema_fingerprint = $6,
@@ -1040,6 +1054,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(&raw_input_sha256)
         .bind(disposition.as_str())
         .bind(expected_last_captured_raw_input_sha256.as_deref())
+        .bind(&title)
         .execute(&mut *transaction)
         .await?;
         if moved.rows_affected() != 1 {
@@ -1061,6 +1076,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET last_scraped_hash = NULL,
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = NULL,
+                 last_captured_title = NULL,
                  updated = NOW()
              WHERE listing_source_id = $1
                AND url = $2
@@ -1095,6 +1111,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_hash = NULL,
                  last_scraped_schema_fingerprint = NULL,
                  last_captured_raw_input_sha256 = $3,
+                 last_captured_title = NULL,
                  crawler_disposition = 'ACTIVE',
                  failure_count = 0,
                  last_error_kind = NULL,

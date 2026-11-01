@@ -359,6 +359,98 @@ async fn should_report_missing_title_without_generation_when_the_title_element_i
     );
 }
 
+/// A captured listing whose shop blanks the product name when the item sells: the sold state
+/// is captured under the title the listing was captured with, and the source payload keeps the
+/// blank extraction as evidence of what the page showed.
+#[tokio::test]
+async fn should_capture_the_sold_state_under_the_last_captured_title_when_the_title_goes_blank() {
+    let id = listing_source_id();
+    let url = product_url();
+    let mut schema_svc = schema_service_with_cached(id, vec![item_title_schema()]);
+    schema_svc.expect_generate_single_schema_for_page().never();
+    schema_svc.expect_save_product_schemas().never();
+    let sold_page = untitled_html().replace("Request for more info", "Sold");
+    let service = service(
+        fetcher_returning(sold_page),
+        schema_svc,
+        MockScraperCandidateService::new(),
+    );
+    let request = ScrapeRequest {
+        last_captured_title: Some("Brass Chandelier".to_owned()),
+        ..normal_request(&id, &url)
+    };
+
+    let scraped = service
+        .scrape(request)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| panic!("the sold state must be captured"));
+
+    assert_eq!(scraped.title, "Brass Chandelier");
+    assert_eq!(
+        captured_raw_value(&scraped, "title"),
+        &serde_json::json!({"action": "SET", "value": "Brass Chandelier"})
+    );
+    assert_eq!(
+        captured_raw_value(&scraped, "availability")["value"],
+        "Sold"
+    );
+    assert_eq!(scraped.raw_input.source_payload().value()["title"], "");
+}
+
+/// A page that also blanks its state carries no change worth capturing, so the carried title
+/// never stands in for it and the page stays a missing required value.
+#[tokio::test]
+async fn should_report_missing_values_when_a_captured_page_blanks_its_title_and_state() {
+    let id = listing_source_id();
+    let url = product_url();
+    let mut schema_svc = schema_service_with_cached(id, vec![item_title_schema()]);
+    schema_svc.expect_generate_single_schema_for_page().never();
+    let blank_state_page = untitled_html().replace("Request for more info", "");
+    let service = service(
+        fetcher_returning(blank_state_page),
+        schema_svc,
+        MockScraperCandidateService::new(),
+    );
+    let request = ScrapeRequest {
+        last_captured_title: Some("Brass Chandelier".to_owned()),
+        ..normal_request(&id, &url)
+    };
+
+    let err = service.scrape(request).await.unwrap_err();
+
+    let ScraperError::MissingRequiredValue { findings, .. } = &err else {
+        panic!("expected MissingRequiredValue, got {err:?}");
+    };
+    assert_eq!(findings.to_string(), "`title` is blank; `state` is blank");
+}
+
+/// A plausible extraction of another cached schema wins over carrying the title forward.
+#[tokio::test]
+async fn should_prefer_a_titled_extraction_over_carrying_the_title_forward() {
+    let id = listing_source_id();
+    let url = product_url();
+    let titled = schema_with(|schema| schema.title = text_rule("#product-id"));
+    let schema_svc = schema_service_with_cached(id, vec![item_title_schema(), titled]);
+    let service = service(
+        fetcher_returning(untitled_html()),
+        schema_svc,
+        MockScraperCandidateService::new(),
+    );
+    let request = ScrapeRequest {
+        last_captured_title: Some("Brass Chandelier".to_owned()),
+        ..normal_request(&id, &url)
+    };
+
+    let scraped = service
+        .scrape(request)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| panic!("the titled extraction must be captured"));
+
+    assert_eq!(scraped.title, "1208922");
+}
+
 #[tokio::test]
 async fn should_capture_without_images_when_image_policy_rejects_all_candidates() {
     let id = listing_source_id();

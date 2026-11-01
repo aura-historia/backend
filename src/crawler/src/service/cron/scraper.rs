@@ -79,6 +79,7 @@ struct CandidateMeta {
     schema_fingerprint: String,
     raw_input_sha256: Vec<u8>,
     source_listing_id: String,
+    title: String,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
@@ -309,6 +310,7 @@ async fn flush_batch(
                             schema_fingerprint: meta.schema_fingerprint.clone(),
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
+                            title: meta.title.clone(),
                             disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
                                 .expected_last_captured_raw_input_sha256
@@ -325,6 +327,7 @@ async fn flush_batch(
                             schema_fingerprint: meta.schema_fingerprint.clone(),
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
+                            title: meta.title.clone(),
                             disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
                                 .expected_last_captured_raw_input_sha256
@@ -729,6 +732,7 @@ fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeReque
         url: candidate.url.clone(),
         source_record_key: candidate.source_record_key.clone(),
         last_source_listing_id: candidate.last_source_listing_id.clone(),
+        last_captured_title: candidate.last_captured_title.clone(),
         product_url_pattern: candidate.url_pattern.clone(),
         last_scraped_hash: candidate.last_scraped_hash.clone(),
         last_scraped_schema_fingerprint: candidate.last_scraped_schema_fingerprint.clone(),
@@ -826,6 +830,7 @@ async fn handle_successful_scrape(
         schema_fingerprint: scraped.schema_fingerprint,
         raw_input_sha256: scraped.raw_input_sha256,
         source_listing_id: scraped.source_listing_id,
+        title: scraped.title,
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
     };
 
@@ -842,6 +847,7 @@ async fn handle_successful_scrape(
                 schema_fingerprint: meta.schema_fingerprint.clone(),
                 raw_input_sha256: meta.raw_input_sha256.clone(),
                 source_listing_id: meta.source_listing_id.clone(),
+                title: meta.title.clone(),
                 disposition: SCRAPED_URL_DISPOSITION,
                 expected_last_captured_raw_input_sha256: meta
                     .expected_last_captured_raw_input_sha256
@@ -2177,6 +2183,7 @@ mod tests {
             schema_fingerprint: "schema-fingerprint".to_owned(),
             raw_input_sha256: vec![3; 32],
             source_listing_id: "source-id".to_owned(),
+            title: "Chair".to_owned(),
             expected_last_captured_raw_input_sha256: None,
         }
     }
@@ -2694,6 +2701,7 @@ mod tests {
                         raw_input_sha256: vec![7; 32],
                         effective_url: url::Url::parse("https://example.com/product/1").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
+                        title: "Chair".to_owned(),
                     })))
                 })
             });
@@ -3184,6 +3192,7 @@ mod tests {
                         raw_input_sha256: vec![3; 32],
                         effective_url: url::Url::parse("https://example.com/product/sold").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
+                        title: "Chair".to_owned(),
                     })))
                 })
             });
@@ -3238,6 +3247,7 @@ mod tests {
                 raw_input,
                 effective_url: effective_url.clone(),
                 source_listing_id: "SKU-123".to_owned(),
+                title: "Chair".to_owned(),
                 hash: "redirect-hash".to_owned(),
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![9; 32],
@@ -3362,6 +3372,7 @@ mod tests {
                 &url,
                 "SKU-1",
                 None,
+                None,
             )
             .unwrap_or_else(|error| panic!("test product input: {error}"));
             let mut scraper_service = MockScraperService::new();
@@ -3378,6 +3389,7 @@ mod tests {
                             raw_input_sha256: product_sha256,
                             effective_url: url,
                             source_listing_id: "SKU-1".to_owned(),
+                            title: "Chair".to_owned(),
                         })))
                     })
                 });
@@ -3789,6 +3801,7 @@ mod tests {
                             raw_input_sha256: vec![2; 32],
                             effective_url: url.clone(),
                             source_listing_id: "ListingSource".to_owned(),
+                            title: "Chair".to_owned(),
                         })))
                     }
                 })
@@ -5400,6 +5413,7 @@ mod tests {
                 raw_input_sha256: vec![7; 32],
                 effective_url: url,
                 source_listing_id: "source-listing".to_owned(),
+                title: "Chair".to_owned(),
             }
         }
 

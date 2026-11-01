@@ -120,6 +120,10 @@ CREATE TABLE listing_source_urls (
     -- Stable raw-capture identity; it survives URL moves of the same listing.
     raw_source_record_key TEXT NOT NULL,
     last_source_listing_id TEXT,
+    -- The title of the last product capture, carried forward when the shop later blanks the
+    -- name (docs/crawler/extraction-and-review.md, missing required values). Cleared by a
+    -- captured removal.
+    last_captured_title TEXT,
     -- The pending product-schema review this page waits on and how many consecutive scrapes
     -- waited on it, so its retry delay grows while that review stays pending. Meaningful only
     -- while `last_error_kind` is `PendingSchemaReview`.
@@ -133,6 +137,8 @@ CREATE TABLE listing_source_urls (
         CHECK (char_length(raw_source_record_key) > 0),
     CONSTRAINT listing_source_urls_last_source_listing_id_nonempty
         CHECK (last_source_listing_id IS NULL OR char_length(last_source_listing_id) > 0),
+    CONSTRAINT listing_source_urls_last_captured_title_nonblank
+        CHECK (last_captured_title IS NULL OR btrim(last_captured_title) <> ''),
     CONSTRAINT listing_source_urls_schema_review_wait_shape_check CHECK (
         (schema_review_waited_on IS NULL AND schema_review_wait_streak = 0)
         OR (schema_review_waited_on IS NOT NULL AND schema_review_wait_streak > 0)
