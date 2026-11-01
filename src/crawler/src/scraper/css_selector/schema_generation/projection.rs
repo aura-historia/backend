@@ -346,7 +346,9 @@ fn with_data_uris_marked(value: &str) -> std::borrow::Cow<'_, str> {
 
 /// A `srcset` of several candidates as its widest candidate by the `w` descriptor, the last of
 /// equally wide ones, and the number of the others: the candidate image extraction picks from a
-/// `srcset`, split by the same grammar. A kept URL is verbatim, a substring of the page's
+/// `srcset`, split by the same grammar. Only candidates with valid descriptors count as others,
+/// as browsers drop the rest, so the pieces of a `data:` placeholder split at its whitespace do
+/// not inflate the count. A kept URL is verbatim, a substring of the page's
 /// attribute, so a selector such as `img[srcset*="…"]` written from the projection matches the
 /// page. A `data:` URI candidate becomes its [`data_uri_marker`]. A `srcset` that is a lazy
 /// loader's placeholder, a `data:` URI whose payload holds whitespace the grammar splits it at,
@@ -356,9 +358,10 @@ fn condensed_srcset(value: &str) -> String {
     if is_whole_data_uri_srcset(&candidates) {
         return data_uri_marker(value);
     }
-    let Some(&(url, descriptors)) = candidates
+    let Some((widest_index, &(url, descriptors))) = candidates
         .iter()
-        .max_by_key(|(_, descriptors)| srcset_descriptor_width(descriptors))
+        .enumerate()
+        .max_by_key(|(_, (_, descriptors))| srcset_descriptor_width(descriptors))
     else {
         return truncate_chars(value, DSL_IMAGE_ATTR_LIMIT);
     };
@@ -370,7 +373,14 @@ fn condensed_srcset(value: &str) -> String {
             DSL_IMAGE_ATTR_LIMIT,
         )
     };
-    match candidates.len() - 1 {
+    let others = candidates
+        .iter()
+        .enumerate()
+        .filter(|&(index, &(_, descriptors))| {
+            index != widest_index && has_valid_descriptors(descriptors)
+        })
+        .count();
+    match others {
         0 => widest,
         others => format!("{widest} (+{others} more srcset candidates)"),
     }
@@ -381,9 +391,14 @@ fn condensed_srcset(value: &str) -> String {
 /// payload. Every candidate of a real list is followed by descriptors such as `2x` or `800w`, or
 /// by none.
 fn is_whole_data_uri_srcset(candidates: &[(&str, &str)]) -> bool {
-    candidates.first().is_some_and(|(url, descriptors)| {
-        is_data_uri(url) && !descriptors.split_whitespace().all(is_srcset_descriptor)
-    })
+    candidates
+        .first()
+        .is_some_and(|(url, descriptors)| is_data_uri(url) && !has_valid_descriptors(descriptors))
+}
+
+/// Whether a candidate's `descriptors` are all `srcset` descriptors, or there are none.
+fn has_valid_descriptors(descriptors: &str) -> bool {
+    descriptors.split_whitespace().all(is_srcset_descriptor)
 }
 
 /// Whether `token` is a `srcset` descriptor: a number followed by `w`, `x` or `h`.
@@ -550,6 +565,10 @@ mod tests {
     #[case::urls_with_commas_kept_whole(
         "https://res.example.com/w_400,h_300/p.jpg 400w, https://res.example.com/w_1200,h_900/p.jpg 1200w",
         "https://res.example.com/w_1200,h_900/p.jpg 1200w (+1 more srcset candidates)"
+    )]
+    #[case::pieces_of_a_later_svg_placeholder_not_counted(
+        "/a.jpg 800w, data:image/svg+xml,%3Csvg viewBox='0 0 3 2'%3E%3Cpath d='M0 0,3 2'/%3E%3C/svg%3E 1x, /b.jpg 400w",
+        "/a.jpg 800w (+1 more srcset candidates)"
     )]
     #[case::single_candidate_unchanged("/image/abc 1200w", "/image/abc 1200w")]
     #[case::empty_candidates_ignored(
