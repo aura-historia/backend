@@ -1514,6 +1514,7 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 mod tests {
     use super::*;
     use crate::network::robots::RobotsRules;
+    use crate::spider::utils::url::canonical::ShopPlatform;
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1871,6 +1872,60 @@ mod tests {
         assert_eq!(diagnostics.rejected_host, 0);
         assert_eq!(diagnostics.lagged, 0);
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+    }
+
+    fn canonical_link_site(target: &str, _previous: usize) -> SiteResponse {
+        match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/collections/all/products/ladle">Ladle</a>
+                   <a href="/products/old">Moved</a>"#
+                    .to_string(),
+            ),
+            "/collections/all/products/ladle" => SiteResponse::Html(
+                "200 OK",
+                r#"<!doctype html><html><head>
+                   <script>Shopify.shop = "shop.myshopify.com";</script>
+                   <link rel="canonical" href="/products/ladle">
+                   </head><body></body></html>"#
+                    .to_string(),
+            ),
+            "/products/old" => SiteResponse::Redirect("/products/new"),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    /// Each delivered page carries what its own head declares. Spider does not follow a redirect,
+    /// so a redirected URL is delivered without the target's head and declares nothing.
+    #[tokio::test]
+    async fn should_deliver_each_page_with_the_identity_its_head_declares() {
+        let site = TestSite::spawn(Arc::new(canonical_link_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let SpiderCrawl { mut pages, .. } = spider
+            .crawl_with_body_limit("http://example.com/", CrawlPace::default(), Some("8388608"))
+            .await
+            .unwrap();
+        let mut identities = std::collections::HashMap::new();
+        while let Some(page) = pages.recv().await {
+            identities.insert(page.url.to_string(), page.identity);
+        }
+        site.finish().await;
+
+        let collection_page = &identities["http://example.com/collections/all/products/ladle"];
+        assert_eq!(
+            collection_page
+                .canonical_link
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("http://example.com/products/ladle")
+        );
+        assert_eq!(collection_page.platform, Some(ShopPlatform::Shopify));
+        assert_eq!(
+            identities.get("http://example.com/products/old"),
+            Some(&PageIdentityEvidence::default())
+        );
     }
 
     fn entity_encoded_href_site(target: &str, _previous: usize) -> SiteResponse {
