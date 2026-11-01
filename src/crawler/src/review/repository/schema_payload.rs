@@ -1,5 +1,4 @@
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageSchema, rebase_reviewed_removed_page_schemas,
 };
@@ -253,11 +252,11 @@ fn refuse_unregistered_raw_attribute_keys(
         .collect();
     match edited
         .iter()
-        .flat_map(|schema| schema.raw_attributes.keys())
-        .find(|key| !is_registered_key(key) && !current_keys.contains(key.as_str()))
+        .flat_map(ProductCssSelectorSchema::unregistered_raw_attribute_keys)
+        .find(|key| !current_keys.contains(key))
     {
         Some(key) => Err(ReviewRepositoryError::UnregisteredRawAttributeKey(
-            key.clone(),
+            key.to_owned(),
         )),
         None => Ok(()),
     }
