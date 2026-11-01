@@ -12,7 +12,7 @@ use crate::scraper::candidate_service::{
     ScraperCandidateService, next_domain_failure_streak,
 };
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
-use crate::scraper::domain_circuit::{DomainBatchEvidence, DomainCircuitDecision};
+use crate::scraper::domain_circuit::{DomainBatchEvidence, DomainCircuitDecision, FailedAnswer};
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::scraper_service::domain::product::{
     current_fetch_failure, domain_health_for_scraper_error, with_scrape_observation,
@@ -135,8 +135,8 @@ struct ScrapeCandidateOutcome {
     /// eligible for a later pass without any durable state change.
     deferred: bool,
     domain_health: DomainFetchHealth,
-    /// The HTTP status the candidate's fetch failed with, when it failed on one.
-    http_failure_status: Option<u16>,
+    /// The HTTP answer the candidate's fetch failed with, when it failed on one.
+    http_failure: Option<FailedAnswer>,
     /// The failure opened the domain circuit: the rest of the batch stops.
     circuit_opened: bool,
     /// The domain snapshot an applied domain write left behind, which the
@@ -1024,7 +1024,7 @@ async fn handle_scrape_error(
         errored: !awaits_schema_review,
         awaits_schema_review,
         domain_health,
-        http_failure_status: record.status_code,
+        http_failure: record.answer,
         circuit_opened: record.circuit_opened,
         persisted_domain_health: record.persisted_domain_health,
         robots_unreachable: is_robots_unreachable(&error),
@@ -1040,7 +1040,8 @@ async fn handle_scrape_error(
 struct ScrapeFailureRecord {
     /// The error kind recorded on the URL.
     error_kind: String,
-    status_code: Option<u16>,
+    /// The HTTP answer the fetch failed with, when it failed on one.
+    answer: Option<FailedAnswer>,
     circuit_opened: bool,
     /// The domain snapshot an applied domain write left behind.
     persisted_domain_health: Option<DomainHealthSnapshot>,
@@ -1104,7 +1105,7 @@ async fn persist_http_failure(
     };
     ScrapeFailureRecord {
         error_kind,
-        status_code,
+        answer: FailedAnswer::of(failure.kind, status_code),
         circuit_opened,
         persisted_domain_health,
     }
@@ -1191,8 +1192,8 @@ async fn open_domain_circuit(
             batch_attempted_urls = evidence.attempted_urls() + 1,
             batch_slow_host_urls = evidence.slow_host_urls()
                 + usize::from(!domain_kind.opens_on_first_failure()),
-            batch_repeated_status_urls = status_code
-                .map(|status| evidence.rejection_run_with(status, &candidate.url)),
+            batch_repeated_status_urls = FailedAnswer::of(failure.kind, status_code)
+                .map(|answer| evidence.rejection_run_with(answer, &candidate.url)),
             cooldown_seconds = domain_cooldown.as_secs(),
             latency_smoothed_ms = failure
                 .fetch_stats
@@ -1584,10 +1585,13 @@ fn is_robots_refusal(error: &ScraperError) -> bool {
         .is_some_and(NetworkErrorKind::is_robots_refusal)
 }
 
+/// The error kind a fetch failure records on its URL: its HTTP status, or its kind when the
+/// failure is no status, as a bot challenge is whatever status it was answered with.
 fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<u16>) -> String {
-    status_code
-        .map(|status_code| format!("HTTP_{status_code}"))
-        .unwrap_or_else(|| format!("{kind:?}"))
+    match (kind, status_code) {
+        (NetworkErrorKind::BotChallenge, _) | (_, None) => format!("{kind:?}"),
+        (_, Some(status_code)) => format!("HTTP_{status_code}"),
+    }
 }
 
 #[tracing::instrument(
@@ -1694,7 +1698,7 @@ async fn scrape_domain_candidates(
         evidence.observe(
             &candidate_url,
             &candidate_outcome.domain_health,
-            candidate_outcome.http_failure_status,
+            candidate_outcome.http_failure,
         );
         if let Some(persisted) = candidate_outcome.persisted_domain_health {
             domain_health = persisted;
@@ -3749,6 +3753,133 @@ mod tests {
         let outcome = scrape_candidate(candidate, &ctx).await;
 
         assert!(outcome.errored);
+    }
+
+    #[tokio::test]
+    async fn should_record_a_bot_challenge_as_its_own_fetch_failure_on_the_transient_cooldown() {
+        let before = time::OffsetDateTime::now_utc();
+        let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
+        let candidate = scraper_candidate("ListingSource", url.clone());
+        let cooldown = durable_retry_cooldown_for(NetworkErrorKind::BotChallenge);
+        let cooldown = time::Duration::seconds(cooldown.as_secs() as i64);
+
+        // The mocks expect nothing else: a capture, a removal or a scraped mark would panic.
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(
+                move |_, received_url, error_kind, _, status_code, next_retry_at, _| {
+                    received_url == &url
+                        && error_kind == "BotChallenge"
+                        && *status_code == Some(202)
+                        && *next_retry_at >= before + cooldown
+                        && *next_retry_at <= time::OffsetDateTime::now_utc() + cooldown
+                },
+            )
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpErrorWithMetadata(Box::new(
+                    crate::scraper::scraper_service::domain::errors::HttpErrorMetadata {
+                        url,
+                        kind: NetworkErrorKind::BotChallenge,
+                        status_code: Some(202),
+                        retry_after: None,
+                        details: "bot challenge instead of the page".to_string(),
+                    },
+                ))))
+            })
+        });
+
+        let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        assert!(outcome.errored);
+        assert_eq!(outcome.failure_kind.as_deref(), Some("BotChallenge"));
+        assert!(!outcome.circuit_opened);
+    }
+
+    /// A shop that answers every page with a `202` interstitial refuses the crawler as a whole:
+    /// three distinct challenged URLs in a row open the status burst and skip the rest of the
+    /// batch, so its URLs are not refetched every transient cooldown.
+    #[tokio::test]
+    async fn should_open_a_status_burst_after_three_distinct_urls_answer_a_bot_challenge() {
+        let urls = (1..=4)
+            .map(|index| {
+                url::Url::parse(&format!("https://challenges.example.com/product/{index}"))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let domain_id = scraper_candidate("ListingSource", urls[0].clone()).domain_id;
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .times(2)
+            .withf(|_, _, error_kind, _, status_code, _, _| {
+                error_kind == "BotChallenge" && *status_code == Some(202)
+            })
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        scraper_candidates
+            .expect_mark_fetch_failure_and_open_domain_circuit()
+            .once()
+            .withf(|request| {
+                request.url_failure.url.as_str().ends_with("/3")
+                    && request.url_failure.error_kind == "BotChallenge"
+                    && request.domain_error_kind == DomainFailureKind::HttpStatusBurst
+                    && request.domain_status_code == Some(202)
+                    && request.next_scrape_at.is_some()
+            })
+            .returning(|_| Box::pin(async { Ok(applied_domain_circuit_open_outcome()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .times(3)
+            .returning(|request| {
+                let url = request.url;
+                Box::pin(async move {
+                    scrape_outcome(Err(ScraperError::HttpErrorWithMetadata(Box::new(
+                        crate::scraper::scraper_service::domain::errors::HttpErrorMetadata {
+                            url,
+                            kind: NetworkErrorKind::BotChallenge,
+                            status_code: Some(202),
+                            retry_after: None,
+                            details: "bot challenge instead of the page".to_string(),
+                        },
+                    ))))
+                })
+            });
+
+        let (command_tx, _command_rx) = mpsc::channel(1);
+        let outcome = scrape_domain_candidates(
+            urls.into_iter()
+                .map(|url| scraper_candidate("ListingSource", url))
+                .collect(),
+            ScrapeDomainContext {
+                scraper: Arc::new(scraper_service),
+                scraper_candidates: Arc::new(scraper_candidates),
+                lock_manager: Arc::new(LocalLockManager::new()),
+                command_tx,
+                budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+                domain_id,
+                batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+                stop: CronStop::default(),
+            },
+        )
+        .await;
+
+        assert_eq!(outcome.failed, 3);
+        assert_eq!(outcome.skipped, 1, "the URL after the burst");
     }
 
     #[tokio::test]

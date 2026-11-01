@@ -494,6 +494,7 @@ fn log_spider_failure(
             initial_html_length = ?diagnostics.initial_html_length,
             initial_should_retry = diagnostics.initial_should_retry,
             initial_anti_bot = ?diagnostics.initial_anti_bot,
+            bot_challenge_pages = diagnostics.bot_challenge_pages,
             pages_received = diagnostics.pages_received,
             accepted = diagnostics.accepted,
             rejected_host = diagnostics.rejected_host,

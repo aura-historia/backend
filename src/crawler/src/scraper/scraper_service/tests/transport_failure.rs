@@ -153,3 +153,41 @@ async fn primary_removed_response_preserves_fence_and_responsive_health() {
     assert_eq!(failure.status_code, Some(404));
     assert_eq!(failure.expected_last_captured_raw_input_sha256, Some(fence));
 }
+
+/// A bot challenge is a fetch outcome: the scrape fails with it as the shop's answer, never as a
+/// removal or a schema outcome (the schema service expects no call), and the shop counts as
+/// responsive.
+#[tokio::test]
+async fn primary_bot_challenge_fails_as_a_responsive_fetch_outcome() {
+    let listing_source_id = listing_source_id();
+    let url = product_url();
+    let fence = vec![0x13; 32];
+    let service = service_for_primary_failure(FetchError::NetworkWithMetadata {
+        kind: NetworkErrorKind::BotChallenge,
+        status: Some(200),
+        retry_after: None,
+        details: "bot challenge instead of the page".to_owned(),
+    });
+
+    let outcome = with_test_scrape_domain(service.scrape(primary_request(
+        listing_source_id,
+        url.clone(),
+        fence.clone(),
+    )))
+    .await;
+
+    assert!(matches!(
+        &outcome.result,
+        Err(ScraperError::HttpErrorWithMetadata(metadata))
+            if metadata.kind == NetworkErrorKind::BotChallenge
+                && metadata.status_code == Some(200)
+    ));
+    assert_eq!(outcome.domain_health, DomainFetchHealth::Responsive);
+    let failure = outcome
+        .fetch_failure
+        .expect("a challenged primary fetch should carry its failure context");
+    assert_eq!(failure.url, url);
+    assert_eq!(failure.kind, NetworkErrorKind::BotChallenge);
+    assert_eq!(failure.status_code, Some(200));
+    assert_eq!(failure.expected_last_captured_raw_input_sha256, Some(fence));
+}
