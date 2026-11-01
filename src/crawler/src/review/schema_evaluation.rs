@@ -193,14 +193,32 @@ fn removed_page_match(
         url: page.url.to_owned(),
         role: page.role.to_owned(),
         outcome,
-        templates: matches.into_iter().map(matched_template).collect(),
+        templates: matches
+            .into_iter()
+            .map(|matched| matched_template(matched, page_evaluations))
+            .collect(),
     })
 }
 
-fn matched_template(matched: RemovedPageMatch) -> MatchedRemovedPageTemplate {
+/// The template a match names, with the title of a product page it takes for its notice: the
+/// first title a candidate schema extracts from the page without a rejecting finding that the
+/// match counts as the notice. Such a template withdraws the product page it matches, which no
+/// validation of the template alone can tell, so the matrix reports it before approval.
+fn matched_template(
+    matched: RemovedPageMatch,
+    page_evaluations: &[SchemaPageEvaluation],
+) -> MatchedRemovedPageTemplate {
+    let product_title = page_evaluations
+        .iter()
+        .filter(|evaluation| evaluation.apply_ok)
+        .filter_map(|evaluation| evaluation.extracted.as_ref())
+        .map(|raw| raw.title.trim())
+        .find(|title| !title.is_empty() && matched.is_notice(title))
+        .map(str::to_owned);
     MatchedRemovedPageTemplate {
         template_index: matched.template_index,
         notices: matched.notices,
+        product_title,
     }
 }
 
@@ -888,6 +906,7 @@ mod tests {
                     templates: vec![MatchedRemovedPageTemplate {
                         template_index: 1,
                         notices: vec!["this item is no longer available".to_owned()],
+                        product_title: None,
                     }],
                 }]
             );
@@ -910,6 +929,45 @@ mod tests {
                 matches[0].outcome,
                 RemovedPageTemplateOutcome::ProductStillExtracts
             );
+        }
+
+        /// A text template on the title element whose text a product's name contains takes the
+        /// name for its notice: the scraper would capture the product page as removed, so the
+        /// matrix names the product title it dismisses, as validation rejects a regex that
+        /// matches any text.
+        #[test]
+        fn should_report_a_template_that_takes_a_product_title_for_its_notice() {
+            let product = page(PAGE_ROLE_SEED, "h1");
+
+            let matches = removed_page_matches(
+                &[notice_template("h1", "titl")],
+                &[schema("h1")],
+                &[matrix_page(PAGE_ROLE_SEED, &product.url, &product.raw_html)],
+            );
+
+            assert_eq!(matches.len(), 1);
+            assert_eq!(matches[0].outcome, RemovedPageTemplateOutcome::Removed);
+            assert_eq!(
+                matches[0].templates[0].product_title.as_deref(),
+                Some("Title")
+            );
+        }
+
+        /// A notice page whose notice no candidate extracts as a plausible title reports none.
+        #[test]
+        fn should_report_no_product_title_on_a_notice_page_no_candidate_extracts() {
+            let matches = removed_page_matches(
+                &[notice_template(".notice", "no longer available")],
+                &[schema(".notice")],
+                &[matrix_page(
+                    "WAITING_PAGE",
+                    "https://example.com/sold",
+                    NOTICE_HTML,
+                )],
+            );
+
+            assert_eq!(matches.len(), 1);
+            assert_eq!(matches[0].templates[0].product_title, None);
         }
 
         #[test]

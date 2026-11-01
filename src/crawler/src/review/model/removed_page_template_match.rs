@@ -29,4 +29,10 @@ pub enum RemovedPageTemplateOutcome {
 pub struct MatchedRemovedPageTemplate {
     pub template_index: usize,
     pub notices: Vec<String>,
+    /// The title a candidate schema extracts from the page without a rejecting finding, which
+    /// this template's notice takes for the notice: the template matches the name of a product
+    /// page and withdraws it like a regex that matches any text would. `None` when no plausible
+    /// extraction's title is the notice; a matrix stored before the check holds none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product_title: Option<String>,
 }
