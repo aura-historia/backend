@@ -5,3 +5,4 @@ pub mod raw_attribute_registry;
 pub mod removed_page_schema;
 pub mod removed_page_schema_repository;
 pub mod rule;
+pub(crate) mod srcset;

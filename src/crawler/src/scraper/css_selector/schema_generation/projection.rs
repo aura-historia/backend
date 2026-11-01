@@ -1,4 +1,5 @@
 use crate::scraper::css_selector::rule::{has_known_image_extension, srcset_descriptor_width};
+use crate::scraper::css_selector::srcset::srcset_candidates;
 use kuchiki::traits::*;
 use kuchiki::{NodeRef, parse_html};
 use serde::Serialize;
@@ -7,7 +8,11 @@ use std::collections::BTreeMap;
 const DSL_TEXT_LIMIT: usize = 180;
 const DSL_ATTR_LIMIT: usize = 250;
 const DSL_IMAGE_ATTR_LIMIT: usize = 1_000;
+/// The most elements one projection keeps, the first in document order; [`DSL_CHAR_BUDGET`]
+/// usually binds first.
 const DSL_NODE_LIMIT: usize = 2_000;
+/// The most characters of a `data:` URI's scheme and media type that its marker keeps.
+const DATA_URI_HEADER_LIMIT: usize = 64;
 /// The most characters of YAML one projection takes: the first elements of the page in document
 /// order that fit, with the number of those left out. Navigation, header and footer are gone by
 /// then, so a page's product content comes early: on every parser fixture within the first
@@ -27,7 +32,7 @@ struct PageDslRoot {
 #[derive(Debug, Default, Serialize)]
 struct PageDsl {
     /// How many elements, the last in document order, the projection left out to stay within
-    /// [`DSL_CHAR_BUDGET`].
+    /// [`DSL_NODE_LIMIT`] and [`DSL_CHAR_BUDGET`].
     #[serde(skip_serializing_if = "Option::is_none")]
     omitted_nodes: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -57,15 +62,15 @@ pub fn html_to_schema_prompt_dsl(input: &str) -> String {
     }
     remove_comments(&document);
 
-    let mut projected_count = 0;
-    let nodes = project_children(&document, &mut projected_count);
-    serialize_within_budget(nodes, DSL_CHAR_BUDGET)
+    let nodes = project_children(&document);
+    serialize_within_limits(nodes, DSL_NODE_LIMIT, DSL_CHAR_BUDGET)
 }
 
-/// The YAML of the longest document-order prefix of `nodes` within `budget` characters. A prefix
+/// The YAML of the longest document-order prefix of `nodes` of at most `node_limit` elements
+/// within `budget` characters, with every element left out counted in `omitted_nodes`. A prefix
 /// in document order keeps every kept element's ancestors, so the kept tree reads as the page
 /// does and its selectors stay derivable.
-fn serialize_within_budget(nodes: Vec<HtmlYamlNode>, budget: usize) -> String {
+fn serialize_within_limits(nodes: Vec<HtmlYamlNode>, node_limit: usize, budget: usize) -> String {
     let total = count_nodes(&nodes);
     let page_of_prefix = |kept: usize| {
         let mut remaining = kept;
@@ -75,13 +80,14 @@ fn serialize_within_budget(nodes: Vec<HtmlYamlNode>, budget: usize) -> String {
         })
     };
 
-    let whole = page_of_prefix(total);
-    if whole.chars().count() <= budget {
-        return whole;
+    let most = total.min(node_limit);
+    let longest = page_of_prefix(most);
+    if longest.chars().count() <= budget {
+        return longest;
     }
     // The YAML grows with every element kept, so the longest prefix within the budget is found by
     // bisecting the number of elements kept.
-    let (mut fits, mut exceeds) = (0, total);
+    let (mut fits, mut exceeds) = (0, most);
     while exceeds - fits > 1 {
         let middle = fits + (exceeds - fits) / 2;
         if page_of_prefix(middle).chars().count() <= budget {
@@ -123,18 +129,13 @@ fn document_order_prefix(nodes: &[HtmlYamlNode], remaining: &mut usize) -> Vec<H
     prefix
 }
 
-fn project_children(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode> {
-    let mut projected = Vec::new();
-    for child in node.children() {
-        if *projected_count >= DSL_NODE_LIMIT {
-            break;
-        }
-        projected.extend(project_node(&child, projected_count));
-    }
-    projected
+fn project_children(node: &NodeRef) -> Vec<HtmlYamlNode> {
+    node.children()
+        .flat_map(|child| project_node(&child))
+        .collect()
 }
 
-fn project_node(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode> {
+fn project_node(node: &NodeRef) -> Vec<HtmlYamlNode> {
     let Some(element) = node.as_element() else {
         return Vec::new();
     };
@@ -149,7 +150,7 @@ fn project_node(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode
         projected_attrs(node, &tag, &attrs)
     };
     let text = projected_text(node, &attrs).map(|text| truncate_chars(&text, DSL_TEXT_LIMIT));
-    let children = project_children(node, projected_count);
+    let children = project_children(node);
 
     if attrs.is_empty() && text.is_none() && children.is_empty() {
         return Vec::new();
@@ -163,7 +164,6 @@ fn project_node(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode
         return children;
     }
 
-    *projected_count += 1;
     vec![HtmlYamlNode {
         tag,
         attrs,
@@ -332,35 +332,58 @@ fn path_has_image_context(href: &str) -> bool {
 fn projected_attr_value(name: &str, value: &str) -> String {
     match name {
         "srcset" | "data-srcset" => condensed_srcset(value),
+        _ if is_data_uri(value) => data_uri_marker(value),
         _ => truncate_chars(value, projected_attr_limit(name)),
     }
 }
 
 /// A `srcset` of several candidates as its widest candidate by the `w` descriptor, the last of
-/// equally wide ones, verbatim, and the number of the others: the candidate image extraction
-/// picks from a `srcset`. Its URL is a substring of the page's attribute, so a selector such as
-/// `img[srcset*="…"]` written from the projection matches the page. A `data:` URI, a lazy
-/// loader's placeholder, is no candidate list: its commas belong to the URI.
+/// equally wide ones, and the number of the others: the candidate image extraction picks from a
+/// `srcset`, split by the same grammar. A kept URL is verbatim, a substring of the page's
+/// attribute, so a selector such as `img[srcset*="…"]` written from the projection matches the
+/// page. A `data:` URI candidate becomes its [`data_uri_marker`]. A `srcset` that is a lazy
+/// loader's placeholder, a `data:` URI whose payload holds whitespace the grammar splits it at,
+/// becomes one marker as a whole.
 fn condensed_srcset(value: &str) -> String {
-    if is_data_uri(value) {
-        return truncate_chars(value.trim(), DSL_ATTR_LIMIT);
+    let candidates = srcset_candidates(value).collect::<Vec<_>>();
+    if is_whole_data_uri_srcset(&candidates) {
+        return data_uri_marker(value);
     }
-    let candidates = value
-        .split(',')
-        .map(str::trim)
-        .filter(|candidate| !candidate.is_empty())
-        .collect::<Vec<_>>();
-    let Some(largest) = candidates
+    let Some(&(url, descriptors)) = candidates
         .iter()
-        .max_by_key(|candidate| srcset_candidate_width(candidate))
+        .max_by_key(|(_, descriptors)| srcset_descriptor_width(descriptors))
     else {
         return truncate_chars(value, DSL_IMAGE_ATTR_LIMIT);
     };
-    let largest = truncate_chars(largest, DSL_IMAGE_ATTR_LIMIT);
+    let widest = if is_data_uri(url) {
+        data_uri_marker(url)
+    } else {
+        truncate_chars(
+            &format!("{url}{}", descriptors.trim_end()),
+            DSL_IMAGE_ATTR_LIMIT,
+        )
+    };
     match candidates.len() - 1 {
-        0 => largest,
-        others => format!("{largest} (+{others} more srcset candidates)"),
+        0 => widest,
+        others => format!("{widest} (+{others} more srcset candidates)"),
     }
+}
+
+/// Whether `candidates` are the pieces of one `data:` URI rather than a candidate list: the first
+/// is a `data:` URI followed by text that is no descriptor, such as `viewBox='0 0 3 2'` from an SVG
+/// payload. Every candidate of a real list is followed by descriptors such as `2x` or `800w`, or
+/// by none.
+fn is_whole_data_uri_srcset(candidates: &[(&str, &str)]) -> bool {
+    candidates.first().is_some_and(|(url, descriptors)| {
+        is_data_uri(url) && !descriptors.split_whitespace().all(is_srcset_descriptor)
+    })
+}
+
+/// Whether `token` is a `srcset` descriptor: a number followed by `w`, `x` or `h`.
+fn is_srcset_descriptor(token: &str) -> bool {
+    token
+        .strip_suffix(['w', 'x', 'h'])
+        .is_some_and(|number| number.parse::<f64>().is_ok_and(f64::is_finite))
 }
 
 fn is_data_uri(value: &str) -> bool {
@@ -370,12 +393,13 @@ fn is_data_uri(value: &str) -> bool {
         .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
 }
 
-/// The width of a trimmed `srcset` candidate, its URL followed by its descriptors, as image
-/// extraction reads it.
-fn srcset_candidate_width(candidate: &str) -> usize {
-    candidate
-        .split_once(char::is_whitespace)
-        .map_or(0, |(_, descriptors)| srcset_descriptor_width(descriptors))
+/// A `data:` URI as its scheme and media type followed by `,…`, such as `data:image/svg+xml,…`.
+/// Its payload is a placeholder's pixels, hundreds of characters that name nothing a selector
+/// can use, so the projection leaves it out.
+fn data_uri_marker(uri: &str) -> String {
+    let uri = uri.trim();
+    let header = uri.split_once(',').map_or(uri, |(header, _)| header);
+    format!("{},…", truncate_chars(header, DATA_URI_HEADER_LIMIT))
 }
 
 fn projected_attr_limit(name: &str) -> usize {
@@ -504,9 +528,21 @@ mod tests {
         "/p.jpg 1x, /p@2x.jpg 2x",
         "/p@2x.jpg 2x (+1 more srcset candidates)"
     )]
-    #[case::data_uri_placeholder_kept_whole(
+    #[case::data_uri_placeholder_as_its_marker(
         "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+        "data:image/gif;base64,…"
+    )]
+    #[case::svg_placeholder_with_whitespace_and_commas_as_its_marker(
+        "data:image/svg+xml,%3Csvg viewBox='0 0 3 2'%3E%3Cpath d='M0 0,3 2'/%3E%3C/svg%3E 1x",
+        "data:image/svg+xml,…"
+    )]
+    #[case::real_candidate_next_to_a_data_uri(
+        "data:image/gif;base64,R0lG 1w, /a.jpg 800w",
+        "/a.jpg 800w (+1 more srcset candidates)"
+    )]
+    #[case::urls_with_commas_kept_whole(
+        "https://res.example.com/w_400,h_300/p.jpg 400w, https://res.example.com/w_1200,h_900/p.jpg 1200w",
+        "https://res.example.com/w_1200,h_900/p.jpg 1200w (+1 more srcset candidates)"
     )]
     #[case::single_candidate_unchanged("/image/abc 1200w", "/image/abc 1200w")]
     #[case::empty_candidates_ignored(
@@ -588,10 +624,10 @@ mod tests {
         let html = format!(
             r#"<main><h1 class="product-title">Oak chair</h1><ul class="list">{items}</ul></main>"#
         );
-        let project = || project_children(&parse_html().one(html.as_str()), &mut 0);
+        let project = || project_children(&parse_html().one(html.as_str()));
 
-        let whole = serialize_within_budget(project(), usize::MAX);
-        let dsl = serialize_within_budget(project(), 1_000);
+        let whole = serialize_within_limits(project(), usize::MAX, usize::MAX);
+        let dsl = serialize_within_limits(project(), usize::MAX, 1_000);
 
         assert!(!whole.contains("omitted_nodes"));
         assert!(whole.contains("Item number 49"));
@@ -600,13 +636,8 @@ mod tests {
         assert!(dsl.contains("class: list"));
         assert!(dsl.contains("Item number 0"));
         assert!(!dsl.contains("Item number 49"));
-        let omitted = dsl
-            .lines()
-            .find_map(|line| line.trim().strip_prefix("omitted_nodes: "))
-            .and_then(|count| count.parse::<usize>().ok())
-            .expect("the projection names what it left out");
         let kept_items = dsl.matches("Item number").count();
-        assert_eq!(omitted, 50 - kept_items);
+        assert_eq!(omitted_nodes(&dsl), Some(50 - kept_items));
     }
 
     #[test]
@@ -643,5 +674,62 @@ mod tests {
             srcset_chars * 10 < dsl.len(),
             "srcset takes {srcset_chars} characters"
         );
+    }
+
+    fn omitted_nodes(dsl: &str) -> Option<usize> {
+        dsl.lines()
+            .find_map(|line| line.trim().strip_prefix("omitted_nodes: "))
+            .and_then(|count| count.parse().ok())
+    }
+
+    #[test]
+    fn should_count_the_elements_the_element_cap_leaves_out() {
+        let paragraphs = "<p>Lot note</p>".repeat(DSL_NODE_LIMIT + 500);
+        let html = format!(r#"<main><h1 class="product-title">Oak chair</h1>{paragraphs}</main>"#);
+
+        let dsl = html_to_schema_prompt_dsl(&html);
+
+        assert!(
+            dsl.chars().count() <= DSL_CHAR_BUDGET,
+            "the cap binds first"
+        );
+        assert!(dsl.contains("Oak chair"));
+        assert_eq!(dsl.matches("Lot note").count(), DSL_NODE_LIMIT - 1);
+        assert_eq!(omitted_nodes(&dsl), Some(501));
+    }
+
+    #[test]
+    fn should_count_every_element_left_out_when_both_the_cap_and_the_budget_cut() {
+        let items = (0..50)
+            .map(|item| format!(r#"<li class="item">Item number {item}</li>"#))
+            .collect::<String>();
+        let html = format!(r#"<main><ul class="list">{items}</ul></main>"#);
+        let project = || project_children(&parse_html().one(html.as_str()));
+
+        let capped = serialize_within_limits(project(), 10, usize::MAX);
+        let budgeted = serialize_within_limits(project(), 10, 300);
+
+        assert_eq!(capped.matches("Item number").count(), 9);
+        assert_eq!(omitted_nodes(&capped), Some(51 - 10));
+        let kept = budgeted.matches("Item number").count();
+        assert!(kept < 9, "{budgeted}");
+        assert_eq!(omitted_nodes(&budgeted), Some(50 - kept));
+    }
+
+    #[rstest]
+    #[case::svg_src(
+        r#"<img class="product-image" src="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20800%20600'%3E%3C/svg%3E" data-src="/files/vase.jpg">"#,
+        "src: data:image/svg+xml,…"
+    )]
+    #[case::base64_lazy_source(
+        r#"<img class="product-image" data-lazy-src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" src="/files/vase.jpg">"#,
+        "data-lazy-src: data:image/gif;base64,…"
+    )]
+    fn should_shorten_a_data_uri_attribute_to_its_marker(#[case] img: &str, #[case] marker: &str) {
+        let dsl = html_to_schema_prompt_dsl(&format!("<main>{img}</main>"));
+
+        assert!(dsl.contains(marker), "{dsl}");
+        assert!(dsl.contains("/files/vase.jpg"), "{dsl}");
+        assert!(!dsl.contains("svg%20") && !dsl.contains("R0lGOD"), "{dsl}");
     }
 }

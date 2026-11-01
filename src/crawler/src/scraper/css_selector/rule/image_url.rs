@@ -4,6 +4,7 @@
 
 use super::IMAGE_CANDIDATE_SEPARATOR;
 use super::visible_text::has_visible_text;
+use crate::scraper::css_selector::srcset::srcset_candidates;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use url::Url;
@@ -277,38 +278,6 @@ pub(crate) fn srcset_descriptor_width(descriptors: &str) -> usize {
         .unwrap_or_default()
 }
 
-/// The candidates of a `srcset`, each as its URL and its descriptors, such as `2x` or
-/// `800w`. A `data:` URI runs to the next whitespace, as browsers parse every `srcset` URL,
-/// because its payload holds commas itself (`data:image/gif;base64,R0lGOD 1x`). Any other
-/// URL deliberately also ends at a comma, unlike in browsers, so that the candidates of
-/// `a.jpg,b.jpg` stay those raw extraction has always read.
-fn srcset_candidates(srcset: &str) -> impl Iterator<Item = (&str, &str)> {
-    let mut rest = srcset;
-    std::iter::from_fn(move || {
-        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
-        if rest.is_empty() {
-            return None;
-        }
-        let url_end = if is_data_url(rest) {
-            rest.find(char::is_whitespace)
-        } else {
-            rest.find(|c: char| c.is_whitespace() || c == ',')
-        }
-        .unwrap_or(rest.len());
-        let (url, after_url) = rest.split_at(url_end);
-        let url = url.trim_end_matches(',');
-        let descriptors_end = if url.len() < url_end {
-            // A comma closed the `data:` URI, so no descriptors follow it.
-            0
-        } else {
-            after_url.find(',').unwrap_or(after_url.len())
-        };
-        let (descriptors, after_candidate) = after_url.split_at(descriptors_end);
-        rest = after_candidate;
-        Some((url, descriptors))
-    })
-}
-
 /// Whether `url`, read from `source`, can name an image. A URL capture can never fetch
 /// never does (see [`is_unfetchable_url`]).
 fn is_probably_image_url(url: &str, source: ImageCandidateSource) -> bool {
@@ -364,7 +333,8 @@ fn holds_only_unfetchable_urls(name: &str, value: &str) -> bool {
 /// The URLs the attribute `name="value"` may hold: one per candidate of a `srcset` (see
 /// [`srcset_candidates`]), any attribute whose name ends in `srcset`, such as a lazy
 /// loader's `data-lazy-srcset`; otherwise the whole trimmed value when it is a `data:` URI,
-/// whose payload may hold spaces and commas, and else one URL per comma-separated part.
+/// whose payload may hold spaces and commas, and else the URLs it lists as a `srcset` lists
+/// them, so `/a.jpg, /b.jpg` names two while a comma inside a URL keeps it whole.
 fn attribute_urls<'a>(name: &str, value: &'a str) -> impl Iterator<Item = &'a str> {
     let trimmed = value.trim();
     let whole_data_uri =
@@ -559,31 +529,28 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[case::urls_and_descriptors("a.jpg 1x, b.jpg 2x", &[("a.jpg", " 1x"), ("b.jpg", " 2x")])]
-    #[case::no_space_after_a_comma("a.jpg,b.jpg", &[("a.jpg", ""), ("b.jpg", "")])]
-    #[case::single_url(" /uploads/photo.jpg ", &[("/uploads/photo.jpg", " ")])]
-    #[case::data_uri_with_descriptor(
-        "data:image/gif;base64,R0lG 1x, /a.jpg 2x",
-        &[("data:image/gif;base64,R0lG", " 1x"), ("/a.jpg", " 2x")]
-    )]
-    #[case::data_uri_closed_by_a_comma(
-        "data:image/gif;base64,R0lG,, /a.jpg",
-        &[("data:image/gif;base64,R0lG", ""), ("/a.jpg", "")]
-    )]
-    #[case::empty(" , ", &[])]
-    fn should_split_a_srcset_into_its_candidates(
-        #[case] srcset: &str,
-        #[case] expected: &[(&str, &str)],
-    ) {
-        assert_eq!(srcset_candidates(srcset).collect::<Vec<_>>(), expected);
-    }
-
     #[test]
     fn should_take_the_widest_real_candidate_of_a_srcset_with_a_data_uri() {
         assert_eq!(
             largest_srcset_candidate(Some("data:image/gif;base64,R0lG 1w, /a.jpg 800w")),
             Some(("/a.jpg".to_owned(), 800))
+        );
+    }
+
+    #[test]
+    fn should_extract_the_widest_srcset_url_whole_when_it_holds_commas() {
+        let html = Html::parse_fragment(
+            r#"<img src="/photo-100x100.jpg" srcset="https://res.example.com/w_400,h_300/photo.jpg 400w, https://res.example.com/w_1200,h_900/photo.jpg 1200w">"#,
+        );
+        let selector = scraper::Selector::parse("img").unwrap();
+        let image = html.select(&selector).next().unwrap();
+
+        assert_eq!(
+            image_url_candidates_for_element(&image),
+            vec![
+                "https://res.example.com/w_1200,h_900/photo.jpg",
+                "/photo-100x100.jpg"
+            ]
         );
     }
 
