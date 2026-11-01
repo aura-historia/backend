@@ -260,6 +260,10 @@ pub enum NetworkErrorKind {
     RobotsDisallowed,
     /// robots.txt could not be reached, so RFC 9309 disallows the whole origin.
     RobotsUnreachable,
+    /// The shop answered with a bot challenge or interstitial instead of the page
+    /// ([`bot_challenge`](crate::network::bot_challenge)). It is not retried inline, since an
+    /// immediate repeat meets the same challenge, and is retried after the transient cooldown.
+    BotChallenge,
     Unknown,
 }
 
@@ -432,6 +436,7 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
         | NetworkErrorKind::HttpStatus(_)
         | NetworkErrorKind::RobotsDisallowed
         | NetworkErrorKind::RobotsUnreachable
+        | NetworkErrorKind::BotChallenge
         | NetworkErrorKind::Unknown => NetworkAction::Terminal,
     }
 }
@@ -499,6 +504,7 @@ pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
         | NetworkErrorKind::DnsTimeout
         | NetworkErrorKind::DnsResolution
         | NetworkErrorKind::Request
+        | NetworkErrorKind::BotChallenge
         | NetworkErrorKind::Unknown => Duration::from_secs(5 * 60),
         NetworkErrorKind::HttpStatus(_) => Duration::from_secs(24 * 60 * 60),
     }
@@ -627,6 +633,18 @@ mod tests {
         assert_eq!(
             durable_retry_cooldown_for(NetworkErrorKind::HttpStatus(403)),
             Duration::from_secs(2 * 60)
+        );
+    }
+
+    #[test]
+    fn should_retry_a_bot_challenge_after_the_transient_cooldown_and_not_inline() {
+        assert_eq!(
+            action_for(NetworkErrorKind::BotChallenge),
+            NetworkAction::Terminal
+        );
+        assert_eq!(
+            durable_retry_cooldown_for(NetworkErrorKind::BotChallenge),
+            durable_retry_cooldown_for(NetworkErrorKind::Timeout)
         );
     }
 

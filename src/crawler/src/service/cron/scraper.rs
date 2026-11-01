@@ -1549,10 +1549,13 @@ fn is_robots_refusal(error: &ScraperError) -> bool {
         .is_some_and(NetworkErrorKind::is_robots_refusal)
 }
 
+/// The error kind a fetch failure records on its URL: its HTTP status, or its kind when the
+/// failure is no status, as a bot challenge is whatever status it was answered with.
 fn crawler_url_error_kind(kind: NetworkErrorKind, status_code: Option<u16>) -> String {
-    status_code
-        .map(|status_code| format!("HTTP_{status_code}"))
-        .unwrap_or_else(|| format!("{kind:?}"))
+    match (kind, status_code) {
+        (NetworkErrorKind::BotChallenge, _) | (_, None) => format!("{kind:?}"),
+        (_, Some(status_code)) => format!("HTTP_{status_code}"),
+    }
 }
 
 #[tracing::instrument(
@@ -3631,6 +3634,57 @@ mod tests {
         let outcome = scrape_candidate(candidate, &ctx).await;
 
         assert!(outcome.errored);
+    }
+
+    #[tokio::test]
+    async fn should_record_a_bot_challenge_as_its_own_fetch_failure_on_the_transient_cooldown() {
+        let before = time::OffsetDateTime::now_utc();
+        let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
+        let candidate = scraper_candidate("ListingSource", url.clone());
+        let cooldown = durable_retry_cooldown_for(NetworkErrorKind::BotChallenge);
+        let cooldown = time::Duration::seconds(cooldown.as_secs() as i64);
+
+        // The mocks expect nothing else: a capture, a removal or a scraped mark would panic.
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(
+                move |_, received_url, error_kind, _, status_code, next_retry_at, _| {
+                    received_url == &url
+                        && error_kind == "BotChallenge"
+                        && *status_code == Some(202)
+                        && *next_retry_at >= before + cooldown
+                        && *next_retry_at <= time::OffsetDateTime::now_utc() + cooldown
+                },
+            )
+            .returning(|_, _, _, _, _, _, _| {
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpErrorWithMetadata(Box::new(
+                    crate::scraper::scraper_service::domain::errors::HttpErrorMetadata {
+                        url,
+                        kind: NetworkErrorKind::BotChallenge,
+                        status_code: Some(202),
+                        retry_after: None,
+                        details: "bot challenge instead of the page".to_string(),
+                    },
+                ))))
+            })
+        });
+
+        let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        assert!(outcome.errored);
+        assert_eq!(outcome.failure_kind.as_deref(), Some("BotChallenge"));
+        assert!(!outcome.circuit_opened);
     }
 
     #[tokio::test]
