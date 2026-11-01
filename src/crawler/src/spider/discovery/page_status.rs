@@ -42,7 +42,7 @@ impl StatusCounts {
 
 /// A page answer that asks the crawler for less traffic: 429, or 503, the
 /// two statuses RFC 9110 pairs with `Retry-After` as a wait request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RateLimitSignal {
     pub status: u16,
     /// The shop's `Retry-After`, when it sent a usable one.
