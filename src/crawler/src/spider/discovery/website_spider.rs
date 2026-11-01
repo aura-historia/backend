@@ -1418,10 +1418,6 @@ async fn relay_library_pages(
             },
         };
         diagnostics.pages_received += 1;
-        filter.found_links.record_delivered(page.get_url());
-        if let Some(page_links) = page.page_links.as_deref() {
-            filter.found_links.record(page.get_url(), page_links);
-        }
         let status_code = page.status_code.as_u16();
         diagnostics.status_counts.count(status_code);
         let challenge = page_bot_challenge(status_code, &page);
@@ -1450,11 +1446,20 @@ async fn relay_library_pages(
             first_page_seen = true;
         }
 
+        let rate_limit_answer = RateLimitSignal::from_page(status_code, page.headers.as_ref());
         if diagnostics.rate_limit.is_none()
-            && let Some(signal) = RateLimitSignal::from_page(status_code, page.headers.as_ref())
+            && let Some(signal) = rate_limit_answer
         {
             apply_rate_limit_signal(diagnostics, signal);
             request_stop(CrawlStopReason::RateLimited);
+        }
+        // A challenge or a rate-limit answer is not the page: it stays in the
+        // frontier for the next crawl, and its links are not the shop's.
+        if challenge.is_none() && rate_limit_answer.is_none() {
+            filter.found_links.record_delivered(page.get_url());
+            if let Some(page_links) = page.page_links.as_deref() {
+                filter.found_links.record(page.get_url(), page_links);
+            }
         }
 
         match filter.admit(page.get_url()) {
@@ -2707,6 +2712,26 @@ mod tests {
             31 - delivered.len(),
             "{discovery:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn should_keep_a_page_answered_with_a_rate_limit_in_the_frontier() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html("200 OK", r#"<a href="/limited">l</a>"#.to_string()),
+            "/limited" => SiteResponse::WithHeaders("429 Too Many Requests", "Retry-After: 60\r\n"),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (_, diagnostics, discovery) = run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+        site.finish().await;
+
+        assert!(
+            matches!(diagnostics.completion, CrawlCompletion::RateLimited(_)),
+            "{diagnostics:?}"
+        );
+        assert_eq!(discovery.frontier, [example("/limited")]);
     }
 
     #[tokio::test]
