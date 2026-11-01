@@ -50,6 +50,12 @@ pub struct CrawledPage {
     pub url: CrawledUrl,
 }
 
+impl CrawledPage {
+    pub fn new(url: CrawledUrl) -> Self {
+        Self { url }
+    }
+}
+
 /// How long a domain should cool down after repeated failures of one kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlCooldownProfile {
@@ -1264,7 +1270,7 @@ async fn relay_library_pages(
         match filter.admit(page.get_url()) {
             Ok(url) => {
                 diagnostics.accepted += 1;
-                pending.push_back(CrawledPage { url });
+                pending.push_back(CrawledPage::new(url));
             }
             Err(rejection) => diagnostics.count_rejection(rejection),
         }
@@ -3346,18 +3352,18 @@ mod tests {
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_product_path() {
-        let page = CrawledPage {
-            url: CrawledUrl::new(url::Url::parse("https://example.com/product/1").unwrap()),
-        };
+        let page = CrawledPage::new(CrawledUrl::new(
+            url::Url::parse("https://example.com/product/1").unwrap(),
+        ));
 
         assert_eq!(page.url.to_string(), "https://example.com/product/1");
     }
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_non_product_path() {
-        let page = CrawledPage {
-            url: CrawledUrl::new(url::Url::parse("https://example.com/about").unwrap()),
-        };
+        let page = CrawledPage::new(CrawledUrl::new(
+            url::Url::parse("https://example.com/about").unwrap(),
+        ));
 
         assert_eq!(page.url.to_string(), "https://example.com/about");
     }

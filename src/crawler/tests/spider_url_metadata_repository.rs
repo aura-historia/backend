@@ -3,13 +3,24 @@ use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
 use crawler::spider::classification::url_metadata_repository::{
-    UrlMetadataRepository, UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
+    DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
 };
 use listing_source_core::ListingSourceId;
 use test_api::*;
 use url::Url;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
+
+fn discovered(urls: &[Url], classes: &[UrlClass]) -> Vec<DiscoveredUrl> {
+    assert_eq!(urls.len(), classes.len());
+    urls.iter()
+        .zip(classes)
+        .map(|(url, class)| DiscoveredUrl {
+            url: url.clone(),
+            url_class: *class,
+        })
+        .collect()
+}
 
 async fn insert_source(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
     sqlx::query(
@@ -199,8 +210,10 @@ async fn should_upsert_valid_url_batch_for_one_owned_domain() {
         .upsert_links_batch(
             &listing_source_id,
             &domain_id,
-            &[first.clone(), second.clone()],
-            &[UrlClass::ProductListing, UrlClass::Category],
+            &discovered(
+                &[first.clone(), second.clone()],
+                &[UrlClass::ProductListing, UrlClass::Category],
+            ),
         )
         .await
         .unwrap();
@@ -223,41 +236,6 @@ async fn should_upsert_valid_url_batch_for_one_owned_domain() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_reject_batch_when_url_and_class_lengths_differ() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-    let listing_source_id = ListingSourceId::new();
-    insert_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "lengths.example.com").await;
-    let url = Url::parse("https://lengths.example.com/products/1").unwrap();
-
-    let result = repository
-        .upsert_links_batch(
-            &listing_source_id,
-            &domain_id,
-            std::slice::from_ref(&url),
-            &[UrlClass::ProductListing, UrlClass::Other],
-        )
-        .await;
-
-    assert!(matches!(
-        result,
-        Err(UrlMetadataRepositoryError::Database {
-            source: sqlx::Error::Protocol(message)
-        }) if message == "URL and URL-class batch lengths differ"
-    ));
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
-    )
-    .bind(listing_source_id.as_uuid())
-    .bind(url.as_str())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(count, 0);
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_reject_duplicate_urls_in_batch_without_persisting_any_row() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -270,8 +248,10 @@ async fn should_reject_duplicate_urls_in_batch_without_persisting_any_row() {
         .upsert_links_batch(
             &listing_source_id,
             &domain_id,
-            &[url.clone(), url.clone()],
-            &[UrlClass::ProductListing, UrlClass::Other],
+            &discovered(
+                &[url.clone(), url.clone()],
+                &[UrlClass::ProductListing, UrlClass::Other],
+            ),
         )
         .await;
 
@@ -437,8 +417,10 @@ async fn should_roll_back_batch_when_one_url_is_owned_by_another_listing_source(
         .upsert_links_batch(
             &source_b,
             &domain_b,
-            &[conflicting.clone(), fresh.clone()],
-            &[UrlClass::Other, UrlClass::ProductListing],
+            &discovered(
+                &[conflicting.clone(), fresh.clone()],
+                &[UrlClass::Other, UrlClass::ProductListing],
+            ),
         )
         .await;
     assert!(matches!(
@@ -545,8 +527,7 @@ async fn should_move_row_stored_under_earlier_spelling_when_spider_rediscovers_f
         .upsert_links_batch(
             &listing_source_id,
             &domain_id,
-            std::slice::from_ref(&fetched),
-            &[UrlClass::Category],
+            &discovered(std::slice::from_ref(&fetched), &[UrlClass::Category]),
         )
         .await
         .unwrap();
@@ -574,11 +555,13 @@ async fn should_keep_row_under_earlier_spelling_when_shop_links_that_spelling_to
         .upsert_links_batch(
             &listing_source_id,
             &domain_id,
-            &[
-                Url::parse(FETCHED_SPELLING).unwrap(),
-                Url::parse(LEGACY_SPELLING).unwrap(),
-            ],
-            &[UrlClass::Category, UrlClass::Category],
+            &discovered(
+                &[
+                    Url::parse(FETCHED_SPELLING).unwrap(),
+                    Url::parse(LEGACY_SPELLING).unwrap(),
+                ],
+                &[UrlClass::Category, UrlClass::Category],
+            ),
         )
         .await
         .unwrap();
@@ -644,8 +627,7 @@ async fn upsert_batch(
         .upsert_links_batch(
             &listing_source_id,
             &domain_id,
-            &urls,
-            &vec![UrlClass::ProductListing; urls.len()],
+            &discovered(&urls, &vec![UrlClass::ProductListing; urls.len()]),
         )
         .await
         .unwrap()

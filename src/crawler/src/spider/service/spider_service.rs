@@ -8,7 +8,7 @@ use crate::network::policy::is_same_or_www_host;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
 use crate::spider::classification::url_metadata_repository::{
-    SpiderUrlRecord, UrlMetadataRepository,
+    DiscoveredUrl, SpiderUrlRecord, UrlMetadataRepository,
 };
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
@@ -209,20 +209,19 @@ impl SpiderServiceImpl {
             return Ok(Vec::new());
         }
 
-        let mut urls = Vec::with_capacity(pages.len());
-        let mut classes = Vec::with_capacity(pages.len());
-
-        for page in pages {
-            urls.push(page.url.as_url().clone());
-            classes.push(
-                self.config
+        let links = pages
+            .iter()
+            .map(|page| DiscoveredUrl {
+                url: page.url.as_url().clone(),
+                url_class: self
+                    .config
                     .url_classifier
                     .classify(page.url.as_url().as_str(), pattern.as_regex()),
-            );
-        }
+            })
+            .collect::<Vec<_>>();
 
         self.url_metadata_repository
-            .upsert_links_batch(listing_source_id, domain_id, &urls, &classes)
+            .upsert_links_batch(listing_source_id, domain_id, &links)
             .await
             .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))
     }
@@ -894,17 +893,16 @@ mod service_tests {
     fn stored_as_given(
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        urls: &[Url],
-        classes: &[UrlClass],
+        links: &[DiscoveredUrl],
     ) -> Vec<SpiderUrlRecord> {
         let now = time::OffsetDateTime::now_utc();
-        urls.iter()
-            .zip(classes)
-            .map(|(url, class)| SpiderUrlRecord {
+        links
+            .iter()
+            .map(|link| SpiderUrlRecord {
                 listing_source_id: *listing_source_id,
                 domain_id: *domain_id,
-                url: url.clone(),
-                url_class: *class,
+                url: link.url.clone(),
+                url_class: link.url_class,
                 disposition: CrawlerDisposition::Active,
                 last_scraped_hash: None,
                 last_scraped: None,
@@ -921,9 +919,9 @@ mod service_tests {
     ) {
         mock.expect_upsert_links_batch()
             .times(call_count)
-            .withf(move |_, domain_id, _, _| *domain_id == expected_domain_id)
-            .returning(|listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            .withf(move |_, domain_id, _| *domain_id == expected_domain_id)
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             });
     }
@@ -964,11 +962,9 @@ mod service_tests {
                 let (tx, rx) = mpsc::channel(25);
                 tokio::spawn(async move {
                     for path in paths {
-                        tx.send(CrawledPage {
-                            url: CrawledUrl::new(
-                                Url::parse(&format!("https://example.com{path}")).unwrap(),
-                            ),
-                        })
+                        tx.send(CrawledPage::new(CrawledUrl::new(
+                            Url::parse(&format!("https://example.com{path}")).unwrap(),
+                        )))
                         .await
                         .unwrap();
                     }
@@ -1083,9 +1079,9 @@ mod service_tests {
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, urls, _| urls.len() == 25)
-            .returning(|listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            .withf(|_, _, links| links.len() == 25)
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -1159,14 +1155,14 @@ mod service_tests {
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, urls, classes| {
-                urls.len() == 25
-                    && classes
+            .withf(|_, _, links| {
+                links.len() == 25
+                    && links
                         .iter()
-                        .all(|class| *class != UrlClass::ProductListing)
+                        .all(|link| link.url_class != UrlClass::ProductListing)
             })
-            .returning(|listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -1229,9 +1225,9 @@ mod service_tests {
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, urls, _| urls.len() == 25)
-            .returning(|listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            .withf(|_, _, links| links.len() == 25)
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -1356,14 +1352,14 @@ mod service_tests {
         let stored: StoredBatches = Arc::default();
         let recorded = Arc::clone(&stored);
         mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, urls, classes| {
+            move |listing_source_id, domain_id, links| {
                 recorded.lock().unwrap().push(
-                    urls.iter()
-                        .map(|url| url.path().to_owned())
-                        .zip(classes.iter().copied())
+                    links
+                        .iter()
+                        .map(|link| (link.url.path().to_owned(), link.url_class))
                         .collect(),
                 );
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             },
         );
@@ -1679,9 +1675,7 @@ mod service_tests {
             tokio::spawn(async move {
                 for i in 1.. {
                     let url = Url::parse(&format!("https://example.com/item/{i}")).unwrap();
-                    let page = CrawledPage {
-                        url: CrawledUrl::new(url),
-                    };
+                    let page = CrawledPage::new(CrawledUrl::new(url));
                     if tx.send(page).await.is_err() {
                         break;
                     }
@@ -1909,8 +1903,8 @@ mod service_tests {
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         mock_url_repo.expect_upsert_links_batch().returning(
-            |listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            |listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             },
         );
@@ -1956,8 +1950,8 @@ mod service_tests {
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         let kept: Vec<String> = item_pages().into_iter().take(kept_other).collect();
         mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, urls, classes| {
-                let mut stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            move |listing_source_id, domain_id, links| {
+                let mut stored = stored_as_given(listing_source_id, domain_id, links);
                 for record in &mut stored {
                     if kept.iter().any(|path| path == record.url.path()) {
                         record.url_class = UrlClass::Other;
@@ -2491,13 +2485,13 @@ mod service_tests {
         let stored = Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = Arc::clone(&stored);
         mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, urls, classes| {
+            move |listing_source_id, domain_id, links| {
                 recorded.lock().unwrap().extend(
-                    urls.iter()
-                        .map(|url| url.path().to_owned())
-                        .zip(classes.iter().copied()),
+                    links
+                        .iter()
+                        .map(|link| (link.url.path().to_owned(), link.url_class)),
                 );
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             },
         );

@@ -56,6 +56,13 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
     }
 }
 
+/// A URL the spider found, with the class it is stored under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredUrl {
+    pub url: url::Url,
+    pub url_class: UrlClass,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum UrlMetadataRepositoryError {
     #[error("crawler domain does not belong to ListingSource")]
@@ -104,8 +111,7 @@ pub trait UrlMetadataRepository: Send + Sync {
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        urls: &[url::Url],
-        url_classes: &[UrlClass],
+        links: &[DiscoveredUrl],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError>;
 
     async fn set_disposition(
@@ -326,8 +332,10 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         self.upsert_links_batch(
             listing_source_id,
             domain_id,
-            std::slice::from_ref(url),
-            std::slice::from_ref(url_class),
+            &[DiscoveredUrl {
+                url: url.clone(),
+                url_class: *url_class,
+            }],
         )
         .await?
         .pop()
@@ -340,22 +348,20 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        urls: &[url::Url],
-        url_classes: &[UrlClass],
+        links: &[DiscoveredUrl],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError> {
-        if urls.is_empty() {
+        if links.is_empty() {
             return Ok(Vec::new());
         }
-        if urls.len() != url_classes.len() {
-            return Err(UrlMetadataRepositoryError::Database {
-                source: sqlx::Error::Protocol("URL and URL-class batch lengths differ".to_owned()),
-            });
-        }
+        let (urls, url_classes): (Vec<url::Url>, Vec<UrlClass>) = links
+            .iter()
+            .map(|link| (link.url.clone(), link.url_class))
+            .unzip();
 
         let mut transaction = self.pool.begin().await.map_err(database_error)?;
         let domain =
             Self::verify_domain_owner(&mut transaction, *listing_source_id, *domain_id).await?;
-        Self::verify_url_hosts(urls, &domain)?;
+        Self::verify_url_hosts(&urls, &domain)?;
         Self::validate_existing_url_ownership(
             &mut transaction,
             *listing_source_id,
@@ -367,8 +373,8 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             &mut transaction,
             *listing_source_id,
             *domain_id,
-            urls,
-            url_classes,
+            &urls,
+            &url_classes,
         )
         .await?
         .into_iter()

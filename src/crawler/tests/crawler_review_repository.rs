@@ -34,7 +34,7 @@ use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
 use crawler::spider::classification::url_metadata_repository::{
-    UrlMetadataRepository, UrlMetadataRepositoryImpl,
+    DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
@@ -46,6 +46,17 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
+
+fn discovered(urls: &[url::Url], classes: &[UrlClass]) -> Vec<DiscoveredUrl> {
+    assert_eq!(urls.len(), classes.len());
+    urls.iter()
+        .zip(classes)
+        .map(|(url, class)| DiscoveredUrl {
+            url: url.clone(),
+            url_class: *class,
+        })
+        .collect()
+}
 
 fn rule(selector: &str) -> ExtractionRule {
     ExtractionRule {
@@ -2792,8 +2803,7 @@ async fn should_store_a_rejected_page_as_other_when_a_crawl_finds_it_again() {
         .upsert_links_batch(
             &listing_source_id,
             &domain_id,
-            &urls,
-            &[UrlClass::ProductListing; 2],
+            &discovered(&urls, &[UrlClass::ProductListing; 2]),
         )
         .await
         .unwrap();
@@ -2823,7 +2833,11 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
     ]
     .map(|url| url::Url::parse(url).unwrap());
     url_repository
-        .upsert_links_batch(&listing_source_id, &domain_id, &urls, &[UrlClass::Other; 2])
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &discovered(&urls, &[UrlClass::Other; 2]),
+        )
         .await
         .unwrap();
     reject_manual_review_over(
@@ -2891,7 +2905,11 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
     .map(|url| url::Url::parse(url).unwrap());
     // Stored by the waiting crawl without a pattern, so nothing is a product yet.
     url_repository
-        .upsert_links_batch(&listing_source_id, &domain_id, &urls, &[UrlClass::Other; 4])
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &discovered(&urls, &[UrlClass::Other; 4]),
+        )
         .await
         .unwrap();
     url_repository
@@ -2985,7 +3003,11 @@ async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agen
     ]
     .map(|url| url::Url::parse(url).unwrap());
     url_repository
-        .upsert_links_batch(&listing_source_id, &domain_id, &urls, &[UrlClass::Other; 3])
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &discovered(&urls, &[UrlClass::Other; 3]),
+        )
         .await
         .unwrap();
     let review_id = undecided_url_pattern_review(
