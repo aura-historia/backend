@@ -1224,6 +1224,34 @@ mod tests {
             assert!(!schema_matrix_deterministic_approval_ok(&matrix));
         }
 
+        /// A blank attribute is skipped for a later non-blank one, which the matrix
+        /// extracts; the match count still includes the blank element.
+        #[test]
+        fn should_extract_a_price_attribute_that_follows_a_blank_one() {
+            let price = ExtractionRule {
+                selector: CssSelector::from("meta[itemprop='price']"),
+                additional_selectors: Vec::new(),
+                extract: ExtractionKind::Attribute {
+                    name: "content".into(),
+                },
+                cardinality: ExtractionCardinality::First,
+            };
+
+            let matrix = matrix_for_price(
+                price,
+                "<meta itemprop=\"price\" content=\" \"><meta itemprop=\"price\" content=\"450\">",
+            );
+
+            assert_eq!(price_field(&matrix).selector_match_count, Some(2));
+            assert_eq!(extracted_price(&matrix), Some("450"));
+            assert!(
+                matrix.candidates[0].pages[0]
+                    .plausibility_findings
+                    .is_empty()
+            );
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+        }
+
         /// Every text rule counts the same way, not only the prices.
         #[test]
         fn should_count_other_text_rules_as_missing_when_their_only_matches_are_blank() {

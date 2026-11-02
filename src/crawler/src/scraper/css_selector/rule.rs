@@ -75,7 +75,7 @@ pub struct ExtractionRule {
     pub selector: CssSelector,
 
     #[schemars(
-        description = "Additional CSS-Selectors, evaluated after the primary selector in order. With cardinality `first` they are fallbacks: the first selector that yields a value wins and the later ones are not evaluated. With cardinality `all` they aggregate: the matches of every selector are collected in selector order, each element at most once; an element nested inside, or containing, an element the rule already extracted is skipped, so a container and its paragraphs are never captured together."
+        description = "Additional CSS-Selectors, evaluated after the primary selector in order. With cardinality `first` they are fallbacks: the first selector that yields a non-blank value wins and the later ones are not evaluated. With cardinality `all` they aggregate: the matches of every selector are collected in selector order, each element at most once; an element nested inside, or containing, an element the rule already extracted is skipped, so a container and its paragraphs are never captured together."
     )]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_selectors: Vec<CssSelector>,
@@ -85,7 +85,7 @@ pub struct ExtractionRule {
     pub extract: ExtractionKind,
 
     #[schemars(
-        description = "How many values to extract: `first` (default) takes the first value of the first selector that yields one, `all` takes every matched element of every selector."
+        description = "How many values to extract: `first` (default) takes the first non-blank value of the first selector that yields one, `all` takes every matched element of every selector."
     )]
     #[serde(default)]
     pub cardinality: ExtractionCardinality,
@@ -193,9 +193,9 @@ impl ExtractionRule {
     /// the cardinality decides what the additional selectors mean:
     ///
     /// - **`First` cardinality**: the additional selectors are fallbacks. The first
-    ///   selector that yields a value wins and the later ones are not evaluated. For
-    ///   text extraction, empty/whitespace-only matches are skipped until a non-empty
-    ///   value is found.
+    ///   selector that yields a non-blank value wins and the later ones are not
+    ///   evaluated. Blank matches (empty after trimming) are skipped until a non-blank
+    ///   value is found, for text and attribute rules alike.
     /// - **`All` cardinality**: the additional selectors aggregate. Every matched element
     ///   of every selector is taken, in selector order, each element at most once: an
     ///   element nested inside, or containing, an element the rule already extracted is
@@ -207,9 +207,11 @@ impl ExtractionRule {
     /// a space and every other whitespace run collapses to one space. Attribute values
     /// have their whitespace collapsed too.
     ///
-    /// When no selector yields a value, a text rule with cardinality `first`, or a rule
-    /// with cardinality `all`, that matched only empty elements returns
-    /// `Err(EmptyValue)`; a rule that matched no element returns `Err(NoElementMatched)`.
+    /// When no selector yields a non-blank value, a text rule with cardinality `first`,
+    /// or a rule with cardinality `all`, that matched only empty elements returns
+    /// `Err(EmptyValue)`, while an attribute rule with cardinality `first` returns the
+    /// first blank value it matched, so the blank plausibility check reports it; a rule
+    /// that matched no element returns `Err(NoElementMatched)`.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
         self.extract(html, TextLayout::Rendered, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
@@ -254,34 +256,46 @@ impl ExtractionRule {
         }
     }
 
-    /// Cardinality `first`: the first value of the first selector that yields one. The
-    /// later selectors are fallbacks for pages where the earlier ones miss.
+    /// Cardinality `first`: the first non-blank value of the first selector that yields
+    /// one, in document order. The later selectors are fallbacks for pages where the
+    /// earlier ones miss or match only blank elements. A matched element without a value
+    /// (no attribute of an attribute rule, no image URL candidate) ends the search: it
+    /// fails the rule when the rule reaches it before any value. When the rule finds only
+    /// blank values, a text rule fails with `EmptyValue` and an attribute rule yields its
+    /// first blank value.
     fn extract_first(
         &self,
         html: &Html,
         layout: TextLayout,
     ) -> Result<RuleExtraction, ExtractionError> {
-        let mut first_selector_with_empty_elements = None;
-        for css_selector in self.selectors() {
+        let mut first_blank = None;
+        'selectors: for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
-            match self.first_value(html.select(&parsed), css_selector, layout)? {
-                SelectorValue::Value(value) => {
-                    return Ok(RuleExtraction {
-                        values: vec![value],
-                        skipped_elements: 0,
-                    });
+            for element in html.select(&parsed) {
+                let value =
+                    match extract_from_element(&element, &self.extract, css_selector, layout) {
+                        Ok(value) => value,
+                        // After a blank value, the rule yields its first blank, as if every
+                        // element it matched were blank.
+                        Err(ExtractionError::MissingAttribute { .. }) if first_blank.is_some() => {
+                            break 'selectors;
+                        }
+                        Err(error) => return Err(error),
+                    };
+                if !is_blank(&value) {
+                    return Ok(single_value(value));
                 }
-                SelectorValue::OnlyEmptyElements => {
-                    first_selector_with_empty_elements.get_or_insert(css_selector);
-                }
-                SelectorValue::NoElement => {}
+                first_blank.get_or_insert((css_selector, value));
             }
         }
 
-        Err(match first_selector_with_empty_elements {
-            Some(selector) => empty_value(selector),
-            None => self.no_element_matched(),
-        })
+        match (first_blank, &self.extract) {
+            (None, _) => Err(self.no_element_matched()),
+            (Some((selector, _)), ExtractionKind::Text) => Err(empty_value(selector)),
+            (Some((_, value)), ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => {
+                Ok(single_value(value))
+            }
+        }
     }
 
     /// Cardinality `all`: every element of every selector, in selector order, each
@@ -361,7 +375,10 @@ impl ExtractionRule {
     /// selector) matches the rule can take a value from, as the schema review matrix
     /// counts matches. A text rule counts only elements with visible text: `first`
     /// cardinality skips a blank element, so a rule that matches only blank elements
-    /// misses. Attribute and image URL rules count every element.
+    /// misses. Attribute and image URL rules count every element, blank or without a
+    /// value: an attribute rule whose matches are all blank yields a blank value that the
+    /// blank plausibility check reports rather than a miss, and the `images` rule's count
+    /// includes the elements it skips.
     pub(crate) fn match_count(&self, html: &Html, selector: &Selector) -> usize {
         let elements = html.select(selector);
         match self.extract {
@@ -382,34 +399,13 @@ impl ExtractionRule {
             ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => 0,
         }
     }
-
-    /// The value of the first element `css_selector` matched; a text rule takes the first
-    /// non-empty text instead.
-    fn first_value(
-        &self,
-        mut elements: scraper::html::Select<'_, '_>,
-        css_selector: &CssSelector,
-        layout: TextLayout,
-    ) -> Result<SelectorValue, ExtractionError> {
-        match &self.extract {
-            ExtractionKind::Text => first_non_empty_text(elements, css_selector, layout),
-            kind @ (ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => {
-                match elements.next() {
-                    Some(element) => extract_from_element(&element, kind, css_selector, layout)
-                        .map(SelectorValue::Value),
-                    None => Ok(SelectorValue::NoElement),
-                }
-            }
-        }
-    }
 }
 
-/// What one selector of a rule with cardinality `first` found on the page.
-enum SelectorValue {
-    Value(String),
-    /// A text rule matched elements, but none has visible text.
-    OnlyEmptyElements,
-    NoElement,
+fn single_value(value: String) -> RuleExtraction {
+    RuleExtraction {
+        values: vec![value],
+        skipped_elements: 0,
+    }
 }
 
 /// The elements a rule with cardinality `all` has extracted so far, by node id. The id
@@ -438,31 +434,20 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
     })
 }
 
-fn first_non_empty_text(
-    elements: scraper::html::Select<'_, '_>,
-    selector_str: &str,
-    layout: TextLayout,
-) -> Result<SelectorValue, ExtractionError> {
-    let mut found = SelectorValue::NoElement;
-    for element in elements {
-        let value = extract_from_element(&element, &ExtractionKind::Text, selector_str, layout)?;
-        if !value.is_empty() {
-            return Ok(SelectorValue::Value(value));
-        }
-        found = SelectorValue::OnlyEmptyElements;
-    }
-
-    Ok(found)
-}
-
 /// `value`, unless it is empty after trimming: cardinality `all` drops such an item, as
-/// cardinality `first` skips an empty text, so a list never holds a blank value.
+/// cardinality `first` skips a blank value, so a list never holds a blank value.
 fn non_empty(value: String, css_selector: &CssSelector) -> Result<String, ExtractionError> {
-    if value.trim().is_empty() {
+    if is_blank(&value) {
         Err(empty_value(css_selector))
     } else {
         Ok(value)
     }
+}
+
+/// Whether an extracted value is blank: empty after trimming, non-breaking spaces
+/// included. Text and attribute rules share this test.
+fn is_blank(value: &str) -> bool {
+    value.trim().is_empty()
 }
 
 fn empty_value(css_selector: &CssSelector) -> ExtractionError {
@@ -787,6 +772,145 @@ mod tests {
         let doc = html(r#"<div data-price="42.50">ProductListing</div>"#);
         let r = rule("div", attr_kind("data-price"), ExtractionCardinality::First);
         assert_eq!(r.apply(&doc).unwrap(), vec!["42.50"]);
+    }
+
+    /// A `first` attribute rule skips blank values like a text rule does, and yields its
+    /// first blank only when it finds no non-blank value.
+    mod blank_first_attribute_values {
+        use super::*;
+
+        #[rstest]
+        #[case::empty("")]
+        #[case::spaces("   ")]
+        #[case::html_whitespace("\n\t ")]
+        #[case::non_breaking_space("\u{a0}")]
+        fn should_fall_back_past_a_blank_first_attribute_to_the_next_element(#[case] blank: &str) {
+            let doc = html(&format!(
+                "<meta itemprop=\"price\" content=\"{blank}\"><meta itemprop=\"price\" content=\"450\">"
+            ));
+            let r = rule(
+                "meta[itemprop='price']",
+                attr_kind("content"),
+                ExtractionCardinality::First,
+            );
+
+            assert_eq!(r.apply(&doc).unwrap(), vec!["450"]);
+        }
+
+        #[test]
+        fn should_yield_a_blank_value_when_every_matched_attribute_is_blank() {
+            let doc = html("<meta content=\"  \"><meta content=\"\"><meta content=\"\u{a0}\">");
+            let r = rule("meta", attr_kind("content"), ExtractionCardinality::First);
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["  "]);
+        }
+
+        #[test]
+        fn should_fall_back_to_an_additional_selector_when_the_primary_matches_only_blanks() {
+            let doc = html("<meta class=\"a\" content=\" \"><meta class=\"b\" content=\"Oak\">");
+            let r = rule_with_additional(
+                "meta.a",
+                vec!["meta.b"],
+                attr_kind("content"),
+                ExtractionCardinality::First,
+            );
+
+            assert_eq!(r.apply(&doc).unwrap(), vec!["Oak"]);
+        }
+
+        #[test]
+        fn should_yield_the_first_blank_when_every_selector_matches_only_blanks() {
+            let doc = html("<meta class=\"a\" content=\"  \"><meta class=\"b\" content=\"\">");
+            let r = rule_with_additional(
+                "meta.missing",
+                vec!["meta.a", "meta.b"],
+                attr_kind("content"),
+                ExtractionCardinality::First,
+            );
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["  "]);
+        }
+
+        /// The identity keeps its value as written, so the blank test, not the layout,
+        /// decides that a non-breaking space is blank.
+        #[rstest]
+        #[case::space(" ")]
+        #[case::non_breaking_space("\u{a0}")]
+        fn should_fall_back_past_a_blank_identity_attribute_and_keep_the_value_as_written(
+            #[case] blank: &str,
+        ) {
+            let doc = html(&format!(
+                "<span data-sku=\"{blank}\"></span><span data-sku=\"AB  12\"></span>"
+            ));
+            let r = rule("span", attr_kind("data-sku"), ExtractionCardinality::First);
+
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["AB  12"]);
+        }
+
+        #[test]
+        fn should_yield_the_blank_when_an_element_without_the_attribute_follows_it() {
+            let doc = html("<a href=\" \"></a><a>No href</a><a href=\"/oak\"></a>");
+            let r = rule("a", attr_kind("href"), ExtractionCardinality::First);
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec![" "]);
+        }
+
+        #[test]
+        fn should_yield_the_blank_when_a_fallback_selector_lacks_the_attribute() {
+            let doc = html(
+                "<a class=\"a\" href=\"\"></a><a class=\"b\">No href</a><a class=\"c\" href=\"/oak\"></a>",
+            );
+            let r = rule_with_additional(
+                "a.a",
+                vec!["a.b", "a.c"],
+                attr_kind("href"),
+                ExtractionCardinality::First,
+            );
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+        }
+
+        /// The element without the attribute ends the search across selectors, not only
+        /// within its own, so the fallback selector is not evaluated.
+        #[test]
+        fn should_not_fall_back_past_an_element_without_the_attribute_after_a_blank() {
+            let doc = html(
+                "<a class=\"a\" href=\" \"></a><a class=\"a\">No href</a><a class=\"b\" href=\"/oak\"></a>",
+            );
+            let r = rule_with_additional(
+                "a.a",
+                vec!["a.b"],
+                attr_kind("href"),
+                ExtractionCardinality::First,
+            );
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec![" "]);
+        }
+
+        #[test]
+        fn should_fail_on_an_element_without_the_attribute_before_any_value() {
+            let doc = html("<a>No href</a><a href=\" \"></a><a href=\"/oak\"></a>");
+            let r = rule("a", attr_kind("href"), ExtractionCardinality::First);
+
+            assert!(matches!(
+                r.apply(&doc),
+                Err(ExtractionError::MissingAttribute { attribute, .. }) if attribute == "href"
+            ));
+        }
+
+        #[test]
+        fn should_count_blank_attribute_matches() {
+            let doc = html("<meta content=\"\"><meta content=\" \"><meta content=\"Oak\">");
+            let r = rule("meta", attr_kind("content"), ExtractionCardinality::First);
+            let selector = Selector::parse("meta").unwrap();
+
+            assert_eq!(r.match_count(&doc, &selector), 3);
+            assert_eq!(r.empty_element_count(&doc, &selector), 0);
+        }
     }
 
     // ─── Attribute / All ───────────────────────────────────────────────
