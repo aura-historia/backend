@@ -514,7 +514,7 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
 function renderDetail(detail, matrix) {
     const review = detail.review;
     const urls = detail.urls || [];
-    document.getElementById('detail').innerHTML = `
+    const frameKept = writeDetail(`
     <div class="review-page">
       <div id="reviewRefreshBanner" class="refresh-banner" hidden></div>
       <div class="review-topbar">
@@ -543,10 +543,71 @@ function renderDetail(detail, matrix) {
       ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
-    </div>`;
-    if (matrix) postHighlightSoon();
+    </div>`);
+    if (matrix) highlightPreview(frameKept);
     updateRefreshBanner();
     updateReloadState();
+}
+
+// Loading the preview fetches the shop page live, sends the shop another request and loses the
+// preview's scroll and picked element, so a render keeps the frame while it shows the same
+// page and replaces only the markup around it. Detaching the frame would reload it too, so it
+// stays in the document while its ancestors take the new attributes and siblings. Answers
+// whether the frame was kept.
+function writeDetail(html) {
+    const container = document.getElementById('detail');
+    const fresh = document.createElement('div');
+    fresh.innerHTML = html;
+    const frame = document.getElementById('snapshotFrame');
+    const slot = fresh.querySelector('#snapshotFrame');
+    const kept = Boolean(frame && slot && frame.getAttribute('src') === slot.getAttribute('src')
+        && graftAroundFrame(container, frame, fresh, slot));
+    if (!kept) container.replaceChildren(...fresh.childNodes);
+    return kept;
+}
+
+// Moves the fresh markup around the live frame, level by level up to the container, when the
+// frame sits in the same element structure in both; otherwise it changes nothing.
+function graftAroundFrame(container, frame, fresh, slot) {
+    const liveAncestors = ancestorsWithin(frame, container);
+    const freshAncestors = ancestorsWithin(slot, fresh);
+    if (!liveAncestors || !freshAncestors || liveAncestors.length !== freshAncestors.length
+        || liveAncestors.some((element, i) => element.tagName !== freshAncestors[i].tagName)) return false;
+    let kept = frame;
+    let replaced = slot;
+    liveAncestors.forEach((live, i) => {
+        const next = freshAncestors[i];
+        if (live !== container) copyAttributes(next, live);
+        for (const child of Array.from(live.childNodes)) {
+            if (child !== kept) child.remove();
+        }
+        const children = Array.from(next.childNodes);
+        const at = children.indexOf(replaced);
+        kept.before(...children.slice(0, at));
+        kept.after(...children.slice(at + 1));
+        kept = live;
+        replaced = next;
+    });
+    return true;
+}
+
+// The element's ancestors from its parent up to and including `root`, or null outside it.
+function ancestorsWithin(element, root) {
+    const ancestors = [];
+    for (let node = element.parentElement; node; node = node.parentElement) {
+        ancestors.push(node);
+        if (node === root) return ancestors;
+    }
+    return null;
+}
+
+function copyAttributes(from, to) {
+    for (const {name} of Array.from(to.attributes)) {
+        if (!from.hasAttribute(name)) to.removeAttribute(name);
+    }
+    for (const {name, value} of Array.from(from.attributes)) {
+        if (to.getAttribute(name) !== value) to.setAttribute(name, value);
+    }
 }
 
 // The stored candidate fails the validation approval applies: the review still shows it so the
@@ -2425,10 +2486,18 @@ function schemaHighlightRules(schema) {
     return rules;
 }
 
-function postHighlightSoon() {
-    setTimeout(() => {
+// A kept frame takes the highlight at once; a new frame once its page has loaded.
+function highlightPreview(frameKept) {
+    const frame = document.getElementById('snapshotFrame');
+    if (!frame) return;
+    const highlightSelectedField = () => {
         if (activeWorkbenchPanel === 'selector') postHighlight(currentSelector());
-    }, 350);
+    };
+    if (frameKept) {
+        highlightSelectedField();
+    } else {
+        frame.addEventListener('load', highlightSelectedField, {once: true});
+    }
 }
 
 // The review an action panel acts on, as the reviewer finds it in the queue.
