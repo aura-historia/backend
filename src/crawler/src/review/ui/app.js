@@ -950,7 +950,7 @@ function renderNonSchemaReview(review, urls) {
         ${renderSampleLabels(review)}
         <details class="raw-payload" ${open ? 'open' : ''} ontoggle="rawPayloadToggled(this.open)">
           <summary>Raw payload</summary>
-          <h3>Candidate Payload</h3>
+          <h3>Candidate payload</h3>
           <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
           <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
           <h3>Validation</h3>
@@ -1373,7 +1373,7 @@ function renderSampleLabels(review) {
         <button onclick="addSampleLabel()">Add label</button>
       </div>
       <div class="actions"><button class="primary" onclick="saveSampleLabels()">Save labels</button></div>` : '';
-    return `<h3>Sample Labels</h3>
+    return `<h3>Sample labels</h3>
       <div class="hint-card">${escapeHtml(sampleLabelCountsText(counts))} (${status}). The reviewer agent's approval needs enough labels of each and a decision that takes every PRODUCT URL and no NOT_PRODUCT URL; schema.org Product markup decides nothing.</div>
       ${labels.length ? `<div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Label</th><th>Reason</th><th>Decision takes it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
       ${adder}`;
@@ -2006,7 +2006,7 @@ function apiErrorMessage(error) {
 function renderJsonPanel(detail) {
     return `<div class="tab-panel">
       <div class="panel-title">
-        <strong>Full Candidate JSON</strong>
+        <strong>Full candidate JSON</strong>
         <span class="muted">Use field controls for normal edits; this is the raw payload.</span>
       </div>
       <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(detail.review.candidate_payload, null, 2))}</textarea>
