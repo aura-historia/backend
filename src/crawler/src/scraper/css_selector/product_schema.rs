@@ -227,7 +227,7 @@ impl ProductCssSelectorSchema {
     /// elements, yields an empty value (`None` for the prices) and a per-field log
     /// diagnostic (debug, trace for raw attributes) instead of a page error: one page
     /// without a description must not invalidate the schema. A `first` attribute rule
-    /// whose matched elements are all blank is no such miss: it yields the blank value,
+    /// that finds only blank values is no such miss: it yields its first blank value,
     /// so a blank identity or price reaches the blank plausibility check. Only
     /// `title` and `state` fail closed on a miss; on empty elements they yield an empty
     /// value that the blank plausibility check rejects. `images` skips gallery elements
