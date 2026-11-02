@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 use url_normalize::Options;
 
 mod blacklist;
+pub mod canonical;
 mod query;
 
 /// A crawled page URL in the spelling the crawler stores: the URL as fetched, with only the

@@ -1276,14 +1276,7 @@ fn live_fetch_error(page: &CrawlerReviewPage, error: &FetchError) -> HttpRespons
         error = ?error,
         "Failed to fetch live review HTML"
     );
-    HttpResponse::json(
-        502,
-        &json!({
-            "error": "failed to fetch live review HTML",
-            "url": page.url,
-            "details": error.to_string(),
-        }),
-    )
+    live_fetch_failure(&page.url, "failed to fetch live review HTML", error)
 }
 
 fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
@@ -1292,14 +1285,28 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
         error = ?error,
         "Failed to fetch live preview HTML"
     );
-    HttpResponse::json(
-        502,
-        &json!({
-            "error": "failed to fetch live preview HTML",
+    live_fetch_failure(url, "failed to fetch live preview HTML", error)
+}
+
+/// The `502` a failed live fetch of `url` answers. A bot challenge the shop answered instead of
+/// the page says so and carries `reason` `BOT_CHALLENGE`, so a reviewer does not read it as the
+/// page failing a schema.
+fn live_fetch_failure(url: &str, failed: &str, error: &FetchError) -> HttpResponse {
+    let body = if error.kind() == NetworkErrorKind::BotChallenge {
+        json!({
+            "error": format!("the shop answered {url} with a bot challenge instead of the page; retry later"),
+            "reason": "BOT_CHALLENGE",
             "url": url,
             "details": error.to_string(),
-        }),
-    )
+        })
+    } else {
+        json!({
+            "error": failed,
+            "url": url,
+            "details": error.to_string(),
+        })
+    };
+    HttpResponse::json(502, &body)
 }
 
 #[cfg(test)]
@@ -1315,6 +1322,49 @@ mod tests {
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };
     use std::net::SocketAddr;
+
+    mod live_fetch_failure {
+        use super::*;
+
+        fn body_of(response: HttpResponse) -> (String, serde_json::Value) {
+            let response = response.to_string();
+            let (head, body) = response.split_once("\r\n\r\n").unwrap();
+            (
+                head.lines().next().unwrap().to_owned(),
+                serde_json::from_str(body).unwrap(),
+            )
+        }
+
+        #[test]
+        fn should_name_a_bot_challenge_the_shop_answered_instead_of_the_page() {
+            let error = FetchError::NetworkWithMetadata {
+                kind: NetworkErrorKind::BotChallenge,
+                status: Some(403),
+                retry_after: None,
+                details: "bot challenge instead of the page".to_owned(),
+            };
+
+            let (status, body) = body_of(live_url_fetch_error("https://shop.example/p/1", &error));
+
+            assert!(status.starts_with("HTTP/1.1 502"), "{status}");
+            assert_eq!(body["reason"], "BOT_CHALLENGE");
+            assert_eq!(body["url"], "https://shop.example/p/1");
+            assert!(body["error"].as_str().unwrap().contains("bot challenge"));
+        }
+
+        #[test]
+        fn should_keep_the_answer_of_any_other_fetch_failure() {
+            let error = FetchError::Network {
+                kind: NetworkErrorKind::Connect,
+                details: "connection refused".to_owned(),
+            };
+
+            let (_, body) = body_of(live_url_fetch_error("https://shop.example/p/1", &error));
+
+            assert_eq!(body["error"], "failed to fetch live preview HTML");
+            assert!(body.get("reason").is_none());
+        }
+    }
 
     /// The review agents' decision policy of `agent` authoring mode with `limits`, as the crawler
     /// builds it for a console open to the agents.

@@ -1028,7 +1028,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .await?;
         if destination_exists {
             return Err(sqlx::Error::Protocol(
-                "redirect destination already known; reconciliation deferred to #1899".to_owned(),
+                "redirect destination already known".to_owned(),
             ));
         }
 

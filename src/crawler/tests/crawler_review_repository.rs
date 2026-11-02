@@ -34,7 +34,7 @@ use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
 use crawler::spider::classification::url_metadata_repository::{
-    UrlMetadataRepository, UrlMetadataRepositoryImpl,
+    DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
@@ -46,6 +46,18 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
+
+fn discovered(urls: &[url::Url], classes: &[UrlClass]) -> Vec<DiscoveredUrl> {
+    assert_eq!(urls.len(), classes.len());
+    urls.iter()
+        .zip(classes)
+        .map(|(url, class)| DiscoveredUrl {
+            url: url.clone(),
+            url_class: *class,
+            canonical: None,
+        })
+        .collect()
+}
 
 fn rule(selector: &str) -> ExtractionRule {
     ExtractionRule {
@@ -2980,8 +2992,7 @@ async fn should_store_a_rejected_page_as_other_when_a_crawl_finds_it_again() {
         .upsert_links_batch(
             &listing_source_id,
             &domain_id,
-            &urls,
-            &[UrlClass::ProductListing; 2],
+            &discovered(&urls, &[UrlClass::ProductListing; 2]),
         )
         .await
         .unwrap();
@@ -2991,6 +3002,62 @@ async fn should_store_a_rejected_page_as_other_when_a_crawl_finds_it_again() {
         vec![
             (urls[0].to_string(), "other".to_owned()),
             (urls[1].to_string(), "product".to_owned()),
+        ]
+    );
+}
+
+/// A rejection keeps its page `other` however the page is spelled or canonicalized: a crawl does
+/// not move a rejected page onto its canonical URL, nor a page onto a rejected canonical URL.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_store_a_page_as_fetched_when_a_rejection_covers_it_or_its_canonical_url() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "rejected-canonical.example.com").await;
+    let page = |path: &str| {
+        url::Url::parse(&format!("https://rejected-canonical.example.com{path}")).unwrap()
+    };
+    reject_manual_review_over(
+        &repository,
+        listing_source_id,
+        page("/collections/a/products/1").as_str(),
+    )
+    .await;
+    reject_manual_review_over(&repository, listing_source_id, page("/products/2").as_str()).await;
+
+    url_repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[
+                DiscoveredUrl {
+                    url: page("/collections/a/products/1"),
+                    url_class: UrlClass::ProductListing,
+                    canonical: Some(page("/products/1")),
+                },
+                DiscoveredUrl {
+                    url: page("/collections/a/products/2"),
+                    url_class: UrlClass::ProductListing,
+                    canonical: Some(page("/products/2")),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        stored_url_classes(&pool, domain_id).await,
+        vec![
+            (
+                page("/collections/a/products/1").to_string(),
+                "other".to_owned()
+            ),
+            (
+                page("/collections/a/products/2").to_string(),
+                "product".to_owned()
+            ),
         ]
     );
 }
@@ -3011,7 +3078,11 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
     ]
     .map(|url| url::Url::parse(url).unwrap());
     url_repository
-        .upsert_links_batch(&listing_source_id, &domain_id, &urls, &[UrlClass::Other; 2])
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &discovered(&urls, &[UrlClass::Other; 2]),
+        )
         .await
         .unwrap();
     reject_manual_review_over(
@@ -3079,7 +3150,11 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
     .map(|url| url::Url::parse(url).unwrap());
     // Stored by the waiting crawl without a pattern, so nothing is a product yet.
     url_repository
-        .upsert_links_batch(&listing_source_id, &domain_id, &urls, &[UrlClass::Other; 4])
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &discovered(&urls, &[UrlClass::Other; 4]),
+        )
         .await
         .unwrap();
     url_repository
@@ -3173,7 +3248,11 @@ async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agen
     ]
     .map(|url| url::Url::parse(url).unwrap());
     url_repository
-        .upsert_links_batch(&listing_source_id, &domain_id, &urls, &[UrlClass::Other; 3])
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &discovered(&urls, &[UrlClass::Other; 3]),
+        )
         .await
         .unwrap();
     let review_id = undecided_url_pattern_review(

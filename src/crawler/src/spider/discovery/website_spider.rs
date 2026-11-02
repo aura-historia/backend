@@ -18,14 +18,17 @@ use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use url::Url;
 
 use crate::network::CRAWLER_USER_AGENT;
+use crate::network::bot_challenge::{BotChallenge, ChallengeVendor, detect_bot_challenge};
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
+use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::robots::admit_crawl;
 use crate::spider::utils::url::CrawledUrl;
+use crate::spider::utils::url::canonical::PageIdentityEvidence;
 
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
 const MAX_ROOT_REDIRECTS: usize = 5;
@@ -44,10 +47,27 @@ fn spider_request_headers() -> HeaderMap {
     headers
 }
 
-/// Single crawled page represented by its normalized URL.
+/// Single crawled page represented by its normalized URL and the identity it declares.
 #[derive(Debug, Clone)]
 pub struct CrawledPage {
     pub url: CrawledUrl,
+    /// What the page's head says about its canonical URL and shop system; empty for a page
+    /// whose body the crawl did not read.
+    pub identity: PageIdentityEvidence,
+}
+
+impl CrawledPage {
+    pub fn new(url: CrawledUrl) -> Self {
+        Self {
+            url,
+            identity: PageIdentityEvidence::default(),
+        }
+    }
+
+    pub fn with_identity(mut self, identity: PageIdentityEvidence) -> Self {
+        self.identity = identity;
+        self
+    }
 }
 
 /// How long a domain should cool down after repeated failures of one kind.
@@ -268,6 +288,8 @@ pub struct CrawlDiagnostics {
     pub lagged: u64,
     /// Delivered pages by the status class of their final answer.
     pub status_counts: StatusCounts,
+    /// Delivered pages that were a bot challenge instead of the page asked for.
+    pub bot_challenge_pages: usize,
     /// The rate-limit answer that stopped the crawl, with the shop's
     /// `Retry-After`; the pages delivered before it were kept.
     pub rate_limit: Option<RateLimitSignal>,
@@ -899,6 +921,8 @@ struct LocalFilter {
     /// An unrelated root redirect makes every delivered page off-host.
     root_redirect_rejected: bool,
     refused_links: RefusedLinks,
+    /// Spider's deny list, so a page's canonical link counts only when the crawl may fetch it.
+    deny_list: Arc<RegexSet>,
     seen: Bloom<String>,
 }
 
@@ -926,6 +950,16 @@ impl LocalFilter {
             self.seen.set(&normalized.to_string());
         }
         Ok(normalized)
+    }
+
+    /// The identity `page`, admitted as `url`, declares: links the crawl may fetch only.
+    fn identity_of(&self, url: &CrawledUrl, page: &Page) -> PageIdentityEvidence {
+        let Ok(final_url) = Url::parse(page.get_url_final()) else {
+            return PageIdentityEvidence::default();
+        };
+        page_identity_evidence(url, &final_url, page.get_html_bytes_u8(), |link| {
+            !link.is_blacklisted() && !self.deny_list.is_match(link.as_url().as_str())
+        })
     }
 }
 
@@ -962,7 +996,7 @@ fn crawl_delay_millis(configured_millis: u64, crawl_delay: Option<Duration>) -> 
 struct FoundLinkDecoder {
     host_whitelist: Regex,
     /// Spider's URL deny list: [`CrawledUrl::spider_deny_patterns`] and the robots.txt rules.
-    deny_list: RegexSet,
+    deny_list: Arc<RegexSet>,
     refused: RefusedLinks,
 }
 
@@ -1068,7 +1102,7 @@ impl SpiderImpl {
         );
         // Spider silently drops a deny list that fails to compile, which
         // would drop robots.txt with it.
-        let deny_list = RegexSet::new(&blacklist_regex).map_err(|_| {
+        let deny_list = RegexSet::new(&blacklist_regex).map(Arc::new).map_err(|_| {
             SpiderDiscoveryError::preflight(
                 CrawlFailureKind::RobotsBlocked,
                 "robots.txt rules do not compile into Spider's deny list",
@@ -1107,7 +1141,7 @@ impl SpiderImpl {
 
         let link_decoder = FoundLinkDecoder {
             host_whitelist: host_whitelist_regex,
-            deny_list,
+            deny_list: Arc::clone(&deny_list),
             refused: decoder_refused_links,
         };
         let bounds = CrawlBounds {
@@ -1126,6 +1160,7 @@ impl SpiderImpl {
             configured_root: root_url,
             root_redirect_rejected: false,
             refused_links,
+            deny_list,
             seen: Bloom::new_for_fp_rate(self.config.bloom_capacity, self.config.bloom_fp_rate)
                 .expect("bloom filter init failed"),
         };
@@ -1237,6 +1272,10 @@ async fn relay_library_pages(
         diagnostics.pages_received += 1;
         let status_code = page.status_code.as_u16();
         diagnostics.status_counts.count(status_code);
+        let challenge = page_bot_challenge(status_code, &page);
+        if challenge.is_some() {
+            diagnostics.bot_challenge_pages += 1;
+        }
 
         if !first_page_seen {
             apply_library_page(
@@ -1245,7 +1284,10 @@ async fn relay_library_pages(
                 page.get_url(),
                 status_code,
                 page.final_redirect_destination.as_deref(),
-                page.anti_bot_tech,
+                RootRefusal {
+                    anti_bot_tech: page.anti_bot_tech,
+                    challenge,
+                },
             );
             filter.root_redirect_rejected = matches!(
                 diagnostics.failure_kind,
@@ -1264,7 +1306,8 @@ async fn relay_library_pages(
         match filter.admit(page.get_url()) {
             Ok(url) => {
                 diagnostics.accepted += 1;
-                pending.push_back(CrawledPage { url });
+                let identity = filter.identity_of(&url, &page);
+                pending.push_back(CrawledPage::new(url).with_identity(identity));
             }
             Err(rejection) => diagnostics.count_rejection(rejection),
         }
@@ -1285,24 +1328,41 @@ impl Spider for SpiderImpl {
     }
 }
 
+/// The bot challenge a delivered page is instead of the page it was asked for, if it provably
+/// is one.
+fn page_bot_challenge(status_code: u16, page: &Page) -> Option<BotChallenge> {
+    let no_headers = HeaderMap::new();
+    detect_bot_challenge(
+        status_code,
+        page.headers.as_ref().unwrap_or(&no_headers),
+        page.get_html_bytes_u8(),
+    )
+}
+
+/// What says the shop refused the root page: Spider's reading of the vendor
+/// in front of it, and a bot challenge it answered instead of the page.
+#[derive(Debug, Clone, Copy)]
+struct RootRefusal {
+    anti_bot_tech: AntiBotTech,
+    challenge: Option<BotChallenge>,
+}
+
 /// Records the root page Spider delivered: its status, where it ended up and
-/// any failure signal the library attached to it.
+/// any failure signal the library or the challenge detector attached to it.
 fn apply_library_page(
     diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
     page_url: &str,
     status_code: u16,
     final_redirect_destination: Option<&str>,
-    anti_bot_tech: AntiBotTech,
+    refusal: RootRefusal,
 ) {
     let final_url = final_redirect_destination.unwrap_or(page_url).to_string();
     diagnostics.http_status = Some(status_code);
     diagnostics.redirect_url =
         (final_redirect_destination != Some(page_url)).then(|| final_url.clone());
 
-    if let Some(signal) =
-        page_diagnostic_signal(crawl_root_url, &final_url, status_code, anti_bot_tech)
-    {
+    if let Some(signal) = page_diagnostic_signal(crawl_root_url, &final_url, status_code, refusal) {
         diagnostics.apply_signal(signal);
     }
     diagnostics.final_url = Some(final_url);
@@ -1312,9 +1372,10 @@ fn page_diagnostic_signal(
     crawl_root_url: &str,
     final_url: &str,
     status_code: u16,
-    anti_bot_tech: AntiBotTech,
+    refusal: RootRefusal,
 ) -> Option<DiagnosticSignal> {
-    anti_bot_signal(status_code, anti_bot_tech)
+    anti_bot_signal(status_code, refusal.anti_bot_tech)
+        .or_else(|| refusal.challenge.map(bot_challenge_signal))
         .or_else(|| status_code_signal(status_code))
         .or_else(|| redirect_signal(crawl_root_url, final_url))
 }
@@ -1335,6 +1396,23 @@ fn anti_bot_signal(status_code: u16, anti_bot_tech: AntiBotTech) -> Option<Diagn
             CrawlFailureKind::BotProtection,
             "library_bot_protection_antibot",
         )),
+    }
+}
+
+/// A root answered with a bot challenge, a success status included, is refused
+/// rather than a tiny crawl.
+fn bot_challenge_signal(challenge: BotChallenge) -> DiagnosticSignal {
+    match challenge.vendor {
+        ChallengeVendor::Cloudflare => DiagnosticSignal::new(
+            CrawlFailureKind::CloudflareChallenge,
+            "bot_challenge_root_page",
+        ),
+        ChallengeVendor::AwsWaf
+        | ChallengeVendor::DataDome
+        | ChallengeVendor::SiteGround
+        | ChallengeVendor::Unattributed => {
+            DiagnosticSignal::new(CrawlFailureKind::BotProtection, "bot_challenge_root_page")
+        }
     }
 }
 
@@ -1481,6 +1559,7 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 mod tests {
     use super::*;
     use crate::network::robots::RobotsRules;
+    use crate::spider::utils::url::canonical::ShopPlatform;
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1500,7 +1579,10 @@ mod tests {
             page_url,
             status_code,
             final_redirect_destination,
-            anti_bot_tech,
+            RootRefusal {
+                anti_bot_tech,
+                challenge: None,
+            },
         );
         diagnostics
     }
@@ -1590,6 +1672,8 @@ mod tests {
         SlowHtml(Duration, &'static str, String),
         /// An empty answer with extra header lines, each `Name: value\r\n`.
         WithHeaders(&'static str, &'static str),
+        /// `Html` with extra header lines, each `Name: value\r\n`.
+        HtmlWithHeaders(&'static str, &'static str, String),
         Redirect(&'static str),
         /// Close the connection without answering, like a crashed server.
         Drop,
@@ -1685,17 +1769,20 @@ mod tests {
                     log.push((host, target.clone(), user_agent, accept_encoding));
                     previous
                 };
-                let html_response = |status: &str, body: &str| {
+                let html_response = |status: &str, extra_headers: &str, body: &str| {
                     format!(
-                        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status}\r\n{extra_headers}Content-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     )
                 };
                 let response = match handler(&target, previous) {
-                    SiteResponse::Html(status, body) => html_response(status, &body),
+                    SiteResponse::Html(status, body) => html_response(status, "", &body),
+                    SiteResponse::HtmlWithHeaders(status, extra_headers, body) => {
+                        html_response(status, extra_headers, &body)
+                    }
                     SiteResponse::SlowHtml(delay, status, body) => {
                         tokio::time::sleep(delay).await;
-                        html_response(status, &body)
+                        html_response(status, "", &body)
                     }
                     SiteResponse::WithHeaders(status, extra_headers) => format!(
                         "HTTP/1.1 {status}\r\n{extra_headers}Content-Length: 0\r\nConnection: close\r\n\r\n"
@@ -1840,6 +1927,60 @@ mod tests {
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
     }
 
+    fn canonical_link_site(target: &str, _previous: usize) -> SiteResponse {
+        match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/collections/all/products/ladle">Ladle</a>
+                   <a href="/products/old">Moved</a>"#
+                    .to_string(),
+            ),
+            "/collections/all/products/ladle" => SiteResponse::Html(
+                "200 OK",
+                r#"<!doctype html><html><head>
+                   <script>Shopify.shop = "shop.myshopify.com";</script>
+                   <link rel="canonical" href="/products/ladle">
+                   </head><body></body></html>"#
+                    .to_string(),
+            ),
+            "/products/old" => SiteResponse::Redirect("/products/new"),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    /// Each delivered page carries what its own head declares. Spider does not follow a redirect,
+    /// so a redirected URL is delivered without the target's head and declares nothing.
+    #[tokio::test]
+    async fn should_deliver_each_page_with_the_identity_its_head_declares() {
+        let site = TestSite::spawn(Arc::new(canonical_link_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let SpiderCrawl { mut pages, .. } = spider
+            .crawl_with_body_limit("http://example.com/", CrawlPace::default(), Some("8388608"))
+            .await
+            .unwrap();
+        let mut identities = std::collections::HashMap::new();
+        while let Some(page) = pages.recv().await {
+            identities.insert(page.url.to_string(), page.identity);
+        }
+        site.finish().await;
+
+        let collection_page = &identities["http://example.com/collections/all/products/ladle"];
+        assert_eq!(
+            collection_page
+                .canonical_link
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("http://example.com/products/ladle")
+        );
+        assert_eq!(collection_page.platform, Some(ShopPlatform::Shopify));
+        assert_eq!(
+            identities.get("http://example.com/products/old"),
+            Some(&PageIdentityEvidence::default())
+        );
+    }
+
     fn entity_encoded_href_site(target: &str, _previous: usize) -> SiteResponse {
         match target {
             "/robots.txt" => {
@@ -1933,7 +2074,7 @@ mod tests {
         deny_list.extend(RobotsRules::parse(robots_txt).deny_list().patterns);
         FoundLinkDecoder {
             host_whitelist: Regex::new(&configured_host_whitelist(&root).unwrap()).unwrap(),
-            deny_list: RegexSet::new(deny_list).unwrap(),
+            deny_list: Arc::new(RegexSet::new(deny_list).unwrap()),
             refused: RefusedLinks::default(),
         }
     }
@@ -2113,6 +2254,89 @@ mod tests {
             90_000,
             "never faster than configured"
         );
+    }
+
+    mod bot_challenge_pages {
+        use super::*;
+
+        const CHALLENGE: &str =
+            "<html><head><title>Just a moment...</title></head><body></body></html>";
+
+        #[tokio::test]
+        async fn should_fail_a_crawl_whose_root_answers_a_challenge_with_200_as_that_challenge() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+                SiteResponse::Html("200 OK", CHALLENGE.to_string())
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::CloudflareChallenge),
+                "{diagnostics:?}"
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some("bot_challenge_root_page")
+            );
+            assert_eq!(diagnostics.bot_challenge_pages, 1);
+        }
+
+        /// A vendor's challenge header reaches the detector through the page Spider delivers, so a
+        /// `202` interstitial is recognised by it even when its markup names no vendor.
+        #[tokio::test]
+        async fn should_fail_a_crawl_whose_root_answers_a_202_interstitial_by_its_header() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+                SiteResponse::HtmlWithHeaders(
+                    "202 Accepted",
+                    "sg-captcha: challenge\r\n",
+                    "<html><head><title>shop.example</title></head><body><p>Please wait.</p></body></html>"
+                        .to_string(),
+                )
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::BotProtection),
+                "{diagnostics:?}"
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some("bot_challenge_root_page")
+            );
+            assert_eq!(diagnostics.http_status, Some(202));
+        }
+
+        #[tokio::test]
+        async fn should_count_a_challenged_listing_page_without_failing_an_ordinary_root() {
+            let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<html><head><title>Antiques</title></head><body><a href="/chairs">Chairs</a></body></html>"#
+                        .to_string(),
+                ),
+                _ => SiteResponse::Html("200 OK", CHALLENGE.to_string()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
+            assert_eq!(diagnostics.bot_challenge_pages, 1);
+        }
     }
 
     #[tokio::test]
@@ -2762,6 +2986,14 @@ mod tests {
             configured_root: Url::parse("https://example.com/").unwrap(),
             root_redirect_rejected: false,
             refused_links: RefusedLinks::default(),
+            deny_list: Arc::new(
+                RegexSet::new(
+                    CrawledUrl::spider_deny_patterns()
+                        .iter()
+                        .map(|p| p.as_str()),
+                )
+                .unwrap(),
+            ),
             seen: Bloom::new_for_fp_rate(1_000, 0.0001).unwrap(),
         }
     }
@@ -3346,18 +3578,18 @@ mod tests {
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_product_path() {
-        let page = CrawledPage {
-            url: CrawledUrl::new(url::Url::parse("https://example.com/product/1").unwrap()),
-        };
+        let page = CrawledPage::new(CrawledUrl::new(
+            url::Url::parse("https://example.com/product/1").unwrap(),
+        ));
 
         assert_eq!(page.url.to_string(), "https://example.com/product/1");
     }
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_non_product_path() {
-        let page = CrawledPage {
-            url: CrawledUrl::new(url::Url::parse("https://example.com/about").unwrap()),
-        };
+        let page = CrawledPage::new(CrawledUrl::new(
+            url::Url::parse("https://example.com/about").unwrap(),
+        ));
 
         assert_eq!(page.url.to_string(), "https://example.com/about");
     }
