@@ -574,15 +574,19 @@ function renderDetail(detail, matrix) {
 // Loading the preview fetches the shop page live, sends the shop another request and loses the
 // preview's scroll and picked element, so a render keeps the frame while it shows the same
 // page and replaces only the markup around it. Detaching the frame would reload it too, so it
-// stays in the document while its ancestors take the new attributes and siblings. Answers
-// whether the frame was kept.
+// stays in the document while its ancestors take the new attributes and siblings, unless the
+// reviewer asked to load the preview again. Answers whether the frame was kept.
+let previewReloadRequested = false;
+
 function writeDetail(html) {
     const container = document.getElementById('detail');
     const fresh = document.createElement('div');
     fresh.innerHTML = html;
     const frame = document.getElementById('snapshotFrame');
     const slot = fresh.querySelector('#snapshotFrame');
-    const kept = Boolean(frame && slot && frame.getAttribute('src') === slot.getAttribute('src')
+    const reload = previewReloadRequested;
+    previewReloadRequested = false;
+    const kept = Boolean(!reload && frame && slot && frame.getAttribute('src') === slot.getAttribute('src')
         && graftAroundFrame(container, frame, fresh, slot));
     if (!kept) container.replaceChildren(...fresh.childNodes);
     return kept;
@@ -1183,14 +1187,18 @@ function previewFrameSrc(page, previewUrl) {
     return `/api/live-inspect?url=${encodeURIComponent(previewUrl)}`;
 }
 
+// The reviewer asks for the preview with these buttons, so they load it again even when it
+// already shows that URL, for example after the shop refused the first fetch.
 function loadPreviewUrl() {
     const input = document.getElementById('livePreviewUrl');
     previewUrlOverride = (input && input.value || '').trim();
+    previewReloadRequested = true;
     rerenderWorkbench();
 }
 
 function resetPreviewUrl() {
     previewUrlOverride = '';
+    previewReloadRequested = true;
     rerenderWorkbench();
 }
 
