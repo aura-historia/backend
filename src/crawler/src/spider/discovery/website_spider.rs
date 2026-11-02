@@ -628,10 +628,12 @@ impl Default for SpiderImpl {
     }
 }
 
+/// The page-body limit Spider reads from `SPIDER_MAX_SIZE_BYTES`, which the preflight holds the
+/// root page it reads to as well.
 fn configured_spider_body_limit(
     configured: Option<&str>,
     maximum: usize,
-) -> Result<(), SpiderDiscoveryError> {
+) -> Result<usize, SpiderDiscoveryError> {
     let configured = configured
         .ok_or_else(|| {
             SpiderDiscoveryError::Config(format!(
@@ -649,7 +651,7 @@ fn configured_spider_body_limit(
             "{SPIDER_MAX_BODY_BYTES_ENV} must be between 1048576 and {maximum} bytes"
         )));
     }
-    Ok(())
+    Ok(configured)
 }
 
 pub(super) fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
@@ -1300,7 +1302,8 @@ impl SpiderImpl {
         request: CrawlRequest,
         configured_body_limit: Option<&str>,
     ) -> Result<SpiderCrawl, SpiderDiscoveryError> {
-        configured_spider_body_limit(configured_body_limit, self.config.max_response_body_bytes)?;
+        let max_body_bytes =
+            configured_spider_body_limit(configured_body_limit, self.config.max_response_body_bytes)?;
         let CrawlRequest {
             crawl_root_url,
             pace,
@@ -1329,7 +1332,7 @@ impl SpiderImpl {
             request_timeout,
             self.config.preflight_retry,
             self.config.preflight_deadline,
-            self.config.max_response_body_bytes,
+            max_body_bytes,
         )
         .await?;
         let host_whitelist = configured_host_whitelist(&root_url)?;
@@ -4311,7 +4314,10 @@ mod tests {
 
     #[test]
     fn should_require_a_bounded_spider_transport_body_limit() {
-        assert!(configured_spider_body_limit(Some("8388608"), 8 * 1024 * 1024).is_ok());
+        assert_eq!(
+            configured_spider_body_limit(Some("2097152"), 8 * 1024 * 1024).unwrap(),
+            2_097_152
+        );
         assert!(matches!(
             configured_spider_body_limit(None, 8 * 1024 * 1024),
             Err(SpiderDiscoveryError::Config(_))
