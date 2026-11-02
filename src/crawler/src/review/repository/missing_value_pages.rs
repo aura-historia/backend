@@ -27,7 +27,8 @@ pub const MAX_LISTED_MISSING_VALUE_PAGES: i64 = 100;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MissingValuePage {
     pub url: String,
-    /// The blank required values, as the scrape recorded them, such as "`title` is blank".
+    /// The outcome message the scrape recorded, which names the blank required values, such as
+    /// "Required value missing from '…': `title` is blank".
     pub missing: Option<String>,
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_scraped: Option<OffsetDateTime>,
