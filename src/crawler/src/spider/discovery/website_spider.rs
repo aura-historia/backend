@@ -1514,12 +1514,14 @@ async fn relay_library_pages(
         if challenge.is_some() {
             diagnostics.bot_challenge_pages += 1;
         }
-        let hard_block = challenge
-            .is_none()
-            .then(|| detect_hard_block(status_code, page.get_html_bytes_u8()))
-            .flatten();
 
         if !first_page_seen {
+            // A block page refuses the crawl at its root only; below the root it
+            // is the 403 it was answered with, like any other.
+            let hard_block = challenge
+                .is_none()
+                .then(|| detect_hard_block(status_code, page.get_html_bytes_u8()))
+                .flatten();
             apply_library_page(
                 diagnostics,
                 crawl_root_url,
@@ -1553,10 +1555,10 @@ async fn relay_library_pages(
             apply_rate_limit_signal(diagnostics, signal);
             request_stop(CrawlStopReason::RateLimited);
         }
-        // A challenge, a firewall's block page or a rate-limit answer is not
-        // the page: it stays in the frontier for the next crawl, and neither
-        // its links nor its head are the shop's.
-        let is_page = challenge.is_none() && hard_block.is_none() && rate_limit_answer.is_none();
+        // A challenge or a rate-limit answer is not the page: it stays in the
+        // frontier for the next crawl, and neither its links nor its head are
+        // the shop's.
+        let is_page = challenge.is_none() && rate_limit_answer.is_none();
         if is_page {
             filter.found_links.record_delivered(page.get_url());
             if let Some(page_links) = page.page_links.as_deref() {
@@ -2556,21 +2558,23 @@ mod tests {
         const CHALLENGE: &str =
             "<html><head><title>Just a moment...</title></head><body></body></html>";
 
+        const BLOCK: &str = "<html><head><title>Attention Required! | Cloudflare</title>\
+</head><body><div id=\"cf-error-details\"><h1>Sorry, you have been blocked</h1>\
+</div></body></html>";
+
+        fn block_page() -> SiteResponse {
+            SiteResponse::HtmlWithHeaders(
+                "403 Forbidden",
+                "server: cloudflare\r\ncf-ray: 8f0a1b2c3d4e5f60-FRA\r\n",
+                BLOCK.to_string(),
+            )
+        }
+
         /// Cloudflare's block page refuses the crawler outright: access denied with that
         /// kind's cooldown, never a challenge, even though Spider reads the vendor as one.
         #[tokio::test]
         async fn should_deny_access_to_a_crawl_whose_root_answers_a_firewall_block_page() {
-            const BLOCK: &str = "<html><head><title>Attention Required! | Cloudflare</title>\
-</head><body><div id=\"cf-error-details\"><h1>Sorry, you have been blocked</h1>\
-</div></body></html>";
-            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
-                SiteResponse::HtmlWithHeaders(
-                    "403 Forbidden",
-                    "server: cloudflare\r\ncf-ray: 8f0a1b2c3d4e5f60-FRA\r\n",
-                    BLOCK.to_string(),
-                )
-            }))
-            .await;
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| block_page())).await;
             let spider =
                 SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
@@ -2587,6 +2591,38 @@ mod tests {
                 Some("firewall_block_root_page")
             );
             assert_eq!(diagnostics.bot_challenge_pages, 0);
+        }
+
+        /// No later crawl passes a block page either, so below the root it is the 403 it was
+        /// answered with: delivered, not left in the frontier to keep the crawl unfinished.
+        #[tokio::test]
+        async fn should_take_a_firewall_block_page_below_the_root_for_its_403() {
+            let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<a href="/chairs">Chairs</a><a href="/tables">Tables</a>"#.to_string(),
+                ),
+                "/chairs" => block_page(),
+                "/tables" => SiteResponse::Html("200 OK", "<h1>Tables</h1>".to_string()),
+                _ => SiteResponse::Html("404 Not Found", String::new()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics, discovery) =
+                run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+            site.finish().await;
+
+            assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
+            assert_eq!(diagnostics.status_counts.client_error, 1, "{diagnostics:?}");
+            assert_eq!(diagnostics.bot_challenge_pages, 0);
+            assert_eq!(
+                diagnostics.completion,
+                CrawlCompletion::Completed,
+                "{diagnostics:?}"
+            );
+            assert!(discovery.frontier.is_empty(), "{discovery:?}");
         }
 
         #[tokio::test]
