@@ -958,9 +958,9 @@ async fn handle_successful_scrape(
         None
     };
     // A stored page outside the ListingSource's product URLs is a non-product page whatever the
-    // scrape extracted from it, as a redirect outside the product pattern is: its identity is
-    // not compared, so a category page that shows another product's identity still withdraws
-    // the listing.
+    // scrape extracted from it (`docs/crawler/networking.md#redirect-removal-evidence`): its
+    // identity is not compared, so a category page that shows another product's identity still
+    // withdraws the listing.
     if destination == Some(RedirectDestination::NotAProductOfListingSource) {
         info!(
             event = "crawler.product_url_redirected_to_page_outside_listing_source",
