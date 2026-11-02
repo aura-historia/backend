@@ -189,14 +189,25 @@ impl SpiderServiceError {
         }
     }
 
-    /// The failure with the diagnostics its crawl reported once it ended. A classification stage
+    /// The failure with the diagnostics its crawl reported once it ended, also when bot
+    /// challenges took the blame for it ([`Self::BotChallengedCrawl`]). A classification stage
     /// refuses a too small inference sample before it knows them: at the threshold, the crawl
     /// is still running.
     fn with_crawl_diagnostics(mut self, crawl_diagnostics: &CrawlDiagnostics) -> Self {
-        if let SpiderServiceError::InsufficientInferenceSample { diagnostics, .. } = &mut self {
-            **diagnostics = crawl_diagnostics.clone();
-        }
+        self.attach_crawl_diagnostics(crawl_diagnostics);
         self
+    }
+
+    fn attach_crawl_diagnostics(&mut self, crawl_diagnostics: &CrawlDiagnostics) {
+        match self {
+            SpiderServiceError::InsufficientInferenceSample { diagnostics, .. } => {
+                **diagnostics = crawl_diagnostics.clone();
+            }
+            SpiderServiceError::BotChallengedCrawl { failure, .. } => {
+                failure.attach_crawl_diagnostics(crawl_diagnostics);
+            }
+            _ => {}
+        }
     }
 
     /// The run delivered pages, but none of them can become a product URL: the inference
@@ -3868,6 +3879,40 @@ mod service_tests {
                 "{expected_stage}"
             );
         }
+    }
+
+    /// A sample too small to classify among pages that were mostly bot challenges fails as bot
+    /// protection, and the sample failure it replaces still carries what the crawl reported.
+    #[tokio::test]
+    async fn should_carry_the_ended_crawls_diagnostics_when_bot_challenges_take_the_blame() {
+        let challenged = CrawlDiagnostics {
+            bot_challenge_pages: 7,
+            ..slowed_crawl_leaving_its_host()
+        };
+
+        let failure = run_failing_on_a_small_sample(None, 1, challenged).await;
+
+        let SpiderServiceError::BotChallengedCrawl {
+            bot_challenge_pages: 7,
+            pages_received: 9,
+            failure: replaced,
+        } = &failure
+        else {
+            panic!("expected a bot-challenged crawl, got {failure:?}");
+        };
+        let SpiderServiceError::InsufficientInferenceSample { diagnostics, .. } = &**replaced
+        else {
+            panic!("expected a too small sample, got {replaced:?}");
+        };
+        assert_eq!(
+            (
+                diagnostics.pages_received,
+                diagnostics.bot_challenge_pages,
+                diagnostics.rejected_host,
+                diagnostics.robots_crawl_delay_ms,
+            ),
+            (9, 7, 7, Some(10_000))
+        );
     }
 
     /// Pages of a shop whose paths the keywords read as a category, an imprint and an info page,
