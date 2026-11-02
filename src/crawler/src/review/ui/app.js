@@ -3048,7 +3048,8 @@ function selectionUrl() {
 }
 
 // Following the URL to another review discards unsaved edits, so it asks first; meanwhile the
-// URL keeps naming the review on screen.
+// URL keeps naming the review on screen. Confirming puts the requested URL back into the
+// history entry the browser moved to, so it adds no entry and back and forward keep their order.
 function applySelectionFromUrl() {
     const requested = selectionFromUrl();
     if (requested.reviewId === selectedId) {
@@ -3059,12 +3060,21 @@ function applySelectionFromUrl() {
         ? selectReview(requested.reviewId, requested)
         : clearSelectedReview();
     if (!dirty) return follow();
+    const requestedUrl = location.href;
     replaceSelectionInUrl();
-    confirmDiscardingEdits(requested.reviewId ? 'Opening another review' : 'Leaving the review', follow);
+    confirmDiscardingEdits(requested.reviewId ? 'Opening another review' : 'Leaving the review', () => {
+        history.replaceState(null, '', requestedUrl);
+        return follow();
+    });
 }
 
+// A review still loading takes the request when it has loaded.
 function applyRequestedPageAndSchema({pageId, schemaIndex}) {
-    if (!selectedMatrix || selectedDetail?.review.review_id !== selectedId) return;
+    if (selectedDetail?.review.review_id !== selectedId) {
+        requestedSelection = {pageId, schemaIndex};
+        return;
+    }
+    if (!selectedMatrix) return;
     const page = (selectedDetail.pages || []).find(candidate => candidate.review_page_id === pageId);
     if (page && page.review_page_id !== selectedPageId) {
         selectedPageId = page.review_page_id;
