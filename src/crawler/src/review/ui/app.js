@@ -200,16 +200,30 @@ async function loadReviews() {
 }
 
 // A refresh that changes nothing leaves the queue's elements alone, and one that does keeps the
-// reviewer's scroll position in it.
+// reviewer's scroll position and keyboard focus in it, such as on a group just toggled or a
+// review just opened from the keyboard.
 let shownQueueHtml = '';
 
 function showQueue(html) {
     const list = document.getElementById('reviewList');
     if (html === shownQueueHtml && list.childElementCount) return;
     const scrollTop = list.scrollTop;
+    const focused = list.contains(document.activeElement) ? queueControlKey(document.activeElement) : null;
     list.innerHTML = html;
     list.scrollTop = scrollTop;
     shownQueueHtml = html;
+    if (focused) {
+        Array.from(list.querySelectorAll('a, button'))
+            .find(control => queueControlKey(control) === focused)
+            ?.focus({preventScroll: true});
+    }
+}
+
+// A queue control is named by what it opens or toggles, which a render does not change.
+function queueControlKey(control) {
+    return ['href', 'aria-controls', 'onclick']
+        .map(name => control.getAttribute(name) || '')
+        .join(' ');
 }
 
 function renderReviewGroups(reviews) {
