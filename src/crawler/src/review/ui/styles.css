@@ -876,8 +876,11 @@ div.listing-source-group-head {
     overflow: hidden;
 }
 
+/* The single column is capped at the panel's width: an auto column would grow to the page
+   select's full label, pushing Remove page and the URL kind out of the clipped panel. */
 .preview-head {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
 }
 
