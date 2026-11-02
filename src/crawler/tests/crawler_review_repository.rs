@@ -1103,6 +1103,72 @@ async fn should_leave_a_removal_by_a_template_narrowed_meanwhile_due_at_once() {
     assert_eq!(fixture.candidate_urls().await, vec![fixture.url.clone()]);
 }
 
+/// Restoring what an approval replaced re-arms as the approval did: a page a template the
+/// approval added captured as removed is due at once once the restore retires the template, as
+/// is a page that recorded `MissingRequiredValue`.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_rearm_pages_of_the_templates_a_restore_retires() {
+    let pool = get_postgres_client().await;
+    let fixture = WaitingPageFixture::new(&pool).await;
+    let added = notice_schema("no longer available");
+    fixture
+        .review_repository
+        .update_candidate_payload(
+            fixture.review_id,
+            ReviewActor::Human,
+            candidate_version(&fixture.review_repository, fixture.review_id).await,
+            json!({
+                "schemas": [schema("h1.first")],
+                "removed_page_schemas": [notice_template("no longer available")],
+            }),
+        )
+        .await
+        .unwrap();
+    approve_acknowledging_coverage(&fixture.review_repository, fixture.review_id)
+        .await
+        .unwrap();
+    let missing_value = fixture
+        .add_product_url(&pool, "https://example.com/products/untitled")
+        .await;
+    let candidates = &fixture.candidates;
+    candidates
+        .mark_removed(
+            &fixture.listing_source_id,
+            &fixture.url,
+            &[1; 32],
+            None,
+            &[added],
+        )
+        .await
+        .unwrap();
+    candidates
+        .mark_scraped_without_capture(
+            &fixture.listing_source_id,
+            &missing_value,
+            "MissingRequiredValue",
+            "`title` is blank",
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        fixture.candidate_urls().await.is_empty(),
+        "a removal by a stored template waits for its next scrape"
+    );
+
+    fixture
+        .review_repository
+        .restore_approval(fixture.review_id, ReviewActor::Human, None)
+        .await
+        .unwrap();
+
+    let mut rearmed = fixture.candidate_urls().await;
+    rearmed.sort();
+    let mut expected = vec![missing_value, fixture.url.clone()];
+    expected.sort();
+    assert_eq!(rearmed, expected);
+}
+
 /// Opens a product-schema review of the fixture's ListingSource with its live schema.
 async fn open_schema_review(fixture: &WaitingPageFixture) -> CrawlerReviewId {
     fixture
