@@ -847,9 +847,37 @@ function urlPatternDecision(review) {
     return review?.candidate_payload?.decision || {type: 'UNDECIDED'};
 }
 
+function decisionPattern(decision) {
+    return decision?.type === 'PATTERN' ? decision.value : '';
+}
+
 function savedPatternValue(review) {
-    const decision = urlPatternDecision(review);
-    return decision.type === 'PATTERN' ? decision.value : '';
+    return decisionPattern(urlPatternDecision(review));
+}
+
+// The selected URL-pattern review's decision as the server holds it, which the server's
+// classification of its sample describes, and the pattern the reviewer typed but has not saved.
+// A refused save leaves its decision in the local candidate as an unsaved edit, so `stored` is
+// the decision last rendered without local edits. Both start over with each review and with
+// each rendering without local edits, after a save, a discard or a reload.
+let urlPatternEdit = {reviewId: null, stored: null, typed: null};
+
+function urlPatternEditOf(review) {
+    if (!dirty || urlPatternEdit.reviewId !== review.review_id) {
+        urlPatternEdit = {reviewId: review.review_id, stored: urlPatternDecision(review), typed: null};
+    }
+    return urlPatternEdit;
+}
+
+function urlPatternEditable(review) {
+    return review?.artifact_type === 'URL_PATTERN' && review.status === 'PENDING_REVIEW';
+}
+
+// What the pattern input holds: the reviewer's unsaved typing, kept across re-renders, or else
+// the candidate's pattern.
+function urlPatternInputValue(review) {
+    const typed = urlPatternEditable(review) ? urlPatternEditOf(review).typed : null;
+    return typed ?? savedPatternValue(review);
 }
 
 // The URL table's filter; it starts over for each review shown.
@@ -867,7 +895,7 @@ const URL_FILTER_KINDS = [
 // classification of the saved candidate otherwise.
 function renderUrlPatternReview(review, urls) {
     if (urlFilter.reviewId !== review.review_id) urlFilter = {reviewId: review.review_id, kind: 'all', text: ''};
-    const view = urlPatternView(review, urls, savedPatternValue(review));
+    const view = urlPatternView(review, urls, urlPatternInputValue(review).trim());
     return `<div id="urlPatternSummary">${renderUrlPatternSummary(review, view)}</div>
       ${renderUrlPatternEditor(review)}
       ${urls.length ? `<h3>Sample URLs</h3>
@@ -882,7 +910,7 @@ function renderUrlPatternReview(review, urls) {
 // unsaved pattern `pattern` as the browser previews it when it differs from the saved one, else
 // the server's classification of the saved candidate.
 function urlPatternView(review, urls, pattern) {
-    const preview = urlPatternPreview(pattern, savedPatternValue(review));
+    const preview = urlPatternPreview(pattern, decisionPattern(urlPatternEditOf(review).stored));
     const origin = sampleOrigin(urls);
     const rows = urls.map((u, index) => {
         const candidateMatch = preview.active
@@ -955,7 +983,7 @@ function renderUrlPatternSummary(review, view) {
     return `<div class="url-pattern-summary">
       <div class="url-pattern-decision">
         <span class="muted">Decision</span>
-        ${renderUrlPatternDecision(urlPatternDecision(review))}
+        ${renderUrlPatternDecision(urlPatternEditOf(review).stored)}
         <span class="muted">Current pattern</span>
         ${currentPattern ? `<code>${escapeHtml(currentPattern)}</code>` : '<span class="muted">none</span>'}
       </div>
@@ -986,13 +1014,13 @@ function urlPatternPreviewText(preview) {
 }
 
 function renderUrlPatternEditor(review) {
-    if (review.artifact_type !== 'URL_PATTERN' || review.status !== 'PENDING_REVIEW') return '';
-    const decision = urlPatternDecision(review);
+    if (!urlPatternEditable(review)) return '';
+    const decision = urlPatternEditOf(review).stored;
     return `<div class="url-pattern-editor">
       <div class="hint-card">${decision.type === 'UNDECIDED'
         ? 'Enter a product URL regex or save NO_PATTERN before approving.'
         : 'Save a new decision to change it.'}</div>
-      <input id="urlPatternInput" value="${escapeHtmlAttr(savedPatternValue(review))}" placeholder="Product URL regex, e.g. /product/" oninput="previewUrlPattern(); markDirty()">
+      <input id="urlPatternInput" value="${escapeHtmlAttr(urlPatternInputValue(review))}" placeholder="Product URL regex, e.g. /product/" oninput="markDirty(); previewUrlPattern()">
       <div class="actions">
         <button onclick="saveUrlPattern()">Save pattern</button>
         <button onclick="saveNoUrlPattern()">Save NO_PATTERN</button>
@@ -1035,7 +1063,12 @@ function pageSpellings(url) {
     return spellings;
 }
 
+// Called after `markDirty`, so the typed pattern outlives a re-render of the review, such as the
+// one a sample label change or a refused save makes.
 function previewUrlPattern() {
+    const input = document.getElementById('urlPatternInput');
+    if (!selectedDetail || !input) return;
+    urlPatternEditOf(selectedDetail.review).typed = input.value;
     rerenderUrlPatternView();
 }
 
@@ -1054,9 +1087,7 @@ function setUrlFilterText(text) {
 function rerenderUrlPatternView() {
     if (!selectedDetail) return;
     const review = selectedDetail.review;
-    const input = document.getElementById('urlPatternInput');
-    const pattern = input ? input.value.trim() : savedPatternValue(review);
-    const view = urlPatternView(review, selectedDetail.urls || [], pattern);
+    const view = urlPatternView(review, selectedDetail.urls || [], urlPatternInputValue(review).trim());
     const parts = {
         urlPatternSummary: () => renderUrlPatternSummary(review, view),
         urlFilterChips: () => renderUrlFilterChips(view),
@@ -1148,10 +1179,13 @@ function renderSampleLabelSelect(selected, onchange, allowNone) {
 }
 
 // Whether the decision in the pattern input takes `url`, as the browser previews it; the server
-// matches the crawler's spelling of the URL when it checks an agent approval.
+// matches the crawler's spelling of the URL when it checks an agent approval. It reads the input's
+// state, not the element: while the review renders, the element still belongs to the review shown
+// before.
 function decisionPreviewTakes(url) {
-    const pattern = document.getElementById('urlPatternInput')?.value?.trim()
-        || (urlPatternDecision(selectedDetail?.review).type === 'PATTERN' ? urlPatternDecision(selectedDetail.review).value : '');
+    const review = selectedDetail?.review;
+    if (!review) return null;
+    const pattern = urlPatternInputValue(review).trim() || decisionPattern(urlPatternEditOf(review).stored);
     if (!pattern) return null;
     try {
         return regexTakesUrl(new RegExp(pattern), url);
