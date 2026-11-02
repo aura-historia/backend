@@ -1032,6 +1032,7 @@ iframe {
 
 .right-panel {
     display: grid;
+    container-type: inline-size;
 }
 
 /* Tabs: an underlined row that wraps instead of clipping. */
@@ -1063,6 +1064,19 @@ iframe {
 .tab.active {
     border-bottom-color: var(--accent);
     color: var(--ink);
+}
+
+/* In the narrowest side-by-side panel (340 px and a little more) the five tabs, with the
+   removed-page count, keep to one line by sitting closer. After the tab rules, so it wins. */
+@container (max-width: 400px) {
+    .tabs {
+        gap: 0;
+        padding: 0 var(--s1);
+    }
+
+    .tab {
+        padding: 0 5px;
+    }
 }
 
 .tab-panel {
