@@ -91,7 +91,7 @@ pub(crate) fn crawler_raw_input(
 }
 
 /// A captured price that names another currency than its ListingSource's fallback currency.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ForeignPriceCurrency {
     pub(crate) field: PlausibilityField,
     pub(crate) currency: Currency,
