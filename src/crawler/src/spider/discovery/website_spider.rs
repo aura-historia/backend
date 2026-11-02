@@ -308,6 +308,9 @@ pub struct CrawlDiagnostics {
     pub status_counts: StatusCounts,
     /// Delivered pages that were a bot challenge instead of the page asked for.
     pub bot_challenge_pages: usize,
+    /// The firewall's block page the root answered, with its vendor and the marker that proved
+    /// it, for the failure log; never the page, which can show the crawler's IP.
+    pub hard_block: Option<HardBlock>,
     /// The rate-limit answer that stopped the crawl, with the shop's
     /// `Retry-After`; the pages delivered before it were kept.
     pub rate_limit: Option<RateLimitSignal>,
@@ -1830,6 +1833,7 @@ fn apply_library_page(
     if let Some(signal) = page_diagnostic_signal(crawl_root_url, final_url, status_code, refusal) {
         diagnostics.apply_signal(signal);
     }
+    diagnostics.hard_block = refusal.hard_block;
     diagnostics.final_url = loggable_url(final_url);
 }
 
@@ -2849,35 +2853,58 @@ mod tests {
 </head><body><div id=\"cf-error-details\"><h1>Sorry, you have been blocked</h1>\
 </div></body></html>";
 
-        fn block_page() -> SiteResponse {
+        /// Cloudflare's error 1020 page for a request a firewall rule denied.
+        const ERROR_1020: &str = "<html><head><title>Access denied | example.com | Cloudflare\
+</title></head><body><div class=\"cf-error-title\"><h1>Access denied</h1>\
+<span class=\"cf-code-label\">Error code <span>1020</span></span></div></body></html>";
+
+        fn cloudflare_403(body: &str) -> SiteResponse {
             SiteResponse::HtmlWithHeaders(
                 "403 Forbidden",
                 "server: cloudflare\r\ncf-ray: 8f0a1b2c3d4e5f60-FRA\r\n",
-                BLOCK.to_string(),
+                body.to_string(),
             )
         }
 
-        /// Cloudflare's block page refuses the crawler outright: access denied with that
-        /// kind's cooldown, never a challenge, even though Spider reads the vendor as one.
+        fn block_page() -> SiteResponse {
+            cloudflare_403(BLOCK)
+        }
+
+        /// Cloudflare's block pages refuse the crawler outright: access denied with that
+        /// kind's cooldown, never a challenge, even though Spider reads the vendor as one. The
+        /// diagnostics name the page's vendor and evidence for the failure log.
         #[tokio::test]
         async fn should_deny_access_to_a_crawl_whose_root_answers_a_firewall_block_page() {
-            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| block_page())).await;
-            let spider =
-                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+            for (body, evidence) in [
+                (BLOCK, "cloudflare_block_title"),
+                (ERROR_1020, "cloudflare_error_1020"),
+            ] {
+                let site =
+                    TestSite::spawn(Arc::new(move |_: &str, _: usize| cloudflare_403(body))).await;
+                let spider =
+                    SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
-            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
-            site.finish().await;
+                let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+                site.finish().await;
 
-            assert_eq!(
-                diagnostics.failure_kind,
-                Some(CrawlFailureKind::AccessDenied),
-                "{diagnostics:?}"
-            );
-            assert_eq!(
-                diagnostics.diagnostic_reason.as_deref(),
-                Some("firewall_block_root_page")
-            );
-            assert_eq!(diagnostics.bot_challenge_pages, 0);
+                assert_eq!(
+                    diagnostics.failure_kind,
+                    Some(CrawlFailureKind::AccessDenied),
+                    "{diagnostics:?}"
+                );
+                assert_eq!(
+                    diagnostics.diagnostic_reason.as_deref(),
+                    Some("firewall_block_root_page")
+                );
+                assert_eq!(
+                    diagnostics.hard_block,
+                    Some(HardBlock {
+                        vendor: ChallengeVendor::Cloudflare,
+                        evidence,
+                    })
+                );
+                assert_eq!(diagnostics.bot_challenge_pages, 0);
+            }
         }
 
         /// No later crawl passes a block page either, so below the root it is the 403 it was
@@ -2902,6 +2929,7 @@ mod tests {
             site.finish().await;
 
             assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
+            assert_eq!(diagnostics.hard_block, None, "{diagnostics:?}");
             assert_eq!(diagnostics.status_counts.client_error, 1, "{diagnostics:?}");
             assert_eq!(diagnostics.bot_challenge_pages, 0);
             assert_eq!(
