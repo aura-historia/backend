@@ -94,20 +94,30 @@ static LANGUAGE_SEGMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,4})?$").expect("language segment regex")
 });
 
+/// Whether a path segment is a language segment as shops put it before a path.
+pub(crate) fn is_language_segment(segment: &str) -> bool {
+    LANGUAGE_SEGMENT.is_match(segment)
+}
+
+/// The page `page` names without the language segment before its path, in its page spelling:
+/// `/x` for `/en/x`. `None` when the path starts with no language segment or has nothing after
+/// it.
+pub(crate) fn without_language_segment(page: &CrawledUrl) -> Option<url::Url> {
+    let mut url = page.page_spelling();
+    let (language, rest) = url.path().trim_start_matches('/').split_once('/')?;
+    let rest = rest.trim_end_matches('/');
+    if !is_language_segment(language) || rest.is_empty() {
+        return None;
+    }
+    let path = format!("/{rest}");
+    url.set_path(&path);
+    Some(url)
+}
+
 /// Whether `page` is `original` with a language segment before its path: `/en/x` is a copy of
 /// `/x` on the same origin with the same query.
 fn is_language_copy_of(page: &CrawledUrl, original: &CrawledUrl) -> bool {
-    let page_url = page.page_spelling();
-    let original_url = original.page_spelling();
-    if page_url.origin() != original_url.origin() || page_url.query() != original_url.query() {
-        return false;
-    }
-    let Some((language, rest)) = page_url.path().trim_start_matches('/').split_once('/') else {
-        return false;
-    };
-    LANGUAGE_SEGMENT.is_match(language)
-        && !rest.is_empty()
-        && original_url.path().trim_start_matches('/') == rest.trim_end_matches('/')
+    without_language_segment(page).is_some_and(|unprefixed| unprefixed == original.page_spelling())
 }
 
 /// Shopify serves every product under `/products/<handle>` and also under each collection that

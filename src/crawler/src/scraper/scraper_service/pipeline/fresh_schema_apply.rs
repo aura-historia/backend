@@ -6,7 +6,9 @@ use crate::scraper::css_selector::removed_page_schema::{
     ListingSourceRemovedPageSchema, RemovedPageSchema, extend_with_new_removed_page_schemas,
 };
 use crate::scraper::css_selector::rule::ExtractionError;
-use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::domain::errors::{
+    RemovalEvidence, RemovalEvidenceKind, ScraperError,
+};
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -78,6 +80,11 @@ impl ScraperServiceImpl {
                 return Err(ScraperError::product_listing_removed(
                     url.clone(),
                     "fresh schema generation classified page as removed".to_string(),
+                    RemovalEvidence::page(
+                        RemovalEvidenceKind::RemovedPageClassification,
+                        url.clone(),
+                        None,
+                    ),
                     vec![schema],
                 ));
             }

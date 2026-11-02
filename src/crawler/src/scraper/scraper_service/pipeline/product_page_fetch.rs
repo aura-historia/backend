@@ -2,19 +2,23 @@
 //! transport observation that the scrape's outcome reports.
 
 use crate::network::policy::NetworkErrorKind;
-use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
+use crate::scraper::scraper_service::domain::errors::{
+    HttpErrorMetadata, RemovalEvidence, RemovalEvidenceKind, ScraperError,
+};
 use crate::scraper::scraper_service::domain::product::{
     FetchFailureSource, ScrapeRequest, record_transport_failure, record_transport_success,
 };
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml};
-use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
+use crate::scraper::scraper_service::pipeline::scrape_product::RedirectTarget;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use tracing::debug;
 
 impl ScraperServiceImpl {
     /// Fetches the page `request` names on `domain` and records the transport observation. A
-    /// 404 or 410, or a robots-disallowed redirect to a non-product page, fails as a removed
-    /// listing; every other fetch failure fails as an HTTP error.
+    /// 404 or 410, or a redirect to the homepage robots.txt disallows, fails as a removed
+    /// listing; every other fetch failure fails as an HTTP error. A disallowed target is not
+    /// fetched, so no other target can show a removal
+    /// (`docs/crawler/networking.md#redirect-removal-evidence`).
     pub(super) async fn fetch_product_page(
         &self,
         request: &ScrapeRequest,
@@ -30,18 +34,21 @@ impl ScraperServiceImpl {
                 Ok(fetched)
             }
             // The shop answered with a redirect, so it is responsive; where
-            // the redirect leads decides the outcome, as for a fetched target.
+            // the redirect leads decides the outcome, as far as its URL shows.
             Err(FetchError::RedirectDisallowed { final_url }) => {
-                if is_redirect_to_non_product_page(
-                    url,
-                    &final_url,
-                    request.product_url_pattern.as_deref(),
-                ) {
+                if RedirectTarget::of(url, &final_url, request.product_url_pattern.as_deref())
+                    == RedirectTarget::Homepage
+                {
                     record_transport_success();
                     return Err(ScraperError::product_listing_removed(
                         url.clone(),
                         format!(
-                            "product URL redirected to a non-product page robots.txt disallows: original={url}, final={final_url}"
+                            "product URL redirected to the homepage, which robots.txt disallows: original={url}, final={final_url}"
+                        ),
+                        RemovalEvidence::page(
+                            RemovalEvidenceKind::RedirectToHomepage,
+                            final_url,
+                            None,
                         ),
                         Vec::new(),
                     ));
@@ -85,6 +92,7 @@ impl ScraperServiceImpl {
                 Err(ScraperError::product_listing_removed(
                     url.clone(),
                     details,
+                    RemovalEvidence::gone_status(status),
                     Vec::new(),
                 ))
             }

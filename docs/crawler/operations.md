@@ -18,6 +18,8 @@ The `server` binary needs:
 
 `VERTEX_AI_MODEL` selects the schema model. `CRAWLER_VERTEX_AI_CHEAP_MODEL` and operation-specific model settings can select lower-cost models. `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` and `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` bound all crawler LLM calls.
 
+Optional `CRAWLER_MASS_REMOVAL_CONFIRMED_DOMAINS` lists, comma-separated, the ListingSource domains whose bulk clearance an operator confirmed, which the [mass-removal guard](scheduling-and-retries.md#mass-removal-guard) then no longer holds back. An entry names its registered domain with or without `www.`, and an entry that is no domain fails startup. `server` and `dev` read it at startup, so a change takes a restart.
+
 Optional `CRAWLER_CLOUDWATCH_LOG_GROUP` and `CRAWLER_CLOUDWATCH_LOG_STREAM` enable CloudWatch log export. That deployment needs permission to create the group and stream and put log events. Logs must expose operational outcomes and identifiers without raw source payloads.
 
 The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces `BUSINESS_DATABASE_URL`, AWS credentials and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it. Without `LOCAL_DB_URL`, `dev` starts the [local database](#local-database) itself and uses its `crawler_demo` database. With it, `dev` uses that database as given, like `server`: a run against a copy of `crawler_demo` leaves the demo state untouched, and a `.env` written for `server` points `dev` at the server database.

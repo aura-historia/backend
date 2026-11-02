@@ -27,6 +27,7 @@ use crate::{CrawlerDomainId, CrawlerReviewId};
 // ---------------------------------------------------------------------------
 
 /// A product URL eligible for scraping with only crawler-operational state.
+#[derive(Clone)]
 pub struct ScraperCandidate {
     pub listing_source_id: ListingSourceId,
     pub domain_id: CrawlerDomainId,
