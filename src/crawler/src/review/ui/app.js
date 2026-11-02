@@ -9,6 +9,7 @@ let selectedField = 'title';
 let selectedPageId = null;
 let activeWorkbenchPanel = 'selector';
 let pickedSelector = '';
+let pickedSample = '';
 let editRefusal = null;
 // The confirmation of the selected review's last successful request, shown until the next one.
 let editNotice = null;
@@ -67,10 +68,6 @@ applyTheme(theme);
 
 function schemaLabel(index) {
     return `Schema ${index}`;
-}
-
-function schemaLabelWithTotal(index, total) {
-    return `${schemaLabel(index)} (${total} total)`;
 }
 
 function applyTheme(nextTheme) {
@@ -242,19 +239,19 @@ function renderReviewGroups(reviews) {
     return groups.map(group => {
         const pendingCount = group.reviews.filter(review => review.status === 'PENDING_REVIEW').length;
         const collapsed = collapsedListingSourceGroups.has(group.listingSourceId);
+        const listId = `queueGroup-${escapeHtmlAttr(group.listingSourceId)}`;
         return `<div class="listing-source-group">
-          <div class="listing-source-group-head" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
-            <div>
-              <div class="queue-title">${escapeHtml(group.listingSourceName)}</div>
-              <div class="queue-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}</div>
-              ${group.crawlEnabled ? '' : '<div class="queue-meta">Crawling disabled</div>'}
-            </div>
-            <div class="listing-source-group-actions">
-              ${pendingCount ? badge(`${pendingCount} pending`, 'pending') : '<span class="muted">Reviewed</span>'}
-              <span class="collapse-indicator">${collapsed ? '+' : '-'}</span>
-            </div>
-          </div>
-          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}">
+          <button type="button" class="listing-source-group-head" aria-expanded="${!collapsed}" aria-controls="${listId}" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
+            <span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span>
+            <span class="group-text">
+              <span class="group-title-row">
+                <span class="queue-title">${escapeHtml(group.listingSourceName)}</span>
+                ${pendingCount ? badge(`${pendingCount} pending`, 'pending') : '<span class="queue-meta">Reviewed</span>'}
+              </span>
+              <span class="queue-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}${group.crawlEnabled ? '' : ' · crawling disabled'}</span>
+            </span>
+          </button>
+          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}" id="${listId}">
             ${group.reviews.map(renderReviewQueueItem).join('')}
           </div>
         </div>`;
@@ -422,16 +419,17 @@ function toggleListingSourceGroup(listingSourceId) {
 
 function renderReviewQueueItem(r) {
     const evaluation = autoSchemaEvaluation(r);
-    return `<div class="item ${r.review_id === selectedId ? 'active' : ''}" onclick="selectReview('${r.review_id}')">
-      <div class="queue-row">
+    const active = r.review_id === selectedId;
+    // A link to the review's fragment: following it goes through the same hashchange path as
+    // browser back, so it asks before discarding unsaved edits, and it opens in a new tab too.
+    return `<a class="item ${active ? 'active' : ''}" href="#${new URLSearchParams({review: r.review_id})}" ${active ? 'aria-current="true"' : ''}>
+      <span class="queue-row">
         <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
-        ${statusBadge(r.status)}
-        ${repairBadge(r)}
-      </div>
-      <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
-      ${evaluation ? `<div class="queue-meta">${autoSchemaOutcomeBadge(evaluation, 'LLM evaluation: ')}</div>` : ''}
-      <div class="queue-meta">${timeBadge(r.created, 'Created')}</div>
-    </div>`;
+        <span class="queue-badges">${statusBadge(r.status)}${repairBadge(r)}</span>
+      </span>
+      <span class="queue-meta">${escapeHtml(displayName(r.reason))} · ${timeBadge(r.created, 'Created')}</span>
+      ${evaluation ? `<span class="queue-meta">${autoSchemaOutcomeBadge(evaluation, 'LLM evaluation: ')}</span>` : ''}
+    </a>`;
 }
 
 // `requested` names the page and schema a URL fragment asks for; without it the review opens on
@@ -439,6 +437,8 @@ function renderReviewQueueItem(r) {
 async function selectReview(id, requested = null) {
     selectedId = id;
     requestedSelection = requested;
+    pickedSelector = '';
+    pickedSample = '';
     if (selectionFromUrl().reviewId !== id) recordSelectionInUrl();
     dirty = false;
     sampleLabelDraft = null;
@@ -807,15 +807,10 @@ function rejectionRevoked(detail) {
 function renderReviewEvents(detail) {
     const events = detail?.events || [];
     if (!events.length) return '';
-    return `<div class="review-card review-events-card">
-      <div class="panel-head">
-        <div class="panel-title">
-          <strong>History</strong>
-          <span class="muted">Who changed this review: a human, the review agent or the crawler</span>
-        </div>
-      </div>
+    return `<details class="review-card review-events-card">
+      <summary><span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span><strong>History</strong><span class="muted">${events.length} event${events.length === 1 ? '' : 's'}, latest ${escapeHtml(REVIEW_EVENT_LABELS[events[events.length - 1].action] || displayName(events[events.length - 1].action)).toLowerCase()} ${timeBadge(events[events.length - 1].created, 'Latest change')}</span></summary>
       <ol class="review-events">${events.slice().reverse().map(renderReviewEvent).join('')}</ol>
-    </div>`;
+    </details>`;
 }
 
 function renderReviewEvent(event) {
@@ -1470,9 +1465,9 @@ function renderSchemaWorkbench(detail, matrix) {
       <div class="right-panel">
         <div class="tabs">
           ${workbenchTab('selector', 'Selector')}
-          ${workbenchTab('data', 'Extracted Data')}
-          ${workbenchTab('diff', 'Schema Diff')}
-          ${workbenchTab('removed', `Removed Page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
+          ${workbenchTab('data', 'Data')}
+          ${workbenchTab('diff', 'Schema diff')}
+          ${workbenchTab('removed', `Removed page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
           ${workbenchTab('json', 'JSON')}
         </div>
         ${renderWorkbenchPanel(detail, matrix, schemas)}
@@ -1524,40 +1519,34 @@ function renderSelectorPanel(schemas, matrix) {
     return `<div class="tab-panel">
       ${renderCandidateEditHint(selectedDetail)}
       ${renderSchemaOrderControls(schemas, disabled)}
-      <div class="field-grid">
-        <label>Schema
-          <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>${schemaLabelWithTotal(i, schemas.length)}</option>`).join('')}
-          </select>
-        </label>
+      <section class="panel-section">
+        <h3>Field</h3>
         <label>Field
-          <select onchange="selectedField=this.value; rerenderWorkbench()">
+          <select id="selectedFieldSelect" onchange="selectedField=this.value; rerenderWorkbench()">
             ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
           </select>
         </label>
-      </div>
-      ${renderRawAttributeAdder(disabled)}
-      <div>
-        <h3>Selected Selector</h3>
-        <div class="selector-box">
-          <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
-          <button class="primary" ${disabled} onclick="saveCurrentField()">Save field</button>
-          <button class="danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()">Delete rule</button>
-        </div>
+        ${renderRawAttributeAdder(disabled)}
+        <label>Selector
+          <span class="selector-box">
+            <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
+            <button class="primary" ${disabled} onclick="saveCurrentField()">Save field</button>
+            <button class="danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()">Delete rule</button>
+          </span>
+        </label>
         ${renderSelectedFieldFindings(matrixPage)}
-      </div>
-      ${renderRuleOptions(rule)}
-      ${renderAdditionalSelectors(rule)}
-      <div class="actions">
-        <button onclick="applyPickedSelector()">Use clicked element</button>
-        <button onclick="postHighlight(currentSelector())">Highlight field</button>
-        <button onclick="postHighlightSchema()">Highlight schema</button>
-        <button onclick="reevaluateMatrix()">Re-evaluate</button>
-        <button onclick="discardEdits()">Discard edits</button>
-      </div>
-      <div class="picked" id="pickedElement">No element picked yet.</div>
-      <h3>Schema Highlight Legend</h3>
-      ${renderSchemaLegend(currentSchema())}
+        <div class="actions">
+          <button onclick="applyPickedSelector()">Use clicked element</button>
+          <button onclick="postHighlight(currentSelector())">Highlight field</button>
+        </div>
+        ${renderPickedElement()}
+        ${renderRuleOptions(rule)}
+        ${renderAdditionalSelectors(rule)}
+      </section>
+      <section class="panel-section">
+        <h3>Highlight legend</h3>
+        ${renderSchemaLegend(currentSchema())}
+      </section>
     </div>`;
 }
 
@@ -1591,15 +1580,18 @@ function addRawAttribute() {
     rerenderWorkbench();
 }
 
+// The element last clicked in the preview, kept across side-panel renders.
+function renderPickedElement() {
+    return `<div class="picked" id="pickedElement">${pickedSelector
+        ? `<code>${escapeHtml(pickedSelector)}</code>${pickedSample ? `<span class="muted">${escapeHtml(pickedSample)}</span>` : ''}`
+        : '<span class="muted">Click an element in the preview to pick it.</span>'}</div>`;
+}
+
 function renderRuleOptions(rule) {
     const effectiveRule = rule || defaultRuleFor(selectedField);
     const cardinality = effectiveRule.cardinality || 'first';
     const type = effectiveRule.type || 'text';
-    return `<div class="rule-options-card">
-      <div class="panel-title">
-        <strong>Extraction Rule</strong>
-        <span class="muted">Applies to the primary and additional selectors for this field</span>
-      </div>
+    return `<div class="rule-options-card" title="Applies to the primary and additional selectors for this field">
       <div class="field-grid">
         <label>Cardinality
           <select onchange="setCurrentRuleCardinality(this.value)">
@@ -1615,19 +1607,16 @@ function renderRuleOptions(rule) {
           </select>
         </label>
       </div>
-      <label>Attribute name
-        <input value="${escapeHtmlAttr(effectiveRule.name || '')}" ${type === 'attribute' ? '' : 'disabled'} oninput="setCurrentRuleAttributeName(this.value)">
-      </label>
+      ${type === 'attribute' ? `<label>Attribute name
+        <input value="${escapeHtmlAttr(effectiveRule.name || '')}" oninput="setCurrentRuleAttributeName(this.value)">
+      </label>` : ''}
     </div>`;
 }
 
 function renderSchemaOrderControls(schemas, disabled) {
     if (!schemas.length) return '<div class="hint-card">No schemas available for ordering.</div>';
-    return `<div class="schema-order-card">
-      <div>
-        <h3>Schema Order</h3>
-        <div class="muted">Approval writes schemas in this order for the ListingSource.</div>
-      </div>
+    return `<section class="panel-section schema-order-card">
+      <h3 title="Approval writes schemas in this order for the ListingSource">Schemas</h3>
       <div class="schema-order-list">
         ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
       </div>
@@ -1637,7 +1626,12 @@ function renderSchemaOrderControls(schemas, disabled) {
         <button ${disabled} onclick="addNewSchema()" title="Adds a copy of the selected schema to rewrite for another template">Add schema</button>
         <button class="danger" ${disabled || (schemas.length <= 1 ? 'disabled' : '')} onclick="deleteCurrentSchema()">Delete schema</button>
       </div>
-    </div>`;
+      <div class="actions">
+        <button onclick="postHighlightSchema()">Highlight schema</button>
+        <button onclick="reevaluateMatrix()">Re-evaluate</button>
+        <button onclick="discardEdits()">Discard edits</button>
+      </div>
+    </section>`;
 }
 
 // The handlers let postHighlight name the selected field: a raw attribute key comes from the
@@ -1645,10 +1639,7 @@ function renderSchemaOrderControls(schemas, disabled) {
 function renderAdditionalSelectors(rule) {
     const additional = (rule && Array.isArray(rule.additional_selectors)) ? rule.additional_selectors : [];
     return `<div class="additional-selector-card">
-      <div class="panel-title">
-        <strong>Additional Selectors</strong>
-        <span class="muted">Fallback or extra selectors for the selected field</span>
-      </div>
+      <h4 title="Fallback or extra selectors for the selected field">Additional selectors</h4>
       <div class="additional-selector-list">
         ${additional.length ? additional.map((selector, index) => `
           <div class="additional-selector-row">
@@ -1656,7 +1647,7 @@ function renderAdditionalSelectors(rule) {
             <button onclick="usePickedForAdditionalSelector(${index})">Use clicked</button>
             <button onclick="postHighlight(additionalSelectorAt(${index}))">Highlight</button>
             <button class="danger" onclick="removeAdditionalSelector(${index})">Delete</button>
-          </div>`).join('') : '<div class="muted">No additional selectors configured.</div>'}
+          </div>`).join('') : ''}
       </div>
       <div class="actions">
         <button onclick="addAdditionalSelector()">Add additional selector</button>
@@ -1667,10 +1658,6 @@ function renderAdditionalSelectors(rule) {
 
 function renderDataPanel(matrix) {
     return `<div class="tab-panel">
-      <div class="panel-title">
-        <strong>Extracted Data</strong>
-        <span class="muted">Current selected page and schema, evaluated against live HTML</span>
-      </div>
       ${renderCoverageSummary(matrix)}
       ${renderCurrentExtractedData(matrix)}
     </div>`;
@@ -1729,7 +1716,7 @@ function renderRemovedPagePanel(detail, matrix) {
         <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>
         <button ${disabled} onclick="discardEdits()">Discard edits</button>
       </div>
-      <div class="picked" id="pickedElement">${pickedSelector ? `<strong>${escapeHtml(pickedSelector)}</strong>` : 'No element picked yet.'}</div>
+      ${renderPickedElement()}
       <h3>Matched review pages</h3>
       ${renderRemovedPageMatches(matrix, templates)}
     </div>`;
@@ -3194,6 +3181,7 @@ function setSidebarCollapsed(collapsed) {
     const toggle = document.getElementById('sidebarToggle');
     if (shell) shell.classList.toggle('sidebar-collapsed', collapsed);
     if (toggle) {
+        toggle.setAttribute('aria-expanded', String(!collapsed));
         toggle.setAttribute('aria-label', collapsed ? 'Expand reviews' : 'Collapse reviews');
         toggle.setAttribute('title', collapsed ? 'Expand reviews' : 'Collapse reviews');
     }
@@ -3310,11 +3298,13 @@ function formatDate(value) {
 
 function timeBadge(value, label) {
     if (!value) return '';
-    return `<span class="time-badge" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${clockIcon()}${escapeHtml(elapsedTime(value))}</span>`;
+    return `<span class="time-badge" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${escapeHtml(elapsedTime(value))}</span>`;
 }
 
-function clockIcon() {
-    return `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
+// The one disclosure glyph of the console: it points down while its section is open and right
+// while it is closed (the CSS turns it); the sidebar turns it to point where the sidebar moves.
+function chevronIcon() {
+    return '<svg viewBox="0 0 16 16" width="16" height="16" focusable="false"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
 function elapsedTime(value) {
@@ -3353,12 +3343,9 @@ window.addEventListener('message', event => {
     const data = event.data || {};
     if (data.type !== 'crawler-review-selector-picked') return;
     pickedSelector = data.selector || '';
-    const sample = data.text || data.src || data.href || '';
+    pickedSample = `${data.tag || ''} ${data.text || data.src || data.href || ''}`.trim();
     const picked = document.getElementById('pickedElement');
-    if (!picked) return;
-    picked.innerHTML = `
-    <strong>${escapeHtml(pickedSelector)}</strong>
-    <div class="muted">${escapeHtml(data.tag || '')} ${escapeHtml(sample)}</div>`;
+    if (picked) picked.outerHTML = renderPickedElement();
 });
 
 // The URL fragment names the selected review and, for a schema review, its page and schema, so
