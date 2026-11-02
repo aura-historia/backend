@@ -2926,7 +2926,7 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
         }
     };
     use CrawlerDisposition::{Active, DormantSold, Duplicate};
-    use UrlClass::{Category, ProductListing};
+    use UrlClass::{Category, Other, ProductListing};
     store(
         listing_source_id,
         domain_id,
@@ -2948,6 +2948,16 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
         domain_id,
         "/products/retired",
         ProductListing,
+        Duplicate,
+    )
+    .await;
+    // A page stored before the domain had a product pattern keeps the class it was stored with
+    // when a later crawl retires it as a duplicate of its canonical URL.
+    store(
+        listing_source_id,
+        domain_id,
+        "/collections/a/products/retired",
+        Other,
         Duplicate,
     )
     .await;
@@ -3020,6 +3030,10 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
             RedirectDestination::NotAProductOfListingSource,
         ),
         ("/products/retired", RedirectDestination::Unsettled),
+        (
+            "/collections/a/products/retired",
+            RedirectDestination::Unsettled,
+        ),
         ("/products/mixed", RedirectDestination::Unsettled),
     ] {
         let destination = url::Url::parse(&format!("https://{host}{path}")).unwrap();

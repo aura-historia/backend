@@ -102,12 +102,13 @@ pub enum RedirectDestination {
     /// that is not itself retired: the page is scraped under its own row, so the redirected URL
     /// is its duplicate.
     ProductOfListingSource,
-    /// Every row of the page belongs to another ListingSource or domain or is no product URL: the
-    /// page is no product page of the ListingSource, as for any redirect to a non-product page.
+    /// Every row of the page belongs to another ListingSource or domain or is a non-product URL
+    /// of the ListingSource that is not retired: the page is no product page of the
+    /// ListingSource, as for any redirect to a non-product page.
     NotAProductOfListingSource,
-    /// The page's rows disagree, or it is a product URL of the ListingSource that is itself
-    /// retired as a duplicate. Nothing proves either reading, so the URL is neither retired nor
-    /// removed and the next pass checks it again.
+    /// The page's rows disagree, or the ListingSource retired the page as a duplicate, whatever
+    /// class it was stored with, so its canonical page may still carry the listing. Nothing
+    /// proves either reading, so the URL is neither retired nor removed.
     Unsettled,
 }
 
@@ -990,7 +991,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                           AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')),
                     COUNT(*) FILTER (
                         WHERE listing_source_id <> $2 OR domain_id <> $3
-                           OR url_class <> 'product')
+                           OR (url_class <> 'product' AND crawler_disposition <> 'DUPLICATE'))
              FROM listing_source_urls
              WHERE url = ANY($1::text[])",
         )
