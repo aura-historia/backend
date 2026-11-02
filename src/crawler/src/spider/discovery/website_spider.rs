@@ -394,6 +394,45 @@ impl SpiderDiscoveryError {
             source: None,
         }
     }
+
+    /// A refused crawl-root redirect, carrying where the root redirected to.
+    fn root_redirect(reason: &'static str, target: &Url) -> Self {
+        Self::Preflight {
+            kind: CrawlFailureKind::RedirectProblem,
+            reason,
+            source: Some(Box::new(RootRedirect::to(target))),
+        }
+    }
+
+    /// Where the crawl root redirected to, when the preflight refused to follow it.
+    pub fn redirect_target(&self) -> Option<&str> {
+        match self {
+            Self::Preflight {
+                source: Some(source),
+                ..
+            } => source
+                .downcast_ref::<RootRedirect>()
+                .map(|redirect| redirect.target.as_str()),
+            _ => None,
+        }
+    }
+}
+
+/// The target of a crawl-root redirect the preflight refused, in the spelling the crawler stores
+/// (`docs/crawler/networking.md#stored-urls`): without credentials, fragment and the session or
+/// tracking parameters that do not identify a page, so it can be logged.
+#[derive(Debug, Error)]
+#[error("the crawl root redirected to {target}")]
+pub struct RootRedirect {
+    target: String,
+}
+
+impl RootRedirect {
+    fn to(target: &Url) -> Self {
+        Self {
+            target: CrawledUrl::new(target.clone()).to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -638,9 +677,9 @@ fn root_redirect_target(
     })?;
 
     if !is_same_or_www_host(configured_root, &redirect_target) {
-        return Err(SpiderDiscoveryError::preflight(
-            CrawlFailureKind::RedirectProblem,
+        return Err(SpiderDiscoveryError::root_redirect(
             "crawl-root redirect target is outside the configured bare/www host",
+            &redirect_target,
         ));
     }
 
@@ -851,9 +890,9 @@ async fn follow_crawl_root(
         current_root = root_redirect_target(&configured_root, &current_root, location)?;
     }
 
-    Err(SpiderDiscoveryError::preflight(
-        CrawlFailureKind::RedirectProblem,
+    Err(SpiderDiscoveryError::root_redirect(
         "crawl-root redirect limit exceeded",
+        &current_root,
     ))
 }
 
@@ -1611,15 +1650,24 @@ fn apply_library_page(
     final_redirect_destination: Option<&str>,
     refusal: RootRefusal,
 ) {
-    let final_url = final_redirect_destination.unwrap_or(page_url).to_string();
+    let final_url = final_redirect_destination.unwrap_or(page_url);
     diagnostics.http_status = Some(status_code);
-    diagnostics.redirect_url =
-        (final_redirect_destination != Some(page_url)).then(|| final_url.clone());
+    diagnostics.redirect_url = final_redirect_destination
+        .filter(|destination| *destination != page_url)
+        .and_then(loggable_url);
 
-    if let Some(signal) = page_diagnostic_signal(crawl_root_url, &final_url, status_code, refusal) {
+    if let Some(signal) = page_diagnostic_signal(crawl_root_url, final_url, status_code, refusal) {
         diagnostics.apply_signal(signal);
     }
-    diagnostics.final_url = Some(final_url);
+    diagnostics.final_url = loggable_url(final_url);
+}
+
+/// `url` in the spelling the crawler stores (`docs/crawler/networking.md#stored-urls`), so a
+/// diagnostic never carries credentials or session parameters; none when it does not parse.
+fn loggable_url(url: &str) -> Option<String> {
+    Url::parse(url)
+        .ok()
+        .map(|url| CrawledUrl::new(url).to_string())
 }
 
 fn page_diagnostic_signal(
@@ -3636,7 +3684,9 @@ mod tests {
     async fn should_reject_off_host_root_redirect_without_retry() {
         let site = TestSite::spawn(Arc::new(|target: &str, previous: usize| {
             if target == "/" {
-                SiteResponse::Redirect("https://other.example/")
+                SiteResponse::Redirect(
+                    "https://user:secret@other.example/landing?sessionid=abc&ref=7#top",
+                )
             } else {
                 regression_site(target, previous)
             }
@@ -3653,6 +3703,11 @@ mod tests {
                 ..
             }
         ));
+        // Logged as the crawler would store it: no credentials, session id or fragment.
+        assert_eq!(
+            error.redirect_target(),
+            Some("https://other.example/landing?ref=7")
+        );
         assert_eq!(site.requests_for("/").await, 1);
         site.finish().await;
     }
@@ -3676,6 +3731,10 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!(
+            error.redirect_target(),
+            Some(format!("http://example.com/hop{MAX_ROOT_REDIRECTS}").as_str())
+        );
         assert_eq!(site.requests.lock().await.len(), MAX_ROOT_REDIRECTS + 1);
         site.finish().await;
     }
@@ -4651,7 +4710,7 @@ mod tests {
             "https://example.com",
             "https://example.com/",
             200,
-            Some("https://other.com/"),
+            Some("https://other.com/?PHPSESSID=abc"),
             AntiBotTech::None,
         );
 
@@ -4659,6 +4718,31 @@ mod tests {
             diagnostics.failure_kind,
             Some(CrawlFailureKind::RedirectProblem)
         );
+        assert_eq!(
+            diagnostics.redirect_url.as_deref(),
+            Some("https://other.com/")
+        );
+        assert_eq!(diagnostics.final_url.as_deref(), Some("https://other.com/"));
+    }
+
+    #[test]
+    fn should_record_no_redirect_target_for_a_root_that_did_not_redirect() {
+        for destination in [None, Some("https://example.com/")] {
+            let diagnostics = diagnostics_from_library_page(
+                "https://example.com",
+                "https://example.com/",
+                200,
+                destination,
+                AntiBotTech::None,
+            );
+
+            assert_eq!(diagnostics.redirect_url, None, "{destination:?}");
+            assert_eq!(
+                diagnostics.final_url.as_deref(),
+                Some("https://example.com/"),
+                "{destination:?}"
+            );
+        }
     }
 
     #[test]

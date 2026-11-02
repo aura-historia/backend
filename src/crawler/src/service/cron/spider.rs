@@ -540,15 +540,16 @@ fn log_spider_failure(
             cooldown_seconds = cooldown.as_secs(),
             "Spider run failed"
         ),
-        SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
-            reason, source, ..
-        }) => {
+        SpiderServiceError::Discovery(
+            preflight @ SpiderDiscoveryError::Preflight { reason, source, .. },
+        ) => {
             warn!(
                 domain = %candidate.listing_source_domain,
                 error = %error,
                 error_kind,
                 failure_count,
                 reason,
+                redirect_url = ?preflight.redirect_target(),
                 source = ?source,
                 next_crawl_at = %next_crawl_at,
                 cooldown_seconds = cooldown.as_secs(),

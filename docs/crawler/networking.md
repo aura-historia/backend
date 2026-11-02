@@ -11,7 +11,7 @@ Before each request, the crawler:
 3. rejects absent, mixed, or non-public DNS answers; and
 4. pins the approved addresses in the HTTP client for that request.
 
-This prevents a request from following DNS rebinding to a private address. Automatic redirects are disabled; each permitted redirect is explicitly validated and bounded. Spider navigation remains confined to its configured host, while scraper navigation may use only the configured bare host or its one-`www` equivalent. A redirect outside the applicable boundary fails rather than becoming a new crawl target. The spider treats an unrelated root redirect as terminal before URL state is persisted.
+This prevents a request from following DNS rebinding to a private address. Automatic redirects are disabled; each permitted redirect is explicitly validated and bounded. Spider navigation remains confined to its configured host, while scraper navigation may use only the configured bare host or its one-`www` equivalent. A redirect outside the applicable boundary fails rather than becoming a new crawl target. The spider treats an unrelated root redirect as terminal before URL state is persisted; the failure log names the redirect target (`redirect_url`), so a shop that moved can be told apart from a parked domain. Redirect targets and final URLs in spider diagnostics and logs are written in the [stored spelling](#stored-urls), without credentials or session parameters.
 
 Crawler domain ownership is a local canonical hostname: lowercase, no trailing dot, and at most one leading `www.` removed. Repeated `www.` prefixes and equivalent ownership by different ListingSources are rejected. The crawl-root host is retained separately so spider navigation remains exact-host constrained.
 
