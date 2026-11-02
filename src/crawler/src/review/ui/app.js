@@ -1102,8 +1102,8 @@ function setUrlFilterText(text) {
     rerenderUrlPatternView();
 }
 
-// Renders the summary, the filter counts and the table again, leaving the inputs alone so they
-// keep their focus.
+// Renders the summary, the filter counts, the table and the sample labels' "Decision takes it"
+// cells again, leaving the inputs alone so they keep their focus and what was typed into them.
 function rerenderUrlPatternView() {
     if (!selectedDetail) return;
     const review = selectedDetail.review;
@@ -1113,6 +1113,9 @@ function rerenderUrlPatternView() {
         urlFilterChips: () => renderUrlFilterChips(view),
         urlPatternTable: () => renderUrls(review, view)
     };
+    currentSampleLabels(review).forEach((label, index) => {
+        parts[`sampleLabelTakes${index}`] = () => renderSampleLabelTakes(label);
+    });
     for (const [id, render] of Object.entries(parts)) {
         const element = document.getElementById(id);
         if (element) element.innerHTML = render();
@@ -1219,6 +1222,15 @@ function decisionPreviewTakes(url) {
     }
 }
 
+// Whether the decision in the pattern input takes the labelled URL, and whether that agrees with
+// its label.
+function renderSampleLabelTakes(label) {
+    const takes = decisionPreviewTakes(label.url);
+    const takesText = takes === null ? '' : (takes ? 'yes' : 'no');
+    const consistent = takes === null || takes === (label.label === 'PRODUCT');
+    return consistent ? escapeHtml(takesText) : badge(displayName(`${takesText}: inconsistent`));
+}
+
 // The author agent's or a human's labels of URLs of the review's domain, its sample's among
 // them: which are product pages. An agent approval of the pattern rests on them alone; the
 // reviewer agent cannot change them.
@@ -1231,20 +1243,15 @@ function renderSampleLabels(review) {
     const status = sampleLabelDraft
         ? 'unsaved label edits'
         : (stored ? `set ${timeBadge(stored.labelled_at, 'Labelled')}` : 'no labels yet');
-    const rows = labels.map((label, index) => {
-        const takes = decisionPreviewTakes(label.url);
-        const takesText = takes === null ? '' : (takes ? 'yes' : 'no');
-        const consistent = takes === null || takes === (label.label === 'PRODUCT');
-        return `<tr>
+    const rows = labels.map((label, index) => `<tr>
           <td>${linkifyText(label.url)}</td>
           <td>${editable ? renderSampleLabelSelect(label.label, `setSampleLabelKind(${index}, this.value)`, false) : statusBadge(label.label)}</td>
           <td>${editable
             ? `<input value="${escapeHtmlAttr(label.reason || '')}" placeholder="Why" oninput="setSampleLabelReason(${index}, this.value)">`
             : escapeHtml(label.reason || '')}</td>
-          <td>${consistent ? escapeHtml(takesText) : badge(displayName(`${takesText}: inconsistent`))}</td>
+          <td id="sampleLabelTakes${index}">${renderSampleLabelTakes(label)}</td>
           <td>${editable ? `<button onclick="removeSampleLabel(${index})">Remove</button>` : ''}</td>
-        </tr>`;
-    }).join('');
+        </tr>`).join('');
     const adder = editable ? `<div class="actions">
         <input id="sampleLabelUrl" placeholder="Another URL of the review's domain">
         ${renderSampleLabelSelect('PRODUCT', '', false).replace('<select', '<select id="sampleLabelKind"')}
