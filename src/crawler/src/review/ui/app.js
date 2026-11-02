@@ -783,8 +783,9 @@ function autoSchemaEvaluation(review) {
 }
 
 // The one outcome of the crawler's LLM evaluation of a generated schema: auto-approved when the
-// model approved it with high confidence and the deterministic gate passed, rejected when the
-// model rejected it, otherwise left to a human. The model's own decision and confidence and the
+// crawler approved it itself (`approved_by_llm`: in `auto` mode, on the model's high-confidence
+// approval and a passed deterministic gate), rejected when the model rejected it, otherwise left
+// to a human. The model's own decision and confidence and the
 // gate's result are shown apart from it, labelled, so they never read as a second outcome.
 function autoSchemaOutcome(evaluation) {
     if (evaluation.approved_by_llm) return {text: 'Auto-approved', tone: 'approved'};
