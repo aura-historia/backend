@@ -367,7 +367,7 @@ function renderMissingValueSources(listingSources) {
 // URL in the handler's source would let the shop run script in the console.
 function renderMissingValuePages(listingSourceId, pages) {
     if (pages.error) return `<div class="queue-meta">${escapeHtml(pages.error)}</div>`;
-    return pages.map((page, index) => `<div class="queue-meta" onclick="event.stopPropagation()">
+    return pages.map((page, index) => `<div class="queue-meta missing-value-page" onclick="event.stopPropagation()">
         ${productPageLink(page.url)} ${escapeHtml(page.missing || '')}
         <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', ${index})">Add to review</button>
       </div>`).join('');

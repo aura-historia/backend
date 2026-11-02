@@ -502,8 +502,15 @@ section {
     white-space: normal;
 }
 
+/* The operator and missing-value groups have a static head: its text shrinks so the badge
+   stays inside the sidebar. */
 div.listing-source-group-head {
     cursor: default;
+}
+
+div.listing-source-group-head > div:first-child {
+    flex: 1;
+    min-width: 0;
 }
 
 .group-text {
@@ -536,6 +543,7 @@ div.listing-source-group-head {
 
 .listing-source-group-actions {
     display: flex;
+    flex: none;
     align-items: center;
     gap: var(--s2);
 }
@@ -565,6 +573,29 @@ div.listing-source-group-head {
     padding: 6px var(--s2);
     border-radius: var(--radius);
     color: inherit;
+}
+
+div.item[onclick] {
+    cursor: pointer;
+}
+
+/* A missing-value page: its address truncates so Add to review stays visible. */
+.missing-value-page {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.missing-value-page .product-url {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.missing-value-page button {
+    flex: none;
+    min-height: 24px;
+    margin-left: auto;
+    padding: 2px var(--s2);
 }
 
 .item:hover {
