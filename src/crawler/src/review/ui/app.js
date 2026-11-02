@@ -227,17 +227,16 @@ function renderReviewGroups(reviews) {
 
     return groups.map(group => {
         const pendingCount = group.reviews.filter(review => review.status === 'PENDING_REVIEW').length;
-        const productSchemaCount = group.reviews.filter(review => review.artifact_type === 'PRODUCT_SCHEMA').length;
         const collapsed = collapsedListingSourceGroups.has(group.listingSourceId);
         return `<div class="listing-source-group">
           <div class="listing-source-group-head" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
             <div>
               <div class="queue-title">${escapeHtml(group.listingSourceName)}</div>
-              <div class="queue-meta">${productSchemaCount} schema review${productSchemaCount === 1 ? '' : 's'} / ${group.reviews.length} total</div>
+              <div class="queue-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}</div>
               ${group.crawlEnabled ? '' : '<div class="queue-meta">Crawling disabled</div>'}
             </div>
             <div class="listing-source-group-actions">
-              ${statusBadge(`${pendingCount} pending`)}
+              ${pendingCount ? badge(`${pendingCount} pending`, 'pending') : '<span class="muted">Reviewed</span>'}
               <span class="collapse-indicator">${collapsed ? '+' : '-'}</span>
             </div>
           </div>
@@ -246,6 +245,24 @@ function renderReviewGroups(reviews) {
           </div>
         </div>`;
     }).join('');
+}
+
+const ARTIFACT_TYPE_COUNT_NAMES = {
+    PRODUCT_SCHEMA: ['product schema', 'product schemas'],
+    URL_PATTERN: ['URL pattern', 'URL patterns']
+};
+
+// How many of `reviews` there are of each artifact type, such as "2 product schemas · 1 URL
+// pattern", in the order the types first appear.
+function reviewCountsByArtifactType(reviews) {
+    const counts = new Map();
+    for (const review of reviews) {
+        counts.set(review.artifact_type, (counts.get(review.artifact_type) || 0) + 1);
+    }
+    return [...counts].map(([type, count]) => {
+        const [one, many] = ARTIFACT_TYPE_COUNT_NAMES[type] || [displayName(type), displayName(type)];
+        return `${count} ${count === 1 ? one : many}`;
+    }).join(' · ');
 }
 
 // A domain whose deterministic crawl failures kept repeating opens no review, so the queue
