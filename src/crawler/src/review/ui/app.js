@@ -3179,18 +3179,17 @@ function markDirty() {
     updateReloadState();
 }
 
+// The state is a live region that every render updates, so it changes its text only when the
+// state changes: rewriting the same text would have a screen reader announce it again.
 function updateReloadState() {
     const state = document.getElementById('reloadState');
-    if (dirty) {
-        state.textContent = 'Review has local edits';
-        state.className = 'system-status dirty';
-    } else if (selectedReviewNeedsRefresh) {
-        state.textContent = 'Selected review changed elsewhere - refresh to update';
-        state.className = 'system-status stale';
-    } else {
-        state.textContent = 'Queue auto refresh active';
-        state.className = 'system-status';
-    }
+    const [text, className] = dirty
+        ? ['Review has local edits', 'system-status dirty']
+        : selectedReviewNeedsRefresh
+            ? ['Selected review changed elsewhere - refresh to update', 'system-status stale']
+            : ['Queue auto refresh active', 'system-status'];
+    if (state.textContent !== text) state.textContent = text;
+    state.className = className;
 }
 
 function toggleSidebar() {
