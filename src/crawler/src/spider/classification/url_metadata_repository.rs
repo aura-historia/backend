@@ -301,9 +301,10 @@ impl UrlMetadataRepositoryImpl {
     /// stored as fetched, when it names the page itself in another spelling, when it is no crawler
     /// URL of this domain, when a rejection covers the page or its canonical URL (the rejection
     /// keeps the fetched page `other`), when another ListingSource or domain owns it, when it is
-    /// itself retired as a duplicate, or when the batch canonicalizes a page onto a page that is
-    /// itself canonicalized, so no row is moved along a chain the shop may not mean. Pages are
-    /// compared whatever their trailing slash.
+    /// itself retired as a duplicate, when its row stays a non-product row through this write
+    /// (the write reclassifies only `ACTIVE` rows), or when the batch canonicalizes a page onto a
+    /// page that is itself canonicalized, so no row is moved along a chain the shop may not mean.
+    /// Pages are compared whatever their trailing slash.
     async fn admit_canonical_urls(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
@@ -346,12 +347,15 @@ impl UrlMetadataRepositoryImpl {
                 "SELECT url FROM listing_source_urls \
                  WHERE url = ANY($3::text[]) \
                    AND (listing_source_id <> $1 OR domain_id <> $2 \
-                        OR crawler_disposition = $4)",
+                        OR crawler_disposition = $4 \
+                        OR (url_class <> $5 AND crawler_disposition <> $6))",
             )
             .bind(uuid::Uuid::from(listing_source_id))
             .bind(domain_id.as_uuid())
             .bind(&target_spellings)
             .bind(CrawlerDisposition::Duplicate.as_str())
+            .bind(UrlClass::ProductListing.as_str())
+            .bind(CrawlerDisposition::Active.as_str())
             .fetch_all(&mut **transaction)
             .await
             .map_err(database_error)?
