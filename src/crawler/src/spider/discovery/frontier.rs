@@ -178,13 +178,15 @@ impl FoundLinks {
         }
     }
 
-    /// The seeds and found links whose page the crawl neither delivered nor already knew, at
-    /// most [`MAX_FRONTIER_URLS`].
-    pub(super) fn frontier(
+    /// The seeds and found links whose page the crawl neither delivered nor `visited` counts,
+    /// each once, at most [`MAX_FRONTIER_URLS`]. A page arrives in the spelling the crawler
+    /// stores, which differs from the link Spider counts visited when the link carried
+    /// parameters that do not identify the page.
+    pub(super) fn unvisited(
         &self,
         seeds: &[String],
-        known: &HashSet<CaseInsensitiveString>,
-    ) -> Vec<Url> {
+        visited: impl Fn(&CaseInsensitiveString) -> bool,
+    ) -> Vec<String> {
         let found = self.snapshot();
         let delivered = self
             .delivered
@@ -193,12 +195,22 @@ impl FoundLinks {
             .clone();
         unvisited(
             seeds.iter().chain(found.iter()),
-            |link| delivered.contains(link) || known.contains(link),
+            |link| delivered.contains(link) || visited(link),
             MAX_FRONTIER_URLS,
         )
-        .iter()
-        .filter_map(|url| Url::parse(url).ok())
-        .collect()
+    }
+
+    /// The seeds and found links whose page the crawl neither delivered nor already knew, at
+    /// most [`MAX_FRONTIER_URLS`].
+    pub(super) fn frontier(
+        &self,
+        seeds: &[String],
+        known: &HashSet<CaseInsensitiveString>,
+    ) -> Vec<Url> {
+        self.unvisited(seeds, |link| known.contains(link))
+            .iter()
+            .filter_map(|url| Url::parse(url).ok())
+            .collect()
     }
 
     /// Records the links of the page at `page_url`, written as the page writes them: Spider

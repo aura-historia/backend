@@ -26,8 +26,7 @@ use crate::network::policy::{
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::spider::discovery::frontier::{
-    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, MAX_FRONTIER_URLS, SeedAdmission,
-    known_spellings, unvisited,
+    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission, known_spellings,
 };
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
@@ -941,13 +940,8 @@ async fn run_library_crawl(
     if seed_phase_allowed {
         // Pages the filter task has not relayed yet miss here; what their
         // links lead to carries over in the frontier instead.
-        let found_links = found.snapshot();
         let visited = website.get_links();
-        let pending = unvisited(
-            seeds.iter().chain(found_links.iter()),
-            |link| visited.contains(link),
-            MAX_FRONTIER_URLS,
-        );
+        let pending = found.unvisited(&seeds, |link| visited.contains(link));
         if !pending.is_empty() {
             website.persist_links();
             website.set_extra_links(pending.into_iter().map(Into::into).collect());
@@ -2838,6 +2832,41 @@ mod tests {
         assert!(delivered.contains("http://example.com/product/3"));
         assert!(
             !requests.iter().any(|(host, ..)| host == "www.example.com"),
+            "{requests:?}"
+        );
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    /// Spider counts the link as written visited, while the page arrives under the spelling the
+    /// crawler stores, so the seed phase must not take the delivered page for an unvisited link.
+    #[tokio::test]
+    async fn should_fetch_a_page_linked_with_tracking_parameters_once() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/product/1?utm_source=newsletter">1</a>"#.to_string(),
+            ),
+            "/product/1" | "/deep/1" => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: vec![example("/deep/1")],
+            ..CrawlSeeds::default()
+        };
+
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(delivered.contains("http://example.com/deep/1"));
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(_, target, ..)| target.starts_with("/product/1"))
+                .count(),
+            1,
             "{requests:?}"
         );
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
