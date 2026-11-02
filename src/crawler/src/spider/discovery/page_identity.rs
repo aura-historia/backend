@@ -7,7 +7,9 @@ use std::sync::LazyLock;
 use url::Url;
 
 use crate::spider::utils::url::CrawledUrl;
-use crate::spider::utils::url::canonical::{PageIdentityEvidence, ShopPlatform};
+use crate::spider::utils::url::canonical::{
+    PageIdentityEvidence, ShopPlatform, platform_product_url,
+};
 
 /// How far into a page the `<head>` is looked for. Shopify heads run to about 60 KiB; a page
 /// whose head ends later is read up to this bound only.
@@ -25,9 +27,10 @@ static BASE: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("base[href]").expect("base selector"));
 
 /// The identity evidence of the page fetched as `page` whose response, after redirects, came
-/// from `final_url` with `html` as its body. A link counts only when it resolves to an http(s)
-/// URL on `page`'s origin that `admits` lets the crawl fetch. Conflicting canonical links, and
-/// relative links on a page with a `<base>` element, are ignored instead of guessed at.
+/// from `final_url` with `html` as its body. A link, and a shop system's product URL of the
+/// page, counts only when it is an http(s) URL on `page`'s origin that `admits` lets the crawl
+/// fetch. Conflicting canonical links, and relative links on a page with a `<base>` element,
+/// are ignored instead of guessed at.
 pub fn page_identity_evidence(
     page: &CrawledUrl,
     final_url: &Url,
@@ -38,10 +41,16 @@ pub fn page_identity_evidence(
     let platform = head
         .contains(SHOPIFY_MARKER)
         .then_some(ShopPlatform::Shopify);
+    let platform_product_urls = ShopPlatform::ALL
+        .into_iter()
+        .filter_map(|platform| Some((platform, platform_product_url(page, platform)?)))
+        .filter(|(_, url)| admits(url))
+        .collect();
     let lowercase_head = head.to_ascii_lowercase();
     if !lowercase_head.contains("canonical") && !lowercase_head.contains("hreflang") {
         return PageIdentityEvidence {
             platform,
+            platform_product_urls,
             ..PageIdentityEvidence::default()
         };
     }
@@ -90,6 +99,7 @@ pub fn page_identity_evidence(
         canonical_link,
         language_alternates,
         platform,
+        platform_product_urls,
     }
 }
 
@@ -241,6 +251,24 @@ mod tests {
             html.as_bytes(),
             |_| true,
         );
-        assert_eq!(evidence, PageIdentityEvidence::default());
+        assert_eq!(evidence.canonical_link, None);
+        assert_eq!(evidence.platform, None);
+    }
+
+    #[test]
+    fn should_hold_the_shopify_product_url_only_when_the_crawl_may_fetch_it() {
+        let allowed = evidence_of("<title>Ladle</title>");
+        assert_eq!(
+            allowed.platform_product_urls,
+            vec![(
+                ShopPlatform::Shopify,
+                CrawledUrl::try_from("https://frenchmetro.com/products/ladle").unwrap()
+            )]
+        );
+
+        let disallowed = evidence_admitting("<title>Ladle</title>", |url| {
+            !url.as_url().path().starts_with("/products/")
+        });
+        assert_eq!(disallowed.platform_product_urls, vec![]);
     }
 }

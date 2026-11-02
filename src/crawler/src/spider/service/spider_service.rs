@@ -986,6 +986,8 @@ fn log_crawl_outcome(
         crawl_budget_ms = diagnostics.crawl_budget_ms,
         seeds = diagnostics.seeds,
         known_skipped = diagnostics.known_skipped,
+        known_fetches_saved = diagnostics.known_fetches_saved,
+        root_reroot = ?diagnostics.root_reroot,
         frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
         at_budget = completion == CrawlCompletion::PageBudgetReached,
         diagnostic_reason = ?diagnostics.diagnostic_reason,
@@ -2839,7 +2841,8 @@ mod service_tests {
 
     /// Every product page reaches storage with its canonical URL: from its canonical link, as a
     /// language copy, or by the Shopify rule the crawl applies once a page showed Shopify's
-    /// markers, also to pages that carry no evidence of their own.
+    /// markers, also to pages that carry no markers of their own, as long as the crawl may fetch
+    /// the Shopify product URL.
     #[tokio::test]
     async fn should_store_each_duplicate_product_page_under_its_canonical_url() {
         let mut mock_spider = MockSpider::new();
@@ -2866,7 +2869,13 @@ mod service_tests {
             ),
             shop_page(
                 "/collections/sale/products/spoon",
-                PageIdentityEvidence::default(),
+                PageIdentityEvidence {
+                    platform_product_urls: vec![(
+                        ShopPlatform::Shopify,
+                        page_url("/products/spoon"),
+                    )],
+                    ..PageIdentityEvidence::default()
+                },
             ),
             shop_page(
                 "/en/products/bowl",
@@ -2877,6 +2886,7 @@ mod service_tests {
                         page_url("/en/products/bowl"),
                     ],
                     platform: Some(ShopPlatform::Shopify),
+                    ..PageIdentityEvidence::default()
                 },
             ),
             shop_page("/products/ladle", PageIdentityEvidence::default()),

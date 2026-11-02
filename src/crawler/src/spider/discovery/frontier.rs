@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
 use url::Url;
 
+use super::known_pages::{KnownPage, KnownPages};
 use super::robots::CrawlRobots;
 use super::website_spider::CrawlPace;
 use crate::spider::utils::url::CrawledUrl;
@@ -205,33 +206,31 @@ impl FoundLinks {
 
     /// The seeds and found links whose page the crawl neither delivered nor already knew, at
     /// most [`MAX_FRONTIER_URLS`].
-    pub(super) fn frontier(
-        &self,
-        seeds: &[String],
-        known: &HashSet<CaseInsensitiveString>,
-    ) -> Vec<Url> {
-        self.unvisited(seeds, |link| known.contains(link))
-            .iter()
-            .filter_map(|url| Url::parse(url).ok())
-            .collect()
+    pub(super) fn frontier(&self, seeds: &[String], known: &KnownPages) -> Vec<Url> {
+        self.unvisited(seeds, |link| {
+            Url::parse(link.inner()).is_ok_and(|url| known.page_of(&url).is_some())
+        })
+        .iter()
+        .filter_map(|url| Url::parse(url).ok())
+        .collect()
     }
 
-    /// How many pages of `known` the delivered pages link that the crawl did not deliver, each
-    /// page once whatever its trailing slash.
-    pub(super) fn skipped_known(&self, known: &HashSet<CaseInsensitiveString>) -> usize {
+    /// How many known product pages the delivered pages link that the crawl did not deliver,
+    /// each page once whatever its trailing slash.
+    pub(super) fn skipped_known(&self, known: &KnownPages) -> usize {
         let delivered = self
             .delivered
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
+        let is_delivered = |url: &str| delivered.contains(&CaseInsensitiveString::from(url));
         self.snapshot()
             .iter()
-            .filter(|link| {
-                let link = CaseInsensitiveString::from(link.as_str());
-                known.contains(&link) && !delivered.contains(&link)
-            })
+            .filter(|link| !is_delivered(link))
             .filter_map(|link| Url::parse(link).ok())
-            .map(|url| CrawledUrl::new(url).page_spelling())
+            .filter_map(|url| known.page_of(&url))
+            .filter(|(page, kind)| *kind == KnownPage::Product && !is_delivered(page.as_str()))
+            .map(|(page, _)| page)
             .collect::<HashSet<_>>()
             .len()
     }
@@ -289,18 +288,6 @@ pub(super) fn unvisited<'a>(
         .filter(|candidate| kept.insert(candidate.to_ascii_lowercase()))
         .take(limit)
         .cloned()
-        .collect()
-}
-
-/// Every spelling under which Spider may meet a page the crawl already knows: a page linked
-/// with and without its trailing slash is one page (`docs/crawler/networking.md#stored-urls`).
-pub(super) fn known_spellings<'a>(
-    known: impl IntoIterator<Item = &'a Url>,
-) -> Vec<CaseInsensitiveString> {
-    known
-        .into_iter()
-        .flat_map(|url| CrawledUrl::new(url.clone()).page_spellings())
-        .map(|url| CaseInsensitiveString::from(url.as_str()))
         .collect()
 }
 
@@ -417,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn should_count_each_known_page_linked_but_not_delivered_once() {
+    fn should_count_each_known_product_page_linked_but_not_delivered_once() {
         let found = FoundLinks::new(Arc::new(follow_rules(r"/denied")));
         let links: Vec<CaseInsensitiveString> = [
             "/product/1",
@@ -425,29 +412,22 @@ mod tests {
             "/product/2",
             "/product/3",
             "/category/1",
+            "/old/1",
         ]
         .into_iter()
         .map(CaseInsensitiveString::from)
         .collect();
         found.record("https://shop.example/", &links);
         found.record_delivered("https://shop.example/product/2");
-        let known: HashSet<CaseInsensitiveString> =
-            known_spellings(&[url("/product/1"), url("/product/2"), url("/product/9")])
-                .into_iter()
-                .collect();
+        let known = KnownPages::new(
+            &url("/"),
+            &CrawlSeeds {
+                known: vec![url("/product/1"), url("/product/2"), url("/product/9")],
+                retired: vec![url("/old/1")],
+                ..CrawlSeeds::default()
+            },
+        );
 
         assert_eq!(found.skipped_known(&known), 1);
-    }
-
-    #[test]
-    fn should_know_a_page_under_both_trailing_slash_spellings() {
-        let spellings = known_spellings(&[url("/product/1/")]);
-
-        assert!(spellings.contains(&CaseInsensitiveString::from(
-            "https://shop.example/product/1"
-        )));
-        assert!(spellings.contains(&CaseInsensitiveString::from(
-            "https://shop.example/product/1/"
-        )));
     }
 }

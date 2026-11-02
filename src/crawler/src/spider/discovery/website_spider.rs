@@ -27,11 +27,13 @@ use crate::network::policy::{
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::spider::discovery::frontier::{
-    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission, known_spellings,
+    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
 };
+use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::robots::admit_crawl;
+use crate::spider::discovery::root_host::{RootReroot, dominant_twin};
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::PageIdentityEvidence;
 
@@ -321,6 +323,15 @@ pub struct CrawlDiagnostics {
     /// Known product pages the delivered pages link that an incremental
     /// crawl did not fetch again, each page once.
     pub known_skipped: usize,
+    /// Links to known pages an incremental crawl answered itself instead of
+    /// requesting them, each link once: links Spider meets in a spelling
+    /// it had not marked visited, such as with session or tracking
+    /// parameters or under a Shopify collection
+    /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+    pub known_fetches_saved: usize,
+    /// The move of the crawl root to its twin host the root page's links
+    /// asked for, with the link counts (`docs/crawler/networking.md#destination-policy`).
+    pub root_reroot: Option<RootReroot>,
 }
 
 impl CrawlDiagnostics {
@@ -387,6 +398,45 @@ impl SpiderDiscoveryError {
             kind,
             reason,
             source: None,
+        }
+    }
+
+    /// A refused crawl-root redirect, carrying where the root redirected to.
+    fn root_redirect(reason: &'static str, target: &Url) -> Self {
+        Self::Preflight {
+            kind: CrawlFailureKind::RedirectProblem,
+            reason,
+            source: Some(Box::new(RootRedirect::to(target))),
+        }
+    }
+
+    /// Where the crawl root redirected to, when the preflight refused to follow it.
+    pub fn redirect_target(&self) -> Option<&str> {
+        match self {
+            Self::Preflight {
+                source: Some(source),
+                ..
+            } => source
+                .downcast_ref::<RootRedirect>()
+                .map(|redirect| redirect.target.as_str()),
+            _ => None,
+        }
+    }
+}
+
+/// The target of a crawl-root redirect the preflight refused, in the spelling the crawler stores
+/// (`docs/crawler/networking.md#stored-urls`): without credentials, fragment and the session or
+/// tracking parameters that do not identify a page, so it can be logged.
+#[derive(Debug, Error)]
+#[error("the crawl root redirected to {target}")]
+pub struct RootRedirect {
+    target: String,
+}
+
+impl RootRedirect {
+    fn to(target: &Url) -> Self {
+        Self {
+            target: CrawledUrl::new(target.clone()).to_string(),
         }
     }
 }
@@ -580,10 +630,12 @@ impl Default for SpiderImpl {
     }
 }
 
+/// The page-body limit Spider reads from `SPIDER_MAX_SIZE_BYTES`, which the preflight holds the
+/// root page it reads to as well.
 fn configured_spider_body_limit(
     configured: Option<&str>,
     maximum: usize,
-) -> Result<(), SpiderDiscoveryError> {
+) -> Result<usize, SpiderDiscoveryError> {
     let configured = configured
         .ok_or_else(|| {
             SpiderDiscoveryError::Config(format!(
@@ -601,7 +653,7 @@ fn configured_spider_body_limit(
             "{SPIDER_MAX_BODY_BYTES_ENV} must be between 1048576 and {maximum} bytes"
         )));
     }
-    Ok(())
+    Ok(configured)
 }
 
 pub(super) fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
@@ -633,9 +685,9 @@ fn root_redirect_target(
     })?;
 
     if !is_same_or_www_host(configured_root, &redirect_target) {
-        return Err(SpiderDiscoveryError::preflight(
-            CrawlFailureKind::RedirectProblem,
+        return Err(SpiderDiscoveryError::root_redirect(
             "crawl-root redirect target is outside the configured bare/www host",
+            &redirect_target,
         ));
     }
 
@@ -779,6 +831,8 @@ struct PreflightedRoot {
     url: Url,
     status: u16,
     client: spider::reqwest::Client,
+    /// The move to the twin host the root page's links asked for, when it did.
+    reroot: Option<RootReroot>,
 }
 
 /// Bounds the whole redirect chain, retries included, so a stalling host
@@ -789,10 +843,11 @@ async fn preflight_crawl_root(
     timeout: Duration,
     retry: RetryPolicy,
     deadline: Duration,
+    max_body_bytes: usize,
 ) -> Result<PreflightedRoot, SpiderDiscoveryError> {
     tokio::time::timeout(
         deadline,
-        follow_crawl_root(transport, configured_root, timeout, retry),
+        follow_crawl_root(transport, configured_root, timeout, retry, max_body_bytes),
     )
     .await
     .unwrap_or_else(|_| {
@@ -803,23 +858,48 @@ async fn preflight_crawl_root(
     })
 }
 
+/// Follows the crawl root's redirects within its bare/www host, and moves it to its twin host
+/// once when the root page's links point mostly there ([`dominant_twin`]), the way a redirect to
+/// the twin would; a move counts against the redirect bound. A host the chain already left is
+/// never moved back to, and a move the twin redirects back from is not one.
 async fn follow_crawl_root(
     transport: &dyn SpiderTransport,
     configured_root: Url,
     timeout: Duration,
     retry: RetryPolicy,
+    max_body_bytes: usize,
 ) -> Result<PreflightedRoot, SpiderDiscoveryError> {
     let mut current_root = configured_root.clone();
+    let mut visited_hosts = Vec::new();
+    let mut reroot = None;
 
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
         let RootFetch { response, client } =
             fetch_crawl_root(transport, &current_root, timeout, retry).await?;
+        visited_hosts.push(current_root.host_str().map(str::to_owned));
 
         if !response.status().is_redirection() {
+            let status = response.status().as_u16();
+            if reroot.is_none()
+                && response.status().is_success()
+                && redirect_count < MAX_ROOT_REDIRECTS
+                && let Some(moved) = root_page_reroot(&current_root, response, max_body_bytes)
+                    .await
+                    .filter(|moved| {
+                        !visited_hosts.contains(&moved.to.host_str().map(str::to_owned))
+                    })
+            {
+                current_root = moved.to.clone();
+                reroot = Some(moved);
+                continue;
+            }
+            // A twin that redirected back did not take the crawl.
+            let reroot = reroot.filter(|moved| moved.to.host_str() == current_root.host_str());
             return Ok(PreflightedRoot {
                 url: current_root,
-                status: response.status().as_u16(),
+                status,
                 client,
+                reroot,
             });
         }
 
@@ -846,10 +926,29 @@ async fn follow_crawl_root(
         current_root = root_redirect_target(&configured_root, &current_root, location)?;
     }
 
-    Err(SpiderDiscoveryError::preflight(
-        CrawlFailureKind::RedirectProblem,
+    Err(SpiderDiscoveryError::root_redirect(
         "crawl-root redirect limit exceeded",
+        &current_root,
     ))
+}
+
+/// The move [`dominant_twin`] asks for, read from at most `max_body_bytes` of the root page.
+/// A body that cannot be read asks for none: Spider fetches the root page again anyway.
+async fn root_page_reroot(
+    root: &Url,
+    mut response: spider::reqwest::Response,
+    max_body_bytes: usize,
+) -> Option<RootReroot> {
+    let mut body = Vec::new();
+    while body.len() < max_body_bytes {
+        match response.chunk().await {
+            Ok(Some(chunk)) => body.extend_from_slice(&chunk),
+            Ok(None) => break,
+            Err(_) => return None,
+        }
+    }
+    body.truncate(max_body_bytes);
+    dominant_twin(root, &body)
 }
 
 /// Bounded Spider retries that never re-fetch what a retry cannot improve: a
@@ -1075,6 +1174,8 @@ struct LocalFilter {
     seen: Bloom<String>,
     /// The links on every delivered page, for the crawl's frontier.
     found_links: FoundLinks,
+    /// The pages an incremental crawl knows, and the links to them it answered itself.
+    known_pages: Arc<KnownPageAnswers>,
 }
 
 impl LocalFilter {
@@ -1203,7 +1304,10 @@ impl SpiderImpl {
         request: CrawlRequest,
         configured_body_limit: Option<&str>,
     ) -> Result<SpiderCrawl, SpiderDiscoveryError> {
-        configured_spider_body_limit(configured_body_limit, self.config.max_response_body_bytes)?;
+        let max_body_bytes = configured_spider_body_limit(
+            configured_body_limit,
+            self.config.max_response_body_bytes,
+        )?;
         let CrawlRequest {
             crawl_root_url,
             pace,
@@ -1225,12 +1329,14 @@ impl SpiderImpl {
             url: root_url,
             status: root_preflight_status,
             client,
+            reroot: root_reroot,
         } = preflight_crawl_root(
             self.transport.as_ref(),
             configured_root,
             request_timeout,
             self.config.preflight_retry,
             self.config.preflight_deadline,
+            max_body_bytes,
         )
         .await?;
         let host_whitelist = configured_host_whitelist(&root_url)?;
@@ -1308,9 +1414,11 @@ impl SpiderImpl {
             }))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
-        let known_product_links = known_links(&root_url, &seeds.known);
-        let known_links = known_links(&root_url, seeds.known.iter().chain(&seeds.retired));
-        let known_link_count = mark_known_links_visited(&mut website, &known_links).await;
+        let known_pages = Arc::new(KnownPageAnswers::new(KnownPages::new(&root_url, &seeds)));
+        let known_link_count = mark_known_links_visited(&mut website, known_pages.known()).await;
+        if !known_pages.known().is_empty() {
+            website.with_shared_fetch_engine(known_pages.clone());
+        }
 
         let spider_rx = website.subscribe(512);
 
@@ -1355,6 +1463,7 @@ impl SpiderImpl {
             seen: Bloom::new_for_fp_rate(self.config.bloom_capacity, self.config.bloom_fp_rate)
                 .expect("bloom filter init failed"),
             found_links: found_links.clone(),
+            known_pages: Arc::clone(&known_pages),
         };
         let mut diagnostics = CrawlDiagnostics {
             root_preflight_status: Some(root_preflight_status),
@@ -1366,6 +1475,7 @@ impl SpiderImpl {
             request_delay_ms: delay_millis,
             crawl_budget_ms: u64::try_from(crawl_duration.as_millis()).unwrap_or(u64::MAX),
             seeds: seed_count,
+            root_reroot,
             ..CrawlDiagnostics::default()
         };
         tokio::spawn(async move {
@@ -1388,9 +1498,10 @@ impl SpiderImpl {
                     }
                     // Every page is relayed by now, so its links are known.
                     let discovery = CrawlDiscovery {
-                        frontier: found_links.frontier(&frontier_seeds, &known_links),
+                        frontier: found_links.frontier(&frontier_seeds, known_pages.known()),
                     };
-                    diagnostics.known_skipped = found_links.skipped_known(&known_product_links);
+                    diagnostics.known_skipped = found_links.skipped_known(known_pages.known());
+                    diagnostics.known_fetches_saved = known_pages.answered_links();
                     apply_library_outcome(&mut diagnostics, outcome);
                     diagnostics.completion = completion_with_frontier(
                         diagnostics.completion,
@@ -1418,32 +1529,16 @@ impl SpiderImpl {
     }
 }
 
-/// The links of the stored URLs an incremental crawl does not fetch again, in both
-/// trailing-slash spellings; never the root, which stays crawlable.
-fn known_links<'a>(
-    root: &Url,
-    known: impl IntoIterator<Item = &'a Url>,
-) -> HashSet<CaseInsensitiveString> {
-    let root_spelling = CaseInsensitiveString::from(root.as_str());
-    known_spellings(known)
-        .into_iter()
-        .filter(|link| *link != root_spelling)
-        .collect()
-}
-
 /// Marks the known links visited so Spider skips them. Spider keeps marked
 /// links only when the crawl continues an earlier state, so the website is
 /// marked as such. Returns how many links Spider now counts as visited, which
 /// its page count includes.
-async fn mark_known_links_visited(
-    website: &mut Website,
-    known: &HashSet<CaseInsensitiveString>,
-) -> usize {
+async fn mark_known_links_visited(website: &mut Website, known: &KnownPages) -> usize {
     if known.is_empty() {
         return 0;
     }
     website.persist_links();
-    for link in known {
+    for link in known.spellings() {
         website.insert_link(link).await;
     }
     website.size()
@@ -1507,6 +1602,9 @@ async fn relay_library_pages(
                 Err(_) => continue,
             },
         };
+        if filter.known_pages.answered(page.get_url()) {
+            continue;
+        }
         diagnostics.pages_received += 1;
         let status_code = page.status_code.as_u16();
         diagnostics.status_counts.count(status_code);
@@ -1622,15 +1720,24 @@ fn apply_library_page(
     final_redirect_destination: Option<&str>,
     refusal: RootRefusal,
 ) {
-    let final_url = final_redirect_destination.unwrap_or(page_url).to_string();
+    let final_url = final_redirect_destination.unwrap_or(page_url);
     diagnostics.http_status = Some(status_code);
-    diagnostics.redirect_url =
-        (final_redirect_destination != Some(page_url)).then(|| final_url.clone());
+    diagnostics.redirect_url = final_redirect_destination
+        .filter(|destination| *destination != page_url)
+        .and_then(loggable_url);
 
-    if let Some(signal) = page_diagnostic_signal(crawl_root_url, &final_url, status_code, refusal) {
+    if let Some(signal) = page_diagnostic_signal(crawl_root_url, final_url, status_code, refusal) {
         diagnostics.apply_signal(signal);
     }
-    diagnostics.final_url = Some(final_url);
+    diagnostics.final_url = loggable_url(final_url);
+}
+
+/// `url` in the spelling the crawler stores (`docs/crawler/networking.md#stored-urls`), so a
+/// diagnostic never carries credentials or session parameters; none when it does not parse.
+fn loggable_url(url: &str) -> Option<String> {
+    Url::parse(url)
+        .ok()
+        .map(|url| CrawledUrl::new(url).to_string())
 }
 
 fn page_diagnostic_signal(
@@ -1835,7 +1942,8 @@ mod tests {
     use super::*;
     use crate::network::robots::RobotsRules;
     use crate::spider::discovery::frontier::CrawlSeeds;
-    use crate::spider::utils::url::canonical::ShopPlatform;
+    use crate::spider::discovery::root_host;
+    use crate::spider::utils::url::canonical::{ShopPlatform, canonical_product_url};
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1961,6 +2069,8 @@ mod tests {
     /// `(host, target, user_agent, accept_encoding)` per request.
     type RequestLog = Arc<tokio::sync::Mutex<Vec<(String, String, String, String)>>>;
     type SiteHandler = Arc<dyn Fn(&str, usize) -> SiteResponse + Send + Sync>;
+    /// A handler that answers by the request's `Host` as well: `(host, target, previous)`.
+    type HostSiteHandler = Arc<dyn Fn(&str, &str, usize) -> SiteResponse + Send + Sync>;
 
     struct TestSite {
         addr: SocketAddr,
@@ -1970,6 +2080,13 @@ mod tests {
 
     impl TestSite {
         async fn spawn(handler: SiteHandler) -> Self {
+            Self::spawn_for_hosts(Arc::new(move |_, target, previous| {
+                handler(target, previous)
+            }))
+            .await
+        }
+
+        async fn spawn_for_hosts(handler: HostSiteHandler) -> Self {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let requests = RequestLog::default();
@@ -2007,7 +2124,7 @@ mod tests {
     async fn serve_site(
         listener: tokio::net::TcpListener,
         requests: RequestLog,
-        handler: SiteHandler,
+        handler: HostSiteHandler,
     ) {
         loop {
             let Ok((mut stream, _)) = listener.accept().await else {
@@ -2043,7 +2160,7 @@ mod tests {
                 let previous = {
                     let mut log = requests.lock().await;
                     let previous = log.iter().filter(|(_, seen, ..)| *seen == target).count();
-                    log.push((host, target.clone(), user_agent, accept_encoding));
+                    log.push((host.clone(), target.clone(), user_agent, accept_encoding));
                     previous
                 };
                 let html_response = |status: &str, extra_headers: &str, body: &str| {
@@ -2052,7 +2169,7 @@ mod tests {
                         body.len()
                     )
                 };
-                let response = match handler(&target, previous) {
+                let response = match handler(&host, &target, previous) {
                     SiteResponse::Html(status, body) => html_response(status, "", &body),
                     SiteResponse::HtmlWithHeaders(status, extra_headers, body) => {
                         html_response(status, extra_headers, &body)
@@ -2263,6 +2380,75 @@ mod tests {
             identities.get("http://example.com/products/old"),
             Some(&PageIdentityEvidence::default())
         );
+    }
+
+    /// The crawl's robots.txt decides whether a collection page names its Shopify product URL:
+    /// where robots.txt disallows `/products/`, no rule moves the page, which is stored as
+    /// fetched (`docs/crawler/networking.md#canonical-product-urls`).
+    #[tokio::test]
+    async fn should_apply_the_shopify_rule_only_where_robots_txt_allows_the_product_url() {
+        let pattern = regex::Regex::new(r"/products/[^/]+$").unwrap();
+        for (robots, expected) in [
+            (
+                "User-agent: *\nDisallow: /cart\n",
+                Some("http://example.com/products/ladle"),
+            ),
+            ("User-agent: *\nDisallow: /products/\n", None),
+        ] {
+            // The collection page names no canonical link, so only the Shopify rule can move it.
+            let site = TestSite::spawn(Arc::new(move |target: &str, _| match target {
+                "/robots.txt" => SiteResponse::Html("200 OK", robots.to_string()),
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<a href="/collections/all/products/ladle">Ladle</a>"#.to_string(),
+                ),
+                "/collections/all/products/ladle" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<!doctype html><html><head>
+                       <script>Shopify.shop = "shop.myshopify.com";</script>
+                       </head><body></body></html>"#
+                        .to_string(),
+                ),
+                _ => SiteResponse::Html("404 Not Found", String::new()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let SpiderCrawl { mut pages, .. } = spider
+                .crawl_with_body_limit(
+                    CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                    Some("8388608"),
+                )
+                .await
+                .unwrap();
+            let mut collection_page = None;
+            while let Some(page) = pages.recv().await {
+                if page.url.as_url().path() == "/collections/all/products/ladle" {
+                    collection_page = Some(page);
+                }
+            }
+            site.finish().await;
+
+            let page = collection_page.expect("collection page delivered");
+            assert_eq!(
+                canonical_product_url(
+                    &page.url,
+                    &page.identity,
+                    Some(ShopPlatform::Shopify),
+                    &pattern
+                )
+                .map(|url| url.to_string())
+                .as_deref(),
+                expected,
+                "{robots}"
+            );
+            assert_eq!(
+                page.identity.platform_product_urls.is_empty(),
+                expected.is_none(),
+                "{robots}"
+            );
+        }
     }
 
     fn entity_encoded_href_site(target: &str, _previous: usize) -> SiteResponse {
@@ -3238,6 +3424,234 @@ mod tests {
         assert!(discovery.frontier.is_empty(), "{discovery:?}");
     }
 
+    /// A Shopify storefront whose root links two stored products, one under two collections and
+    /// one with a session parameter, and a product the domain does not store yet.
+    fn shopify_incremental_site(target: &str, _: usize) -> SiteResponse {
+        match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<!doctype html><html><head>
+                   <script>Shopify.shop = "shop.myshopify.com";</script>
+                   </head><body>
+                   <a href="/collections/chairs/products/oak-chair?variant=1">Oak</a>
+                   <a href="/collections/sale/products/oak-chair">Oak on sale</a>
+                   <a href="/products/pine-chair?sessionid=abc">Pine</a>
+                   <a href="/products/elm-chair">Elm</a>
+                   </body></html>"#
+                    .to_string(),
+            ),
+            "/collections/chairs/products/oak-chair"
+            | "/collections/sale/products/oak-chair"
+            | "/products/pine-chair"
+            | "/products/elm-chair" => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    fn is_stored_chair(target: &str) -> bool {
+        target.contains("oak-chair") || target.contains("pine-chair")
+    }
+
+    #[tokio::test]
+    async fn should_not_fetch_known_products_linked_with_session_parameters_or_under_a_collection()
+    {
+        let full_crawl_site = TestSite::spawn(Arc::new(shopify_incremental_site)).await;
+        let spider =
+            SpiderImpl::with_transport(test_config(), full_crawl_site.transport(&["example.com"]));
+        let (_, full_crawl, _) = run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+        let full_crawl_requests = full_crawl_site.finish().await;
+        let stored_chair_requests = full_crawl_requests
+            .iter()
+            .filter(|(_, target, ..)| is_stored_chair(target))
+            .count();
+        assert_eq!(stored_chair_requests, 3, "{full_crawl_requests:?}");
+        assert_eq!(full_crawl.known_fetches_saved, 0);
+
+        let site = TestSite::spawn(Arc::new(shopify_incremental_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            known: vec![
+                example("/products/oak-chair"),
+                example("/products/pine-chair"),
+            ],
+            ..CrawlSeeds::default()
+        };
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(
+            !requests
+                .iter()
+                .any(|(_, target, ..)| is_stored_chair(target)),
+            "{requests:?}"
+        );
+        assert_eq!(
+            delivered,
+            HashSet::from([
+                "http://example.com/".to_string(),
+                "http://example.com/products/elm-chair".to_string(),
+            ])
+        );
+        assert_eq!(diagnostics.known_fetches_saved, 3, "{diagnostics:?}");
+        assert_eq!(diagnostics.known_skipped, 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.pages_received, 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    /// swedishantiques.biz: the bare host serves a root page that links `twin_links` pages on
+    /// `www.`, where the shop's pages live and link each other relatively.
+    fn www_linked_site(twin_links: usize) -> HostSiteHandler {
+        Arc::new(move |host, target, _| match (host, target) {
+            ("example.com", "/") => SiteResponse::Html(
+                "200 OK",
+                (1..=twin_links)
+                    .map(|i| format!(r#"<a href="https://www.example.com/category/{i}">c</a>"#))
+                    .chain(std::iter::once(r#"<a href="/about">About</a>"#.to_string()))
+                    .collect(),
+            ),
+            ("www.example.com", "/") => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/category/1">Chairs</a><a href="/product/1">Oak</a>"#.to_string(),
+            ),
+            ("www.example.com", "/category/1" | "/product/1") | ("example.com", "/about") => {
+                SiteResponse::Html("200 OK", "<p>p</p>".to_string())
+            }
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        })
+    }
+
+    #[tokio::test]
+    async fn should_move_a_bare_root_whose_page_links_mostly_www_to_the_www_host() {
+        let site = TestSite::spawn_for_hosts(www_linked_site(root_host::MIN_TWIN_LINKS)).await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let requests = site.finish().await;
+
+        assert_eq!(
+            discovered,
+            HashSet::from([
+                "http://www.example.com/".to_string(),
+                "http://www.example.com/category/1".to_string(),
+                "http://www.example.com/product/1".to_string(),
+            ])
+        );
+        assert_eq!(
+            diagnostics.root_reroot,
+            Some(RootReroot {
+                from: Url::parse("http://example.com/").unwrap(),
+                to: Url::parse("http://www.example.com/").unwrap(),
+                twin_links: root_host::MIN_TWIN_LINKS,
+                root_links: 1,
+            })
+        );
+        // The bare host is asked for its root page once, in preflight; robots.txt comes from
+        // the host the crawl runs on.
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(host, ..)| host == "example.com")
+                .map(|(_, target, ..)| target.as_str())
+                .collect::<Vec<_>>(),
+            ["/"]
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|(host, target, ..)| host == "www.example.com" && target == "/robots.txt")
+        );
+    }
+
+    #[tokio::test]
+    async fn should_keep_a_root_whose_page_links_the_twin_below_the_threshold() {
+        let site = TestSite::spawn_for_hosts(www_linked_site(root_host::MIN_TWIN_LINKS - 1)).await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let requests = site.finish().await;
+
+        assert_eq!(
+            discovered,
+            HashSet::from([
+                "http://example.com/".to_string(),
+                "http://example.com/about".to_string(),
+            ])
+        );
+        assert_eq!(diagnostics.root_reroot, None);
+        assert!(
+            requests.iter().all(|(host, ..)| host == "example.com"),
+            "{requests:?}"
+        );
+    }
+
+    /// A root that redirects to `www.` whose page links the bare host throughout is not moved
+    /// back there: the redirect named the host the shop serves.
+    #[tokio::test]
+    async fn should_not_move_the_root_back_to_the_host_it_redirected_from() {
+        let site = TestSite::spawn_for_hosts(Arc::new(|host, target, _| match (host, target) {
+            ("example.com", "/") => SiteResponse::Redirect("http://www.example.com/"),
+            ("www.example.com", "/") => SiteResponse::Html(
+                "200 OK",
+                (1..=2 * root_host::MIN_TWIN_LINKS)
+                    .map(|i| format!(r#"<a href="http://example.com/category/{i}">c</a>"#))
+                    .collect(),
+            ),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert_eq!(
+            discovered,
+            HashSet::from(["http://www.example.com/".to_string()])
+        );
+        assert_eq!(diagnostics.root_reroot, None);
+    }
+
+    /// A bare root whose page links `www.` throughout, where `www.` redirects back to the bare
+    /// host, as shops with stale absolute links do: the crawl stays on the bare host, and its
+    /// diagnostics record no move.
+    #[tokio::test]
+    async fn should_record_no_move_when_the_twin_redirects_back() {
+        let www_links = www_linked_site(2 * root_host::MIN_TWIN_LINKS);
+        let site = TestSite::spawn_for_hosts(Arc::new(move |host, target, previous| {
+            match (host, target) {
+                ("www.example.com", "/") => SiteResponse::Redirect("http://example.com/"),
+                _ => www_links(host, target, previous),
+            }
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert_eq!(
+            discovered,
+            HashSet::from([
+                "http://example.com/".to_string(),
+                "http://example.com/about".to_string(),
+            ])
+        );
+        assert_eq!(diagnostics.root_reroot, None);
+    }
+
     #[test]
     fn crawl_budget_should_leave_a_crawl_delay_limited_shop_room_for_the_inference_sample() {
         let configured = Duration::from_secs(600);
@@ -3675,7 +4089,9 @@ mod tests {
     async fn should_reject_off_host_root_redirect_without_retry() {
         let site = TestSite::spawn(Arc::new(|target: &str, previous: usize| {
             if target == "/" {
-                SiteResponse::Redirect("https://other.example/")
+                SiteResponse::Redirect(
+                    "https://user:secret@other.example/landing?sessionid=abc&ref=7#top",
+                )
             } else {
                 regression_site(target, previous)
             }
@@ -3692,6 +4108,11 @@ mod tests {
                 ..
             }
         ));
+        // Logged as the crawler would store it: no credentials, session id or fragment.
+        assert_eq!(
+            error.redirect_target(),
+            Some("https://other.example/landing?ref=7")
+        );
         assert_eq!(site.requests_for("/").await, 1);
         site.finish().await;
     }
@@ -3715,6 +4136,10 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!(
+            error.redirect_target(),
+            Some(format!("http://example.com/hop{MAX_ROOT_REDIRECTS}").as_str())
+        );
         assert_eq!(site.requests.lock().await.len(), MAX_ROOT_REDIRECTS + 1);
         site.finish().await;
     }
@@ -3884,6 +4309,7 @@ mod tests {
                 whitelist_for("https://example.com/"),
                 Arc::new(RegexSet::empty()),
             ))),
+            known_pages: Arc::default(),
         }
     }
 
@@ -4073,7 +4499,10 @@ mod tests {
 
     #[test]
     fn should_require_a_bounded_spider_transport_body_limit() {
-        assert!(configured_spider_body_limit(Some("8388608"), 8 * 1024 * 1024).is_ok());
+        assert_eq!(
+            configured_spider_body_limit(Some("2097152"), 8 * 1024 * 1024).unwrap(),
+            2_097_152
+        );
         assert!(matches!(
             configured_spider_body_limit(None, 8 * 1024 * 1024),
             Err(SpiderDiscoveryError::Config(_))
@@ -4689,7 +5118,7 @@ mod tests {
             "https://example.com",
             "https://example.com/",
             200,
-            Some("https://other.com/"),
+            Some("https://other.com/?PHPSESSID=abc"),
             AntiBotTech::None,
         );
 
@@ -4697,6 +5126,31 @@ mod tests {
             diagnostics.failure_kind,
             Some(CrawlFailureKind::RedirectProblem)
         );
+        assert_eq!(
+            diagnostics.redirect_url.as_deref(),
+            Some("https://other.com/")
+        );
+        assert_eq!(diagnostics.final_url.as_deref(), Some("https://other.com/"));
+    }
+
+    #[test]
+    fn should_record_no_redirect_target_for_a_root_that_did_not_redirect() {
+        for destination in [None, Some("https://example.com/")] {
+            let diagnostics = diagnostics_from_library_page(
+                "https://example.com",
+                "https://example.com/",
+                200,
+                destination,
+                AntiBotTech::None,
+            );
+
+            assert_eq!(diagnostics.redirect_url, None, "{destination:?}");
+            assert_eq!(
+                diagnostics.final_url.as_deref(),
+                Some("https://example.com/"),
+                "{destination:?}"
+            );
+        }
     }
 
     #[test]
