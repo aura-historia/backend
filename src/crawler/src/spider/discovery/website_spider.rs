@@ -951,6 +951,11 @@ async fn run_library_crawl(
                     website.persist_links();
                     website.set_extra_links(pending.into_iter().map(Into::into).collect());
                     website.with_crawl_timeout(Some(remaining));
+                    // Spider gives every crawl it runs the whole page limit again.
+                    website.with_limit(seed_phase_page_limit(
+                        bounds.max_pages_per_crawl,
+                        pages_visited(&website),
+                    ));
                     stopped = crawl_until_stopped(&mut website, &stop).await;
                 }
             }
@@ -973,6 +978,14 @@ async fn run_library_crawl(
         stopped,
         ..root_outcome
     }
+}
+
+/// The page limit that leaves the seed phase the pages link discovery did not
+/// use of `max_pages`. Spider's limit counts the root page, which the seed
+/// phase does not fetch again, so it allows one page fewer than it says.
+fn seed_phase_page_limit(max_pages: u32, pages_visited: usize) -> u32 {
+    let used = u32::try_from(pages_visited).unwrap_or(u32::MAX);
+    max_pages.saturating_sub(used).saturating_add(1)
 }
 
 /// The filter task's judgement of the root page, unset until it relayed the
@@ -2916,6 +2929,42 @@ mod tests {
         );
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
         assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    /// Spider gives every crawl it runs the whole page budget again, while the budget bounds the
+    /// whole crawl, link discovery and seed phase together.
+    #[tokio::test]
+    async fn should_bound_link_discovery_and_seed_phase_together_by_the_page_budget() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html("200 OK", r#"<a href="/slow">slow</a>"#.to_string()),
+            "/slow" => SiteResponse::Hang,
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let config = CrawlerConfig {
+            request_timeout_secs: 5,
+            concurrency_limit: 2,
+            max_pages_per_crawl: 4,
+            max_crawl_duration: Duration::from_secs(2),
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: (1..=10).map(|i| example(&format!("/seed/{i}"))).collect(),
+            ..CrawlSeeds::default()
+        };
+
+        let (_, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        let seeds_fetched = requests
+            .iter()
+            .filter(|(_, target, ..)| target.starts_with("/seed/"))
+            .count();
+        // The root and the hanging page took two pages of the budget.
+        assert_eq!(seeds_fetched, 2, "{requests:?}");
+        assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
+        assert_eq!(discovery.frontier.len(), 9, "{discovery:?}");
     }
 
     /// Spider counts the link as written visited, while the page arrives under the spelling the
