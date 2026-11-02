@@ -163,7 +163,7 @@ async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved(_)));
 }
 
 #[tokio::test]
@@ -212,7 +212,7 @@ async fn should_withdraw_product_when_redirected_url_does_not_match_product_patt
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved(_)));
 }
 
 /// A shop that serves a page under one trailing-slash spelling redirects the other one there.
@@ -308,7 +308,7 @@ async fn should_withdraw_product_when_it_redirects_to_a_non_product_page_robots_
         .unwrap_err();
 
     assert!(
-        matches!(err, ScraperError::ProductListingRemoved { .. }),
+        matches!(err, ScraperError::ProductListingRemoved(_)),
         "{err:?}"
     );
 }

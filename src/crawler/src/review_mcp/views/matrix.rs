@@ -143,6 +143,12 @@ pub struct RemovedPageMatchView {
     /// Positions of the matching templates in `removed_page_schemas`.
     pub template_indexes: Vec<usize>,
     pub notices: Vec<String>,
+    /// Titles a candidate schema extracts from the page without a rejecting finding that a
+    /// matching template takes for its notice: the template is too broad and withdraws a product
+    /// page, unless this page is a removal notice that keeps the product template.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub product_titles_taken_for_notices: Vec<String>,
 }
 
 /// A matrix evaluated live, with what the answer leaves out.
@@ -319,6 +325,11 @@ impl RemovedPageMatchView {
                 .iter()
                 .flat_map(|template| template.notices.iter().map(|notice| value(notice)))
                 .collect(),
+            product_titles_taken_for_notices: matched
+                .templates
+                .iter()
+                .filter_map(|template| template.product_title.as_deref().map(value))
+                .collect(),
         }
     }
 }
@@ -372,6 +383,12 @@ mod tests {
                 "role": "EVALUATED_URL",
                 "outcome": "PRODUCT_STILL_EXTRACTS",
                 "templates": [{ "template_index": 0, "notices": ["Sold"] }],
+            }, {
+                "page_reference": { "kind": "input", "page_index": 0 },
+                "url": "https://antiques.example/item/1",
+                "role": "PRIMARY",
+                "outcome": "REMOVED",
+                "templates": [{ "template_index": 1, "notices": ["oak chair"], "product_title": "Oak chair" }],
             }],
             "live_evaluation": { "candidate_version": 3, "configuration_sha256": "x", "fetched_at": "2026-10-27T12:00:00Z" },
             "not_evaluated_pages": [CrawlerReviewPageId::new().to_string()],
@@ -421,6 +438,10 @@ mod tests {
                 "template_indexes": [0],
                 "notices": ["Sold"],
             })
+        );
+        assert_eq!(
+            view["removed_page_matches"][1]["product_titles_taken_for_notices"],
+            json!(["Oak chair"])
         );
     }
 }

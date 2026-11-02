@@ -29,7 +29,9 @@ use tracing::info;
 use url::Url;
 
 mod live_matrix;
+mod missing_value_pages;
 mod pending_reviews;
+mod rearm;
 mod rejected_pages;
 mod repair_rounds;
 mod restore;
@@ -43,6 +45,9 @@ mod url_pattern_sample;
 mod verdicts;
 
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
+pub use missing_value_pages::{
+    MAX_LISTED_MISSING_VALUE_PAGES, MISSING_REQUIRED_VALUE_REVIEW_REASON, MissingValuePage,
+};
 pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
@@ -159,6 +164,14 @@ pub enum ReviewRepositoryError {
         "approved review {0} no longer holds the live product schemas; edit the review whose candidate is live"
     )]
     StaleApprovedReview(CrawlerReviewId),
+    #[error(
+        "`{0}` is no product page of the ListingSource whose last scrape recorded MissingRequiredValue"
+    )]
+    NotMissingValuePage(String),
+    #[error(
+        "ListingSource {0} has no live product schemas; its pages need a product schema, not a removed-page template"
+    )]
+    NoLiveProductSchemas(ListingSourceId),
     #[error(
         "URL `{0}` is not an http(s) URL on the default port, without credentials, on a domain of the review's ListingSource"
     )]
@@ -483,7 +496,8 @@ impl CrawlerReviewRepository {
                 d.last_successful_crawl,
                 COALESCE(r.pending_reviews, 0) AS pending_reviews,
                 COALESCE(u.product_urls, 0) AS product_urls,
-                COALESCE(u.blocked_urls, 0) AS blocked_urls
+                COALESCE(u.blocked_urls, 0) AS blocked_urls,
+                COALESCE(u.missing_value_urls, 0) AS missing_value_urls
              FROM listing_sources s
              LEFT JOIN (
                 SELECT listing_source_id, COUNT(*) AS domain_count, MAX(last_crawled) AS last_successful_crawl,
@@ -499,7 +513,10 @@ impl CrawlerReviewRepository {
              LEFT JOIN (
                 SELECT listing_source_id,
                        COUNT(*) FILTER (WHERE url_class = 'product') AS product_urls,
-                       COUNT(*) FILTER (WHERE last_error_kind IN ('PendingSchemaReview', 'PendingUrlPatternReview')) AS blocked_urls
+                       COUNT(*) FILTER (WHERE last_error_kind IN ('PendingSchemaReview', 'PendingUrlPatternReview')) AS blocked_urls,
+                       COUNT(*) FILTER (WHERE url_class = 'product'
+                                          AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+                                          AND last_error_kind = 'MissingRequiredValue') AS missing_value_urls
                 FROM listing_source_urls
                 GROUP BY listing_source_id
              ) u ON u.listing_source_id = s.listing_source_id
@@ -526,6 +543,7 @@ impl CrawlerReviewRepository {
                 pending_reviews: row.try_get("pending_reviews")?,
                 product_urls: row.try_get("product_urls")?,
                 blocked_urls: row.try_get("blocked_urls")?,
+                missing_value_urls: row.try_get("missing_value_urls")?,
                 domains: Vec::new(),
             });
         }
@@ -1647,21 +1665,12 @@ async fn lock_reviewer_page_target(
         return Err(ReviewRepositoryError::NotPending(review_id));
     }
 
-    let domains = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT listing_source_domain, \
-                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END \
-         FROM listing_source_domains WHERE listing_source_id = $1",
+    let product_url_pattern = review_source_url_pattern(
+        &mut **transaction,
+        review.try_get::<uuid::Uuid, _>("listing_source_id")?,
+        url,
     )
-    .bind(review.try_get::<uuid::Uuid, _>("listing_source_id")?)
-    .fetch_all(&mut **transaction)
     .await?;
-    let (domain_names, product_url_patterns): (Vec<String>, Vec<Option<String>>) =
-        domains.into_iter().unzip();
-    if !is_review_source_url(url, &domain_names) {
-        return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
-            without_credentials(url).to_string(),
-        ));
-    }
 
     let pages = sqlx::query_as::<_, (String, String)>(
         "SELECT url, role FROM crawler_review_pages WHERE review_id = $1",
@@ -1682,6 +1691,32 @@ async fn lock_reviewer_page_target(
         .count();
     if reviewer_pages >= MAX_REVIEWER_ADDED_PAGES {
         return Err(ReviewRepositoryError::ReviewPageLimitReached(review_id));
+    }
+    Ok(product_url_pattern)
+}
+
+/// The approved product URL pattern of the ListingSource's domain that `url` is on, `None`
+/// without one. A URL a reviewer may not add, on no domain of the ListingSource or not an
+/// http(s) URL on the default port without credentials, is refused.
+async fn review_source_url_pattern<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    listing_source_id: uuid::Uuid,
+    url: &Url,
+) -> Result<Option<String>, ReviewRepositoryError> {
+    let domains = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT listing_source_domain, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END \
+         FROM listing_source_domains WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id)
+    .fetch_all(executor)
+    .await?;
+    let (domain_names, product_url_patterns): (Vec<String>, Vec<Option<String>>) =
+        domains.into_iter().unzip();
+    if !is_review_source_url(url, &domain_names) {
+        return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
+            without_credentials(url).to_string(),
+        ));
     }
     Ok(domain_names
         .iter()

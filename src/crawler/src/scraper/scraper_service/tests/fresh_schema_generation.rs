@@ -240,7 +240,7 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved(_)));
 }
 
 /// A high-confidence not-product classification classifies the crawler URL the scrape requested,
