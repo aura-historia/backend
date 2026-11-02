@@ -5,10 +5,12 @@
 
 use async_trait::async_trait;
 use sqlx::PgPool;
+use std::collections::HashSet;
 use url::Url;
 
 use crate::CrawlerDomainId;
 use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
+use crate::spider::utils::url::CrawledUrl;
 
 /// Most known product URLs an incremental crawl skips; a larger shop's further product pages are
 /// fetched again, which costs requests but loses nothing.
@@ -17,8 +19,8 @@ pub const MAX_KNOWN_URLS: i64 = 100_000;
 #[async_trait]
 #[mockall::automock]
 pub trait CrawlFrontierRepository: Send + Sync {
-    /// The URLs the domain's previous crawl left unvisited, without any the crawler retired as a
-    /// duplicate since.
+    /// The URLs the domain's previous crawl left unvisited, without any whose page the crawler
+    /// retired as a duplicate since, under either trailing-slash spelling.
     async fn load_frontier(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error>;
 
     /// The product URLs the domain already stores and the URLs it retired as duplicates, at most
@@ -53,21 +55,41 @@ fn persisted_urls(rows: Vec<String>) -> Result<Vec<Url>, sqlx::Error> {
 #[async_trait]
 impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
     async fn load_frontier(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error> {
-        let rows = sqlx::query_scalar::<_, String>(
-            "SELECT f.url
-             FROM listing_source_domain_crawl_frontier f
-             WHERE f.domain_id = $1
-               AND NOT EXISTS (
-                   SELECT 1 FROM listing_source_urls u
-                   WHERE u.url = f.url AND u.crawler_disposition = $2
-               )
-             ORDER BY f.url",
+        let frontier = persisted_urls(
+            sqlx::query_scalar::<_, String>(
+                "SELECT url FROM listing_source_domain_crawl_frontier
+                 WHERE domain_id = $1
+                 ORDER BY url",
+            )
+            .bind(domain_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await?,
+        )?;
+        // Storage may keep a retired page under either trailing-slash spelling.
+        let spellings_of = |url: &Url| CrawledUrl::new(url.clone()).page_spellings();
+        let spellings: Vec<String> = frontier
+            .iter()
+            .flat_map(spellings_of)
+            .map(String::from)
+            .collect();
+        let retired: HashSet<String> = sqlx::query_scalar::<_, String>(
+            "SELECT url FROM listing_source_urls
+             WHERE url = ANY($1::text[]) AND crawler_disposition = $2",
         )
-        .bind(domain_id.as_uuid())
+        .bind(&spellings)
         .bind(CrawlerDisposition::Duplicate.as_str())
         .fetch_all(&self.pool)
-        .await?;
-        persisted_urls(rows)
+        .await?
+        .into_iter()
+        .collect();
+        Ok(frontier
+            .into_iter()
+            .filter(|url| {
+                !spellings_of(url)
+                    .iter()
+                    .any(|spelling| retired.contains(spelling.as_str()))
+            })
+            .collect())
     }
 
     async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error> {

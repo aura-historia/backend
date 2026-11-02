@@ -428,14 +428,35 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
         "a URL retired as a duplicate is known too"
     );
 
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://spider-frontier.example.com/collections/all/products/2/",
+    )
+    .await;
+    sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
+        .bind(url("/collections/all/products/2/").as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+
     repository
-        .replace_frontier(&domain_id, &[url("/collections/all/products/1"), url("/d")])
+        .replace_frontier(
+            &domain_id,
+            &[
+                url("/collections/all/products/1"),
+                url("/collections/all/products/1/"),
+                url("/collections/all/products/2"),
+                url("/d"),
+            ],
+        )
         .await
         .unwrap();
     assert_eq!(
         repository.load_frontier(&domain_id).await.unwrap(),
         [url("/d")],
-        "the frontier never carries a URL retired as a duplicate"
+        "the frontier never carries a URL retired as a duplicate, in either spelling"
     );
 }
 
