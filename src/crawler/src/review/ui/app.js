@@ -1500,7 +1500,7 @@ function renderSchemaWorkbench(detail, matrix) {
             </div>
           </div>
           <div class="preview-url-row muted">${previewUrl
-            ? `${productPageLink(previewUrl)}<span class="preview-url-kind">(${previewUrlOverride ? 'custom URL' : `${escapeHtml(page.role)}, live HTML`})</span>`
+            ? `${productPageLink(previewUrl)}<span class="preview-url-kind">${previewUrlOverride ? 'Custom URL' : `${escapeHtml(displayName(page.role))} page`} · live HTML</span>`
             : 'No live page available'}</div>
         </div>
         <div class="live-url-bar">
@@ -1804,11 +1804,11 @@ function renderRemovedPageMatches(matrix, templates) {
     if (dirty) return '<div class="muted">Save the templates to evaluate them on the review pages.</div>';
     const matches = (matrix && matrix.removed_page_matches) || [];
     if (!matches.length) return '<div class="muted">No review page matches the templates.</div>';
-    return `<table>
+    return `<div class="data-grid-wrap"><table>
       <thead><tr><th>Page</th><th>Role</th><th>Outcome</th><th>Matched notices</th></tr></thead>
       <tbody>${matches.map(match => `<tr>
         <td>${productPageLink(match.url)}</td>
-        <td>${escapeHtml(match.role)}</td>
+        <td>${escapeHtml(displayName(match.role))}</td>
         <td>${match.outcome === 'REMOVED'
             ? statusBadge('Captured as removed')
             : statusBadge('Scraped as a product: a candidate schema extracts it')}</td>
@@ -1816,7 +1816,7 @@ function renderRemovedPageMatches(matrix, templates) {
             ? `<br>${statusBadge('Check breadth')} takes the title “${escapeHtml(t.product_title)}” a candidate schema extracts for its notice: too broad unless this page is a removal notice`
             : ''}`).join('<br>')}</td>
       </tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 // An emptied list stays in the payload as `[]`: the server keeps the candidate's templates when
@@ -3235,7 +3235,7 @@ function updateReloadState() {
     const [text, className] = dirty
         ? ['Review has local edits', 'system-status dirty']
         : selectedReviewNeedsRefresh
-            ? ['Selected review changed elsewhere - refresh to update', 'system-status stale']
+            ? ['Selected review changed elsewhere – refresh to update', 'system-status stale']
             : ['Queue auto refresh active', 'system-status'];
     if (state.textContent !== text) state.textContent = text;
     state.className = className;

@@ -448,9 +448,11 @@ section {
     font-size: 13px;
 }
 
+/* Without a review, the pane says so once, quietly, where the eye lands. */
 .detail:not(:has(.review-page)) {
-    padding-top: var(--s5);
+    padding-top: 20vh;
     color: var(--muted);
+    text-align: center;
 }
 
 /* Placeholders for messages and panels take no room while they are empty. */
