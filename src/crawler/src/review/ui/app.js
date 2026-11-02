@@ -826,16 +826,19 @@ function renderAutoSchemaEvaluation(review) {
 }
 
 function renderNonSchemaReview(review, urls) {
+    const urlPattern = review.artifact_type === 'URL_PATTERN';
     return `<div class="review-card">
       <div class="tab-panel">
-        ${renderUrlPatternEditor(review, urls)}
-        ${urls.length ? renderUrls(review, urls) : ''}
+        ${urlPattern || urls.length ? renderUrlPatternReview(review, urls) : ''}
         ${renderSampleLabels(review)}
-        <h3>Candidate Payload</h3>
-        <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
-        <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
-        <h3>Validation</h3>
-        <pre>${escapeHtml(JSON.stringify(review.validation_summary, null, 2))}</pre>
+        <details class="raw-payload" ${urlPattern ? '' : 'open'}>
+          <summary>Raw payload</summary>
+          <h3>Candidate Payload</h3>
+          <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
+          <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
+          <h3>Validation</h3>
+          <pre>${escapeHtml(JSON.stringify(review.validation_summary, null, 2))}</pre>
+        </details>
       </div>
     </div>`;
 }
@@ -844,32 +847,169 @@ function urlPatternDecision(review) {
     return review?.candidate_payload?.decision || {type: 'UNDECIDED'};
 }
 
-function renderUrlPatternEditor(review, urls) {
+function savedPatternValue(review) {
+    const decision = urlPatternDecision(review);
+    return decision.type === 'PATTERN' ? decision.value : '';
+}
+
+// The URL table's filter; it starts over for each review shown.
+let urlFilter = {reviewId: null, kind: 'all', text: ''};
+
+const URL_FILTER_KINDS = [
+    ['all', 'All'],
+    ['product', 'Product'],
+    ['not_product', 'Not product'],
+    ['changed', 'Changed']
+];
+
+// The summary, the decision and the sample URLs of a URL-pattern review. The summary and the table
+// follow the pattern input while the reviewer types, as a browser preview, and show the server's
+// classification of the saved candidate otherwise.
+function renderUrlPatternReview(review, urls) {
+    if (urlFilter.reviewId !== review.review_id) urlFilter = {reviewId: review.review_id, kind: 'all', text: ''};
+    const view = urlPatternView(review, urls, savedPatternValue(review));
+    return `<div id="urlPatternSummary">${renderUrlPatternSummary(review, view)}</div>
+      ${renderUrlPatternEditor(review)}
+      ${urls.length ? `<h3>Sample URLs</h3>
+        <div class="url-filter-bar">
+          <div class="url-filter-chips" id="urlFilterChips">${renderUrlFilterChips(view)}</div>
+          <input id="urlFilterText" type="search" value="${escapeHtmlAttr(urlFilter.text)}" placeholder="Filter paths" oninput="setUrlFilterText(this.value)">
+        </div>
+        <div id="urlPatternTable">${renderUrls(review, view)}</div>` : ''}`;
+}
+
+// How each sample URL classifies under the domain's current pattern and under the candidate: the
+// unsaved pattern `pattern` as the browser previews it when it differs from the saved one, else
+// the server's classification of the saved candidate.
+function urlPatternView(review, urls, pattern) {
+    const preview = urlPatternPreview(pattern, savedPatternValue(review));
+    const origin = sampleOrigin(urls);
+    const rows = urls.map((u, index) => {
+        const candidateMatch = preview.active
+            ? (preview.regex ? regexTakesUrl(preview.regex, u.url) : null)
+            : u.candidate_pattern_match;
+        const currentProduct = u.current_pattern_match === true;
+        const candidateProduct = candidateMatch === true;
+        return {
+            index,
+            url: u.url,
+            path: relativeToOrigin(u.url, origin),
+            currentMatch: u.current_pattern_match,
+            candidateMatch,
+            candidateClass: u.candidate_class,
+            candidateProduct,
+            changed: currentProduct !== candidateProduct
+        };
+    });
+    return {
+        preview,
+        rows,
+        counts: {
+            all: rows.length,
+            current_product: rows.filter(row => row.currentMatch === true).length,
+            product: rows.filter(row => row.candidateProduct).length,
+            not_product: rows.filter(row => !row.candidateProduct).length,
+            changed: rows.filter(row => row.changed).length
+        }
+    };
+}
+
+// The pattern the browser previews: none while the input holds the saved pattern or nothing, so
+// the view shows the server's classification; `error` when the browser cannot compile it.
+function urlPatternPreview(pattern, savedPattern) {
+    if (!pattern || pattern === savedPattern) return {active: false};
+    try {
+        return {active: true, pattern, regex: new RegExp(pattern)};
+    } catch (error) {
+        return {active: true, pattern, error: error.message};
+    }
+}
+
+// The origin most sample URLs share, so the table shows their paths.
+function sampleOrigin(urls) {
+    const counts = new Map();
+    for (const u of urls) {
+        const origin = urlOrigin(u.url);
+        if (origin) counts.set(origin, (counts.get(origin) || 0) + 1);
+    }
+    return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+}
+
+function urlOrigin(url) {
+    try {
+        return new URL(url).origin;
+    } catch (_) {
+        return '';
+    }
+}
+
+function relativeToOrigin(url, origin) {
+    if (!origin || urlOrigin(url) !== origin) return url;
+    return url.slice(origin.length) || '/';
+}
+
+function renderUrlPatternSummary(review, view) {
+    const {counts, preview} = view;
+    const currentPattern = review.candidate_payload?.current_pattern;
+    const candidateLabel = preview.active ? 'Product URLs (preview)' : 'Product URLs (candidate)';
+    return `<div class="url-pattern-summary">
+      <div class="url-pattern-decision">
+        <span class="muted">Decision</span>
+        ${renderUrlPatternDecision(urlPatternDecision(review))}
+        <span class="muted">Current pattern</span>
+        ${currentPattern ? `<code>${escapeHtml(currentPattern)}</code>` : '<span class="muted">none</span>'}
+      </div>
+      <div class="url-pattern-stats">
+        ${urlPatternStat('Sample URLs', counts.all)}
+        ${urlPatternStat('Product URLs (current)', counts.current_product)}
+        ${urlPatternStat(candidateLabel, preview.error ? '–' : counts.product)}
+        ${urlPatternStat('Changed URLs', preview.error ? '–' : counts.changed)}
+      </div>
+      <div class="muted" id="urlPatternPreview">${escapeHtml(urlPatternPreviewText(preview))}</div>
+    </div>`;
+}
+
+function urlPatternStat(label, value) {
+    return `<div class="url-pattern-stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
+}
+
+function renderUrlPatternDecision(decision) {
+    if (decision.type === 'PATTERN') return `${badge('Pattern')} <code>${escapeHtml(decision.value)}</code>`;
+    if (decision.type === 'NO_PATTERN') return badge('No pattern');
+    return badge(displayName(decision.type), 'pending');
+}
+
+function urlPatternPreviewText(preview) {
+    if (!preview.active) return 'Server classification of the saved candidate.';
+    if (preview.error) return `Invalid pattern: ${preview.error}`;
+    return 'Browser preview of the unsaved pattern; the server validates and classifies it on save.';
+}
+
+function renderUrlPatternEditor(review) {
     if (review.artifact_type !== 'URL_PATTERN' || review.status !== 'PENDING_REVIEW') return '';
     const decision = urlPatternDecision(review);
-    const value = decision.type === 'PATTERN' ? decision.value : '';
-    return `<h3>URL Pattern</h3>
-      <div class="hint-card">Decision: ${escapeHtml(decision.type)}. ${decision.type === 'UNDECIDED'
+    return `<div class="url-pattern-editor">
+      <div class="hint-card">${decision.type === 'UNDECIDED'
         ? 'Enter a product URL regex or save NO_PATTERN before approving.'
         : 'Save a new decision to change it.'}</div>
-      <input id="urlPatternInput" value="${escapeHtmlAttr(value)}" placeholder="Product URL regex, e.g. /product/" oninput="previewUrlPattern(); markDirty()">
-      <div id="urlPatternPreview" class="muted">${urlPatternPreviewText(value, urls)}</div>
+      <input id="urlPatternInput" value="${escapeHtmlAttr(savedPatternValue(review))}" placeholder="Product URL regex, e.g. /product/" oninput="previewUrlPattern(); markDirty()">
       <div class="actions">
         <button onclick="saveUrlPattern()">Save pattern</button>
         <button onclick="saveNoUrlPattern()">Save NO_PATTERN</button>
-      </div>`;
+      </div>
+    </div>`;
 }
 
-function urlPatternPreviewText(pattern, urls) {
-    if (!pattern) return `${urls.length} sample URLs.`;
-    let regex;
-    try {
-        regex = new RegExp(pattern);
-    } catch (error) {
-        return `Invalid pattern: ${escapeHtml(error.message)}`;
-    }
-    const matches = urls.filter(u => regexTakesUrl(regex, u.url)).length;
-    return `${matches} of ${urls.length} sample URLs match (browser preview; the server validates the pattern on save).`;
+function renderUrlFilterChips(view) {
+    return URL_FILTER_KINDS.map(([kind, label]) => `<button class="schema-chip ${urlFilter.kind === kind ? 'active' : ''}" onclick="setUrlFilterKind('${kind}')">${escapeHtml(label)} ${view.counts[kind]}</button>`).join('');
+}
+
+function urlRowShown(row) {
+    if (urlFilter.kind === 'product' && !row.candidateProduct) return false;
+    if (urlFilter.kind === 'not_product' && row.candidateProduct) return false;
+    if (urlFilter.kind === 'changed' && !row.changed) return false;
+    const text = urlFilter.text.trim().toLowerCase();
+    return !text || row.path.toLowerCase().includes(text);
 }
 
 // Whether `regex` takes the page of `url` as the crawler matches a URL pattern: the URL as stored,
@@ -896,10 +1036,36 @@ function pageSpellings(url) {
 }
 
 function previewUrlPattern() {
+    rerenderUrlPatternView();
+}
+
+function setUrlFilterKind(kind) {
+    urlFilter.kind = kind;
+    rerenderUrlPatternView();
+}
+
+function setUrlFilterText(text) {
+    urlFilter.text = text || '';
+    rerenderUrlPatternView();
+}
+
+// Renders the summary, the filter counts and the table again, leaving the inputs alone so they
+// keep their focus.
+function rerenderUrlPatternView() {
+    if (!selectedDetail) return;
+    const review = selectedDetail.review;
     const input = document.getElementById('urlPatternInput');
-    const preview = document.getElementById('urlPatternPreview');
-    if (!input || !preview || !selectedDetail) return;
-    preview.innerHTML = urlPatternPreviewText(input.value.trim(), selectedDetail.urls || []);
+    const pattern = input ? input.value.trim() : savedPatternValue(review);
+    const view = urlPatternView(review, selectedDetail.urls || [], pattern);
+    const parts = {
+        urlPatternSummary: () => renderUrlPatternSummary(review, view),
+        urlFilterChips: () => renderUrlFilterChips(view),
+        urlPatternTable: () => renderUrls(review, view)
+    };
+    for (const [id, render] of Object.entries(parts)) {
+        const element = document.getElementById(id);
+        if (element) element.innerHTML = render();
+    }
 }
 
 async function saveUrlPatternDecision(decision) {
@@ -917,18 +1083,33 @@ async function saveNoUrlPattern() {
     await saveUrlPatternDecision({type: 'NO_PATTERN'});
 }
 
-function renderUrls(review, urls) {
+// The handler names a URL by its index in the review's sample, never by the URL itself, which a
+// shop controls (see `renderMissingValuePages`).
+function renderUrls(review, view) {
     const editable = sampleLabelsEditable(review);
     const labels = currentSampleLabels(review);
-    return `<h3>URL Pattern Preview</h3><div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Current</th><th>Candidate</th><th>Class</th><th>Label</th></tr></thead><tbody>${
-        urls.map(u => {
-            const label = labels.find(l => l.url === u.url)?.label || '';
+    const rows = view.rows.filter(urlRowShown);
+    const candidateHead = view.preview.active ? 'Candidate (preview)' : 'Candidate';
+    return `<div class="data-grid-wrap"><table class="url-table"><thead><tr><th>Path</th><th>Current</th><th>${candidateHead}</th><th>Class</th><th>Label</th></tr></thead><tbody>${
+        rows.map(row => {
+            const label = labels.find(l => l.url === row.url)?.label || '';
             const cell = editable
-                ? renderSampleLabelSelect(label, `setSampleLabelOfUrl(${escapeHtmlAttr(JSON.stringify(u.url))}, this.value)`, true)
+                ? renderSampleLabelSelect(label, `setSampleLabelOfSampleUrl(${row.index}, this.value)`, true)
                 : (label ? statusBadge(label) : '');
-            return `<tr><td>${linkifyText(u.url)}</td><td>${u.current_pattern_match}</td><td>${u.candidate_pattern_match}</td><td>${escapeHtml(u.candidate_class)}</td><td>${cell}</td></tr>`;
-        }).join('')
+            return `<tr class="${row.changed ? 'url-row-changed' : ''}">
+              <td><a class="product-url" href="${escapeHtmlAttr(row.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(row.url)}">${escapeHtml(row.path)}</a></td>
+              <td>${patternMatchIcon(row.currentMatch)}</td>
+              <td>${patternMatchIcon(row.candidateMatch)}</td>
+              <td>${row.candidateClass ? badge(displayName(row.candidateClass), row.candidateClass === 'product' ? 'approved' : undefined) : ''}</td>
+              <td>${cell}</td>
+            </tr>`;
+        }).join('') || '<tr><td colspan="5" class="muted">No sample URL matches the filter.</td></tr>'
     }</tbody></table></div>`;
+}
+
+function patternMatchIcon(match) {
+    if (match === true) return '<span class="match-icon match-yes" title="The pattern takes it">✓</span>';
+    return `<span class="match-icon match-no" title="${match === false ? 'The pattern does not take it' : 'No pattern'}">–</span>`;
 }
 
 const SAMPLE_URL_LABELS = ['PRODUCT', 'NOT_PRODUCT'];
@@ -1037,6 +1218,11 @@ function setSampleLabelOfUrl(url, label) {
             labels.push({url, label, reason: ''});
         }
     });
+}
+
+function setSampleLabelOfSampleUrl(index, label) {
+    const url = selectedDetail?.urls?.[index]?.url;
+    if (url) setSampleLabelOfUrl(url, label);
 }
 
 function setSampleLabelKind(index, label) {
