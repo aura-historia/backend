@@ -1,9 +1,12 @@
 use crate::network::policy::NetworkErrorKind;
 
 use crate::scraper::css_selector::product_schema::{
-    ListingSourceProductSchema, ProductCssSelectorSchema, RawExtractedProduct,
+    ListingSourceProductSchema, ProductCssSelectorSchema,
 };
-use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
+use crate::scraper::css_selector::removed_page_schema::{
+    RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
+    removed_page_verdict,
+};
 use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{
@@ -13,7 +16,7 @@ use crate::scraper::scraper_service::domain::product::{
 };
 use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
-    ExistingSchemaSelection, ExtractedSchemaSet, SelectedSchemaCandidate, apply_cached_schemas,
+    ExistingSchemaSelection, ExtractedSchemaSet, SelectedSchemaCandidate,
 };
 use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -187,87 +190,6 @@ impl<'a> FetchedPage<'a> {
     }
 }
 
-/// What the stored removed-page schemas say about a fetched page.
-pub(crate) enum RemovedPageVerdict {
-    /// No stored schema matches the page.
-    NotRemoved,
-    /// A stored schema matches and no cached product schema still extracts this
-    /// listing's product from the page.
-    Removed { matches: Vec<RemovedPageMatch> },
-    /// A stored schema matches, but a cached product schema still extracts this
-    /// listing's product: the stored template is over-broad.
-    ProductStillExtracts { matches: Vec<RemovedPageMatch> },
-}
-
-/// Weighs the stored removed-page schemas against the cached product schemas on an already
-/// parsed page. Synchronous and free of I/O: the `!Send` document never lives across an await,
-/// no image is probed and no LLM budget is spent.
-pub(crate) fn removed_page_verdict_in(
-    removed_page_schemas: Vec<RemovedPageSchema>,
-    cached_schemas: &[ProductCssSelectorSchema],
-    parsed: &scraper::Html,
-    source_record_key: &str,
-    last_source_listing_id: Option<&str>,
-) -> RemovedPageVerdict {
-    let matches = match_removed_page(removed_page_schemas, parsed);
-    if matches.is_empty() {
-        return RemovedPageVerdict::NotRemoved;
-    }
-    let candidates = apply_cached_schemas(cached_schemas, parsed);
-    removed_page_verdict(
-        matches,
-        candidates.iter().map(|candidate| &candidate.raw),
-        source_record_key,
-        last_source_listing_id,
-    )
-}
-
-/// The stored removed-page schemas that match the page, with their notices.
-fn match_removed_page(
-    removed_page_schemas: Vec<RemovedPageSchema>,
-    parsed: &scraper::Html,
-) -> Vec<RemovedPageMatch> {
-    removed_page_schemas
-        .into_iter()
-        .filter_map(|schema| schema.match_page(parsed))
-        .collect()
-}
-
-/// Weighs the removed-page schemas that match a page against what the cached product schemas
-/// extract from it.
-///
-/// Product evidence is a cached schema that applies with a title other than the
-/// matched notice and, when the crawler already knows the listing's identity, the
-/// same source listing id. A related-item card on a soft-404 page therefore does not
-/// count as evidence. Plausibility is deliberately not required: a candidate that
-/// fails a plausibility check must reach fresh schema generation, not withdrawal.
-fn removed_page_verdict<'a>(
-    matches: Vec<RemovedPageMatch>,
-    cached_extractions: impl IntoIterator<Item = &'a RawExtractedProduct>,
-    source_record_key: &str,
-    last_source_listing_id: Option<&str>,
-) -> RemovedPageVerdict {
-    if matches.is_empty() {
-        return RemovedPageVerdict::NotRemoved;
-    }
-
-    let product_still_extracts = cached_extractions.into_iter().any(|raw| {
-        let title = raw.title.trim();
-        if title.is_empty() || matches.iter().any(|matched| matched.is_notice(title)) {
-            return false;
-        }
-        last_source_listing_id.is_none_or(|known| {
-            candidate_source_listing_id(&raw.source_listing_id, source_record_key)
-                .is_some_and(|extracted| extracted == known)
-        })
-    });
-    if product_still_extracts {
-        RemovedPageVerdict::ProductStillExtracts { matches }
-    } else {
-        RemovedPageVerdict::Removed { matches }
-    }
-}
-
 /// One parse of a fetched page: the stored removed-page schemas that match it and what the
 /// cached product schemas extract from it. Synchronous, so the `!Send` document is dropped
 /// before the scrape awaits again; a page with neither is not parsed here. A schema set known
@@ -286,17 +208,6 @@ fn parse_fetched_page(
         match_removed_page(removed_page_schemas, &parsed),
         cached_product_schemas.map(|schemas| ExtractedSchemaSet::extract(schemas, &parsed)),
     )
-}
-
-/// The identity a raw extraction would be captured under, so it compares with the
-/// crawler URL's last captured source listing id.
-fn candidate_source_listing_id(
-    raw_source_listing_id: &str,
-    source_record_key: &str,
-) -> Option<String> {
-    capture_source_listing_id(raw_source_listing_id, source_record_key)
-        .ok()
-        .map(|id| id.to_string())
 }
 
 #[async_trait::async_trait]
@@ -379,13 +290,14 @@ impl FetchedProductPage {
             });
         }
         if is_redirect_to_non_product_page(url, &fetched.final_url, product_url_pattern) {
-            return Err(ScraperError::ProductListingRemoved {
-                url: url.clone(),
-                details: format!(
+            return Err(ScraperError::product_listing_removed(
+                url.clone(),
+                format!(
                     "product URL redirected to non-product page: original={url}, final={}",
                     fetched.final_url
                 ),
-            });
+                Vec::new(),
+            ));
         }
         Ok(Self {
             acquired_at,
@@ -440,10 +352,11 @@ fn withdraw_removed_page(
 ) -> Result<(), ScraperError> {
     match verdict {
         RemovedPageVerdict::NotRemoved => Ok(()),
-        RemovedPageVerdict::Removed { .. } => Err(ScraperError::ProductListingRemoved {
-            url: request.url.clone(),
-            details: "soft-404 removed page matched configured removed-page schema".to_string(),
-        }),
+        RemovedPageVerdict::Removed { matches } => Err(ScraperError::product_listing_removed(
+            request.url.clone(),
+            "soft-404 removed page matched configured removed-page schema".to_string(),
+            matches.into_iter().map(|matched| matched.schema).collect(),
+        )),
         RemovedPageVerdict::ProductStillExtracts { matches } => {
             let selectors = matches
                 .iter()
@@ -497,6 +410,7 @@ fn capture_selection(
         &page.effective_url,
         source_listing_id.as_ref(),
         request.fallback_currency,
+        selection.carried_forward_title.as_deref(),
     )
     .map_err(ScraperError::RawNormalizationInput)?;
     let raw_input_sha256 = raw_input
@@ -509,6 +423,9 @@ fn capture_selection(
         raw_input,
         effective_url: page.effective_url,
         source_listing_id: source_listing_id.to_string(),
+        title: selection
+            .carried_forward_title
+            .unwrap_or(selection.raw.title),
         hash,
         schema_fingerprint,
         raw_input_sha256,
@@ -607,7 +524,13 @@ impl ScraperServiceImpl {
             return Ok(None);
         }
 
-        let (extracted, selection) = self.select_schema_for_page(extracted, fetched_page).await?;
+        let (extracted, selection) = self
+            .select_schema_for_page(
+                extracted,
+                fetched_page,
+                request.last_captured_title.as_deref(),
+            )
+            .await?;
         let scraped = capture_selection(request, page, extracted, selection)?;
 
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
@@ -623,21 +546,35 @@ impl ScraperServiceImpl {
     ///
     /// Scraping continues while a product-schema review is pending, so its approval can replace the
     /// live schemas after `schemas` was read. A page that failed the stale list is therefore
-    /// selected once more against the live list before it may author a schema; otherwise it would
-    /// open a review whose candidate drops the schemas just approved.
+    /// selected once more against the live list before it may author a schema or record a missing
+    /// required value; otherwise it would open a review whose candidate drops the schemas just
+    /// approved, or wait a scrape interval for a fix the approval already made live.
     async fn select_schema_for_page(
         &self,
         mut extracted: ExtractedSchemaSet,
         page: FetchedPage<'_>,
+        last_captured_title: Option<&str>,
     ) -> Result<(ExtractedSchemaSet, SelectedSchemaCandidate), ScraperError> {
         let mut reread = false;
         loop {
-            let reason = match self
-                .select_cached_schema(page.listing_source_id, page.url, &extracted)
-                .await
-            {
+            let selection = self
+                .select_cached_schema(
+                    page.listing_source_id,
+                    page.url,
+                    &extracted,
+                    last_captured_title,
+                )
+                .await;
+            let reason = match selection {
                 ExistingSchemaSelection::Selected(selection) => return Ok((extracted, *selection)),
                 ExistingSchemaSelection::MissingRequiredValue { findings } => {
+                    if let Some(live) = self
+                        .live_schemas_changed_once(&mut reread, page, &extracted)
+                        .await?
+                    {
+                        extracted = live;
+                        continue;
+                    }
                     return Err(ScraperError::MissingRequiredValue {
                         url: page.url.clone(),
                         findings,
@@ -647,20 +584,14 @@ impl ScraperServiceImpl {
             };
             let ctx = page.with_existing_schemas(extracted.product_schemas());
             self.wait_instead_of_authoring(&ctx).await?;
-            if !reread
-                && let Some(live) = self
-                    .product_schemas_changed_since(page.listing_source_id, ctx.existing_schemas)
-                    .await?
+            if let Some(live) = self
+                .live_schemas_changed_once(&mut reread, page, &extracted)
+                .await?
             {
-                debug!(
-                    schemas = live.product_schemas.len(),
-                    "Live product schemas changed during the scrape; selecting again"
-                );
-                reread = true;
-                // The live set is known only after awaits, so it is extracted from a second parse.
-                extracted = ExtractedSchemaSet::parse_and_extract(live, page.html);
+                extracted = live;
                 continue;
             }
+            let ctx = page.with_existing_schemas(extracted.product_schemas());
             debug!(
                 domain = page.domain,
                 schemas = extracted.product_schemas().len(),
@@ -670,5 +601,31 @@ impl ScraperServiceImpl {
             let selection = self.generate_fresh_schema_for_page(ctx).await?;
             return Ok((extracted, selection));
         }
+    }
+
+    /// The live schemas extracted from the page when they changed since `extracted` was read,
+    /// looked up at most once per scrape (`reread` records it). The live set is known only after
+    /// awaits, so it is extracted from a second parse.
+    async fn live_schemas_changed_once(
+        &self,
+        reread: &mut bool,
+        page: FetchedPage<'_>,
+        extracted: &ExtractedSchemaSet,
+    ) -> Result<Option<ExtractedSchemaSet>, ScraperError> {
+        if *reread {
+            return Ok(None);
+        }
+        *reread = true;
+        let Some(live) = self
+            .product_schemas_changed_since(page.listing_source_id, extracted.product_schemas())
+            .await?
+        else {
+            return Ok(None);
+        };
+        debug!(
+            schemas = live.product_schemas.len(),
+            "Live product schemas changed during the scrape; selecting again"
+        );
+        Ok(Some(ExtractedSchemaSet::parse_and_extract(live, page.html)))
     }
 }

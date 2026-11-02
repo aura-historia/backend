@@ -783,6 +783,37 @@ async fn should_use_schemas_approved_during_scrape_when_authoring_is_review() {
     assert_page_uses_schemas_approved_during_scrape(CrawlerAuthoringMode::Review).await;
 }
 
+/// A page that leaves its title blank under the schemas read before an approval is selected again
+/// against the approved schemas, whose title fallback finds a name, instead of recording
+/// `MissingRequiredValue` until its next scrape interval.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_capture_a_missing_value_page_with_schemas_approved_during_scrape() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let url = product_url();
+    let mut fixed = item_title_schema();
+    fixed.title.additional_selectors = vec![CssSelector::from("#product-id")];
+    let service = scraper_with_review_gate(
+        fetcher_returning_once(untitled_html()),
+        schema_service_approving_during_scrape(
+            cached_schemas(id, vec![item_title_schema()]),
+            cached_schemas(id, vec![fixed]),
+        ),
+        CrawlerReviewRepository::new(pool.clone()),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let scraped = service
+        .scrape(primary_only_request(&id, &url))
+        .await
+        .result
+        .unwrap_or_else(|error| panic!("expected a scraped product: {error}"))
+        .unwrap_or_else(|| panic!("expected a scraped product"));
+
+    assert_eq!(scraped.title, "1208922");
+}
+
 async fn product_schema_review_count(pool: &PgPool, listing_source_id: &ListingSourceId) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(*) FROM crawler_reviews \
@@ -1035,7 +1066,7 @@ async fn should_capture_a_notice_page_as_removed_once_its_review_approves_a_temp
         .result;
 
     assert!(
-        matches!(result, Err(ScraperError::ProductListingRemoved { .. })),
+        matches!(result, Err(ScraperError::ProductListingRemoved(_))),
         "expected the verified removal that becomes the raw delete capture, got {result:?}"
     );
     assert_eq!(
@@ -1100,7 +1131,7 @@ async fn should_capture_a_rejected_page_as_removed_when_a_removed_page_template_
     let result = scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
 
     assert!(
-        matches!(result, Err(ScraperError::ProductListingRemoved { .. })),
+        matches!(result, Err(ScraperError::ProductListingRemoved(_))),
         "the verified removal must win over the rejection, got {result:?}"
     );
 }
@@ -1228,7 +1259,7 @@ async fn should_match_what_the_edited_template_declares_once_a_review_edits_it()
         scrape_notice_page(&pool, &id, &repository, REMOVAL_NOTICE_HTML).await;
 
     assert!(
-        matches!(withdrawn, Err(ScraperError::ProductListingRemoved { .. })),
+        matches!(withdrawn, Err(ScraperError::ProductListingRemoved(_))),
         "the edited template must capture its notice page as removed, got {withdrawn:?}"
     );
     assert!(

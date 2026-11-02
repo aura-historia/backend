@@ -15,6 +15,10 @@ use crawler::spider::classification::url_metadata::{
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
+use crawler::spider::crawl_frontier_repository::{
+    CrawlFrontierRepository, CrawlFrontierRepositoryImpl, KnownUrls,
+};
+use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::CrawlCompletion;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
@@ -54,6 +58,7 @@ where
         schema_fingerprint: schema_fingerprint.into(),
         raw_input_sha256: raw_input_sha256.into(),
         source_listing_id: source_listing_id.into(),
+        title: "Captured title".to_owned(),
         disposition,
         expected_last_captured_raw_input_sha256,
     }
@@ -190,17 +195,272 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
         insert_listing_source_with_domain(&pool, listing_source_id, "spider-recent.example.com")
             .await;
 
-    sqlx::query("UPDATE listing_source_domains SET last_crawled = NOW() WHERE domain_id = $1")
-        .bind(domain_id.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_domains SET last_crawled = NOW(), last_crawl_run_at = NOW() \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.domain_id == domain_id),
         "a domain crawled just now should not be returned as a candidate"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// get_candidates — a recent full crawl makes the domain due for an incremental crawl a day after
+//                  its last run; an old one for a full crawl
+// ---------------------------------------------------------------------------
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_should_select_full_and_incremental_crawls_by_their_intervals() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let incremental =
+        insert_listing_source_with_domain(&pool, listing_source_id, "spider-daily.example.com")
+            .await;
+    let full =
+        insert_domain_for_listing_source(&pool, listing_source_id, "spider-weekly.example.com")
+            .await;
+    let ran_today =
+        insert_domain_for_listing_source(&pool, listing_source_id, "spider-today.example.com")
+            .await;
+    let held = insert_domain_for_listing_source(
+        &pool,
+        listing_source_id,
+        "spider-rate-limit-held.example.com",
+    )
+    .await;
+    let set_timers =
+        |domain_id: CrawlerDomainId, last_crawled: &'static str, last_run: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query(
+                    "UPDATE listing_source_domains \
+                 SET last_crawled = NOW() - $2::text::interval, \
+                     last_crawl_run_at = NOW() - $3::text::interval \
+                 WHERE domain_id = $1",
+                )
+                .bind(domain_id.as_uuid())
+                .bind(last_crawled)
+                .bind(last_run)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        };
+    set_timers(incremental, "3 days", "25 hours").await;
+    set_timers(full, "8 days", "25 hours").await;
+    set_timers(ran_today, "3 days", "2 hours").await;
+    set_timers(held, "3 days", "25 hours").await;
+    sqlx::query(
+        "UPDATE listing_source_domains SET crawl_rate_limited_until = NOW() + INTERVAL '1 hour' \
+         WHERE domain_id = $1",
+    )
+    .bind(held.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let candidates: HashMap<CrawlerDomainId, CrawlKind> = service
+        .get_candidates(10, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|candidate| (candidate.domain_id, candidate.kind))
+        .collect();
+
+    assert_eq!(candidates.get(&incremental), Some(&CrawlKind::Incremental));
+    assert_eq!(candidates.get(&full), Some(&CrawlKind::Full));
+    assert_eq!(candidates.get(&ran_today), None);
+    assert_eq!(
+        candidates.get(&held),
+        None,
+        "an incremental crawl must not bypass a rate-limit hold"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_limit_state() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        ListingSourceId::new(),
+        "spider-incremental.example.com",
+    )
+    .await;
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET last_crawled = NOW() - INTERVAL '3 days', crawl_truncation_count = 2, \
+             crawl_rate_limit_streak = 1, crawl_failure_count = 1, \
+             last_crawl_error_kind = 'ConnectError' \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    service
+        .mark_incremental_crawl_finished(&domain_id, CrawlCompletion::HardTimeoutTruncated)
+        .await
+        .unwrap();
+    let (failures, error_kind, next_crawl_at, outcome, truncations, last_crawled) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!((failures, error_kind.as_deref()), (1, Some("ConnectError")));
+    assert_eq!(next_crawl_at, None);
+    assert_eq!(outcome.as_deref(), Some("HARD_TIMEOUT_TRUNCATED"));
+    assert_eq!(truncations, 2);
+
+    service
+        .mark_incremental_crawl_finished(&domain_id, CrawlCompletion::Completed)
+        .await
+        .unwrap();
+    let (failures, error_kind, _, outcome, truncations, last_crawled_after) =
+        crawl_state(&pool, domain_id).await;
+    assert_eq!((failures, error_kind), (0, None));
+    assert_eq!(outcome.as_deref(), Some("COMPLETED"));
+    assert_eq!(truncations, 2);
+    assert_eq!(last_crawled_after, last_crawled, "never a full crawl");
+    let (streak, last_run): (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT crawl_rate_limit_streak, last_crawl_run_at FROM listing_source_domains \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(streak, 1, "only a full crawl clears the rate-limit streak");
+    assert!(last_run.is_some());
+    assert!(service.get_candidates(10, &[]).await.unwrap().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// crawl frontier — replaced per crawl, read back in full, cleared with the domain
+// ---------------------------------------------------------------------------
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_products_listed() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlFrontierRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "spider-frontier.example.com")
+            .await;
+    let other =
+        insert_domain_for_listing_source(&pool, listing_source_id, "spider-other.example.com")
+            .await;
+    let url = |path: &str| {
+        url::Url::parse(&format!("https://spider-frontier.example.com{path}")).unwrap()
+    };
+
+    repository
+        .replace_frontier(&domain_id, &[url("/a"), url("/b"), url("/a")])
+        .await
+        .unwrap();
+    repository
+        .replace_frontier(&other, &[url("/other")])
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.load_frontier(&domain_id).await.unwrap(),
+        [url("/a"), url("/b")]
+    );
+
+    repository
+        .replace_frontier(&domain_id, &[url("/c")])
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.load_frontier(&domain_id).await.unwrap(),
+        [url("/c")]
+    );
+    repository.replace_frontier(&domain_id, &[]).await.unwrap();
+    assert!(
+        repository
+            .load_frontier(&domain_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        repository.load_frontier(&other).await.unwrap(),
+        [url("/other")]
+    );
+
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://spider-frontier.example.com/product/1",
+    )
+    .await;
+    UrlMetadataRepositoryImpl::new(pool.clone())
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url("/about"),
+            &UrlClass::Other,
+        )
+        .await
+        .unwrap();
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://spider-frontier.example.com/collections/all/products/1",
+    )
+    .await;
+    sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
+        .bind(url("/collections/all/products/1").as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.known_urls(&domain_id).await.unwrap(),
+        KnownUrls {
+            products: vec![url("/product/1")],
+            retired: vec![url("/collections/all/products/1")],
+        },
+        "a URL retired as a duplicate is known too, but not as a product URL"
+    );
+
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://spider-frontier.example.com/collections/all/products/2/",
+    )
+    .await;
+    sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
+        .bind(url("/collections/all/products/2/").as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    repository
+        .replace_frontier(
+            &domain_id,
+            &[
+                url("/collections/all/products/1"),
+                url("/collections/all/products/1/"),
+                url("/collections/all/products/2"),
+                url("/d"),
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.load_frontier(&domain_id).await.unwrap(),
+        [url("/d")],
+        "the frontier never carries a URL retired as a duplicate, in either spelling"
     );
 }
 
@@ -1557,7 +1817,7 @@ async fn scraper_mark_removed_should_reactivate_sold_url_after_durable_capture()
     let removal_hash = vec![7; 32];
     assert_eq!(
         service
-            .mark_removed(&listing_source_id, &url, &removal_hash, None)
+            .mark_removed(&listing_source_id, &url, &removal_hash, None, &[])
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1618,7 +1878,13 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
 
     assert_eq!(
         service
-            .mark_removed(&listing_source_id, &url, &[9; 32], Some(&product_capture))
+            .mark_removed(
+                &listing_source_id,
+                &url,
+                &[9; 32],
+                Some(&product_capture),
+                &[]
+            )
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1626,8 +1892,9 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
 
     // A page that comes back unchanged after its removal must not match the page hash of the
     // product scrape before it, or the scraper would skip it and leave the listing removed.
-    let row: (Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT last_scraped_hash, last_scraped_schema_fingerprint \
+    // Nor may it carry the removed listing's title forward if it comes back without one.
+    let row: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT last_scraped_hash, last_scraped_schema_fingerprint, last_captured_title \
          FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
     )
     .bind(listing_source_id.as_uuid())
@@ -1635,7 +1902,129 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row, (None, None));
+    assert_eq!(row, (None, None, None));
+}
+
+/// A template removal records the templates that captured it, and the next product capture of
+/// the page forgets them, so only a page a template still holds removed is re-armed when it is
+/// retired.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_mark_removed_should_record_the_templates_until_a_product_capture() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "scraper-removed-by-templates.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://scraper-removed-by-templates.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    let template = crawler::scraper::css_selector::removed_page_schema::RemovedPageSchema {
+        selector: "p.notice".into(),
+        text: Some("no longer available".to_owned()),
+        regex: None,
+    };
+    let removal = [7; 32];
+    service
+        .mark_removed(
+            &listing_source_id,
+            &url,
+            &removal,
+            None,
+            std::slice::from_ref(&template),
+        )
+        .await
+        .unwrap();
+    let recorded = || async {
+        sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT removed_by_templates FROM listing_source_urls WHERE url = $1",
+        )
+        .bind(url.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    assert_eq!(recorded().await, Some(serde_json::json!([template])));
+
+    service
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            url.clone(),
+            (
+                "p".repeat(64),
+                "schema-fingerprint",
+                raw_input_hash(),
+                "SKU-123",
+                CrawlerDisposition::Active,
+                Some(removal.to_vec()),
+            ),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(recorded().await, None);
+}
+
+/// The title a product capture recorded reaches the next scrape of the URL, which carries it
+/// forward if the shop blanks the name (docs/crawler/extraction-and-review.md).
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_candidate_should_carry_the_title_of_the_last_product_capture() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "scraper-captured-title.example.com",
+    )
+    .await;
+    let url = url::Url::parse("https://scraper-captured-title.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    assert_eq!(candidate_title(&service, &url).await, Some(None));
+
+    service
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            url.clone(),
+            (
+                "p".repeat(64),
+                "schema-fingerprint",
+                raw_input_hash(),
+                "SKU-123",
+                CrawlerDisposition::Active,
+                None,
+            ),
+        ))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '2 days' WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        candidate_title(&service, &url).await,
+        Some(Some("Captured title".to_owned()))
+    );
+}
+
+/// The `last_captured_title` of `url`'s scraper candidate, `None` when it is not due.
+async fn candidate_title(
+    service: &ScraperCandidateServiceImpl,
+    url: &url::Url,
+) -> Option<Option<String>> {
+    service
+        .get_candidates(10, 10, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|candidate| candidate.url == *url)
+        .map(|candidate| candidate.last_captured_title)
 }
 
 /// A removal whose capture commits but whose `mark_removed` write fails leaves the URL as
@@ -1687,9 +2076,14 @@ async fn scraper_forget_capture_before_removal_should_not_leave_the_url_on_the_p
         CrawlerUrlWriteOutcome::Applied
     );
 
-    let row: (Option<String>, Option<String>, Option<Vec<u8>>) = sqlx::query_as(
+    let row: (
+        Option<String>,
+        Option<String>,
+        Option<Vec<u8>>,
+        Option<String>,
+    ) = sqlx::query_as(
         "SELECT last_scraped_hash, last_scraped_schema_fingerprint, \
-         last_captured_raw_input_sha256 \
+         last_captured_raw_input_sha256, last_captured_title \
          FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
     )
     .bind(listing_source_id.as_uuid())
@@ -1697,7 +2091,7 @@ async fn scraper_forget_capture_before_removal_should_not_leave_the_url_on_the_p
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row, (None, None, None));
+    assert_eq!(row, (None, None, None, None));
     assert_eq!(
         service.mark_as_scraped(product_completion()).await.unwrap(),
         CrawlerUrlWriteOutcome::Applied,
@@ -2399,6 +2793,7 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![4; 32],
                 source_listing_id: "stable-source-id".to_owned(),
+                title: "Captured title".to_owned(),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
             })
@@ -2453,6 +2848,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![5; 32],
             source_listing_id: "stable-source-id".to_owned(),
+            title: "Captured title".to_owned(),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: None,
         })
@@ -2461,7 +2857,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     assert!(
         error
             .to_string()
-            .contains("reconciliation deferred to #1899")
+            .contains("redirect destination already known")
     );
 
     let rows: Vec<(String, String)> = sqlx::query_as(
@@ -2515,6 +2911,7 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![6; 32],
                 source_listing_id: "stable-source-id".to_owned(),
+                title: "Captured title".to_owned(),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
             })
@@ -2523,7 +2920,7 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
         assert!(
             error
                 .to_string()
-                .contains("reconciliation deferred to #1899"),
+                .contains("redirect destination already known"),
             "{effective_url}"
         );
 
@@ -2582,6 +2979,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![7; 32],
             source_listing_id: "SKU-2".to_owned(),
+            title: "Captured title".to_owned(),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: Some(vec![6; 32]),
         })
@@ -2599,6 +2997,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
                 schema_fingerprint: "stale-schema".to_owned(),
                 raw_input_sha256: vec![8; 32],
                 source_listing_id: "SKU-1".to_owned(),
+                title: "Captured title".to_owned(),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: Some(vec![9; 32]),
             })
@@ -4158,4 +4557,61 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
     .await
     .unwrap();
     assert_eq!(domain_row, (1, Some("HTTP_429".to_owned()), Some(429)));
+}
+
+/// A URL retired as a duplicate of a stored page is terminal: neither scraped nor counted as due.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_never_select_a_url_retired_as_duplicate() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "duplicate-retired.example.com",
+    )
+    .await;
+    let duplicate =
+        url::Url::parse("https://duplicate-retired.example.com/collections/a/products/1").unwrap();
+    let destination = url::Url::parse("https://duplicate-retired.example.com/products/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, duplicate.as_str()).await;
+    insert_product_url(&pool, listing_source_id, domain_id, destination.as_str()).await;
+
+    assert_eq!(
+        service
+            .set_disposition(
+                &listing_source_id,
+                &duplicate,
+                CrawlerDisposition::Duplicate,
+                None
+            )
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    assert_eq!(
+        service
+            .get_candidates(10, 100, &[])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|candidate| candidate.url)
+            .collect::<Vec<_>>(),
+        vec![destination]
+    );
+    assert_eq!(service.count_due_urls().await.unwrap(), 1);
+    assert_eq!(
+        service
+            .set_disposition(
+                &listing_source_id,
+                &duplicate,
+                CrawlerDisposition::Active,
+                None
+            )
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::NoopStale,
+        "no scraper write revives a retired duplicate"
+    );
 }

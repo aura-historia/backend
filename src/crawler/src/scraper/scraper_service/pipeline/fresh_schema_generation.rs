@@ -138,6 +138,7 @@ impl ScraperServiceImpl {
                     validated_image_urls,
                     schema: generated_schema,
                     fresh_schema: true,
+                    carried_forward_title: None,
                 })
             }
             GeneratedSchemaReviewOutcome::PendingReview(review_id) => {

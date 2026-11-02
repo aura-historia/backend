@@ -1,3 +1,4 @@
+use crate::spider::discovery::frontier::CrawlKind;
 use crate::spider::discovery::website_spider::CrawlCompletion;
 use crate::{CrawlerDomainId, CrawlerReviewId};
 use async_trait::async_trait;
@@ -5,8 +6,12 @@ use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
 use std::time::Duration;
 
-/// A domain is due again once its last full crawl is older than this.
+/// A domain is due for a full crawl once its last full crawl is older than this.
 pub const SPIDER_RECRAWL_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// A domain whose last full crawl is recent is due for an incremental crawl once its last spider
+/// run of any kind is older than this.
+pub const SPIDER_INCREMENTAL_RECRAWL_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Persisted `last_crawl_outcome` of a run that ended in a spider error.
 pub const FAILED_CRAWL_OUTCOME: &str = "FAILED";
@@ -59,6 +64,8 @@ pub struct SpiderCandidate {
     /// cut short without one and clears with a full crawl. It slows the
     /// domain's next crawls.
     pub crawl_rate_limit_streak: i32,
+    /// Full when the last full crawl is due, incremental otherwise.
+    pub kind: CrawlKind,
 }
 
 #[async_trait]
@@ -109,6 +116,15 @@ pub trait SpiderCandidateService: Send + Sync {
         rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<UrlPatternReviewWaitWrite, sqlx::Error>;
+    /// Records the end of an incremental crawl that was neither rate-limited
+    /// nor waiting for a review. It never records a full crawl: a crawl that
+    /// reached everything clears failure state, one cut short leaves it, and
+    /// neither touches truncation or rate-limit state.
+    async fn mark_incremental_crawl_finished(
+        &self,
+        domain_id: &CrawlerDomainId,
+        completion: CrawlCompletion,
+    ) -> Result<(), sqlx::Error>;
     /// Records a repeated deterministic failure and takes the domain out of
     /// the schedule until an operator acts.
     async fn mark_crawl_needs_operator(
@@ -138,6 +154,7 @@ struct SpiderCandidateRow {
     last_crawl_error_kind: Option<String>,
     crawl_truncation_count: i32,
     crawl_rate_limit_streak: i32,
+    full_crawl_due: bool,
 }
 
 #[async_trait]
@@ -160,16 +177,21 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                    sd.crawl_failure_count,
                    sd.last_crawl_error_kind,
                    sd.crawl_truncation_count,
-                   sd.crawl_rate_limit_streak
+                   sd.crawl_rate_limit_streak,
+                   (sd.last_crawled IS NULL
+                    OR sd.last_crawled < NOW() - make_interval(secs => $3)) AS full_crawl_due
             FROM listing_sources s
             JOIN listing_source_domains sd ON sd.listing_source_id = s.listing_source_id
             WHERE s.crawl_enabled = TRUE
-              AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - make_interval(secs => $3))
+              AND (sd.last_crawled IS NULL
+                   OR sd.last_crawled < NOW() - make_interval(secs => $3)
+                   OR sd.last_crawl_run_at IS NULL
+                   OR sd.last_crawl_run_at < NOW() - make_interval(secs => $5))
               AND (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
               AND (sd.crawl_rate_limited_until IS NULL OR sd.crawl_rate_limited_until <= NOW())
               AND sd.last_crawl_outcome IS DISTINCT FROM $4
               AND NOT (sd.domain_id = ANY($2))
-            ORDER BY sd.last_crawled NULLS FIRST
+            ORDER BY sd.last_crawled NULLS FIRST, sd.last_crawl_run_at NULLS FIRST
             LIMIT $1
             "#,
         )
@@ -177,6 +199,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         .bind(excluded_domain_ids)
         .bind(SPIDER_RECRAWL_INTERVAL.as_secs_f64())
         .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
+        .bind(SPIDER_INCREMENTAL_RECRAWL_INTERVAL.as_secs_f64())
         .fetch_all(&self.pool)
         .await?;
 
@@ -192,6 +215,10 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                     last_crawl_error_kind: row.last_crawl_error_kind,
                     crawl_truncation_count: row.crawl_truncation_count,
                     crawl_rate_limit_streak: row.crawl_rate_limit_streak,
+                    kind: match row.full_crawl_due {
+                        true => CrawlKind::Full,
+                        false => CrawlKind::Incremental,
+                    },
                 })
             })
             .collect()
@@ -212,7 +239,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                  next_crawl_at = $4,
                  last_crawl_outcome = $5,
                  crawl_rate_limit_streak = COALESCE($6, crawl_rate_limit_streak),
-                 crawl_rate_limited_until = COALESCE($7, crawl_rate_limited_until)
+                 crawl_rate_limited_until = COALESCE($7, crawl_rate_limited_until),
+                 last_crawl_run_at = NOW()
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())
@@ -247,7 +275,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                  crawl_truncation_count = 0,
                  crawl_rate_limit_streak = 0,
                  crawl_rate_limited_until = NULL,
-                 last_crawl_outcome = $2
+                 last_crawl_outcome = $2,
+                 last_crawl_run_at = NOW()
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())
@@ -269,7 +298,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
              SET crawl_truncation_count = $2,
                  crawl_rate_limit_streak = GREATEST(crawl_rate_limit_streak - 1, 0),
                  next_crawl_at = $3,
-                 last_crawl_outcome = $4
+                 last_crawl_outcome = $4,
+                 last_crawl_run_at = NOW()
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())
@@ -292,7 +322,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
              SET crawl_rate_limit_streak = $2,
                  crawl_rate_limited_until = $3,
                  next_crawl_at = $3,
-                 last_crawl_outcome = $4
+                 last_crawl_outcome = $4,
+                 last_crawl_run_at = NOW()
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())
@@ -322,7 +353,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
              SET next_crawl_at = $2,
                  last_crawl_outcome = $3,
                  crawl_rate_limit_streak = COALESCE($5, crawl_rate_limit_streak),
-                 crawl_rate_limited_until = COALESCE($6, crawl_rate_limited_until)
+                 crawl_rate_limited_until = COALESCE($6, crawl_rate_limited_until),
+                 last_crawl_run_at = NOW()
              WHERE domain_id = $1
                AND EXISTS (
                    SELECT 1
@@ -349,6 +381,34 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         })
     }
 
+    async fn mark_incremental_crawl_finished(
+        &self,
+        domain_id: &CrawlerDomainId,
+        completion: CrawlCompletion,
+    ) -> Result<(), sqlx::Error> {
+        if completion.rate_limit().is_some() {
+            return Err(sqlx::Error::InvalidArgument(format!(
+                "{completion} is recorded as a rate-limited crawl"
+            )));
+        }
+        sqlx::query(
+            "UPDATE listing_source_domains
+             SET crawl_failure_count = CASE WHEN $3 THEN 0 ELSE crawl_failure_count END,
+                 last_crawl_error_kind = CASE WHEN $3 THEN NULL ELSE last_crawl_error_kind END,
+                 next_crawl_at = NULL,
+                 last_crawl_outcome = $2,
+                 last_crawl_run_at = NOW()
+             WHERE domain_id = $1",
+        )
+        .bind(domain_id.as_uuid())
+        .bind(completion.as_str())
+        .bind(completion.is_full())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     async fn mark_crawl_needs_operator(
         &self,
         domain_id: &CrawlerDomainId,
@@ -360,7 +420,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
              SET crawl_failure_count = $3,
                  last_crawl_error_kind = $2,
                  next_crawl_at = NULL,
-                 last_crawl_outcome = $4
+                 last_crawl_outcome = $4,
+                 last_crawl_run_at = NOW()
              WHERE domain_id = $1",
         )
         .bind(domain_id.as_uuid())

@@ -1,3 +1,4 @@
+use crate::network::bot_challenge::{BotChallenge, detect_bot_challenge, may_be_challenge_status};
 #[cfg(test)]
 use crate::network::policy::crawler_client_builder;
 use crate::network::policy::{
@@ -458,11 +459,15 @@ impl ReqwestHtmlFetcher {
         }
         if !status.is_success() {
             self.record_domain_failure_latency(domain, started.elapsed());
-            return Err(http_status_fetch_error(response).into());
+            return Err(http_status_fetch_error(response).await.into());
         }
         self.record_domain_success_latency(domain, started.elapsed());
         let final_url = response.url().clone();
+        let headers = response.headers().clone();
         let html = read_bounded_html(response).await?;
+        if let Some(challenge) = detect_bot_challenge(status.as_u16(), &headers, html.as_bytes()) {
+            return Err(bot_challenge_fetch_error(status.as_u16(), None, challenge).into());
+        }
         Ok(Hop::Page(FetchedHtml::new(html, final_url, status)))
     }
 
@@ -609,17 +614,46 @@ fn reqwest_fetch_error(error: reqwest::Error) -> FetchAttemptError {
     }
 }
 
-fn http_status_fetch_error(response: reqwest::Response) -> FetchAttemptError {
-    let status = response.status();
+/// The failure a non-success answer is: a bot challenge when the answer proves one, otherwise its
+/// HTTP status. Only a status a challenge is served with has its body read, and a body that cannot
+/// be read leaves the status as the failure.
+async fn http_status_fetch_error(response: reqwest::Response) -> FetchAttemptError {
+    let status = response.status().as_u16();
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(parse_retry_after);
+    if may_be_challenge_status(status) {
+        let headers = response.headers().clone();
+        let body = read_bounded_html(response).await.unwrap_or_default();
+        if let Some(challenge) = detect_bot_challenge(status, &headers, body.as_bytes()) {
+            return bot_challenge_fetch_error(status, retry_after, challenge);
+        }
+    }
     FetchAttemptError {
         error: FetchError::NetworkWithMetadata {
-            kind: NetworkErrorKind::HttpStatus(status.as_u16()),
-            status: Some(status.as_u16()),
-            retry_after: response
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(parse_retry_after),
-            details: format!("HTTP status {}", status.as_u16()),
+            kind: NetworkErrorKind::HttpStatus(status),
+            status: Some(status),
+            retry_after,
+            details: format!("HTTP status {status}"),
+        },
+    }
+}
+
+fn bot_challenge_fetch_error(
+    status: u16,
+    retry_after: Option<Duration>,
+    challenge: BotChallenge,
+) -> FetchAttemptError {
+    FetchAttemptError {
+        error: FetchError::NetworkWithMetadata {
+            kind: NetworkErrorKind::BotChallenge,
+            status: Some(status),
+            retry_after,
+            details: format!(
+                "bot challenge instead of the page: status={status}, vendor={:?}, evidence={}",
+                challenge.vendor, challenge.evidence
+            ),
         },
     }
 }
@@ -1023,6 +1057,55 @@ mod tests {
 
         assert_eq!(fetched.html, "<html>ok</html>");
         assert_eq!(fetched.final_url, url);
+    }
+
+    mod bot_challenge {
+        use super::*;
+
+        const SITEGROUND_202: &str = "HTTP/1.1 202 Accepted\r\nsg-captcha: challenge\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        const CLOUDFLARE_403: &str = "HTTP/1.1 403 Forbidden\r\nContent-Length: 44\r\nConnection: close\r\n\r\n<html><title>Just a moment...</title></html>";
+        const PLAIN_403: &str =
+            "HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden";
+
+        async fn fetch_first(
+            pages: Vec<&'static str>,
+        ) -> (Result<super::super::FetchedHtml, FetchError>, TestShop) {
+            let shop = spawn_shop(robots_status("404 Not Found"), pages, Duration::ZERO).await;
+            let fetcher = ReqwestHtmlFetcher::for_local_http_test(
+                zero_delay_retry_policy(3),
+                throttle_config(Duration::ZERO),
+            );
+            (fetcher.fetch(&shop.url).await, shop)
+        }
+
+        #[tokio::test]
+        async fn should_fail_a_202_interstitial_as_a_bot_challenge_without_retrying_it_inline() {
+            let (result, shop) = fetch_first(vec![SITEGROUND_202, OK_PAGE]).await;
+
+            let error = result.expect_err("an interstitial is no page");
+            assert_eq!(error.kind(), NetworkErrorKind::BotChallenge);
+            assert_eq!(error.status(), Some(202));
+            assert_eq!(shop.page_requests().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn should_fail_a_403_challenge_page_as_a_bot_challenge() {
+            let (result, _shop) = fetch_first(vec![CLOUDFLARE_403]).await;
+
+            let error = result.expect_err("a challenge is no page");
+            assert_eq!(error.kind(), NetworkErrorKind::BotChallenge);
+            assert_eq!(error.status(), Some(403));
+        }
+
+        #[tokio::test]
+        async fn should_keep_a_plain_403_as_its_status() {
+            let (result, _shop) = fetch_first(vec![PLAIN_403, PLAIN_403, PLAIN_403]).await;
+
+            assert_eq!(
+                result.expect_err("403 is a failure").kind(),
+                NetworkErrorKind::HttpStatus(403)
+            );
+        }
     }
 
     #[test]

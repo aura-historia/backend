@@ -32,13 +32,16 @@ pub(crate) fn capture_source_listing_id(
 /// crawler-validated image projection and keep every supplied price, state and text
 /// value as extracted: the worker (the sole canonical normalization authority) parses
 /// them, leaves a canonical field it cannot resolve unchanged and reports why. Only a
-/// missing extraction clears a price.
+/// missing extraction clears a price. `carried_forward_title`, the title the listing was last
+/// captured with, stands in for a title the page left blank; the source payload still shows the
+/// blank one.
 pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     validated_image_urls: &[String],
     candidate_url: &Url,
     source_listing_id: &str,
     fallback_currency: Option<Currency>,
+    carried_forward_title: Option<&str>,
 ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
     let source_payload = serde_json::to_value(raw)
         .map_err(NormalizationInputError::JsonSerialization)
@@ -55,7 +58,9 @@ pub(crate) fn crawler_raw_input(
         .collect::<BTreeMap<_, _>>();
     let raw_values = RawProductListingValues::new(json!({
         "sourceListingId": source_listing_id,
-        "title": ProductListingRawValuesPatch::Set(raw.title.clone()),
+        "title": ProductListingRawValuesPatch::Set(
+            carried_forward_title.map_or_else(|| raw.title.clone(), str::to_owned)
+        ),
         "description": ProductListingRawValuesPatch::Set(raw.description.clone()),
         "priceFormat": ProductListingRawValuesPriceFormat::DisplayText,
         "price": patch(raw.price.clone()),
@@ -152,6 +157,7 @@ mod tests {
             &url,
             "stable-id",
             Some(Currency::Eur),
+            None,
         )?;
 
         assert_eq!(
@@ -177,7 +183,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let extracted = raw();
 
-        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?;
+        let input =
+            crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None, None)?;
 
         assert_eq!(
             Some(&serde_json::Value::String("100 EUR".to_owned())),
@@ -224,6 +231,7 @@ mod tests {
             &effective_url,
             identity.as_ref(),
             None,
+            None,
         )?;
 
         assert_eq!(identity, expected);
@@ -266,6 +274,7 @@ mod tests {
             &url,
             "stable-id",
             Some(Currency::Eur),
+            None,
         )?;
 
         assert_eq!(
@@ -306,6 +315,7 @@ mod tests {
             &url,
             "stable-id",
             Some(Currency::Eur),
+            None,
         )?
         .hash()?;
         let mut changed = raw();
@@ -318,9 +328,43 @@ mod tests {
             &url,
             "stable-id",
             Some(Currency::Eur),
+            None,
         )?
         .hash()?;
         assert_ne!(first, second);
+        Ok(())
+    }
+
+    #[test]
+    fn should_capture_a_carried_forward_title_and_keep_the_blank_extraction_as_evidence()
+    -> Result<(), NormalizationInputError> {
+        let url = Url::parse("https://example.com/products/1")
+            .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
+        let mut untitled = raw();
+        untitled.title = String::new();
+        untitled.state = "Sold".to_owned();
+
+        let input = crawler_raw_input(
+            &untitled,
+            &untitled.images,
+            &url,
+            "stable-id",
+            None,
+            Some("Chair"),
+        )?;
+
+        assert_eq!(
+            input.raw_values().value().get("title"),
+            Some(&serde_json::json!({"action": "SET", "value": "Chair"}))
+        );
+        assert_eq!(
+            input.raw_values().value().get("availability"),
+            Some(&serde_json::json!({"action": "SET", "value": "Sold"}))
+        );
+        assert_eq!(
+            input.source_payload().value().get("title"),
+            Some(&serde_json::Value::String(String::new()))
+        );
         Ok(())
     }
 }

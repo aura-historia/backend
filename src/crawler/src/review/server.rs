@@ -49,6 +49,7 @@ const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 /// event's time, as the review agents' daily digest does.
 const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 
+mod missing_value_pages;
 mod pending_reviews;
 mod schema_matrix;
 mod source_pages;
@@ -249,6 +250,9 @@ impl ReviewServer {
 
     /// Routes a request with a path parameter. Review mutations are recorded as `actor`'s.
     async fn route_dynamic(&self, request: ParsedRequest<'_>, actor: ReviewActor) -> HttpResponse {
+        if let Some(response) = self.route_missing_value_pages(&request, actor).await {
+            return response;
+        }
         if request.method == "GET"
             && request.path.starts_with("/api/listing-sources/")
             && request.path.ends_with("/domains")
@@ -694,15 +698,19 @@ impl ReviewServer {
             .check_reviewer_page_target(review_id, actor, &url)
             .await
             .map_err(review_error)?;
-        let fetched = self
-            .html_fetcher
-            .fetch(&url)
-            .await
-            .map_err(|err| live_url_fetch_error(url.as_str(), &err))?;
+        let fetched = self.fetch_reviewer_page(&url).await?;
         self.repository
             .add_reviewer_page(review_id, actor, &url, &fetched.final_url, &fetched.html)
             .await
             .map_err(review_error)
+    }
+
+    /// Fetches a page a reviewer adds to a review, after its target was checked.
+    async fn fetch_reviewer_page(&self, url: &Url) -> Result<FetchedHtml, HttpResponse> {
+        self.html_fetcher
+            .fetch(url)
+            .await
+            .map_err(|err| live_url_fetch_error(url.as_str(), &err))
     }
 
     /// Fetches the review page live for a human's preview (`/api/review-pages/{id}/inspect`,
@@ -1156,6 +1164,8 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             review_changed(&error, candidate_version)
         }
         ReviewRepositoryError::StaleApprovedReview(_)
+        | ReviewRepositoryError::NotMissingValuePage(_)
+        | ReviewRepositoryError::NoLiveProductSchemas(_)
         | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)
         | ReviewRepositoryError::DuplicateReviewPage(_)
         | ReviewRepositoryError::ApprovalAlreadyRestored(_)
@@ -1266,14 +1276,7 @@ fn live_fetch_error(page: &CrawlerReviewPage, error: &FetchError) -> HttpRespons
         error = ?error,
         "Failed to fetch live review HTML"
     );
-    HttpResponse::json(
-        502,
-        &json!({
-            "error": "failed to fetch live review HTML",
-            "url": page.url,
-            "details": error.to_string(),
-        }),
-    )
+    live_fetch_failure(&page.url, "failed to fetch live review HTML", error)
 }
 
 fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
@@ -1282,14 +1285,28 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
         error = ?error,
         "Failed to fetch live preview HTML"
     );
-    HttpResponse::json(
-        502,
-        &json!({
-            "error": "failed to fetch live preview HTML",
+    live_fetch_failure(url, "failed to fetch live preview HTML", error)
+}
+
+/// The `502` a failed live fetch of `url` answers. A bot challenge the shop answered instead of
+/// the page says so and carries `reason` `BOT_CHALLENGE`, so a reviewer does not read it as the
+/// page failing a schema.
+fn live_fetch_failure(url: &str, failed: &str, error: &FetchError) -> HttpResponse {
+    let body = if error.kind() == NetworkErrorKind::BotChallenge {
+        json!({
+            "error": format!("the shop answered {url} with a bot challenge instead of the page; retry later"),
+            "reason": "BOT_CHALLENGE",
             "url": url,
             "details": error.to_string(),
-        }),
-    )
+        })
+    } else {
+        json!({
+            "error": failed,
+            "url": url,
+            "details": error.to_string(),
+        })
+    };
+    HttpResponse::json(502, &body)
 }
 
 #[cfg(test)]
@@ -1305,6 +1322,49 @@ mod tests {
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };
     use std::net::SocketAddr;
+
+    mod live_fetch_failure {
+        use super::*;
+
+        fn body_of(response: HttpResponse) -> (String, serde_json::Value) {
+            let response = response.to_string();
+            let (head, body) = response.split_once("\r\n\r\n").unwrap();
+            (
+                head.lines().next().unwrap().to_owned(),
+                serde_json::from_str(body).unwrap(),
+            )
+        }
+
+        #[test]
+        fn should_name_a_bot_challenge_the_shop_answered_instead_of_the_page() {
+            let error = FetchError::NetworkWithMetadata {
+                kind: NetworkErrorKind::BotChallenge,
+                status: Some(403),
+                retry_after: None,
+                details: "bot challenge instead of the page".to_owned(),
+            };
+
+            let (status, body) = body_of(live_url_fetch_error("https://shop.example/p/1", &error));
+
+            assert!(status.starts_with("HTTP/1.1 502"), "{status}");
+            assert_eq!(body["reason"], "BOT_CHALLENGE");
+            assert_eq!(body["url"], "https://shop.example/p/1");
+            assert!(body["error"].as_str().unwrap().contains("bot challenge"));
+        }
+
+        #[test]
+        fn should_keep_the_answer_of_any_other_fetch_failure() {
+            let error = FetchError::Network {
+                kind: NetworkErrorKind::Connect,
+                details: "connection refused".to_owned(),
+            };
+
+            let (_, body) = body_of(live_url_fetch_error("https://shop.example/p/1", &error));
+
+            assert_eq!(body["error"], "failed to fetch live preview HTML");
+            assert!(body.get("reason").is_none());
+        }
+    }
 
     /// The review agents' decision policy of `agent` authoring mode with `limits`, as the crawler
     /// builds it for a console open to the agents.
@@ -5097,6 +5157,216 @@ Origin: http://127.0.0.1:7878/x
                     "{path}: {status} {unknown}"
                 );
             }
+        }
+    }
+
+    /// A page whose last scrape recorded `MissingRequiredValue` opens no review on its own; the
+    /// console lists it and adds it to a product-schema review, opened for it when none is
+    /// pending, where the reviewer declares a removed-page template the matrix evaluates.
+    mod missing_value_pages {
+        use super::matrix_refresh::schema;
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send, send_as};
+        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
+        use crate::review::model::PAGE_ROLE_REVIEWER_ADDED;
+        use crate::review::repository::{
+            CrawlerReviewRepository, MISSING_REQUIRED_VALUE_REVIEW_REASON,
+        };
+        use crate::scraper::scraper_service::html_fetcher::{FetchedHtml, MockHtmlFetcher};
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use std::net::SocketAddr;
+        use std::sync::Arc;
+        use test_api::IntegrationTestService as _;
+
+        const NOTICE_PAGE: &str = "https://shop.example/products/sold";
+        const NOTICE_HTML: &str = "<html><body><h1></h1><p class=\"notice\">This item is no longer available</p></body></html>";
+
+        /// A console over a ListingSource on `shop.example` with a live schema and one page that
+        /// recorded `MissingRequiredValue`, whose fetcher serves that page exactly `fetches` times,
+        /// from `redirected_to` when the shop redirects it.
+        async fn console(
+            fetches: usize,
+            redirected_to: Option<&'static str>,
+        ) -> (ReviewServer, ListingSourceId) {
+            let pool = test_api::get_postgres_client().await;
+            let listing_source_id = ListingSourceId::new();
+            let domain_id = crate::CrawlerDomainId::new();
+            for (query, binds) in [
+                (
+                    "INSERT INTO listing_sources \
+                     (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+                     VALUES ($1, 'Sold source', 'sold-source', TRUE, NOW(), NOW())",
+                    vec![],
+                ),
+                (
+                    "INSERT INTO listing_source_domains \
+                     (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+                     VALUES ($2, $1, 'shop.example', 'shop.example')",
+                    vec![domain_id],
+                ),
+                (
+                    "INSERT INTO listing_source_urls \
+                     (listing_source_id, domain_id, url, url_class, raw_source_record_key, \
+                      last_scraped, last_error_kind, last_error_message) \
+                     VALUES ($1, $2, 'https://shop.example/products/sold', 'product', \
+                             'https://shop.example/products/sold', NOW(), \
+                             'MissingRequiredValue', '`title` is blank')",
+                    vec![domain_id],
+                ),
+            ] {
+                let mut query = sqlx::query(query).bind(listing_source_id.as_uuid());
+                for bind in binds {
+                    query = query.bind(bind.as_uuid());
+                }
+                query
+                    .execute(&pool)
+                    .await
+                    .unwrap_or_else(|error| panic!("insert fixture: {error}"));
+            }
+            sqlx::query(
+                "INSERT INTO listing_source_product_schemas \
+                 (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .bind(json!([schema("h1")]))
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert live schemas: {error}"));
+            let mut fetcher = MockHtmlFetcher::new();
+            fetcher.expect_fetch().times(fetches).returning(move |url| {
+                let final_url = redirected_to
+                    .map_or_else(|| url.clone(), |target| url::Url::parse(target).unwrap());
+                Box::pin(async move {
+                    Ok(FetchedHtml {
+                        html: NOTICE_HTML.to_owned(),
+                        final_url,
+                        status: reqwest::StatusCode::OK,
+                    })
+                })
+            });
+            let server = ReviewServer::new(
+                CrawlerReviewRepository::new(pool),
+                Arc::new(RejectingDomainAdministration),
+                ReviewServerConfig {
+                    bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                    auth_token: Some(TOKEN.to_owned()),
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+                },
+                Arc::new(fetcher),
+            );
+            (server, listing_source_id)
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_open_a_review_for_a_missing_value_page_and_evaluate_its_template() {
+            let (server, listing_source_id) = console(2, None).await;
+            let pages_route =
+                format!("/api/listing-sources/{listing_source_id}/missing-value-pages");
+
+            let (_, sources) = send(&server, "GET /api/listing_sources", "").await;
+            let source = sources
+                .as_array()
+                .and_then(|sources| {
+                    sources
+                        .iter()
+                        .find(|source| source["listing_source_id"] == listing_source_id.to_string())
+                })
+                .unwrap_or_else(|| panic!("source not listed: {sources}"));
+            assert_eq!(source["missing_value_urls"], 1);
+            let (status, listed) = send(&server, &format!("GET {pages_route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {listed}");
+            assert_eq!(listed["pages"][0]["url"], NOTICE_PAGE);
+            assert_eq!(listed["pages"][0]["missing"], "`title` is blank");
+
+            let (status, added) = send(
+                &server,
+                &format!("POST {pages_route}/review"),
+                &json!({ "url": NOTICE_PAGE }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 201"), "{status} {added}");
+            assert_eq!(added["review_page"]["role"], PAGE_ROLE_REVIEWER_ADDED);
+            let review_id = added["review_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("no review id: {added}"))
+                .to_owned();
+            let (_, detail) = send(&server, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert_eq!(
+                detail["review"]["reason"],
+                MISSING_REQUIRED_VALUE_REVIEW_REASON
+            );
+            assert_eq!(detail["review"]["status"], "PENDING_REVIEW");
+
+            let (status, edited) = send(
+                &server,
+                &format!("POST /api/reviews/{review_id}/candidate"),
+                &json!({
+                    "expected_candidate_version": detail["review"]["candidate_version"],
+                    "schemas": [schema("h1")],
+                    "removed_page_schemas": [{ "selector": "p.notice", "text": "no longer available" }],
+                })
+                .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {edited}");
+            let (status, matrix) = send(
+                &server,
+                &format!("GET /api/reviews/{review_id}/matrix?refresh=true"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {matrix}");
+            assert_eq!(matrix["removed_page_matches"][0]["url"], NOTICE_PAGE);
+            assert_eq!(matrix["removed_page_matches"][0]["outcome"], "REMOVED");
+        }
+
+        /// A URL that recorded no missing value is refused before anything is fetched, and the
+        /// agents, which administer no ListingSource, cannot open a review this way.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_other_pages_before_fetching_and_agents_altogether() {
+            let (server, listing_source_id) = console(0, None).await;
+            let route =
+                format!("POST /api/listing-sources/{listing_source_id}/missing-value-pages/review");
+
+            let (status, refused) = send(
+                &server,
+                &route,
+                &json!({ "url": "https://shop.example/products/other" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            let (status, _) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &route,
+                &json!({ "url": NOTICE_PAGE }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+        }
+
+        /// A sold page the shop redirects to its homepage is no product page the review takes,
+        /// so the request is refused after the fetch and opens no review.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_open_no_review_for_a_page_the_shop_redirects_off_the_product() {
+            let (server, listing_source_id) = console(1, Some("https://shop.example/")).await;
+
+            let (status, refused) = send(
+                &server,
+                &format!(
+                    "POST /api/listing-sources/{listing_source_id}/missing-value-pages/review"
+                ),
+                &json!({ "url": NOTICE_PAGE }).to_string(),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
+            let (_, reviews) = send(&server, "GET /api/reviews", "").await;
+            assert_eq!(reviews, json!([]), "a refused page opens no review");
         }
     }
 }

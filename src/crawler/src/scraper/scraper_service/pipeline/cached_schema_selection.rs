@@ -4,8 +4,7 @@ use crate::scraper::css_selector::product_schema::{
 };
 use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
-    AppliedSchemaCandidate, CheckedSchemaCandidate, collect_applicable_candidates,
-    rank_checked_candidates,
+    AppliedSchemaCandidate, CheckedSchemaCandidate, rank_checked_candidates,
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -45,6 +44,9 @@ pub(crate) struct SelectedSchemaCandidate {
     pub(crate) validated_image_urls: Vec<String>,
     pub(crate) schema: ProductCssSelectorSchema,
     pub(crate) fresh_schema: bool,
+    /// The title the URL was last captured with, captured in place of the blank title of
+    /// `raw` (see [`CheckedCachedCandidates::untitled`]). `None` captures the extracted title.
+    pub(crate) carried_forward_title: Option<String>,
 }
 
 pub(crate) enum ExistingSchemaSelection {
@@ -72,24 +74,11 @@ pub(crate) struct CheckedCachedCandidates<'a> {
     /// required values alone rejected (see [`PlausibilityFindings::missing_required_values`]).
     pub(crate) missing_required_values: Option<PlausibilityFindings>,
     pub(crate) candidates: Vec<CheckedSchemaCandidate<'a>>,
-}
-
-/// Applies every cached schema to an already parsed page and logs the outcome.
-/// Synchronous so the `!Send` document never lives across an await.
-pub(crate) fn apply_cached_schemas<'a>(
-    schemas: &'a [ProductCssSelectorSchema],
-    parsed: &scraper::Html,
-) -> Vec<AppliedSchemaCandidate<'a>> {
-    let candidate_set = collect_applicable_candidates(schemas, parsed);
-    log_cached_schema_application(
-        schemas.len(),
-        candidate_set.candidates.len(),
-        candidate_set
-            .apply_failures
-            .iter()
-            .map(|(schema_index, err)| (*schema_index, err, None)),
-    );
-    candidate_set.candidates
+    /// Candidates that a blank `title` alone rejected, in production ranking order, checked only
+    /// when the URL was captured with a title before: the shop blanked the name of a listing
+    /// the crawler already knows, as some do when an item sells, and the page still says what
+    /// changed. Empty otherwise.
+    pub(crate) untitled: Vec<CheckedSchemaCandidate<'a>>,
 }
 
 /// Logs how many cached schemas applied, and each apply failure with its field and error
@@ -239,18 +228,24 @@ impl ExtractedSchemaSet {
 impl ScraperServiceImpl {
     /// Takes the cached schemas that applied to the current page, rejects extractions that
     /// fail a rejecting plausibility check, validates the images of the rest and
-    /// ranks them. It never generates schemas or spends LLM budget.
+    /// ranks them. When the URL was captured with `last_captured_title`, the candidates a blank
+    /// title alone rejected are validated and ranked apart. It never generates schemas or
+    /// spends LLM budget.
     pub(crate) async fn check_cached_candidates<'a>(
         &self,
         extracted: &'a ExtractedSchemaSet,
         effective_url: &Url,
+        last_captured_title: Option<&str>,
     ) -> CheckedCachedCandidates<'a> {
         let candidates = extracted.applied_candidates();
         let applied_schema_count = candidates.len();
         let mut missing_required_values = None;
         let mut checked_candidates = Vec::new();
+        let mut untitled = Vec::new();
         for candidate in candidates {
             let findings = PlausibilityFindings::of(&candidate.raw);
+            let carries_title_forward =
+                last_captured_title.is_some() && findings.rejects_only_for_blank_title();
             if findings.rejects_candidate() {
                 debug!(
                     candidate_schema_index = candidate.schema_index,
@@ -260,7 +255,9 @@ impl ScraperServiceImpl {
                 if missing_required_values.is_none() {
                     missing_required_values = findings.missing_required_values();
                 }
-                continue;
+                if !carries_title_forward {
+                    continue;
+                }
             }
             // Image validation is candidate-local and does not call the LLM. It
             // runs before scoring so thumbnails and malformed URLs cannot inflate
@@ -271,13 +268,15 @@ impl ScraperServiceImpl {
                 &*self.image_validator,
             )
             .await;
-            checked_candidates.push(CheckedSchemaCandidate::new(
-                candidate,
-                findings,
-                validated_image_urls,
-            ));
+            let checked = CheckedSchemaCandidate::new(candidate, findings, validated_image_urls);
+            if carries_title_forward {
+                untitled.push(checked);
+            } else {
+                checked_candidates.push(checked);
+            }
         }
         rank_checked_candidates(&mut checked_candidates);
+        rank_checked_candidates(&mut untitled);
         for candidate in &checked_candidates {
             debug!(
                 candidate_schema_index = candidate.schema_index,
@@ -292,6 +291,7 @@ impl ScraperServiceImpl {
             applied_schema_count,
             missing_required_values,
             candidates: checked_candidates,
+            untitled,
         }
     }
 
@@ -303,9 +303,12 @@ impl ScraperServiceImpl {
     /// [`ExistingSchemaSelection::GenerateNewSchema`] so the caller falls back to
     /// fresh schema generation. No cached schema is ever selected as generation
     /// input. A page that one cached candidate fails only for blank required values
-    /// returns [`ExistingSchemaSelection::MissingRequiredValue`] instead.
+    /// returns [`ExistingSchemaSelection::MissingRequiredValue`] instead, unless a blank title
+    /// is all that is missing and the URL was captured with `last_captured_title` before: then
+    /// the best such candidate is selected and captures that title in place of the blank one
+    /// (`docs/crawler/extraction-and-review.md`, missing required values).
     #[tracing::instrument(
-        skip(self, extracted),
+        skip(self, extracted, last_captured_title),
         fields(
             listing_source_id = %listing_source_id,
             url = %url,
@@ -317,14 +320,33 @@ impl ScraperServiceImpl {
         listing_source_id: &ListingSourceId,
         url: &Url,
         extracted: &ExtractedSchemaSet,
+        last_captured_title: Option<&str>,
     ) -> ExistingSchemaSelection {
         let CheckedCachedCandidates {
             applied_schema_count,
             missing_required_values,
             candidates,
-        } = self.check_cached_candidates(extracted, url).await;
+            untitled,
+        } = self
+            .check_cached_candidates(extracted, url, last_captured_title)
+            .await;
 
         let Some(selected) = candidates.into_iter().next() else {
+            if let (Some(untitled), Some(title)) =
+                (untitled.into_iter().next(), last_captured_title)
+            {
+                debug!(
+                    selected_schema_index = untitled.schema_index,
+                    "No plausible cached schema candidate; the page blanked the title it was captured with, which is carried forward"
+                );
+                return ExistingSchemaSelection::Selected(Box::new(SelectedSchemaCandidate {
+                    raw: untitled.raw,
+                    validated_image_urls: untitled.validated_image_urls,
+                    schema: untitled.schema.clone(),
+                    fresh_schema: false,
+                    carried_forward_title: Some(title.to_owned()),
+                }));
+            }
             if let Some(findings) = missing_required_values {
                 debug!(
                     missing_required_values = %findings,
@@ -355,6 +377,7 @@ impl ScraperServiceImpl {
             validated_image_urls: selected.validated_image_urls,
             schema: selected.schema.clone(),
             fresh_schema: false,
+            carried_forward_title: None,
         }))
     }
 }

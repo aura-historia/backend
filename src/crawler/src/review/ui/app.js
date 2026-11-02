@@ -194,7 +194,9 @@ async function loadReviews() {
         api('/api/listing_sources').catch(() => null)
     ]);
     const list = document.getElementById('reviewList');
-    list.innerHTML = renderDomainsNeedingOperator(listingSources) + renderReviewGroups(reviews);
+    list.innerHTML = renderDomainsNeedingOperator(listingSources)
+        + renderMissingValueSources(listingSources)
+        + renderReviewGroups(reviews);
     updateSelectedReviewFreshness(reviews);
     return reviews;
 }
@@ -280,6 +282,85 @@ function renderDomainsNeedingOperator(listingSources) {
         </div>`).join('')}
       </div>
     </div>`;
+}
+
+// A page whose last scrape left a required value empty opens and joins no review, such as a
+// removal page that keeps an empty title element. The queue lists the ListingSources with such
+// pages, so a reviewer adds one to the product-schema review (opened for it when none is
+// pending) and declares a removed-page template for it there.
+const expandedMissingValueSources = new Map();
+
+function renderMissingValueSources(listingSources) {
+    if (!listingSources) return '';
+    const query = reviewSearchTerm.trim().toLowerCase();
+    const sources = listingSources
+        .filter(source => source.crawl_enabled && source.missing_value_urls > 0)
+        .filter(source => !query || String(source.listing_source_name || source.listing_source_id).toLowerCase().includes(query));
+    if (!sources.length) return '';
+    return `<div class="listing-source-group">
+      <div class="listing-source-group-head">
+        <div>
+          <div class="queue-title">Pages missing a required value</div>
+          <div class="queue-meta">Open no review on their own; add one to a review to declare a removed-page template</div>
+        </div>
+      </div>
+      <div class="listing-source-review-list">
+        ${sources.map(source => {
+            const id = escapeHtmlAttr(source.listing_source_id);
+            const pages = expandedMissingValueSources.get(source.listing_source_id);
+            return `<div class="item" onclick="toggleMissingValuePages('${id}')">
+              <div class="queue-row">
+                <span class="queue-artifact">${escapeHtml(source.listing_source_name || source.listing_source_id)}</span>
+                ${statusBadge(`${source.missing_value_urls} missing`)}
+              </div>
+              ${pages ? renderMissingValuePages(source.listing_source_id, pages) : ''}
+            </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+// The handler names a page by its position in the listed pages, never by its URL: a shop's URL
+// may hold a quote, which the browser decodes from an HTML entity before the handler runs, so a
+// URL in the handler's source would let the shop run script in the console.
+function renderMissingValuePages(listingSourceId, pages) {
+    if (pages.error) return `<div class="queue-meta">${escapeHtml(pages.error)}</div>`;
+    return pages.map((page, index) => `<div class="queue-meta" onclick="event.stopPropagation()">
+        ${productPageLink(page.url)} ${escapeHtml(page.missing || '')}
+        <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', ${index})">Add to review</button>
+      </div>`).join('');
+}
+
+async function toggleMissingValuePages(listingSourceId) {
+    if (expandedMissingValueSources.has(listingSourceId)) {
+        expandedMissingValueSources.delete(listingSourceId);
+    } else {
+        try {
+            const answer = await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/missing-value-pages`);
+            expandedMissingValueSources.set(listingSourceId, answer.pages || []);
+        } catch (error) {
+            expandedMissingValueSources.set(listingSourceId, {error: apiErrorMessage(error)});
+        }
+    }
+    loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
+}
+
+async function reviewMissingValuePage(listingSourceId, index) {
+    const pages = expandedMissingValueSources.get(listingSourceId);
+    const url = Array.isArray(pages) ? pages[index]?.url : undefined;
+    if (!url) return;
+    await confirmDiscardingEdits('Adding the page', async () => {
+        try {
+            const added = await api(
+                `/api/listing-sources/${encodeURIComponent(listingSourceId)}/missing-value-pages/review`,
+                {method: 'POST', body: JSON.stringify({url})}
+            );
+            await loadReviews();
+            await selectReview(added.review_id);
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        }
+    });
 }
 
 function reviewMatchesSearch(review, query) {
@@ -1281,7 +1362,9 @@ function renderRemovedPageTemplate(template, index, disabled) {
 
 // Mirrors `removed_page_matches` in the schema matrix: the review pages the templates match,
 // and whether the scraper would capture each as removed or keep scraping it as a product
-// because a candidate schema still extracts it.
+// because a candidate schema still extracts it. A template that takes a plausibly extracted
+// title for its notice asks for a breadth check: it would withdraw that page, which is right only
+// when the page is a removal notice that keeps the product template.
 function renderRemovedPageMatches(matrix, templates) {
     if (!templates.length) return '<div class="muted">Declare a template to see the pages it matches.</div>';
     if (dirty) return '<div class="muted">Save the templates to evaluate them on the review pages.</div>';
@@ -1295,7 +1378,9 @@ function renderRemovedPageMatches(matrix, templates) {
         <td>${match.outcome === 'REMOVED'
             ? statusBadge('Captured as removed')
             : statusBadge('Scraped as a product: a candidate schema extracts it')}</td>
-        <td>${(match.templates || []).map(t => `Template ${t.template_index + 1}: ${escapeHtml((t.notices || []).join(' | '))}`).join('<br>')}</td>
+        <td>${(match.templates || []).map(t => `Template ${t.template_index + 1}: ${escapeHtml((t.notices || []).join(' | '))}${t.product_title
+            ? `<br>${statusBadge('Check breadth')} takes the title “${escapeHtml(t.product_title)}” a candidate schema extracts for its notice: too broad unless this page is a removal notice`
+            : ''}`).join('<br>')}</td>
       </tr>`).join('')}</tbody>
     </table>`;
 }

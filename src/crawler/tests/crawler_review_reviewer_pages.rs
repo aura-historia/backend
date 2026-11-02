@@ -1,7 +1,7 @@
 use crawler::review::model::{
-    CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_SEED,
-    PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor, ReviewEventAction,
-    STATUS_PENDING_REVIEW, STATUS_REJECTED, SchemaReviewPageInput,
+    CrawlerReviewPage, ListingSourceOverview, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED,
+    PAGE_ROLE_SEED, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
+    ReviewEventAction, STATUS_PENDING_REVIEW, STATUS_REJECTED, SchemaReviewPageInput,
 };
 use crawler::review::repository::{
     CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewRepositoryError,
@@ -1379,4 +1379,111 @@ async fn should_classify_revoked_pages_by_a_pattern_change_that_commits_meanwhil
         crawler_url_state(&pool, rejected_page).await,
         ("product".to_owned(), true)
     );
+}
+
+/// Records that the last scrape of the product page `page` of the ListingSource left a required
+/// value empty.
+async fn record_missing_value_page(pool: &PgPool, listing_source_id: ListingSourceId, page: &str) {
+    sqlx::query(
+        "INSERT INTO listing_source_urls \
+         (listing_source_id, domain_id, url, url_class, raw_source_record_key, last_scraped, \
+          last_error_kind, last_error_message) \
+         SELECT $1, domain_id, $2, 'product', $2, NOW(), 'MissingRequiredValue', '`title` is blank' \
+         FROM listing_source_domains WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(page)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// A page that recorded `MissingRequiredValue` joins the product-schema review already pending
+/// rather than opening a second one, and needs live schemas: without them the ListingSource's
+/// pages need a schema, not a removed-page template.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_add_a_missing_value_page_to_the_pending_review_and_need_live_schemas() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, pending) = pending_schema_review(&pool).await;
+    let page = url("https://example.com/products/untitled");
+    record_missing_value_page(&pool, listing_source_id, page.as_str()).await;
+
+    let refused = repository
+        .open_review_for_missing_value_page(&listing_source_id, &page)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(refused, ReviewRepositoryError::NoLiveProductSchemas(id) if id == listing_source_id),
+        "{refused:?}"
+    );
+
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas \
+         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(json!([schema()]))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        repository
+            .open_review_for_missing_value_page(&listing_source_id, &page)
+            .await
+            .unwrap(),
+        pending
+    );
+    let other = url("https://example.com/products/2");
+    assert!(matches!(
+        repository
+            .open_review_for_missing_value_page(&listing_source_id, &other)
+            .await
+            .unwrap_err(),
+        ReviewRepositoryError::NotMissingValuePage(_)
+    ));
+}
+
+/// The overview counts exactly the pages the console lists: a URL retired as `DUPLICATE` keeps
+/// the outcome its last scrape recorded, but is no page a review can take, and no product URL of
+/// its own.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_only_the_missing_value_pages_it_lists() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, _) = pending_schema_review(&pool).await;
+    let listed = url("https://example.com/products/untitled");
+    let retired = url("https://example.com/products/untitled-copy");
+    for page in [&listed, &retired] {
+        record_missing_value_page(&pool, listing_source_id, page.as_str()).await;
+    }
+    let overview_of = |sources: Vec<ListingSourceOverview>| {
+        sources
+            .into_iter()
+            .find(|source| source.listing_source_id == listing_source_id)
+            .unwrap()
+    };
+    let product_urls_before =
+        overview_of(repository.list_listing_sources(10).await.unwrap()).product_urls;
+    sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
+        .bind(retired.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let pages = repository
+        .list_missing_value_pages(&listing_source_id)
+        .await
+        .unwrap();
+    let overview = overview_of(repository.list_listing_sources(10).await.unwrap());
+
+    assert_eq!(
+        pages
+            .iter()
+            .map(|page| page.url.as_str())
+            .collect::<Vec<_>>(),
+        vec![listed.as_str()]
+    );
+    assert_eq!(overview.missing_value_urls, 1);
+    assert_eq!(overview.product_urls, product_urls_before - 1);
 }

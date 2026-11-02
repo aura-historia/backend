@@ -6,13 +6,15 @@ use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
 use crate::spider::classification::url_classifier::UrlClassifier;
-use crate::spider::classification::url_metadata::UrlClass;
+use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
 use crate::spider::classification::url_metadata_repository::{
-    SpiderUrlRecord, UrlMetadataRepository,
+    DiscoveredUrl, SpiderUrlRecord, UrlMetadataRepository,
 };
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
+use crate::spider::crawl_frontier_repository::{CrawlFrontierRepository, KnownUrls};
+use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds};
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
     CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace, CrawlStopReason, CrawledPage,
@@ -21,6 +23,7 @@ use crate::spider::discovery::website_spider::{
 use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
 use crate::spider::utils::url::CrawledUrl;
+use crate::spider::utils::url::canonical::{ShopPlatform, canonical_product_url};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use url::Url;
@@ -41,6 +44,30 @@ pub struct SpiderRunResult {
     /// decision for the crawl's re-reads to find, so the scheduler records the
     /// wait only while the review is still pending.
     pub pending_url_pattern_review: Option<CrawlerReviewId>,
+    /// Product pages the domain stores that an incremental crawl found linked
+    /// and did not fetch again; never counted in `product_urls_count`.
+    pub known_product_urls_skipped: usize,
+}
+
+/// What the spider reported about a crawl once it ended.
+struct EndedCrawl {
+    kind: CrawlKind,
+    diagnostics: CrawlDiagnostics,
+    /// `None` when the crawl could not tell what it left unvisited.
+    discovery: Option<CrawlDiscovery>,
+}
+
+impl EndedCrawl {
+    /// Product pages the domain stores that the crawl found linked and, being incremental, did
+    /// not fetch again. They are product pages the shop still links, so the crawl is not judged
+    /// as if it had found no product page
+    /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+    fn skipped_known_products(&self) -> usize {
+        match self.kind {
+            CrawlKind::Incremental => self.diagnostics.known_skipped,
+            CrawlKind::Full => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +193,8 @@ impl Default for SpiderServiceConfig {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait SpiderService: Send + Sync {
+    /// Crawls the domain as `kind` asks: a full crawl records the last full crawl when it reached
+    /// everything, an incremental one never does.
     async fn run(
         &self,
         listing_source_id: &ListingSourceId,
@@ -173,6 +202,7 @@ pub trait SpiderService: Send + Sync {
         _crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError>;
 }
 
@@ -181,6 +211,7 @@ pub struct SpiderServiceImpl {
     spider: Box<dyn Spider>,
     pattern_service: Box<dyn UrlPatternService>,
     url_metadata_repository: Arc<dyn UrlMetadataRepository>,
+    frontier_repository: Arc<dyn CrawlFrontierRepository>,
 }
 
 impl SpiderServiceImpl {
@@ -189,42 +220,104 @@ impl SpiderServiceImpl {
         spider: Box<dyn Spider>,
         pattern_service: Box<dyn UrlPatternService>,
         url_metadata_repository: Arc<dyn UrlMetadataRepository>,
+        frontier_repository: Arc<dyn CrawlFrontierRepository>,
     ) -> Self {
         Self {
             config,
             spider,
             pattern_service,
             url_metadata_repository,
+            frontier_repository,
         }
     }
 
+    /// What the crawl starts from besides its root: the frontier the previous crawl left, and
+    /// the known product URLs an incremental crawl skips.
+    async fn crawl_seeds(
+        &self,
+        domain_id: &CrawlerDomainId,
+        kind: CrawlKind,
+    ) -> Result<CrawlSeeds, SpiderServiceError> {
+        let frontier = self.frontier_repository.load_frontier(domain_id).await?;
+        let known = match kind {
+            CrawlKind::Full => KnownUrls::default(),
+            CrawlKind::Incremental => self.frontier_repository.known_urls(domain_id).await?,
+        };
+        Ok(CrawlSeeds {
+            frontier,
+            known: known.products,
+            retired: known.retired,
+        })
+    }
+
+    /// Keeps what the crawl left unvisited for the domain's next crawl. A failed write leaves
+    /// the previous frontier, which the next crawl revisits at worst.
+    async fn replace_frontier_best_effort(
+        &self,
+        domain_id: &CrawlerDomainId,
+        discovery: Option<&CrawlDiscovery>,
+    ) {
+        let Some(discovery) = discovery else {
+            warn!("Spider crawl reported no frontier; keeping the previous one");
+            return;
+        };
+        if let Err(error) = self
+            .frontier_repository
+            .replace_frontier(domain_id, &discovery.frontier)
+            .await
+        {
+            warn!(error = ?error, "Failed to persist the crawl frontier");
+        }
+    }
+
+    /// Stores `pages` classified by `pattern`, each product page under its canonical URL
+    /// ([`canonical_product_url`]). This is the one path every discovered URL is stored through,
+    /// so the canonical rules cover every page a crawl stores.
     async fn persist_url_metadata_batch(
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         pages: &[CrawledPage],
         pattern: &ProductListingPattern,
+        shop_platform: Option<ShopPlatform>,
     ) -> Result<Vec<SpiderUrlRecord>, SpiderServiceError> {
         if pages.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut urls = Vec::with_capacity(pages.len());
-        let mut classes = Vec::with_capacity(pages.len());
-
-        for page in pages {
-            urls.push(page.url.as_url().clone());
-            classes.push(
-                self.config
-                    .url_classifier
-                    .classify(page.url.as_url().as_str(), pattern.as_regex()),
-            );
-        }
+        let links = pages
+            .iter()
+            .map(|page| self.discovered_url(page, pattern, shop_platform))
+            .collect::<Vec<_>>();
 
         self.url_metadata_repository
-            .upsert_links_batch(listing_source_id, domain_id, &urls, &classes)
+            .upsert_links_batch(listing_source_id, domain_id, &links)
             .await
             .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))
+    }
+
+    fn discovered_url(
+        &self,
+        page: &CrawledPage,
+        pattern: &ProductListingPattern,
+        shop_platform: Option<ShopPlatform>,
+    ) -> DiscoveredUrl {
+        let url_class = self
+            .config
+            .url_classifier
+            .classify(page.url.as_url().as_str(), pattern.as_regex());
+        let canonical = pattern
+            .as_regex()
+            .filter(|_| url_class == UrlClass::ProductListing)
+            .and_then(|regex| {
+                canonical_product_url(&page.url, &page.identity, shop_platform, regex)
+            })
+            .map(|canonical| canonical.as_url().clone());
+        DiscoveredUrl {
+            url: page.url.as_url().clone(),
+            url_class,
+            canonical,
+        }
     }
 
     /// Stores the buffered pages under the crawl's pattern, counts its product URLs among them
@@ -247,6 +340,7 @@ impl SpiderServiceImpl {
                 domain_id,
                 &state.page_buffer,
                 &state.pattern,
+                state.shop_platform,
             )
             .await?;
         record_stored_products(&stored, &mut state.stored_product_pages);
@@ -292,7 +386,13 @@ impl SpiderServiceImpl {
         for pages in stored_pages.chunks(self.config.db_batch_size.max(1)) {
             record_pattern_matches(pages, &state.pattern, &mut state.pattern_matched_pages);
             let stored = self
-                .persist_url_metadata_batch(listing_source_id, domain_id, pages, &state.pattern)
+                .persist_url_metadata_batch(
+                    listing_source_id,
+                    domain_id,
+                    pages,
+                    &state.pattern,
+                    state.shop_platform,
+                )
                 .await?;
             record_stored_products(&stored, &mut state.stored_product_pages);
         }
@@ -549,6 +649,7 @@ impl SpiderServiceImpl {
                 continue;
             }
             state.total_crawled += 1;
+            state.shop_platform = state.shop_platform.or(page.identity.platform);
 
             if state.inference_sample.len() < self.config.max_sample_urls {
                 state.inference_sample.push(page.url.to_string());
@@ -590,6 +691,7 @@ impl SpiderServiceImpl {
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let configured_root = Url::parse(crawl_root_url).map_err(|_| {
             SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
@@ -598,7 +700,15 @@ impl SpiderServiceImpl {
                 source: None,
             })
         })?;
-        let crawl = self.spider.crawl(crawl_root_url, pace).await?;
+        let seeds = self.crawl_seeds(domain_id, kind).await?;
+        let crawl = self
+            .spider
+            .crawl(CrawlRequest {
+                crawl_root_url: crawl_root_url.to_string(),
+                pace,
+                seeds,
+            })
+            .await?;
         let consumed = self
             .consume_pages(
                 crawl.pages,
@@ -623,10 +733,15 @@ impl SpiderServiceImpl {
                 diagnostic_reason: Some("crawl_diagnostics_missing".to_string()),
                 ..CrawlDiagnostics::default()
             });
-        let rate_limit = diagnostics.completion.rate_limit();
+        let ended = EndedCrawl {
+            kind,
+            discovery: crawl.discovery.await.ok(),
+            diagnostics,
+        };
+        let rate_limit = ended.diagnostics.completion.rate_limit();
         self.finish_crawl(
             consumed,
-            &diagnostics,
+            &ended,
             listing_source_id,
             domain_id,
             crawl_root_url,
@@ -641,31 +756,50 @@ impl SpiderServiceImpl {
         })
     }
 
-    /// Classifies, stores and judges what the ended crawl delivered.
+    /// Classifies, stores and judges what the ended crawl delivered, and keeps what it left
+    /// unvisited for the next crawl. A failed run keeps the previous frontier.
     async fn finish_crawl(
         &self,
         consumed: Result<CrawlRunState, SpiderServiceError>,
-        diagnostics: &CrawlDiagnostics,
+        ended: &EndedCrawl,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
+        let EndedCrawl {
+            kind,
+            discovery,
+            diagnostics,
+        } = ended;
+        let (kind, discovery) = (*kind, discovery.as_ref());
+        let skipped_known_products = ended.skipped_known_products();
         let mut state =
             consumed.inspect_err(|error| log_crawl_stopped_early(diagnostics, error))?;
-        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, diagnostics) {
+        if let Some(error) = crawl_failure_error(
+            crawl_root_url,
+            state.total_crawled,
+            skipped_known_products,
+            diagnostics,
+        ) {
             log_crawl_stopped_early(diagnostics, &error);
             return Err(error);
         }
 
         self.classify_at_end_if_needed(&mut state, listing_source_id, domain_id, crawl_root_url)
             .await?;
-        self.reclassify_if_persisted_pattern_failed(
-            &mut state,
-            listing_source_id,
-            domain_id,
-            crawl_root_url,
-        )
-        .await?;
+        // A stored pattern that matched none of the pages an incremental crawl
+        // fetched still takes the stored product pages the crawl skipped.
+        let judged_on_fetched_pages =
+            skipped_known_products == 0 || !state.pattern_loaded_from_store;
+        if judged_on_fetched_pages {
+            self.reclassify_if_persisted_pattern_failed(
+                &mut state,
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+            )
+            .await?;
+        }
         self.flush_remaining_pages(&mut state, listing_source_id, domain_id)
             .await?;
         self.classify_with_decision_made_while_waiting(&mut state, listing_source_id, domain_id)
@@ -674,6 +808,7 @@ impl SpiderServiceImpl {
         // URLs stay stored either way; only the recorded outcome differs.
         let completion = diagnostics.completion;
         if state.pending_url_pattern_review().is_none()
+            && judged_on_fetched_pages
             && let Some(error) = no_product_urls_error(crawl_root_url, &state, completion)
         {
             return Err(error);
@@ -684,16 +819,26 @@ impl SpiderServiceImpl {
             .as_regex()
             .map(|regex| regex.as_str().to_string());
 
+        self.replace_frontier_best_effort(domain_id, discovery)
+            .await;
+
         // `last_crawled` records the last full crawl; a truncated one keeps the
         // domain due so the scheduler can retry it sooner. A full crawl that
         // waits for a pattern review has discovered everything too: approval
         // classifies its stored URLs, so no second crawl from the root is due.
-        if completion.is_full() {
+        // An incremental crawl skipped known product pages, so it is never one.
+        if completion.is_full() && kind == CrawlKind::Full {
             self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
                 .await;
         }
 
-        log_crawl_outcome(&state, diagnostics, product_pattern.as_deref());
+        log_crawl_outcome(
+            &state,
+            diagnostics,
+            product_pattern.as_deref(),
+            kind,
+            discovery,
+        );
 
         Ok(SpiderRunResult {
             total_links: state.total_crawled,
@@ -701,6 +846,7 @@ impl SpiderServiceImpl {
             product_pattern,
             completion,
             pending_url_pattern_review: state.pending_url_pattern_review(),
+            known_product_urls_skipped: skipped_known_products,
         })
     }
 }
@@ -715,7 +861,8 @@ impl SpiderService for SpiderServiceImpl {
             domain_id = %domain_id,
             crawl_root_url = %crawl_root_url,
             classify_threshold,
-            pace = ?pace
+            pace = ?pace,
+            kind = %kind
         )
     )]
     async fn run(
@@ -725,6 +872,7 @@ impl SpiderService for SpiderServiceImpl {
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
 
@@ -734,6 +882,7 @@ impl SpiderService for SpiderServiceImpl {
             crawl_root_url,
             classify_threshold,
             pace,
+            kind,
         )
         .await
     }
@@ -759,11 +908,16 @@ fn record_pattern_matches(
 
 /// Adds the rows storage keeps as product URLs to `products` by their page spelling. Storage decides
 /// the class, so a page the pattern matches but an operator rejected is no product URL.
+/// Records the product pages a batch stored. A row retired as a duplicate keeps its class but is
+/// no product page of its own: its product is stored under its canonical URL.
 fn record_stored_products(stored: &[SpiderUrlRecord], products: &mut HashSet<Url>) {
     products.extend(
         stored
             .iter()
-            .filter(|record| record.url_class == UrlClass::ProductListing)
+            .filter(|record| {
+                record.url_class == UrlClass::ProductListing
+                    && record.disposition != CrawlerDisposition::Duplicate
+            })
             .map(|record| CrawledUrl::new(record.url.clone()).page_spelling()),
     );
 }
@@ -779,10 +933,17 @@ fn log_crawl_outcome(
     state: &CrawlRunState,
     diagnostics: &CrawlDiagnostics,
     product_pattern: Option<&str>,
+    kind: CrawlKind,
+    discovery: Option<&CrawlDiscovery>,
 ) {
     let completion = diagnostics.completion;
     info!(
         completion = %completion,
+        kind = %kind,
+        crawl_budget_ms = diagnostics.crawl_budget_ms,
+        seeds = diagnostics.seeds,
+        known_skipped = diagnostics.known_skipped,
+        frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
         at_budget = completion == CrawlCompletion::PageBudgetReached,
         diagnostic_reason = ?diagnostics.diagnostic_reason,
         truncated = !completion.is_full(),
@@ -802,6 +963,7 @@ fn log_crawl_outcome(
         lagged = diagnostics.lagged,
         initial_anti_bot = ?diagnostics.initial_anti_bot,
         status_counts = ?diagnostics.status_counts,
+        bot_challenge_pages = diagnostics.bot_challenge_pages,
         rate_limit = ?diagnostics.rate_limit,
         pending_url_pattern_review = ?state.pending_url_pattern_review().map(|id| id.to_string()),
         stopped_early = ?diagnostics.stopped_early.map(CrawlStopReason::as_str),
@@ -882,29 +1044,55 @@ mod service_tests {
     use crate::spider::classification::url_pattern_service::{
         DecidedUrlPattern, MockUrlPatternService,
     };
+    use crate::spider::crawl_frontier_repository::MockCrawlFrontierRepository;
     use crate::spider::discovery::website_spider::{
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
     use crate::spider::utils::url::CrawledUrl;
+    use crate::spider::utils::url::canonical::PageIdentityEvidence;
     use regex::Regex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::{mpsc, oneshot};
+
+    /// The crawl a domain without a frontier starts with: its root alone.
+    fn first_full_crawl(crawl_root_url: &str) -> CrawlRequest {
+        CrawlRequest::from_root(crawl_root_url, CrawlPace::default())
+    }
+
+    /// A crawl that cannot tell what it left unvisited.
+    fn discovery_unknown() -> oneshot::Receiver<CrawlDiscovery> {
+        oneshot::channel().1
+    }
+
+    /// A domain with no frontier, whose crawl's frontier is not checked.
+    fn no_frontier() -> Arc<MockCrawlFrontierRepository> {
+        let mut repository = MockCrawlFrontierRepository::new();
+        repository
+            .expect_load_frontier()
+            .returning(|_| Box::pin(async { Ok(Vec::new()) }));
+        repository
+            .expect_known_urls()
+            .returning(|_| Box::pin(async { Ok(KnownUrls::default()) }));
+        repository
+            .expect_replace_frontier()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
+        Arc::new(repository)
+    }
 
     /// The rows the URL repository answers a batch with when it stores each URL as it was given.
     fn stored_as_given(
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        urls: &[Url],
-        classes: &[UrlClass],
+        links: &[DiscoveredUrl],
     ) -> Vec<SpiderUrlRecord> {
         let now = time::OffsetDateTime::now_utc();
-        urls.iter()
-            .zip(classes)
-            .map(|(url, class)| SpiderUrlRecord {
+        links
+            .iter()
+            .map(|link| SpiderUrlRecord {
                 listing_source_id: *listing_source_id,
                 domain_id: *domain_id,
-                url: url.clone(),
-                url_class: *class,
+                url: link.canonical.clone().unwrap_or_else(|| link.url.clone()),
+                url_class: link.url_class,
                 disposition: CrawlerDisposition::Active,
                 last_scraped_hash: None,
                 last_scraped: None,
@@ -921,9 +1109,9 @@ mod service_tests {
     ) {
         mock.expect_upsert_links_batch()
             .times(call_count)
-            .withf(move |_, domain_id, _, _| *domain_id == expected_domain_id)
-            .returning(|listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            .withf(move |_, domain_id, _| *domain_id == expected_domain_id)
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             });
     }
@@ -954,21 +1142,16 @@ mod service_tests {
     {
         let paths: Vec<String> = paths.into_iter().map(Into::into).collect();
         mock.expect_crawl()
-            .with(
-                mockall::predicate::eq(crawl_root_url),
-                mockall::predicate::eq(CrawlPace::default()),
-            )
-            .returning(move |_, _| {
+            .with(mockall::predicate::eq(first_full_crawl(crawl_root_url)))
+            .returning(move |_| {
                 let paths = paths.clone();
                 let diagnostics = diagnostics.clone();
                 let (tx, rx) = mpsc::channel(25);
                 tokio::spawn(async move {
                     for path in paths {
-                        tx.send(CrawledPage {
-                            url: CrawledUrl::new(
-                                Url::parse(&format!("https://example.com{path}")).unwrap(),
-                            ),
-                        })
+                        tx.send(CrawledPage::new(CrawledUrl::new(
+                            Url::parse(&format!("https://example.com{path}")).unwrap(),
+                        )))
                         .await
                         .unwrap();
                     }
@@ -979,9 +1162,349 @@ mod service_tests {
                     Ok(SpiderCrawl {
                         pages: rx,
                         diagnostics: diagnostics_rx,
+                        discovery: discovery_unknown(),
                     })
                 })
             });
+    }
+
+    /// A crawl of `request` that delivers `paths` and reports `discovery` once it ended.
+    fn setup_mock_seeded_crawl(
+        mock: &mut MockSpider,
+        request: CrawlRequest,
+        paths: Vec<String>,
+        discovery: CrawlDiscovery,
+    ) {
+        mock.expect_crawl()
+            .with(mockall::predicate::eq(request))
+            .times(1)
+            .return_once(move |_| {
+                let (tx, rx) = mpsc::channel(paths.len().max(1));
+                for path in paths {
+                    tx.try_send(CrawledPage::new(CrawledUrl::new(
+                        Url::parse(&format!("https://example.com{path}")).unwrap(),
+                    )))
+                    .unwrap();
+                }
+                let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+                diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
+                let (discovery_tx, discovery_rx) = oneshot::channel();
+                discovery_tx.send(discovery).unwrap();
+                Box::pin(async {
+                    Ok(SpiderCrawl {
+                        pages: rx,
+                        diagnostics: diagnostics_rx,
+                        discovery: discovery_rx,
+                    })
+                })
+            });
+    }
+
+    fn example(path: &str) -> Url {
+        Url::parse(&format!("https://example.com{path}")).unwrap()
+    }
+
+    fn known_products() -> KnownUrls {
+        KnownUrls {
+            products: vec![example("/product/9")],
+            ..KnownUrls::default()
+        }
+    }
+
+    fn frontier_repository(
+        frontier: Vec<Url>,
+        known: KnownUrls,
+        replaced_with: Option<Vec<Url>>,
+    ) -> Arc<MockCrawlFrontierRepository> {
+        let mut repository = MockCrawlFrontierRepository::new();
+        repository
+            .expect_load_frontier()
+            .times(1)
+            .return_once(move |_| Box::pin(async move { Ok(frontier) }));
+        repository
+            .expect_known_urls()
+            .return_once(move |_| Box::pin(async move { Ok(known) }));
+        match replaced_with {
+            Some(expected) => {
+                repository
+                    .expect_replace_frontier()
+                    .withf(move |_, frontier| frontier == expected.as_slice())
+                    .times(1)
+                    .returning(|_, _| Box::pin(async { Ok(()) }));
+            }
+            None => {
+                repository.expect_replace_frontier().times(0);
+            }
+        }
+        Arc::new(repository)
+    }
+
+    fn pattern_service_with_stored_pattern() -> MockUrlPatternService {
+        let mut service = MockUrlPatternService::new();
+        service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+        service
+    }
+
+    #[tokio::test]
+    async fn should_seed_an_incremental_crawl_and_keep_its_frontier_without_recording_a_full_crawl()
+    {
+        let domain_id = CrawlerDomainId::new();
+        let mut mock_spider = MockSpider::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        pattern_service.expect_mark_as_crawled().times(0);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_seeded_crawl(
+            &mut mock_spider,
+            CrawlRequest {
+                seeds: CrawlSeeds {
+                    frontier: vec![example("/deep/1")],
+                    known: vec![example("/product/9")],
+                    retired: vec![example("/collections/all/products/9")],
+                },
+                ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
+            },
+            one_product_and_listing_pages(),
+            CrawlDiscovery {
+                frontier: vec![example("/deep/2")],
+            },
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(mock_url_repo),
+            frontier_repository(
+                vec![example("/deep/1")],
+                KnownUrls {
+                    products: vec![example("/product/9")],
+                    retired: vec![example("/collections/all/products/9")],
+                },
+                Some(vec![example("/deep/2")]),
+            ),
+        );
+
+        let result = service
+            .run(
+                &ListingSourceId::new(),
+                &domain_id,
+                "https://example.com",
+                20,
+                CrawlPace::default(),
+                CrawlKind::Incremental,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.completion, CrawlCompletion::Completed);
+        assert_eq!(result.product_urls_count, 1);
+    }
+
+    /// An incremental crawl of `paths` whose pages link `known_skipped` stored product pages it
+    /// did not fetch again.
+    fn setup_mock_incremental_crawl(
+        mock: &mut MockSpider,
+        paths: Vec<String>,
+        known_skipped: usize,
+    ) {
+        mock.expect_crawl().times(1).return_once(move |_| {
+            let (tx, rx) = mpsc::channel(paths.len().max(1));
+            for path in paths {
+                tx.try_send(CrawledPage::new(CrawledUrl::new(example(&path))))
+                    .unwrap();
+            }
+            let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+            diagnostics_tx
+                .send(CrawlDiagnostics {
+                    known_skipped,
+                    ..CrawlDiagnostics::default()
+                })
+                .unwrap();
+            let (discovery_tx, discovery_rx) = oneshot::channel();
+            discovery_tx.send(CrawlDiscovery::default()).unwrap();
+            Box::pin(async {
+                Ok(SpiderCrawl {
+                    pages: rx,
+                    diagnostics: diagnostics_rx,
+                    discovery: discovery_rx,
+                })
+            })
+        });
+    }
+
+    fn listing_pages() -> Vec<String> {
+        (1..=20).map(|i| format!("/category/{i}")).collect()
+    }
+
+    #[tokio::test]
+    async fn should_not_judge_an_incremental_crawl_on_the_stored_product_pages_it_skipped() {
+        for paths in [listing_pages(), vec!["/".to_string()]] {
+            let domain_id = CrawlerDomainId::new();
+            let mut mock_spider = MockSpider::new();
+            let mut mock_url_repo = MockUrlMetadataRepository::new();
+            let mut pattern_service = pattern_service_with_stored_pattern();
+            pattern_service.expect_classify_and_save().times(0);
+            pattern_service.expect_mark_as_crawled().times(0);
+            setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+            setup_mock_incremental_crawl(&mut mock_spider, paths.clone(), 3);
+            let service = SpiderServiceImpl::new(
+                SpiderServiceConfig::default(),
+                Box::new(mock_spider),
+                Box::new(pattern_service),
+                Arc::new(mock_url_repo),
+                frontier_repository(Vec::new(), known_products(), Some(Vec::new())),
+            );
+
+            let result = service
+                .run(
+                    &ListingSourceId::new(),
+                    &domain_id,
+                    "https://example.com",
+                    20,
+                    CrawlPace::default(),
+                    CrawlKind::Incremental,
+                )
+                .await
+                .unwrap_or_else(|error| panic!("{paths:?}: {error:?}"));
+
+            assert_eq!(result.completion, CrawlCompletion::Completed);
+            assert_eq!(result.product_urls_count, 0);
+            assert_eq!(result.known_product_urls_skipped, 3);
+            assert_eq!(result.product_pattern.as_deref(), Some("/product/"));
+        }
+    }
+
+    #[tokio::test]
+    async fn should_judge_an_incremental_crawl_that_met_no_stored_product_page_like_a_full_one() {
+        let domain_id = CrawlerDomainId::new();
+        let mut mock_spider = MockSpider::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
+        pattern_service.expect_mark_as_crawled().times(0);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_incremental_crawl(&mut mock_spider, listing_pages(), 0);
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(mock_url_repo),
+            frontier_repository(Vec::new(), known_products(), None),
+        );
+
+        let result = service
+            .run(
+                &ListingSourceId::new(),
+                &domain_id,
+                "https://example.com",
+                20,
+                CrawlPace::default(),
+                CrawlKind::Incremental,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(SpiderServiceError::NoProductUrls { .. })),
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_record_a_full_crawl_that_left_no_frontier_and_clear_the_stored_one() {
+        let domain_id = CrawlerDomainId::new();
+        let mut mock_spider = MockSpider::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_seeded_crawl(
+            &mut mock_spider,
+            CrawlRequest {
+                seeds: CrawlSeeds {
+                    frontier: vec![example("/deep/1")],
+                    ..CrawlSeeds::default()
+                },
+                ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
+            },
+            one_product_and_listing_pages(),
+            CrawlDiscovery::default(),
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(mock_url_repo),
+            frontier_repository(
+                vec![example("/deep/1")],
+                KnownUrls::default(),
+                Some(Vec::new()),
+            ),
+        );
+
+        let result = service
+            .run(
+                &ListingSourceId::new(),
+                &domain_id,
+                "https://example.com",
+                20,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.completion, CrawlCompletion::Completed);
+    }
+
+    #[tokio::test]
+    async fn should_keep_the_previous_frontier_when_the_run_fails() {
+        let mut mock_spider = MockSpider::new();
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        pattern_service.expect_mark_as_crawled().times(0);
+        setup_mock_seeded_crawl(
+            &mut mock_spider,
+            CrawlRequest {
+                seeds: CrawlSeeds {
+                    frontier: vec![example("/deep/1")],
+                    ..CrawlSeeds::default()
+                },
+                ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
+            },
+            vec!["/".to_string()],
+            CrawlDiscovery {
+                frontier: vec![example("/deep/1")],
+            },
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(MockUrlMetadataRepository::new()),
+            frontier_repository(vec![example("/deep/1")], KnownUrls::default(), None),
+        );
+
+        let result = service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                "https://example.com",
+                20,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::CrawlFailed { .. })
+        ));
     }
 
     fn one_product_and_listing_pages() -> Vec<String> {
@@ -1029,6 +1552,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -1038,6 +1562,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
         assert!(result.is_ok());
@@ -1083,9 +1608,9 @@ mod service_tests {
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, urls, _| urls.len() == 25)
-            .returning(|listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            .withf(|_, _, links| links.len() == 25)
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -1094,6 +1619,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let run_result = service
@@ -1103,6 +1629,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap();
@@ -1159,14 +1686,14 @@ mod service_tests {
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, urls, classes| {
-                urls.len() == 25
-                    && classes
+            .withf(|_, _, links| {
+                links.len() == 25
+                    && links
                         .iter()
-                        .all(|class| *class != UrlClass::ProductListing)
+                        .all(|link| link.url_class != UrlClass::ProductListing)
             })
-            .returning(|listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -1175,6 +1702,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let run_result = service
@@ -1184,6 +1712,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap();
@@ -1229,9 +1758,9 @@ mod service_tests {
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, urls, _| urls.len() == 25)
-            .returning(|listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            .withf(|_, _, links| links.len() == 25)
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -1240,6 +1769,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let run_result = service
@@ -1249,6 +1779,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap();
@@ -1290,6 +1821,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let run_result = service
@@ -1299,6 +1831,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap();
@@ -1356,14 +1889,14 @@ mod service_tests {
         let stored: StoredBatches = Arc::default();
         let recorded = Arc::clone(&stored);
         mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, urls, classes| {
+            move |listing_source_id, domain_id, links| {
                 recorded.lock().unwrap().push(
-                    urls.iter()
-                        .map(|url| url.path().to_owned())
-                        .zip(classes.iter().copied())
+                    links
+                        .iter()
+                        .map(|link| (link.url.path().to_owned(), link.url_class))
                         .collect(),
                 );
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             },
         );
@@ -1375,6 +1908,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let run = service
@@ -1384,6 +1918,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -1476,6 +2011,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -1485,6 +2021,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -1534,6 +2071,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -1543,6 +2081,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -1591,6 +2130,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let run_result = service
@@ -1600,6 +2140,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap();
@@ -1670,7 +2211,7 @@ mod service_tests {
         let library_stopped = Arc::new(AtomicBool::new(false));
 
         let stopped = Arc::clone(&library_stopped);
-        mock_spider.expect_crawl().times(1).returning(move |_, _| {
+        mock_spider.expect_crawl().times(1).returning(move |_| {
             let (tx, rx) = mpsc::channel(25);
             let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
             let stopped = Arc::clone(&stopped);
@@ -1679,9 +2220,7 @@ mod service_tests {
             tokio::spawn(async move {
                 for i in 1.. {
                     let url = Url::parse(&format!("https://example.com/item/{i}")).unwrap();
-                    let page = CrawledPage {
-                        url: CrawledUrl::new(url),
-                    };
+                    let page = CrawledPage::new(CrawledUrl::new(url));
                     if tx.send(page).await.is_err() {
                         break;
                     }
@@ -1698,6 +2237,7 @@ mod service_tests {
                 Ok(SpiderCrawl {
                     pages: rx,
                     diagnostics: diagnostics_rx,
+                    discovery: discovery_unknown(),
                 })
             })
         });
@@ -1717,6 +2257,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -1726,6 +2267,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -1777,6 +2319,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -1786,6 +2329,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
         assert!(result.is_ok());
@@ -1830,6 +2374,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -1839,6 +2384,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
         assert!(result.is_ok());
@@ -1872,6 +2418,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let run_result = service
@@ -1881,6 +2428,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap();
@@ -1909,8 +2457,8 @@ mod service_tests {
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         mock_url_repo.expect_upsert_links_batch().returning(
-            |listing_source_id, domain_id, urls, classes| {
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            |listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             },
         );
@@ -1923,6 +2471,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let run_result = service
@@ -1932,6 +2481,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap();
@@ -1939,9 +2489,152 @@ mod service_tests {
         assert_eq!(run_result.product_urls_count, 20);
     }
 
+    fn shop_page(path: &str, identity: PageIdentityEvidence) -> CrawledPage {
+        CrawledPage::new(
+            CrawledUrl::try_from(format!("https://example.com{path}").as_str()).unwrap(),
+        )
+        .with_identity(identity)
+    }
+
+    fn page_url(path: &str) -> CrawledUrl {
+        CrawledUrl::try_from(format!("https://example.com{path}").as_str()).unwrap()
+    }
+
+    /// Every product page reaches storage with its canonical URL: from its canonical link, as a
+    /// language copy, or by the Shopify rule the crawl applies once a page showed Shopify's
+    /// markers, also to pages that carry no evidence of their own.
+    #[tokio::test]
+    async fn should_store_each_duplicate_product_page_under_its_canonical_url() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = CrawlerDomainId::new();
+        let crawl_root_url = "https://example.com";
+
+        let mut pages = vec![
+            shop_page(
+                "/",
+                PageIdentityEvidence {
+                    platform: Some(ShopPlatform::Shopify),
+                    ..PageIdentityEvidence::default()
+                },
+            ),
+            shop_page(
+                "/collections/all/products/ladle",
+                PageIdentityEvidence {
+                    canonical_link: Some(page_url("/products/ladle")),
+                    ..PageIdentityEvidence::default()
+                },
+            ),
+            shop_page(
+                "/collections/sale/products/spoon",
+                PageIdentityEvidence::default(),
+            ),
+            shop_page(
+                "/en/products/bowl",
+                PageIdentityEvidence {
+                    canonical_link: Some(page_url("/en/products/bowl")),
+                    language_alternates: vec![
+                        page_url("/products/bowl"),
+                        page_url("/en/products/bowl"),
+                    ],
+                    platform: Some(ShopPlatform::Shopify),
+                },
+            ),
+            shop_page("/products/ladle", PageIdentityEvidence::default()),
+            shop_page("/collections/all", PageIdentityEvidence::default()),
+        ];
+        pages.extend(
+            (1..20).map(|i| shop_page(&format!("/pages/{i}"), PageIdentityEvidence::default())),
+        );
+        mock_spider.expect_crawl().returning(move |_| {
+            let pages = pages.clone();
+            let (tx, rx) = mpsc::channel(50);
+            tokio::spawn(async move {
+                for page in pages {
+                    tx.send(page).await.unwrap();
+                }
+            });
+            let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+            diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
+            Box::pin(async {
+                Ok(SpiderCrawl {
+                    pages: rx,
+                    diagnostics: diagnostics_rx,
+                    discovery: discovery_unknown(),
+                })
+            })
+        });
+        mock_pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/products/[^/]+$").unwrap())) })
+            });
+        mock_pattern_service.expect_classify_and_save().times(0);
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+        let stored: Arc<std::sync::Mutex<Vec<DiscoveredUrl>>> = Arc::default();
+        let recorded = Arc::clone(&stored);
+        mock_url_repo.expect_upsert_links_batch().returning(
+            move |listing_source_id, domain_id, links| {
+                recorded.lock().unwrap().extend_from_slice(links);
+                let stored = stored_as_given(listing_source_id, domain_id, links);
+                Box::pin(async move { Ok(stored) })
+            },
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+            no_frontier(),
+        );
+
+        let run_result = service
+            .run(
+                &listing_source_id,
+                &domain_id,
+                crawl_root_url,
+                400,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await
+            .unwrap();
+
+        let canonical_of = |path: &str| {
+            stored
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|link| link.url.path() == path)
+                .unwrap_or_else(|| panic!("{path} was not stored"))
+                .canonical
+                .as_ref()
+                .map(|url| url.path().to_owned())
+        };
+        assert_eq!(
+            canonical_of("/collections/all/products/ladle").as_deref(),
+            Some("/products/ladle")
+        );
+        assert_eq!(
+            canonical_of("/collections/sale/products/spoon").as_deref(),
+            Some("/products/spoon")
+        );
+        assert_eq!(
+            canonical_of("/en/products/bowl").as_deref(),
+            Some("/products/bowl")
+        );
+        assert_eq!(canonical_of("/products/ladle"), None);
+        assert_eq!(canonical_of("/collections/all"), None);
+        assert_eq!(run_result.product_urls_count, 3, "each product counts once");
+    }
+
     /// Crawls the 20 `/item/` pages under a stored `/item/` pattern while storage keeps the
     /// first `kept_other` of them `other`, as it keeps a page an operator rejected.
-    async fn crawl_with_pages_kept_other(kept_other: usize) -> SpiderRunResult {
+    /// A full crawl of `item_pages` whose storage keeps the first `kept_other` pages `other` and
+    /// answers the next `retired` pages with rows retired as duplicates.
+    async fn crawl_with_pages_kept_other(kept_other: usize, retired: usize) -> SpiderRunResult {
         let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
@@ -1955,12 +2648,20 @@ mod service_tests {
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         let kept: Vec<String> = item_pages().into_iter().take(kept_other).collect();
+        let duplicates: Vec<String> = item_pages()
+            .into_iter()
+            .skip(kept_other)
+            .take(retired)
+            .collect();
         mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, urls, classes| {
-                let mut stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+            move |listing_source_id, domain_id, links| {
+                let mut stored = stored_as_given(listing_source_id, domain_id, links);
                 for record in &mut stored {
                     if kept.iter().any(|path| path == record.url.path()) {
                         record.url_class = UrlClass::Other;
+                    }
+                    if duplicates.iter().any(|path| path == record.url.path()) {
+                        record.disposition = CrawlerDisposition::Duplicate;
                     }
                 }
                 Box::pin(async move { Ok(stored) })
@@ -1971,6 +2672,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         service
@@ -1980,6 +2682,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap()
@@ -1988,10 +2691,20 @@ mod service_tests {
     /// The crawl reports the product URLs storage keeps, not every page the pattern matches.
     #[tokio::test]
     async fn should_count_only_the_product_urls_storage_keeps() {
-        let run_result = crawl_with_pages_kept_other(3).await;
+        let run_result = crawl_with_pages_kept_other(3, 0).await;
 
         assert_eq!(run_result.total_links, 20);
         assert_eq!(run_result.product_urls_count, 17);
+        assert_eq!(run_result.completion, CrawlCompletion::Completed);
+    }
+
+    /// A row retired as a duplicate keeps its product class, but its product is stored under its
+    /// canonical URL, so the crawl does not count it.
+    #[tokio::test]
+    async fn should_not_count_rows_retired_as_duplicates_as_product_urls() {
+        let run_result = crawl_with_pages_kept_other(0, 4).await;
+
+        assert_eq!(run_result.product_urls_count, 16);
         assert_eq!(run_result.completion, CrawlCompletion::Completed);
     }
 
@@ -2000,7 +2713,7 @@ mod service_tests {
     /// inferring a new one.
     #[tokio::test]
     async fn should_keep_the_stored_pattern_when_storage_keeps_every_match_other() {
-        let run_result = crawl_with_pages_kept_other(20).await;
+        let run_result = crawl_with_pages_kept_other(20, 0).await;
 
         assert_eq!(run_result.product_urls_count, 0);
         assert_eq!(run_result.completion, CrawlCompletion::Completed);
@@ -2018,11 +2731,8 @@ mod service_tests {
 
         mock_spider
             .expect_crawl()
-            .with(
-                mockall::predicate::eq(crawl_root_url),
-                mockall::predicate::eq(CrawlPace::default()),
-            )
-            .returning(|_, _| {
+            .with(mockall::predicate::eq(first_full_crawl(crawl_root_url)))
+            .returning(|_| {
                 let (_tx, rx) = mpsc::channel(10);
                 let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
                 diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
@@ -2030,6 +2740,7 @@ mod service_tests {
                     Ok(SpiderCrawl {
                         pages: rx,
                         diagnostics: diagnostics_rx,
+                        discovery: discovery_unknown(),
                     })
                 })
             });
@@ -2048,6 +2759,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -2057,6 +2769,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -2097,6 +2810,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -2106,6 +2820,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -2149,6 +2864,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -2158,6 +2874,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -2203,6 +2920,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let error = service
@@ -2212,6 +2930,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap_err();
@@ -2267,6 +2986,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -2276,6 +2996,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -2325,6 +3046,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -2334,6 +3056,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -2382,6 +3105,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -2391,6 +3115,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -2425,6 +3150,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         let result = service
@@ -2434,6 +3160,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await;
 
@@ -2491,13 +3218,13 @@ mod service_tests {
         let stored = Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = Arc::clone(&stored);
         mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, urls, classes| {
+            move |listing_source_id, domain_id, links| {
                 recorded.lock().unwrap().extend(
-                    urls.iter()
-                        .map(|url| url.path().to_owned())
-                        .zip(classes.iter().copied()),
+                    links
+                        .iter()
+                        .map(|link| (link.url.path().to_owned(), link.url_class)),
                 );
-                let stored = stored_as_given(listing_source_id, domain_id, urls, classes);
+                let stored = stored_as_given(listing_source_id, domain_id, links);
                 Box::pin(async move { Ok(stored) })
             },
         );
@@ -2509,6 +3236,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(mock_pattern_service),
             Arc::new(mock_url_repo),
+            no_frontier(),
         );
 
         service
@@ -2518,6 +3246,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
             .unwrap_or_else(|error| panic!("crawl: {error}"));
@@ -2595,13 +3324,18 @@ fn no_product_urls_error(
 }
 
 /// A crawl with at most one usable page is a failure. A library or local
-/// diagnostic explains it when present; otherwise the size alone does.
+/// diagnostic explains it when present; otherwise the size alone does. An
+/// incremental crawl whose healthy root links product pages the domain stores
+/// reached the shop, although it fetched nothing else.
 fn crawl_failure_error(
     crawl_root_url: &str,
     total_links: usize,
+    skipped_known_products: usize,
     diagnostics: &CrawlDiagnostics,
 ) -> Option<SpiderServiceError> {
-    if total_links > 1 {
+    let reached_known_products =
+        total_links == 1 && skipped_known_products > 0 && diagnostics.failure_kind.is_none();
+    if total_links > 1 || reached_known_products {
         return None;
     }
     let kind = diagnostics.failure_kind.unwrap_or(match total_links {

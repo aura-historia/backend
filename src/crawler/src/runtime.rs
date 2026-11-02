@@ -39,6 +39,7 @@ use crate::spider::classification::url_pattern_repository::ListingSourceUrlPatte
 use crate::spider::classification::url_pattern_service::{
     UrlPatternAuthoring, UrlPatternServiceImpl,
 };
+use crate::spider::crawl_frontier_repository::CrawlFrontierRepositoryImpl;
 use crate::spider::discovery::website_spider::SpiderImpl;
 use crate::spider::local_lock::LocalLockManager;
 use crate::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
@@ -284,6 +285,7 @@ where
         website_spider,
         pattern_svc,
         url_metadata_repo.clone(),
+        Arc::new(CrawlFrontierRepositoryImpl::new(pool.clone())),
     ));
 
     let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));

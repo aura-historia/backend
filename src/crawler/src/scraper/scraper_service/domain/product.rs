@@ -19,6 +19,9 @@ pub struct ScrapedProduct {
     pub raw_input: ProductListingNormalizationInput,
     pub effective_url: Url,
     pub source_listing_id: String,
+    /// The title the raw input captures: the extracted one, or the one carried forward from the
+    /// last capture when the page left its title blank.
+    pub title: String,
     /// SHA-256 of what the effective ordered schema set extracts from the page, which the
     /// next scrape compares to skip an unchanged page.
     pub hash: String,
@@ -70,6 +73,9 @@ pub struct ScrapeRequest {
     /// Source listing id captured by the last successful scrape of this URL, when
     /// known. The removal guard only accepts product evidence under this identity.
     pub last_source_listing_id: Option<String>,
+    /// Title captured by the last successful scrape of this URL, when known. It stands in for
+    /// a title the page later leaves blank, so the change the page still shows is captured.
+    pub last_captured_title: Option<String>,
     pub product_url_pattern: Option<String>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
@@ -222,8 +228,9 @@ pub(crate) fn record_transport_failure(
 /// Converts one fetch result into an independent transport observation.
 ///
 /// HTTP responses outside the circuit-opening policy are responsive even when
-/// they are non-2xx. Connection, DNS, timeout, unsafe-target, and unknown
-/// failures do not prove that the remote domain responded.
+/// they are non-2xx, and so is a bot challenge the shop answered with.
+/// Connection, DNS, timeout, unsafe-target, and unknown failures do not prove
+/// that the remote domain responded.
 pub(crate) fn domain_health_for_fetch_error(
     network_kind: NetworkErrorKind,
     status_code: Option<u16>,
@@ -239,7 +246,11 @@ pub(crate) fn domain_health_for_fetch_error(
             status_code,
             retry_after,
         },
-        None if matches!(network_kind, NetworkErrorKind::HttpStatus(_)) => {
+        None if matches!(
+            network_kind,
+            NetworkErrorKind::HttpStatus(_) | NetworkErrorKind::BotChallenge
+        ) =>
+        {
             DomainFetchHealth::Responsive
         }
         None => DomainFetchHealth::NotObserved,
@@ -278,7 +289,7 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
             },
             None => DomainFetchHealth::Responsive,
         },
-        ScraperError::ProductListingRemoved { .. }
+        ScraperError::ProductListingRemoved(_)
         | ScraperError::NotProductPage { .. }
         | ScraperError::SchemaClassificationRejected { .. }
         | ScraperError::SchemaServiceError(_)
@@ -323,6 +334,19 @@ mod tests {
                 ),
                 DomainFetchHealth::Responsive,
                 "HTTP {status} should remain responsive"
+            );
+        }
+    }
+
+    /// A challenge is the shop answering, so it closes a probed circuit and counts towards the
+    /// status burst like any answer that rejects the crawler.
+    #[test]
+    fn a_bot_challenge_proves_domain_health() {
+        for status in [200, 202, 403] {
+            assert_eq!(
+                domain_health_for_fetch_error(NetworkErrorKind::BotChallenge, Some(status), None),
+                DomainFetchHealth::Responsive,
+                "a challenge answered with {status} should be responsive"
             );
         }
     }

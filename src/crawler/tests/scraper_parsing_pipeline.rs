@@ -25,6 +25,8 @@ mod expectation_types;
 mod scraper_parsing_pipeline_case;
 
 use assertions::{assert_extraction, assert_plausibility_findings};
+use crawler::network::bot_challenge::detect_bot_challenge;
+use reqwest::header::HeaderMap;
 use scraper_parsing_pipeline_case::load_all_fixtures;
 
 #[test]
@@ -32,6 +34,20 @@ fn should_extract_product_for_all_fixtures() {
     for fixture in load_all_fixtures() {
         let html = fixture.load_html_source();
         assert_extraction(&fixture.schemas, fixture.schema_index, &html, &fixture.raw);
+    }
+}
+
+/// Every fixture is a real shop's product page, so none may be taken for a bot challenge.
+#[test]
+fn should_take_no_product_page_fixture_for_a_bot_challenge() {
+    for fixture in load_all_fixtures() {
+        let html = fixture.load_html_source();
+        assert_eq!(
+            detect_bot_challenge(200, &HeaderMap::new(), html.as_bytes()),
+            None,
+            "{}",
+            fixture.html_path
+        );
     }
 }
 

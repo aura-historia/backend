@@ -141,7 +141,7 @@ impl RobotsPolicy {
 }
 
 /// The rules of the robots.txt group that applies to the crawler.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RobotsRules {
     rules: Vec<Rule>,
     crawl_delay: Option<Duration>,
