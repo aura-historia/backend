@@ -5,7 +5,7 @@
 //! earlier cut-short crawl left unvisited, only extend it: they are fetched, filtered and stored
 //! like found links, within the same crawl budget.
 
-use regex::RegexSet;
+use regex::{Regex, RegexSet};
 use spider::CaseInsensitiveString;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -13,7 +13,6 @@ use url::Url;
 
 use super::robots::CrawlRobots;
 use super::website_spider::CrawlPace;
-use crate::network::policy::is_same_or_www_host;
 use crate::spider::utils::url::CrawledUrl;
 
 /// Most URLs one crawl hands Spider as seeds, and most it leaves for the next crawl. Spider keeps
@@ -87,28 +86,57 @@ pub struct CrawlDiscovery {
     pub frontier: Vec<Url>,
 }
 
-/// Seeds a crawl may hand Spider: on the crawl root's host, in the spelling the crawler stores,
-/// not refused by the URL blacklist, robots.txt or Spider's deny list.
+/// The links Spider follows, in the spelling it requests them: on the crawl root's host alone
+/// (its host whitelist), under the root's scheme, in the spelling the crawler stores and refused
+/// by neither the URL blacklist nor Spider's deny list. A link Spider would not request can never
+/// be visited, so it must never be carried over.
+pub(super) struct FollowRules {
+    root: Url,
+    host_whitelist: Regex,
+    deny_list: Arc<RegexSet>,
+}
+
+impl FollowRules {
+    pub(super) fn new(root: Url, host_whitelist: Regex, deny_list: Arc<RegexSet>) -> Self {
+        Self {
+            root,
+            host_whitelist,
+            deny_list,
+        }
+    }
+
+    /// `url` as Spider requests it, when Spider follows it. Spider moves every link it finds
+    /// to the root's scheme.
+    pub(super) fn followed(&self, mut url: Url) -> Option<CrawledUrl> {
+        if matches!(url.scheme(), "http" | "https") && url.scheme() != self.root.scheme() {
+            url.set_scheme(self.root.scheme()).ok()?;
+        }
+        let stored = CrawledUrl::new(url);
+        let spelling = stored.as_url().as_str();
+        let followed = self.host_whitelist.is_match(spelling)
+            && !stored.is_blacklisted()
+            && !self.deny_list.is_match(spelling);
+        followed.then_some(stored)
+    }
+}
+
+/// Seeds a crawl may hand Spider: links Spider [follows](FollowRules) that robots.txt allows.
 pub(super) struct SeedAdmission<'a> {
-    pub(super) root: &'a Url,
+    pub(super) rules: &'a FollowRules,
     pub(super) robots: &'a CrawlRobots,
-    pub(super) deny_list: &'a RegexSet,
 }
 
 impl SeedAdmission<'_> {
     pub(super) fn admit(&self, url: &Url) -> Option<CrawledUrl> {
-        let stored = CrawledUrl::new(url.clone());
-        let admitted = is_same_or_www_host(self.root, stored.as_url())
-            && !stored.is_blacklisted()
-            && self.robots.allows(stored.as_url())
-            && !self.deny_list.is_match(stored.as_url().as_str());
-        admitted.then_some(stored)
+        self.rules
+            .followed(url.clone())
+            .filter(|stored| self.robots.allows(stored.as_url()))
     }
 
     /// The admitted seeds, each once and never the root itself, at most [`MAX_FRONTIER_URLS`].
     pub(super) fn admit_all<'u>(&self, urls: impl IntoIterator<Item = &'u Url>) -> Vec<String> {
         let mut seen = HashSet::new();
-        seen.insert(self.root.as_str().to_string());
+        seen.insert(self.rules.root.as_str().to_string());
         urls.into_iter()
             .filter_map(|url| self.admit(url))
             .map(|stored| stored.as_url().as_str().to_string())
@@ -123,8 +151,7 @@ impl SeedAdmission<'_> {
 /// link callback only the links it goes on to fetch.
 #[derive(Clone)]
 pub(super) struct FoundLinks {
-    root: Arc<Url>,
-    deny_list: Arc<RegexSet>,
+    rules: Arc<FollowRules>,
     links: Arc<Mutex<HashSet<String>>>,
     /// The pages Spider delivered. Spider counts a link visited once it starts
     /// the fetch, also when its crawl ended before the page arrived.
@@ -132,11 +159,10 @@ pub(super) struct FoundLinks {
 }
 
 impl FoundLinks {
-    /// Links on `root`'s host that neither the URL blacklist nor `deny_list` refuses.
-    pub(super) fn new(root: Url, deny_list: Arc<RegexSet>) -> Self {
+    /// Records the links Spider follows by `rules`.
+    pub(super) fn new(rules: Arc<FollowRules>) -> Self {
         Self {
-            root: Arc::new(root),
-            deny_list,
+            rules,
             links: Arc::default(),
             delivered: Arc::default(),
         }
@@ -205,14 +231,12 @@ impl FoundLinks {
             .clone()
     }
 
-    /// The link as Spider would request it (`FoundLinkDecoder`), when the crawl may follow it.
+    /// The link as Spider would request it (`FoundLinkDecoder`), when Spider follows it.
     fn stored_spelling(&self, page_url: &Url, link: &str) -> Option<String> {
         let decoded = html_escape::decode_html_entities(link);
-        let stored = CrawledUrl::new(page_url.join(decoded.trim()).ok()?);
-        let followed = is_same_or_www_host(&self.root, stored.as_url())
-            && !stored.is_blacklisted()
-            && !self.deny_list.is_match(stored.as_url().as_str());
-        followed.then(|| stored.as_url().as_str().to_string())
+        let resolved = page_url.join(decoded.trim()).ok()?;
+        let stored = self.rules.followed(resolved)?;
+        Some(stored.as_url().as_str().to_string())
     }
 }
 
@@ -247,9 +271,21 @@ pub(super) fn known_spellings(known: &[Url]) -> Vec<CaseInsensitiveString> {
 mod tests {
     use super::*;
     use crate::network::robots::{DenyList, RobotsRules};
+    use crate::spider::discovery::website_spider::configured_host_whitelist;
 
     fn url(path: &str) -> Url {
         Url::parse(&format!("https://shop.example{path}")).unwrap()
+    }
+
+    /// The rules Spider follows links by on a crawl of `https://shop.example/`.
+    fn follow_rules(deny: &str) -> FollowRules {
+        let root = url("/");
+        let host_whitelist = Regex::new(&configured_host_whitelist(&root).unwrap()).unwrap();
+        FollowRules::new(
+            root,
+            host_whitelist,
+            Arc::new(RegexSet::new([deny]).unwrap()),
+        )
     }
 
     fn robots(body: &str) -> CrawlRobots {
@@ -263,18 +299,17 @@ mod tests {
     }
 
     #[test]
-    fn should_admit_seeds_on_the_root_host_that_robots_and_url_rules_allow() {
-        let root = url("/");
+    fn should_admit_seeds_spider_follows_on_the_root_host_that_robots_allows() {
         let robots = robots("User-agent: *\nDisallow: /private\n");
-        let deny_list = RegexSet::new([r"/denied"]).unwrap();
+        let rules = follow_rules(r"/denied");
         let admission = SeedAdmission {
-            root: &root,
+            rules: &rules,
             robots: &robots,
-            deny_list: &deny_list,
         };
         let seeds = [
             url("/product/1?utm_source=newsletter"),
             url("/product/1"),
+            Url::parse("http://shop.example/product/6").unwrap(),
             Url::parse("https://www.shop.example/product/2").unwrap(),
             Url::parse("https://other.example/product/3").unwrap(),
             url("/private/4"),
@@ -287,7 +322,7 @@ mod tests {
             admission.admit_all(&seeds),
             [
                 "https://shop.example/product/1",
-                "https://www.shop.example/product/2"
+                "https://shop.example/product/6"
             ]
         );
     }
@@ -316,15 +351,16 @@ mod tests {
     }
 
     #[test]
-    fn should_record_page_links_the_crawl_may_follow_in_their_stored_spelling() {
-        let deny_list = RegexSet::new([r"/denied"]).unwrap();
-        let found = FoundLinks::new(url("/"), Arc::new(deny_list));
+    fn should_record_page_links_spider_follows_in_the_spelling_it_requests() {
+        let found = FoundLinks::new(Arc::new(follow_rules(r"/denied")));
         let links: Vec<CaseInsensitiveString> = [
             "item.php?id=1&amp;utm_source=x",
+            "http://shop.example/product/5",
             "https://www.shop.example/product/2",
             "https://other.example/product/3",
             "https://shop.example/denied/4",
             "https://shop.example/cart",
+            "mailto:shop@shop.example",
         ]
         .into_iter()
         .map(CaseInsensitiveString::from)
@@ -336,7 +372,7 @@ mod tests {
             found.snapshot(),
             [
                 "https://shop.example/catalogue/item.php?id=1".to_string(),
-                "https://www.shop.example/product/2".to_string()
+                "https://shop.example/product/5".to_string()
             ]
             .into_iter()
             .collect()

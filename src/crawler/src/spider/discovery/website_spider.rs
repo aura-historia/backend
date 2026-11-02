@@ -26,8 +26,8 @@ use crate::network::policy::{
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::spider::discovery::frontier::{
-    CrawlDiscovery, CrawlRequest, FoundLinks, MAX_FRONTIER_URLS, SeedAdmission, known_spellings,
-    unvisited,
+    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, MAX_FRONTIER_URLS, SeedAdmission,
+    known_spellings, unvisited,
 };
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
@@ -603,7 +603,7 @@ fn configured_spider_body_limit(
     Ok(())
 }
 
-fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
+pub(super) fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
     let host = url.host_str().ok_or_else(|| {
         SpiderDiscoveryError::preflight(
             CrawlFailureKind::InvalidUrl,
@@ -1214,10 +1214,14 @@ impl SpiderImpl {
             )
         })?;
         let crawl_duration = crawl_budget(self.config.max_crawl_duration, robots.crawl_delay);
+        let follow_rules = Arc::new(FollowRules::new(
+            root_url.clone(),
+            host_whitelist_regex.clone(),
+            Arc::clone(&deny_list),
+        ));
         let admission = SeedAdmission {
-            root: &root_url,
+            rules: &follow_rules,
             robots: &robots,
-            deny_list: &deny_list,
         };
         let seed_urls = admission.admit_all(&seeds.frontier);
         let link_discovery_duration = match seed_urls.is_empty() {
@@ -1258,7 +1262,7 @@ impl SpiderImpl {
 
         let spider_rx = website.subscribe(512);
 
-        let found_links = FoundLinks::new(root_url.clone(), deny_list.clone());
+        let found_links = FoundLinks::new(follow_rules);
         let link_decoder = FoundLinkDecoder {
             host_whitelist: host_whitelist_regex,
             deny_list: Arc::clone(&deny_list),
@@ -2805,6 +2809,41 @@ mod tests {
         );
     }
 
+    /// Spider fetches the crawl root's host alone and every link under the root's scheme, so a
+    /// link to the `www` twin or under the other scheme can never be visited and must not keep
+    /// a crawl that reached everything else from completing.
+    #[tokio::test]
+    async fn should_complete_a_crawl_whose_pages_link_the_www_twin_or_the_other_scheme() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/product/1">1</a>
+                   <a href="http://www.example.com/product/2">twin</a>
+                   <a href="https://example.com/product/3">other scheme</a>"#
+                    .to_string(),
+            ),
+            "/product/1" | "/product/3" => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (delivered, diagnostics, discovery) =
+            run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+        let requests = site.finish().await;
+
+        assert!(delivered.contains("http://example.com/product/3"));
+        assert!(
+            !requests.iter().any(|(host, ..)| host == "www.example.com"),
+            "{requests:?}"
+        );
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
     #[tokio::test]
     async fn should_keep_a_page_answered_with_a_rate_limit_in_the_frontier() {
         let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
@@ -3449,10 +3488,11 @@ mod tests {
                 .unwrap(),
             ),
             seen: Bloom::new_for_fp_rate(1_000, 0.0001).unwrap(),
-            found_links: FoundLinks::new(
+            found_links: FoundLinks::new(Arc::new(FollowRules::new(
                 Url::parse("https://example.com/").unwrap(),
+                whitelist_for("https://example.com/"),
                 Arc::new(RegexSet::empty()),
-            ),
+            ))),
         }
     }
 
