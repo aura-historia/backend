@@ -198,6 +198,57 @@ mod tests {
         ));
     }
 
+    /// Shop scripts stay inert, so the inspector itself reveals lazy images from the attributes
+    /// lazy-loading scripts read: instrumenting must leave those attributes intact, and the
+    /// inspector must copy each into the attribute whose syntax its value has, `src` or `srcset`.
+    #[test]
+    fn should_keep_lazy_image_attributes_for_the_inspector_to_reveal() {
+        let lazy_attributes = [
+            ("src", "data-src", "/a.jpg"),
+            ("src", "data-lazy-src", "/b.jpg"),
+            ("src", "data-original", "/c.jpg"),
+            ("src", "data-lazy", "/d.jpg"),
+            ("srcset", "data-srcset", "/e.webp 1x"),
+            ("srcset", "data-lazy-srcset", "/f.jpg 2x"),
+        ];
+        let images: String = lazy_attributes
+            .iter()
+            .map(|(_, name, value)| {
+                format!(
+                    r#"<img src="data:image/gif;base64,R0lGOD" {name}="{value}" loading="lazy">"#
+                )
+            })
+            .collect();
+        let preview = instrument_live_html(
+            "https://shop.example/",
+            &format!(
+                r#"<html><head></head><body>{images}<picture><source data-srcset="/g.webp"><img data-src="/g.jpg"></picture></body></html>"#
+            ),
+        );
+        let sources = INSPECTOR_JS
+            .split_once("const lazyImageSources = {")
+            .and_then(|(_, rest)| rest.split_once("};"))
+            .map(|(entries, _)| entries)
+            .unwrap_or_else(|| panic!("inspector.js must define lazyImageSources"));
+        let copied_into = |target: &str| {
+            sources
+                .lines()
+                .find_map(|line| line.trim().strip_prefix(&format!("{target}: [")))
+                .unwrap_or_else(|| {
+                    panic!("lazyImageSources must name what it copies into {target}")
+                })
+        };
+
+        for (target, name, value) in lazy_attributes {
+            assert!(preview.contains(&format!(r#"{name}="{value}""#)));
+            assert!(
+                copied_into(target).contains(&format!("'{name}'")),
+                "inspector.js must copy {name} into {target}"
+            );
+        }
+        assert!(preview.contains(r#"<source data-srcset="/g.webp">"#));
+    }
+
     #[test]
     fn should_not_take_a_header_element_for_the_head() {
         let preview = instrument_live_html(

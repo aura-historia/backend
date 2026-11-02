@@ -18,6 +18,10 @@ pub enum ShopPlatform {
     Shopify,
 }
 
+impl ShopPlatform {
+    pub const ALL: [ShopPlatform; 1] = [ShopPlatform::Shopify];
+}
+
 /// What a fetched page says about its own identity. Its links are already resolved, on the
 /// page's own origin, and fetchable by the crawl that found the page.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -28,6 +32,19 @@ pub struct PageIdentityEvidence {
     pub language_alternates: Vec<CrawledUrl>,
     /// The shop system the page was served by, when it carries that system's markers.
     pub platform: Option<ShopPlatform>,
+    /// The product URL each shop system serves the page under instead
+    /// ([`platform_product_url`]), when the crawl may fetch it: robots.txt allows it and the
+    /// crawler does not refuse it.
+    pub platform_product_urls: Vec<(ShopPlatform, CrawledUrl)>,
+}
+
+impl PageIdentityEvidence {
+    fn platform_product_url(&self, platform: ShopPlatform) -> Option<CrawledUrl> {
+        self.platform_product_urls
+            .iter()
+            .find(|(candidate, _)| *candidate == platform)
+            .map(|(_, url)| url.clone())
+    }
 }
 
 /// The URL a product page is stored under instead of `page`, or `None` when the page is its own
@@ -36,7 +53,7 @@ pub struct PageIdentityEvidence {
 /// 1. the page's canonical link,
 /// 2. the alternate whose URL is `page` without a leading language segment (`/en/x` for `/x`),
 /// 3. the platform's product URL (Shopify serves `/collections/<c>/products/<p>` as
-///    `/products/<p>`).
+///    `/products/<p>`), as the evidence holds it once the crawl found it may fetch it.
 ///
 /// A rule proposes a URL only when `product_pattern` takes both `page` and the proposal, the
 /// proposal is another page on `page`'s origin and the crawler would fetch it; otherwise the
@@ -55,7 +72,7 @@ pub fn canonical_product_url(
         .iter()
         .find(|alternate| is_language_copy_of(page, alternate))
         .cloned();
-    let platform_url = platform.and_then(|platform| platform_product_url(page, platform));
+    let platform_url = platform.and_then(|platform| evidence.platform_product_url(platform));
     [
         evidence.canonical_link.clone(),
         language_original,
@@ -102,7 +119,9 @@ static SHOPIFY_COLLECTION_PRODUCT: LazyLock<Regex> = LazyLock::new(|| {
     .expect("Shopify collection product regex")
 });
 
-fn platform_product_url(page: &CrawledUrl, platform: ShopPlatform) -> Option<CrawledUrl> {
+/// The URL `platform` serves the product page `page` under instead, when `page` is one of its
+/// alternate product URLs.
+pub fn platform_product_url(page: &CrawledUrl, platform: ShopPlatform) -> Option<CrawledUrl> {
     match platform {
         ShopPlatform::Shopify => {
             let captures = SHOPIFY_COLLECTION_PRODUCT.captures(page.as_url().path())?;
@@ -273,7 +292,7 @@ mod tests {
             let evidence = PageIdentityEvidence {
                 canonical_link: Some(crawled(EN_PAGE)),
                 language_alternates: vec![crawled(DE_PAGE), crawled(EN_PAGE), crawled(DE_PAGE)],
-                platform: None,
+                ..PageIdentityEvidence::default()
             };
 
             assert_eq!(
@@ -328,6 +347,20 @@ mod tests {
     mod platform_rule {
         use super::*;
 
+        /// `evidence` of `page` on a crawl that may fetch the page's Shopify product URL.
+        fn fetchable_shopify_url(
+            page: &str,
+            evidence: PageIdentityEvidence,
+        ) -> PageIdentityEvidence {
+            PageIdentityEvidence {
+                platform_product_urls: platform_product_url(&crawled(page), ShopPlatform::Shopify)
+                    .map(|url| (ShopPlatform::Shopify, url))
+                    .into_iter()
+                    .collect(),
+                ..evidence
+            }
+        }
+
         #[test]
         fn should_store_a_shopify_collection_product_url_under_its_product_url() {
             let pattern = Regex::new(r"/products/[^/]+/?$").unwrap();
@@ -348,7 +381,7 @@ mod tests {
                 assert_eq!(
                     canonical(
                         page,
-                        &PageIdentityEvidence::default(),
+                        &fetchable_shopify_url(page, PageIdentityEvidence::default()),
                         Some(ShopPlatform::Shopify),
                         &pattern,
                     ),
@@ -360,11 +393,27 @@ mod tests {
 
         #[test]
         fn should_not_apply_the_shopify_rule_to_a_shop_not_known_to_run_on_shopify() {
+            let page = "https://shop.example/collections/chairs/products/oak-chair";
             assert_eq!(
                 canonical(
-                    "https://shop.example/collections/chairs/products/oak-chair",
-                    &PageIdentityEvidence::default(),
+                    page,
+                    &fetchable_shopify_url(page, PageIdentityEvidence::default()),
                     None,
+                    &shopify_pattern(),
+                ),
+                None
+            );
+        }
+
+        /// The crawl leaves the Shopify product URL out of the evidence when robots.txt
+        /// disallows it.
+        #[test]
+        fn should_keep_the_fetched_url_when_the_crawl_may_not_fetch_the_shopify_product_url() {
+            assert_eq!(
+                canonical(
+                    "https://kernow.example/collections/chairs/products/oak-chair",
+                    &PageIdentityEvidence::default(),
+                    Some(ShopPlatform::Shopify),
                     &shopify_pattern(),
                 ),
                 None
@@ -376,7 +425,10 @@ mod tests {
             assert_eq!(
                 canonical(
                     "https://kernow.example/collections/chairs/products/oak-chair",
-                    &with_canonical_link("https://kernow.example/products/oak-chair-1"),
+                    &fetchable_shopify_url(
+                        "https://kernow.example/collections/chairs/products/oak-chair",
+                        with_canonical_link("https://kernow.example/products/oak-chair-1"),
+                    ),
                     Some(ShopPlatform::Shopify),
                     &shopify_pattern(),
                 ),
@@ -389,7 +441,10 @@ mod tests {
             assert_eq!(
                 canonical(
                     "https://kernow.example/collections/chairs/products/oak-chair",
-                    &with_canonical_link("https://kernow.example/collections/chairs"),
+                    &fetchable_shopify_url(
+                        "https://kernow.example/collections/chairs/products/oak-chair",
+                        with_canonical_link("https://kernow.example/collections/chairs"),
+                    ),
                     Some(ShopPlatform::Shopify),
                     &shopify_pattern(),
                 ),

@@ -150,8 +150,9 @@ CREATE TABLE listing_source_urls (
     schema_review_wait_streak INT NOT NULL DEFAULT 0,
     CHECK (char_length(url) > 0),
     CHECK (url_class IN ('product', 'category', 'imprint', 'info', 'other')),
-    -- A crawler URL whose product page the crawler stores under another URL, its canonical URL or
-    -- the known destination it redirects to, is retired as `DUPLICATE` and never scraped again.
+    -- A crawler URL whose product page the crawler stores under another live product URL of the
+    -- same ListingSource and domain, its canonical URL or the destination it redirects to, is
+    -- retired as `DUPLICATE` and never scraped again (docs/crawler/networking.md#duplicate-targets).
     CHECK (crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD', 'DUPLICATE')),
     CHECK (last_captured_raw_input_sha256 IS NULL OR octet_length(last_captured_raw_input_sha256) = 32),
     CONSTRAINT listing_source_urls_raw_source_record_key_nonempty
@@ -182,7 +183,7 @@ CREATE TABLE crawler_reviews (
     domain_id          UUID,
     artifact_type      TEXT        NOT NULL CHECK (artifact_type IN ('URL_PATTERN', 'PRODUCT_SCHEMA')),
     CHECK (artifact_type <> 'URL_PATTERN' OR domain_id IS NOT NULL),
-    status             TEXT        NOT NULL CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'NEEDS_REPAIR', 'SUPERSEDED')),
+    status             TEXT        NOT NULL CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SUPERSEDED')),
     reason             TEXT        NOT NULL,
     candidate_payload  JSONB       NOT NULL,
     validation_summary JSONB       NOT NULL DEFAULT '{}'::jsonb,
@@ -192,7 +193,7 @@ CREATE TABLE crawler_reviews (
     updated            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reviewed           TIMESTAMPTZ,
     -- A needs-repair verdict keeps the review pending and records when and why repair was
-    -- requested. No verdict writes the legacy terminal `NEEDS_REPAIR` status any more.
+    -- requested.
     repair_requested   TIMESTAMPTZ,
     repair_note        TEXT,
     -- The stored removed-page templates a product-schema candidate started from, so approval

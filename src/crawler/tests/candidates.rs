@@ -1,8 +1,8 @@
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
     DomainAwaitingReview, DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest,
-    RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCompletion,
-    ScraperCandidateService, ScraperCandidateServiceImpl,
+    RedirectDestination, RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest,
+    ScrapeCompletion, ScraperCandidateService, ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, NEEDS_OPERATOR_CRAWL_OUTCOME,
@@ -2833,11 +2833,12 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     insert_product_url(&pool, listing_source_id, domain_id, original_url.as_str()).await;
     insert_product_url(&pool, listing_source_id, domain_id, effective_url.as_str()).await;
 
-    assert!(
-        !service
-            .redirect_destination_is_available(&effective_url)
+    assert_eq!(
+        service
+            .redirect_destination(&listing_source_id, &domain_id, &effective_url)
             .await
-            .unwrap()
+            .unwrap(),
+        RedirectDestination::ProductOfListingSource
     );
     let error = service
         .move_redirected_url(RedirectUrlMove {
@@ -2875,6 +2876,178 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     assert!(rows.iter().any(|row| row.1 == effective_url.as_str()));
 }
 
+/// Only a product URL of the redirected URL's own ListingSource and domain that is not itself
+/// retired makes the redirected URL a duplicate (`docs/crawler/networking.md#duplicate-targets`).
+/// A page stored by another ListingSource or domain or as a non-product row is no product page of
+/// the ListingSource, and rows that disagree settle nothing. Rows are inserted directly, as any
+/// persisted row on the redirect's host must be judged by its owner and class.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_listing_source() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let host = "redirect-scope.example.com";
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(&pool, listing_source_id, host).await;
+    let other_domain_id = insert_domain_for_listing_source(
+        &pool,
+        listing_source_id,
+        "shop.redirect-scope.example.com",
+    )
+    .await;
+    let other_listing_source_id = ListingSourceId::new();
+    let other_listing_source_domain_id = insert_listing_source_with_domain(
+        &pool,
+        other_listing_source_id,
+        "other-redirect-scope.example.com",
+    )
+    .await;
+    let store = |listing_source_id: ListingSourceId,
+                 domain_id: CrawlerDomainId,
+                 path: &str,
+                 class: UrlClass,
+                 disposition: CrawlerDisposition| {
+        let pool = pool.clone();
+        let url = format!("https://{host}{path}");
+        async move {
+            sqlx::query(
+                "INSERT INTO listing_source_urls \
+                     (listing_source_id, domain_id, url, raw_source_record_key, url_class, \
+                      crawler_disposition, created, updated) \
+                 VALUES ($1, $2, $3, $3, $4, $5, NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .bind(domain_id.as_uuid())
+            .bind(&url)
+            .bind(class.as_str())
+            .bind(disposition.as_str())
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+    use CrawlerDisposition::{Active, DormantSold, Duplicate};
+    use UrlClass::{Category, Other, ProductListing};
+    store(
+        listing_source_id,
+        domain_id,
+        "/products/live",
+        ProductListing,
+        Active,
+    )
+    .await;
+    store(
+        listing_source_id,
+        domain_id,
+        "/products/sold",
+        ProductListing,
+        DormantSold,
+    )
+    .await;
+    store(
+        listing_source_id,
+        domain_id,
+        "/products/retired",
+        ProductListing,
+        Duplicate,
+    )
+    .await;
+    // A page stored before the domain had a product pattern keeps the class it was stored with
+    // when a later crawl retires it as a duplicate of its canonical URL.
+    store(
+        listing_source_id,
+        domain_id,
+        "/collections/a/products/retired",
+        Other,
+        Duplicate,
+    )
+    .await;
+    store(
+        listing_source_id,
+        domain_id,
+        "/category/chairs",
+        Category,
+        Active,
+    )
+    .await;
+    store(
+        other_listing_source_id,
+        other_listing_source_domain_id,
+        "/products/elsewhere",
+        ProductListing,
+        Active,
+    )
+    .await;
+    store(
+        listing_source_id,
+        other_domain_id,
+        "/products/other-domain",
+        ProductListing,
+        Active,
+    )
+    .await;
+    // Both trailing-slash spellings of one page, one a product URL and one a category row.
+    store(
+        listing_source_id,
+        domain_id,
+        "/products/mixed",
+        ProductListing,
+        Active,
+    )
+    .await;
+    store(
+        listing_source_id,
+        domain_id,
+        "/products/mixed/",
+        Category,
+        Active,
+    )
+    .await;
+
+    for (path, expected) in [
+        ("/products/unknown", RedirectDestination::Unknown),
+        (
+            "/products/live",
+            RedirectDestination::ProductOfListingSource,
+        ),
+        (
+            "/products/live/",
+            RedirectDestination::ProductOfListingSource,
+        ),
+        (
+            "/products/sold",
+            RedirectDestination::ProductOfListingSource,
+        ),
+        (
+            "/category/chairs",
+            RedirectDestination::NotAProductOfListingSource,
+        ),
+        (
+            "/products/elsewhere",
+            RedirectDestination::NotAProductOfListingSource,
+        ),
+        (
+            "/products/other-domain",
+            RedirectDestination::NotAProductOfListingSource,
+        ),
+        ("/products/retired", RedirectDestination::Unsettled),
+        (
+            "/collections/a/products/retired",
+            RedirectDestination::Unsettled,
+        ),
+        ("/products/mixed", RedirectDestination::Unsettled),
+    ] {
+        let destination = url::Url::parse(&format!("https://{host}{path}")).unwrap();
+        assert_eq!(
+            service
+                .redirect_destination(&listing_source_id, &domain_id, &destination)
+                .await
+                .unwrap(),
+            expected,
+            "{destination}"
+        );
+    }
+}
+
 /// A page with and without its trailing slash is one page, so a redirect to a page stored under
 /// the other spelling is a known destination as well: moving the row there would give the page a
 /// second row.
@@ -2895,11 +3068,12 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
         insert_product_url(&pool, listing_source_id, domain_id, &original_url).await;
         insert_product_url(&pool, listing_source_id, domain_id, &stored_destination).await;
 
-        assert!(
-            !service
-                .redirect_destination_is_available(&effective_url)
+        assert_eq!(
+            service
+                .redirect_destination(&listing_source_id, &domain_id, &effective_url)
                 .await
                 .unwrap(),
+            RedirectDestination::ProductOfListingSource,
             "{effective_url}"
         );
         let error = service

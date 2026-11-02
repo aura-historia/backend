@@ -1006,6 +1006,98 @@ async fn should_store_a_page_as_fetched_when_its_canonical_url_cannot_take_it() 
     );
 }
 
+/// A canonical URL stored as a non-product row is a duplicate target only when the write that
+/// stores the page reclassifies it as a product URL, which it does for `ACTIVE` rows alone
+/// (`docs/crawler/networking.md#duplicate-targets`): a `DORMANT_SOLD` category row keeps its
+/// class, so the page is stored as fetched and its row is not retired.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_canonicalize_onto_a_stored_non_product_row_only_when_the_write_makes_it_a_product()
+{
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let (listing_source_id, domain_id) = canonical_shop(&pool).await;
+    for (path, disposition) in [
+        ("/products/active-category", "ACTIVE"),
+        ("/products/dormant-category", "DORMANT_SOLD"),
+    ] {
+        sqlx::query(
+            "INSERT INTO listing_source_urls \
+             (listing_source_id, domain_id, url, raw_source_record_key, url_class, crawler_disposition) \
+             VALUES ($1, $2, $3, $3, 'category', $4)",
+        )
+        .bind(listing_source_id.as_uuid())
+        .bind(domain_id.as_uuid())
+        .bind(format!("{SHOP}{path}"))
+        .bind(disposition)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    for path in [
+        "/collections/a/products/active-category",
+        "/collections/a/products/dormant-category",
+    ] {
+        insert_scraped_url(
+            &pool,
+            listing_source_id,
+            domain_id,
+            &format!("{SHOP}{path}"),
+        )
+        .await;
+    }
+
+    repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[
+                product(
+                    "/collections/a/products/active-category",
+                    Some("/products/active-category"),
+                ),
+                product(
+                    "/collections/a/products/dormant-category",
+                    Some("/products/dormant-category"),
+                ),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT url, url_class, crawler_disposition FROM listing_source_urls \
+         WHERE listing_source_id = $1 ORDER BY url COLLATE \"C\"",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let row = |path: &str, class: &str, disposition: &str| {
+        (
+            format!("{SHOP}{path}"),
+            class.to_owned(),
+            disposition.to_owned(),
+        )
+    };
+    assert_eq!(
+        rows,
+        vec![
+            row(
+                "/collections/a/products/active-category",
+                "product",
+                "DUPLICATE"
+            ),
+            row(
+                "/collections/a/products/dormant-category",
+                "product",
+                "ACTIVE"
+            ),
+            row("/products/active-category", "product", "ACTIVE"),
+            row("/products/dormant-category", "category", "DORMANT_SOLD"),
+        ]
+    );
+}
+
 /// A canonical URL that is only another spelling of the page itself, or of a page the batch
 /// canonicalizes too, is no canonical URL: no row is retired for it and nothing is stored along
 /// the chain.

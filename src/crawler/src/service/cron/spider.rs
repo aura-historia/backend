@@ -99,8 +99,27 @@ fn next_truncation_count(candidate: &SpiderCandidate) -> i32 {
     candidate.crawl_truncation_count.max(0).saturating_add(1)
 }
 
+/// Persisted error kinds of the failures whose run delivered pages but found no product URL
+/// ([`SpiderServiceError::found_no_product_urls`]). They count as one failure streak, so a site
+/// without a catalogue whose runs alternate between them is escalated like one that repeats a
+/// single kind: each such run moves the domain's crawl frontier on, and the streak bounds how
+/// often it does (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+const NO_PRODUCT_URL_ERROR_KINDS: [&str; 3] = [
+    "InsufficientInferenceSample",
+    "NoProductUrls",
+    "NoUrlPattern",
+];
+
+/// Whether a failure of `error_kind` continues the streak of the domain's last failure.
+fn continues_failure_streak(last_error_kind: Option<&str>, error_kind: &str) -> bool {
+    let found_no_product_urls = |kind: &str| NO_PRODUCT_URL_ERROR_KINDS.contains(&kind);
+    last_error_kind.is_some_and(|last| {
+        last == error_kind || (found_no_product_urls(last) && found_no_product_urls(error_kind))
+    })
+}
+
 fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
-    if candidate.last_crawl_error_kind.as_deref() == Some(error_kind) {
+    if continues_failure_streak(candidate.last_crawl_error_kind.as_deref(), error_kind) {
         candidate.crawl_failure_count.max(0).saturating_add(1)
     } else {
         1
@@ -120,20 +139,19 @@ fn crawl_failure_kind(error: &SpiderServiceError) -> Option<CrawlFailureKind> {
 }
 
 fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownProfile> {
-    match error.cause() {
-        SpiderServiceError::InsufficientInferenceSample { .. }
-        | SpiderServiceError::NoProductUrls { .. }
-        | SpiderServiceError::NoUrlPattern { .. } => Some(CrawlCooldownProfile::Recoverable),
-        _ => crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile),
+    if error.found_no_product_urls() {
+        return Some(CrawlCooldownProfile::Recoverable);
     }
+    crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile)
 }
 
-/// Consecutive same-kind failures after which a domain stops retrying and
-/// waits for an operator. Only failures that need a site or configuration
-/// change (the recoverable profile) escalate: with two short retries and
-/// then the long cooldown, the fifth failure comes about a week after the
-/// first. Transient failures keep retrying because the site may recover,
-/// durable blocks already cool for a month.
+/// Consecutive failures of one streak ([`continues_failure_streak`]) after
+/// which a domain stops retrying and waits for an operator. Only failures
+/// that need a site or configuration change (the recoverable profile)
+/// escalate: with two short retries and then the long cooldown, the fifth
+/// failure comes about a week after the first. Transient failures keep
+/// retrying because the site may recover, durable blocks already cool for a
+/// month.
 const NEEDS_OPERATOR_FAILURE_COUNT: i32 = 5;
 
 fn needs_operator(error: &SpiderServiceError, failure_count: i32) -> bool {
@@ -472,7 +490,7 @@ async fn record_run_stopped_for_operator(
         error = %error.cause(),
         error_kind,
         failure_count,
-        "Spider run failed repeatedly with the same kind; domain waits for an operator"
+        "Spider run kept failing; domain waits for an operator"
     );
     SpiderSlotStatus::StoppedForOperator
 }
@@ -520,6 +538,7 @@ fn log_spider_failure(
             http_status = ?diagnostics.http_status,
             final_url = ?diagnostics.final_url,
             redirect_url = ?diagnostics.redirect_url,
+            root_reroot = ?diagnostics.root_reroot,
             diagnostic_reason = ?diagnostics.diagnostic_reason,
             initial_html_length = ?diagnostics.initial_html_length,
             initial_should_retry = diagnostics.initial_should_retry,
@@ -540,15 +559,16 @@ fn log_spider_failure(
             cooldown_seconds = cooldown.as_secs(),
             "Spider run failed"
         ),
-        SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
-            reason, source, ..
-        }) => {
+        SpiderServiceError::Discovery(
+            preflight @ SpiderDiscoveryError::Preflight { reason, source, .. },
+        ) => {
             warn!(
                 domain = %candidate.listing_source_domain,
                 error = %error,
                 error_kind,
                 failure_count,
                 reason,
+                redirect_url = ?preflight.redirect_target(),
                 source = ?source,
                 next_crawl_at = %next_crawl_at,
                 cooldown_seconds = cooldown.as_secs(),
@@ -943,6 +963,47 @@ mod tests {
             next_failure_count(&candidate, "InsufficientInferenceSample"),
             3
         );
+    }
+
+    #[test]
+    fn next_failure_count_continues_across_the_kinds_that_found_no_product_urls() {
+        for (last, next) in [
+            ("InsufficientInferenceSample", "NoProductUrls"),
+            ("NoProductUrls", "NoUrlPattern"),
+            ("NoUrlPattern", "InsufficientInferenceSample"),
+        ] {
+            let mut candidate = spider_candidate(CrawlerDomainId::new());
+            candidate.crawl_failure_count = 2;
+            candidate.last_crawl_error_kind = Some(last.to_string());
+
+            assert_eq!(next_failure_count(&candidate, next), 3, "{last} -> {next}");
+        }
+    }
+
+    #[test]
+    fn next_failure_count_resets_between_a_no_product_url_kind_and_another_kind() {
+        for (last, next) in [("NoUrlPattern", "TinyCrawl"), ("TinyCrawl", "NoUrlPattern")] {
+            let mut candidate = spider_candidate(CrawlerDomainId::new());
+            candidate.crawl_failure_count = 2;
+            candidate.last_crawl_error_kind = Some(last.to_string());
+
+            assert_eq!(next_failure_count(&candidate, next), 1, "{last} -> {next}");
+        }
+    }
+
+    /// The streak's kind list is the persisted spelling of exactly the failures that found no
+    /// product URL.
+    #[test]
+    fn no_product_url_error_kinds_should_be_the_kinds_of_the_failures_that_found_no_product_urls() {
+        let mut kinds = [no_product_urls(), no_url_pattern(), insufficient_sample()]
+            .iter()
+            .inspect(|error| assert!(error.found_no_product_urls(), "{error:?}"))
+            .map(error_kind_for_spider_error)
+            .collect::<Vec<_>>();
+        kinds.sort_unstable();
+
+        assert_eq!(kinds, NO_PRODUCT_URL_ERROR_KINDS);
+        assert!(!crawl_failed(CrawlFailureKind::TinyCrawl).found_no_product_urls());
     }
 
     #[test]
@@ -2694,8 +2755,7 @@ mod tests {
     #[tokio::test]
     async fn should_record_crawl_without_product_urls_as_failure_instead_of_completion() {
         let expected_domain_id = CrawlerDomainId::new();
-        let mut spider_candidates =
-            failing_candidate_service(expected_domain_id, 3, "InsufficientInferenceSample");
+        let mut spider_candidates = failing_candidate_service(expected_domain_id, 3, "TinyCrawl");
         spider_candidates
             .expect_mark_crawl_failure()
             .times(1)
@@ -2728,6 +2788,36 @@ mod tests {
             expected_domain_id,
             NEEDS_OPERATOR_FAILURE_COUNT - 1,
             "NoUrlPattern",
+        );
+        spider_candidates
+            .expect_mark_crawl_needs_operator()
+            .times(1)
+            .withf(move |domain_id, error_kind, failure_count| {
+                *domain_id == expected_domain_id
+                    && error_kind == "NoUrlPattern"
+                    && *failure_count == NEEDS_OPERATOR_FAILURE_COUNT
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+        spider_candidates.expect_mark_crawl_failure().times(0);
+
+        spider_job(
+            spider_candidates,
+            spider_service_failing_with(no_url_pattern),
+            1,
+        )
+        .run_spider_once()
+        .await;
+    }
+
+    /// Runs that alternate between the kinds that found no product URL reach the operator at
+    /// the count a single repeated kind does.
+    #[tokio::test]
+    async fn should_stop_domain_for_operator_when_no_product_url_failures_alternate_kinds() {
+        let expected_domain_id = CrawlerDomainId::new();
+        let mut spider_candidates = failing_candidate_service(
+            expected_domain_id,
+            NEEDS_OPERATOR_FAILURE_COUNT - 1,
+            "InsufficientInferenceSample",
         );
         spider_candidates
             .expect_mark_crawl_needs_operator()

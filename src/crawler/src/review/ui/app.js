@@ -9,6 +9,7 @@ let selectedField = 'title';
 let selectedPageId = null;
 let activeWorkbenchPanel = 'selector';
 let pickedSelector = '';
+let pickedSample = '';
 let editRefusal = null;
 // The confirmation of the selected review's last successful request, shown until the next one.
 let editNotice = null;
@@ -26,14 +27,16 @@ let selectedReviewRefreshReason = '';
 let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') === 'true';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
-let collapsedListingSourceGroups = new Set(JSON.parse(
-    localStorage.getItem('crawlerReviewCollapsedListingSourceGroups')
-    || localStorage.getItem('crawlerReviewCollapsedShopGroups')
-    || '[]'
-));
+// Shop groups start collapsed; the reviewer's expanded ones are remembered per browser.
+const EXPANDED_GROUPS_KEY = 'crawlerReviewExpandedListingSourceGroups';
+let expandedListingSourceGroups = new Set(readStoredList(EXPANDED_GROUPS_KEY));
+// The review whose group the queue last opened for it, so a reviewer can collapse it again.
+let reviewWhoseGroupWasOpened = null;
 let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
+// The page and schema a URL fragment asks for, applied when its review has loaded.
+let requestedSelection = null;
 // The sample labels being edited on the selected URL-pattern review, or null while the stored
 // labels are shown unedited.
 let sampleLabelDraft = null;
@@ -63,12 +66,10 @@ const REMOVABLE_PAGE_ROLES = new Set(['REVIEWER_ADDED', 'WAITING_PAGE']);
 
 applyTheme(theme);
 
+// Reviewers count schemas from 1; the URL fragment, the API and the matrix keep the 0-based
+// schema index, so links and agents stay valid.
 function schemaLabel(index) {
-    return `Schema ${index}`;
-}
-
-function schemaLabelWithTotal(index, total) {
-    return `${schemaLabel(index)} (${total} total)`;
+    return `Schema ${Number(index) + 1}`;
 }
 
 function applyTheme(nextTheme) {
@@ -95,6 +96,14 @@ function setReviewAuthToken(token) {
     } else {
         sessionStorage.removeItem('crawlerReviewAuthToken');
     }
+    updateSignOutButton();
+}
+
+// Signing out matters only where the console asked for a review token: it ends the browser
+// session and forgets the token. The tokenless local console has nothing to sign out of.
+function updateSignOutButton() {
+    const button = document.getElementById('signOutButton');
+    if (button) button.hidden = !reviewAuthToken;
 }
 
 async function clearReviewAuthToken() {
@@ -106,7 +115,7 @@ async function clearReviewAuthToken() {
         }).catch(() => {});
     }
     setReviewAuthToken('');
-    document.getElementById('reloadState').textContent = 'Review token and browser session cleared';
+    document.getElementById('reloadState').textContent = 'Signed out';
 }
 
 // A request the browser could not send, or whose answer never arrived, carries no HTTP status;
@@ -187,18 +196,50 @@ function changedCandidateVersion(error) {
     }
 }
 
+// Numbers queue loads, so a poll that answers after a later load, such as the one a verdict
+// starts, cannot show the older queue or report a stale status change of the selected review.
+let queueLoadSequence = 0;
+
 async function loadReviews() {
+    const sequence = ++queueLoadSequence;
     // The crawl state only adds to the queue, so its failure must not hide the reviews.
     const [reviews, listingSources] = await Promise.all([
         api('/api/reviews'),
         api('/api/listing_sources').catch(() => null)
     ]);
-    const list = document.getElementById('reviewList');
-    list.innerHTML = renderDomainsNeedingOperator(listingSources)
+    if (sequence !== queueLoadSequence) return reviews;
+    showQueue(renderDomainsNeedingOperator(listingSources)
         + renderMissingValueSources(listingSources)
-        + renderReviewGroups(reviews);
+        + renderReviewGroups(reviews));
     updateSelectedReviewFreshness(reviews);
     return reviews;
+}
+
+// A refresh that changes nothing leaves the queue's elements alone, and one that does keeps the
+// reviewer's scroll position and keyboard focus in it, such as on a group just toggled or a
+// review just opened from the keyboard.
+let shownQueueHtml = '';
+
+function showQueue(html) {
+    const list = document.getElementById('reviewList');
+    if (html === shownQueueHtml && list.childElementCount) return;
+    const scrollTop = list.scrollTop;
+    const focused = list.contains(document.activeElement) ? queueControlKey(document.activeElement) : null;
+    list.innerHTML = html;
+    list.scrollTop = scrollTop;
+    shownQueueHtml = html;
+    if (focused) {
+        Array.from(list.querySelectorAll('a, button'))
+            .find(control => queueControlKey(control) === focused)
+            ?.focus({preventScroll: true});
+    }
+}
+
+// A queue control is named by what it opens or toggles, which a render does not change.
+function queueControlKey(control) {
+    return ['href', 'aria-controls', 'onclick']
+        .map(name => control.getAttribute(name) || '')
+        .join(' ');
 }
 
 function renderReviewGroups(reviews) {
@@ -227,25 +268,48 @@ function renderReviewGroups(reviews) {
 
     return groups.map(group => {
         const pendingCount = group.reviews.filter(review => review.status === 'PENDING_REVIEW').length;
-        const productSchemaCount = group.reviews.filter(review => review.artifact_type === 'PRODUCT_SCHEMA').length;
-        const collapsed = collapsedListingSourceGroups.has(group.listingSourceId);
+        if (selectedId && selectedId !== reviewWhoseGroupWasOpened
+            && group.reviews.some(review => review.review_id === selectedId)) {
+            reviewWhoseGroupWasOpened = selectedId;
+            expandedListingSourceGroups.add(group.listingSourceId);
+            storeExpandedGroups();
+        }
+        const collapsed = !expandedListingSourceGroups.has(group.listingSourceId);
+        const listId = `queueGroup-${escapeHtmlAttr(group.listingSourceId)}`;
         return `<div class="listing-source-group">
-          <div class="listing-source-group-head" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
-            <div>
-              <div class="queue-title">${escapeHtml(group.listingSourceName)}</div>
-              <div class="queue-meta">${productSchemaCount} schema review${productSchemaCount === 1 ? '' : 's'} / ${group.reviews.length} total</div>
-              ${group.crawlEnabled ? '' : '<div class="queue-meta">Crawling disabled</div>'}
-            </div>
-            <div class="listing-source-group-actions">
-              ${statusBadge(`${pendingCount} pending`)}
-              <span class="collapse-indicator">${collapsed ? '+' : '-'}</span>
-            </div>
-          </div>
-          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}">
+          <button type="button" class="listing-source-group-head" aria-expanded="${!collapsed}" aria-controls="${listId}" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
+            <span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span>
+            <span class="group-text">
+              <span class="group-title-row">
+                <span class="queue-title" title="${escapeHtmlAttr(group.listingSourceName)}">${escapeHtml(group.listingSourceName)}</span>
+                ${pendingCount ? badge(`${pendingCount} pending`, 'pending') : '<span class="queue-meta">Reviewed</span>'}
+              </span>
+              <span class="queue-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}${group.crawlEnabled ? '' : ' · crawling disabled'}</span>
+            </span>
+          </button>
+          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}" id="${listId}">
             ${group.reviews.map(renderReviewQueueItem).join('')}
           </div>
         </div>`;
     }).join('');
+}
+
+const ARTIFACT_TYPE_COUNT_NAMES = {
+    PRODUCT_SCHEMA: ['product schema', 'product schemas'],
+    URL_PATTERN: ['URL pattern', 'URL patterns']
+};
+
+// How many of `reviews` there are of each artifact type, such as "2 product schemas · 1 URL
+// pattern", in the order the types first appear.
+function reviewCountsByArtifactType(reviews) {
+    const counts = new Map();
+    for (const review of reviews) {
+        counts.set(review.artifact_type, (counts.get(review.artifact_type) || 0) + 1);
+    }
+    return [...counts].map(([type, count]) => {
+        const [one, many] = ARTIFACT_TYPE_COUNT_NAMES[type] || [displayName(type), displayName(type)];
+        return `${count} ${count === 1 ? one : many}`;
+    }).join(' · ');
 }
 
 // A domain whose deterministic crawl failures kept repeating opens no review, so the queue
@@ -269,13 +333,13 @@ function renderDomainsNeedingOperator(listingSources) {
           <div class="queue-title">Domains waiting for an operator</div>
           <div class="queue-meta">Not crawled again until re-registered or disabled</div>
         </div>
-        <div class="listing-source-group-actions">${statusBadge(`${domains.length} failed`)}</div>
+        <div class="listing-source-group-actions">${badge(`${domains.length} failed`, 'rejected')}</div>
       </div>
       <div class="listing-source-review-list">
         ${domains.map(domain => `<div class="item">
           <div class="queue-row">
             <span class="queue-artifact">${escapeHtml(domain.domain)}</span>
-            ${statusBadge('Needs operator')}
+            ${badge('Needs operator')}
           </div>
           <div class="queue-meta">${escapeHtml(domain.listingSourceName)}</div>
           <div class="queue-meta">${escapeHtml(domain.last_crawl_error_kind || 'Unknown failure')} / ${escapeHtml(domain.crawl_failure_count)} consecutive failures</div>
@@ -311,7 +375,7 @@ function renderMissingValueSources(listingSources) {
             return `<div class="item" onclick="toggleMissingValuePages('${id}')">
               <div class="queue-row">
                 <span class="queue-artifact">${escapeHtml(source.listing_source_name || source.listing_source_id)}</span>
-                ${statusBadge(`${source.missing_value_urls} missing`)}
+                ${badge(`${source.missing_value_urls} missing`, 'missing')}
               </div>
               ${pages ? renderMissingValuePages(source.listing_source_id, pages) : ''}
             </div>`;
@@ -325,7 +389,7 @@ function renderMissingValueSources(listingSources) {
 // URL in the handler's source would let the shop run script in the console.
 function renderMissingValuePages(listingSourceId, pages) {
     if (pages.error) return `<div class="queue-meta">${escapeHtml(pages.error)}</div>`;
-    return pages.map((page, index) => `<div class="queue-meta" onclick="event.stopPropagation()">
+    return pages.map((page, index) => `<div class="queue-meta missing-value-page" onclick="event.stopPropagation()">
         ${productPageLink(page.url)} ${escapeHtml(page.missing || '')}
         <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', ${index})">Add to review</button>
       </div>`).join('');
@@ -379,32 +443,57 @@ function setReviewSearch(value) {
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
-function toggleListingSourceGroup(listingSourceId) {
-    if (collapsedListingSourceGroups.has(listingSourceId)) {
-        collapsedListingSourceGroups.delete(listingSourceId);
-    } else {
-        collapsedListingSourceGroups.add(listingSourceId);
+function readStoredList(key) {
+    try {
+        const list = JSON.parse(localStorage.getItem(key) || '[]');
+        return Array.isArray(list) ? list : [];
+    } catch (_) {
+        return [];
     }
-    localStorage.setItem('crawlerReviewCollapsedListingSourceGroups', JSON.stringify([...collapsedListingSourceGroups]));
+}
+
+// Storage may be blocked; the groups then stay as toggled until the page reloads.
+function storeExpandedGroups() {
+    try {
+        localStorage.setItem(EXPANDED_GROUPS_KEY, JSON.stringify([...expandedListingSourceGroups]));
+    } catch (_) {
+        // Nothing to keep.
+    }
+}
+
+function toggleListingSourceGroup(listingSourceId) {
+    if (expandedListingSourceGroups.has(listingSourceId)) {
+        expandedListingSourceGroups.delete(listingSourceId);
+    } else {
+        expandedListingSourceGroups.add(listingSourceId);
+    }
+    storeExpandedGroups();
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
 function renderReviewQueueItem(r) {
     const evaluation = autoSchemaEvaluation(r);
-    return `<div class="item ${r.review_id === selectedId ? 'active' : ''}" onclick="selectReview('${r.review_id}')">
-      <div class="queue-row">
+    const active = r.review_id === selectedId;
+    // A link to the review's fragment: following it goes through the same hashchange path as
+    // browser back, so it asks before discarding unsaved edits, and it opens in a new tab too.
+    return `<a class="item ${active ? 'active' : ''}" href="#${new URLSearchParams({review: r.review_id})}" ${active ? 'aria-current="true"' : ''}>
+      <span class="queue-row">
         <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
-        ${statusBadge(r.status)}
-        ${repairBadge(r)}
-      </div>
-      <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
-      ${evaluation ? `<div class="queue-meta">${statusBadge(evaluation.approved_by_llm ? 'LLM approved' : 'LLM not approved')} ${statusBadge(evaluation.confidence || 'unknown confidence')}</div>` : ''}
-      <div class="queue-meta">${timeBadge(r.created, 'Created')}</div>
-    </div>`;
+        <span class="queue-badges">${statusBadge(r.status)}${repairBadge(r)}</span>
+      </span>
+      <span class="queue-meta">${escapeHtml(displayName(r.reason))} · ${timeBadge(r.created, 'Created')}</span>
+      ${evaluation ? `<span class="queue-meta">${autoSchemaOutcomeBadge(evaluation, 'LLM evaluation: ')}</span>` : ''}
+    </a>`;
 }
 
-async function selectReview(id) {
+// `requested` names the page and schema a URL fragment asks for; without it the review opens on
+// its first page and schema.
+async function selectReview(id, requested = null) {
     selectedId = id;
+    requestedSelection = requested;
+    pickedSelector = '';
+    pickedSample = '';
+    if (selectionFromUrl().reviewId !== id) recordSelectionInUrl();
     dirty = false;
     sampleLabelDraft = null;
     editNotice = null;
@@ -501,10 +590,13 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
         ? 'The candidate was changed elsewhere while the schema matrix was evaluated; it is shown as it is now.'
         : '';
     if (resetSelection) {
-        selectedSchemaIndex = 0;
+        const requested = requestedSelection || {};
+        requestedSelection = null;
+        const pages = detail.pages || [];
+        selectedSchemaIndex = requested.schemaIndex ?? 0;
         compareSchemaIndex = 1;
         selectedField = 'title';
-        selectedPageId = (detail.pages && detail.pages[0] && detail.pages[0].review_page_id) || null;
+        selectedPageId = (pages.find(page => page.review_page_id === requested.pageId) || pages[0])?.review_page_id || null;
         previewUrlOverride = '';
     }
     normalizeSchemaSelection();
@@ -514,7 +606,7 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
 function renderDetail(detail, matrix) {
     const review = detail.review;
     const urls = detail.urls || [];
-    document.getElementById('detail').innerHTML = `
+    const frameKept = writeDetail(`
     <div class="review-page">
       <div id="reviewRefreshBanner" class="refresh-banner" hidden></div>
       <div class="review-topbar">
@@ -528,7 +620,6 @@ function renderDetail(detail, matrix) {
           </div>
           <div class="review-meta">
             <span>${escapeHtml(displayName(review.reason))}</span>
-            <span>${escapeHtml(review.review_id)}</span>
             ${timeBadge(review.updated, 'Updated')}
           </div>
         </div>
@@ -543,10 +634,76 @@ function renderDetail(detail, matrix) {
       ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
-    </div>`;
-    if (matrix) postHighlightSoon();
+    </div>`);
+    if (matrix) highlightPreview(frameKept);
+    recordSelectionInUrl();
     updateRefreshBanner();
     updateReloadState();
+}
+
+// Loading the preview fetches the shop page live, sends the shop another request and loses the
+// preview's scroll and picked element, so a render keeps the frame while it shows the same
+// page and replaces only the markup around it. Detaching the frame would reload it too, so it
+// stays in the document while its ancestors take the new attributes and siblings, unless the
+// reviewer asked to load the preview again. Answers whether the frame was kept.
+let previewReloadRequested = false;
+
+function writeDetail(html) {
+    const container = document.getElementById('detail');
+    const fresh = document.createElement('div');
+    fresh.innerHTML = html;
+    const frame = document.getElementById('snapshotFrame');
+    const slot = fresh.querySelector('#snapshotFrame');
+    const reload = previewReloadRequested;
+    previewReloadRequested = false;
+    const kept = Boolean(!reload && frame && slot && frame.getAttribute('src') === slot.getAttribute('src')
+        && graftAroundFrame(container, frame, fresh, slot));
+    if (!kept) container.replaceChildren(...fresh.childNodes);
+    return kept;
+}
+
+// Moves the fresh markup around the live frame, level by level up to the container, when the
+// frame sits in the same element structure in both; otherwise it changes nothing.
+function graftAroundFrame(container, frame, fresh, slot) {
+    const liveAncestors = ancestorsWithin(frame, container);
+    const freshAncestors = ancestorsWithin(slot, fresh);
+    if (!liveAncestors || !freshAncestors || liveAncestors.length !== freshAncestors.length
+        || liveAncestors.some((element, i) => element.tagName !== freshAncestors[i].tagName)) return false;
+    let kept = frame;
+    let replaced = slot;
+    liveAncestors.forEach((live, i) => {
+        const next = freshAncestors[i];
+        if (live !== container) copyAttributes(next, live);
+        for (const child of Array.from(live.childNodes)) {
+            if (child !== kept) child.remove();
+        }
+        const children = Array.from(next.childNodes);
+        const at = children.indexOf(replaced);
+        kept.before(...children.slice(0, at));
+        kept.after(...children.slice(at + 1));
+        kept = live;
+        replaced = next;
+    });
+    return true;
+}
+
+// The element's ancestors from its parent up to and including `root`, or null outside it.
+function ancestorsWithin(element, root) {
+    const ancestors = [];
+    for (let node = element.parentElement; node; node = node.parentElement) {
+        ancestors.push(node);
+        if (node === root) return ancestors;
+    }
+    return null;
+}
+
+function copyAttributes(from, to) {
+    for (const {name} of Array.from(to.attributes)) {
+        if (!from.hasAttribute(name)) to.removeAttribute(name);
+    }
+    for (const {name, value} of Array.from(from.attributes)) {
+        if (to.getAttribute(name) !== value) to.setAttribute(name, value);
+    }
 }
 
 // The stored candidate fails the validation approval applies: the review still shows it so the
@@ -629,8 +786,8 @@ function isWaitingForRepair(review) {
 // A review whose agent needs-repair rounds reached the cap waits for a human, which outranks
 // waiting for the repair the agents asked each other for.
 function repairBadge(review) {
-    if (review?.human_required) return statusBadge('Needs a human');
-    return isWaitingForRepair(review) ? statusBadge('Waiting for repair') : '';
+    if (review?.human_required) return badge('Needs a human', 'human');
+    return isWaitingForRepair(review) ? badge('Waiting for repair', 'repair') : '';
 }
 
 function renderHumanRequired(review) {
@@ -699,19 +856,23 @@ function rejectionRevoked(detail) {
         && (detail.events || []).some(event => event.action === 'REJECTION_REVOKED');
 }
 
+// The review whose history the reviewer opened, so a re-render, such as a tab or schema change,
+// keeps it open.
+let reviewEventsOpenReviewId = null;
+
+function reviewEventsToggled(open) {
+    reviewEventsOpenReviewId = open ? selectedId : null;
+}
+
 // The review's event trail, newest first: each decision and edit with the actor that made it.
 function renderReviewEvents(detail) {
     const events = detail?.events || [];
     if (!events.length) return '';
-    return `<div class="review-card review-events-card">
-      <div class="panel-head">
-        <div class="panel-title">
-          <strong>History</strong>
-          <span class="muted">Who changed this review: a human, the review agent or the crawler</span>
-        </div>
-      </div>
+    const open = reviewEventsOpenReviewId === detail.review.review_id;
+    return `<details class="review-card review-events-card" ${open ? 'open' : ''} ontoggle="reviewEventsToggled(this.open)">
+      <summary><span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span><strong>History</strong><span class="muted">${events.length} event${events.length === 1 ? '' : 's'}, latest ${escapeHtml(REVIEW_EVENT_LABELS[events[events.length - 1].action] || displayName(events[events.length - 1].action)).toLowerCase()} ${timeBadge(events[events.length - 1].created, 'Latest change')}</span></summary>
       <ol class="review-events">${events.slice().reverse().map(renderReviewEvent).join('')}</ol>
-    </div>`;
+    </details>`;
 }
 
 function renderReviewEvent(event) {
@@ -765,6 +926,31 @@ function autoSchemaEvaluation(review) {
     return (((review || {}).validation_summary || {}).auto_schema_evaluation) || null;
 }
 
+// The one outcome of the crawler's LLM evaluation of a generated schema: auto-approved when the
+// crawler approved it itself (`approved_by_llm`: in `auto` mode, on the model's high-confidence
+// approval and a passed deterministic gate), rejected when the model rejected it, otherwise left
+// to a human. The model's own decision and confidence and the gate's result are shown apart from
+// it, labelled, so they never read as a second outcome.
+function autoSchemaOutcome(evaluation) {
+    if (evaluation.approved_by_llm) return {text: 'Auto-approved', tone: 'approved'};
+    if (evaluation.decision === 'REJECT') return {text: 'Rejected by the model', tone: 'rejected'};
+    return {text: 'Needs human review', tone: 'pending'};
+}
+
+// The queue item labels the outcome as the LLM evaluation's, so a closed review's status badge
+// beside it never reads as a second outcome of the review.
+function autoSchemaOutcomeBadge(evaluation, prefix = '') {
+    const outcome = autoSchemaOutcome(evaluation);
+    return badge(`${prefix}${outcome.text}`, outcome.tone);
+}
+
+function deterministicGateText(review) {
+    const passed = review?.validation_summary?.schema_matrix_summary?.deterministic_approval_ok;
+    if (passed === true) return 'passed';
+    if (passed === false) return 'failed';
+    return 'not recorded';
+}
+
 function renderAutoSchemaEvaluation(review) {
     const evaluation = autoSchemaEvaluation(review);
     if (!evaluation) return '';
@@ -774,28 +960,41 @@ function renderAutoSchemaEvaluation(review) {
         <div class="panel-title">
           <strong>LLM Schema Evaluation</strong>
           <span class="muted">${escapeHtml(evaluation.summary || 'No summary provided.')}</span>
+          <span class="llm-evaluation-inputs">
+            <span>Model decision: ${escapeHtml(displayName(evaluation.decision || 'unknown'))}</span>
+            <span>Model confidence: ${escapeHtml(displayName(evaluation.confidence || 'unknown'))}</span>
+            <span>Deterministic gate: ${escapeHtml(deterministicGateText(review))}</span>
+          </span>
         </div>
-        <div class="llm-evaluation-badges">
-          ${statusBadge(evaluation.approved_by_llm ? 'Approved by LLM' : 'Not approved by LLM')}
-          ${statusBadge(evaluation.decision || 'unknown decision')}
-          ${statusBadge(evaluation.confidence || 'unknown confidence')}
-        </div>
+        <div class="llm-evaluation-badges">${autoSchemaOutcomeBadge(evaluation)}</div>
       </div>
       ${risks.length ? `<div class="llm-risks">${risks.map(risk => `<span>${escapeHtml(risk)}</span>`).join('')}</div>` : ''}
     </div>`;
 }
 
+// The review whose raw payload the reviewer opened, so a re-render, such as the one a refused
+// full-JSON save or a sample label change makes, keeps it open.
+let rawPayloadOpenReviewId = null;
+
+function rawPayloadToggled(open) {
+    rawPayloadOpenReviewId = open ? selectedId : null;
+}
+
 function renderNonSchemaReview(review, urls) {
+    const urlPattern = review.artifact_type === 'URL_PATTERN';
+    const open = !urlPattern || rawPayloadOpenReviewId === review.review_id;
     return `<div class="review-card">
       <div class="tab-panel">
-        ${renderUrlPatternEditor(review, urls)}
-        ${urls.length ? renderUrls(review, urls) : ''}
+        ${urlPattern || urls.length ? renderUrlPatternReview(review, urls) : ''}
         ${renderSampleLabels(review)}
-        <h3>Candidate Payload</h3>
-        <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
-        <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
-        <h3>Validation</h3>
-        <pre>${escapeHtml(JSON.stringify(review.validation_summary, null, 2))}</pre>
+        <details class="raw-payload" ${open ? 'open' : ''} ontoggle="rawPayloadToggled(this.open)">
+          <summary>Raw payload</summary>
+          <h3>Candidate payload</h3>
+          <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
+          <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
+          <h3>Validation</h3>
+          <pre>${escapeHtml(JSON.stringify(review.validation_summary, null, 2))}</pre>
+        </details>
       </div>
     </div>`;
 }
@@ -804,32 +1003,214 @@ function urlPatternDecision(review) {
     return review?.candidate_payload?.decision || {type: 'UNDECIDED'};
 }
 
-function renderUrlPatternEditor(review, urls) {
-    if (review.artifact_type !== 'URL_PATTERN' || review.status !== 'PENDING_REVIEW') return '';
-    const decision = urlPatternDecision(review);
-    const value = decision.type === 'PATTERN' ? decision.value : '';
-    return `<h3>URL Pattern</h3>
-      <div class="hint-card">Decision: ${escapeHtml(decision.type)}. ${decision.type === 'UNDECIDED'
+function decisionPattern(decision) {
+    return decision?.type === 'PATTERN' ? decision.value : '';
+}
+
+function savedPatternValue(review) {
+    return decisionPattern(urlPatternDecision(review));
+}
+
+// The selected URL-pattern review's decision as the server holds it, which the server's
+// classification of its sample describes, and the pattern the reviewer typed but has not saved.
+// A refused save leaves its decision in the local candidate of the loaded `review` as an unsaved
+// edit, so `stored` is the decision of that review as it was loaded or last rendered without
+// local edits. Both start over with each review and with each rendering without local edits,
+// after a save, a discard or a reload; a reload that keeps the local edits, such as after a
+// verdict, takes the reloaded decision and keeps the typed pattern.
+let urlPatternEdit = {review: null, stored: null, typed: null};
+
+function urlPatternEditOf(review) {
+    if (!dirty || urlPatternEdit.review?.review_id !== review.review_id) {
+        urlPatternEdit = {review, stored: urlPatternDecision(review), typed: null};
+    } else if (urlPatternEdit.review !== review) {
+        urlPatternEdit = {...urlPatternEdit, review, stored: urlPatternDecision(review)};
+    }
+    return urlPatternEdit;
+}
+
+function urlPatternEditable(review) {
+    return review?.artifact_type === 'URL_PATTERN' && review.status === 'PENDING_REVIEW';
+}
+
+// What the pattern input holds: the reviewer's unsaved typing, kept across re-renders, or else
+// the candidate's pattern.
+function urlPatternInputValue(review) {
+    const typed = urlPatternEditable(review) ? urlPatternEditOf(review).typed : null;
+    return typed ?? savedPatternValue(review);
+}
+
+// The URL table's filter; it starts over for each review shown.
+let urlFilter = {reviewId: null, kind: 'all', text: ''};
+
+const URL_FILTER_KINDS = [
+    ['all', 'All'],
+    ['product', 'Product'],
+    ['not_product', 'Not product'],
+    ['changed', 'Changed']
+];
+
+// The summary, the decision and the sample URLs of a URL-pattern review. The summary and the table
+// follow the pattern input while the reviewer types, as a browser preview, and show the server's
+// classification of the saved candidate otherwise.
+function renderUrlPatternReview(review, urls) {
+    if (urlFilter.reviewId !== review.review_id) urlFilter = {reviewId: review.review_id, kind: 'all', text: ''};
+    const view = urlPatternView(review, urls, urlPatternInputValue(review).trim());
+    return `<div id="urlPatternSummary">${renderUrlPatternSummary(review, view)}</div>
+      ${renderUrlPatternEditor(review)}
+      ${urls.length ? `<h3>Sample URLs</h3>
+        <div class="url-filter-bar">
+          <div class="url-filter-chips" id="urlFilterChips">${renderUrlFilterChips(view)}</div>
+          <input id="urlFilterText" type="search" value="${escapeHtmlAttr(urlFilter.text)}" placeholder="Filter paths" oninput="setUrlFilterText(this.value)">
+        </div>
+        <div id="urlPatternTable">${renderUrls(review, view)}</div>` : ''}`;
+}
+
+// How each sample URL classifies under the domain's current pattern and under the candidate: the
+// unsaved pattern `pattern` as the browser previews it when it differs from the saved one, else
+// the server's classification of the saved candidate.
+function urlPatternView(review, urls, pattern) {
+    const preview = urlPatternPreview(pattern, decisionPattern(urlPatternEditOf(review).stored));
+    const origin = sampleOrigin(urls);
+    const rows = urls.map((u, index) => {
+        const candidateMatch = preview.active ? regexTakesUrl(preview.regex, u.url) : u.candidate_pattern_match;
+        const currentProduct = u.current_pattern_match === true;
+        const candidateProduct = candidateMatch === true;
+        return {
+            index,
+            url: u.url,
+            path: relativeToOrigin(u.url, origin),
+            currentMatch: u.current_pattern_match,
+            candidateMatch,
+            candidateClass: u.candidate_class,
+            candidateProduct,
+            changed: currentProduct !== candidateProduct
+        };
+    });
+    return {
+        preview,
+        rows,
+        counts: {
+            all: rows.length,
+            current_product: rows.filter(row => row.currentMatch === true).length,
+            product: rows.filter(row => row.candidateProduct).length,
+            not_product: rows.filter(row => !row.candidateProduct).length,
+            changed: rows.filter(row => row.changed).length
+        }
+    };
+}
+
+// The pattern the browser previews: none while the input holds the saved pattern or nothing, so
+// the view shows the server's classification. Nor while the browser cannot compile the input,
+// which then names the `error`: the counts, the filters and the table keep showing the saved
+// candidate instead of counting every URL as not taken.
+function urlPatternPreview(pattern, savedPattern) {
+    if (!pattern || pattern === savedPattern) return {active: false};
+    try {
+        return {active: true, pattern, regex: new RegExp(pattern)};
+    } catch (error) {
+        return {active: false, pattern, error: error.message};
+    }
+}
+
+// The origin most sample URLs share, so the table shows their paths.
+function sampleOrigin(urls) {
+    const counts = new Map();
+    for (const u of urls) {
+        const origin = urlOrigin(u.url);
+        if (origin) counts.set(origin, (counts.get(origin) || 0) + 1);
+    }
+    return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+}
+
+function urlOrigin(url) {
+    try {
+        return new URL(url).origin;
+    } catch (_) {
+        return '';
+    }
+}
+
+// Only an http(s) URL becomes a link, as `linkifyText` links them: the console's policy runs
+// inline script, so a `javascript:` URL from a shop must never reach an href.
+function isHttpUrl(url) {
+    try {
+        return ['http:', 'https:'].includes(new URL(url).protocol);
+    } catch (_) {
+        return false;
+    }
+}
+
+// The origin's spelling may differ from the stored URL's, such as by credentials or a default
+// port, so only a URL that starts with it is shortened.
+function relativeToOrigin(url, origin) {
+    if (!origin || urlOrigin(url) !== origin || !url.startsWith(`${origin}/`)) return url;
+    return url.slice(origin.length);
+}
+
+function renderUrlPatternSummary(review, view) {
+    const {counts, preview} = view;
+    const currentPattern = review.candidate_payload?.current_pattern;
+    const candidateLabel = preview.active ? 'Product URLs (preview)' : 'Product URLs (candidate)';
+    return `<div class="url-pattern-summary">
+      <div class="url-pattern-decision">
+        <span class="muted">Decision</span>
+        ${renderUrlPatternDecision(urlPatternEditOf(review).stored)}
+        <span class="muted">Current pattern</span>
+        ${currentPattern ? `<code>${escapeHtml(currentPattern)}</code>` : '<span class="muted">none</span>'}
+      </div>
+      <div class="url-pattern-stats">
+        ${urlPatternStat('Sample URLs', counts.all)}
+        ${urlPatternStat('Product URLs (current)', counts.current_product)}
+        ${urlPatternStat(candidateLabel, counts.product)}
+        ${urlPatternStat('Changed URLs', counts.changed)}
+      </div>
+      <div class="muted" id="urlPatternPreview">${escapeHtml(urlPatternPreviewText(preview))}</div>
+    </div>`;
+}
+
+function urlPatternStat(label, value) {
+    return `<div class="url-pattern-stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
+}
+
+// One element, so the badge and the pattern share the summary grid's cell.
+function renderUrlPatternDecision(decision) {
+    if (decision.type === 'PATTERN') return `<span>${badge('Pattern')} <code>${escapeHtml(decision.value)}</code></span>`;
+    if (decision.type === 'NO_PATTERN') return badge('No pattern');
+    return badge(displayName(decision.type), 'pending');
+}
+
+function urlPatternPreviewText(preview) {
+    if (preview.error) return `Invalid pattern: ${preview.error}. The counts and the table show the saved candidate.`;
+    if (!preview.active) return 'Server classification of the saved candidate.';
+    return 'Browser preview of the unsaved pattern; the server validates and classifies it on save.';
+}
+
+function renderUrlPatternEditor(review) {
+    if (!urlPatternEditable(review)) return '';
+    const decision = urlPatternEditOf(review).stored;
+    return `<div class="url-pattern-editor">
+      <div class="hint-card">${decision.type === 'UNDECIDED'
         ? 'Enter a product URL regex or save NO_PATTERN before approving.'
         : 'Save a new decision to change it.'}</div>
-      <input id="urlPatternInput" value="${escapeHtmlAttr(value)}" placeholder="Product URL regex, e.g. /product/" oninput="previewUrlPattern(); markDirty()">
-      <div id="urlPatternPreview" class="muted">${urlPatternPreviewText(value, urls)}</div>
+      <input id="urlPatternInput" value="${escapeHtmlAttr(urlPatternInputValue(review))}" placeholder="Product URL regex, e.g. /product/" oninput="markDirty(); previewUrlPattern()">
       <div class="actions">
         <button onclick="saveUrlPattern()">Save pattern</button>
         <button onclick="saveNoUrlPattern()">Save NO_PATTERN</button>
-      </div>`;
+      </div>
+    </div>`;
 }
 
-function urlPatternPreviewText(pattern, urls) {
-    if (!pattern) return `${urls.length} sample URLs.`;
-    let regex;
-    try {
-        regex = new RegExp(pattern);
-    } catch (error) {
-        return `Invalid pattern: ${escapeHtml(error.message)}`;
-    }
-    const matches = urls.filter(u => regexTakesUrl(regex, u.url)).length;
-    return `${matches} of ${urls.length} sample URLs match (browser preview; the server validates the pattern on save).`;
+function renderUrlFilterChips(view) {
+    return URL_FILTER_KINDS.map(([kind, label]) => `<button class="schema-chip ${urlFilter.kind === kind ? 'active' : ''}" onclick="setUrlFilterKind('${kind}')">${escapeHtml(label)} ${view.counts[kind]}</button>`).join('');
+}
+
+function urlRowShown(row) {
+    if (urlFilter.kind === 'product' && !row.candidateProduct) return false;
+    if (urlFilter.kind === 'not_product' && row.candidateProduct) return false;
+    if (urlFilter.kind === 'changed' && !row.changed) return false;
+    const text = urlFilter.text.trim().toLowerCase();
+    return !text || row.path.toLowerCase().includes(text);
 }
 
 // Whether `regex` takes the page of `url` as the crawler matches a URL pattern: the URL as stored,
@@ -855,11 +1236,43 @@ function pageSpellings(url) {
     return spellings;
 }
 
+// Called after `markDirty`, so the typed pattern outlives a re-render of the review, such as the
+// one a sample label change or a refused save makes.
 function previewUrlPattern() {
     const input = document.getElementById('urlPatternInput');
-    const preview = document.getElementById('urlPatternPreview');
-    if (!input || !preview || !selectedDetail) return;
-    preview.innerHTML = urlPatternPreviewText(input.value.trim(), selectedDetail.urls || []);
+    if (!selectedDetail || !input) return;
+    urlPatternEditOf(selectedDetail.review).typed = input.value;
+    rerenderUrlPatternView();
+}
+
+function setUrlFilterKind(kind) {
+    urlFilter.kind = kind;
+    rerenderUrlPatternView();
+}
+
+function setUrlFilterText(text) {
+    urlFilter.text = text || '';
+    rerenderUrlPatternView();
+}
+
+// Renders the summary, the filter counts, the table and the sample labels' "Decision takes it"
+// cells again, leaving the inputs alone so they keep their focus and what was typed into them.
+function rerenderUrlPatternView() {
+    if (!selectedDetail) return;
+    const review = selectedDetail.review;
+    const view = urlPatternView(review, selectedDetail.urls || [], urlPatternInputValue(review).trim());
+    const parts = {
+        urlPatternSummary: () => renderUrlPatternSummary(review, view),
+        urlFilterChips: () => renderUrlFilterChips(view),
+        urlPatternTable: () => renderUrls(review, view)
+    };
+    currentSampleLabels(review).forEach((label, index) => {
+        parts[`sampleLabelTakes${index}`] = () => renderSampleLabelTakes(label);
+    });
+    for (const [id, render] of Object.entries(parts)) {
+        const element = document.getElementById(id);
+        if (element) element.innerHTML = render();
+    }
 }
 
 async function saveUrlPatternDecision(decision) {
@@ -877,18 +1290,38 @@ async function saveNoUrlPattern() {
     await saveUrlPatternDecision({type: 'NO_PATTERN'});
 }
 
-function renderUrls(review, urls) {
+// The handler names a URL by its index in the review's sample, never by the URL itself, which a
+// shop controls (see `renderMissingValuePages`).
+function renderUrls(review, view) {
     const editable = sampleLabelsEditable(review);
     const labels = currentSampleLabels(review);
-    return `<h3>URL Pattern Preview</h3><div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Current</th><th>Candidate</th><th>Class</th><th>Label</th></tr></thead><tbody>${
-        urls.map(u => {
-            const label = labels.find(l => l.url === u.url)?.label || '';
+    const rows = view.rows.filter(urlRowShown);
+    // The class comes from the crawler's classifier, which the browser cannot run, so a preview
+    // leaves it as the server classified the saved candidate.
+    const [candidateHead, classHead] = view.preview.active ? ['Candidate (preview)', 'Class (saved)'] : ['Candidate', 'Class'];
+    return `<div class="data-grid-wrap"><table class="url-table"><thead><tr><th>Path</th><th>Current</th><th>${candidateHead}</th><th>${classHead}</th><th>Label</th></tr></thead><tbody>${
+        rows.map(row => {
+            const label = labels.find(l => l.url === row.url)?.label || '';
             const cell = editable
-                ? renderSampleLabelSelect(label, `setSampleLabelOfUrl(${escapeHtmlAttr(JSON.stringify(u.url))}, this.value)`, true)
+                ? renderSampleLabelSelect(label, `setSampleLabelOfSampleUrl(${row.index}, this.value)`, true)
                 : (label ? statusBadge(label) : '');
-            return `<tr><td>${linkifyText(u.url)}</td><td>${u.current_pattern_match}</td><td>${u.candidate_pattern_match}</td><td>${escapeHtml(u.candidate_class)}</td><td>${cell}</td></tr>`;
-        }).join('')
+            const path = isHttpUrl(row.url)
+                ? `<a class="product-url" href="${escapeHtmlAttr(row.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(row.url)}">${escapeHtml(row.path)}</a>`
+                : escapeHtml(row.path);
+            return `<tr class="${row.changed ? 'url-row-changed' : ''}">
+              <td>${path}</td>
+              <td>${patternMatchIcon(row.currentMatch)}</td>
+              <td>${patternMatchIcon(row.candidateMatch)}</td>
+              <td>${row.candidateClass ? badge(displayName(row.candidateClass), row.candidateClass === 'product' ? 'approved' : undefined) : ''}</td>
+              <td>${cell}</td>
+            </tr>`;
+        }).join('') || '<tr><td colspan="5" class="muted">No sample URL matches the filter.</td></tr>'
     }</tbody></table></div>`;
+}
+
+function patternMatchIcon(match) {
+    if (match === true) return '<span class="match-icon match-yes" title="The pattern takes it">✓</span>';
+    return `<span class="match-icon match-no" title="${match === false ? 'The pattern does not take it' : 'No pattern'}">–</span>`;
 }
 
 const SAMPLE_URL_LABELS = ['PRODUCT', 'NOT_PRODUCT'];
@@ -927,16 +1360,28 @@ function renderSampleLabelSelect(selected, onchange, allowNone) {
 }
 
 // Whether the decision in the pattern input takes `url`, as the browser previews it; the server
-// matches the crawler's spelling of the URL when it checks an agent approval.
+// matches the crawler's spelling of the URL when it checks an agent approval. It reads the input's
+// state, not the element: while the review renders, the element still belongs to the review shown
+// before.
 function decisionPreviewTakes(url) {
-    const pattern = document.getElementById('urlPatternInput')?.value?.trim()
-        || (urlPatternDecision(selectedDetail?.review).type === 'PATTERN' ? urlPatternDecision(selectedDetail.review).value : '');
+    const review = selectedDetail?.review;
+    if (!review) return null;
+    const pattern = urlPatternInputValue(review).trim() || decisionPattern(urlPatternEditOf(review).stored);
     if (!pattern) return null;
     try {
         return regexTakesUrl(new RegExp(pattern), url);
     } catch (_) {
         return null;
     }
+}
+
+// Whether the decision in the pattern input takes the labelled URL, and whether that agrees with
+// its label.
+function renderSampleLabelTakes(label) {
+    const takes = decisionPreviewTakes(label.url);
+    const takesText = takes === null ? '' : (takes ? 'yes' : 'no');
+    const consistent = takes === null || takes === (label.label === 'PRODUCT');
+    return consistent ? escapeHtml(takesText) : badge(displayName(`${takesText}: inconsistent`));
 }
 
 // The author agent's or a human's labels of URLs of the review's domain, its sample's among
@@ -951,20 +1396,15 @@ function renderSampleLabels(review) {
     const status = sampleLabelDraft
         ? 'unsaved label edits'
         : (stored ? `set ${timeBadge(stored.labelled_at, 'Labelled')}` : 'no labels yet');
-    const rows = labels.map((label, index) => {
-        const takes = decisionPreviewTakes(label.url);
-        const takesText = takes === null ? '' : (takes ? 'yes' : 'no');
-        const consistent = takes === null || takes === (label.label === 'PRODUCT');
-        return `<tr>
+    const rows = labels.map((label, index) => `<tr>
           <td>${linkifyText(label.url)}</td>
           <td>${editable ? renderSampleLabelSelect(label.label, `setSampleLabelKind(${index}, this.value)`, false) : statusBadge(label.label)}</td>
           <td>${editable
             ? `<input value="${escapeHtmlAttr(label.reason || '')}" placeholder="Why" oninput="setSampleLabelReason(${index}, this.value)">`
             : escapeHtml(label.reason || '')}</td>
-          <td>${consistent ? escapeHtml(takesText) : statusBadge(`${takesText}: inconsistent`)}</td>
+          <td id="sampleLabelTakes${index}">${renderSampleLabelTakes(label)}</td>
           <td>${editable ? `<button onclick="removeSampleLabel(${index})">Remove</button>` : ''}</td>
-        </tr>`;
-    }).join('');
+        </tr>`).join('');
     const adder = editable ? `<div class="actions">
         <input id="sampleLabelUrl" placeholder="Another URL of the review's domain">
         ${renderSampleLabelSelect('PRODUCT', '', false).replace('<select', '<select id="sampleLabelKind"')}
@@ -972,7 +1412,7 @@ function renderSampleLabels(review) {
         <button onclick="addSampleLabel()">Add label</button>
       </div>
       <div class="actions"><button class="primary" onclick="saveSampleLabels()">Save labels</button></div>` : '';
-    return `<h3>Sample Labels</h3>
+    return `<h3>Sample labels</h3>
       <div class="hint-card">${escapeHtml(sampleLabelCountsText(counts))} (${status}). The reviewer agent's approval needs enough labels of each and a decision that takes every PRODUCT URL and no NOT_PRODUCT URL; schema.org Product markup decides nothing.</div>
       ${labels.length ? `<div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Label</th><th>Reason</th><th>Decision takes it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
       ${adder}`;
@@ -997,6 +1437,11 @@ function setSampleLabelOfUrl(url, label) {
             labels.push({url, label, reason: ''});
         }
     });
+}
+
+function setSampleLabelOfSampleUrl(index, label) {
+    const url = selectedDetail?.urls?.[index]?.url;
+    if (url) setSampleLabelOfUrl(url, label);
 }
 
 function setSampleLabelKind(index, label) {
@@ -1057,17 +1502,19 @@ function renderSchemaWorkbench(detail, matrix) {
     return `
     <div class="schema-workbench">
       <div class="preview-panel">
-        <div class="panel-head">
-          <div class="panel-title">
+        <div class="panel-head preview-head">
+          <div class="preview-head-row">
             <strong>Product View</strong>
-            <span class="muted">${previewUrl ? `${productPageLink(previewUrl)} (${previewUrlOverride ? 'custom URL' : `${escapeHtml(page.role)}, live HTML`})` : 'No live page available'}</span>
+            <div class="preview-page-picker">
+              <select aria-label="Review page" onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
+                ${pages.map(p => `<option value="${escapeHtmlAttr(p.review_page_id)}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
+              </select>
+              <button ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay">Remove page</button>
+            </div>
           </div>
-          <div class="toolbar">
-            <select onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
-              ${pages.map(p => `<option value="${p.review_page_id}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
-            </select>
-            <button ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay">Remove page</button>
-          </div>
+          <div class="preview-url-row muted">${previewUrl
+            ? `${productPageLink(previewUrl)}<span class="preview-url-kind">${previewUrlOverride ? 'Custom URL' : `${escapeHtml(displayName(page.role))} page`} · live HTML</span>`
+            : 'No live page available'}</div>
         </div>
         <div class="live-url-bar">
           <input id="livePreviewUrl" value="${escapeHtmlAttr(previewUrl)}" placeholder="https://example.com/product" onkeydown="if(event.key==='Enter') loadPreviewUrl()">
@@ -1075,14 +1522,14 @@ function renderSchemaWorkbench(detail, matrix) {
           <button ${page ? '' : 'disabled'} onclick="resetPreviewUrl()">Use review URL</button>
           <button ${reviewPagesEditable(detail.review) ? '' : 'disabled'} onclick="addReviewPage()" title="Fetches this URL of the ListingSource and adds it to the review pages, so the matrix evaluates every schema on it">Add to review pages</button>
         </div>
-        ${previewUrl ? `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>` : ''}
+        ${renderPreviewFrame(page, previewUrl)}
       </div>
       <div class="right-panel">
         <div class="tabs">
           ${workbenchTab('selector', 'Selector')}
-          ${workbenchTab('data', 'Extracted Data')}
-          ${workbenchTab('diff', 'Schema Diff')}
-          ${workbenchTab('removed', `Removed Page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
+          ${workbenchTab('data', 'Data')}
+          ${workbenchTab('diff', 'Schema diff')}
+          ${workbenchTab('removed', `Removed page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
           ${workbenchTab('json', 'JSON')}
         </div>
         ${renderWorkbenchPanel(detail, matrix, schemas)}
@@ -1090,19 +1537,28 @@ function renderSchemaWorkbench(detail, matrix) {
     </div>`;
 }
 
+function renderPreviewFrame(page, previewUrl) {
+    if (!previewUrl) return '';
+    return `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>`;
+}
+
 function previewFrameSrc(page, previewUrl) {
     if (!previewUrlOverride && page) return `/api/review-pages/${page.review_page_id}/inspect`;
     return `/api/live-inspect?url=${encodeURIComponent(previewUrl)}`;
 }
 
+// The reviewer asks for the preview with these buttons, so they load it again even when it
+// already shows that URL, for example after the shop refused the first fetch.
 function loadPreviewUrl() {
     const input = document.getElementById('livePreviewUrl');
     previewUrlOverride = (input && input.value || '').trim();
+    previewReloadRequested = true;
     rerenderWorkbench();
 }
 
 function resetPreviewUrl() {
     previewUrlOverride = '';
+    previewReloadRequested = true;
     rerenderWorkbench();
 }
 
@@ -1125,40 +1581,36 @@ function renderSelectorPanel(schemas, matrix) {
     return `<div class="tab-panel">
       ${renderCandidateEditHint(selectedDetail)}
       ${renderSchemaOrderControls(schemas, disabled)}
-      <div class="field-grid">
-        <label>Schema
-          <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>${schemaLabelWithTotal(i, schemas.length)}</option>`).join('')}
-          </select>
+      <section class="panel-section">
+        <h3>Field</h3>
+        <select id="selectedFieldSelect" aria-label="Field" onchange="selectedField=this.value; rerenderWorkbench()">
+          ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
+        </select>
+        <label>Selector
+          <span class="selector-box">
+            <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
+            <button class="primary" ${disabled} onclick="saveCurrentField()">Save field</button>
+            <button class="danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()">Delete rule</button>
+          </span>
         </label>
-        <label>Field
-          <select onchange="selectedField=this.value; rerenderWorkbench()">
-            ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
-          </select>
-        </label>
-      </div>
-      ${renderRawAttributeAdder(disabled)}
-      <div>
-        <h3>Selected Selector</h3>
-        <div class="selector-box">
-          <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
-          <button class="primary" ${disabled} onclick="saveCurrentField()">Save field</button>
-          <button class="danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()">Delete rule</button>
-        </div>
         ${renderSelectedFieldFindings(matrixPage)}
-      </div>
-      ${renderRuleOptions(rule)}
-      ${renderAdditionalSelectors(rule)}
-      <div class="actions">
-        <button onclick="applyPickedSelector()">Use clicked element</button>
-        <button onclick="postHighlight(currentSelector())">Highlight field</button>
-        <button onclick="postHighlightSchema()">Highlight schema</button>
-        <button onclick="reevaluateMatrix()">Re-evaluate</button>
-        <button onclick="discardEdits()">Discard edits</button>
-      </div>
-      <div class="picked" id="pickedElement">No element picked yet.</div>
-      <h3>Schema Highlight Legend</h3>
-      ${renderSchemaLegend(currentSchema())}
+        <div class="actions">
+          <button onclick="applyPickedSelector()">Use clicked element</button>
+          <button onclick="postHighlight(currentSelector())">Highlight field</button>
+        </div>
+        ${renderPickedElement()}
+        ${renderRuleOptions(rule)}
+        ${renderAdditionalSelectors(rule)}
+        ${renderRawAttributeAdder(disabled)}
+        <div class="actions edit-actions">
+          <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages">Re-evaluate</button>
+          <button onclick="discardEdits()">Discard edits</button>
+        </div>
+      </section>
+      <section class="panel-section">
+        <h3>Highlight legend</h3>
+        ${renderSchemaLegend(currentSchema())}
+      </section>
     </div>`;
 }
 
@@ -1169,16 +1621,17 @@ function renderRawAttributeAdder(disabled) {
     const available = (rawAttributeKeys || []).filter(entry => !configured.has(entry.key));
     if (!available.length) return '';
     const groups = [...new Set(available.map(entry => entry.group))];
-    return `<div class="raw-attribute-adder">
-      <label>Raw attribute
-        <select id="newRawAttributeKey" ${disabled}>
+    return `<div class="raw-attribute-card">
+      <h4 title="A registry key the schema does not configure yet; adding it selects it as the field to edit">Raw attributes</h4>
+      <div class="raw-attribute-adder">
+        <select id="newRawAttributeKey" aria-label="Raw attribute key" ${disabled}>
           ${groups.map(group => `<optgroup label="${escapeHtmlAttr(displayName(group))}">${
             available.filter(entry => entry.group === group).map(entry =>
                 `<option value="${escapeHtmlAttr(entry.key)}" title="${escapeHtmlAttr(entry.description)}">${escapeHtml(entry.key)}</option>`
             ).join('')}</optgroup>`).join('')}
         </select>
-      </label>
-      <button ${disabled} onclick="addRawAttribute()" title="Starts from the clicked element when one is picked; save the field to store it">Add raw attribute</button>
+        <button ${disabled} onclick="addRawAttribute()" title="Starts from the clicked element when one is picked; save the field to store it">Add raw attribute</button>
+      </div>
     </div>`;
 }
 
@@ -1192,15 +1645,18 @@ function addRawAttribute() {
     rerenderWorkbench();
 }
 
+// The element last clicked in the preview, kept across side-panel renders.
+function renderPickedElement() {
+    return `<div class="picked" id="pickedElement">${pickedSelector
+        ? `<code>${escapeHtml(pickedSelector)}</code>${pickedSample ? `<span class="muted">${escapeHtml(pickedSample)}</span>` : ''}`
+        : '<span class="muted">Click an element in the preview to pick it.</span>'}</div>`;
+}
+
 function renderRuleOptions(rule) {
     const effectiveRule = rule || defaultRuleFor(selectedField);
     const cardinality = effectiveRule.cardinality || 'first';
     const type = effectiveRule.type || 'text';
-    return `<div class="rule-options-card">
-      <div class="panel-title">
-        <strong>Extraction Rule</strong>
-        <span class="muted">Applies to the primary and additional selectors for this field</span>
-      </div>
+    return `<div class="rule-options-card" title="Applies to the primary and additional selectors for this field">
       <div class="field-grid">
         <label>Cardinality
           <select onchange="setCurrentRuleCardinality(this.value)">
@@ -1216,29 +1672,27 @@ function renderRuleOptions(rule) {
           </select>
         </label>
       </div>
-      <label>Attribute name
-        <input value="${escapeHtmlAttr(effectiveRule.name || '')}" ${type === 'attribute' ? '' : 'disabled'} oninput="setCurrentRuleAttributeName(this.value)">
-      </label>
+      ${type === 'attribute' ? `<label>Attribute name
+        <input value="${escapeHtmlAttr(effectiveRule.name || '')}" oninput="setCurrentRuleAttributeName(this.value)">
+      </label>` : ''}
     </div>`;
 }
 
 function renderSchemaOrderControls(schemas, disabled) {
     if (!schemas.length) return '<div class="hint-card">No schemas available for ordering.</div>';
-    return `<div class="schema-order-card">
-      <div>
-        <h3>Schema Order</h3>
-        <div class="muted">Approval writes schemas in this order for the ListingSource.</div>
-      </div>
+    return `<section class="panel-section schema-order-card">
+      <h3 title="Approval writes schemas in this order for the ListingSource">Schemas</h3>
       <div class="schema-order-list">
         ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
       </div>
       <div class="schema-order-actions">
-        <button ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)">Move up</button>
-        <button ${disabled || (selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : '')} onclick="moveCurrentSchema(1)">Move down</button>
+        ${schemas.length > 1 ? `<button ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)">Move up</button>
+        <button ${disabled || (selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : '')} onclick="moveCurrentSchema(1)">Move down</button>` : ''}
         <button ${disabled} onclick="addNewSchema()" title="Adds a copy of the selected schema to rewrite for another template">Add schema</button>
-        <button class="danger" ${disabled || (schemas.length <= 1 ? 'disabled' : '')} onclick="deleteCurrentSchema()">Delete schema</button>
+        ${schemas.length > 1 ? `<button class="danger" ${disabled} onclick="deleteCurrentSchema()">Delete schema</button>` : ''}
+        <button onclick="postHighlightSchema()">Highlight schema</button>
       </div>
-    </div>`;
+    </section>`;
 }
 
 // The handlers let postHighlight name the selected field: a raw attribute key comes from the
@@ -1246,10 +1700,7 @@ function renderSchemaOrderControls(schemas, disabled) {
 function renderAdditionalSelectors(rule) {
     const additional = (rule && Array.isArray(rule.additional_selectors)) ? rule.additional_selectors : [];
     return `<div class="additional-selector-card">
-      <div class="panel-title">
-        <strong>Additional Selectors</strong>
-        <span class="muted">Fallback or extra selectors for the selected field</span>
-      </div>
+      <h4 title="Fallback or extra selectors for the selected field">Additional selectors</h4>
       <div class="additional-selector-list">
         ${additional.length ? additional.map((selector, index) => `
           <div class="additional-selector-row">
@@ -1257,7 +1708,7 @@ function renderAdditionalSelectors(rule) {
             <button onclick="usePickedForAdditionalSelector(${index})">Use clicked</button>
             <button onclick="postHighlight(additionalSelectorAt(${index}))">Highlight</button>
             <button class="danger" onclick="removeAdditionalSelector(${index})">Delete</button>
-          </div>`).join('') : '<div class="muted">No additional selectors configured.</div>'}
+          </div>`).join('') : ''}
       </div>
       <div class="actions">
         <button onclick="addAdditionalSelector()">Add additional selector</button>
@@ -1268,10 +1719,6 @@ function renderAdditionalSelectors(rule) {
 
 function renderDataPanel(matrix) {
     return `<div class="tab-panel">
-      <div class="panel-title">
-        <strong>Extracted Data</strong>
-        <span class="muted">Current selected page and schema, evaluated against live HTML</span>
-      </div>
       ${renderCoverageSummary(matrix)}
       ${renderCurrentExtractedData(matrix)}
     </div>`;
@@ -1330,7 +1777,7 @@ function renderRemovedPagePanel(detail, matrix) {
         <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>
         <button ${disabled} onclick="discardEdits()">Discard edits</button>
       </div>
-      <div class="picked" id="pickedElement">${pickedSelector ? `<strong>${escapeHtml(pickedSelector)}</strong>` : 'No element picked yet.'}</div>
+      ${renderPickedElement()}
       <h3>Matched review pages</h3>
       ${renderRemovedPageMatches(matrix, templates)}
     </div>`;
@@ -1370,11 +1817,11 @@ function renderRemovedPageMatches(matrix, templates) {
     if (dirty) return '<div class="muted">Save the templates to evaluate them on the review pages.</div>';
     const matches = (matrix && matrix.removed_page_matches) || [];
     if (!matches.length) return '<div class="muted">No review page matches the templates.</div>';
-    return `<table>
+    return `<div class="data-grid-wrap"><table>
       <thead><tr><th>Page</th><th>Role</th><th>Outcome</th><th>Matched notices</th></tr></thead>
       <tbody>${matches.map(match => `<tr>
         <td>${productPageLink(match.url)}</td>
-        <td>${escapeHtml(match.role)}</td>
+        <td>${escapeHtml(displayName(match.role))}</td>
         <td>${match.outcome === 'REMOVED'
             ? statusBadge('Captured as removed')
             : statusBadge('Scraped as a product: a candidate schema extracts it')}</td>
@@ -1382,7 +1829,7 @@ function renderRemovedPageMatches(matrix, templates) {
             ? `<br>${statusBadge('Check breadth')} takes the title “${escapeHtml(t.product_title)}” a candidate schema extracts for its notice: too broad unless this page is a removal notice`
             : ''}`).join('<br>')}</td>
       </tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 // An emptied list stays in the payload as `[]`: the server keeps the candidate's templates when
@@ -1597,7 +2044,7 @@ function apiErrorMessage(error) {
 function renderJsonPanel(detail) {
     return `<div class="tab-panel">
       <div class="panel-title">
-        <strong>Full Candidate JSON</strong>
+        <strong>Full candidate JSON</strong>
         <span class="muted">Use field controls for normal edits; this is the raw payload.</span>
       </div>
       <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(detail.review.candidate_payload, null, 2))}</textarea>
@@ -1737,11 +2184,14 @@ function renderFindingBadges(findings) {
 }
 
 // Cross-page findings name the values another product page repeats; for a list such as
-// the images they point out the default share image among the product photos.
-function renderSharedValues(findings) {
+// the images they point out the default share image among the product photos, which lists
+// like the field's own images, by its resolved first candidate.
+function renderSharedValues(findings, key) {
     const values = findings.flatMap(finding => finding.values || []);
     if (!values.length) return '';
-    return `<div class="muted">Also extracted from another product page: ${values.map(value => expandableValue(value)).join(', ')}</div>`;
+    return `<div class="muted">Also extracted from another product page: ${key === 'images'
+        ? renderImageCandidateGroups(values)
+        : values.map(value => expandableValue(value)).join(', ')}</div>`;
 }
 
 // Identity agreement findings name the identities that contradict the extracted one: the
@@ -1765,15 +2215,15 @@ function renderPlausibilitySummary(matrix) {
     }
     const candidate = selectedCandidate(matrix);
     const failingPages = (candidate?.pages || []).filter(page => pageFindings(page).length > 0);
-    const perPage = failingPages.map(page =>
-        `${escapeHtml(displayName(page.role))} (${pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join(', ')})`
-    ).join('; ');
+    const perPage = failingPages.map(page => `<li><strong>${escapeHtml(displayName(page.role))}</strong>${matrixPagePath(page) ? `<code>${escapeHtml(matrixPagePath(page))}</code> ` : ''}<span>${
+        pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join('; ')
+    }</span></li>`).join('');
     const pagePlural = failingPages.length === 1 ? '' : 's';
     return `<div class="plausibility-summary">
       <strong>Plausibility</strong>
       <div>${failingSchemas.map(c => escapeHtml(schemaLabel(c.schema_index))).join(', ')} failed plausibility checks, which keeps a generated schema out of auto-approval.</div>
       ${failingPages.length
-        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}: ${perPage}</div>`
+        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}:</div><ul class="plausibility-pages">${perPage}</ul>`
         : '<div class="muted">Selected schema passed them on every live page.</div>'}
     </div>`;
 }
@@ -1916,17 +2366,27 @@ function renderCurrentExtractedData(matrix) {
     if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
     const misses = optionalFieldMisses(page);
     const skips = fieldsWithSkippedElements(page);
-    const findings = pageFindings(page);
-    const checkPlural = findings.length === 1 ? '' : 's';
     // A rejecting plausibility finding fails the page but keeps its extraction, so the
     // reviewer sees the failing check next to the field it concerns.
-    return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
-      <tr class="${page.apply_ok ? '' : 'failed'}">
-        <td>${escapeHtml(displayName(page.role))}</td>
-        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}${skips.length ? ` <span class="badge badge-pending" title="Matched elements without an image URL">${skippedElementCount(page)} skipped</span>` : ''}${findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : ''}</td>
-        <td>${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}${page.extracted ? rawDataCell(page.extracted, page) : ''}${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}${renderSkippedElements(skips)}</td>
-      </tr>
-    </tbody></table></div>`;
+    return `<section class="extracted-page ${page.apply_ok ? '' : 'failed'}">
+      <div class="extracted-page-head">
+        <strong>${escapeHtml(displayName(page.role))}</strong>
+        <span class="extracted-page-status">${renderPageStatusBadges(page, misses, skips)}</span>
+      </div>
+      ${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}
+      ${page.extracted ? rawDataCell(page.extracted, page) : ''}
+      ${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}
+      ${renderSkippedElements(skips)}
+    </section>`;
+}
+
+function renderPageStatusBadges(page, misses, skips) {
+    const findings = pageFindings(page);
+    const checkPlural = findings.length === 1 ? '' : 's';
+    return `<span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>`
+        + (misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : '')
+        + (skips.length ? ` <span class="badge badge-pending" title="Matched elements without an image URL">${skippedElementCount(page)} skipped</span>` : '')
+        + (findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : '');
 }
 
 function currentMatrixPage(matrix) {
@@ -1987,7 +2447,7 @@ function rawDataCell(raw, page) {
             return `
       <div class="${findings.length ? 'implausible-field' : ''}">
         <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : renderContradictingIdentities(findings)}</dd>
+        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value)) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings, key) : renderContradictingIdentities(findings)}</dd>
       </div>`;
         }).join('')
     }</dl>`;
@@ -2054,6 +2514,71 @@ function stableValue(value) {
     }, {});
 }
 
+// An extracted image is a candidate group: the address the page shows first, then its
+// fallbacks (srcset sizes, data attributes), joined by the scraper's U+001F separator. The list
+// shows one image per line by its first candidate, resolved against the selected page as the
+// crawler resolves it, and keeps the whole group in the tooltip; a long list collapses.
+const IMAGE_CANDIDATE_SEPARATOR = '\u001f';
+const IMAGES_SHOWN_BEFORE_COLLAPSE = 5;
+
+function renderImageCandidateGroups(groups) {
+    const rows = groups.map(renderImageCandidateGroup);
+    const shown = rows.slice(0, IMAGES_SHOWN_BEFORE_COLLAPSE).join('');
+    const rest = rows.slice(IMAGES_SHOWN_BEFORE_COLLAPSE);
+    return `<ol class="image-list">${shown}</ol>${rest.length
+        ? `<details class="expandable-text"><summary>${rest.length} more image${rest.length === 1 ? '' : 's'}</summary><ol class="image-list" start="${IMAGES_SHOWN_BEFORE_COLLAPSE + 1}">${rest.join('')}</ol></details>`
+        : ''}`;
+}
+
+function renderImageCandidateGroup(group) {
+    const candidates = imageCandidates(group);
+    const [first = ''] = candidates;
+    const address = resolvedPageAddress(first);
+    const fallbacks = candidates.length - 1;
+    const tooltip = escapeHtmlAttr(candidates.map(resolvedPageAddress).join('\n'));
+    const label = escapeHtml(shortImageAddress(address));
+    return `<li title="${tooltip}"><div>${/^https?:\/\//i.test(address)
+        ? `<a href="${escapeHtmlAttr(address)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+        : `<span>${label}</span>`}${fallbacks > 0 ? `<span class="image-fallbacks">+${fallbacks} fallback${fallbacks === 1 ? '' : 's'}</span>` : ''}</div></li>`;
+}
+
+// Image addresses of one shop share their whole prefix, so the list shows host and file name,
+// which tell them apart; the tooltip and the link keep the full address.
+function shortImageAddress(address) {
+    try {
+        const url = new URL(address);
+        const file = url.pathname.split('/').filter(Boolean).pop() || '';
+        return file ? `${url.host}/…/${decodeURIComponent(file)}` : address;
+    } catch (_) {
+        return address;
+    }
+}
+
+// The path of the review page a matrix page was evaluated on, which tells pages of one role apart.
+function matrixPagePath(page) {
+    const reference = page.page_reference;
+    if (reference?.kind !== 'persisted') return '';
+    const reviewPage = (selectedDetail?.pages || []).find(candidate => candidate.review_page_id === reference.review_page_id);
+    try {
+        return reviewPage ? new URL(reviewPage.url).pathname : '';
+    } catch (_) {
+        return '';
+    }
+}
+
+function imageCandidates(group) {
+    return String(group ?? '').split(IMAGE_CANDIDATE_SEPARATOR).map(candidate => candidate.trim()).filter(Boolean);
+}
+
+function resolvedPageAddress(value) {
+    const page = (selectedDetail?.pages || []).find(candidate => candidate.review_page_id === selectedPageId);
+    try {
+        return page ? new URL(value, page.url).href : value;
+    } catch (_) {
+        return value;
+    }
+}
+
 function hasRawValue(value) {
     if (value === null || value === undefined) return false;
     if (Array.isArray(value)) return value.length > 0;
@@ -2100,7 +2625,9 @@ function trimUrlPunctuation(url) {
     return url.replace(/[),.;\]]+$/, '');
 }
 
+// Only an http(s) URL becomes a link, so a stored or extracted URL cannot run script.
 function productPageLink(url) {
+    if (!isHttpUrl(url)) return `<span class="product-url">${escapeHtml(url)}</span>`;
     return `<a class="product-url" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(url)}">${escapeHtml(url)}</a>`;
 }
 
@@ -2413,10 +2940,18 @@ function schemaHighlightRules(schema) {
     return rules;
 }
 
-function postHighlightSoon() {
-    setTimeout(() => {
+// A kept frame takes the highlight at once; a new frame once its page has loaded.
+function highlightPreview(frameKept) {
+    const frame = document.getElementById('snapshotFrame');
+    if (!frame) return;
+    const highlightSelectedField = () => {
         if (activeWorkbenchPanel === 'selector') postHighlight(currentSelector());
-    }, 350);
+    };
+    if (frameKept) {
+        highlightSelectedField();
+    } else {
+        frame.addEventListener('load', highlightSelectedField, {once: true});
+    }
 }
 
 // The review an action panel acts on, as the reviewer finds it in the queue.
@@ -2708,18 +3243,17 @@ function markDirty() {
     updateReloadState();
 }
 
+// The state is a live region that every render updates, so it changes its text only when the
+// state changes: rewriting the same text would have a screen reader announce it again.
 function updateReloadState() {
     const state = document.getElementById('reloadState');
-    if (dirty) {
-        state.textContent = 'Review has local edits';
-        state.className = 'system-status dirty';
-    } else if (selectedReviewNeedsRefresh) {
-        state.textContent = 'Selected review changed elsewhere - refresh to update';
-        state.className = 'system-status stale';
-    } else {
-        state.textContent = 'Queue auto refresh active';
-        state.className = 'system-status';
-    }
+    const [text, className] = dirty
+        ? ['Review has local edits', 'system-status dirty']
+        : selectedReviewNeedsRefresh
+            ? ['Selected review changed elsewhere – refresh to update', 'system-status stale']
+            : ['Queue auto refresh active', 'system-status'];
+    if (state.textContent !== text) state.textContent = text;
+    state.className = className;
 }
 
 function toggleSidebar() {
@@ -2733,8 +3267,9 @@ function setSidebarCollapsed(collapsed) {
     const toggle = document.getElementById('sidebarToggle');
     if (shell) shell.classList.toggle('sidebar-collapsed', collapsed);
     if (toggle) {
-        toggle.setAttribute('aria-label', collapsed ? 'Expand pending reviews' : 'Collapse pending reviews');
-        toggle.setAttribute('title', collapsed ? 'Expand pending reviews' : 'Collapse pending reviews');
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+        toggle.setAttribute('aria-label', collapsed ? 'Expand reviews' : 'Collapse reviews');
+        toggle.setAttribute('title', collapsed ? 'Expand reviews' : 'Collapse reviews');
     }
 }
 
@@ -2805,26 +3340,47 @@ function isNewerTimestamp(candidate, baseline) {
     return Number.isFinite(candidateTime) && Number.isFinite(baselineTime) && candidateTime > baselineTime;
 }
 
+// The tone of each status the console knows by its exact value: review statuses and the schema
+// diff's field statuses. Any other text renders neutral unless its caller names a tone, so a
+// negative text such as "Not approved" can never take the approved style by a substring.
+const STATUS_TONES = {
+    PENDING_REVIEW: 'pending',
+    APPROVED: 'approved',
+    REJECTED: 'rejected',
+    SUPERSEDED: 'superseded',
+    'same': 'approved',
+    'changed': 'changed',
+    'missing current': 'missing',
+    'missing compare': 'missing'
+};
+
+const BADGE_TONES = new Set(['pending', 'approved', 'rejected', 'changed', 'missing', 'human', 'repair', 'superseded']);
+
 function statusBadge(status) {
-    const normalized = String(status || '').toLowerCase();
-    let cls = 'badge';
-    if (normalized.includes('pending')) cls += ' badge-pending';
-    else if (normalized.includes('approved') || normalized === 'same') cls += ' badge-approved';
-    else if (normalized.includes('changed')) cls += ' badge-changed';
-    else if (normalized.includes('missing')) cls += ' badge-missing';
-    else if (normalized.includes('reject') || normalized.includes('failed')) cls += ' badge-rejected';
-    else if (normalized.includes('human')) cls += ' badge-human';
-    else if (normalized.includes('repair') || normalized.includes('superseded')) cls += ' badge-repair';
-    return `<span class="${cls}">${escapeHtml(displayName(status))}</span>`;
+    return badge(displayName(status), STATUS_TONES[status]);
 }
 
+// A badge with the text `text` in the tone `tone`, one of `BADGE_TONES`; neutral without one.
+function badge(text, tone) {
+    const cls = BADGE_TONES.has(tone) ? `badge badge-${tone}` : 'badge';
+    return `<span class="${cls}">${escapeHtml(text)}</span>`;
+}
+
+const DISPLAY_ACRONYMS = {url: 'URL', id: 'ID', html: 'HTML', json: 'JSON', llm: 'LLM'};
+
+// A persisted value such as `PENDING_REVIEW` or `source_listing_id` as the console shows it: in
+// sentence case, like the console's headings, with its acronyms kept ("Pending review",
+// "Source listing ID", "URL pattern").
 function displayName(value) {
-    return String(value ?? '')
+    const text = String(value ?? '')
         .replace(/[_-]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase()
-        .replace(/\b\w/g, ch => ch.toUpperCase());
+        .split(' ')
+        .map(word => DISPLAY_ACRONYMS[word] || word)
+        .join(' ');
+    return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function formatDate(value) {
@@ -2836,11 +3392,13 @@ function formatDate(value) {
 
 function timeBadge(value, label) {
     if (!value) return '';
-    return `<span class="time-badge" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${clockIcon()}${escapeHtml(elapsedTime(value))}</span>`;
+    return `<span class="time-badge" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${escapeHtml(elapsedTime(value))}</span>`;
 }
 
-function clockIcon() {
-    return `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
+// The one disclosure glyph of the console: it points down while its section is open and right
+// while it is closed (the CSS turns it); the sidebar turns it to point where the sidebar moves.
+function chevronIcon() {
+    return '<svg viewBox="0 0 16 16" width="16" height="16" focusable="false"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
 function elapsedTime(value) {
@@ -2879,21 +3437,148 @@ window.addEventListener('message', event => {
     const data = event.data || {};
     if (data.type !== 'crawler-review-selector-picked') return;
     pickedSelector = data.selector || '';
-    const sample = data.text || data.src || data.href || '';
+    // The sample is what the element says, or for an image or link where it points: the selector
+    // already names the tag.
+    pickedSample = data.text ? `“${data.text}”` : `${data.tag || ''} ${data.src || data.href || ''}`.trim();
     const picked = document.getElementById('pickedElement');
-    if (!picked) return;
-    picked.innerHTML = `
-    <strong>${escapeHtml(pickedSelector)}</strong>
-    <div class="muted">${escapeHtml(data.tag || '')} ${escapeHtml(sample)}</div>`;
+    if (picked) picked.outerHTML = renderPickedElement();
 });
 
-setInterval(async () => {
+// The URL fragment names the selected review and, for a schema review, its page and schema, so
+// reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`,
+// with the 0-based schema index that `schemaLabel` shows from 1.
+// A link is untrusted and the review id becomes part of API paths, so only an id of the review
+// id's characters is taken; anything else, such as `/` or `?`, selects no review.
+const REVIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+function selectionFromUrl() {
+    const params = new URLSearchParams(location.hash.slice(1));
+    const review = params.get('review');
+    const schema = params.get('schema');
+    return {
+        reviewId: REVIEW_ID_PATTERN.test(review || '') ? review : null,
+        pageId: params.get('page') || null,
+        schemaIndex: /^\d+$/.test(schema || '') ? Number(schema) : null
+    };
+}
+
+function selectionUrlHash() {
+    if (!selectedId) return '';
+    const params = new URLSearchParams({review: selectedId});
+    if (selectedMatrix && selectedDetail?.review.review_id === selectedId) {
+        if (selectedPageId) params.set('page', selectedPageId);
+        params.set('schema', String(selectedSchemaIndex));
+    }
+    return `#${params}`;
+}
+
+// Selecting another review adds a history entry, so browser back returns to the previous one;
+// a page or schema change within the review only updates the current entry.
+function recordSelectionInUrl() {
+    if (selectionUrlHash() === location.hash) return;
+    if (selectionFromUrl().reviewId === selectedId) {
+        replaceSelectionInUrl();
+    } else {
+        history.pushState(null, '', selectionUrl());
+    }
+}
+
+function replaceSelectionInUrl() {
+    history.replaceState(null, '', selectionUrl());
+}
+
+function selectionUrl() {
+    return selectionUrlHash() || `${location.pathname}${location.search}`;
+}
+
+// Following the URL to another review discards unsaved edits, so it asks first; meanwhile the
+// URL keeps naming the review on screen. Confirming puts the requested URL back into the
+// history entry the browser moved to, so it adds no entry and back and forward keep their order.
+function applySelectionFromUrl() {
+    const requested = selectionFromUrl();
+    if (requested.reviewId === selectedId) {
+        applyRequestedPageAndSchema(requested);
+        return;
+    }
+    const follow = () => requested.reviewId
+        ? selectReview(requested.reviewId, requested)
+        : clearSelectedReview();
+    if (!dirty) return follow();
+    const requestedUrl = location.href;
+    replaceSelectionInUrl();
+    confirmDiscardingEdits(requested.reviewId ? 'Opening another review' : 'Leaving the review', () => {
+        history.replaceState(null, '', requestedUrl);
+        return follow();
+    });
+}
+
+// A review still loading takes the request when it has loaded.
+function applyRequestedPageAndSchema({pageId, schemaIndex}) {
+    if (selectedDetail?.review.review_id !== selectedId) {
+        requestedSelection = {pageId, schemaIndex};
+        return;
+    }
+    if (!selectedMatrix) return;
+    const page = (selectedDetail.pages || []).find(candidate => candidate.review_page_id === pageId);
+    if (page && page.review_page_id !== selectedPageId) {
+        selectedPageId = page.review_page_id;
+        previewUrlOverride = '';
+    }
+    if (schemaIndex !== null) selectedSchemaIndex = schemaIndex;
+    normalizeSchemaSelection();
+    rerenderWorkbench();
+}
+
+function clearSelectedReview() {
+    selectedId = null;
+    selectedDetail = null;
+    selectedMatrix = null;
+    dirty = false;
+    editNotice = null;
+    pendingAction = null;
+    const detail = document.getElementById('detail');
+    detail.textContent = 'Select a review.';
+    updateReloadState();
+    return loadReviews().catch(reportQueueFailure);
+}
+
+window.addEventListener('hashchange', applySelectionFromUrl);
+
+// The queue refreshes calmly and not at all while the tab is hidden; it refreshes at once when
+// the tab is shown again. A refresh only updates the queue, never the selected review.
+const QUEUE_REFRESH_INTERVAL_MS = 15000;
+let queueRefreshTimer = null;
+
+async function refreshQueue() {
+    clearTimeout(queueRefreshTimer);
+    queueRefreshTimer = null;
     try {
         await loadReviews();
     } catch (err) {
         reportQueueFailure(err);
     }
-}, 5000);
+    scheduleQueueRefresh();
+}
+
+function scheduleQueueRefresh() {
+    clearTimeout(queueRefreshTimer);
+    queueRefreshTimer = document.hidden ? null : setTimeout(refreshQueue, QUEUE_REFRESH_INTERVAL_MS);
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        clearTimeout(queueRefreshTimer);
+        queueRefreshTimer = null;
+    } else {
+        refreshQueue();
+    }
+});
+
+scheduleQueueRefresh();
 
 loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 setSidebarCollapsed(sidebarCollapsed);
+updateSignOutButton();
+localStorage.removeItem('crawlerReviewCollapsedListingSourceGroups');
+localStorage.removeItem('crawlerReviewCollapsedShopGroups');
+if (selectionFromUrl().reviewId) applySelectionFromUrl();
