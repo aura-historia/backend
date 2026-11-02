@@ -196,12 +196,18 @@ function changedCandidateVersion(error) {
     }
 }
 
+// Numbers queue loads, so a poll that answers after a later load, such as the one a verdict
+// starts, cannot show the older queue or report a stale status change of the selected review.
+let queueLoadSequence = 0;
+
 async function loadReviews() {
+    const sequence = ++queueLoadSequence;
     // The crawl state only adds to the queue, so its failure must not hide the reviews.
     const [reviews, listingSources] = await Promise.all([
         api('/api/reviews'),
         api('/api/listing_sources').catch(() => null)
     ]);
+    if (sequence !== queueLoadSequence) return reviews;
     showQueue(renderDomainsNeedingOperator(listingSources)
         + renderMissingValueSources(listingSources)
         + renderReviewGroups(reviews));
@@ -446,8 +452,13 @@ function readStoredList(key) {
     }
 }
 
+// Storage may be blocked; the groups then stay as toggled until the page reloads.
 function storeExpandedGroups() {
-    localStorage.setItem(EXPANDED_GROUPS_KEY, JSON.stringify([...expandedListingSourceGroups]));
+    try {
+        localStorage.setItem(EXPANDED_GROUPS_KEY, JSON.stringify([...expandedListingSourceGroups]));
+    } catch (_) {
+        // Nothing to keep.
+    }
 }
 
 function toggleListingSourceGroup(listingSourceId) {
@@ -2614,7 +2625,9 @@ function trimUrlPunctuation(url) {
     return url.replace(/[),.;\]]+$/, '');
 }
 
+// Only an http(s) URL becomes a link, so a stored or extracted URL cannot run script.
 function productPageLink(url) {
+    if (!isHttpUrl(url)) return `<span class="product-url">${escapeHtml(url)}</span>`;
     return `<a class="product-url" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(url)}">${escapeHtml(url)}</a>`;
 }
 
