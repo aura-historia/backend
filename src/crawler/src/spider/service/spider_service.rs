@@ -718,6 +718,7 @@ impl SpiderServiceImpl {
                 kind: CrawlFailureKind::InvalidUrl,
                 reason: "configured crawler domain URL is invalid",
                 source: None,
+                root_reroot: None,
             })
         })?;
         let seeds = self.crawl_seeds(domain_id, kind).await?;
@@ -1836,6 +1837,7 @@ mod service_tests {
                     kind: CrawlFailureKind::ConnectError,
                     reason: "crawl root unreachable",
                     source: None,
+                    root_reroot: None,
                 })
             })
         });

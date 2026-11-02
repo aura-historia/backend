@@ -172,5 +172,6 @@ fn robots_request_failed(source: application::error::BoxError) -> SpiderDiscover
         kind: CrawlFailureKind::ConnectError,
         reason: "robots.txt request failed",
         source: Some(source),
+        root_reroot: None,
     }
 }

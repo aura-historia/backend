@@ -3,18 +3,19 @@
 //!
 //! A shop configured on one host may serve its root there while every page it links lives on the
 //! other one (swedishantiques.biz serves the bare host and links `www.` throughout). Spider follows
-//! links on its root's host only, so such a crawl would find nothing. When the root page's links
-//! point mostly at the twin host, the preflight moves the crawl root there, as it does when the
+//! links on its root's host only, so such a crawl would find nothing. When the root page links
+//! mostly pages on the twin host, the preflight moves the crawl root there, as it does when the
 //! root redirects to the twin.
 
 use scraper::{Html, Selector};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 use url::{Host, Url};
 
 use crate::spider::utils::url::CrawledUrl;
 
-/// Fewest links to the twin host that move a crawl root there, so a root page with a stray link
-/// or two to the twin stays where it is.
+/// Fewest distinct pages linked on the twin host that move a crawl root there, so a root page
+/// with a stray link or two to the twin, however often it repeats them, stays where it is.
 pub(super) const MIN_TWIN_LINKS: usize = 5;
 
 static LINKS: LazyLock<Selector> =
@@ -29,9 +30,9 @@ pub struct RootReroot {
     pub from: Url,
     /// The same URL on the twin host, which the crawl runs from instead.
     pub to: Url,
-    /// Links to the twin host on the root page.
+    /// Distinct pages the root page links on the twin host.
     pub twin_links: usize,
-    /// Links to the root's own host on the root page, relative links included.
+    /// Distinct pages the root page links on its own host, through relative links too.
     pub root_links: usize,
 }
 
@@ -67,11 +68,14 @@ pub(super) fn www_twin(url: &Url) -> Option<Url> {
 }
 
 /// Where the crawl should run from instead of `root`, judged by the links of the root page `html`:
-/// on its twin host when at least [`MIN_TWIN_LINKS`] of them, and more than link the root's own
-/// host, point there. A link counts where Spider resolves it: against the page's first absolute
-/// `<base href>` when it has one, as shops that link `www.` through a `<base>` element and
-/// relative links do. Links the crawler never follows ([blacklisted](CrawledUrl::is_blacklisted)
-/// ones such as the cart or the account) and links to any other host do not count.
+/// on its twin host when they name at least [`MIN_TWIN_LINKS`] distinct pages there, and more
+/// than on the root's own host. A page counts once however often the root page links it, in
+/// whichever of its spellings ([`CrawledUrl::page_spelling`]), so one product in a slider, the
+/// menu and the footer does not tip the balance. A link counts where Spider resolves it: against
+/// the page's first absolute `<base href>` when it has one, as shops that link `www.` through a
+/// `<base>` element and relative links do. Links the crawler never follows
+/// ([blacklisted](CrawledUrl::is_blacklisted) ones such as the cart or the account) and links to
+/// any other host do not count.
 pub(super) fn dominant_twin(root: &Url, html: &[u8]) -> Option<RootReroot> {
     let twin = www_twin(root)?;
     let document = Html::parse_document(&String::from_utf8_lossy(html));
@@ -79,7 +83,7 @@ pub(super) fn dominant_twin(root: &Url, html: &[u8]) -> Option<RootReroot> {
         .select(&BASE)
         .find_map(|base| Url::parse(base.value().attr("href")?.trim()).ok())
         .unwrap_or_else(|| root.clone());
-    let (mut root_links, mut twin_links) = (0, 0);
+    let (mut root_pages, mut twin_pages) = (HashSet::new(), HashSet::new());
     for link in document.select(&LINKS) {
         let href = link.value().attr("href").unwrap_or_default().trim();
         let Some(url) = base.join(href).ok().map(CrawledUrl::new) else {
@@ -88,12 +92,14 @@ pub(super) fn dominant_twin(root: &Url, html: &[u8]) -> Option<RootReroot> {
         if !matches!(url.as_url().scheme(), "http" | "https") || url.is_blacklisted() {
             continue;
         }
-        match url.as_url().host_str() {
-            Some(host) if Some(host) == root.host_str() => root_links += 1,
-            Some(host) if Some(host) == twin.host_str() => twin_links += 1,
-            _ => {}
-        }
+        let pages = match url.as_url().host_str() {
+            Some(host) if Some(host) == root.host_str() => &mut root_pages,
+            Some(host) if Some(host) == twin.host_str() => &mut twin_pages,
+            _ => continue,
+        };
+        pages.insert(url.page_spelling());
     }
+    let (root_links, twin_links) = (root_pages.len(), twin_pages.len());
     (twin_links >= MIN_TWIN_LINKS && twin_links > root_links).then(|| RootReroot {
         from: root.clone(),
         to: twin,
@@ -168,6 +174,63 @@ mod tests {
             None
         );
         assert_eq!(reroot("https://example.com/", 50, 60), None);
+    }
+
+    /// Spellings of one page a shop links it under.
+    const SPELLINGS: [&str; 4] = ["", "/", "?utm_source=newsletter", "#top"];
+
+    /// The link counts of the move a root page asks for that links `twin` distinct pages on
+    /// `www.example.com` and `own` on the root's host, each page under every spelling of its
+    /// side's list.
+    fn move_by_pages(
+        (twin, twin_spellings): (usize, &[&str]),
+        (own, own_spellings): (usize, &[&str]),
+    ) -> Option<(usize, usize)> {
+        let links = |origin: &str, pages: usize, spellings: &[&str]| {
+            (0..pages)
+                .flat_map(|i| {
+                    spellings.iter().map(move |spelling| {
+                        format!(r#"<a href="{origin}/antiques/{i}{spelling}">x</a>"#)
+                    })
+                })
+                .collect::<String>()
+        };
+        let page = format!(
+            "<html><body>{}{}</body></html>",
+            links("https://www.example.com", twin, twin_spellings),
+            links("", own, own_spellings)
+        );
+        dominant_twin(
+            &Url::parse("https://example.com/").unwrap(),
+            page.as_bytes(),
+        )
+        .map(|moved| (moved.twin_links, moved.root_links))
+    }
+
+    #[test]
+    fn should_count_a_page_linked_repeatedly_or_in_several_spellings_once() {
+        assert_eq!(
+            move_by_pages((MIN_TWIN_LINKS - 1, &SPELLINGS), (0, &[""])),
+            None
+        );
+        assert_eq!(
+            move_by_pages((MIN_TWIN_LINKS, &SPELLINGS), (0, &[""])),
+            Some((MIN_TWIN_LINKS, 0))
+        );
+    }
+
+    #[test]
+    fn should_weigh_the_twin_against_the_root_s_host_by_distinct_pages() {
+        // More pages on the twin, though the root's own are linked more often.
+        assert_eq!(
+            move_by_pages((MIN_TWIN_LINKS + 1, &[""]), (MIN_TWIN_LINKS, &SPELLINGS)),
+            Some((MIN_TWIN_LINKS + 1, MIN_TWIN_LINKS))
+        );
+        // As many pages on either host, though the twin's are linked more often.
+        assert_eq!(
+            move_by_pages((MIN_TWIN_LINKS, &SPELLINGS), (MIN_TWIN_LINKS, &[""])),
+            None
+        );
     }
 
     #[test]

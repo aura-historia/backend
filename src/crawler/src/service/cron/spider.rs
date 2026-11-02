@@ -591,6 +591,7 @@ fn log_spider_failure(
                 failure_count,
                 reason,
                 redirect_url = ?preflight.redirect_target(),
+                root_reroot = ?preflight.root_reroot(),
                 source = ?source,
                 next_crawl_at = %next_crawl_at,
                 cooldown_seconds = cooldown.as_secs(),
@@ -1058,6 +1059,7 @@ mod tests {
             kind,
             reason: "test_preflight",
             source: None,
+            root_reroot: None,
         })
     }
 
