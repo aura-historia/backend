@@ -50,10 +50,6 @@ CREATE TABLE listing_source_domains (
     -- can bring forward (docs/crawler/scheduling-and-retries.md, rate-limited crawls).
     crawl_rate_limit_streak INT NOT NULL DEFAULT 0,
     crawl_rate_limited_until TIMESTAMPTZ,
-    -- When the domain's last spider run of any kind ended. A domain whose last full crawl is
-    -- recent is crawled incrementally once this is a day old (docs/crawler/scheduling-and-retries.md,
-    -- discovery coverage).
-    last_crawl_run_at TIMESTAMPTZ,
     url_pattern_state TEXT NOT NULL DEFAULT 'UNKNOWN',
     scrape_failure_streak INT NOT NULL DEFAULT 0,
     last_scrape_error_kind TEXT,
@@ -99,18 +95,6 @@ CREATE INDEX idx_listing_source_domains_next_crawl_at ON listing_source_domains 
 CREATE INDEX idx_listing_source_domains_next_scrape_at
     ON listing_source_domains (next_scrape_at)
     WHERE next_scrape_at IS NOT NULL;
-
-
--- The URLs a cut-short crawl found or was seeded with but did not visit. The domain's next crawl
--- visits them after its link discovery from the root, so a truncated crawl continues where it
--- stopped. Each run replaces the set; a crawl that reached everything leaves it empty
--- (docs/crawler/scheduling-and-retries.md, discovery coverage).
-CREATE TABLE listing_source_domain_crawl_frontier (
-    domain_id UUID NOT NULL REFERENCES listing_source_domains(domain_id) ON DELETE CASCADE,
-    url       TEXT NOT NULL,
-    CHECK (char_length(url) > 0),
-    PRIMARY KEY (domain_id, url)
-);
 
 
 CREATE TABLE listing_source_urls (

@@ -133,10 +133,10 @@ pub(super) struct FoundLinks {
 
 impl FoundLinks {
     /// Links on `root`'s host that neither the URL blacklist nor `deny_list` refuses.
-    pub(super) fn new(root: Url, deny_list: RegexSet) -> Self {
+    pub(super) fn new(root: Url, deny_list: Arc<RegexSet>) -> Self {
         Self {
             root: Arc::new(root),
-            deny_list: Arc::new(deny_list),
+            deny_list,
             links: Arc::default(),
             delivered: Arc::default(),
         }
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn should_record_page_links_the_crawl_may_follow_in_their_stored_spelling() {
         let deny_list = RegexSet::new([r"/denied"]).unwrap();
-        let found = FoundLinks::new(url("/"), deny_list);
+        let found = FoundLinks::new(url("/"), Arc::new(deny_list));
         let links: Vec<CaseInsensitiveString> = [
             "item.php?id=1&amp;utm_source=x",
             "https://www.shop.example/product/2",

@@ -410,9 +410,32 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
         )
         .await
         .unwrap();
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        domain_id,
+        "https://spider-frontier.example.com/collections/all/products/1",
+    )
+    .await;
+    sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
+        .bind(url("/collections/all/products/1").as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(
-        repository.known_product_urls(&domain_id).await.unwrap(),
-        [url("/product/1")]
+        repository.known_urls(&domain_id).await.unwrap(),
+        [url("/collections/all/products/1"), url("/product/1")],
+        "a URL retired as a duplicate is known too"
+    );
+
+    repository
+        .replace_frontier(&domain_id, &[url("/collections/all/products/1"), url("/d")])
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.load_frontier(&domain_id).await.unwrap(),
+        [url("/d")],
+        "the frontier never carries a URL retired as a duplicate"
     );
 }
 
@@ -2673,7 +2696,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     assert!(
         error
             .to_string()
-            .contains("reconciliation deferred to #1899")
+            .contains("redirect destination already known")
     );
 
     let rows: Vec<(String, String)> = sqlx::query_as(
@@ -2735,7 +2758,7 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
         assert!(
             error
                 .to_string()
-                .contains("reconciliation deferred to #1899"),
+                .contains("redirect destination already known"),
             "{effective_url}"
         );
 
@@ -4370,4 +4393,61 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
     .await
     .unwrap();
     assert_eq!(domain_row, (1, Some("HTTP_429".to_owned()), Some(429)));
+}
+
+/// A URL retired as a duplicate of a stored page is terminal: neither scraped nor counted as due.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_never_select_a_url_retired_as_duplicate() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id = insert_listing_source_with_domain(
+        &pool,
+        listing_source_id,
+        "duplicate-retired.example.com",
+    )
+    .await;
+    let duplicate =
+        url::Url::parse("https://duplicate-retired.example.com/collections/a/products/1").unwrap();
+    let destination = url::Url::parse("https://duplicate-retired.example.com/products/1").unwrap();
+    insert_product_url(&pool, listing_source_id, domain_id, duplicate.as_str()).await;
+    insert_product_url(&pool, listing_source_id, domain_id, destination.as_str()).await;
+
+    assert_eq!(
+        service
+            .set_disposition(
+                &listing_source_id,
+                &duplicate,
+                CrawlerDisposition::Duplicate,
+                None
+            )
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+
+    assert_eq!(
+        service
+            .get_candidates(10, 100, &[])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|candidate| candidate.url)
+            .collect::<Vec<_>>(),
+        vec![destination]
+    );
+    assert_eq!(service.count_due_urls().await.unwrap(), 1);
+    assert_eq!(
+        service
+            .set_disposition(
+                &listing_source_id,
+                &duplicate,
+                CrawlerDisposition::Active,
+                None
+            )
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::NoopStale,
+        "no scraper write revives a retired duplicate"
+    );
 }

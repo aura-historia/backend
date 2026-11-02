@@ -1,5 +1,6 @@
 //! The seeds a domain's next crawl starts from besides its root: the frontier its previous crawl
-//! left unvisited, and the product URLs an incremental crawl does not fetch again
+//! left unvisited, and the URLs an incremental crawl does not fetch again: its product URLs and
+//! the URLs retired as duplicates of another
 //! (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
 
 use async_trait::async_trait;
@@ -7,23 +8,22 @@ use sqlx::PgPool;
 use url::Url;
 
 use crate::CrawlerDomainId;
-use crate::spider::classification::url_metadata::UrlClass;
+use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
 
 /// Most known product URLs an incremental crawl skips; a larger shop's further product pages are
 /// fetched again, which costs requests but loses nothing.
-pub const MAX_KNOWN_PRODUCT_URLS: i64 = 100_000;
+pub const MAX_KNOWN_URLS: i64 = 100_000;
 
 #[async_trait]
 #[mockall::automock]
 pub trait CrawlFrontierRepository: Send + Sync {
-    /// The URLs the domain's previous crawl left unvisited.
+    /// The URLs the domain's previous crawl left unvisited, without any the crawler retired as a
+    /// duplicate since.
     async fn load_frontier(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error>;
 
-    /// The product URLs the domain already stores, at most [`MAX_KNOWN_PRODUCT_URLS`].
-    async fn known_product_urls(
-        &self,
-        domain_id: &CrawlerDomainId,
-    ) -> Result<Vec<Url>, sqlx::Error>;
+    /// The product URLs the domain already stores and the URLs it retired as duplicates, at most
+    /// [`MAX_KNOWN_URLS`].
+    async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error>;
 
     /// Replaces the domain's frontier with what its latest crawl left unvisited.
     async fn replace_frontier(
@@ -54,27 +54,33 @@ fn persisted_urls(rows: Vec<String>) -> Result<Vec<Url>, sqlx::Error> {
 impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
     async fn load_frontier(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error> {
         let rows = sqlx::query_scalar::<_, String>(
-            "SELECT url FROM listing_source_domain_crawl_frontier WHERE domain_id = $1 ORDER BY url",
+            "SELECT f.url
+             FROM listing_source_domain_crawl_frontier f
+             WHERE f.domain_id = $1
+               AND NOT EXISTS (
+                   SELECT 1 FROM listing_source_urls u
+                   WHERE u.url = f.url AND u.crawler_disposition = $2
+               )
+             ORDER BY f.url",
         )
         .bind(domain_id.as_uuid())
+        .bind(CrawlerDisposition::Duplicate.as_str())
         .fetch_all(&self.pool)
         .await?;
         persisted_urls(rows)
     }
 
-    async fn known_product_urls(
-        &self,
-        domain_id: &CrawlerDomainId,
-    ) -> Result<Vec<Url>, sqlx::Error> {
+    async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error> {
         let rows = sqlx::query_scalar::<_, String>(
             "SELECT url FROM listing_source_urls
-             WHERE domain_id = $1 AND url_class = $2
+             WHERE domain_id = $1 AND (url_class = $2 OR crawler_disposition = $3)
              ORDER BY url
-             LIMIT $3",
+             LIMIT $4",
         )
         .bind(domain_id.as_uuid())
         .bind(UrlClass::ProductListing.as_str())
-        .bind(MAX_KNOWN_PRODUCT_URLS)
+        .bind(CrawlerDisposition::Duplicate.as_str())
+        .bind(MAX_KNOWN_URLS)
         .fetch_all(&self.pool)
         .await?;
         persisted_urls(rows)

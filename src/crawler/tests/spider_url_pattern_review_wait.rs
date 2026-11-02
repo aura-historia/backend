@@ -70,9 +70,9 @@ fn shop_page(index: usize) -> CrawledPage {
     } else {
         format!("/about/{index}")
     };
-    CrawledPage {
-        url: CrawledUrl::new(url::Url::parse(&format!("https://{DOMAIN}{path}")).unwrap()),
-    }
+    CrawledPage::new(CrawledUrl::new(
+        url::Url::parse(&format!("https://{DOMAIN}{path}")).unwrap(),
+    ))
 }
 
 async fn send_pages(pages: &mpsc::Sender<CrawledPage>, indexes: std::ops::Range<usize>) {

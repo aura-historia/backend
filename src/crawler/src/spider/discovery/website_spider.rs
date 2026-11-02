@@ -29,9 +29,11 @@ use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlRequest, FoundLinks, MAX_FRONTIER_URLS, SeedAdmission, known_spellings,
     unvisited,
 };
+use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::robots::admit_crawl;
 use crate::spider::utils::url::CrawledUrl;
+use crate::spider::utils::url::canonical::PageIdentityEvidence;
 
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
 const MAX_ROOT_REDIRECTS: usize = 5;
@@ -50,10 +52,27 @@ fn spider_request_headers() -> HeaderMap {
     headers
 }
 
-/// Single crawled page represented by its normalized URL.
+/// Single crawled page represented by its normalized URL and the identity it declares.
 #[derive(Debug, Clone)]
 pub struct CrawledPage {
     pub url: CrawledUrl,
+    /// What the page's head says about its canonical URL and shop system; empty for a page
+    /// whose body the crawl did not read.
+    pub identity: PageIdentityEvidence,
+}
+
+impl CrawledPage {
+    pub fn new(url: CrawledUrl) -> Self {
+        Self {
+            url,
+            identity: PageIdentityEvidence::default(),
+        }
+    }
+
+    pub fn with_identity(mut self, identity: PageIdentityEvidence) -> Self {
+        self.identity = identity;
+        self
+    }
 }
 
 /// How long a domain should cool down after repeated failures of one kind.
@@ -1000,6 +1019,8 @@ struct LocalFilter {
     /// An unrelated root redirect makes every delivered page off-host.
     root_redirect_rejected: bool,
     refused_links: RefusedLinks,
+    /// Spider's deny list, so a page's canonical link counts only when the crawl may fetch it.
+    deny_list: Arc<RegexSet>,
     seen: Bloom<String>,
     /// The links on every delivered page, for the crawl's frontier.
     found_links: FoundLinks,
@@ -1029,6 +1050,16 @@ impl LocalFilter {
             self.seen.set(&normalized.to_string());
         }
         Ok(normalized)
+    }
+
+    /// The identity `page`, admitted as `url`, declares: links the crawl may fetch only.
+    fn identity_of(&self, url: &CrawledUrl, page: &Page) -> PageIdentityEvidence {
+        let Ok(final_url) = Url::parse(page.get_url_final()) else {
+            return PageIdentityEvidence::default();
+        };
+        page_identity_evidence(url, &final_url, page.get_html_bytes_u8(), |link| {
+            !link.is_blacklisted() && !self.deny_list.is_match(link.as_url().as_str())
+        })
     }
 }
 
@@ -1065,7 +1096,7 @@ fn crawl_delay_millis(configured_millis: u64, crawl_delay: Option<Duration>) -> 
 struct FoundLinkDecoder {
     host_whitelist: Regex,
     /// Spider's URL deny list: [`CrawledUrl::spider_deny_patterns`] and the robots.txt rules.
-    deny_list: RegexSet,
+    deny_list: Arc<RegexSet>,
     refused: RefusedLinks,
 }
 
@@ -1176,7 +1207,7 @@ impl SpiderImpl {
         );
         // Spider silently drops a deny list that fails to compile, which
         // would drop robots.txt with it.
-        let deny_list = RegexSet::new(&blacklist_regex).map_err(|_| {
+        let deny_list = RegexSet::new(&blacklist_regex).map(Arc::new).map_err(|_| {
             SpiderDiscoveryError::preflight(
                 CrawlFailureKind::RobotsBlocked,
                 "robots.txt rules do not compile into Spider's deny list",
@@ -1230,7 +1261,7 @@ impl SpiderImpl {
         let found_links = FoundLinks::new(root_url.clone(), deny_list.clone());
         let link_decoder = FoundLinkDecoder {
             host_whitelist: host_whitelist_regex,
-            deny_list,
+            deny_list: Arc::clone(&deny_list),
             refused: decoder_refused_links,
         };
         let bounds = CrawlBounds {
@@ -1265,6 +1296,7 @@ impl SpiderImpl {
             configured_root: root_url,
             root_redirect_rejected: false,
             refused_links,
+            deny_list,
             seen: Bloom::new_for_fp_rate(self.config.bloom_capacity, self.config.bloom_fp_rate)
                 .expect("bloom filter init failed"),
             found_links: found_links.clone(),
@@ -1465,7 +1497,8 @@ async fn relay_library_pages(
         match filter.admit(page.get_url()) {
             Ok(url) => {
                 diagnostics.accepted += 1;
-                pending.push_back(CrawledPage { url });
+                let identity = filter.identity_of(&url, &page);
+                pending.push_back(CrawledPage::new(url).with_identity(identity));
             }
             Err(rejection) => diagnostics.count_rejection(rejection),
         }
@@ -1714,6 +1747,7 @@ mod tests {
     use super::*;
     use crate::network::robots::RobotsRules;
     use crate::spider::discovery::frontier::CrawlSeeds;
+    use crate::spider::utils::url::canonical::ShopPlatform;
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2085,6 +2119,63 @@ mod tests {
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
     }
 
+    fn canonical_link_site(target: &str, _previous: usize) -> SiteResponse {
+        match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/collections/all/products/ladle">Ladle</a>
+                   <a href="/products/old">Moved</a>"#
+                    .to_string(),
+            ),
+            "/collections/all/products/ladle" => SiteResponse::Html(
+                "200 OK",
+                r#"<!doctype html><html><head>
+                   <script>Shopify.shop = "shop.myshopify.com";</script>
+                   <link rel="canonical" href="/products/ladle">
+                   </head><body></body></html>"#
+                    .to_string(),
+            ),
+            "/products/old" => SiteResponse::Redirect("/products/new"),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    /// Each delivered page carries what its own head declares. Spider does not follow a redirect,
+    /// so a redirected URL is delivered without the target's head and declares nothing.
+    #[tokio::test]
+    async fn should_deliver_each_page_with_the_identity_its_head_declares() {
+        let site = TestSite::spawn(Arc::new(canonical_link_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let SpiderCrawl { mut pages, .. } = spider
+            .crawl_with_body_limit(
+                CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                Some("8388608"),
+            )
+            .await
+            .unwrap();
+        let mut identities = std::collections::HashMap::new();
+        while let Some(page) = pages.recv().await {
+            identities.insert(page.url.to_string(), page.identity);
+        }
+        site.finish().await;
+
+        let collection_page = &identities["http://example.com/collections/all/products/ladle"];
+        assert_eq!(
+            collection_page
+                .canonical_link
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("http://example.com/products/ladle")
+        );
+        assert_eq!(collection_page.platform, Some(ShopPlatform::Shopify));
+        assert_eq!(
+            identities.get("http://example.com/products/old"),
+            Some(&PageIdentityEvidence::default())
+        );
+    }
+
     fn entity_encoded_href_site(target: &str, _previous: usize) -> SiteResponse {
         match target {
             "/robots.txt" => {
@@ -2178,7 +2269,7 @@ mod tests {
         deny_list.extend(RobotsRules::parse(robots_txt).deny_list().patterns);
         FoundLinkDecoder {
             host_whitelist: Regex::new(&configured_host_whitelist(&root).unwrap()).unwrap(),
-            deny_list: RegexSet::new(deny_list).unwrap(),
+            deny_list: Arc::new(RegexSet::new(deny_list).unwrap()),
             refused: RefusedLinks::default(),
         }
     }
@@ -2735,7 +2826,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_skip_known_product_urls_in_either_spelling_on_an_incremental_crawl() {
+    async fn should_skip_known_urls_in_either_spelling_on_an_incremental_crawl() {
         let site = TestSite::spawn(Arc::new(carried_over_site)).await;
         let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
         let seeds = CrawlSeeds {
@@ -3349,10 +3440,18 @@ mod tests {
             configured_root: Url::parse("https://example.com/").unwrap(),
             root_redirect_rejected: false,
             refused_links: RefusedLinks::default(),
+            deny_list: Arc::new(
+                RegexSet::new(
+                    CrawledUrl::spider_deny_patterns()
+                        .iter()
+                        .map(|p| p.as_str()),
+                )
+                .unwrap(),
+            ),
             seen: Bloom::new_for_fp_rate(1_000, 0.0001).unwrap(),
             found_links: FoundLinks::new(
                 Url::parse("https://example.com/").unwrap(),
-                RegexSet::empty(),
+                Arc::new(RegexSet::empty()),
             ),
         }
     }
@@ -3941,18 +4040,18 @@ mod tests {
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_product_path() {
-        let page = CrawledPage {
-            url: CrawledUrl::new(url::Url::parse("https://example.com/product/1").unwrap()),
-        };
+        let page = CrawledPage::new(CrawledUrl::new(
+            url::Url::parse("https://example.com/product/1").unwrap(),
+        ));
 
         assert_eq!(page.url.to_string(), "https://example.com/product/1");
     }
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_non_product_path() {
-        let page = CrawledPage {
-            url: CrawledUrl::new(url::Url::parse("https://example.com/about").unwrap()),
-        };
+        let page = CrawledPage::new(CrawledUrl::new(
+            url::Url::parse("https://example.com/about").unwrap(),
+        ));
 
         assert_eq!(page.url.to_string(), "https://example.com/about");
     }
