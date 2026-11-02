@@ -398,7 +398,7 @@ function renderReviewQueueItem(r) {
         ${repairBadge(r)}
       </div>
       <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
-      ${evaluation ? `<div class="queue-meta">${statusBadge(evaluation.approved_by_llm ? 'LLM approved' : 'LLM not approved')} ${statusBadge(evaluation.confidence || 'unknown confidence')}</div>` : ''}
+      ${evaluation ? `<div class="queue-meta">${autoSchemaOutcomeBadge(evaluation)}</div>` : ''}
       <div class="queue-meta">${timeBadge(r.created, 'Created')}</div>
     </div>`;
 }
@@ -765,6 +765,28 @@ function autoSchemaEvaluation(review) {
     return (((review || {}).validation_summary || {}).auto_schema_evaluation) || null;
 }
 
+// The one outcome of the crawler's LLM evaluation of a generated schema: auto-approved when the
+// model approved it with high confidence and the deterministic gate passed, rejected when the
+// model rejected it, otherwise left to a human. The model's own decision and confidence and the
+// gate's result are shown apart from it, labelled, so they never read as a second outcome.
+function autoSchemaOutcome(evaluation) {
+    if (evaluation.approved_by_llm) return {text: 'Auto-approved', tone: 'approved'};
+    if (evaluation.decision === 'REJECT') return {text: 'Rejected by the model', tone: 'rejected'};
+    return {text: 'Needs human review', tone: 'pending'};
+}
+
+function autoSchemaOutcomeBadge(evaluation) {
+    const outcome = autoSchemaOutcome(evaluation);
+    return badge(outcome.text, outcome.tone);
+}
+
+function deterministicGateText(review) {
+    const passed = review?.validation_summary?.schema_matrix_summary?.deterministic_approval_ok;
+    if (passed === true) return 'passed';
+    if (passed === false) return 'failed';
+    return 'not recorded';
+}
+
 function renderAutoSchemaEvaluation(review) {
     const evaluation = autoSchemaEvaluation(review);
     if (!evaluation) return '';
@@ -774,12 +796,13 @@ function renderAutoSchemaEvaluation(review) {
         <div class="panel-title">
           <strong>LLM Schema Evaluation</strong>
           <span class="muted">${escapeHtml(evaluation.summary || 'No summary provided.')}</span>
+          <span class="llm-evaluation-inputs">
+            <span>Model decision: ${escapeHtml(displayName(evaluation.decision || 'unknown'))}</span>
+            <span>Model confidence: ${escapeHtml(displayName(evaluation.confidence || 'unknown'))}</span>
+            <span>Deterministic gate: ${escapeHtml(deterministicGateText(review))}</span>
+          </span>
         </div>
-        <div class="llm-evaluation-badges">
-          ${statusBadge(evaluation.approved_by_llm ? 'Approved by LLM' : 'Not approved by LLM')}
-          ${statusBadge(evaluation.decision || 'unknown decision')}
-          ${statusBadge(evaluation.confidence || 'unknown confidence')}
-        </div>
+        <div class="llm-evaluation-badges">${autoSchemaOutcomeBadge(evaluation)}</div>
       </div>
       ${risks.length ? `<div class="llm-risks">${risks.map(risk => `<span>${escapeHtml(risk)}</span>`).join('')}</div>` : ''}
     </div>`;

@@ -707,6 +707,14 @@ iframe {
     gap: 6px;
 }
 
+.llm-evaluation-inputs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    color: var(--ink-soft);
+    font-size: 12px;
+}
+
 .llm-risks {
     display: grid;
     gap: 6px;
