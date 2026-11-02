@@ -1443,3 +1443,43 @@ async fn should_add_a_missing_value_page_to_the_pending_review_and_need_live_sch
         ReviewRepositoryError::NotMissingValuePage(_)
     ));
 }
+
+/// The overview counts exactly the pages the console lists: a URL retired as `DUPLICATE` keeps
+/// the outcome its last scrape recorded, but is no page a review can take.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_only_the_missing_value_pages_it_lists() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, _) = pending_schema_review(&pool).await;
+    let listed = url("https://example.com/products/untitled");
+    let retired = url("https://example.com/products/untitled-copy");
+    for page in [&listed, &retired] {
+        record_missing_value_page(&pool, listing_source_id, page.as_str()).await;
+    }
+    sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
+        .bind(retired.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let pages = repository
+        .list_missing_value_pages(&listing_source_id)
+        .await
+        .unwrap();
+    let overview = repository
+        .list_listing_sources(10)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|source| source.listing_source_id == listing_source_id)
+        .unwrap();
+
+    assert_eq!(
+        pages
+            .iter()
+            .map(|page| page.url.as_str())
+            .collect::<Vec<_>>(),
+        vec![listed.as_str()]
+    );
+    assert_eq!(overview.missing_value_urls, 1);
+}
