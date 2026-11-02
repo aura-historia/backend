@@ -34,6 +34,8 @@ let collapsedListingSourceGroups = new Set(JSON.parse(
 let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
+// The page and schema a URL fragment asks for, applied when its review has loaded.
+let requestedSelection = null;
 // The sample labels being edited on the selected URL-pattern review, or null while the stored
 // labels are shown unedited.
 let sampleLabelDraft = null;
@@ -193,12 +195,24 @@ async function loadReviews() {
         api('/api/reviews'),
         api('/api/listing_sources').catch(() => null)
     ]);
-    const list = document.getElementById('reviewList');
-    list.innerHTML = renderDomainsNeedingOperator(listingSources)
+    showQueue(renderDomainsNeedingOperator(listingSources)
         + renderMissingValueSources(listingSources)
-        + renderReviewGroups(reviews);
+        + renderReviewGroups(reviews));
     updateSelectedReviewFreshness(reviews);
     return reviews;
+}
+
+// A refresh that changes nothing leaves the queue's elements alone, and one that does keeps the
+// reviewer's scroll position in it.
+let shownQueueHtml = '';
+
+function showQueue(html) {
+    const list = document.getElementById('reviewList');
+    if (html === shownQueueHtml && list.childElementCount) return;
+    const scrollTop = list.scrollTop;
+    list.innerHTML = html;
+    list.scrollTop = scrollTop;
+    shownQueueHtml = html;
 }
 
 function renderReviewGroups(reviews) {
@@ -403,8 +417,12 @@ function renderReviewQueueItem(r) {
     </div>`;
 }
 
-async function selectReview(id) {
+// `requested` names the page and schema a URL fragment asks for; without it the review opens on
+// its first page and schema.
+async function selectReview(id, requested = null) {
     selectedId = id;
+    requestedSelection = requested;
+    if (selectionFromUrl().reviewId !== id) recordSelectionInUrl();
     dirty = false;
     sampleLabelDraft = null;
     editNotice = null;
@@ -501,10 +519,13 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
         ? 'The candidate was changed elsewhere while the schema matrix was evaluated; it is shown as it is now.'
         : '';
     if (resetSelection) {
-        selectedSchemaIndex = 0;
+        const requested = requestedSelection || {};
+        requestedSelection = null;
+        const pages = detail.pages || [];
+        selectedSchemaIndex = requested.schemaIndex ?? 0;
         compareSchemaIndex = 1;
         selectedField = 'title';
-        selectedPageId = (detail.pages && detail.pages[0] && detail.pages[0].review_page_id) || null;
+        selectedPageId = (pages.find(page => page.review_page_id === requested.pageId) || pages[0])?.review_page_id || null;
         previewUrlOverride = '';
     }
     normalizeSchemaSelection();
@@ -545,6 +566,7 @@ function renderDetail(detail, matrix) {
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`);
     if (matrix) highlightPreview(frameKept);
+    recordSelectionInUrl();
     updateRefreshBanner();
     updateReloadState();
 }
@@ -2968,15 +2990,122 @@ window.addEventListener('message', event => {
     <div class="muted">${escapeHtml(data.tag || '')} ${escapeHtml(sample)}</div>`;
 });
 
+// The URL fragment names the selected review and, for a schema review, its page and schema, so
+// reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`.
+function selectionFromUrl() {
+    const params = new URLSearchParams(location.hash.slice(1));
+    const schema = params.get('schema');
+    return {
+        reviewId: params.get('review') || null,
+        pageId: params.get('page') || null,
+        schemaIndex: /^\d+$/.test(schema || '') ? Number(schema) : null
+    };
+}
+
+function selectionUrlHash() {
+    if (!selectedId) return '';
+    const params = new URLSearchParams({review: selectedId});
+    if (selectedMatrix && selectedDetail?.review.review_id === selectedId) {
+        if (selectedPageId) params.set('page', selectedPageId);
+        params.set('schema', String(selectedSchemaIndex));
+    }
+    return `#${params}`;
+}
+
+// Selecting another review adds a history entry, so browser back returns to the previous one;
+// a page or schema change within the review only updates the current entry.
+function recordSelectionInUrl() {
+    if (selectionUrlHash() === location.hash) return;
+    if (selectionFromUrl().reviewId === selectedId) {
+        replaceSelectionInUrl();
+    } else {
+        history.pushState(null, '', selectionUrl());
+    }
+}
+
+function replaceSelectionInUrl() {
+    history.replaceState(null, '', selectionUrl());
+}
+
+function selectionUrl() {
+    return selectionUrlHash() || `${location.pathname}${location.search}`;
+}
+
+// Following the URL to another review discards unsaved edits, so it asks first; meanwhile the
+// URL keeps naming the review on screen.
+function applySelectionFromUrl() {
+    const requested = selectionFromUrl();
+    if (requested.reviewId === selectedId) {
+        applyRequestedPageAndSchema(requested);
+        return;
+    }
+    const follow = () => requested.reviewId
+        ? selectReview(requested.reviewId, requested)
+        : clearSelectedReview();
+    if (!dirty) return follow();
+    replaceSelectionInUrl();
+    confirmDiscardingEdits(requested.reviewId ? 'Opening another review' : 'Leaving the review', follow);
+}
+
+function applyRequestedPageAndSchema({pageId, schemaIndex}) {
+    if (!selectedMatrix || selectedDetail?.review.review_id !== selectedId) return;
+    const page = (selectedDetail.pages || []).find(candidate => candidate.review_page_id === pageId);
+    if (page && page.review_page_id !== selectedPageId) {
+        selectedPageId = page.review_page_id;
+        previewUrlOverride = '';
+    }
+    if (schemaIndex !== null) selectedSchemaIndex = schemaIndex;
+    normalizeSchemaSelection();
+    rerenderWorkbench();
+}
+
+function clearSelectedReview() {
+    selectedId = null;
+    selectedDetail = null;
+    selectedMatrix = null;
+    dirty = false;
+    editNotice = null;
+    pendingAction = null;
+    const detail = document.getElementById('detail');
+    detail.textContent = 'Select a review.';
+    updateReloadState();
+    return loadReviews().catch(reportQueueFailure);
+}
+
+window.addEventListener('hashchange', applySelectionFromUrl);
+
+// The queue refreshes calmly and not at all while the tab is hidden; it refreshes at once when
+// the tab is shown again. A refresh only updates the queue, never the selected review.
+const QUEUE_REFRESH_INTERVAL_MS = 15000;
+let queueRefreshTimer = null;
+
 async function refreshQueue() {
+    clearTimeout(queueRefreshTimer);
+    queueRefreshTimer = null;
     try {
         await loadReviews();
     } catch (err) {
         reportQueueFailure(err);
     }
+    scheduleQueueRefresh();
 }
 
-setInterval(refreshQueue, 5000);
+function scheduleQueueRefresh() {
+    clearTimeout(queueRefreshTimer);
+    queueRefreshTimer = document.hidden ? null : setTimeout(refreshQueue, QUEUE_REFRESH_INTERVAL_MS);
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        clearTimeout(queueRefreshTimer);
+        queueRefreshTimer = null;
+    } else {
+        refreshQueue();
+    }
+});
+
+scheduleQueueRefresh();
 
 loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 setSidebarCollapsed(sidebarCollapsed);
+if (selectionFromUrl().reviewId) applySelectionFromUrl();
