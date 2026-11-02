@@ -198,6 +198,52 @@ mod tests {
         ));
     }
 
+    /// Shop scripts stay inert, so the inspector itself reveals lazy images from the attributes
+    /// lazy-loading scripts read: instrumenting must leave those attributes intact, and the
+    /// inspector must reveal each of them.
+    #[test]
+    fn should_keep_lazy_image_attributes_for_the_inspector_to_reveal() {
+        let lazy_attributes = [
+            ("data-src", "/a.jpg"),
+            ("data-lazy-src", "/b.jpg"),
+            ("data-original", "/c.jpg"),
+            ("data-lazy", "/d.jpg"),
+            ("data-srcset", "/e.webp 1x"),
+            ("data-lazy-srcset", "/f.jpg 2x"),
+        ];
+        let images: String = lazy_attributes
+            .iter()
+            .map(|(name, value)| {
+                format!(
+                    r#"<img src="data:image/gif;base64,R0lGOD" {name}="{value}" loading="lazy">"#
+                )
+            })
+            .collect();
+        let preview = instrument_live_html(
+            "https://shop.example/",
+            &format!(
+                r#"<html><head></head><body>{images}<picture><source data-srcset="/g.webp"><img data-src="/g.jpg"></picture><script src="/lazysizes.js"></script></body></html>"#
+            ),
+        );
+        let revealed = INSPECTOR_JS
+            .split_once("const lazyImageSources = {")
+            .and_then(|(_, rest)| rest.split_once("};"))
+            .map(|(entries, _)| entries)
+            .unwrap_or_else(|| panic!("inspector.js must define lazyImageSources"));
+
+        for (name, value) in lazy_attributes {
+            assert!(preview.contains(&format!(r#"{name}="{value}""#)));
+            assert!(
+                revealed.contains(&format!("'{name}'")),
+                "inspector.js must reveal {name}"
+            );
+        }
+        assert!(preview.contains(r#"<source data-srcset="/g.webp">"#));
+        assert!(preview.contains(
+            r#"<script type="text/plain" data-crawler-review-disabled="true" src="/lazysizes.js">"#
+        ));
+    }
+
     #[test]
     fn should_not_take_a_header_element_for_the_head() {
         let preview = instrument_live_html(

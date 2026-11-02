@@ -148,6 +148,41 @@
         }, '*');
     }, true);
 
+    // A lazy-loading script keeps an image's address in a data attribute until it swaps it in,
+    // and the preview blocks that script, so the inspector swaps the address in itself. It only
+    // copies addresses the page names; the preview policy still decides which of them load.
+    const lazyImageSources = {
+        src: ['data-src', 'data-lazy-src', 'data-original', 'data-lazy'],
+        srcset: ['data-srcset', 'data-lazy-srcset']
+    };
+
+    function lazyAddress(element, attributes) {
+        for (const name of attributes) {
+            const value = (element.getAttribute(name) || '').trim();
+            if (value) return value;
+        }
+        return '';
+    }
+
+    function revealLazyImages() {
+        document.querySelectorAll('img, picture > source').forEach(element => {
+            let revealed = false;
+            for (const [target, attributes] of Object.entries(lazyImageSources)) {
+                if (target === 'src' && element.localName === 'source') continue;
+                const address = lazyAddress(element, attributes);
+                if (address && element.getAttribute(target) !== address) {
+                    element.setAttribute(target, address);
+                    revealed = true;
+                }
+            }
+            if (revealed && (element.getAttribute('loading') || '').toLowerCase() === 'lazy') {
+                element.removeAttribute('loading');
+            }
+        });
+    }
+
+    revealLazyImages();
+
     window.addEventListener('message', event => {
         if (event.source !== window.parent) return;
         if (event.data && event.data.type === 'crawler-review-highlight-selector') {
