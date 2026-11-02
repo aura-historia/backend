@@ -509,6 +509,7 @@ fn log_spider_failure(
             stage,
             sample_size,
             min_sample_size,
+            diagnostics,
             ..
         } => warn!(
             domain = %candidate.listing_source_domain,
@@ -518,6 +519,27 @@ fn log_spider_failure(
             stage,
             sample_size = *sample_size,
             min_sample_size = *min_sample_size,
+            completion = %diagnostics.completion,
+            truncated = !diagnostics.completion.is_full(),
+            stopped_early = ?diagnostics.stopped_early.map(|reason| reason.as_str()),
+            crawl_budget_ms = diagnostics.crawl_budget_ms,
+            seeds = diagnostics.seeds,
+            known_skipped = diagnostics.known_skipped,
+            root_reroot = ?diagnostics.root_reroot,
+            diagnostic_reason = ?diagnostics.diagnostic_reason,
+            initial_anti_bot = ?diagnostics.initial_anti_bot,
+            pages_received = diagnostics.pages_received,
+            accepted = diagnostics.accepted,
+            rejected_host = diagnostics.rejected_host,
+            rejected_blacklist = diagnostics.rejected_blacklist,
+            rejected_duplicate = diagnostics.rejected_duplicate,
+            lagged = diagnostics.lagged,
+            status_counts = ?diagnostics.status_counts,
+            bot_challenge_pages = diagnostics.bot_challenge_pages,
+            robots_policy = ?diagnostics.robots_policy,
+            robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
+            request_delay_ms = diagnostics.request_delay_ms,
+            robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
             next_crawl_at = %next_crawl_at,
             cooldown_seconds = cooldown.as_secs(),
             "Spider run failed"
@@ -1045,6 +1067,7 @@ mod tests {
             stage: "end_of_crawl",
             sample_size: 2,
             min_sample_size: 20,
+            diagnostics: Box::default(),
         }
     }
 
@@ -1673,6 +1696,7 @@ mod tests {
                         stage: "end_of_crawl",
                         sample_size: 16,
                         min_sample_size: 20,
+                        diagnostics: Box::default(),
                     },
                 )
             })
@@ -1794,6 +1818,7 @@ mod tests {
                         stage: "end_of_crawl",
                         sample_size: 16,
                         min_sample_size: 20,
+                        diagnostics: Box::default(),
                     },
                 )
             })

@@ -107,6 +107,8 @@ pub enum SpiderServiceError {
         diagnostics: Box<CrawlDiagnostics>,
     },
 
+    /// The crawl delivered pages, but too few to classify their URL pattern; `diagnostics`
+    /// carries what the crawl reported once it ended.
     #[error(
         "Cannot classify product URL pattern for crawl-root URL '{crawl_root_url}' at stage '{stage}' because the inference sample has {sample_size} URL(s), minimum is {min_sample_size}"
     )]
@@ -115,6 +117,7 @@ pub enum SpiderServiceError {
         stage: &'static str,
         sample_size: usize,
         min_sample_size: usize,
+        diagnostics: Box<CrawlDiagnostics>,
     },
 
     /// The crawl delivered pages, but the domain's product URL pattern
@@ -168,6 +171,16 @@ impl SpiderServiceError {
             SpiderServiceError::RateLimitedCrawl { rate_limit, .. } => Some(*rate_limit),
             _ => None,
         }
+    }
+
+    /// The failure with the diagnostics its crawl reported once it ended. A classification stage
+    /// refuses a too small inference sample before it knows them: at the threshold, the crawl
+    /// is still running.
+    fn with_crawl_diagnostics(mut self, crawl_diagnostics: &CrawlDiagnostics) -> Self {
+        if let SpiderServiceError::InsufficientInferenceSample { diagnostics, .. } = &mut self {
+            **diagnostics = crawl_diagnostics.clone();
+        }
+        self
     }
 
     /// The run delivered pages, but none of them can become a product URL: the inference
@@ -423,6 +436,8 @@ impl SpiderServiceImpl {
                 stage,
                 sample_size: state.inference_sample.len(),
                 min_sample_size: self.config.min_inference_sample_urls,
+                // Known once the crawl has ended; the run attaches them (`with_crawl_diagnostics`).
+                diagnostics: Box::default(),
             });
         }
 
@@ -752,6 +767,7 @@ impl SpiderServiceImpl {
             crawl_root_url,
         )
         .await
+        .map_err(|error| error.with_crawl_diagnostics(&ended.diagnostics))
         .map_err(|error| match rate_limit {
             Some(rate_limit) => SpiderServiceError::RateLimitedCrawl {
                 rate_limit,
@@ -1109,6 +1125,7 @@ mod service_tests {
         DecidedUrlPattern, MockUrlPatternService,
     };
     use crate::spider::crawl_frontier_repository::MockCrawlFrontierRepository;
+    use crate::spider::discovery::page_status::StatusCounts;
     use crate::spider::discovery::website_spider::{
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
@@ -3233,6 +3250,7 @@ mod service_tests {
                 stage: "end_of_crawl",
                 sample_size: 2,
                 min_sample_size: 20,
+                ..
             }) if url == crawl_root_url
         ));
     }
@@ -3519,8 +3537,136 @@ mod service_tests {
                 stage: "refresh",
                 sample_size: 2,
                 min_sample_size: 20,
+                ..
             }) if url == crawl_root_url
         ));
+    }
+
+    /// The diagnostics of a crawl that a shop slowed with `Crawl-delay: 10` and whose links
+    /// mostly left the crawl's host.
+    fn slowed_crawl_leaving_its_host() -> CrawlDiagnostics {
+        CrawlDiagnostics {
+            completion: CrawlCompletion::HardTimeoutTruncated,
+            pages_received: 9,
+            accepted: 2,
+            rejected_host: 7,
+            status_counts: StatusCounts {
+                success: 8,
+                client_error: 1,
+                ..StatusCounts::default()
+            },
+            robots_crawl_delay_ms: Some(10_000),
+            request_delay_ms: 10_000,
+            ..CrawlDiagnostics::default()
+        }
+    }
+
+    /// The failure of a run on a domain whose stored pattern is `stored_pattern`, whose crawl
+    /// delivers two item pages and ends as `ended`.
+    async fn run_failing_on_a_small_sample(
+        stored_pattern: Option<&'static str>,
+        classify_threshold: usize,
+        ended: CrawlDiagnostics,
+    ) -> SpiderServiceError {
+        let crawl_root_url = "https://example.com";
+        let mut spider = MockSpider::new();
+        setup_mock_seeded_crawl_with_diagnostics(
+            &mut spider,
+            first_full_crawl(crawl_root_url),
+            vec!["/item/1".to_string(), "/item/2".to_string()],
+            CrawlDiscovery::default(),
+            ended,
+        );
+        let mut pattern_service = MockUrlPatternService::new();
+        pattern_service
+            .expect_load_pattern_for_domain()
+            .return_once(move |_, _| {
+                Box::pin(
+                    async move { Ok(stored_pattern.map(|pattern| Regex::new(pattern).unwrap())) },
+                )
+            });
+        pattern_service.expect_classify_and_save().times(0);
+        pattern_service.expect_mark_as_crawled().times(0);
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(spider),
+            Box::new(pattern_service),
+            Arc::new(url_repository_storing(0)),
+            no_frontier(),
+        );
+
+        service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                crawl_root_url,
+                classify_threshold,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await
+            .expect_err("the run fails")
+    }
+
+    /// A sample too small to classify fails the run with what its crawl reported once it ended,
+    /// whichever stage refused the sample: the threshold refuses it while the crawl still runs.
+    /// A rate-limit answer that stopped the crawl wraps a failure that still carries them.
+    #[tokio::test]
+    async fn should_carry_the_ended_crawls_diagnostics_when_the_inference_sample_is_too_small() {
+        let rate_limit = RateLimitSignal {
+            status: 429,
+            retry_after: Some(std::time::Duration::from_secs(600)),
+        };
+        let rate_limited = CrawlDiagnostics {
+            completion: CrawlCompletion::RateLimited(rate_limit),
+            rate_limit: Some(rate_limit),
+            ..slowed_crawl_leaving_its_host()
+        };
+        for (stored_pattern, classify_threshold, expected, expected_stage) in [
+            (None, 1, slowed_crawl_leaving_its_host(), "threshold"),
+            (None, 25, slowed_crawl_leaving_its_host(), "end_of_crawl"),
+            (
+                Some(r"/product/"),
+                25,
+                slowed_crawl_leaving_its_host(),
+                "refresh",
+            ),
+            (None, 25, rate_limited, "end_of_crawl"),
+        ] {
+            let failure =
+                run_failing_on_a_small_sample(stored_pattern, classify_threshold, expected.clone())
+                    .await;
+
+            let SpiderServiceError::InsufficientInferenceSample {
+                stage, diagnostics, ..
+            } = failure.cause()
+            else {
+                panic!("{expected_stage}: expected a too small sample, got {failure:?}");
+            };
+            assert_eq!(*stage, expected_stage);
+            assert_eq!(
+                failure.rate_limit(),
+                expected.rate_limit,
+                "{expected_stage}"
+            );
+            assert_eq!(
+                (
+                    diagnostics.completion,
+                    diagnostics.pages_received,
+                    diagnostics.rejected_host,
+                    diagnostics.status_counts,
+                    diagnostics.robots_crawl_delay_ms,
+                ),
+                (
+                    expected.completion,
+                    expected.pages_received,
+                    expected.rejected_host,
+                    expected.status_counts,
+                    expected.robots_crawl_delay_ms,
+                ),
+                "{expected_stage}"
+            );
+        }
     }
 
     /// Pages of a shop whose paths the keywords read as a category, an imprint and an info page,
