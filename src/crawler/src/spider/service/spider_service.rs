@@ -153,6 +153,20 @@ pub enum SpiderServiceError {
         total_links: usize,
         completion: CrawlCompletion,
     },
+
+    /// The run found no product URL ([`Self::found_no_product_urls`]), but bot challenges were
+    /// most of the pages its crawl received: the shop's bot protection, not a missing catalogue,
+    /// kept the product pages from the crawl, so the run fails as bot protection
+    /// (`docs/crawler/networking.md#bot-challenges`). `failure` is the failure it replaces.
+    #[error(
+        "spider run found no product URL after {bot_challenge_pages} of the {pages_received} page(s) its crawl received were bot challenges"
+    )]
+    BotChallengedCrawl {
+        bot_challenge_pages: usize,
+        pages_received: usize,
+        #[source]
+        failure: Box<SpiderServiceError>,
+    },
 }
 
 impl SpiderServiceError {
@@ -808,7 +822,10 @@ impl SpiderServiceImpl {
         // fetched still takes the stored product pages the crawl skipped.
         let judged_on_fetched_pages =
             skipped_known_products == 0 || !state.pattern_loaded_from_store;
-        if judged_on_fetched_pages {
+        // Pages that were mostly bot challenges are no evidence against a stored pattern either:
+        // the run fails as bot protection ([`blame_bot_challenges`]) instead of opening a
+        // URL-pattern review or running inference on challenges.
+        if judged_on_fetched_pages && !mostly_bot_challenges(diagnostics) {
             self.reclassify_if_persisted_pattern_failed(
                 &mut state,
                 listing_source_id,
@@ -836,7 +853,8 @@ impl SpiderServiceImpl {
     /// Judges what the ended crawl delivered and keeps what it left unvisited for the next
     /// crawl. A run that failed only because its pages yield no product URL
     /// ([`SpiderServiceError::found_no_product_urls`]) keeps it too, so the next crawl reaches
-    /// further; any other failed run keeps the previous frontier
+    /// further, and fails as bot protection when those pages were mostly bot challenges
+    /// ([`blame_bot_challenges`]); any other failed run keeps the previous frontier
     /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     async fn finish_crawl(
         &self,
@@ -874,7 +892,7 @@ impl SpiderServiceImpl {
         {
             log_failed_run_frontier(error, diagnostics, discovery);
         }
-        let state = judged?;
+        let state = judged.map_err(|failure| blame_bot_challenges(failure, diagnostics))?;
         let completion = diagnostics.completion;
 
         let product_pattern = state
@@ -1053,6 +1071,8 @@ fn log_failed_run_frontier(
         seeds = diagnostics.seeds,
         frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
         root_reroot = ?diagnostics.root_reroot,
+        pages_received = diagnostics.pages_received,
+        bot_challenge_pages = diagnostics.bot_challenge_pages,
         "Spider run found no product URL among the pages it delivered"
     );
 }
@@ -1095,6 +1115,32 @@ fn crawl_outcome_message(
             }
         },
     }
+}
+
+/// A run that found no product URL ([`SpiderServiceError::found_no_product_urls`]) among pages
+/// that were mostly bot challenges met the shop's bot protection, not a shop without a catalogue,
+/// and fails as such; below that share it keeps its own failure
+/// (`docs/crawler/networking.md#bot-challenges`).
+fn blame_bot_challenges(
+    failure: SpiderServiceError,
+    diagnostics: &CrawlDiagnostics,
+) -> SpiderServiceError {
+    if !failure.found_no_product_urls() || !mostly_bot_challenges(diagnostics) {
+        return failure;
+    }
+    SpiderServiceError::BotChallengedCrawl {
+        bot_challenge_pages: diagnostics.bot_challenge_pages,
+        pages_received: diagnostics.pages_received,
+        failure: Box::new(failure),
+    }
+}
+
+/// Whether bot challenges were more than half of the pages the crawl received.
+fn mostly_bot_challenges(diagnostics: &CrawlDiagnostics) -> bool {
+    let other_pages = diagnostics
+        .pages_received
+        .saturating_sub(diagnostics.bot_challenge_pages);
+    diagnostics.bot_challenge_pages > other_pages
 }
 
 #[cfg(test)]
@@ -1770,6 +1816,139 @@ mod service_tests {
         assert!(
             matches!(error.cause(), SpiderServiceError::NoUrlPattern { .. }),
             "{error:?}"
+        );
+    }
+
+    /// A run whose pages were mostly bot challenges met the shop's bot protection: it fails as
+    /// such instead of with the no-product-URL failure it would have recorded, which stays its
+    /// source, and still keeps its frontier, the challenged pages among it.
+    #[tokio::test]
+    async fn should_fail_as_bot_protection_and_replace_the_frontier_when_most_pages_were_bot_challenges()
+     {
+        let mostly_challenges = || CrawlDiagnostics {
+            pages_received: 20,
+            bot_challenge_pages: 11,
+            ..CrawlDiagnostics::default()
+        };
+        let runs = [
+            (
+                item_pages(),
+                classifying_pattern_service(Some(Ok(Some(Regex::new(r"/product/").unwrap())))),
+                url_repository_storing(1),
+            ),
+            (
+                item_pages(),
+                classifying_pattern_service(Some(Ok(None))),
+                url_repository_storing(1),
+            ),
+            (
+                vec!["/".to_string(), "/category/1".to_string()],
+                classifying_pattern_service(None),
+                url_repository_storing(0),
+            ),
+        ];
+        for (paths, pattern_service, url_repository) in runs {
+            let error = run_failing_crawl_with_frontier(
+                paths,
+                mostly_challenges(),
+                pattern_service,
+                url_repository,
+                true,
+            )
+            .await;
+
+            let SpiderServiceError::BotChallengedCrawl {
+                bot_challenge_pages: 11,
+                pages_received: 20,
+                failure,
+            } = &error
+            else {
+                panic!("{error:?}");
+            };
+            assert!(failure.found_no_product_urls(), "{failure:?}");
+        }
+    }
+
+    /// A stored pattern that matched none of the pages of a run that were mostly bot challenges
+    /// is not classified again: the challenges are no evidence against it, so the run opens no
+    /// URL-pattern review, runs no inference, stores its pages under the stored pattern and fails
+    /// as bot protection.
+    #[tokio::test]
+    async fn should_not_classify_a_stored_pattern_again_when_most_pages_were_bot_challenges() {
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        pattern_service.expect_classify_and_save().times(0);
+        pattern_service.expect_mark_as_crawled().times(0);
+
+        let error = run_failing_crawl_with_frontier(
+            item_pages(),
+            received(20, 11),
+            pattern_service,
+            url_repository_storing(1),
+            true,
+        )
+        .await;
+
+        let SpiderServiceError::BotChallengedCrawl { failure, .. } = &error else {
+            panic!("{error:?}");
+        };
+        assert!(
+            matches!(**failure, SpiderServiceError::NoProductUrls { .. }),
+            "{failure:?}"
+        );
+    }
+
+    fn no_product_urls_failure() -> SpiderServiceError {
+        SpiderServiceError::NoProductUrls {
+            crawl_root_url: "https://example.com".to_string(),
+            total_links: 20,
+            product_pattern: "/product/".to_string(),
+            completion: CrawlCompletion::Completed,
+        }
+    }
+
+    fn received(pages_received: usize, bot_challenge_pages: usize) -> CrawlDiagnostics {
+        CrawlDiagnostics {
+            pages_received,
+            bot_challenge_pages,
+            ..CrawlDiagnostics::default()
+        }
+    }
+
+    /// Bot challenges explain a run without product URLs only when they were more than half of
+    /// its pages; below that share, and for any other failure, the run keeps its own.
+    #[test]
+    fn should_blame_bot_challenges_only_when_they_were_most_pages_of_a_run_without_product_urls() {
+        let blamed = blame_bot_challenges(no_product_urls_failure(), &received(20, 11));
+        assert!(
+            matches!(blamed, SpiderServiceError::BotChallengedCrawl { .. }),
+            "{blamed:?}"
+        );
+
+        for diagnostics in [received(20, 10), received(20, 0), received(0, 0)] {
+            let kept = blame_bot_challenges(no_product_urls_failure(), &diagnostics);
+            assert!(
+                matches!(kept, SpiderServiceError::NoProductUrls { .. }),
+                "{diagnostics:?}: {kept:?}"
+            );
+        }
+        let challenged_root = blame_bot_challenges(
+            SpiderServiceError::CrawlFailed {
+                crawl_root_url: "https://example.com".to_string(),
+                kind: CrawlFailureKind::BotProtection,
+                total_links: 1,
+                diagnostics: Box::new(received(1, 1)),
+            },
+            &received(1, 1),
+        );
+        assert!(
+            matches!(
+                challenged_root,
+                SpiderServiceError::CrawlFailed {
+                    kind: CrawlFailureKind::BotProtection,
+                    ..
+                }
+            ),
+            "{challenged_root:?}"
         );
     }
 

@@ -127,13 +127,14 @@ fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
 }
 
 /// Typed crawl failure behind a spider run error, whether Spider or the root
-/// preflight detected it.
+/// preflight detected it, or the run's pages were mostly bot challenges.
 fn crawl_failure_kind(error: &SpiderServiceError) -> Option<CrawlFailureKind> {
     match error.cause() {
         SpiderServiceError::CrawlFailed { kind, .. }
         | SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight { kind, .. }) => {
             Some(*kind)
         }
+        SpiderServiceError::BotChallengedCrawl { .. } => Some(CrawlFailureKind::BotProtection),
         _ => None,
     }
 }
@@ -1236,6 +1237,38 @@ mod tests {
         ] {
             assert!(!needs_operator(&error, NEEDS_OPERATOR_FAILURE_COUNT - 1));
             assert!(needs_operator(&error, NEEDS_OPERATOR_FAILURE_COUNT));
+        }
+    }
+
+    /// A run that found no product URL among pages that were mostly bot challenges, whatever
+    /// stopped its crawl, is a bot-protection failure: its own kind and streak, the transient
+    /// cooldown, no step towards an operator and no product count for the pattern alarm.
+    #[test]
+    fn should_record_a_crawl_of_mostly_bot_challenges_as_bot_protection() {
+        let bot_challenged = |failure| SpiderServiceError::BotChallengedCrawl {
+            bot_challenge_pages: 30,
+            pages_received: 31,
+            failure: Box::new(failure),
+        };
+        for error in [
+            bot_challenged(no_product_urls()),
+            bot_challenged(no_url_pattern()),
+            SpiderServiceError::RateLimitedCrawl {
+                rate_limit: RateLimitSignal {
+                    status: 429,
+                    retry_after: None,
+                },
+                failure: Box::new(bot_challenged(insufficient_sample())),
+            },
+        ] {
+            assert_eq!(error_kind_for_spider_error(&error), "BotProtection");
+            assert!(!error.found_no_product_urls(), "{error:?}");
+            assert_eq!(
+                cooldown_for_spider_failure(&error, LONG_COOLDOWN_FAILURE_COUNT),
+                TRANSIENT_CRAWL_LONG_COOLDOWN
+            );
+            assert!(!needs_operator(&error, i32::MAX));
+            assert_eq!(classified_crawl(&Err(error)), None);
         }
     }
 
