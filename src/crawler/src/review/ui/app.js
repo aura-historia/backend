@@ -3352,13 +3352,21 @@ function badge(text, tone) {
     return `<span class="${cls}">${escapeHtml(text)}</span>`;
 }
 
+const DISPLAY_ACRONYMS = {url: 'URL', id: 'ID', html: 'HTML', json: 'JSON', llm: 'LLM'};
+
+// A persisted value such as `PENDING_REVIEW` or `source_listing_id` as the console shows it: in
+// sentence case, like the console's headings, with its acronyms kept ("Pending review",
+// "Source listing ID", "URL pattern").
 function displayName(value) {
-    return String(value ?? '')
+    const text = String(value ?? '')
         .replace(/[_-]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase()
-        .replace(/\b\w/g, ch => ch.toUpperCase());
+        .split(' ')
+        .map(word => DISPLAY_ACRONYMS[word] || word)
+        .join(' ');
+    return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function formatDate(value) {
