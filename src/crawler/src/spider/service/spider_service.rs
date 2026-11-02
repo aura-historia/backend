@@ -117,14 +117,6 @@ pub enum SpiderServiceError {
         min_sample_size: usize,
     },
 
-    #[error(
-        "Cannot classify product URL pattern for crawl-root URL '{crawl_root_url}' at stage '{stage}' because the inference sample is empty"
-    )]
-    EmptyClassificationSample {
-        crawl_root_url: String,
-        stage: &'static str,
-    },
-
     /// The crawl delivered pages, but the domain's product URL pattern
     /// matched none of them: the pattern is stale or wrong for this site.
     #[error(
