@@ -19,6 +19,8 @@ pub(super) const MIN_TWIN_LINKS: usize = 5;
 
 static LINKS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("a[href]").expect("link selector"));
+static BASE: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("base[href]").expect("base selector"));
 
 /// A crawl root moved to its twin host, with the links on the root page that moved it.
 #[derive(Clone, PartialEq, Eq)]
@@ -66,15 +68,21 @@ pub(super) fn www_twin(url: &Url) -> Option<Url> {
 
 /// Where the crawl should run from instead of `root`, judged by the links of the root page `html`:
 /// on its twin host when at least [`MIN_TWIN_LINKS`] of them, and more than link the root's own
-/// host, point there. Links the crawler never follows ([blacklisted](CrawledUrl::is_blacklisted)
+/// host, point there. A link counts where Spider resolves it: against the page's first absolute
+/// `<base href>` when it has one, as shops that link `www.` through a `<base>` element and
+/// relative links do. Links the crawler never follows ([blacklisted](CrawledUrl::is_blacklisted)
 /// ones such as the cart or the account) and links to any other host do not count.
 pub(super) fn dominant_twin(root: &Url, html: &[u8]) -> Option<RootReroot> {
     let twin = www_twin(root)?;
     let document = Html::parse_document(&String::from_utf8_lossy(html));
+    let base = document
+        .select(&BASE)
+        .find_map(|base| Url::parse(base.value().attr("href")?.trim()).ok())
+        .unwrap_or_else(|| root.clone());
     let (mut root_links, mut twin_links) = (0, 0);
     for link in document.select(&LINKS) {
         let href = link.value().attr("href").unwrap_or_default().trim();
-        let Some(url) = root.join(href).ok().map(CrawledUrl::new) else {
+        let Some(url) = base.join(href).ok().map(CrawledUrl::new) else {
             continue;
         };
         if !matches!(url.as_url().scheme(), "http" | "https") || url.is_blacklisted() {
@@ -175,6 +183,35 @@ mod tests {
             format!("{moved:?}"),
             r#"RootReroot { from: "https://example.com/?lang=de", to: "https://www.example.com/?lang=de", twin_links: 7, root_links: 2 }"#
         );
+    }
+
+    /// Spider resolves relative links against the page's `<base>`, so a bare root page whose
+    /// `<base>` names `www.` links `www.` throughout.
+    #[test]
+    fn should_count_relative_links_where_the_page_base_resolves_them() {
+        let root = Url::parse("https://example.com/").unwrap();
+        let page = |base: &str| {
+            let links = (0..MIN_TWIN_LINKS)
+                .map(|i| format!(r#"<a href="category/{i}">x</a>"#))
+                .collect::<String>();
+            format!(r#"<html><head><base href="{base}"></head><body>{links}</body></html>"#)
+        };
+
+        assert_eq!(
+            dominant_twin(&root, page("https://www.example.com/").as_bytes()).map(|moved| (
+                moved.to.to_string(),
+                moved.twin_links,
+                moved.root_links
+            )),
+            Some(("https://www.example.com/".to_owned(), MIN_TWIN_LINKS, 0))
+        );
+        for base in [
+            "https://example.com/shop/",
+            "/relative/",
+            "https://cdn.example/",
+        ] {
+            assert_eq!(dominant_twin(&root, page(base).as_bytes()), None, "{base}");
+        }
     }
 
     #[test]
