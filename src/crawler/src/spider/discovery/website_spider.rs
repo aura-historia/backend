@@ -25,8 +25,9 @@ use crate::network::policy::{
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::spider::discovery::frontier::{
-    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission, known_spellings,
+    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
 };
+use crate::spider::discovery::known_pages::KnownPages;
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::robots::admit_crawl;
@@ -1306,9 +1307,8 @@ impl SpiderImpl {
             }))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
-        let known_product_links = known_links(&root_url, &seeds.known);
-        let known_links = known_links(&root_url, seeds.known.iter().chain(&seeds.retired));
-        let known_link_count = mark_known_links_visited(&mut website, &known_links).await;
+        let known_pages = KnownPages::new(&root_url, &seeds);
+        let known_link_count = mark_known_links_visited(&mut website, &known_pages).await;
 
         let spider_rx = website.subscribe(512);
 
@@ -1386,9 +1386,9 @@ impl SpiderImpl {
                     }
                     // Every page is relayed by now, so its links are known.
                     let discovery = CrawlDiscovery {
-                        frontier: found_links.frontier(&frontier_seeds, &known_links),
+                        frontier: found_links.frontier(&frontier_seeds, &known_pages),
                     };
-                    diagnostics.known_skipped = found_links.skipped_known(&known_product_links);
+                    diagnostics.known_skipped = found_links.skipped_known(&known_pages);
                     apply_library_outcome(&mut diagnostics, outcome);
                     diagnostics.completion = completion_with_frontier(
                         diagnostics.completion,
@@ -1416,32 +1416,16 @@ impl SpiderImpl {
     }
 }
 
-/// The links of the stored URLs an incremental crawl does not fetch again, in both
-/// trailing-slash spellings; never the root, which stays crawlable.
-fn known_links<'a>(
-    root: &Url,
-    known: impl IntoIterator<Item = &'a Url>,
-) -> HashSet<CaseInsensitiveString> {
-    let root_spelling = CaseInsensitiveString::from(root.as_str());
-    known_spellings(known)
-        .into_iter()
-        .filter(|link| *link != root_spelling)
-        .collect()
-}
-
 /// Marks the known links visited so Spider skips them. Spider keeps marked
 /// links only when the crawl continues an earlier state, so the website is
 /// marked as such. Returns how many links Spider now counts as visited, which
 /// its page count includes.
-async fn mark_known_links_visited(
-    website: &mut Website,
-    known: &HashSet<CaseInsensitiveString>,
-) -> usize {
+async fn mark_known_links_visited(website: &mut Website, known: &KnownPages) -> usize {
     if known.is_empty() {
         return 0;
     }
     website.persist_links();
-    for link in known {
+    for link in known.spellings() {
         website.insert_link(link).await;
     }
     website.size()
