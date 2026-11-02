@@ -1445,17 +1445,19 @@ function renderSchemaWorkbench(detail, matrix) {
     return `
     <div class="schema-workbench">
       <div class="preview-panel">
-        <div class="panel-head">
-          <div class="panel-title">
+        <div class="panel-head preview-head">
+          <div class="preview-head-row">
             <strong>Product View</strong>
-            <span class="muted">${previewUrl ? `${productPageLink(previewUrl)} (${previewUrlOverride ? 'custom URL' : `${escapeHtml(page.role)}, live HTML`})` : 'No live page available'}</span>
+            <div class="preview-page-picker">
+              <select aria-label="Review page" onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
+                ${pages.map(p => `<option value="${escapeHtmlAttr(p.review_page_id)}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
+              </select>
+              <button ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay">Remove page</button>
+            </div>
           </div>
-          <div class="toolbar">
-            <select onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
-              ${pages.map(p => `<option value="${p.review_page_id}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
-            </select>
-            <button ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay">Remove page</button>
-          </div>
+          <div class="preview-url-row muted">${previewUrl
+            ? `${productPageLink(previewUrl)}<span class="preview-url-kind">(${previewUrlOverride ? 'custom URL' : `${escapeHtml(page.role)}, live HTML`})</span>`
+            : 'No live page available'}</div>
         </div>
         <div class="live-url-bar">
           <input id="livePreviewUrl" value="${escapeHtmlAttr(previewUrl)}" placeholder="https://example.com/product" onkeydown="if(event.key==='Enter') loadPreviewUrl()">
@@ -2138,7 +2140,10 @@ function renderFindingBadges(findings) {
 function renderSharedValues(findings) {
     const values = findings.flatMap(finding => finding.values || []);
     if (!values.length) return '';
-    return `<div class="muted">Also extracted from another product page: ${values.map(value => expandableValue(value)).join(', ')}</div>`;
+    const shown = values.map(value => String(value ?? '').includes(IMAGE_CANDIDATE_SEPARATOR)
+        ? resolvedPageAddress(imageCandidates(value)[0] || '')
+        : value);
+    return `<div class="muted">Also extracted from another product page: ${shown.map(value => expandableValue(value)).join(', ')}</div>`;
 }
 
 // Identity agreement findings name the identities that contradict the extracted one: the
@@ -2162,15 +2167,15 @@ function renderPlausibilitySummary(matrix) {
     }
     const candidate = selectedCandidate(matrix);
     const failingPages = (candidate?.pages || []).filter(page => pageFindings(page).length > 0);
-    const perPage = failingPages.map(page =>
-        `${escapeHtml(displayName(page.role))} (${pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join(', ')})`
-    ).join('; ');
+    const perPage = failingPages.map(page => `<li><strong>${escapeHtml(displayName(page.role))}</strong><span>${
+        pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join('; ')
+    }</span></li>`).join('');
     const pagePlural = failingPages.length === 1 ? '' : 's';
     return `<div class="plausibility-summary">
       <strong>Plausibility</strong>
       <div>${failingSchemas.map(c => escapeHtml(schemaLabel(c.schema_index))).join(', ')} failed plausibility checks, which keeps a generated schema out of auto-approval.</div>
       ${failingPages.length
-        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}: ${perPage}</div>`
+        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}:</div><ul class="plausibility-pages">${perPage}</ul>`
         : '<div class="muted">Selected schema passed them on every live page.</div>'}
     </div>`;
 }
@@ -2394,7 +2399,7 @@ function rawDataCell(raw, page) {
             return `
       <div class="${findings.length ? 'implausible-field' : ''}">
         <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : renderContradictingIdentities(findings)}</dd>
+        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value)) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : renderContradictingIdentities(findings)}</dd>
       </div>`;
         }).join('')
     }</dl>`;
@@ -2459,6 +2464,47 @@ function stableValue(value) {
         acc[key] = stableValue(value[key]);
         return acc;
     }, {});
+}
+
+// An extracted image is a candidate group: the address the page shows first, then its
+// fallbacks (srcset sizes, data attributes), joined by the scraper's U+001F separator. The list
+// shows one image per line by its first candidate, resolved against the selected page as the
+// crawler resolves it, and keeps the whole group in the tooltip; a long list collapses.
+const IMAGE_CANDIDATE_SEPARATOR = '\u001f';
+const IMAGES_SHOWN_BEFORE_COLLAPSE = 5;
+
+function renderImageCandidateGroups(groups) {
+    const rows = groups.map(renderImageCandidateGroup);
+    const shown = rows.slice(0, IMAGES_SHOWN_BEFORE_COLLAPSE).join('');
+    const rest = rows.slice(IMAGES_SHOWN_BEFORE_COLLAPSE);
+    return `<ol class="image-list">${shown}</ol>${rest.length
+        ? `<details class="expandable-text"><summary>${rest.length} more image${rest.length === 1 ? '' : 's'}</summary><ol class="image-list" start="${IMAGES_SHOWN_BEFORE_COLLAPSE + 1}">${rest.join('')}</ol></details>`
+        : ''}`;
+}
+
+function renderImageCandidateGroup(group) {
+    const candidates = imageCandidates(group);
+    const [first = ''] = candidates;
+    const address = resolvedPageAddress(first);
+    const fallbacks = candidates.length - 1;
+    const tooltip = escapeHtmlAttr(candidates.map(resolvedPageAddress).join('\n'));
+    const label = escapeHtml(address);
+    return `<li title="${tooltip}"><div>${/^https?:\/\//i.test(address)
+        ? `<a href="${escapeHtmlAttr(address)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+        : `<span>${label}</span>`}${fallbacks > 0 ? `<span class="image-fallbacks">+${fallbacks} fallback${fallbacks === 1 ? '' : 's'}</span>` : ''}</div></li>`;
+}
+
+function imageCandidates(group) {
+    return String(group ?? '').split(IMAGE_CANDIDATE_SEPARATOR).map(candidate => candidate.trim()).filter(Boolean);
+}
+
+function resolvedPageAddress(value) {
+    const page = (selectedDetail?.pages || []).find(candidate => candidate.review_page_id === selectedPageId);
+    try {
+        return page ? new URL(value, page.url).href : value;
+    } catch (_) {
+        return value;
+    }
 }
 
 function hasRawValue(value) {

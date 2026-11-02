@@ -513,7 +513,7 @@ label {
 
 .schema-workbench {
     display: grid;
-    grid-template-columns: minmax(560px, 1.35fr) minmax(390px, 0.65fr);
+    grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
     gap: 10px;
     align-items: start;
 }
@@ -560,8 +560,8 @@ label {
 }
 
 .live-url-bar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    display: flex;
+    flex-wrap: wrap;
     gap: 7px;
     padding: 8px 11px;
     border-bottom: 1px solid var(--line-soft);
@@ -581,13 +581,78 @@ iframe {
     display: grid;
 }
 
+.live-url-bar input {
+    flex: 1 1 260px;
+    min-width: 0;
+}
+
+.live-url-bar button {
+    flex: none;
+}
+
+/* The preview header: title, page picker and Remove page on one row that wraps when narrow,
+   then the page's address on a line of its own. */
+.preview-head {
+    display: grid;
+    gap: 6px;
+    align-items: stretch;
+}
+
+.preview-head-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+}
+
+.preview-head-row strong {
+    color: var(--ink);
+    font-size: 13px;
+}
+
+.preview-page-picker {
+    display: flex;
+    flex: 1 1 320px;
+    justify-content: flex-end;
+    gap: 7px;
+    min-width: 0;
+}
+
+.preview-page-picker select {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.preview-page-picker button {
+    flex: none;
+}
+
+.preview-url-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+}
+
+.preview-url-row .product-url {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: none;
+}
+
+.preview-url-kind {
+    flex: none;
+}
+
 .tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 3px;
     padding: 7px;
     border-bottom: 1px solid var(--line-soft);
     background: var(--panel-tint);
-    overflow-x: auto;
 }
 
 .tab {
@@ -820,6 +885,51 @@ th {
     min-width: 0;
     margin: 0;
     overflow-wrap: anywhere;
+}
+
+.image-list {
+    display: grid;
+    gap: 3px;
+    margin: 0;
+    padding-left: 22px;
+}
+
+.image-list li {
+    min-width: 0;
+}
+
+.image-list li > div {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+}
+
+.image-list li > div > :first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.image-fallbacks {
+    flex: none;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.plausibility-pages {
+    display: grid;
+    gap: 4px;
+    margin: 4px 0 0;
+    padding-left: 18px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.plausibility-pages strong {
+    margin-right: 6px;
+    color: var(--ink);
 }
 
 .raw-list {
@@ -1166,6 +1276,17 @@ a:hover {
     min-height: 24px;
     padding: 0;
     line-height: 1;
+}
+
+/* Below this width the sidebar leaves too little room for preview and side panel side by side. */
+@media (max-width: 1279px) {
+    .schema-workbench {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .preview-panel {
+        position: static;
+    }
 }
 
 @media (max-width: 1120px) {
