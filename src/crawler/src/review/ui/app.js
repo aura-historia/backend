@@ -2006,13 +2006,16 @@ function renderCurrentExtractedData(matrix) {
     const skips = fieldsWithSkippedElements(page);
     // A rejecting plausibility finding fails the page but keeps its extraction, so the
     // reviewer sees the failing check next to the field it concerns.
-    return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
-      <tr class="${page.apply_ok ? '' : 'failed'}">
-        <td>${escapeHtml(displayName(page.role))}</td>
-        <td>${renderPageStatusBadges(page, misses, skips)}</td>
-        <td>${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}${page.extracted ? rawDataCell(page.extracted, page) : ''}${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}${renderSkippedElements(skips)}</td>
-      </tr>
-    </tbody></table></div>`;
+    return `<section class="extracted-page ${page.apply_ok ? '' : 'failed'}">
+      <div class="extracted-page-head">
+        <strong>${escapeHtml(displayName(page.role))}</strong>
+        <span class="extracted-page-status">${renderPageStatusBadges(page, misses, skips)}</span>
+      </div>
+      ${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}
+      ${page.extracted ? rawDataCell(page.extracted, page) : ''}
+      ${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}
+      ${renderSkippedElements(skips)}
+    </section>`;
 }
 
 function renderPageStatusBadges(page, misses, skips) {
