@@ -415,7 +415,7 @@ function renderReviewQueueItem(r) {
         ${repairBadge(r)}
       </div>
       <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
-      ${evaluation ? `<div class="queue-meta">${autoSchemaOutcomeBadge(evaluation)}</div>` : ''}
+      ${evaluation ? `<div class="queue-meta">${autoSchemaOutcomeBadge(evaluation, 'LLM evaluation: ')}</div>` : ''}
       <div class="queue-meta">${timeBadge(r.created, 'Created')}</div>
     </div>`;
 }
@@ -793,9 +793,11 @@ function autoSchemaOutcome(evaluation) {
     return {text: 'Needs human review', tone: 'pending'};
 }
 
-function autoSchemaOutcomeBadge(evaluation) {
+// The queue item labels the outcome as the LLM evaluation's, so a closed review's status badge
+// beside it never reads as a second outcome of the review.
+function autoSchemaOutcomeBadge(evaluation, prefix = '') {
     const outcome = autoSchemaOutcome(evaluation);
-    return badge(outcome.text, outcome.tone);
+    return badge(`${prefix}${outcome.text}`, outcome.tone);
 }
 
 function deterministicGateText(review) {
