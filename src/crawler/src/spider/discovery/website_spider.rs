@@ -27,7 +27,7 @@ use crate::network::policy::{
 use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
 };
-use crate::spider::discovery::known_pages::KnownPages;
+use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::robots::admit_crawl;
@@ -320,6 +320,12 @@ pub struct CrawlDiagnostics {
     /// Known product pages the delivered pages link that an incremental
     /// crawl did not fetch again, each page once.
     pub known_skipped: usize,
+    /// Links to known pages an incremental crawl answered itself instead of
+    /// requesting them, each link once: links Spider meets in a spelling
+    /// it had not marked visited, such as with session or tracking
+    /// parameters or under a Shopify collection
+    /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+    pub known_fetches_saved: usize,
 }
 
 impl CrawlDiagnostics {
@@ -1074,6 +1080,8 @@ struct LocalFilter {
     seen: Bloom<String>,
     /// The links on every delivered page, for the crawl's frontier.
     found_links: FoundLinks,
+    /// The pages an incremental crawl knows, and the links to them it answered itself.
+    known_pages: Arc<KnownPageAnswers>,
 }
 
 impl LocalFilter {
@@ -1307,8 +1315,11 @@ impl SpiderImpl {
             }))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
-        let known_pages = KnownPages::new(&root_url, &seeds);
-        let known_link_count = mark_known_links_visited(&mut website, &known_pages).await;
+        let known_pages = Arc::new(KnownPageAnswers::new(KnownPages::new(&root_url, &seeds)));
+        let known_link_count = mark_known_links_visited(&mut website, known_pages.known()).await;
+        if !known_pages.known().is_empty() {
+            website.with_shared_fetch_engine(known_pages.clone());
+        }
 
         let spider_rx = website.subscribe(512);
 
@@ -1353,6 +1364,7 @@ impl SpiderImpl {
             seen: Bloom::new_for_fp_rate(self.config.bloom_capacity, self.config.bloom_fp_rate)
                 .expect("bloom filter init failed"),
             found_links: found_links.clone(),
+            known_pages: Arc::clone(&known_pages),
         };
         let mut diagnostics = CrawlDiagnostics {
             root_preflight_status: Some(root_preflight_status),
@@ -1386,9 +1398,10 @@ impl SpiderImpl {
                     }
                     // Every page is relayed by now, so its links are known.
                     let discovery = CrawlDiscovery {
-                        frontier: found_links.frontier(&frontier_seeds, &known_pages),
+                        frontier: found_links.frontier(&frontier_seeds, known_pages.known()),
                     };
-                    diagnostics.known_skipped = found_links.skipped_known(&known_pages);
+                    diagnostics.known_skipped = found_links.skipped_known(known_pages.known());
+                    diagnostics.known_fetches_saved = known_pages.answered_links();
                     apply_library_outcome(&mut diagnostics, outcome);
                     diagnostics.completion = completion_with_frontier(
                         diagnostics.completion,
@@ -1489,6 +1502,9 @@ async fn relay_library_pages(
                 Err(_) => continue,
             },
         };
+        if filter.known_pages.answered(page.get_url()) {
+            continue;
+        }
         diagnostics.pages_received += 1;
         let status_code = page.status_code.as_u16();
         diagnostics.status_counts.count(status_code);
@@ -3108,6 +3124,81 @@ mod tests {
         assert!(discovery.frontier.is_empty(), "{discovery:?}");
     }
 
+    /// A Shopify storefront whose root links two stored products, one under two collections and
+    /// one with a session parameter, and a product the domain does not store yet.
+    fn shopify_incremental_site(target: &str, _: usize) -> SiteResponse {
+        match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<!doctype html><html><head>
+                   <script>Shopify.shop = "shop.myshopify.com";</script>
+                   </head><body>
+                   <a href="/collections/chairs/products/oak-chair?variant=1">Oak</a>
+                   <a href="/collections/sale/products/oak-chair">Oak on sale</a>
+                   <a href="/products/pine-chair?sessionid=abc">Pine</a>
+                   <a href="/products/elm-chair">Elm</a>
+                   </body></html>"#
+                    .to_string(),
+            ),
+            "/collections/chairs/products/oak-chair"
+            | "/collections/sale/products/oak-chair"
+            | "/products/pine-chair"
+            | "/products/elm-chair" => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    fn is_stored_chair(target: &str) -> bool {
+        target.contains("oak-chair") || target.contains("pine-chair")
+    }
+
+    #[tokio::test]
+    async fn should_not_fetch_known_products_linked_with_session_parameters_or_under_a_collection()
+    {
+        let full_crawl_site = TestSite::spawn(Arc::new(shopify_incremental_site)).await;
+        let spider =
+            SpiderImpl::with_transport(test_config(), full_crawl_site.transport(&["example.com"]));
+        let (_, full_crawl, _) = run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+        let full_crawl_requests = full_crawl_site.finish().await;
+        let stored_chair_requests = full_crawl_requests
+            .iter()
+            .filter(|(_, target, ..)| is_stored_chair(target))
+            .count();
+        assert_eq!(stored_chair_requests, 3, "{full_crawl_requests:?}");
+        assert_eq!(full_crawl.known_fetches_saved, 0);
+
+        let site = TestSite::spawn(Arc::new(shopify_incremental_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            known: vec![
+                example("/products/oak-chair"),
+                example("/products/pine-chair"),
+            ],
+            ..CrawlSeeds::default()
+        };
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(
+            !requests
+                .iter()
+                .any(|(_, target, ..)| is_stored_chair(target)),
+            "{requests:?}"
+        );
+        assert_eq!(
+            delivered,
+            HashSet::from([
+                "http://example.com/".to_string(),
+                "http://example.com/products/elm-chair".to_string(),
+            ])
+        );
+        assert_eq!(diagnostics.known_fetches_saved, 3, "{diagnostics:?}");
+        assert_eq!(diagnostics.known_skipped, 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.pages_received, 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
     #[test]
     fn crawl_budget_should_leave_a_crawl_delay_limited_shop_room_for_the_inference_sample() {
         let configured = Duration::from_secs(600);
@@ -3754,6 +3845,7 @@ mod tests {
                 whitelist_for("https://example.com/"),
                 Arc::new(RegexSet::empty()),
             ))),
+            known_pages: Arc::default(),
         }
     }
 
