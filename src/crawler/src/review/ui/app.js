@@ -825,13 +825,22 @@ function renderAutoSchemaEvaluation(review) {
     </div>`;
 }
 
+// The review whose raw payload the reviewer opened, so a re-render, such as the one a refused
+// full-JSON save or a sample label change makes, keeps it open.
+let rawPayloadOpenReviewId = null;
+
+function rawPayloadToggled(open) {
+    rawPayloadOpenReviewId = open ? selectedId : null;
+}
+
 function renderNonSchemaReview(review, urls) {
     const urlPattern = review.artifact_type === 'URL_PATTERN';
+    const open = !urlPattern || rawPayloadOpenReviewId === review.review_id;
     return `<div class="review-card">
       <div class="tab-panel">
         ${urlPattern || urls.length ? renderUrlPatternReview(review, urls) : ''}
         ${renderSampleLabels(review)}
-        <details class="raw-payload" ${urlPattern ? '' : 'open'}>
+        <details class="raw-payload" ${open ? 'open' : ''} ontoggle="rawPayloadToggled(this.open)">
           <summary>Raw payload</summary>
           <h3>Candidate Payload</h3>
           <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
@@ -1001,8 +1010,9 @@ function urlPatternStat(label, value) {
     return `<div class="url-pattern-stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
 }
 
+// One element, so the badge and the pattern share the summary grid's cell.
 function renderUrlPatternDecision(decision) {
-    if (decision.type === 'PATTERN') return `${badge('Pattern')} <code>${escapeHtml(decision.value)}</code>`;
+    if (decision.type === 'PATTERN') return `<span>${badge('Pattern')} <code>${escapeHtml(decision.value)}</code></span>`;
     if (decision.type === 'NO_PATTERN') return badge('No pattern');
     return badge(displayName(decision.type), 'pending');
 }
