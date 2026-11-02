@@ -120,12 +120,10 @@ fn crawl_failure_kind(error: &SpiderServiceError) -> Option<CrawlFailureKind> {
 }
 
 fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownProfile> {
-    match error.cause() {
-        SpiderServiceError::InsufficientInferenceSample { .. }
-        | SpiderServiceError::NoProductUrls { .. }
-        | SpiderServiceError::NoUrlPattern { .. } => Some(CrawlCooldownProfile::Recoverable),
-        _ => crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile),
+    if error.found_no_product_urls() {
+        return Some(CrawlCooldownProfile::Recoverable);
     }
+    crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile)
 }
 
 /// Consecutive same-kind failures after which a domain stops retrying and

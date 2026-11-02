@@ -177,6 +177,19 @@ impl SpiderServiceError {
             _ => None,
         }
     }
+
+    /// The run delivered pages, but none of them can become a product URL: the inference
+    /// sample was too small, the domain's pattern matched none of them, or its classification
+    /// is complete without a pattern. Only a site or configuration change resolves it, so the
+    /// scheduler retries it on the recoverable cooldown and escalates it to an operator.
+    pub fn found_no_product_urls(&self) -> bool {
+        matches!(
+            self.cause(),
+            SpiderServiceError::InsufficientInferenceSample { .. }
+                | SpiderServiceError::NoProductUrls { .. }
+                | SpiderServiceError::NoUrlPattern { .. }
+        )
+    }
 }
 
 impl Default for SpiderServiceConfig {
@@ -756,22 +769,17 @@ impl SpiderServiceImpl {
         })
     }
 
-    /// Classifies, stores and judges what the ended crawl delivered, and keeps what it left
-    /// unvisited for the next crawl. A failed run keeps the previous frontier.
-    async fn finish_crawl(
+    /// Classifies, stores and judges what the ended crawl delivered: the run state of a crawl
+    /// whose outcome is a success or a review wait, or the failure it ended with.
+    async fn judge_delivered_pages(
         &self,
         consumed: Result<CrawlRunState, SpiderServiceError>,
         ended: &EndedCrawl,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
-    ) -> Result<SpiderRunResult, SpiderServiceError> {
-        let EndedCrawl {
-            kind,
-            discovery,
-            diagnostics,
-        } = ended;
-        let (kind, discovery) = (*kind, discovery.as_ref());
+    ) -> Result<CrawlRunState, SpiderServiceError> {
+        let diagnostics = &ended.diagnostics;
         let skipped_known_products = ended.skipped_known_products();
         let mut state =
             consumed.inspect_err(|error| log_crawl_stopped_early(diagnostics, error))?;
@@ -806,13 +814,42 @@ impl SpiderServiceImpl {
             .await?;
 
         // URLs stay stored either way; only the recorded outcome differs.
-        let completion = diagnostics.completion;
         if state.pending_url_pattern_review().is_none()
             && judged_on_fetched_pages
-            && let Some(error) = no_product_urls_error(crawl_root_url, &state, completion)
+            && let Some(error) =
+                no_product_urls_error(crawl_root_url, &state, diagnostics.completion)
         {
             return Err(error);
         }
+        Ok(state)
+    }
+
+    /// Judges what the ended crawl delivered and keeps what it left unvisited for the next
+    /// crawl. A failed run keeps the previous frontier.
+    async fn finish_crawl(
+        &self,
+        consumed: Result<CrawlRunState, SpiderServiceError>,
+        ended: &EndedCrawl,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
+    ) -> Result<SpiderRunResult, SpiderServiceError> {
+        let state = self
+            .judge_delivered_pages(
+                consumed,
+                ended,
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+            )
+            .await?;
+        let EndedCrawl {
+            kind,
+            discovery,
+            diagnostics,
+        } = ended;
+        let (kind, discovery) = (*kind, discovery.as_ref());
+        let completion = diagnostics.completion;
 
         let product_pattern = state
             .pattern
@@ -846,7 +883,7 @@ impl SpiderServiceImpl {
             product_pattern,
             completion,
             pending_url_pattern_review: state.pending_url_pattern_review(),
-            known_product_urls_skipped: skipped_known_products,
+            known_product_urls_skipped: ended.skipped_known_products(),
         })
     }
 }
