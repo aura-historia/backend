@@ -31,6 +31,7 @@ use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::robots::admit_crawl;
+use crate::spider::discovery::root_host::{RootReroot, dominant_twin};
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::PageIdentityEvidence;
 
@@ -326,6 +327,9 @@ pub struct CrawlDiagnostics {
     /// parameters or under a Shopify collection
     /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     pub known_fetches_saved: usize,
+    /// The move of the crawl root to its twin host the root page's links
+    /// asked for, with the link counts (`docs/crawler/networking.md#destination-policy`).
+    pub root_reroot: Option<RootReroot>,
 }
 
 impl CrawlDiagnostics {
@@ -823,6 +827,8 @@ struct PreflightedRoot {
     url: Url,
     status: u16,
     client: spider::reqwest::Client,
+    /// The move to the twin host the root page's links asked for, when it did.
+    reroot: Option<RootReroot>,
 }
 
 /// Bounds the whole redirect chain, retries included, so a stalling host
@@ -833,10 +839,11 @@ async fn preflight_crawl_root(
     timeout: Duration,
     retry: RetryPolicy,
     deadline: Duration,
+    max_body_bytes: usize,
 ) -> Result<PreflightedRoot, SpiderDiscoveryError> {
     tokio::time::timeout(
         deadline,
-        follow_crawl_root(transport, configured_root, timeout, retry),
+        follow_crawl_root(transport, configured_root, timeout, retry, max_body_bytes),
     )
     .await
     .unwrap_or_else(|_| {
@@ -847,23 +854,46 @@ async fn preflight_crawl_root(
     })
 }
 
+/// Follows the crawl root's redirects within its bare/www host, and moves it to its twin host
+/// once when the root page's links point mostly there ([`dominant_twin`]), the way a redirect to
+/// the twin would; a move counts against the redirect bound. A host the chain already left is
+/// never moved back to.
 async fn follow_crawl_root(
     transport: &dyn SpiderTransport,
     configured_root: Url,
     timeout: Duration,
     retry: RetryPolicy,
+    max_body_bytes: usize,
 ) -> Result<PreflightedRoot, SpiderDiscoveryError> {
     let mut current_root = configured_root.clone();
+    let mut visited_hosts = Vec::new();
+    let mut reroot = None;
 
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
         let RootFetch { response, client } =
             fetch_crawl_root(transport, &current_root, timeout, retry).await?;
+        visited_hosts.push(current_root.host_str().map(str::to_owned));
 
         if !response.status().is_redirection() {
+            let status = response.status().as_u16();
+            if reroot.is_none()
+                && response.status().is_success()
+                && redirect_count < MAX_ROOT_REDIRECTS
+                && let Some(moved) = root_page_reroot(&current_root, response, max_body_bytes)
+                    .await
+                    .filter(|moved| {
+                        !visited_hosts.contains(&moved.to.host_str().map(str::to_owned))
+                    })
+            {
+                current_root = moved.to.clone();
+                reroot = Some(moved);
+                continue;
+            }
             return Ok(PreflightedRoot {
                 url: current_root,
-                status: response.status().as_u16(),
+                status,
                 client,
+                reroot,
             });
         }
 
@@ -894,6 +924,25 @@ async fn follow_crawl_root(
         "crawl-root redirect limit exceeded",
         &current_root,
     ))
+}
+
+/// The move [`dominant_twin`] asks for, read from at most `max_body_bytes` of the root page.
+/// A body that cannot be read asks for none: Spider fetches the root page again anyway.
+async fn root_page_reroot(
+    root: &Url,
+    mut response: spider::reqwest::Response,
+    max_body_bytes: usize,
+) -> Option<RootReroot> {
+    let mut body = Vec::new();
+    while body.len() < max_body_bytes {
+        match response.chunk().await {
+            Ok(Some(chunk)) => body.extend_from_slice(&chunk),
+            Ok(None) => break,
+            Err(_) => return None,
+        }
+    }
+    body.truncate(max_body_bytes);
+    dominant_twin(root, &body)
 }
 
 /// Bounded Spider retries that never re-fetch what a retry cannot improve: a
@@ -1271,12 +1320,14 @@ impl SpiderImpl {
             url: root_url,
             status: root_preflight_status,
             client,
+            reroot: root_reroot,
         } = preflight_crawl_root(
             self.transport.as_ref(),
             configured_root,
             request_timeout,
             self.config.preflight_retry,
             self.config.preflight_deadline,
+            self.config.max_response_body_bytes,
         )
         .await?;
         let host_whitelist = configured_host_whitelist(&root_url)?;
@@ -1415,6 +1466,7 @@ impl SpiderImpl {
             request_delay_ms: delay_millis,
             crawl_budget_ms: u64::try_from(crawl_duration.as_millis()).unwrap_or(u64::MAX),
             seeds: seed_count,
+            root_reroot,
             ..CrawlDiagnostics::default()
         };
         tokio::spawn(async move {
@@ -1862,6 +1914,7 @@ mod tests {
     use super::*;
     use crate::network::robots::RobotsRules;
     use crate::spider::discovery::frontier::CrawlSeeds;
+    use crate::spider::discovery::root_host;
     use crate::spider::utils::url::canonical::ShopPlatform;
     use std::collections::HashSet;
     use std::net::SocketAddr;
@@ -1987,6 +2040,8 @@ mod tests {
     /// `(host, target, user_agent, accept_encoding)` per request.
     type RequestLog = Arc<tokio::sync::Mutex<Vec<(String, String, String, String)>>>;
     type SiteHandler = Arc<dyn Fn(&str, usize) -> SiteResponse + Send + Sync>;
+    /// A handler that answers by the request's `Host` as well: `(host, target, previous)`.
+    type HostSiteHandler = Arc<dyn Fn(&str, &str, usize) -> SiteResponse + Send + Sync>;
 
     struct TestSite {
         addr: SocketAddr,
@@ -1996,6 +2051,13 @@ mod tests {
 
     impl TestSite {
         async fn spawn(handler: SiteHandler) -> Self {
+            Self::spawn_for_hosts(Arc::new(move |_, target, previous| {
+                handler(target, previous)
+            }))
+            .await
+        }
+
+        async fn spawn_for_hosts(handler: HostSiteHandler) -> Self {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let requests = RequestLog::default();
@@ -2033,7 +2095,7 @@ mod tests {
     async fn serve_site(
         listener: tokio::net::TcpListener,
         requests: RequestLog,
-        handler: SiteHandler,
+        handler: HostSiteHandler,
     ) {
         loop {
             let Ok((mut stream, _)) = listener.accept().await else {
@@ -2069,7 +2131,7 @@ mod tests {
                 let previous = {
                     let mut log = requests.lock().await;
                     let previous = log.iter().filter(|(_, seen, ..)| *seen == target).count();
-                    log.push((host, target.clone(), user_agent, accept_encoding));
+                    log.push((host.clone(), target.clone(), user_agent, accept_encoding));
                     previous
                 };
                 let html_response = |status: &str, extra_headers: &str, body: &str| {
@@ -2078,7 +2140,7 @@ mod tests {
                         body.len()
                     )
                 };
-                let response = match handler(&target, previous) {
+                let response = match handler(&host, &target, previous) {
                     SiteResponse::Html(status, body) => html_response(status, "", &body),
                     SiteResponse::HtmlWithHeaders(status, extra_headers, body) => {
                         html_response(status, extra_headers, &body)
@@ -3245,6 +3307,128 @@ mod tests {
         assert_eq!(diagnostics.pages_received, 2, "{diagnostics:?}");
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
         assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    /// swedishantiques.biz: the bare host serves a root page that links `twin_links` pages on
+    /// `www.`, where the shop's pages live and link each other relatively.
+    fn www_linked_site(twin_links: usize) -> HostSiteHandler {
+        Arc::new(move |host, target, _| match (host, target) {
+            ("example.com", "/") => SiteResponse::Html(
+                "200 OK",
+                (1..=twin_links)
+                    .map(|i| format!(r#"<a href="https://www.example.com/category/{i}">c</a>"#))
+                    .chain(std::iter::once(r#"<a href="/about">About</a>"#.to_string()))
+                    .collect(),
+            ),
+            ("www.example.com", "/") => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/category/1">Chairs</a><a href="/product/1">Oak</a>"#.to_string(),
+            ),
+            ("www.example.com", "/category/1" | "/product/1") | ("example.com", "/about") => {
+                SiteResponse::Html("200 OK", "<p>p</p>".to_string())
+            }
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        })
+    }
+
+    #[tokio::test]
+    async fn should_move_a_bare_root_whose_page_links_mostly_www_to_the_www_host() {
+        let site = TestSite::spawn_for_hosts(www_linked_site(root_host::MIN_TWIN_LINKS)).await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let requests = site.finish().await;
+
+        assert_eq!(
+            discovered,
+            HashSet::from([
+                "http://www.example.com/".to_string(),
+                "http://www.example.com/category/1".to_string(),
+                "http://www.example.com/product/1".to_string(),
+            ])
+        );
+        assert_eq!(
+            diagnostics.root_reroot,
+            Some(RootReroot {
+                from: Url::parse("http://example.com/").unwrap(),
+                to: Url::parse("http://www.example.com/").unwrap(),
+                twin_links: root_host::MIN_TWIN_LINKS,
+                root_links: 1,
+            })
+        );
+        // The bare host is asked for its root page once, in preflight; robots.txt comes from
+        // the host the crawl runs on.
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(host, ..)| host == "example.com")
+                .map(|(_, target, ..)| target.as_str())
+                .collect::<Vec<_>>(),
+            ["/"]
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|(host, target, ..)| host == "www.example.com" && target == "/robots.txt")
+        );
+    }
+
+    #[tokio::test]
+    async fn should_keep_a_root_whose_page_links_the_twin_below_the_threshold() {
+        let site = TestSite::spawn_for_hosts(www_linked_site(root_host::MIN_TWIN_LINKS - 1)).await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let requests = site.finish().await;
+
+        assert_eq!(
+            discovered,
+            HashSet::from([
+                "http://example.com/".to_string(),
+                "http://example.com/about".to_string(),
+            ])
+        );
+        assert_eq!(diagnostics.root_reroot, None);
+        assert!(
+            requests.iter().all(|(host, ..)| host == "example.com"),
+            "{requests:?}"
+        );
+    }
+
+    /// A root that redirects to `www.` whose page links the bare host throughout is not moved
+    /// back there: the redirect named the host the shop serves.
+    #[tokio::test]
+    async fn should_not_move_the_root_back_to_the_host_it_redirected_from() {
+        let site = TestSite::spawn_for_hosts(Arc::new(|host, target, _| match (host, target) {
+            ("example.com", "/") => SiteResponse::Redirect("http://www.example.com/"),
+            ("www.example.com", "/") => SiteResponse::Html(
+                "200 OK",
+                (1..=2 * root_host::MIN_TWIN_LINKS)
+                    .map(|i| format!(r#"<a href="http://example.com/category/{i}">c</a>"#))
+                    .collect(),
+            ),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert_eq!(
+            discovered,
+            HashSet::from(["http://www.example.com/".to_string()])
+        );
+        assert_eq!(diagnostics.root_reroot, None);
     }
 
     #[test]

@@ -944,6 +944,7 @@ fn log_crawl_outcome(
         seeds = diagnostics.seeds,
         known_skipped = diagnostics.known_skipped,
         known_fetches_saved = diagnostics.known_fetches_saved,
+        root_reroot = ?diagnostics.root_reroot,
         frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
         at_budget = completion == CrawlCompletion::PageBudgetReached,
         diagnostic_reason = ?diagnostics.diagnostic_reason,

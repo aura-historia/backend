@@ -520,6 +520,7 @@ fn log_spider_failure(
             http_status = ?diagnostics.http_status,
             final_url = ?diagnostics.final_url,
             redirect_url = ?diagnostics.redirect_url,
+            root_reroot = ?diagnostics.root_reroot,
             diagnostic_reason = ?diagnostics.diagnostic_reason,
             initial_html_length = ?diagnostics.initial_html_length,
             initial_should_retry = diagnostics.initial_should_retry,
