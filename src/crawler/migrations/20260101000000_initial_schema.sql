@@ -182,7 +182,7 @@ CREATE TABLE crawler_reviews (
     domain_id          UUID,
     artifact_type      TEXT        NOT NULL CHECK (artifact_type IN ('URL_PATTERN', 'PRODUCT_SCHEMA')),
     CHECK (artifact_type <> 'URL_PATTERN' OR domain_id IS NOT NULL),
-    status             TEXT        NOT NULL CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'NEEDS_REPAIR', 'SUPERSEDED')),
+    status             TEXT        NOT NULL CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SUPERSEDED')),
     reason             TEXT        NOT NULL,
     candidate_payload  JSONB       NOT NULL,
     validation_summary JSONB       NOT NULL DEFAULT '{}'::jsonb,
@@ -192,7 +192,7 @@ CREATE TABLE crawler_reviews (
     updated            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reviewed           TIMESTAMPTZ,
     -- A needs-repair verdict keeps the review pending and records when and why repair was
-    -- requested. No verdict writes the legacy terminal `NEEDS_REPAIR` status any more.
+    -- requested.
     repair_requested   TIMESTAMPTZ,
     repair_note        TEXT,
     -- The stored removed-page templates a product-schema candidate started from, so approval
