@@ -269,13 +269,13 @@ function renderDomainsNeedingOperator(listingSources) {
           <div class="queue-title">Domains waiting for an operator</div>
           <div class="queue-meta">Not crawled again until re-registered or disabled</div>
         </div>
-        <div class="listing-source-group-actions">${statusBadge(`${domains.length} failed`)}</div>
+        <div class="listing-source-group-actions">${badge(`${domains.length} failed`, 'rejected')}</div>
       </div>
       <div class="listing-source-review-list">
         ${domains.map(domain => `<div class="item">
           <div class="queue-row">
             <span class="queue-artifact">${escapeHtml(domain.domain)}</span>
-            ${statusBadge('Needs operator')}
+            ${badge('Needs operator')}
           </div>
           <div class="queue-meta">${escapeHtml(domain.listingSourceName)}</div>
           <div class="queue-meta">${escapeHtml(domain.last_crawl_error_kind || 'Unknown failure')} / ${escapeHtml(domain.crawl_failure_count)} consecutive failures</div>
@@ -311,7 +311,7 @@ function renderMissingValueSources(listingSources) {
             return `<div class="item" onclick="toggleMissingValuePages('${id}')">
               <div class="queue-row">
                 <span class="queue-artifact">${escapeHtml(source.listing_source_name || source.listing_source_id)}</span>
-                ${statusBadge(`${source.missing_value_urls} missing`)}
+                ${badge(`${source.missing_value_urls} missing`, 'missing')}
               </div>
               ${pages ? renderMissingValuePages(source.listing_source_id, pages) : ''}
             </div>`;
@@ -629,8 +629,8 @@ function isWaitingForRepair(review) {
 // A review whose agent needs-repair rounds reached the cap waits for a human, which outranks
 // waiting for the repair the agents asked each other for.
 function repairBadge(review) {
-    if (review?.human_required) return statusBadge('Needs a human');
-    return isWaitingForRepair(review) ? statusBadge('Waiting for repair') : '';
+    if (review?.human_required) return badge('Needs a human', 'human');
+    return isWaitingForRepair(review) ? badge('Waiting for repair', 'repair') : '';
 }
 
 function renderHumanRequired(review) {
@@ -961,7 +961,7 @@ function renderSampleLabels(review) {
           <td>${editable
             ? `<input value="${escapeHtmlAttr(label.reason || '')}" placeholder="Why" oninput="setSampleLabelReason(${index}, this.value)">`
             : escapeHtml(label.reason || '')}</td>
-          <td>${consistent ? escapeHtml(takesText) : statusBadge(`${takesText}: inconsistent`)}</td>
+          <td>${consistent ? escapeHtml(takesText) : badge(displayName(`${takesText}: inconsistent`))}</td>
           <td>${editable ? `<button onclick="removeSampleLabel(${index})">Remove</button>` : ''}</td>
         </tr>`;
     }).join('');
@@ -2805,17 +2805,30 @@ function isNewerTimestamp(candidate, baseline) {
     return Number.isFinite(candidateTime) && Number.isFinite(baselineTime) && candidateTime > baselineTime;
 }
 
+// The tone of each status the console knows by its exact value: review statuses and the schema
+// diff's field statuses. Any other text renders neutral unless its caller names a tone, so a
+// negative text such as "Not approved" can never take the approved style by a substring.
+const STATUS_TONES = {
+    PENDING_REVIEW: 'pending',
+    APPROVED: 'approved',
+    REJECTED: 'rejected',
+    SUPERSEDED: 'superseded',
+    'same': 'approved',
+    'changed': 'changed',
+    'missing current': 'missing',
+    'missing compare': 'missing'
+};
+
+const BADGE_TONES = new Set(['pending', 'approved', 'rejected', 'changed', 'missing', 'human', 'repair', 'superseded']);
+
 function statusBadge(status) {
-    const normalized = String(status || '').toLowerCase();
-    let cls = 'badge';
-    if (normalized.includes('pending')) cls += ' badge-pending';
-    else if (normalized.includes('approved') || normalized === 'same') cls += ' badge-approved';
-    else if (normalized.includes('changed')) cls += ' badge-changed';
-    else if (normalized.includes('missing')) cls += ' badge-missing';
-    else if (normalized.includes('reject') || normalized.includes('failed')) cls += ' badge-rejected';
-    else if (normalized.includes('human')) cls += ' badge-human';
-    else if (normalized.includes('repair') || normalized.includes('superseded')) cls += ' badge-repair';
-    return `<span class="${cls}">${escapeHtml(displayName(status))}</span>`;
+    return badge(displayName(status), STATUS_TONES[status]);
+}
+
+// A badge with the text `text` in the tone `tone`, one of `BADGE_TONES`; neutral without one.
+function badge(text, tone) {
+    const cls = BADGE_TONES.has(tone) ? `badge badge-${tone}` : 'badge';
+    return `<span class="${cls}">${escapeHtml(text)}</span>`;
 }
 
 function displayName(value) {
