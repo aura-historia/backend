@@ -53,6 +53,9 @@ const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 const SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY: Duration = Duration::from_secs(4 * 60 * 60);
 /// `last_error_kind` of a URL whose schema derived another identity than the captured one.
 const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
+/// `last_error_kind` of a URL whose redirect leads to a page whose stored rows do not settle
+/// whether the URL is a duplicate (`docs/crawler/networking.md#duplicate-targets`).
+const REDIRECT_DESTINATION_UNSETTLED_OUTCOME_KIND: &str = "RedirectDestinationUnsettled";
 
 /// Every scrape completion records its URL `ACTIVE`, sold pages included.
 /// `DORMANT_SOLD` is scheduled exactly like `ACTIVE`, so the scraper no longer writes
@@ -878,8 +881,20 @@ async fn handle_successful_scrape(
                 listing_source_id = %candidate.listing_source_id,
                 old_url = %candidate.url,
                 new_url = %scraped.effective_url,
-                "Leaving a redirected product URL for the next pass: the rows stored at its destination do not settle whether it is a duplicate"
+                "Leaving a redirected product URL until its next scrape: the rows stored at its destination do not settle whether it is a duplicate"
             );
+            // A retired destination stays retired, so the URL returns at its scrape interval
+            // rather than being fetched again on every pass.
+            persist_scraped_without_capture(
+                candidate,
+                ctx,
+                REDIRECT_DESTINATION_UNSETTLED_OUTCOME_KIND,
+                &format!(
+                    "redirects to '{}', whose stored rows do not settle whether it is a duplicate",
+                    scraped.effective_url
+                ),
+            )
+            .await;
             return skipped_outcome();
         }
         Some(RedirectDestination::Unknown | RedirectDestination::NotAProductOfListingSource)
@@ -3509,14 +3524,16 @@ mod tests {
         assert!(!outcome.errored);
     }
 
-    /// Destination rows that do not settle the redirect neither retire nor remove the URL.
+    /// Destination rows that do not settle the redirect neither retire nor remove the URL. A page
+    /// retired as a duplicate stays retired, so the scrape is recorded without a capture and the
+    /// URL returns at its scrape interval instead of being fetched again on every pass.
     #[tokio::test]
-    async fn should_leave_a_url_for_the_next_pass_when_its_redirect_destination_is_unsettled() {
+    async fn should_record_a_scrape_without_capture_when_its_redirect_destination_is_unsettled() {
+        let original_url =
+            url::Url::parse("https://example.com/collections/all/products/ladle").unwrap();
         let effective_url = url::Url::parse("https://example.com/products/ladle").unwrap();
-        let candidate = scraper_candidate(
-            "ListingSource",
-            url::Url::parse("https://example.com/collections/all/products/ladle").unwrap(),
-        );
+        let mut candidate = scraper_candidate("ListingSource", original_url.clone());
+        candidate.last_captured_raw_input_sha256 = Some(vec![4; 32]);
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_redirect_destination()
@@ -3527,6 +3544,15 @@ mod tests {
         scraper_candidates
             .expect_forget_capture_before_removal()
             .never();
+        scraper_candidates
+            .expect_mark_scraped_without_capture()
+            .once()
+            .withf(move |_, url, kind, _, expected| {
+                *url == original_url
+                    && kind == REDIRECT_DESTINATION_UNSETTLED_OUTCOME_KIND
+                    && *expected == Some(&[4_u8; 32][..])
+            })
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(scraper_candidates, MockScraperService::new());
 
         let outcome = handle_successful_scrape(

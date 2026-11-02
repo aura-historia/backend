@@ -73,8 +73,7 @@ A row stored under the duplicate URL or one of its [earlier spellings](#stored-u
 A retirement is terminal and captures nothing, so only a page that is certainly scraped as the same product under its own row may retire another URL: a product URL of the same ListingSource and domain that is not itself retired, in every trailing-slash spelling that has a row. For the spider, a stored canonical URL qualifies when its row will be such a product URL after the write that stores the page. Anything else fails closed:
 
 - A redirect to a page that another ListingSource or domain stores, or that the crawler stores as a non-product page it has not retired (a shop that sends sold items to a category page), is a redirect to a non-product page whatever the scrape extracts from it, so no [identity conflict](scheduling-and-retries.md#fetch-retries) holds it back: the URL captures a removal and stays a candidate ([scrape completion](scheduling-and-retries.md#scrape-completion-fences)).
-- A redirect to a page whose rows disagree, or that is itself retired as a duplicate, neither retires nor removes the URL, and the next pass checks it again: a removal could withdraw a listing its canonical page still carries.
-- The spider stores a page under its fetched URL when its canonical URL is no duplicate target.
+- A redirect to a page whose rows disagree, or that the ListingSource retired as a duplicate, whatever class it was stored with, neither retires nor removes the URL, because a removal could withdraw a listing its canonical page still carries: the scrape is recorded without a capture as `RedirectDestinationUnsettled`, so the URL is checked again at its normal scrape interval.
 
 ## Rate-limit answers
 
