@@ -313,8 +313,39 @@ details:not([open]) > summary > .disclosure-icon {
     transform: rotate(-90deg);
 }
 
+/* Inline disclosures (a long value, more images, the raw payload) draw the same chevron in CSS
+   instead of the browser's triangle. */
+.expandable-text > summary,
+.raw-payload > summary {
+    list-style: none;
+}
+
+.expandable-text > summary::-webkit-details-marker,
+.raw-payload > summary::-webkit-details-marker {
+    display: none;
+}
+
+.expandable-text > summary::before,
+.raw-payload > summary::before {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin: 0 var(--s2) 2px 2px;
+    border-right: 1.6px solid var(--muted);
+    border-bottom: 1.6px solid var(--muted);
+    content: "";
+    transform: rotate(-45deg);
+    transition: transform 0.12s ease;
+}
+
+.expandable-text[open] > summary::before,
+.raw-payload[open] > summary::before {
+    transform: rotate(45deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .disclosure-icon, .sidebar-toggle svg {
+    .disclosure-icon, .sidebar-toggle svg,
+    .expandable-text > summary::before, .raw-payload > summary::before {
         transition: none;
     }
 }
@@ -1288,10 +1319,6 @@ iframe {
     color: var(--ink);
     cursor: pointer;
     overflow-wrap: anywhere;
-}
-
-.expandable-text summary::marker {
-    color: var(--muted);
 }
 
 .ellipsis {
