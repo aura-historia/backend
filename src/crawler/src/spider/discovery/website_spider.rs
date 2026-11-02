@@ -3098,6 +3098,46 @@ mod tests {
         })
     }
 
+    /// A shop that asked for less traffic during link discovery gets no seed phase: the seeds
+    /// carry over to the crawl its rate-limit hold allows.
+    #[tokio::test]
+    async fn should_fetch_no_seed_after_a_rate_limit_answer() {
+        let site = TestSite::spawn(rate_limited_site(SiteResponse::WithHeaders(
+            "429 Too Many Requests",
+            "Retry-After: 60\r\n",
+        )))
+        .await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 1_000,
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: (1..=5).map(|i| example(&format!("/seed/{i}"))).collect(),
+            ..CrawlSeeds::default()
+        };
+
+        let (_, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(
+            matches!(diagnostics.completion, CrawlCompletion::RateLimited(_)),
+            "{diagnostics:?}"
+        );
+        assert!(
+            !requests
+                .iter()
+                .any(|(_, target, ..)| target.starts_with("/seed/")),
+            "{requests:?}"
+        );
+        for kept in ["/limited", "/seed/1", "/seed/5"] {
+            assert!(
+                discovery.frontier.contains(&example(kept)),
+                "{kept} carries over: {discovery:?}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn should_stop_the_crawl_on_a_rate_limit_answer_and_record_retry_after() {
         for (answer, retry_count, expected) in [

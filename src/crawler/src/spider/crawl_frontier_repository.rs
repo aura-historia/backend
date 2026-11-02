@@ -131,3 +131,21 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
         transaction.commit().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_fail_closed_on_a_persisted_url_that_no_longer_parses() {
+        let parsed = persisted_urls(vec!["https://shop.example/deep/1".to_string()]).unwrap();
+        assert_eq!(parsed, [Url::parse("https://shop.example/deep/1").unwrap()]);
+
+        let error = persisted_urls(vec![
+            "https://shop.example/deep/1".to_string(),
+            "/relative/2".to_string(),
+        ])
+        .unwrap_err();
+        assert!(matches!(error, sqlx::Error::Decode(_)), "{error:?}");
+    }
+}
