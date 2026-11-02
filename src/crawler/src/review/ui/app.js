@@ -2756,8 +2756,8 @@ function setSidebarCollapsed(collapsed) {
     const toggle = document.getElementById('sidebarToggle');
     if (shell) shell.classList.toggle('sidebar-collapsed', collapsed);
     if (toggle) {
-        toggle.setAttribute('aria-label', collapsed ? 'Expand pending reviews' : 'Collapse pending reviews');
-        toggle.setAttribute('title', collapsed ? 'Expand pending reviews' : 'Collapse pending reviews');
+        toggle.setAttribute('aria-label', collapsed ? 'Expand reviews' : 'Collapse reviews');
+        toggle.setAttribute('title', collapsed ? 'Expand reviews' : 'Collapse reviews');
     }
 }
 
