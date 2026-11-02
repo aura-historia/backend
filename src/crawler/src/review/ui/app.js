@@ -66,8 +66,10 @@ const REMOVABLE_PAGE_ROLES = new Set(['REVIEWER_ADDED', 'WAITING_PAGE']);
 
 applyTheme(theme);
 
+// Reviewers count schemas from 1; the URL fragment, the API and the matrix keep the 0-based
+// schema index, so links and agents stay valid.
 function schemaLabel(index) {
-    return `Schema ${index}`;
+    return `Schema ${Number(index) + 1}`;
 }
 
 function applyTheme(nextTheme) {
@@ -1589,6 +1591,10 @@ function renderSelectorPanel(schemas, matrix) {
         ${renderRuleOptions(rule)}
         ${renderAdditionalSelectors(rule)}
         ${renderRawAttributeAdder(disabled)}
+        <div class="actions edit-actions">
+          <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages">Re-evaluate</button>
+          <button onclick="discardEdits()">Discard edits</button>
+        </div>
       </section>
       <section class="panel-section">
         <h3>Highlight legend</h3>
@@ -1669,15 +1675,11 @@ function renderSchemaOrderControls(schemas, disabled) {
         ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
       </div>
       <div class="schema-order-actions">
-        <button ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)">Move up</button>
-        <button ${disabled || (selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : '')} onclick="moveCurrentSchema(1)">Move down</button>
+        ${schemas.length > 1 ? `<button ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)">Move up</button>
+        <button ${disabled || (selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : '')} onclick="moveCurrentSchema(1)">Move down</button>` : ''}
         <button ${disabled} onclick="addNewSchema()" title="Adds a copy of the selected schema to rewrite for another template">Add schema</button>
-        <button class="danger" ${disabled || (schemas.length <= 1 ? 'disabled' : '')} onclick="deleteCurrentSchema()">Delete schema</button>
-      </div>
-      <div class="actions">
+        ${schemas.length > 1 ? `<button class="danger" ${disabled} onclick="deleteCurrentSchema()">Delete schema</button>` : ''}
         <button onclick="postHighlightSchema()">Highlight schema</button>
-        <button onclick="reevaluateMatrix()">Re-evaluate</button>
-        <button onclick="discardEdits()">Discard edits</button>
       </div>
     </section>`;
 }

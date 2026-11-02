@@ -1159,6 +1159,12 @@ iframe {
     gap: 6px;
 }
 
+.edit-actions {
+    justify-content: flex-end;
+    padding-top: var(--s3);
+    border-top: 1px solid var(--line);
+}
+
 .rule-options-card, .additional-selector-card {
     display: grid;
     gap: var(--s2);
