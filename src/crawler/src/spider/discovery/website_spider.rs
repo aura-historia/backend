@@ -10,12 +10,11 @@ use spider::utils::auto_throttle::AutoThrottleConfig;
 use spider::website::{CrawlStatus, Website, WebsiteMetaInfo};
 use std::borrow::Cow;
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{Notify, broadcast, mpsc, oneshot};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 use url::Url;
 
 use crate::network::CRAWLER_USER_AGENT;
@@ -907,6 +906,8 @@ struct CrawlBounds {
 /// first phase found but did not reach, follow for the rest of the budget,
 /// unless the first phase failed at the root or was stopped. The filter task
 /// tells, once it has relayed every page, what both phases left unvisited.
+/// Spider reports a root answered with a challenge as idle, like a healthy
+/// one, so the seed phase waits for the filter task's judgement of the root.
 ///
 /// A stop drops the crawl future, which aborts Spider's in-flight page
 /// fetches: Spider runs them in a `JoinSet` the crawl future owns, the same
@@ -920,7 +921,7 @@ async fn run_library_crawl(
     seeds: Vec<String>,
     found: FoundLinks,
     stop: Arc<Notify>,
-    root_rejected: Arc<AtomicBool>,
+    mut root_judgement: RootJudgement,
 ) -> LibraryOutcome {
     let started = tokio::time::Instant::now();
     website.with_on_link_find_callback(Some(Arc::new(move |link, html| {
@@ -931,22 +932,28 @@ async fn run_library_crawl(
     let root_outcome = library_outcome(&website);
 
     let pages_visited = |website: &Website| website.size().saturating_sub(bounds.known_links);
-    let remaining = bounds.max_crawl_duration.saturating_sub(started.elapsed());
+    let remaining = || bounds.max_crawl_duration.saturating_sub(started.elapsed());
     let seed_phase_allowed = !stopped
         && root_outcome.status == CrawlStatus::Idle
-        && !root_rejected.load(Ordering::Acquire)
         && pages_visited(&website) < bounds.max_pages_per_crawl as usize
-        && !remaining.is_zero();
+        && !remaining().is_zero();
     if seed_phase_allowed {
-        // Pages the filter task has not relayed yet miss here; what their
-        // links lead to carries over in the frontier instead.
-        let visited = website.get_links();
-        let pending = found.unvisited(&seeds, |link| visited.contains(link));
-        if !pending.is_empty() {
-            website.persist_links();
-            website.set_extra_links(pending.into_iter().map(Into::into).collect());
-            website.with_crawl_timeout(Some(remaining));
-            stopped = crawl_until_stopped(&mut website, &stop).await;
+        match judged_root(&mut root_judgement, &stop, remaining()).await {
+            None => stopped = true,
+            Some(RootVerdict::Refused) => {}
+            Some(RootVerdict::Accepted) => {
+                // Pages the filter task has not relayed yet miss here; what their
+                // links lead to carries over in the frontier instead.
+                let visited = website.get_links();
+                let pending = found.unvisited(&seeds, |link| visited.contains(link));
+                let remaining = remaining();
+                if !pending.is_empty() && !remaining.is_zero() {
+                    website.persist_links();
+                    website.set_extra_links(pending.into_iter().map(Into::into).collect());
+                    website.with_crawl_timeout(Some(remaining));
+                    stopped = crawl_until_stopped(&mut website, &stop).await;
+                }
+            }
         }
     }
 
@@ -965,6 +972,40 @@ async fn run_library_crawl(
         completion,
         stopped,
         ..root_outcome
+    }
+}
+
+/// The filter task's judgement of the root page, unset until it relayed the
+/// first page Spider delivered.
+type RootJudgement = watch::Receiver<Option<RootVerdict>>;
+
+/// Whether a crawl may go on from its root page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RootVerdict {
+    Accepted,
+    /// The root failed the crawl, refused it or answered a bot challenge:
+    /// nothing else the crawl fetches can help.
+    Refused,
+}
+
+/// Waits, for at most `within`, until the filter task has judged the root
+/// page; `None` when the filter task asked the crawl to stop meanwhile. A
+/// root it did not judge in time, or could not judge, counts as refused.
+async fn judged_root(
+    judgement: &mut RootJudgement,
+    stop: &Notify,
+    within: Duration,
+) -> Option<RootVerdict> {
+    let judged = tokio::time::timeout(within, judgement.wait_for(Option::is_some));
+    let stop = stop.notified();
+    tokio::pin!(judged, stop);
+    tokio::select! {
+        biased;
+        () = &mut stop => None,
+        judged = &mut judged => Some(match judged {
+            Ok(Ok(verdict)) => verdict.unwrap_or(RootVerdict::Refused),
+            Ok(Err(_)) | Err(_) => RootVerdict::Refused,
+        }),
     }
 }
 
@@ -1270,8 +1311,7 @@ impl SpiderImpl {
         };
         let stop_crawl = Arc::new(Notify::new());
         let crawl_stop = Arc::clone(&stop_crawl);
-        let root_rejected = Arc::new(AtomicBool::new(false));
-        let crawl_root_rejected = Arc::clone(&root_rejected);
+        let (root_verdict, root_judgement) = watch::channel(None);
         let seed_count = seed_urls.len();
         let crawl_found_links = found_links.clone();
         let frontier_seeds = seed_urls.clone();
@@ -1283,7 +1323,7 @@ impl SpiderImpl {
                 seed_urls,
                 crawl_found_links,
                 crawl_stop,
-                crawl_root_rejected,
+                root_judgement,
             )
             .await;
             let _ = outcome_tx.send(outcome);
@@ -1320,7 +1360,7 @@ impl SpiderImpl {
                 &mut diagnostics,
                 &crawl_root_url,
                 &stop_crawl,
-                &root_rejected,
+                &root_verdict,
             )
             .await;
             // Spider's crawl has ended once its outcome arrives, so the
@@ -1401,7 +1441,7 @@ async fn relay_library_pages(
     diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
     stop_crawl: &Notify,
-    root_rejected: &AtomicBool,
+    root_verdict: &watch::Sender<Option<RootVerdict>>,
 ) -> Option<CrawlStopReason> {
     let mut stop_requested = None;
     let mut request_stop = |reason| {
@@ -1471,8 +1511,13 @@ async fn relay_library_pages(
                 diagnostics.failure_kind,
                 Some(CrawlFailureKind::RedirectProblem)
             );
-            // Seeds cannot help a crawl whose root failed.
-            root_rejected.store(diagnostics.failure_kind.is_some(), Ordering::Release);
+            // Seeds cannot help a crawl whose root failed or refused it.
+            let refused =
+                diagnostics.failure_kind.is_some() || is_access_denied_status(status_code);
+            root_verdict.send_replace(Some(match refused {
+                true => RootVerdict::Refused,
+                false => RootVerdict::Accepted,
+            }));
             first_page_seen = true;
         }
 
@@ -2520,6 +2565,41 @@ mod tests {
                 Some("bot_challenge_root_page")
             );
             assert_eq!(diagnostics.http_status, Some(202));
+        }
+
+        /// Spider reports a crawl whose root answered `202` idle, like a healthy one; only the
+        /// filter task recognises the challenge, so the seed phase waits for its judgement.
+        #[tokio::test]
+        async fn should_fetch_no_seed_after_a_challenged_root() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+                SiteResponse::HtmlWithHeaders(
+                    "202 Accepted",
+                    "sg-captcha: challenge\r\n",
+                    "<html><body><p>Please wait.</p></body></html>".to_string(),
+                )
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+            let seeds = CrawlSeeds {
+                frontier: (1..=5).map(|i| example(&format!("/seed/{i}"))).collect(),
+                ..CrawlSeeds::default()
+            };
+
+            let (_, diagnostics, _) = run_seeded_crawl(&spider, seeds).await;
+            let requests = site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::BotProtection),
+                "{diagnostics:?}"
+            );
+            assert!(
+                !requests
+                    .iter()
+                    .any(|(_, target, ..)| target.starts_with("/seed/")),
+                "{requests:?}"
+            );
         }
 
         #[tokio::test]
