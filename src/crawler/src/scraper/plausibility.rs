@@ -274,6 +274,18 @@ impl PlausibilityFindings {
         .then_some(Self(rejecting))
     }
 
+    /// Whether a blank `title` is the only finding that rejects the extraction: every other
+    /// required value, the state among them, is there.
+    pub(crate) fn rejects_only_for_blank_title(&self) -> bool {
+        self.missing_required_values().is_some_and(|missing| {
+            missing.as_slice()
+                == [PlausibilityFinding::new(
+                    PlausibilityField::Title,
+                    PlausibilityCheck::Blank,
+                )]
+        })
+    }
+
     fn with_impact(
         &self,
         impact: PlausibilityImpact,
@@ -637,6 +649,23 @@ mod tests {
                 PlausibilityFindings::of(&raw).missing_required_values(),
                 None
             );
+        }
+
+        #[test]
+        fn should_tell_a_blank_title_alone_from_other_missing_values() {
+            let mut blank_title = plausible();
+            blank_title.title = String::new();
+            let mut blank_title_and_state = blank_title.clone();
+            blank_title_and_state.state = String::new();
+            let mut blank_state = plausible();
+            blank_state.state = String::new();
+
+            assert!(PlausibilityFindings::of(&blank_title).rejects_only_for_blank_title());
+            assert!(
+                !PlausibilityFindings::of(&blank_title_and_state).rejects_only_for_blank_title()
+            );
+            assert!(!PlausibilityFindings::of(&blank_state).rejects_only_for_blank_title());
+            assert!(!PlausibilityFindings::of(&plausible()).rejects_only_for_blank_title());
         }
 
         #[test]

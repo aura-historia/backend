@@ -73,12 +73,13 @@ impl ScraperServiceImpl {
                         ),
                     );
                 }
-                self.save_removed_page_schema(listing_source_id, schema)
+                self.save_removed_page_schema(listing_source_id, schema.clone())
                     .await?;
-                return Err(ScraperError::ProductListingRemoved {
-                    url: url.clone(),
-                    details: "fresh schema generation classified page as removed".to_string(),
-                });
+                return Err(ScraperError::product_listing_removed(
+                    url.clone(),
+                    "fresh schema generation classified page as removed".to_string(),
+                    vec![schema],
+                ));
             }
             GeneratedSingleSchema::NotProduct { reason, evaluation } => {
                 if evaluation.confidence != crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationConfidence::High {

@@ -30,6 +30,9 @@ impl NoticeSignal {
 /// A stored removed-page schema together with the normalized page texts it matched.
 #[derive(Debug, Clone)]
 pub struct RemovedPageMatch {
+    /// The schema's position in the list it was matched from, so identical schemas of one
+    /// list stay apart.
+    pub template_index: usize,
     pub schema: RemovedPageSchema,
     pub notices: Vec<String>,
     signal: NoticeSignal,
@@ -119,15 +122,16 @@ impl RemovedPageSchema {
             .unwrap_or_default()
     }
 
-    /// Returns this schema with its matched notices, or `None` when the page does not
-    /// match.
-    pub fn match_page(self, html: &Html) -> Option<RemovedPageMatch> {
+    /// Returns this schema, at `template_index` of its list, with its matched notices, or
+    /// `None` when the page does not match.
+    pub fn match_page(self, template_index: usize, html: &Html) -> Option<RemovedPageMatch> {
         let signal = self.notice_signal()?;
         let notices = self.notices_for(&signal, html);
         if notices.is_empty() {
             return None;
         }
         Some(RemovedPageMatch {
+            template_index,
             schema: self,
             notices,
             signal,
@@ -261,7 +265,7 @@ mod tests {
                 couldn't be found </h1><h1>Related items</h1></main>"#;
 
         let matched = schema()
-            .match_page(&Html::parse_document(html))
+            .match_page(0, &Html::parse_document(html))
             .expect("page matches");
 
         assert_eq!(
@@ -284,7 +288,7 @@ mod tests {
         };
 
         let matched = container
-            .match_page(&Html::parse_document(html))
+            .match_page(0, &Html::parse_document(html))
             .expect("page matches");
 
         assert!(matched.is_notice("Sorry, the page you're looking for couldn't be found"));
@@ -303,7 +307,7 @@ mod tests {
         };
 
         let matched = container
-            .match_page(&Html::parse_document(html))
+            .match_page(0, &Html::parse_document(html))
             .expect("page matches");
 
         assert!(matched.is_notice("Sorry, the page you're looking for couldn't be found"));
@@ -357,7 +361,7 @@ mod tests {
             };
 
             assert!(broad.validate().is_err(), "{pattern}");
-            assert!(broad.clone().match_page(&parsed).is_none(), "{pattern}");
+            assert!(broad.clone().match_page(0, &parsed).is_none(), "{pattern}");
         }
     }
 
@@ -365,7 +369,11 @@ mod tests {
     fn should_not_match_page_when_schema_does_not_apply() {
         let html = r#"<body><h1>Biedermeier Chair</h1></body>"#;
 
-        assert!(schema().match_page(&Html::parse_document(html)).is_none());
+        assert!(
+            schema()
+                .match_page(0, &Html::parse_document(html))
+                .is_none()
+        );
     }
 
     #[test]

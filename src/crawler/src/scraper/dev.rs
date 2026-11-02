@@ -153,6 +153,7 @@ async fn main() {
                     url: url.clone(),
                     source_record_key: url.to_string(),
                     last_source_listing_id: None,
+                    last_captured_title: None,
                     product_url_pattern: None,
                     last_scraped_hash: None,
                     last_scraped_schema_fingerprint: None,

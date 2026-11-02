@@ -32,6 +32,7 @@ fn primary_request(
         listing_source_id,
         source_record_key: url.to_string(),
         last_source_listing_id: None,
+        last_captured_title: None,
         url,
         product_url_pattern: None,
         last_scraped_hash: None,
@@ -142,7 +143,7 @@ async fn primary_removed_response_preserves_fence_and_responsive_health() {
 
     assert!(matches!(
         &outcome.result,
-        Err(ScraperError::ProductListingRemoved { .. })
+        Err(ScraperError::ProductListingRemoved(_))
     ));
     assert_eq!(outcome.domain_health, DomainFetchHealth::Responsive);
     let failure = outcome
@@ -155,8 +156,8 @@ async fn primary_removed_response_preserves_fence_and_responsive_health() {
 }
 
 /// A bot challenge is a fetch outcome: the scrape fails with it as the shop's answer, never as a
-/// removal or a schema outcome (the schema service expects no call), and the shop counts as
-/// responsive.
+/// removal, a missing required value or a schema outcome (the schema service expects no call), and
+/// the shop counts as responsive. A title captured before is not carried onto the challenge page.
 #[tokio::test]
 async fn primary_bot_challenge_fails_as_a_responsive_fetch_outcome() {
     let listing_source_id = listing_source_id();
@@ -169,11 +170,10 @@ async fn primary_bot_challenge_fails_as_a_responsive_fetch_outcome() {
         details: "bot challenge instead of the page".to_owned(),
     });
 
-    let outcome = with_test_scrape_domain(service.scrape(primary_request(
-        listing_source_id,
-        url.clone(),
-        fence.clone(),
-    )))
+    let outcome = with_test_scrape_domain(service.scrape(ScrapeRequest {
+        last_captured_title: Some("Biedermeier Chair".to_owned()),
+        ..primary_request(listing_source_id, url.clone(), fence.clone())
+    }))
     .await;
 
     assert!(matches!(

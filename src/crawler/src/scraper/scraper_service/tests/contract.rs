@@ -8,6 +8,7 @@ fn request(mode: ScrapeMode, domain_id: Option<crate::CrawlerDomainId>) -> Scrap
         url: product_url(),
         source_record_key: product_url().to_string(),
         last_source_listing_id: None,
+        last_captured_title: None,
         product_url_pattern: None,
         last_scraped_hash: None,
         last_scraped_schema_fingerprint: None,

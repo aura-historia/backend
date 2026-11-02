@@ -7,15 +7,15 @@ use crate::review::model::{
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
 };
-use crate::scraper::css_selector::removed_page_schema::{RemovedPageMatch, RemovedPageSchema};
+use crate::scraper::css_selector::removed_page_schema::{
+    RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
+    removed_page_verdict,
+};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{
     CrossPageFindings, IdentityAgreementFindings, PageExtraction, PlausibilityFindings,
 };
 use crate::scraper::scraper_service::image_validation::filter_image_urls_offline;
-use crate::scraper::scraper_service::pipeline::scrape_product::{
-    RemovedPageVerdict, removed_page_verdict_in,
-};
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 use url::Url;
@@ -115,15 +115,15 @@ fn evaluate_matrix(
             .map(|schema| evaluate_schema_page(schema, page, &html))
             .collect();
         add_identity_agreement_findings(&mut page_evaluations, page.captured_identity);
-        for (candidate, evaluation) in candidates.iter_mut().zip(page_evaluations) {
-            candidate.pages.push(evaluation);
-        }
         removed_page_matches.extend(removed_page_match(
             removed_page_schemas,
-            schemas,
+            &page_evaluations,
             page,
             &html,
         ));
+        for (candidate, evaluation) in candidates.iter_mut().zip(page_evaluations) {
+            candidate.pages.push(evaluation);
+        }
     }
     let mut matrix = SchemaMatrix {
         review_id,
@@ -162,20 +162,23 @@ fn evaluate_cross_page_findings(matrix: &mut SchemaMatrix) {
     }
 }
 
-/// The verdict the scraper's removal guard reaches on a parsed review page once `schemas`
-/// are live, so a reviewer sees an over-broad template before approving it; `None` when no
-/// removed-page template matches the page. The page URL stands in for the crawler URL's
-/// record key: it only matters for a page that yields no identity of its own.
+/// The verdict the scraper's removal guard reaches on a parsed review page once the candidate
+/// schemas, whose evaluations of the page are `page_evaluations`, are live, so a reviewer sees an
+/// over-broad template before approving it; `None` when no removed-page template matches the
+/// page. The page URL stands in for the crawler URL's record key: it only matters for a page that
+/// yields no identity of its own.
 fn removed_page_match(
     removed_page_schemas: &[RemovedPageSchema],
-    schemas: &[ProductCssSelectorSchema],
+    page_evaluations: &[SchemaPageEvaluation],
     page: &MatrixPage<'_>,
     html: &Html,
 ) -> Option<RemovedPageTemplateMatch> {
-    let (outcome, matches) = match removed_page_verdict_in(
-        removed_page_schemas.to_vec(),
-        schemas,
-        html,
+    let matches = match_removed_page(removed_page_schemas.iter().cloned(), html);
+    let (outcome, matches) = match removed_page_verdict(
+        matches,
+        page_evaluations
+            .iter()
+            .filter_map(|evaluation| evaluation.extracted.as_ref()),
         page.url,
         page.captured_identity,
     ) {
@@ -190,26 +193,33 @@ fn removed_page_match(
         url: page.url.to_owned(),
         role: page.role.to_owned(),
         outcome,
-        templates: matched_templates(removed_page_schemas, matches),
+        templates: matches
+            .into_iter()
+            .map(|matched| matched_template(matched, page_evaluations))
+            .collect(),
     })
 }
 
-fn matched_templates(
-    removed_page_schemas: &[RemovedPageSchema],
-    matches: Vec<RemovedPageMatch>,
-) -> Vec<MatchedRemovedPageTemplate> {
-    matches
-        .into_iter()
-        .filter_map(|matched| {
-            let template_index = removed_page_schemas
-                .iter()
-                .position(|schema| *schema == matched.schema)?;
-            Some(MatchedRemovedPageTemplate {
-                template_index,
-                notices: matched.notices,
-            })
-        })
-        .collect()
+/// The template a match names, with the title of a product page it takes for its notice: the
+/// first title a candidate schema extracts from the page without a rejecting finding that the
+/// match counts as the notice. Such a template withdraws the product page it matches, which no
+/// validation of the template alone can tell, so the matrix reports it before approval.
+fn matched_template(
+    matched: RemovedPageMatch,
+    page_evaluations: &[SchemaPageEvaluation],
+) -> MatchedRemovedPageTemplate {
+    let product_title = page_evaluations
+        .iter()
+        .filter(|evaluation| evaluation.apply_ok)
+        .filter_map(|evaluation| evaluation.extracted.as_ref())
+        .map(|raw| raw.title.trim())
+        .find(|title| !title.is_empty() && matched.is_notice(title))
+        .map(str::to_owned);
+    MatchedRemovedPageTemplate {
+        template_index: matched.template_index,
+        notices: matched.notices,
+        product_title,
+    }
 }
 
 /// Compares one candidate's extractions of the review pages, each of a different
@@ -896,6 +906,7 @@ mod tests {
                     templates: vec![MatchedRemovedPageTemplate {
                         template_index: 1,
                         notices: vec!["this item is no longer available".to_owned()],
+                        product_title: None,
                     }],
                 }]
             );
@@ -918,6 +929,45 @@ mod tests {
                 matches[0].outcome,
                 RemovedPageTemplateOutcome::ProductStillExtracts
             );
+        }
+
+        /// A text template on the title element whose text a product's name contains takes the
+        /// name for its notice: the scraper would capture the product page as removed, so the
+        /// matrix names the product title it dismisses, as validation rejects a regex that
+        /// matches any text.
+        #[test]
+        fn should_report_a_template_that_takes_a_product_title_for_its_notice() {
+            let product = page(PAGE_ROLE_SEED, "h1");
+
+            let matches = removed_page_matches(
+                &[notice_template("h1", "titl")],
+                &[schema("h1")],
+                &[matrix_page(PAGE_ROLE_SEED, &product.url, &product.raw_html)],
+            );
+
+            assert_eq!(matches.len(), 1);
+            assert_eq!(matches[0].outcome, RemovedPageTemplateOutcome::Removed);
+            assert_eq!(
+                matches[0].templates[0].product_title.as_deref(),
+                Some("Title")
+            );
+        }
+
+        /// A notice page whose notice no candidate extracts as a plausible title reports none.
+        #[test]
+        fn should_report_no_product_title_on_a_notice_page_no_candidate_extracts() {
+            let matches = removed_page_matches(
+                &[notice_template(".notice", "no longer available")],
+                &[schema(".notice")],
+                &[matrix_page(
+                    "WAITING_PAGE",
+                    "https://example.com/sold",
+                    NOTICE_HTML,
+                )],
+            );
+
+            assert_eq!(matches.len(), 1);
+            assert_eq!(matches[0].templates[0].product_title, None);
         }
 
         #[test]

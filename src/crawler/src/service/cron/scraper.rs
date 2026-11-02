@@ -12,6 +12,7 @@ use crate::scraper::candidate_service::{
     ScraperCandidateService, next_domain_failure_streak,
 };
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::domain_circuit::{DomainBatchEvidence, DomainCircuitDecision, FailedAnswer};
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::scraper_service::domain::product::{
@@ -79,6 +80,7 @@ struct CandidateMeta {
     schema_fingerprint: String,
     raw_input_sha256: Vec<u8>,
     source_listing_id: String,
+    title: String,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
@@ -95,6 +97,7 @@ enum RawCaptureSuccessAction {
         url: url::Url,
         raw_input_sha256: Vec<u8>,
         expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+        removed_by_templates: Vec<RemovedPageSchema>,
     },
 }
 
@@ -309,6 +312,7 @@ async fn flush_batch(
                             schema_fingerprint: meta.schema_fingerprint.clone(),
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
+                            title: meta.title.clone(),
                             disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
                                 .expected_last_captured_raw_input_sha256
@@ -325,6 +329,7 @@ async fn flush_batch(
                             schema_fingerprint: meta.schema_fingerprint.clone(),
                             raw_input_sha256: meta.raw_input_sha256.clone(),
                             source_listing_id: meta.source_listing_id.clone(),
+                            title: meta.title.clone(),
                             disposition: SCRAPED_URL_DISPOSITION,
                             expected_last_captured_raw_input_sha256: meta
                                 .expected_last_captured_raw_input_sha256
@@ -358,6 +363,7 @@ async fn flush_batch(
                     url,
                     raw_input_sha256,
                     expected_last_captured_raw_input_sha256,
+                    removed_by_templates,
                 },
                 _,
             ) => match scraper_candidates
@@ -366,6 +372,7 @@ async fn flush_batch(
                     &url,
                     &raw_input_sha256,
                     expected_last_captured_raw_input_sha256.as_deref(),
+                    &removed_by_templates,
                 )
                 .await
             {
@@ -506,12 +513,14 @@ async fn enqueue_raw_capture(
 async fn handle_verified_removal(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
+    removed_by_templates: Vec<RemovedPageSchema>,
 ) -> ScrapeCandidateOutcome {
     let Some((input, raw_input_sha256)) = verified_removal_input(candidate) else {
         return errored_outcome();
     };
     if candidate.last_captured_raw_input_sha256.as_deref() == Some(raw_input_sha256.as_slice()) {
-        return refresh_repeated_removal(candidate, ctx, &raw_input_sha256).await;
+        return refresh_repeated_removal(candidate, ctx, &raw_input_sha256, &removed_by_templates)
+            .await;
     }
     let provenance = match crawler_provenance(None, None) {
         Ok(provenance) => provenance,
@@ -549,6 +558,7 @@ async fn handle_verified_removal(
             input,
             provenance,
             raw_input_sha256,
+            removed_by_templates,
         )),
         ..Default::default()
     }
@@ -558,6 +568,7 @@ async fn refresh_repeated_removal(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
     raw_input_sha256: &[u8],
+    removed_by_templates: &[RemovedPageSchema],
 ) -> ScrapeCandidateOutcome {
     match ctx
         .scraper_candidates
@@ -566,6 +577,7 @@ async fn refresh_repeated_removal(
             &candidate.url,
             raw_input_sha256,
             Some(raw_input_sha256),
+            removed_by_templates,
         )
         .await
     {
@@ -615,6 +627,7 @@ fn removal_capture_request(
     input: ProductListingNormalizationInput,
     provenance: RawProductListingProvenance,
     raw_input_sha256: Vec<u8>,
+    removed_by_templates: Vec<RemovedPageSchema>,
 ) -> RawCaptureRequest {
     RawCaptureRequest {
         item: ProductListingRawCaptureItem::crawler(
@@ -628,6 +641,7 @@ fn removal_capture_request(
             url: candidate.url.clone(),
             raw_input_sha256,
             expected_last_captured_raw_input_sha256: None,
+            removed_by_templates,
         },
         on_failure: RawCaptureFailureAction::MarkScraperFailure {
             listing_source_id: candidate.listing_source_id,
@@ -671,8 +685,8 @@ async fn scrape_candidate_in_batch(
     let mut outcome = match scrape_outcome.result {
         Ok(Some(scraped)) => handle_successful_scrape(&candidate, ctx, scraped).await,
         Ok(None) => skipped_outcome(),
-        Err(ScraperError::ProductListingRemoved { .. }) => {
-            handle_verified_removal(&candidate, ctx).await
+        Err(ScraperError::ProductListingRemoved(removal)) => {
+            handle_verified_removal(&candidate, ctx, removal.removed_by_templates).await
         }
         Err(error) => {
             handle_scrape_error(
@@ -729,6 +743,7 @@ fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeReque
         url: candidate.url.clone(),
         source_record_key: candidate.source_record_key.clone(),
         last_source_listing_id: candidate.last_source_listing_id.clone(),
+        last_captured_title: candidate.last_captured_title.clone(),
         product_url_pattern: candidate.url_pattern.clone(),
         last_scraped_hash: candidate.last_scraped_hash.clone(),
         last_scraped_schema_fingerprint: candidate.last_scraped_schema_fingerprint.clone(),
@@ -861,6 +876,7 @@ async fn handle_successful_scrape(
         schema_fingerprint: scraped.schema_fingerprint,
         raw_input_sha256: scraped.raw_input_sha256,
         source_listing_id: scraped.source_listing_id,
+        title: scraped.title,
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
     };
 
@@ -877,6 +893,7 @@ async fn handle_successful_scrape(
                 schema_fingerprint: meta.schema_fingerprint.clone(),
                 raw_input_sha256: meta.raw_input_sha256.clone(),
                 source_listing_id: meta.source_listing_id.clone(),
+                title: meta.title.clone(),
                 disposition: SCRAPED_URL_DISPOSITION,
                 expected_last_captured_raw_input_sha256: meta
                     .expected_last_captured_raw_input_sha256
@@ -1519,7 +1536,7 @@ async fn record_batch_error_state(ctx: &ScrapeDomainContext, error: &ScraperErro
         }
     } else if matches!(
         error,
-        ScraperError::ProductListingRemoved { .. }
+        ScraperError::ProductListingRemoved(_)
             | ScraperError::NotProductPage { .. }
             | ScraperError::PendingSchemaReview { .. }
     ) || is_robots_refusal(error)
@@ -1539,7 +1556,7 @@ async fn record_batch_error_state(ctx: &ScrapeDomainContext, error: &ScraperErro
 fn scraper_error_kind(e: &ScraperError) -> &'static str {
     match e {
         ScraperError::HttpError { .. } | ScraperError::HttpErrorWithMetadata(_) => "HttpError",
-        ScraperError::ProductListingRemoved { .. } => "ProductListingRemoved",
+        ScraperError::ProductListingRemoved(_) => "ProductListingRemoved",
         ScraperError::NotProductPage { .. } => "NotProductPage",
         ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
         ScraperError::NoHost { .. } => "NoHost",
@@ -2216,6 +2233,7 @@ mod tests {
             schema_fingerprint: "schema-fingerprint".to_owned(),
             raw_input_sha256: vec![3; 32],
             source_listing_id: "source-id".to_owned(),
+            title: "Chair".to_owned(),
             expected_last_captured_raw_input_sha256: None,
         }
     }
@@ -2733,6 +2751,7 @@ mod tests {
                         raw_input_sha256: vec![7; 32],
                         effective_url: url::Url::parse("https://example.com/product/1").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
+                        title: "Chair".to_owned(),
                     })))
                 })
             });
@@ -3149,7 +3168,7 @@ mod tests {
             .once()
             .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(forgetting, MockScraperService::new());
-        let outcome = handle_verified_removal(&candidate, &ctx).await;
+        let outcome = handle_verified_removal(&candidate, &ctx, Vec::new()).await;
         let request = outcome.capture.expect("removal must be queued for capture");
 
         let mut raw_capture = MockProductListingRawCaptureService::new();
@@ -3171,14 +3190,14 @@ mod tests {
             .expect_mark_removed()
             .once()
             .withf(
-                move |source_id, candidate_url, raw_input_sha256, expected_raw_input_sha256| {
+                move |source_id, candidate_url, raw_input_sha256, expected_raw_input_sha256, _| {
                     *source_id == listing_source_id
                         && candidate_url.as_str() == "https://example.com/product/removed"
                         && raw_input_sha256.len() == 32
                         && expected_raw_input_sha256.is_none()
                 },
             )
-            .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
@@ -3223,6 +3242,7 @@ mod tests {
                         raw_input_sha256: vec![3; 32],
                         effective_url: url::Url::parse("https://example.com/product/sold").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
+                        title: "Chair".to_owned(),
                     })))
                 })
             });
@@ -3277,6 +3297,7 @@ mod tests {
                 raw_input,
                 effective_url: effective_url.clone(),
                 source_listing_id: "SKU-123".to_owned(),
+                title: "Chair".to_owned(),
                 hash: "redirect-hash".to_owned(),
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![9; 32],
@@ -3314,6 +3335,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test raw input: {error}")),
             effective_url: effective_url.clone(),
             source_listing_id: "SKU-123".to_owned(),
+            title: "Chair".to_owned(),
             hash: "redirect-hash".to_owned(),
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![9; 32],
@@ -3399,7 +3421,7 @@ mod tests {
             .withf(|_, _, expected| *expected == Some(&[5_u8; 32][..]))
             .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(forgetting, MockScraperService::new());
-        let outcome = handle_verified_removal(&candidate, &ctx).await;
+        let outcome = handle_verified_removal(&candidate, &ctx, Vec::new()).await;
         let request = outcome.capture.expect("removal must be queued for capture");
 
         let mut raw_capture = MockProductListingRawCaptureService::new();
@@ -3455,10 +3477,11 @@ mod tests {
             let mut scraper_service = MockScraperService::new();
             scraper_service.expect_scrape().once().returning(|_| {
                 Box::pin(async {
-                    scrape_outcome(Err(ScraperError::ProductListingRemoved {
-                        url: url::Url::parse(URL).unwrap(),
-                        details: "HTTP 404".to_owned(),
-                    }))
+                    scrape_outcome(Err(ScraperError::product_listing_removed(
+                        url::Url::parse(URL).unwrap(),
+                        "HTTP 404".to_owned(),
+                        Vec::new(),
+                    )))
                 })
             });
             scraper_service
@@ -3484,6 +3507,7 @@ mod tests {
                 &url,
                 "SKU-1",
                 None,
+                None,
             )
             .unwrap_or_else(|error| panic!("test product input: {error}"));
             let mut scraper_service = MockScraperService::new();
@@ -3500,6 +3524,7 @@ mod tests {
                             raw_input_sha256: product_sha256,
                             effective_url: url,
                             source_listing_id: "SKU-1".to_owned(),
+                            title: "Chair".to_owned(),
                         })))
                     })
                 });
@@ -3533,13 +3558,13 @@ mod tests {
             scraper_candidates
                 .expect_mark_removed()
                 .once()
-                .withf(move |source_id, url, raw_input_sha256, expected| {
+                .withf(move |source_id, url, raw_input_sha256, expected, _| {
                     *source_id == listing_source_id
                         && url.as_str() == URL
                         && raw_input_sha256 == removal_sha256().as_slice()
                         && *expected == Some(removal_sha256().as_slice())
                 })
-                .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
             let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
 
             let outcome = scrape_candidate(candidate, &ctx).await;
@@ -3568,7 +3593,7 @@ mod tests {
                 scraper_candidates
                     .expect_mark_removed()
                     .once()
-                    .return_once(move |_, _, _, _| Box::pin(async move { write }));
+                    .return_once(move |_, _, _, _, _| Box::pin(async move { write }));
                 let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
 
                 let outcome = scrape_candidate(candidate, &ctx).await;
@@ -3674,7 +3699,7 @@ mod tests {
             failing_candidates
                 .expect_mark_removed()
                 .once()
-                .returning(|_, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
+                .returning(|_, _, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
             let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
             let failing_candidates: Arc<dyn ScraperCandidateService> = Arc::new(failing_candidates);
             flush_batch(
@@ -4038,6 +4063,7 @@ mod tests {
                             raw_input_sha256: vec![2; 32],
                             effective_url: url.clone(),
                             source_listing_id: "ListingSource".to_owned(),
+                            title: "Chair".to_owned(),
                         })))
                     }
                 })
@@ -5649,6 +5675,7 @@ mod tests {
                 raw_input_sha256: vec![7; 32],
                 effective_url: url,
                 source_listing_id: "source-listing".to_owned(),
+                title: "Chair".to_owned(),
             }
         }
 

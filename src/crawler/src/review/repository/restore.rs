@@ -3,6 +3,7 @@
 //! them. Any approval whose event keeps what it made live can be restored, whoever approved it,
 //! once and only while that is still the live configuration.
 
+use super::rearm::rearm_pages_for_new_configuration;
 use super::review_events::{
     ProductSchemaApprovalRecord, RecordedApproval, ReviewMutation, UrlPatternApprovalRecord,
     commit_with_event, fetch_recorded_approval,
@@ -160,6 +161,12 @@ async fn restore_product_schemas<'a>(
         )
         .await?;
     }
+    rearm_pages_for_new_configuration(
+        transaction,
+        listing_source_id,
+        &record.replaced_removed_page_schemas,
+    )
+    .await?;
     info!(
         review_id = %review_id,
         listing_source_id = %listing_source_id,

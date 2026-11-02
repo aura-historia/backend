@@ -66,17 +66,46 @@ pub(crate) async fn lock_stored_removed_page_schemas(
     connection: &mut sqlx::PgConnection,
     listing_source_id: &ListingSourceId,
 ) -> Result<Option<Vec<RemovedPageSchema>>, sqlx::Error> {
-    sqlx::query_scalar::<_, serde_json::Value>(
+    read_stored_removed_page_schemas(
+        connection,
+        listing_source_id,
         "SELECT removed_page_schema FROM listing_source_removed_page_schemas
          WHERE listing_source_id = $1
          FOR UPDATE",
     )
-    .bind(Uuid::from(*listing_source_id))
-    .fetch_optional(&mut *connection)
-    .await?
-    .map(serde_json::from_value)
-    .transpose()
-    .map_err(|e| sqlx::Error::Decode(Box::new(e)))
+    .await
+}
+
+/// Reads the ListingSource's stored removed-page templates under a share lock held for the rest
+/// of the caller's transaction, so a writer that replaces them, such as an approval, commits
+/// before or after the caller and never in between. `None` when it stores none; a stored row
+/// that no longer decodes fails the read.
+pub(crate) async fn share_stored_removed_page_schemas(
+    connection: &mut sqlx::PgConnection,
+    listing_source_id: &ListingSourceId,
+) -> Result<Option<Vec<RemovedPageSchema>>, sqlx::Error> {
+    read_stored_removed_page_schemas(
+        connection,
+        listing_source_id,
+        "SELECT removed_page_schema FROM listing_source_removed_page_schemas
+         WHERE listing_source_id = $1
+         FOR SHARE",
+    )
+    .await
+}
+
+async fn read_stored_removed_page_schemas(
+    connection: &mut sqlx::PgConnection,
+    listing_source_id: &ListingSourceId,
+    query: &'static str,
+) -> Result<Option<Vec<RemovedPageSchema>>, sqlx::Error> {
+    sqlx::query_scalar::<_, serde_json::Value>(query)
+        .bind(Uuid::from(*listing_source_id))
+        .fetch_optional(&mut *connection)
+        .await?
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| sqlx::Error::Decode(Box::new(e)))
 }
 
 /// Stores `removed_page_schemas` as the ListingSource's removed-page templates inside the

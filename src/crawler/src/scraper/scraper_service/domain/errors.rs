@@ -2,6 +2,7 @@ use crate::CrawlerReviewId;
 use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::plausibility::PlausibilityFindings;
 use listing_source_core::ListingSourceId;
 use product_listing_normalization::{NormalizationError, NormalizationInputError};
@@ -39,8 +40,8 @@ pub enum ScraperError {
     #[error("{0}")]
     HttpErrorWithMetadata(Box<HttpErrorMetadata>),
 
-    #[error("ProductListing URL removed while fetching '{url}': {details}")]
-    ProductListingRemoved { url: Url, details: String },
+    #[error("ProductListing URL removed while fetching '{}': {}", .0.url, .0.details)]
+    ProductListingRemoved(Box<ListingRemoval>),
 
     #[error("URL is not a product page while scraping '{url}': {details}")]
     NotProductPage { url: Url, details: String },
@@ -120,5 +121,31 @@ impl ScraperError {
             Self::HttpErrorWithMetadata(metadata) => Some(metadata.kind),
             _ => None,
         }
+    }
+}
+
+/// A verified removal of a product listing, with the evidence a later configuration change
+/// weighs.
+#[derive(Debug)]
+pub struct ListingRemoval {
+    pub url: Url,
+    pub details: String,
+    /// The stored removed-page templates whose match withdrew the page; empty for a removal the
+    /// shop's response showed. A template retired or narrowed later re-arms the page.
+    pub removed_by_templates: Vec<RemovedPageSchema>,
+}
+
+impl ScraperError {
+    /// A removal of the listing at `url`, which `removed_by_templates` withdrew when any.
+    pub fn product_listing_removed(
+        url: Url,
+        details: impl Into<String>,
+        removed_by_templates: Vec<RemovedPageSchema>,
+    ) -> Self {
+        Self::ProductListingRemoved(Box::new(ListingRemoval {
+            url,
+            details: details.into(),
+            removed_by_templates,
+        }))
     }
 }

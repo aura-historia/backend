@@ -14,6 +14,9 @@ pub struct ListingSourceOverview {
     pub pending_reviews: i64,
     pub product_urls: i64,
     pub blocked_urls: i64,
+    /// Product pages whose last scrape recorded `MissingRequiredValue`, listed by
+    /// `GET /api/listing-sources/{id}/missing-value-pages`.
+    pub missing_value_urls: i64,
     /// Crawl state of each configured domain, so an operator sees which domain
     /// waits for a review or for an operator without reading the logs.
     pub domains: Vec<DomainCrawlOverview>,
@@ -50,6 +53,7 @@ mod tests {
             pending_reviews: 0,
             product_urls: 0,
             blocked_urls: 0,
+            missing_value_urls: 0,
             domains: vec![DomainCrawlOverview {
                 domain_id: CrawlerDomainId::new(),
                 domain: "example.com".to_owned(),
