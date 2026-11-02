@@ -867,14 +867,18 @@ function savedPatternValue(review) {
 
 // The selected URL-pattern review's decision as the server holds it, which the server's
 // classification of its sample describes, and the pattern the reviewer typed but has not saved.
-// A refused save leaves its decision in the local candidate as an unsaved edit, so `stored` is
-// the decision last rendered without local edits. Both start over with each review and with
-// each rendering without local edits, after a save, a discard or a reload.
-let urlPatternEdit = {reviewId: null, stored: null, typed: null};
+// A refused save leaves its decision in the local candidate of the loaded `review` as an unsaved
+// edit, so `stored` is the decision of that review as it was loaded or last rendered without
+// local edits. Both start over with each review and with each rendering without local edits,
+// after a save, a discard or a reload; a reload that keeps the local edits, such as after a
+// verdict, takes the reloaded decision and keeps the typed pattern.
+let urlPatternEdit = {review: null, stored: null, typed: null};
 
 function urlPatternEditOf(review) {
-    if (!dirty || urlPatternEdit.reviewId !== review.review_id) {
-        urlPatternEdit = {reviewId: review.review_id, stored: urlPatternDecision(review), typed: null};
+    if (!dirty || urlPatternEdit.review?.review_id !== review.review_id) {
+        urlPatternEdit = {review, stored: urlPatternDecision(review), typed: null};
+    } else if (urlPatternEdit.review !== review) {
+        urlPatternEdit = {...urlPatternEdit, review, stored: urlPatternDecision(review)};
     }
     return urlPatternEdit;
 }
