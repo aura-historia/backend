@@ -21,7 +21,7 @@ static LINKS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("a[href]").expect("link selector"));
 
 /// A crawl root moved to its twin host, with the links on the root page that moved it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RootReroot {
     /// The root page the links were counted on.
     pub from: Url,
@@ -31,6 +31,21 @@ pub struct RootReroot {
     pub twin_links: usize,
     /// Links to the root's own host on the root page, relative links included.
     pub root_links: usize,
+}
+
+/// The crawl logs the move with this, so it writes each URL as one string in the spelling the
+/// crawler stores (`docs/crawler/networking.md#stored-urls`): a root redirect may have brought
+/// credentials or a session parameter into the root.
+impl std::fmt::Debug for RootReroot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let loggable = |url: &Url| CrawledUrl::new(url.clone()).to_string();
+        f.debug_struct("RootReroot")
+            .field("from", &loggable(&self.from))
+            .field("to", &loggable(&self.to))
+            .field("twin_links", &self.twin_links)
+            .field("root_links", &self.root_links)
+            .finish()
+    }
 }
 
 /// `url` on its www or bare twin host: `www.<host>` for a bare host, the host without `www.` for a
@@ -145,6 +160,21 @@ mod tests {
             None
         );
         assert_eq!(reroot("https://example.com/", 50, 60), None);
+    }
+
+    #[test]
+    fn should_log_a_move_compactly_without_credentials_or_session_parameters() {
+        let moved = RootReroot {
+            from: Url::parse("https://user:secret@example.com/?sessionid=abc&lang=de").unwrap(),
+            to: Url::parse("https://user:secret@www.example.com/?sessionid=abc&lang=de").unwrap(),
+            twin_links: 7,
+            root_links: 2,
+        };
+
+        assert_eq!(
+            format!("{moved:?}"),
+            r#"RootReroot { from: "https://example.com/?lang=de", to: "https://www.example.com/?lang=de", twin_links: 7, root_links: 2 }"#
+        );
     }
 
     #[test]

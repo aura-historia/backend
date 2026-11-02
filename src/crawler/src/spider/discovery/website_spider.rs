@@ -857,7 +857,7 @@ async fn preflight_crawl_root(
 /// Follows the crawl root's redirects within its bare/www host, and moves it to its twin host
 /// once when the root page's links point mostly there ([`dominant_twin`]), the way a redirect to
 /// the twin would; a move counts against the redirect bound. A host the chain already left is
-/// never moved back to.
+/// never moved back to, and a move the twin redirects back from is not one.
 async fn follow_crawl_root(
     transport: &dyn SpiderTransport,
     configured_root: Url,
@@ -889,6 +889,8 @@ async fn follow_crawl_root(
                 reroot = Some(moved);
                 continue;
             }
+            // A twin that redirected back did not take the crawl.
+            let reroot = reroot.filter(|moved| moved.to.host_str() == current_root.host_str());
             return Ok(PreflightedRoot {
                 url: current_root,
                 status,
@@ -3427,6 +3429,37 @@ mod tests {
         assert_eq!(
             discovered,
             HashSet::from(["http://www.example.com/".to_string()])
+        );
+        assert_eq!(diagnostics.root_reroot, None);
+    }
+
+    /// A bare root whose page links `www.` throughout, where `www.` redirects back to the bare
+    /// host, as shops with stale absolute links do: the crawl stays on the bare host, and its
+    /// diagnostics record no move.
+    #[tokio::test]
+    async fn should_record_no_move_when_the_twin_redirects_back() {
+        let www_links = www_linked_site(2 * root_host::MIN_TWIN_LINKS);
+        let site = TestSite::spawn_for_hosts(Arc::new(move |host, target, previous| {
+            match (host, target) {
+                ("www.example.com", "/") => SiteResponse::Redirect("http://example.com/"),
+                _ => www_links(host, target, previous),
+            }
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert_eq!(
+            discovered,
+            HashSet::from([
+                "http://example.com/".to_string(),
+                "http://example.com/about".to_string(),
+            ])
         );
         assert_eq!(diagnostics.root_reroot, None);
     }
