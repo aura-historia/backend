@@ -1363,7 +1363,8 @@ function renderRemovedPageTemplate(template, index, disabled) {
 // Mirrors `removed_page_matches` in the schema matrix: the review pages the templates match,
 // and whether the scraper would capture each as removed or keep scraping it as a product
 // because a candidate schema still extracts it. A template that takes a plausibly extracted
-// product title for its notice is marked too broad: it would withdraw that product page.
+// title for its notice asks for a breadth check: it would withdraw that page, which is right only
+// when the page is a removal notice that keeps the product template.
 function renderRemovedPageMatches(matrix, templates) {
     if (!templates.length) return '<div class="muted">Declare a template to see the pages it matches.</div>';
     if (dirty) return '<div class="muted">Save the templates to evaluate them on the review pages.</div>';
@@ -1378,7 +1379,7 @@ function renderRemovedPageMatches(matrix, templates) {
             ? statusBadge('Captured as removed')
             : statusBadge('Scraped as a product: a candidate schema extracts it')}</td>
         <td>${(match.templates || []).map(t => `Template ${t.template_index + 1}: ${escapeHtml((t.notices || []).join(' | '))}${t.product_title
-            ? `<br>${statusBadge('Too broad')} takes the product title “${escapeHtml(t.product_title)}” a candidate schema extracts for its notice`
+            ? `<br>${statusBadge('Check breadth')} takes the title “${escapeHtml(t.product_title)}” a candidate schema extracts for its notice: too broad unless this page is a removal notice`
             : ''}`).join('<br>')}</td>
       </tr>`).join('')}</tbody>
     </table>`;

@@ -144,8 +144,8 @@ pub struct RemovedPageMatchView {
     pub template_indexes: Vec<usize>,
     pub notices: Vec<String>,
     /// Titles a candidate schema extracts from the page without a rejecting finding that a
-    /// matching template takes for its notice: the template withdraws a product page and is
-    /// too broad.
+    /// matching template takes for its notice: the template is too broad and withdraws a product
+    /// page, unless this page is a removal notice that keeps the product template.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[schemars(default)]
     pub product_titles_taken_for_notices: Vec<String>,
