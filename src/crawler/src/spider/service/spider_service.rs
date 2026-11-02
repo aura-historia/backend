@@ -825,7 +825,10 @@ impl SpiderServiceImpl {
     }
 
     /// Judges what the ended crawl delivered and keeps what it left unvisited for the next
-    /// crawl. A failed run keeps the previous frontier.
+    /// crawl. A run that failed only because its pages yield no product URL
+    /// ([`SpiderServiceError::found_no_product_urls`]) keeps it too, so the next crawl reaches
+    /// further; any other failed run keeps the previous frontier
+    /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     async fn finish_crawl(
         &self,
         consumed: Result<CrawlRunState, SpiderServiceError>,
@@ -849,10 +852,11 @@ impl SpiderServiceImpl {
                 crawl_root_url,
             )
             .await;
-        let delivered_pages = judged
-            .as_ref()
-            .map_or_else(SpiderServiceError::found_no_product_urls, |_| true);
-        if delivered_pages {
+        let keeps_its_frontier = match &judged {
+            Ok(_) => true,
+            Err(error) => error.found_no_product_urls(),
+        };
+        if keeps_its_frontier {
             self.replace_frontier_best_effort(domain_id, discovery)
                 .await;
         }
