@@ -92,6 +92,25 @@ pub struct RedirectUrlMove {
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
+/// What the crawler stores at the page a product URL redirected to, in either trailing-slash
+/// spelling (`docs/crawler/networking.md#duplicate-targets`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedirectDestination {
+    /// No row stores the page: the redirected URL's row moves there.
+    Unknown,
+    /// Every row of the page is a product URL of the redirected URL's ListingSource and domain
+    /// that is not itself retired: the page is scraped under its own row, so the redirected URL
+    /// is its duplicate.
+    ProductOfListingSource,
+    /// Every row of the page belongs to another ListingSource or domain or is no product URL: the
+    /// page is no product page of the ListingSource, as for any redirect to a non-product page.
+    NotAProductOfListingSource,
+    /// The page's rows disagree, or it is a product URL of the ListingSource that is itself
+    /// retired as a duplicate. Nothing proves either reading, so the URL is neither retired nor
+    /// removed and the next pass checks it again.
+    Unsettled,
+}
+
 /// Durable completion state for one ordinary crawler scrape.
 #[derive(Debug, Clone)]
 pub struct ScrapeCompletion {
@@ -241,11 +260,14 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         completion: ScrapeCompletion,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    /// Check the redirect destination before any raw observation is queued.
-    async fn redirect_destination_is_available(
+    /// What the crawler stores at the page a scrape of a URL of `listing_source_id` and
+    /// `domain_id` was redirected to, read before any raw observation is queued.
+    async fn redirect_destination(
         &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
         effective_url: &Url,
-    ) -> Result<bool, sqlx::Error>;
+    ) -> Result<RedirectDestination, sqlx::Error>;
     /// Apply a redirect move only when the destination is still absent.
     async fn move_redirected_url(
         &self,
@@ -954,17 +976,35 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         })
     }
 
-    async fn redirect_destination_is_available(
+    async fn redirect_destination(
         &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
         effective_url: &Url,
-    ) -> Result<bool, sqlx::Error> {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM listing_source_urls WHERE url = ANY($1::text[]))",
+    ) -> Result<RedirectDestination, sqlx::Error> {
+        let (rows, products, foreign): (i64, i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*),
+                    COUNT(*) FILTER (
+                        WHERE listing_source_id = $2 AND domain_id = $3
+                          AND url_class = 'product'
+                          AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')),
+                    COUNT(*) FILTER (
+                        WHERE listing_source_id <> $2 OR domain_id <> $3
+                           OR url_class <> 'product')
+             FROM listing_source_urls
+             WHERE url = ANY($1::text[])",
         )
         .bind(destination_spellings(effective_url))
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(domain_id.as_uuid())
         .fetch_one(&self.pool)
         .await?;
-        Ok(!exists)
+        Ok(match rows {
+            0 => RedirectDestination::Unknown,
+            rows if products == rows => RedirectDestination::ProductOfListingSource,
+            rows if foreign == rows => RedirectDestination::NotAProductOfListingSource,
+            _ => RedirectDestination::Unsettled,
+        })
     }
 
     async fn move_redirected_url(
