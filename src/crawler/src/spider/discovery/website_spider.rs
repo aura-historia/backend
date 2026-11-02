@@ -18,7 +18,6 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 use url::Url;
 
-use crate::network::CRAWLER_USER_AGENT;
 use crate::network::bot_challenge::{
     BotChallenge, ChallengeVendor, HardBlock, detect_bot_challenge, detect_hard_block,
 };
@@ -27,6 +26,7 @@ use crate::network::policy::{
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
+use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
 };
@@ -46,8 +46,10 @@ const DEFAULT_RETRY_COUNT: u8 = 2;
 const DEFAULT_PREFLIGHT_ATTEMPTS: u32 = 2;
 const DEFAULT_PREFLIGHT_DEADLINE: Duration = Duration::from_secs(90);
 
+/// The crawler request headers, with the transfer encodings Spider's client decodes; zstd stays
+/// out, as fix(#1174) decided.
 fn spider_request_headers() -> HeaderMap {
-    let mut headers = HeaderMap::new();
+    let mut headers = crawler_request_headers();
     headers.insert(
         ACCEPT_ENCODING,
         HeaderValue::from_static(SPIDER_ACCEPT_ENCODING),
@@ -2045,6 +2047,7 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::CRAWLER_ACCEPT;
     use crate::network::robots::RobotsRules;
     use crate::spider::discovery::frontier::CrawlSeeds;
     use crate::spider::discovery::root_host;
@@ -2171,8 +2174,9 @@ mod tests {
         Hang,
     }
 
-    /// `(host, target, user_agent, accept_encoding)` per request.
-    type RequestLog = Arc<tokio::sync::Mutex<Vec<(String, String, String, String)>>>;
+    /// `(host, target, user_agent, accept_encoding, accept, accept_language)` per request.
+    type RequestLog = Arc<tokio::sync::Mutex<Vec<LoggedRequest>>>;
+    type LoggedRequest = (String, String, String, String, String, String);
     type SiteHandler = Arc<dyn Fn(&str, usize) -> SiteResponse + Send + Sync>;
     /// A handler that answers by the request's `Host` as well: `(host, target, previous)`.
     type HostSiteHandler = Arc<dyn Fn(&str, &str, usize) -> SiteResponse + Send + Sync>;
@@ -2219,7 +2223,7 @@ mod tests {
                 .count()
         }
 
-        async fn finish(self) -> Vec<(String, String, String, String)> {
+        async fn finish(self) -> Vec<LoggedRequest> {
             let log = self.requests.lock().await.clone();
             self.server.abort();
             log
@@ -2262,10 +2266,19 @@ mod tests {
                 let host = header("host").to_ascii_lowercase();
                 let user_agent = header("user-agent");
                 let accept_encoding = header("accept-encoding");
+                let accept = header("accept");
+                let accept_language = header("accept-language");
                 let previous = {
                     let mut log = requests.lock().await;
                     let previous = log.iter().filter(|(_, seen, ..)| *seen == target).count();
-                    log.push((host.clone(), target.clone(), user_agent, accept_encoding));
+                    log.push((
+                        host.clone(),
+                        target.clone(),
+                        user_agent,
+                        accept_encoding,
+                        accept,
+                        accept_language,
+                    ));
                     previous
                 };
                 let html_response = |status: &str, extra_headers: &str, body: &str| {
@@ -2401,7 +2414,7 @@ mod tests {
         assert!(
             request_log
                 .iter()
-                .all(|(_, _, user_agent, _)| user_agent == CRAWLER_USER_AGENT),
+                .all(|(_, _, user_agent, ..)| user_agent == CRAWLER_USER_AGENT),
             "request without the spider user agent: {request_log:?}"
         );
         // Spider's reqwest would otherwise advertise zstd, which fix(#1174)
@@ -2409,8 +2422,17 @@ mod tests {
         assert!(
             request_log
                 .iter()
-                .all(|(_, _, _, accept_encoding)| accept_encoding == SPIDER_ACCEPT_ENCODING),
+                .all(|(_, _, _, accept_encoding, ..)| accept_encoding == SPIDER_ACCEPT_ENCODING),
             "request without the spider accept-encoding: {request_log:?}"
+        );
+        // The scraper sends the same negotiation, so it fetches the site the
+        // spider learned the URL patterns from.
+        assert!(
+            request_log
+                .iter()
+                .all(|(.., accept, accept_language)| accept == CRAWLER_ACCEPT
+                    && accept_language.is_empty()),
+            "request with another content negotiation: {request_log:?}"
         );
         assert!(
             request_log
@@ -4637,7 +4659,7 @@ mod tests {
         assert!(
             request_log
                 .iter()
-                .all(|(_, _, user_agent, _)| user_agent == CRAWLER_USER_AGENT),
+                .all(|(_, _, user_agent, ..)| user_agent == CRAWLER_USER_AGENT),
             "{request_log:?}"
         );
     }

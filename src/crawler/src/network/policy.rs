@@ -176,10 +176,10 @@ impl RequestTimeouts {
     }
 }
 
-/// Client settings every crawler request shares: the crawler identity, the
-/// platform trust store, HTTP/1.1, no automatic redirects and bounded
-/// timeouts. [`public_http_client`] adds the pinned public addresses; tests
-/// build local clients from the same base.
+/// Client settings every crawler request shares: the crawler identity and
+/// request headers, the platform trust store, HTTP/1.1, no automatic
+/// redirects and bounded timeouts. [`public_http_client`] adds the pinned
+/// public addresses; tests build local clients from the same base.
 pub fn crawler_client_builder(
     timeouts: RequestTimeouts,
 ) -> Result<reqwest::ClientBuilder, CrawlerClientError> {
@@ -187,6 +187,7 @@ pub fn crawler_client_builder(
     Ok(reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .user_agent(crate::network::CRAWLER_USER_AGENT)
+        .default_headers(crate::network::crawler_request_headers())
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeouts.request)
         .connect_timeout(timeouts.connect)
@@ -515,10 +516,11 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    /// Every crawler request identifies the crawler; the scraper, image
-    /// probes and review inspection all build their clients from this base.
+    /// Every crawler request identifies the crawler and sends the crawler
+    /// request headers, nothing else; the scraper, image probes and review
+    /// inspection all build their clients from this base.
     #[tokio::test]
-    async fn crawler_client_builder_should_send_the_crawler_user_agent() {
+    async fn crawler_client_builder_should_send_the_crawler_identity_and_request_headers() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -544,12 +546,21 @@ mod tests {
             .unwrap();
 
         let request = server.await.unwrap();
-        let user_agent = request
+        let headers = request
             .lines()
+            .skip(1)
+            .take_while(|line| !line.is_empty())
             .filter_map(|line| line.split_once(':'))
-            .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
-            .map(|(_, value)| value.trim());
-        assert_eq!(user_agent, Some(crate::network::CRAWLER_USER_AGENT));
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.trim()))
+            .filter(|(name, _)| name != "host")
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            headers,
+            std::collections::BTreeMap::from([
+                ("accept".to_owned(), crate::network::CRAWLER_ACCEPT),
+                ("user-agent".to_owned(), crate::network::CRAWLER_USER_AGENT),
+            ])
+        );
     }
 
     /// Certificate verification stays on with the platform trust store, and

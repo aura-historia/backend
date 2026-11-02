@@ -7,7 +7,9 @@ use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
     removed_page_verdict,
 };
-use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
+use crate::scraper::raw_input::{
+    capture_source_listing_id, crawler_raw_input, foreign_price_currency,
+};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperService,
@@ -404,6 +406,17 @@ fn capture_selection(
             .map_err(ScraperError::SchemaFingerprint)?;
     let source_listing_id =
         capture_source_listing_id(&selection.raw.source_listing_id, &request.source_record_key)?;
+    if let Some(foreign) = foreign_price_currency(&selection.raw, request.fallback_currency) {
+        warn!(
+            event = "crawler.capture_price_currency_differs_from_fallback",
+            listing_source_id = %request.listing_source_id,
+            url = %page.effective_url,
+            field = foreign.field.as_str(),
+            price_currency = foreign.currency.as_str(),
+            fallback_currency = foreign.fallback_currency.as_str(),
+            "Capturing a price in another currency than the ListingSource's fallback currency"
+        );
+    }
     let raw_input = crawler_raw_input(
         &selection.raw,
         &selection.validated_image_urls,

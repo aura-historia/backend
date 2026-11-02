@@ -31,6 +31,18 @@ Every crawler request (spider pages and robots.txt, scraper HTML fetches, image 
 - Use the bare product-token form. Some shop firewalls reject the `Mozilla/5.0 (compatible; ...)` form from unverified addresses, and a pinned browser version goes stale and gets blocked as outdated.
 - A 401 or 403 from the crawl root is reported as `AccessDenied` with the root status and the user agent in the crawl diagnostics. Spider's own reading of the refusal (a blocked status, a JavaScript challenge, a recognised vendor block) keeps precedence over the generic `crawl_root_access_denied` reason.
 
+## Request headers
+
+Every crawler request sends one header set besides its [user agent](#crawler-identity), defined once in the crawler's network module: `Accept: */*`, and no `Accept-Language`, cache directive or other preference. Spider pages and robots.txt, scraper HTML fetches and robots.txt, image probes, and review live inspection, which shares the scraper's fetcher, all send it. So the scraper fetches the site the spider learned the URL patterns from, and the review console shows what the scraper captures. Only `Accept-Encoding` differs, because each client names the transfer encodings it decodes: the spider `gzip, br, deflate`, the scraper's clients none, so they receive uncompressed bodies.
+
+The set states no preference on purpose, so a shop answers with the storefront it serves a visitor who states none, in its own language and currency:
+
+- A language preference, whatever language it names, makes Shopify Markets localize the storefront to the country of the request's IP address. Every price on the page, the visible price, `og:price` and the JSON-LD offers alike, is converted into that country's currency at the day's rate. No selector can recover the shop's own price, and the converted price passes every [plausibility check](extraction-and-review.md#plausibility-checks). Without a preference a multilingual shop serves its default language, the one the spider stored its URLs from.
+- A browser-style `Accept` that prefers `text/html` makes some shops redirect every page to a locale-prefixed copy, such as `/artworkdetail/...` to `/en-us/artworkdetail/...`, which the URL pattern learned from the spider's unprefixed URLs does not take.
+- A cache directive (`Cache-Control: no-cache`, `Pragma: no-cache`) only asks a shop's cache to pass the request on to its origin.
+
+A capture whose price or estimate names another currency than its ListingSource's fallback currency, read as the ProductListing normalization worker reads it, logs a WARN `crawler.capture_price_currency_differs_from_fallback` with the URL, the field and both currencies, so a storefront that converts its prices despite this header set is noticed. The capture keeps the value as extracted. A ListingSource without a fallback currency is not checked, and a price extracted without a currency marker, such as a bare `og:price:amount`, takes the fallback currency, so a conversion that drops the marker stays invisible.
+
 ## robots.txt
 
 Spider and scraper honour robots.txt through one RFC 9309 implementation in the crawler's network module:

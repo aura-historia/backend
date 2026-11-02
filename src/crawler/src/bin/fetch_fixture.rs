@@ -1,7 +1,7 @@
 //! Lightweight HTML fixture fetcher.
 //!
 //! Fetches a single URL using the project's own [`ReqwestHtmlFetcher`] (the
-//! same browser-impersonating reqwest client used in production) and writes
+//! same client, user agent and request headers used in production) and writes
 //! the raw HTML to `tests/fixtures/html/<listing_source>_<state>.html` automatically.
 //!
 //! The listing source name is inferred from the URL's core domain:
