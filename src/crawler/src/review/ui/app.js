@@ -1075,7 +1075,7 @@ function renderSchemaWorkbench(detail, matrix) {
           <button ${page ? '' : 'disabled'} onclick="resetPreviewUrl()">Use review URL</button>
           <button ${reviewPagesEditable(detail.review) ? '' : 'disabled'} onclick="addReviewPage()" title="Fetches this URL of the ListingSource and adds it to the review pages, so the matrix evaluates every schema on it">Add to review pages</button>
         </div>
-        ${previewUrl ? `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>` : ''}
+        ${renderPreviewFrame(page, previewUrl)}
       </div>
       <div class="right-panel">
         <div class="tabs">
@@ -1088,6 +1088,11 @@ function renderSchemaWorkbench(detail, matrix) {
         ${renderWorkbenchPanel(detail, matrix, schemas)}
       </div>
     </div>`;
+}
+
+function renderPreviewFrame(page, previewUrl) {
+    if (!previewUrl) return '';
+    return `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>`;
 }
 
 function previewFrameSrc(page, previewUrl) {
@@ -1916,17 +1921,24 @@ function renderCurrentExtractedData(matrix) {
     if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
     const misses = optionalFieldMisses(page);
     const skips = fieldsWithSkippedElements(page);
-    const findings = pageFindings(page);
-    const checkPlural = findings.length === 1 ? '' : 's';
     // A rejecting plausibility finding fails the page but keeps its extraction, so the
     // reviewer sees the failing check next to the field it concerns.
     return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
       <tr class="${page.apply_ok ? '' : 'failed'}">
         <td>${escapeHtml(displayName(page.role))}</td>
-        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}${skips.length ? ` <span class="badge badge-pending" title="Matched elements without an image URL">${skippedElementCount(page)} skipped</span>` : ''}${findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : ''}</td>
+        <td>${renderPageStatusBadges(page, misses, skips)}</td>
         <td>${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}${page.extracted ? rawDataCell(page.extracted, page) : ''}${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}${renderSkippedElements(skips)}</td>
       </tr>
     </tbody></table></div>`;
+}
+
+function renderPageStatusBadges(page, misses, skips) {
+    const findings = pageFindings(page);
+    const checkPlural = findings.length === 1 ? '' : 's';
+    return `<span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>`
+        + (misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : '')
+        + (skips.length ? ` <span class="badge badge-pending" title="Matched elements without an image URL">${skippedElementCount(page)} skipped</span>` : '')
+        + (findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : '');
 }
 
 function currentMatrixPage(matrix) {
@@ -2887,13 +2899,15 @@ window.addEventListener('message', event => {
     <div class="muted">${escapeHtml(data.tag || '')} ${escapeHtml(sample)}</div>`;
 });
 
-setInterval(async () => {
+async function refreshQueue() {
     try {
         await loadReviews();
     } catch (err) {
         reportQueueFailure(err);
     }
-}, 5000);
+}
+
+setInterval(refreshQueue, 5000);
 
 loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 setSidebarCollapsed(sidebarCollapsed);
