@@ -762,10 +762,6 @@ th {
     font-weight: 700;
 }
 
-tr.failed {
-    background: var(--failed-row-bg);
-}
-
 .data-grid-wrap {
     width: 100%;
     overflow: auto;
@@ -773,30 +769,45 @@ tr.failed {
     border-radius: var(--radius);
 }
 
-.data-grid {
-    min-width: 760px;
+/* The side panel is narrow, so each field's label sits above its value and long values wrap. */
+.extracted-page {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 12px;
 }
 
-.raw-data-grid th:first-child,
-.raw-data-grid td:first-child {
-    width: 135px;
+.extracted-page.failed {
+    background: var(--failed-row-bg);
 }
 
-.raw-data-grid th:nth-child(2),
-.raw-data-grid td:nth-child(2) {
-    width: 92px;
+.extracted-page-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.extracted-page-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
 }
 
 .raw-data {
     display: grid;
-    gap: 7px;
+    gap: 9px;
     margin: 0;
 }
 
 .raw-data > div {
     display: grid;
-    grid-template-columns: 140px minmax(0, 1fr);
-    gap: 10px;
+    gap: 2px;
+    min-width: 0;
 }
 
 .raw-data dt {
@@ -1190,8 +1201,7 @@ a:hover {
 
     .field-grid,
     .selector-box,
-    .diff-row,
-    .raw-data > div {
+    .diff-row {
         grid-template-columns: 1fr;
     }
 }

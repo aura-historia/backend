@@ -34,6 +34,8 @@ let collapsedListingSourceGroups = new Set(JSON.parse(
 let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
+// The page and schema a URL fragment asks for, applied when its review has loaded.
+let requestedSelection = null;
 // The sample labels being edited on the selected URL-pattern review, or null while the stored
 // labels are shown unedited.
 let sampleLabelDraft = null;
@@ -193,12 +195,24 @@ async function loadReviews() {
         api('/api/reviews'),
         api('/api/listing_sources').catch(() => null)
     ]);
-    const list = document.getElementById('reviewList');
-    list.innerHTML = renderDomainsNeedingOperator(listingSources)
+    showQueue(renderDomainsNeedingOperator(listingSources)
         + renderMissingValueSources(listingSources)
-        + renderReviewGroups(reviews);
+        + renderReviewGroups(reviews));
     updateSelectedReviewFreshness(reviews);
     return reviews;
+}
+
+// A refresh that changes nothing leaves the queue's elements alone, and one that does keeps the
+// reviewer's scroll position in it.
+let shownQueueHtml = '';
+
+function showQueue(html) {
+    const list = document.getElementById('reviewList');
+    if (html === shownQueueHtml && list.childElementCount) return;
+    const scrollTop = list.scrollTop;
+    list.innerHTML = html;
+    list.scrollTop = scrollTop;
+    shownQueueHtml = html;
 }
 
 function renderReviewGroups(reviews) {
@@ -420,8 +434,12 @@ function renderReviewQueueItem(r) {
     </div>`;
 }
 
-async function selectReview(id) {
+// `requested` names the page and schema a URL fragment asks for; without it the review opens on
+// its first page and schema.
+async function selectReview(id, requested = null) {
     selectedId = id;
+    requestedSelection = requested;
+    if (selectionFromUrl().reviewId !== id) recordSelectionInUrl();
     dirty = false;
     sampleLabelDraft = null;
     editNotice = null;
@@ -518,10 +536,13 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
         ? 'The candidate was changed elsewhere while the schema matrix was evaluated; it is shown as it is now.'
         : '';
     if (resetSelection) {
-        selectedSchemaIndex = 0;
+        const requested = requestedSelection || {};
+        requestedSelection = null;
+        const pages = detail.pages || [];
+        selectedSchemaIndex = requested.schemaIndex ?? 0;
         compareSchemaIndex = 1;
         selectedField = 'title';
-        selectedPageId = (detail.pages && detail.pages[0] && detail.pages[0].review_page_id) || null;
+        selectedPageId = (pages.find(page => page.review_page_id === requested.pageId) || pages[0])?.review_page_id || null;
         previewUrlOverride = '';
     }
     normalizeSchemaSelection();
@@ -531,7 +552,7 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
 function renderDetail(detail, matrix) {
     const review = detail.review;
     const urls = detail.urls || [];
-    document.getElementById('detail').innerHTML = `
+    const frameKept = writeDetail(`
     <div class="review-page">
       <div id="reviewRefreshBanner" class="refresh-banner" hidden></div>
       <div class="review-topbar">
@@ -560,10 +581,76 @@ function renderDetail(detail, matrix) {
       ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
-    </div>`;
-    if (matrix) postHighlightSoon();
+    </div>`);
+    if (matrix) highlightPreview(frameKept);
+    recordSelectionInUrl();
     updateRefreshBanner();
     updateReloadState();
+}
+
+// Loading the preview fetches the shop page live, sends the shop another request and loses the
+// preview's scroll and picked element, so a render keeps the frame while it shows the same
+// page and replaces only the markup around it. Detaching the frame would reload it too, so it
+// stays in the document while its ancestors take the new attributes and siblings, unless the
+// reviewer asked to load the preview again. Answers whether the frame was kept.
+let previewReloadRequested = false;
+
+function writeDetail(html) {
+    const container = document.getElementById('detail');
+    const fresh = document.createElement('div');
+    fresh.innerHTML = html;
+    const frame = document.getElementById('snapshotFrame');
+    const slot = fresh.querySelector('#snapshotFrame');
+    const reload = previewReloadRequested;
+    previewReloadRequested = false;
+    const kept = Boolean(!reload && frame && slot && frame.getAttribute('src') === slot.getAttribute('src')
+        && graftAroundFrame(container, frame, fresh, slot));
+    if (!kept) container.replaceChildren(...fresh.childNodes);
+    return kept;
+}
+
+// Moves the fresh markup around the live frame, level by level up to the container, when the
+// frame sits in the same element structure in both; otherwise it changes nothing.
+function graftAroundFrame(container, frame, fresh, slot) {
+    const liveAncestors = ancestorsWithin(frame, container);
+    const freshAncestors = ancestorsWithin(slot, fresh);
+    if (!liveAncestors || !freshAncestors || liveAncestors.length !== freshAncestors.length
+        || liveAncestors.some((element, i) => element.tagName !== freshAncestors[i].tagName)) return false;
+    let kept = frame;
+    let replaced = slot;
+    liveAncestors.forEach((live, i) => {
+        const next = freshAncestors[i];
+        if (live !== container) copyAttributes(next, live);
+        for (const child of Array.from(live.childNodes)) {
+            if (child !== kept) child.remove();
+        }
+        const children = Array.from(next.childNodes);
+        const at = children.indexOf(replaced);
+        kept.before(...children.slice(0, at));
+        kept.after(...children.slice(at + 1));
+        kept = live;
+        replaced = next;
+    });
+    return true;
+}
+
+// The element's ancestors from its parent up to and including `root`, or null outside it.
+function ancestorsWithin(element, root) {
+    const ancestors = [];
+    for (let node = element.parentElement; node; node = node.parentElement) {
+        ancestors.push(node);
+        if (node === root) return ancestors;
+    }
+    return null;
+}
+
+function copyAttributes(from, to) {
+    for (const {name} of Array.from(to.attributes)) {
+        if (!from.hasAttribute(name)) to.removeAttribute(name);
+    }
+    for (const {name, value} of Array.from(from.attributes)) {
+        if (to.getAttribute(name) !== value) to.setAttribute(name, value);
+    }
 }
 
 // The stored candidate fails the validation approval applies: the review still shows it so the
@@ -1376,7 +1463,7 @@ function renderSchemaWorkbench(detail, matrix) {
           <button ${page ? '' : 'disabled'} onclick="resetPreviewUrl()">Use review URL</button>
           <button ${reviewPagesEditable(detail.review) ? '' : 'disabled'} onclick="addReviewPage()" title="Fetches this URL of the ListingSource and adds it to the review pages, so the matrix evaluates every schema on it">Add to review pages</button>
         </div>
-        ${previewUrl ? `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>` : ''}
+        ${renderPreviewFrame(page, previewUrl)}
       </div>
       <div class="right-panel">
         <div class="tabs">
@@ -1391,19 +1478,28 @@ function renderSchemaWorkbench(detail, matrix) {
     </div>`;
 }
 
+function renderPreviewFrame(page, previewUrl) {
+    if (!previewUrl) return '';
+    return `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>`;
+}
+
 function previewFrameSrc(page, previewUrl) {
     if (!previewUrlOverride && page) return `/api/review-pages/${page.review_page_id}/inspect`;
     return `/api/live-inspect?url=${encodeURIComponent(previewUrl)}`;
 }
 
+// The reviewer asks for the preview with these buttons, so they load it again even when it
+// already shows that URL, for example after the shop refused the first fetch.
 function loadPreviewUrl() {
     const input = document.getElementById('livePreviewUrl');
     previewUrlOverride = (input && input.value || '').trim();
+    previewReloadRequested = true;
     rerenderWorkbench();
 }
 
 function resetPreviewUrl() {
     previewUrlOverride = '';
+    previewReloadRequested = true;
     rerenderWorkbench();
 }
 
@@ -2217,17 +2313,27 @@ function renderCurrentExtractedData(matrix) {
     if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
     const misses = optionalFieldMisses(page);
     const skips = fieldsWithSkippedElements(page);
-    const findings = pageFindings(page);
-    const checkPlural = findings.length === 1 ? '' : 's';
     // A rejecting plausibility finding fails the page but keeps its extraction, so the
     // reviewer sees the failing check next to the field it concerns.
-    return `<div class="data-grid-wrap"><table class="data-grid raw-data-grid"><thead><tr><th>Page</th><th>Status</th><th>Raw Extracted Data</th></tr></thead><tbody>
-      <tr class="${page.apply_ok ? '' : 'failed'}">
-        <td>${escapeHtml(displayName(page.role))}</td>
-        <td><span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>${misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : ''}${skips.length ? ` <span class="badge badge-pending" title="Matched elements without an image URL">${skippedElementCount(page)} skipped</span>` : ''}${findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : ''}</td>
-        <td>${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}${page.extracted ? rawDataCell(page.extracted, page) : ''}${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}${renderSkippedElements(skips)}</td>
-      </tr>
-    </tbody></table></div>`;
+    return `<section class="extracted-page ${page.apply_ok ? '' : 'failed'}">
+      <div class="extracted-page-head">
+        <strong>${escapeHtml(displayName(page.role))}</strong>
+        <span class="extracted-page-status">${renderPageStatusBadges(page, misses, skips)}</span>
+      </div>
+      ${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}
+      ${page.extracted ? rawDataCell(page.extracted, page) : ''}
+      ${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}
+      ${renderSkippedElements(skips)}
+    </section>`;
+}
+
+function renderPageStatusBadges(page, misses, skips) {
+    const findings = pageFindings(page);
+    const checkPlural = findings.length === 1 ? '' : 's';
+    return `<span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>`
+        + (misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : '')
+        + (skips.length ? ` <span class="badge badge-pending" title="Matched elements without an image URL">${skippedElementCount(page)} skipped</span>` : '')
+        + (findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : '');
 }
 
 function currentMatrixPage(matrix) {
@@ -2714,10 +2820,18 @@ function schemaHighlightRules(schema) {
     return rules;
 }
 
-function postHighlightSoon() {
-    setTimeout(() => {
+// A kept frame takes the highlight at once; a new frame once its page has loaded.
+function highlightPreview(frameKept) {
+    const frame = document.getElementById('snapshotFrame');
+    if (!frame) return;
+    const highlightSelectedField = () => {
         if (activeWorkbenchPanel === 'selector') postHighlight(currentSelector());
-    }, 350);
+    };
+    if (frameKept) {
+        highlightSelectedField();
+    } else {
+        frame.addEventListener('load', highlightSelectedField, {once: true});
+    }
 }
 
 // The review an action panel acts on, as the reviewer finds it in the queue.
@@ -3201,13 +3315,137 @@ window.addEventListener('message', event => {
     <div class="muted">${escapeHtml(data.tag || '')} ${escapeHtml(sample)}</div>`;
 });
 
-setInterval(async () => {
+// The URL fragment names the selected review and, for a schema review, its page and schema, so
+// reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`.
+// A link is untrusted and the review id becomes part of API paths, so only an id of the review
+// id's characters is taken; anything else, such as `/` or `?`, selects no review.
+const REVIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+function selectionFromUrl() {
+    const params = new URLSearchParams(location.hash.slice(1));
+    const review = params.get('review');
+    const schema = params.get('schema');
+    return {
+        reviewId: REVIEW_ID_PATTERN.test(review || '') ? review : null,
+        pageId: params.get('page') || null,
+        schemaIndex: /^\d+$/.test(schema || '') ? Number(schema) : null
+    };
+}
+
+function selectionUrlHash() {
+    if (!selectedId) return '';
+    const params = new URLSearchParams({review: selectedId});
+    if (selectedMatrix && selectedDetail?.review.review_id === selectedId) {
+        if (selectedPageId) params.set('page', selectedPageId);
+        params.set('schema', String(selectedSchemaIndex));
+    }
+    return `#${params}`;
+}
+
+// Selecting another review adds a history entry, so browser back returns to the previous one;
+// a page or schema change within the review only updates the current entry.
+function recordSelectionInUrl() {
+    if (selectionUrlHash() === location.hash) return;
+    if (selectionFromUrl().reviewId === selectedId) {
+        replaceSelectionInUrl();
+    } else {
+        history.pushState(null, '', selectionUrl());
+    }
+}
+
+function replaceSelectionInUrl() {
+    history.replaceState(null, '', selectionUrl());
+}
+
+function selectionUrl() {
+    return selectionUrlHash() || `${location.pathname}${location.search}`;
+}
+
+// Following the URL to another review discards unsaved edits, so it asks first; meanwhile the
+// URL keeps naming the review on screen. Confirming puts the requested URL back into the
+// history entry the browser moved to, so it adds no entry and back and forward keep their order.
+function applySelectionFromUrl() {
+    const requested = selectionFromUrl();
+    if (requested.reviewId === selectedId) {
+        applyRequestedPageAndSchema(requested);
+        return;
+    }
+    const follow = () => requested.reviewId
+        ? selectReview(requested.reviewId, requested)
+        : clearSelectedReview();
+    if (!dirty) return follow();
+    const requestedUrl = location.href;
+    replaceSelectionInUrl();
+    confirmDiscardingEdits(requested.reviewId ? 'Opening another review' : 'Leaving the review', () => {
+        history.replaceState(null, '', requestedUrl);
+        return follow();
+    });
+}
+
+// A review still loading takes the request when it has loaded.
+function applyRequestedPageAndSchema({pageId, schemaIndex}) {
+    if (selectedDetail?.review.review_id !== selectedId) {
+        requestedSelection = {pageId, schemaIndex};
+        return;
+    }
+    if (!selectedMatrix) return;
+    const page = (selectedDetail.pages || []).find(candidate => candidate.review_page_id === pageId);
+    if (page && page.review_page_id !== selectedPageId) {
+        selectedPageId = page.review_page_id;
+        previewUrlOverride = '';
+    }
+    if (schemaIndex !== null) selectedSchemaIndex = schemaIndex;
+    normalizeSchemaSelection();
+    rerenderWorkbench();
+}
+
+function clearSelectedReview() {
+    selectedId = null;
+    selectedDetail = null;
+    selectedMatrix = null;
+    dirty = false;
+    editNotice = null;
+    pendingAction = null;
+    const detail = document.getElementById('detail');
+    detail.textContent = 'Select a review.';
+    updateReloadState();
+    return loadReviews().catch(reportQueueFailure);
+}
+
+window.addEventListener('hashchange', applySelectionFromUrl);
+
+// The queue refreshes calmly and not at all while the tab is hidden; it refreshes at once when
+// the tab is shown again. A refresh only updates the queue, never the selected review.
+const QUEUE_REFRESH_INTERVAL_MS = 15000;
+let queueRefreshTimer = null;
+
+async function refreshQueue() {
+    clearTimeout(queueRefreshTimer);
+    queueRefreshTimer = null;
     try {
         await loadReviews();
     } catch (err) {
         reportQueueFailure(err);
     }
-}, 5000);
+    scheduleQueueRefresh();
+}
+
+function scheduleQueueRefresh() {
+    clearTimeout(queueRefreshTimer);
+    queueRefreshTimer = document.hidden ? null : setTimeout(refreshQueue, QUEUE_REFRESH_INTERVAL_MS);
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        clearTimeout(queueRefreshTimer);
+        queueRefreshTimer = null;
+    } else {
+        refreshQueue();
+    }
+});
+
+scheduleQueueRefresh();
 
 loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 setSidebarCollapsed(sidebarCollapsed);
+if (selectionFromUrl().reviewId) applySelectionFromUrl();
