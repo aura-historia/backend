@@ -822,10 +822,11 @@ mod tests {
 
         #[test]
         fn should_yield_a_blank_value_when_every_matched_attribute_is_blank() {
-            let doc = html("<meta content=\"\"><meta content=\"  \"><meta content=\"\u{a0}\">");
+            let doc = html("<meta content=\"  \"><meta content=\"\"><meta content=\"\u{a0}\">");
             let r = rule("meta", attr_kind("content"), ExtractionCardinality::First);
 
             assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["  "]);
         }
 
         #[test]
@@ -855,9 +856,17 @@ mod tests {
             assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["  "]);
         }
 
-        #[test]
-        fn should_fall_back_past_a_blank_identity_attribute_and_keep_the_value_as_written() {
-            let doc = html("<span data-sku=\" \"></span><span data-sku=\"AB  12\"></span>");
+        /// The identity keeps its value as written, so the blank test, not the layout,
+        /// decides that a non-breaking space is blank.
+        #[rstest]
+        #[case::space(" ")]
+        #[case::non_breaking_space("\u{a0}")]
+        fn should_fall_back_past_a_blank_identity_attribute_and_keep_the_value_as_written(
+            #[case] blank: &str,
+        ) {
+            let doc = html(&format!(
+                "<span data-sku=\"{blank}\"></span><span data-sku=\"AB  12\"></span>"
+            ));
             let r = rule("span", attr_kind("data-sku"), ExtractionCardinality::First);
 
             assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["AB  12"]);
