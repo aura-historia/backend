@@ -913,9 +913,7 @@ function urlPatternView(review, urls, pattern) {
     const preview = urlPatternPreview(pattern, decisionPattern(urlPatternEditOf(review).stored));
     const origin = sampleOrigin(urls);
     const rows = urls.map((u, index) => {
-        const candidateMatch = preview.active
-            ? (preview.regex ? regexTakesUrl(preview.regex, u.url) : null)
-            : u.candidate_pattern_match;
+        const candidateMatch = preview.active ? regexTakesUrl(preview.regex, u.url) : u.candidate_pattern_match;
         const currentProduct = u.current_pattern_match === true;
         const candidateProduct = candidateMatch === true;
         return {
@@ -943,13 +941,15 @@ function urlPatternView(review, urls, pattern) {
 }
 
 // The pattern the browser previews: none while the input holds the saved pattern or nothing, so
-// the view shows the server's classification; `error` when the browser cannot compile it.
+// the view shows the server's classification. Nor while the browser cannot compile the input,
+// which then names the `error`: the counts, the filters and the table keep showing the saved
+// candidate instead of counting every URL as not taken.
 function urlPatternPreview(pattern, savedPattern) {
     if (!pattern || pattern === savedPattern) return {active: false};
     try {
         return {active: true, pattern, regex: new RegExp(pattern)};
     } catch (error) {
-        return {active: true, pattern, error: error.message};
+        return {active: false, pattern, error: error.message};
     }
 }
 
@@ -990,8 +990,8 @@ function renderUrlPatternSummary(review, view) {
       <div class="url-pattern-stats">
         ${urlPatternStat('Sample URLs', counts.all)}
         ${urlPatternStat('Product URLs (current)', counts.current_product)}
-        ${urlPatternStat(candidateLabel, preview.error ? '–' : counts.product)}
-        ${urlPatternStat('Changed URLs', preview.error ? '–' : counts.changed)}
+        ${urlPatternStat(candidateLabel, counts.product)}
+        ${urlPatternStat('Changed URLs', counts.changed)}
       </div>
       <div class="muted" id="urlPatternPreview">${escapeHtml(urlPatternPreviewText(preview))}</div>
     </div>`;
@@ -1008,8 +1008,8 @@ function renderUrlPatternDecision(decision) {
 }
 
 function urlPatternPreviewText(preview) {
+    if (preview.error) return `Invalid pattern: ${preview.error}. The counts and the table show the saved candidate.`;
     if (!preview.active) return 'Server classification of the saved candidate.';
-    if (preview.error) return `Invalid pattern: ${preview.error}`;
     return 'Browser preview of the unsaved pattern; the server validates and classifies it on save.';
 }
 
@@ -1120,8 +1120,10 @@ function renderUrls(review, view) {
     const editable = sampleLabelsEditable(review);
     const labels = currentSampleLabels(review);
     const rows = view.rows.filter(urlRowShown);
-    const candidateHead = view.preview.active ? 'Candidate (preview)' : 'Candidate';
-    return `<div class="data-grid-wrap"><table class="url-table"><thead><tr><th>Path</th><th>Current</th><th>${candidateHead}</th><th>Class</th><th>Label</th></tr></thead><tbody>${
+    // The class comes from the crawler's classifier, which the browser cannot run, so a preview
+    // leaves it as the server classified the saved candidate.
+    const [candidateHead, classHead] = view.preview.active ? ['Candidate (preview)', 'Class (saved)'] : ['Candidate', 'Class'];
+    return `<div class="data-grid-wrap"><table class="url-table"><thead><tr><th>Path</th><th>Current</th><th>${candidateHead}</th><th>${classHead}</th><th>Label</th></tr></thead><tbody>${
         rows.map(row => {
             const label = labels.find(l => l.url === row.url)?.label || '';
             const cell = editable
