@@ -1035,6 +1035,7 @@ fn log_failed_run_frontier(
         crawl_budget_ms = diagnostics.crawl_budget_ms,
         seeds = diagnostics.seeds,
         frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
+        root_reroot = ?diagnostics.root_reroot,
         "Spider run found no product URL among the pages it delivered"
     );
 }
