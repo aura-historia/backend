@@ -515,9 +515,9 @@ impl CrawlerReviewRepository {
                        COUNT(*) FILTER (WHERE url_class = 'product') AS product_urls,
                        COUNT(*) FILTER (WHERE last_error_kind IN ('PendingSchemaReview', 'PendingUrlPatternReview')) AS blocked_urls,
                        COUNT(*) FILTER (WHERE url_class = 'product'
-                                          AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
                                           AND last_error_kind = 'MissingRequiredValue') AS missing_value_urls
                 FROM listing_source_urls
+                WHERE crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
                 GROUP BY listing_source_id
              ) u ON u.listing_source_id = s.listing_source_id
              ORDER BY s.crawl_enabled DESC, COALESCE(d.needs_operator_domains, 0) > 0 DESC,

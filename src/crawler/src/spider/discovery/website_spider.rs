@@ -1306,7 +1306,8 @@ impl SpiderImpl {
             }))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
-        let known_links = known_links(&root_url, &seeds.known);
+        let known_product_links = known_links(&root_url, &seeds.known);
+        let known_links = known_links(&root_url, seeds.known.iter().chain(&seeds.retired));
         let known_link_count = mark_known_links_visited(&mut website, &known_links).await;
 
         let spider_rx = website.subscribe(512);
@@ -1387,7 +1388,7 @@ impl SpiderImpl {
                     let discovery = CrawlDiscovery {
                         frontier: found_links.frontier(&frontier_seeds, &known_links),
                     };
-                    diagnostics.known_skipped = found_links.skipped_known(&known_links);
+                    diagnostics.known_skipped = found_links.skipped_known(&known_product_links);
                     apply_library_outcome(&mut diagnostics, outcome);
                     diagnostics.completion = completion_with_frontier(
                         diagnostics.completion,
@@ -1415,9 +1416,12 @@ impl SpiderImpl {
     }
 }
 
-/// The links of the product URLs an incremental crawl already knows, in both
+/// The links of the stored URLs an incremental crawl does not fetch again, in both
 /// trailing-slash spellings; never the root, which stays crawlable.
-fn known_links(root: &Url, known: &[Url]) -> HashSet<CaseInsensitiveString> {
+fn known_links<'a>(
+    root: &Url,
+    known: impl IntoIterator<Item = &'a Url>,
+) -> HashSet<CaseInsensitiveString> {
     let root_spelling = CaseInsensitiveString::from(root.as_str());
     known_spellings(known)
         .into_iter()
@@ -1543,8 +1547,10 @@ async fn relay_library_pages(
             request_stop(CrawlStopReason::RateLimited);
         }
         // A challenge or a rate-limit answer is not the page: it stays in the
-        // frontier for the next crawl, and its links are not the shop's.
-        if challenge.is_none() && rate_limit_answer.is_none() {
+        // frontier for the next crawl, and neither its links nor its head are
+        // the shop's.
+        let is_page = challenge.is_none() && rate_limit_answer.is_none();
+        if is_page {
             filter.found_links.record_delivered(page.get_url());
             if let Some(page_links) = page.page_links.as_deref() {
                 filter.found_links.record(page.get_url(), page_links);
@@ -1554,7 +1560,11 @@ async fn relay_library_pages(
         match filter.admit(page.get_url()) {
             Ok(url) => {
                 diagnostics.accepted += 1;
-                let identity = filter.identity_of(&url, &page);
+                let identity = if is_page {
+                    filter.identity_of(&url, &page)
+                } else {
+                    PageIdentityEvidence::default()
+                };
                 pending.push_back(CrawledPage::new(url).with_identity(identity));
             }
             Err(rejection) => diagnostics.count_rejection(rejection),
@@ -2636,6 +2646,49 @@ mod tests {
             assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
             assert_eq!(diagnostics.bot_challenge_pages, 1);
         }
+
+        /// A challenge is not the page, so what its head declares never canonicalizes the URL.
+        #[tokio::test]
+        async fn should_deliver_a_challenged_page_without_the_identity_its_head_declares() {
+            let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<html><head><title>Antiques</title></head><body><a href="/en/chair">Chair</a></body></html>"#
+                        .to_string(),
+                ),
+                _ => SiteResponse::Html(
+                    "200 OK",
+                    r#"<html><head><title>Just a moment...</title><link rel="canonical" href="/chair"></head><body></body></html>"#
+                        .to_string(),
+                ),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let SpiderCrawl {
+                mut pages,
+                diagnostics,
+                ..
+            } = spider
+                .crawl_with_body_limit(
+                    CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                    Some("8388608"),
+                )
+                .await
+                .unwrap();
+            let mut identities = std::collections::HashMap::new();
+            while let Some(page) = pages.recv().await {
+                identities.insert(page.url.to_string(), page.identity);
+            }
+            site.finish().await;
+
+            assert_eq!(diagnostics.await.unwrap().bot_challenge_pages, 1);
+            assert_eq!(
+                identities.get("http://example.com/en/chair"),
+                Some(&PageIdentityEvidence::default())
+            );
+        }
     }
 
     #[tokio::test]
@@ -3043,6 +3096,31 @@ mod tests {
         );
         assert_eq!(diagnostics.known_skipped, 1);
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    /// A URL retired as a duplicate is skipped like a known product URL but is no product page
+    /// of its own, so it never counts as one the crawl found linked.
+    #[tokio::test]
+    async fn should_skip_retired_duplicates_without_counting_them_as_known_products() {
+        let site = TestSite::spawn(Arc::new(carried_over_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            known: vec![example("/product/2")],
+            retired: vec![example("/product/1/")],
+            ..CrawlSeeds::default()
+        };
+
+        let (_, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(
+            !requests
+                .iter()
+                .any(|(_, target, ..)| target.starts_with("/product/")),
+            "{requests:?}"
+        );
+        assert_eq!(diagnostics.known_skipped, 1);
         assert!(discovery.frontier.is_empty(), "{discovery:?}");
     }
 

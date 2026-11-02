@@ -1,7 +1,7 @@
 use crawler::review::model::{
-    CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_SEED,
-    PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor, ReviewEventAction,
-    STATUS_PENDING_REVIEW, STATUS_REJECTED, SchemaReviewPageInput,
+    CrawlerReviewPage, ListingSourceOverview, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED,
+    PAGE_ROLE_SEED, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
+    ReviewEventAction, STATUS_PENDING_REVIEW, STATUS_REJECTED, SchemaReviewPageInput,
 };
 use crawler::review::repository::{
     CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewRepositoryError,
@@ -1445,7 +1445,8 @@ async fn should_add_a_missing_value_page_to_the_pending_review_and_need_live_sch
 }
 
 /// The overview counts exactly the pages the console lists: a URL retired as `DUPLICATE` keeps
-/// the outcome its last scrape recorded, but is no page a review can take.
+/// the outcome its last scrape recorded, but is no page a review can take, and no product URL of
+/// its own.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_count_only_the_missing_value_pages_it_lists() {
     let pool = get_postgres_client().await;
@@ -1456,6 +1457,14 @@ async fn should_count_only_the_missing_value_pages_it_lists() {
     for page in [&listed, &retired] {
         record_missing_value_page(&pool, listing_source_id, page.as_str()).await;
     }
+    let overview_of = |sources: Vec<ListingSourceOverview>| {
+        sources
+            .into_iter()
+            .find(|source| source.listing_source_id == listing_source_id)
+            .unwrap()
+    };
+    let product_urls_before =
+        overview_of(repository.list_listing_sources(10).await.unwrap()).product_urls;
     sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
         .bind(retired.as_str())
         .execute(&pool)
@@ -1466,13 +1475,7 @@ async fn should_count_only_the_missing_value_pages_it_lists() {
         .list_missing_value_pages(&listing_source_id)
         .await
         .unwrap();
-    let overview = repository
-        .list_listing_sources(10)
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|source| source.listing_source_id == listing_source_id)
-        .unwrap();
+    let overview = overview_of(repository.list_listing_sources(10).await.unwrap());
 
     assert_eq!(
         pages
@@ -1482,4 +1485,5 @@ async fn should_count_only_the_missing_value_pages_it_lists() {
         vec![listed.as_str()]
     );
     assert_eq!(overview.missing_value_urls, 1);
+    assert_eq!(overview.product_urls, product_urls_before - 1);
 }

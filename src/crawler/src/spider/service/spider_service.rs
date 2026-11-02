@@ -6,14 +6,14 @@ use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
 use crate::spider::classification::url_classifier::UrlClassifier;
-use crate::spider::classification::url_metadata::UrlClass;
+use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
 use crate::spider::classification::url_metadata_repository::{
     DiscoveredUrl, SpiderUrlRecord, UrlMetadataRepository,
 };
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
-use crate::spider::crawl_frontier_repository::CrawlFrontierRepository;
+use crate::spider::crawl_frontier_repository::{CrawlFrontierRepository, KnownUrls};
 use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds};
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
@@ -240,10 +240,14 @@ impl SpiderServiceImpl {
     ) -> Result<CrawlSeeds, SpiderServiceError> {
         let frontier = self.frontier_repository.load_frontier(domain_id).await?;
         let known = match kind {
-            CrawlKind::Full => Vec::new(),
+            CrawlKind::Full => KnownUrls::default(),
             CrawlKind::Incremental => self.frontier_repository.known_urls(domain_id).await?,
         };
-        Ok(CrawlSeeds { frontier, known })
+        Ok(CrawlSeeds {
+            frontier,
+            known: known.products,
+            retired: known.retired,
+        })
     }
 
     /// Keeps what the crawl left unvisited for the domain's next crawl. A failed write leaves
@@ -904,11 +908,16 @@ fn record_pattern_matches(
 
 /// Adds the rows storage keeps as product URLs to `products` by their page spelling. Storage decides
 /// the class, so a page the pattern matches but an operator rejected is no product URL.
+/// Records the product pages a batch stored. A row retired as a duplicate keeps its class but is
+/// no product page of its own: its product is stored under its canonical URL.
 fn record_stored_products(stored: &[SpiderUrlRecord], products: &mut HashSet<Url>) {
     products.extend(
         stored
             .iter()
-            .filter(|record| record.url_class == UrlClass::ProductListing)
+            .filter(|record| {
+                record.url_class == UrlClass::ProductListing
+                    && record.disposition != CrawlerDisposition::Duplicate
+            })
             .map(|record| CrawledUrl::new(record.url.clone()).page_spelling()),
     );
 }
@@ -1063,7 +1072,7 @@ mod service_tests {
             .returning(|_| Box::pin(async { Ok(Vec::new()) }));
         repository
             .expect_known_urls()
-            .returning(|_| Box::pin(async { Ok(Vec::new()) }));
+            .returning(|_| Box::pin(async { Ok(KnownUrls::default()) }));
         repository
             .expect_replace_frontier()
             .returning(|_, _| Box::pin(async { Ok(()) }));
@@ -1195,9 +1204,16 @@ mod service_tests {
         Url::parse(&format!("https://example.com{path}")).unwrap()
     }
 
+    fn known_products() -> KnownUrls {
+        KnownUrls {
+            products: vec![example("/product/9")],
+            ..KnownUrls::default()
+        }
+    }
+
     fn frontier_repository(
         frontier: Vec<Url>,
-        known: Vec<Url>,
+        known: KnownUrls,
         replaced_with: Option<Vec<Url>>,
     ) -> Arc<MockCrawlFrontierRepository> {
         let mut repository = MockCrawlFrontierRepository::new();
@@ -1246,6 +1262,7 @@ mod service_tests {
                 seeds: CrawlSeeds {
                     frontier: vec![example("/deep/1")],
                     known: vec![example("/product/9")],
+                    retired: vec![example("/collections/all/products/9")],
                 },
                 ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
             },
@@ -1261,7 +1278,10 @@ mod service_tests {
             Arc::new(mock_url_repo),
             frontier_repository(
                 vec![example("/deep/1")],
-                vec![example("/product/9")],
+                KnownUrls {
+                    products: vec![example("/product/9")],
+                    retired: vec![example("/collections/all/products/9")],
+                },
                 Some(vec![example("/deep/2")]),
             ),
         );
@@ -1334,7 +1354,7 @@ mod service_tests {
                 Box::new(mock_spider),
                 Box::new(pattern_service),
                 Arc::new(mock_url_repo),
-                frontier_repository(Vec::new(), vec![example("/product/9")], Some(Vec::new())),
+                frontier_repository(Vec::new(), known_products(), Some(Vec::new())),
             );
 
             let result = service
@@ -1376,7 +1396,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(pattern_service),
             Arc::new(mock_url_repo),
-            frontier_repository(Vec::new(), vec![example("/product/9")], None),
+            frontier_repository(Vec::new(), known_products(), None),
         );
 
         let result = service
@@ -1409,7 +1429,7 @@ mod service_tests {
             CrawlRequest {
                 seeds: CrawlSeeds {
                     frontier: vec![example("/deep/1")],
-                    known: Vec::new(),
+                    ..CrawlSeeds::default()
                 },
                 ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
             },
@@ -1421,7 +1441,11 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(pattern_service),
             Arc::new(mock_url_repo),
-            frontier_repository(vec![example("/deep/1")], Vec::new(), Some(Vec::new())),
+            frontier_repository(
+                vec![example("/deep/1")],
+                KnownUrls::default(),
+                Some(Vec::new()),
+            ),
         );
 
         let result = service
@@ -1449,7 +1473,7 @@ mod service_tests {
             CrawlRequest {
                 seeds: CrawlSeeds {
                     frontier: vec![example("/deep/1")],
-                    known: Vec::new(),
+                    ..CrawlSeeds::default()
                 },
                 ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
             },
@@ -1463,7 +1487,7 @@ mod service_tests {
             Box::new(mock_spider),
             Box::new(pattern_service),
             Arc::new(MockUrlMetadataRepository::new()),
-            frontier_repository(vec![example("/deep/1")], Vec::new(), None),
+            frontier_repository(vec![example("/deep/1")], KnownUrls::default(), None),
         );
 
         let result = service
@@ -2608,7 +2632,9 @@ mod service_tests {
 
     /// Crawls the 20 `/item/` pages under a stored `/item/` pattern while storage keeps the
     /// first `kept_other` of them `other`, as it keeps a page an operator rejected.
-    async fn crawl_with_pages_kept_other(kept_other: usize) -> SpiderRunResult {
+    /// A full crawl of `item_pages` whose storage keeps the first `kept_other` pages `other` and
+    /// answers the next `retired` pages with rows retired as duplicates.
+    async fn crawl_with_pages_kept_other(kept_other: usize, retired: usize) -> SpiderRunResult {
         let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
@@ -2622,12 +2648,20 @@ mod service_tests {
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         let kept: Vec<String> = item_pages().into_iter().take(kept_other).collect();
+        let duplicates: Vec<String> = item_pages()
+            .into_iter()
+            .skip(kept_other)
+            .take(retired)
+            .collect();
         mock_url_repo.expect_upsert_links_batch().returning(
             move |listing_source_id, domain_id, links| {
                 let mut stored = stored_as_given(listing_source_id, domain_id, links);
                 for record in &mut stored {
                     if kept.iter().any(|path| path == record.url.path()) {
                         record.url_class = UrlClass::Other;
+                    }
+                    if duplicates.iter().any(|path| path == record.url.path()) {
+                        record.disposition = CrawlerDisposition::Duplicate;
                     }
                 }
                 Box::pin(async move { Ok(stored) })
@@ -2657,10 +2691,20 @@ mod service_tests {
     /// The crawl reports the product URLs storage keeps, not every page the pattern matches.
     #[tokio::test]
     async fn should_count_only_the_product_urls_storage_keeps() {
-        let run_result = crawl_with_pages_kept_other(3).await;
+        let run_result = crawl_with_pages_kept_other(3, 0).await;
 
         assert_eq!(run_result.total_links, 20);
         assert_eq!(run_result.product_urls_count, 17);
+        assert_eq!(run_result.completion, CrawlCompletion::Completed);
+    }
+
+    /// A row retired as a duplicate keeps its product class, but its product is stored under its
+    /// canonical URL, so the crawl does not count it.
+    #[tokio::test]
+    async fn should_not_count_rows_retired_as_duplicates_as_product_urls() {
+        let run_result = crawl_with_pages_kept_other(0, 4).await;
+
+        assert_eq!(run_result.product_urls_count, 16);
         assert_eq!(run_result.completion, CrawlCompletion::Completed);
     }
 
@@ -2669,7 +2713,7 @@ mod service_tests {
     /// inferring a new one.
     #[tokio::test]
     async fn should_keep_the_stored_pattern_when_storage_keeps_every_match_other() {
-        let run_result = crawl_with_pages_kept_other(20).await;
+        let run_result = crawl_with_pages_kept_other(20, 0).await;
 
         assert_eq!(run_result.product_urls_count, 0);
         assert_eq!(run_result.completion, CrawlCompletion::Completed);

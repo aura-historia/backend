@@ -16,6 +16,15 @@ use crate::spider::utils::url::CrawledUrl;
 /// fetched again, which costs requests but loses nothing.
 pub const MAX_KNOWN_URLS: i64 = 100_000;
 
+/// The stored URLs an incremental crawl does not fetch again.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KnownUrls {
+    /// The domain's product URLs, which the crawl reports as known product pages it found linked.
+    pub products: Vec<Url>,
+    /// The URLs retired as duplicates of another, which are no product pages of their own.
+    pub retired: Vec<Url>,
+}
+
 #[async_trait]
 #[mockall::automock]
 pub trait CrawlFrontierRepository: Send + Sync {
@@ -24,8 +33,8 @@ pub trait CrawlFrontierRepository: Send + Sync {
     async fn load_frontier(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error>;
 
     /// The product URLs the domain already stores and the URLs it retired as duplicates, at most
-    /// [`MAX_KNOWN_URLS`].
-    async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error>;
+    /// [`MAX_KNOWN_URLS`] together.
+    async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<KnownUrls, sqlx::Error>;
 
     /// Replaces the domain's frontier with what its latest crawl left unvisited.
     async fn replace_frontier(
@@ -92,9 +101,9 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
             .collect())
     }
 
-    async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error> {
-        let rows = sqlx::query_scalar::<_, String>(
-            "SELECT url FROM listing_source_urls
+    async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<KnownUrls, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (String, bool)>(
+            "SELECT url, crawler_disposition = $3 AS retired FROM listing_source_urls
              WHERE domain_id = $1 AND (url_class = $2 OR crawler_disposition = $3)
              ORDER BY url
              LIMIT $4",
@@ -105,7 +114,15 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
         .bind(MAX_KNOWN_URLS)
         .fetch_all(&self.pool)
         .await?;
-        persisted_urls(rows)
+        let (retired, products): (Vec<_>, Vec<_>) =
+            rows.into_iter().partition(|(_, retired)| *retired);
+        let urls = |rows: Vec<(String, bool)>| {
+            persisted_urls(rows.into_iter().map(|(url, _)| url).collect())
+        };
+        Ok(KnownUrls {
+            products: urls(products)?,
+            retired: urls(retired)?,
+        })
     }
 
     async fn replace_frontier(

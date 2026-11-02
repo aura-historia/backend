@@ -16,7 +16,7 @@ use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use crawler::spider::crawl_frontier_repository::{
-    CrawlFrontierRepository, CrawlFrontierRepositoryImpl,
+    CrawlFrontierRepository, CrawlFrontierRepositoryImpl, KnownUrls,
 };
 use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::CrawlCompletion;
@@ -425,8 +425,11 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
         .unwrap();
     assert_eq!(
         repository.known_urls(&domain_id).await.unwrap(),
-        [url("/collections/all/products/1"), url("/product/1")],
-        "a URL retired as a duplicate is known too"
+        KnownUrls {
+            products: vec![url("/product/1")],
+            retired: vec![url("/collections/all/products/1")],
+        },
+        "a URL retired as a duplicate is known too, but not as a product URL"
     );
 
     insert_product_url(

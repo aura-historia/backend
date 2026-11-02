@@ -58,6 +58,9 @@ pub struct CrawlSeeds {
     pub frontier: Vec<Url>,
     /// URLs the crawl does not fetch: the product URLs an incremental crawl already knows.
     pub known: Vec<Url>,
+    /// URLs the crawl does not fetch either, as the crawler retired them as duplicates of
+    /// another; unlike `known`, never counted as product pages the crawl found linked.
+    pub retired: Vec<Url>,
 }
 
 /// One crawl of a domain.
@@ -291,9 +294,11 @@ pub(super) fn unvisited<'a>(
 
 /// Every spelling under which Spider may meet a page the crawl already knows: a page linked
 /// with and without its trailing slash is one page (`docs/crawler/networking.md#stored-urls`).
-pub(super) fn known_spellings(known: &[Url]) -> Vec<CaseInsensitiveString> {
+pub(super) fn known_spellings<'a>(
+    known: impl IntoIterator<Item = &'a Url>,
+) -> Vec<CaseInsensitiveString> {
     known
-        .iter()
+        .into_iter()
         .flat_map(|url| CrawledUrl::new(url.clone()).page_spellings())
         .map(|url| CaseInsensitiveString::from(url.as_str()))
         .collect()
