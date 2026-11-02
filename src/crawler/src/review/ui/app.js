@@ -3422,7 +3422,9 @@ window.addEventListener('message', event => {
     const data = event.data || {};
     if (data.type !== 'crawler-review-selector-picked') return;
     pickedSelector = data.selector || '';
-    pickedSample = `${data.tag || ''} ${data.text || data.src || data.href || ''}`.trim();
+    // The sample is what the element says, or for an image or link where it points: the selector
+    // already names the tag.
+    pickedSample = data.text ? `“${data.text}”` : `${data.tag || ''} ${data.src || data.href || ''}`.trim();
     const picked = document.getElementById('pickedElement');
     if (picked) picked.outerHTML = renderPickedElement();
 });
