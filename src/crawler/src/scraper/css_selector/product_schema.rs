@@ -228,8 +228,9 @@ impl ProductCssSelectorSchema {
     /// diagnostic (debug, trace for raw attributes) instead of a page error: one page
     /// without a description must not invalidate the schema. A `first` attribute rule
     /// that finds only blank values is no such miss: it yields its first blank value,
-    /// so a blank identity or price reaches the blank plausibility check. Only
-    /// `title` and `state` fail closed on a miss; on empty elements they yield an empty
+    /// so a blank identity, price, description or raw attribute reaches the blank
+    /// plausibility check, which never rejects the candidate for these optional fields.
+    /// Only `title` and `state` fail closed on a miss; on empty elements they yield an empty
     /// value that the blank plausibility check rejects. `images` skips gallery elements
     /// without a value (no image URL candidate, or no attribute of an attribute rule) and
     /// fails closed unless the gallery is empty (see
@@ -413,10 +414,7 @@ impl ProductCssSelectorSchema {
                     .map_err(|source| ApplySchemaError::RawAttribute {
                         field: field.clone(),
                         source,
-                    })?
-                    .into_iter()
-                    .filter(|value| !value.trim().is_empty())
-                    .collect(),
+                    })?,
             );
             if !values.is_empty() {
                 raw_attributes.insert(field.clone(), values);
@@ -660,6 +658,9 @@ mod tests {
         CssSelector, ExtractionCardinality, ExtractionError, ExtractionKind, ExtractionRule,
         HtmlAttributeName, IMAGE_CANDIDATE_SEPARATOR,
     };
+    use crate::scraper::plausibility::{
+        PlausibilityCheck, PlausibilityField, PlausibilityFinding, PlausibilityFindings,
+    };
 
     // -------------------------------------------------------------------------
     // Helpers
@@ -680,6 +681,17 @@ mod tests {
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::All,
+        }
+    }
+
+    fn attr_rule(selector: &str, attr: &str) -> ExtractionRule {
+        ExtractionRule {
+            selector: CssSelector::from(selector),
+            additional_selectors: vec![],
+            extract: ExtractionKind::Attribute {
+                name: HtmlAttributeName::from(attr),
+            },
+            cardinality: ExtractionCardinality::First,
         }
     }
 
@@ -1339,6 +1351,44 @@ mod tests {
             assert_eq!(result.source_listing_id, "Ref:11614A");
             assert_eq!(result.description, vec!["Ref:\n11614\nA"]);
             assert_eq!(result.title, "Pair of Windsor Chairs\nEnglish, c.1830");
+        }
+    }
+
+    /// An identity rule takes its first non-blank item whatever its cardinality.
+    mod blank_identity_items {
+        use super::*;
+
+        fn schema_with_identity(identity: ExtractionRule) -> ProductCssSelectorSchema {
+            ProductCssSelectorSchema {
+                source_listing_id: Some(identity),
+                ..required_only_schema()
+            }
+        }
+
+        #[test]
+        fn should_take_the_next_identity_item_of_an_all_rule_whose_first_item_is_blank() {
+            let html = Html::parse_document(
+                r#"<html><body><span class="sku"> </span><span class="sku">AB  12</span><h1>T</h1><span id="state">ok</span><img src="x.jpg"></body></html>"#,
+            );
+
+            let result = schema_with_identity(text_rule_all(".sku"))
+                .apply(&html)
+                .unwrap();
+
+            assert_eq!(result.source_listing_id, "AB  12");
+        }
+
+        #[test]
+        fn should_extract_a_blank_identity_when_every_item_of_an_all_rule_is_blank() {
+            let html = Html::parse_document(
+                r#"<html><body><span class="sku" data-sku=" "></span><h1>T</h1><span id="state">ok</span><img src="x.jpg"></body></html>"#,
+            );
+
+            let result = schema_with_identity(attr_rule_all(".sku", "data-sku"))
+                .apply(&html)
+                .unwrap();
+
+            assert_eq!(result.source_listing_id, "");
         }
     }
 
@@ -2237,6 +2287,59 @@ mod tests {
         );
         assert!(!result.raw_attributes.contains_key("rawShipmentNote"));
         assert!(!result.raw_attributes.contains_key("rawOriginNote"));
+    }
+
+    /// A `first` attribute rule whose every match is blank yields its blank for the optional
+    /// `description` and raw attributes too, so the blank check reports it, while the page
+    /// still applies.
+    #[test]
+    fn should_extract_the_blank_of_first_attribute_description_and_raw_attribute_rules() {
+        let html = Html::parse_document(
+            r#"<html><head><meta name="description" content="  "><meta name="description" content=""></head><body>
+              <span id="product-id">X</span><h1>Chair</h1><span id="state">ok</span>
+              <img src="/chair.jpg">
+              <span class="year" data-year="&nbsp;"></span>
+              <span class="material" data-material="Oak"></span>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            description: Some(attr_rule("meta[name='description']", "content")),
+            raw_attributes: [
+                ("rawYear".to_string(), attr_rule(".year", "data-year")),
+                (
+                    "rawMaterial".to_string(),
+                    attr_rule(".material", "data-material"),
+                ),
+            ]
+            .into(),
+            ..required_only_schema()
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert_eq!(result.description, vec![""]);
+        assert_eq!(
+            result.raw_attributes,
+            BTreeMap::from([
+                ("rawMaterial".to_string(), vec!["Oak".to_string()]),
+                ("rawYear".to_string(), vec![String::new()]),
+            ])
+        );
+        let findings = PlausibilityFindings::of(&result);
+        assert_eq!(
+            findings.as_slice(),
+            [
+                PlausibilityFinding {
+                    field: PlausibilityField::Description,
+                    check: PlausibilityCheck::Blank,
+                },
+                PlausibilityFinding {
+                    field: PlausibilityField::RawAttribute("rawYear".to_string()),
+                    check: PlausibilityCheck::Blank,
+                },
+            ]
+        );
+        assert!(!findings.rejects_candidate());
     }
 
     #[test]

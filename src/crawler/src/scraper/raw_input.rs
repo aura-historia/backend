@@ -34,7 +34,8 @@ pub(crate) fn capture_source_listing_id(
 /// them, leaves a canonical field it cannot resolve unchanged and reports why. Only a
 /// missing extraction clears a price. `carried_forward_title`, the title the listing was last
 /// captured with, stands in for a title the page left blank; the source payload still shows the
-/// blank one.
+/// blank one. A raw attribute whose rule found only a blank value is left out of the generic raw
+/// values, which keep attributes as given; the source payload still shows it.
 pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     validated_image_urls: &[String],
@@ -49,6 +50,7 @@ pub(crate) fn crawler_raw_input(
     let attributes = raw
         .raw_attributes
         .iter()
+        .filter(|(_, values)| values.iter().any(|value| !value.trim().is_empty()))
         .map(|(key, values)| {
             (
                 key.clone(),
@@ -300,6 +302,35 @@ mod tests {
                     "https://example.com/images/second-fallback-640x480.jpg",
                 ],
             }))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_leave_a_blank_raw_attribute_out_of_the_raw_values_and_keep_it_in_the_source_payload()
+    -> Result<(), NormalizationInputError> {
+        let url = Url::parse("https://example.com/products/1")
+            .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
+        let mut extracted = raw();
+        extracted
+            .raw_attributes
+            .insert("rawMaterial".to_owned(), vec!["Oak".to_owned()]);
+        extracted
+            .raw_attributes
+            .insert("rawYear".to_owned(), vec![String::new()]);
+
+        let input =
+            crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None, None)?;
+
+        assert_eq!(
+            input.raw_values().value().get("attributes"),
+            Some(&serde_json::json!({
+                "rawMaterial": {"action": "SET", "value": ["Oak"]},
+            }))
+        );
+        assert_eq!(
+            input.source_payload().value().get("raw_attributes"),
+            Some(&serde_json::json!({"rawMaterial": ["Oak"], "rawYear": [""]}))
         );
         Ok(())
     }
