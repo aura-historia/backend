@@ -259,7 +259,7 @@ function renderReviewGroups(reviews) {
             <span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span>
             <span class="group-text">
               <span class="group-title-row">
-                <span class="queue-title">${escapeHtml(group.listingSourceName)}</span>
+                <span class="queue-title" title="${escapeHtmlAttr(group.listingSourceName)}">${escapeHtml(group.listingSourceName)}</span>
                 ${pendingCount ? badge(`${pendingCount} pending`, 'pending') : '<span class="queue-meta">Reviewed</span>'}
               </span>
               <span class="queue-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}${group.crawlEnabled ? '' : ' · crawling disabled'}</span>
@@ -2177,7 +2177,7 @@ function renderPlausibilitySummary(matrix) {
     }
     const candidate = selectedCandidate(matrix);
     const failingPages = (candidate?.pages || []).filter(page => pageFindings(page).length > 0);
-    const perPage = failingPages.map(page => `<li><strong>${escapeHtml(displayName(page.role))}</strong><span>${
+    const perPage = failingPages.map(page => `<li><strong>${escapeHtml(displayName(page.role))}</strong>${matrixPagePath(page) ? `<code>${escapeHtml(matrixPagePath(page))}</code> ` : ''}<span>${
         pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join('; ')
     }</span></li>`).join('');
     const pagePlural = failingPages.length === 1 ? '' : 's';
@@ -2498,10 +2498,34 @@ function renderImageCandidateGroup(group) {
     const address = resolvedPageAddress(first);
     const fallbacks = candidates.length - 1;
     const tooltip = escapeHtmlAttr(candidates.map(resolvedPageAddress).join('\n'));
-    const label = escapeHtml(address);
+    const label = escapeHtml(shortImageAddress(address));
     return `<li title="${tooltip}"><div>${/^https?:\/\//i.test(address)
         ? `<a href="${escapeHtmlAttr(address)}" target="_blank" rel="noopener noreferrer">${label}</a>`
         : `<span>${label}</span>`}${fallbacks > 0 ? `<span class="image-fallbacks">+${fallbacks} fallback${fallbacks === 1 ? '' : 's'}</span>` : ''}</div></li>`;
+}
+
+// Image addresses of one shop share their whole prefix, so the list shows host and file name,
+// which tell them apart; the tooltip and the link keep the full address.
+function shortImageAddress(address) {
+    try {
+        const url = new URL(address);
+        const file = url.pathname.split('/').filter(Boolean).pop() || '';
+        return file ? `${url.host}/…/${decodeURIComponent(file)}` : address;
+    } catch (_) {
+        return address;
+    }
+}
+
+// The path of the review page a matrix page was evaluated on, which tells pages of one role apart.
+function matrixPagePath(page) {
+    const reference = page.page_reference;
+    if (reference?.kind !== 'persisted') return '';
+    const reviewPage = (selectedDetail?.pages || []).find(candidate => candidate.review_page_id === reference.review_page_id);
+    try {
+        return reviewPage ? new URL(reviewPage.url).pathname : '';
+    } catch (_) {
+        return '';
+    }
 }
 
 function imageCandidates(group) {

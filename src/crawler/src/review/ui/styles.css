@@ -1214,6 +1214,11 @@ iframe {
     color: var(--ink);
 }
 
+.plausibility-pages code {
+    margin-right: 6px;
+    color: var(--muted);
+}
+
 .extracted-page {
     display: grid;
     gap: var(--s3);
