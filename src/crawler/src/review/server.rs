@@ -5134,8 +5134,12 @@ Origin: http://127.0.0.1:7878/x
         const NOTICE_HTML: &str = "<html><body><h1></h1><p class=\"notice\">This item is no longer available</p></body></html>";
 
         /// A console over a ListingSource on `shop.example` with a live schema and one page that
-        /// recorded `MissingRequiredValue`, whose fetcher serves that page exactly `fetches` times.
-        async fn console(fetches: usize) -> (ReviewServer, ListingSourceId) {
+        /// recorded `MissingRequiredValue`, whose fetcher serves that page exactly `fetches` times,
+        /// from `redirected_to` when the shop redirects it.
+        async fn console(
+            fetches: usize,
+            redirected_to: Option<&'static str>,
+        ) -> (ReviewServer, ListingSourceId) {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             let domain_id = crate::CrawlerDomainId::new();
@@ -5181,8 +5185,9 @@ Origin: http://127.0.0.1:7878/x
             .await
             .unwrap_or_else(|error| panic!("insert live schemas: {error}"));
             let mut fetcher = MockHtmlFetcher::new();
-            fetcher.expect_fetch().times(fetches).returning(|url| {
-                let final_url = url.clone();
+            fetcher.expect_fetch().times(fetches).returning(move |url| {
+                let final_url = redirected_to
+                    .map_or_else(|| url.clone(), |target| url::Url::parse(target).unwrap());
                 Box::pin(async move {
                     Ok(FetchedHtml {
                         html: NOTICE_HTML.to_owned(),
@@ -5208,7 +5213,7 @@ Origin: http://127.0.0.1:7878/x
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_open_a_review_for_a_missing_value_page_and_evaluate_its_template() {
-            let (server, listing_source_id) = console(2).await;
+            let (server, listing_source_id) = console(2, None).await;
             let pages_route =
                 format!("/api/listing-sources/{listing_source_id}/missing-value-pages");
 
@@ -5273,7 +5278,7 @@ Origin: http://127.0.0.1:7878/x
         /// agents, which administer no ListingSource, cannot open a review this way.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_refuse_other_pages_before_fetching_and_agents_altogether() {
-            let (server, listing_source_id) = console(0).await;
+            let (server, listing_source_id) = console(0, None).await;
             let route =
                 format!("POST /api/listing-sources/{listing_source_id}/missing-value-pages/review");
 
@@ -5292,6 +5297,26 @@ Origin: http://127.0.0.1:7878/x
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+        }
+
+        /// A sold page the shop redirects to its homepage is no product page the review takes,
+        /// so the request is refused after the fetch and opens no review.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_open_no_review_for_a_page_the_shop_redirects_off_the_product() {
+            let (server, listing_source_id) = console(1, Some("https://shop.example/")).await;
+
+            let (status, refused) = send(
+                &server,
+                &format!(
+                    "POST /api/listing-sources/{listing_source_id}/missing-value-pages/review"
+                ),
+                &json!({ "url": NOTICE_PAGE }).to_string(),
+            )
+            .await;
+
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
+            let (_, reviews) = send(&server, "GET /api/reviews", "").await;
+            assert_eq!(reviews, json!([]), "a refused page opens no review");
         }
     }
 }
