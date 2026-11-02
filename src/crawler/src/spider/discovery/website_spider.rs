@@ -1302,8 +1302,10 @@ impl SpiderImpl {
         request: CrawlRequest,
         configured_body_limit: Option<&str>,
     ) -> Result<SpiderCrawl, SpiderDiscoveryError> {
-        let max_body_bytes =
-            configured_spider_body_limit(configured_body_limit, self.config.max_response_body_bytes)?;
+        let max_body_bytes = configured_spider_body_limit(
+            configured_body_limit,
+            self.config.max_response_body_bytes,
+        )?;
         let CrawlRequest {
             crawl_root_url,
             pace,
