@@ -834,7 +834,13 @@ impl SpiderServiceImpl {
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
-        let state = self
+        let EndedCrawl {
+            kind,
+            discovery,
+            diagnostics,
+        } = ended;
+        let (kind, discovery) = (*kind, discovery.as_ref());
+        let judged = self
             .judge_delivered_pages(
                 consumed,
                 ended,
@@ -842,22 +848,21 @@ impl SpiderServiceImpl {
                 domain_id,
                 crawl_root_url,
             )
-            .await?;
-        let EndedCrawl {
-            kind,
-            discovery,
-            diagnostics,
-        } = ended;
-        let (kind, discovery) = (*kind, discovery.as_ref());
+            .await;
+        let delivered_pages = judged
+            .as_ref()
+            .map_or_else(SpiderServiceError::found_no_product_urls, |_| true);
+        if delivered_pages {
+            self.replace_frontier_best_effort(domain_id, discovery)
+                .await;
+        }
+        let state = judged?;
         let completion = diagnostics.completion;
 
         let product_pattern = state
             .pattern
             .as_regex()
             .map(|regex| regex.as_str().to_string());
-
-        self.replace_frontier_best_effort(domain_id, discovery)
-            .await;
 
         // `last_crawled` records the last full crawl; a truncated one keeps the
         // domain due so the scheduler can retry it sooner. A full crawl that
@@ -1212,6 +1217,24 @@ mod service_tests {
         paths: Vec<String>,
         discovery: CrawlDiscovery,
     ) {
+        setup_mock_seeded_crawl_with_diagnostics(
+            mock,
+            request,
+            paths,
+            discovery,
+            CrawlDiagnostics::default(),
+        );
+    }
+
+    /// A crawl of `request` that delivers `paths` and reports `diagnostics` and `discovery`
+    /// once it ended.
+    fn setup_mock_seeded_crawl_with_diagnostics(
+        mock: &mut MockSpider,
+        request: CrawlRequest,
+        paths: Vec<String>,
+        discovery: CrawlDiscovery,
+        diagnostics: CrawlDiagnostics,
+    ) {
         mock.expect_crawl()
             .with(mockall::predicate::eq(request))
             .times(1)
@@ -1224,7 +1247,7 @@ mod service_tests {
                     .unwrap();
                 }
                 let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
-                diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
+                diagnostics_tx.send(diagnostics).unwrap();
                 let (discovery_tx, discovery_rx) = oneshot::channel();
                 discovery_tx.send(discovery).unwrap();
                 Box::pin(async {
@@ -1428,12 +1451,13 @@ mod service_tests {
         pattern_service.expect_mark_as_crawled().times(0);
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
         setup_mock_incremental_crawl(&mut mock_spider, listing_pages(), 0);
+        // The run delivered pages, so its failure keeps the frontier it left: none.
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
             Box::new(mock_spider),
             Box::new(pattern_service),
             Arc::new(mock_url_repo),
-            frontier_repository(Vec::new(), known_products(), None),
+            frontier_repository(Vec::new(), known_products(), Some(Vec::new())),
         );
 
         let result = service
@@ -1542,6 +1566,263 @@ mod service_tests {
             result,
             Err(SpiderServiceError::CrawlFailed { .. })
         ));
+    }
+
+    /// A full crawl of a domain whose stored frontier is `/deep/1`, that delivers `paths`, ends
+    /// with `diagnostics` and leaves `/deep/2` unvisited. `replaced` tells whether the run must
+    /// store `/deep/2` as the domain's frontier or leave `/deep/1` in place.
+    async fn run_failing_crawl_with_frontier(
+        paths: Vec<String>,
+        diagnostics: CrawlDiagnostics,
+        pattern_service: MockUrlPatternService,
+        url_repository: MockUrlMetadataRepository,
+        replaced: bool,
+    ) -> SpiderServiceError {
+        let mut spider = MockSpider::new();
+        setup_mock_seeded_crawl_with_diagnostics(
+            &mut spider,
+            CrawlRequest {
+                seeds: CrawlSeeds {
+                    frontier: vec![example("/deep/1")],
+                    ..CrawlSeeds::default()
+                },
+                ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
+            },
+            paths,
+            CrawlDiscovery {
+                frontier: vec![example("/deep/2")],
+            },
+            diagnostics,
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(spider),
+            Box::new(pattern_service),
+            Arc::new(url_repository),
+            frontier_repository(
+                vec![example("/deep/1")],
+                KnownUrls::default(),
+                replaced.then(|| vec![example("/deep/2")]),
+            ),
+        );
+
+        service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                "https://example.com",
+                25,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await
+            .expect_err("the run fails")
+    }
+
+    /// A pattern service for a domain without a stored pattern whose classification of the
+    /// crawl answers `classified`; the failed run records no full crawl.
+    fn classifying_pattern_service(
+        classified: Option<Result<Option<Regex>, UrlPatternServiceError>>,
+    ) -> MockUrlPatternService {
+        let mut service = MockUrlPatternService::new();
+        service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        match classified {
+            Some(classified) => {
+                service
+                    .expect_classify_and_save()
+                    .times(1)
+                    .return_once(move |_, _, _, _, _| Box::pin(async move { classified }));
+            }
+            None => {
+                service.expect_classify_and_save().times(0);
+            }
+        }
+        service.expect_mark_as_crawled().times(0);
+        service
+    }
+
+    fn url_repository_storing(batches: usize) -> MockUrlMetadataRepository {
+        let mut repository = MockUrlMetadataRepository::new();
+        repository
+            .expect_upsert_links_batch()
+            .times(batches)
+            .returning(|listing_source_id, domain_id, links| {
+                let stored = stored_as_given(listing_source_id, domain_id, links);
+                Box::pin(async move { Ok(stored) })
+            });
+        repository
+    }
+
+    /// A run that delivered pages but found no product URL among them keeps what it left
+    /// unvisited, so the next crawl reaches further than this one.
+    #[tokio::test]
+    async fn should_replace_the_frontier_when_a_run_that_delivered_pages_finds_no_product_url() {
+        let no_product_urls = run_failing_crawl_with_frontier(
+            item_pages(),
+            CrawlDiagnostics::default(),
+            classifying_pattern_service(Some(Ok(Some(Regex::new(r"/product/").unwrap())))),
+            url_repository_storing(1),
+            true,
+        )
+        .await;
+        assert!(
+            matches!(no_product_urls, SpiderServiceError::NoProductUrls { .. }),
+            "{no_product_urls:?}"
+        );
+
+        let no_url_pattern = run_failing_crawl_with_frontier(
+            item_pages(),
+            CrawlDiagnostics::default(),
+            classifying_pattern_service(Some(Ok(None))),
+            url_repository_storing(1),
+            true,
+        )
+        .await;
+        assert!(
+            matches!(no_url_pattern, SpiderServiceError::NoUrlPattern { .. }),
+            "{no_url_pattern:?}"
+        );
+
+        let small_sample = run_failing_crawl_with_frontier(
+            vec!["/".to_string(), "/category/1".to_string()],
+            CrawlDiagnostics::default(),
+            classifying_pattern_service(None),
+            url_repository_storing(0),
+            true,
+        )
+        .await;
+        assert!(
+            matches!(
+                small_sample,
+                SpiderServiceError::InsufficientInferenceSample { sample_size: 2, .. }
+            ),
+            "{small_sample:?}"
+        );
+    }
+
+    /// A rate-limit answer that stopped a crawl after it delivered pages does not change the
+    /// frontier rule: the run keeps its frontier, the rate-limited page among it, and still
+    /// carries the answer the scheduler holds the domain for.
+    #[tokio::test]
+    async fn should_replace_the_frontier_and_carry_the_rate_limit_when_a_rate_limited_run_finds_no_product_url()
+     {
+        let rate_limit = RateLimitSignal {
+            status: 429,
+            retry_after: Some(std::time::Duration::from_secs(600)),
+        };
+
+        let error = run_failing_crawl_with_frontier(
+            item_pages(),
+            CrawlDiagnostics {
+                completion: CrawlCompletion::RateLimited(rate_limit),
+                rate_limit: Some(rate_limit),
+                ..CrawlDiagnostics::default()
+            },
+            classifying_pattern_service(Some(Ok(None))),
+            url_repository_storing(1),
+            true,
+        )
+        .await;
+
+        assert_eq!(error.rate_limit(), Some(rate_limit), "{error:?}");
+        assert!(
+            matches!(error.cause(), SpiderServiceError::NoUrlPattern { .. }),
+            "{error:?}"
+        );
+    }
+
+    /// A run that delivered no usable page (a challenged root, a rate limit before any page, an
+    /// empty crawl) leaves the previous frontier in place, whatever its failure kind.
+    #[tokio::test]
+    async fn should_keep_the_previous_frontier_when_the_run_delivered_no_page() {
+        for kind in [
+            CrawlFailureKind::BotProtection,
+            CrawlFailureKind::CloudflareChallenge,
+            CrawlFailureKind::RateLimited,
+            CrawlFailureKind::EmptyCrawl,
+        ] {
+            let error = run_failing_crawl_with_frontier(
+                Vec::new(),
+                CrawlDiagnostics {
+                    failure_kind: Some(kind),
+                    ..CrawlDiagnostics::default()
+                },
+                classifying_pattern_service(None),
+                url_repository_storing(0),
+                false,
+            )
+            .await;
+
+            assert!(
+                matches!(
+                    error,
+                    SpiderServiceError::CrawlFailed { kind: failed, total_links: 0, .. } if failed == kind
+                ),
+                "{error:?}"
+            );
+        }
+    }
+
+    /// A technical failure after the crawl delivered pages is no finding about the shop: the
+    /// run keeps the previous frontier and the next one walks from it again.
+    #[tokio::test]
+    async fn should_keep_the_previous_frontier_when_classifying_the_delivered_pages_fails() {
+        let error = run_failing_crawl_with_frontier(
+            item_pages(),
+            CrawlDiagnostics::default(),
+            classifying_pattern_service(Some(Err(UrlPatternServiceError::Repository(
+                sqlx::Error::PoolTimedOut,
+            )))),
+            url_repository_storing(0),
+            false,
+        )
+        .await;
+
+        assert!(
+            matches!(error, SpiderServiceError::UrlPattern(_)),
+            "{error:?}"
+        );
+    }
+
+    /// A crawl that could not start, such as a root the transport cannot reach, never touches
+    /// the frontier.
+    #[tokio::test]
+    async fn should_keep_the_previous_frontier_when_the_crawl_cannot_start() {
+        let mut spider = MockSpider::new();
+        spider.expect_crawl().times(1).return_once(|_| {
+            Box::pin(async {
+                Err(SpiderDiscoveryError::Preflight {
+                    kind: CrawlFailureKind::ConnectError,
+                    reason: "crawl root unreachable",
+                    source: None,
+                })
+            })
+        });
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(spider),
+            Box::new(classifying_pattern_service(None)),
+            Arc::new(url_repository_storing(0)),
+            frontier_repository(vec![example("/deep/1")], KnownUrls::default(), None),
+        );
+
+        let result = service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                "https://example.com",
+                25,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(SpiderServiceError::Discovery(_))),
+            "{result:?}"
+        );
     }
 
     fn one_product_and_listing_pages() -> Vec<String> {
