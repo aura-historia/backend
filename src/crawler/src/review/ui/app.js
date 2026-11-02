@@ -3003,11 +3003,16 @@ window.addEventListener('message', event => {
 
 // The URL fragment names the selected review and, for a schema review, its page and schema, so
 // reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`.
+// A link is untrusted and the review id becomes part of API paths, so only an id of the review
+// id's characters is taken; anything else, such as `/` or `?`, selects no review.
+const REVIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 function selectionFromUrl() {
     const params = new URLSearchParams(location.hash.slice(1));
+    const review = params.get('review');
     const schema = params.get('schema');
     return {
-        reviewId: params.get('review') || null,
+        reviewId: REVIEW_ID_PATTERN.test(review || '') ? review : null,
         pageId: params.get('page') || null,
         schemaIndex: /^\d+$/.test(schema || '') ? Number(schema) : null
     };
