@@ -446,7 +446,7 @@ fn first_non_empty_text(
     let mut found = SelectorValue::NoElement;
     for element in elements {
         let value = extract_from_element(&element, &ExtractionKind::Text, selector_str, layout)?;
-        if !value.is_empty() {
+        if !is_blank(&value) {
             return Ok(SelectorValue::Value(value));
         }
         found = SelectorValue::OnlyEmptyElements;
@@ -458,11 +458,17 @@ fn first_non_empty_text(
 /// `value`, unless it is empty after trimming: cardinality `all` drops such an item, as
 /// cardinality `first` skips an empty text, so a list never holds a blank value.
 fn non_empty(value: String, css_selector: &CssSelector) -> Result<String, ExtractionError> {
-    if value.trim().is_empty() {
+    if is_blank(&value) {
         Err(empty_value(css_selector))
     } else {
         Ok(value)
     }
+}
+
+/// Whether an extracted value is blank: empty after trimming, non-breaking spaces
+/// included. Text and attribute rules share this test.
+fn is_blank(value: &str) -> bool {
+    value.trim().is_empty()
 }
 
 fn empty_value(css_selector: &CssSelector) -> ExtractionError {
