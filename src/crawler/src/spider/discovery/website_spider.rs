@@ -18,7 +18,9 @@ use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 use url::Url;
 
 use crate::network::CRAWLER_USER_AGENT;
-use crate::network::bot_challenge::{BotChallenge, ChallengeVendor, detect_bot_challenge};
+use crate::network::bot_challenge::{
+    BotChallenge, ChallengeVendor, HardBlock, detect_bot_challenge, detect_hard_block,
+};
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
@@ -1612,6 +1614,12 @@ async fn relay_library_pages(
         }
 
         if !first_page_seen {
+            // A block page refuses the crawl at its root only; below the root it
+            // is the 403 it was answered with, like any other.
+            let hard_block = challenge
+                .is_none()
+                .then(|| detect_hard_block(status_code, page.get_html_bytes_u8()))
+                .flatten();
             apply_library_page(
                 diagnostics,
                 crawl_root_url,
@@ -1621,6 +1629,7 @@ async fn relay_library_pages(
                 RootRefusal {
                     anti_bot_tech: page.anti_bot_tech,
                     challenge,
+                    hard_block,
                 },
             );
             filter.root_redirect_rejected = matches!(
@@ -1692,11 +1701,13 @@ fn page_bot_challenge(status_code: u16, page: &Page) -> Option<BotChallenge> {
 }
 
 /// What says the shop refused the root page: Spider's reading of the vendor
-/// in front of it, and a bot challenge it answered instead of the page.
+/// in front of it, a bot challenge it answered instead of the page, and a
+/// firewall's block page that no challenge passes.
 #[derive(Debug, Clone, Copy)]
 struct RootRefusal {
     anti_bot_tech: AntiBotTech,
     challenge: Option<BotChallenge>,
+    hard_block: Option<HardBlock>,
 }
 
 /// Records the root page Spider delivered: its status, where it ended up and
@@ -1735,7 +1746,10 @@ fn page_diagnostic_signal(
     status_code: u16,
     refusal: RootRefusal,
 ) -> Option<DiagnosticSignal> {
-    anti_bot_signal(status_code, refusal.anti_bot_tech)
+    refusal
+        .hard_block
+        .map(hard_block_signal)
+        .or_else(|| anti_bot_signal(status_code, refusal.anti_bot_tech))
         .or_else(|| refusal.challenge.map(bot_challenge_signal))
         .or_else(|| status_code_signal(status_code))
         .or_else(|| redirect_signal(crawl_root_url, final_url))
@@ -1775,6 +1789,13 @@ fn bot_challenge_signal(challenge: BotChallenge) -> DiagnosticSignal {
             DiagnosticSignal::new(CrawlFailureKind::BotProtection, "bot_challenge_root_page")
         }
     }
+}
+
+/// A root answered with a firewall's block page is denied access: no challenge
+/// passes it, so it takes the access-denied cooldown, not a challenge's, and
+/// keeps precedence over Spider's reading of the same vendor as a challenge.
+fn hard_block_signal(_block: HardBlock) -> DiagnosticSignal {
+    DiagnosticSignal::new(CrawlFailureKind::AccessDenied, "firewall_block_root_page")
 }
 
 fn status_code_signal(status_code: u16) -> Option<DiagnosticSignal> {
@@ -1945,6 +1966,7 @@ mod tests {
             RootRefusal {
                 anti_bot_tech,
                 challenge: None,
+                hard_block: None,
             },
         );
         diagnostics
@@ -2721,6 +2743,98 @@ mod tests {
 
         const CHALLENGE: &str =
             "<html><head><title>Just a moment...</title></head><body></body></html>";
+
+        const BLOCK: &str = "<html><head><title>Attention Required! | Cloudflare</title>\
+</head><body><div id=\"cf-error-details\"><h1>Sorry, you have been blocked</h1>\
+</div></body></html>";
+
+        fn block_page() -> SiteResponse {
+            SiteResponse::HtmlWithHeaders(
+                "403 Forbidden",
+                "server: cloudflare\r\ncf-ray: 8f0a1b2c3d4e5f60-FRA\r\n",
+                BLOCK.to_string(),
+            )
+        }
+
+        /// Cloudflare's block page refuses the crawler outright: access denied with that
+        /// kind's cooldown, never a challenge, even though Spider reads the vendor as one.
+        #[tokio::test]
+        async fn should_deny_access_to_a_crawl_whose_root_answers_a_firewall_block_page() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| block_page())).await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::AccessDenied),
+                "{diagnostics:?}"
+            );
+            assert_eq!(
+                diagnostics.diagnostic_reason.as_deref(),
+                Some("firewall_block_root_page")
+            );
+            assert_eq!(diagnostics.bot_challenge_pages, 0);
+        }
+
+        /// No later crawl passes a block page either, so below the root it is the 403 it was
+        /// answered with: delivered, not left in the frontier to keep the crawl unfinished.
+        #[tokio::test]
+        async fn should_take_a_firewall_block_page_below_the_root_for_its_403() {
+            let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<a href="/chairs">Chairs</a><a href="/tables">Tables</a>"#.to_string(),
+                ),
+                "/chairs" => block_page(),
+                "/tables" => SiteResponse::Html("200 OK", "<h1>Tables</h1>".to_string()),
+                _ => SiteResponse::Html("404 Not Found", String::new()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics, discovery) =
+                run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+            site.finish().await;
+
+            assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
+            assert_eq!(diagnostics.status_counts.client_error, 1, "{diagnostics:?}");
+            assert_eq!(diagnostics.bot_challenge_pages, 0);
+            assert_eq!(
+                diagnostics.completion,
+                CrawlCompletion::Completed,
+                "{diagnostics:?}"
+            );
+            assert!(discovery.frontier.is_empty(), "{discovery:?}");
+        }
+
+        #[tokio::test]
+        async fn should_fail_a_crawl_whose_root_answers_an_aws_waf_captcha_with_405() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+                SiteResponse::HtmlWithHeaders(
+                    "405 Method Not Allowed",
+                    "x-amzn-waf-action: captcha\r\n",
+                    "<html><head><title></title></head><body></body></html>".to_string(),
+                )
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::BotProtection),
+                "{diagnostics:?}"
+            );
+            assert_eq!(diagnostics.http_status, Some(405));
+            assert_eq!(diagnostics.bot_challenge_pages, 1);
+        }
 
         #[tokio::test]
         async fn should_fail_a_crawl_whose_root_answers_a_challenge_with_200_as_that_challenge() {

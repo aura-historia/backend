@@ -2,11 +2,15 @@
 //!
 //! A challenge is a fetch outcome, not a page: it is never extracted, captured or used to judge a
 //! schema. Recognition is conservative so an ordinary page is never taken for one. It needs an
-//! answer a challenge is served with (a success status or 403) and one well-known marker: a
-//! vendor's challenge header, a vendor's challenge-page script or redirect, or the exact title of
-//! a known interstitial on a page small enough to be one. A vendor's name, cookie or ordinary
-//! script on a page is no evidence, because many healthy shops sit behind the same vendors. The
-//! contract is in `docs/crawler/networking.md` (bot challenges).
+//! answer a challenge is served with (a success status or 403, and 405 for AWS WAF's captcha
+//! only) and one well-known marker: a vendor's challenge header, a vendor's challenge-page script
+//! or redirect, or the exact title of a known interstitial on a page small enough to be one. A
+//! vendor's name, cookie or ordinary script on a page is no evidence, because many healthy shops
+//! sit behind the same vendors.
+//!
+//! A firewall's block page is no challenge: no client passes it, so it is recognised apart, as a
+//! [`HardBlock`], and keeps the meaning of the refusal it was answered with. The contract is in
+//! `docs/crawler/networking.md` (bot challenges).
 
 use reqwest::header::HeaderMap;
 
@@ -28,6 +32,14 @@ pub enum ChallengeVendor {
 /// A recognised challenge and the marker that proved it, for logs and failure details.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BotChallenge {
+    pub vendor: ChallengeVendor,
+    pub evidence: &'static str,
+}
+
+/// A firewall's page refusing the client outright, which no challenge passes, and the marker that
+/// proved it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HardBlock {
     pub vendor: ChallengeVendor,
     pub evidence: &'static str,
 }
@@ -78,24 +90,42 @@ const CHALLENGE_BODY_MARKERS: &[(&str, ChallengeVendor, &str)] = &[
         ChallengeVendor::SiteGround,
         "sg_captcha_redirect",
     ),
+    // The key material AWS WAF's challenge and captcha pages hand their own script; a page AWS
+    // WAF lets through carries at most its integration SDK.
+    (
+        "window.gokuprops",
+        ChallengeVendor::AwsWaf,
+        "aws_waf_challenge_page",
+    ),
 ];
 
 /// Exact titles of known interstitials, lowercase with `…` written as `...` and whitespace
 /// collapsed.
 const CHALLENGE_TITLES: &[(&str, ChallengeVendor)] = &[
     ("just a moment...", ChallengeVendor::Cloudflare),
-    (
-        "attention required! | cloudflare",
-        ChallengeVendor::Cloudflare,
-    ),
     ("one moment, please...", ChallengeVendor::Unattributed),
     ("einen moment bitte...", ChallengeVendor::Unattributed),
 ];
 
-/// Whether a response with `status` can be a challenge: shops serve them as a success or as 403.
-/// Other statuses keep their own meaning, such as 429 and 503 asking for less traffic.
+/// The status AWS WAF answers its captcha with. Only AWS WAF's own evidence makes such an answer a
+/// challenge; any other 405 keeps its meaning.
+const AWS_WAF_CAPTCHA_STATUS: u16 = 405;
+
+/// The status a firewall's block page is served with.
+const HARD_BLOCK_STATUS: u16 = 403;
+
+/// The exact title of Cloudflare's block page, normalised as `CHALLENGE_TITLES` writes titles.
+const CLOUDFLARE_BLOCK_TITLE: &str = "attention required! | cloudflare";
+
+/// Lowercase markup that, all together, marks Cloudflare's block page under any title.
+const CLOUDFLARE_BLOCK_MARKERS: [&str; 2] =
+    ["id=\"cf-error-details\"", "sorry, you have been blocked"];
+
+/// Whether a response with `status` can be a challenge: shops serve them as a success or as 403,
+/// and AWS WAF its captcha as 405. Other statuses keep their own meaning, such as 429 and 503
+/// asking for less traffic.
 pub fn may_be_challenge_status(status: u16) -> bool {
-    (200..300).contains(&status) || status == 403
+    (200..300).contains(&status) || status == 403 || status == AWS_WAF_CAPTCHA_STATUS
 }
 
 /// The challenge a response with `status`, `headers` and `body` is, or `None` for every response
@@ -104,7 +134,37 @@ pub fn detect_bot_challenge(status: u16, headers: &HeaderMap, body: &[u8]) -> Op
     if !may_be_challenge_status(status) {
         return None;
     }
-    challenge_from_headers(headers).or_else(|| challenge_from_body(body))
+    challenge_from_headers(headers)
+        .or_else(|| challenge_from_body(body))
+        .filter(|challenge| {
+            status != AWS_WAF_CAPTCHA_STATUS || challenge.vendor == ChallengeVendor::AwsWaf
+        })
+}
+
+/// The firewall block page a `403` with `body` is, or `None` for every response that is not
+/// provably one. A page that is a challenge, which can be passed, is never a block.
+pub fn detect_hard_block(status: u16, body: &[u8]) -> Option<HardBlock> {
+    if status != HARD_BLOCK_STATUS {
+        return None;
+    }
+    let text = small_page_text(body)?;
+    if challenge_from_text(&text).is_some() {
+        return None;
+    }
+    let evidence = if normalized_title(&text).as_deref() == Some(CLOUDFLARE_BLOCK_TITLE) {
+        "cloudflare_block_title"
+    } else if CLOUDFLARE_BLOCK_MARKERS
+        .iter()
+        .all(|marker| text.contains(marker))
+    {
+        "cloudflare_block_page"
+    } else {
+        return None;
+    };
+    Some(HardBlock {
+        vendor: ChallengeVendor::Cloudflare,
+        evidence,
+    })
 }
 
 fn challenge_from_headers(headers: &HeaderMap) -> Option<BotChallenge> {
@@ -125,11 +185,17 @@ fn challenge_from_headers(headers: &HeaderMap) -> Option<BotChallenge> {
         })
 }
 
+/// The lowercase text of `body`, when it is small enough to be a challenge or block page.
+fn small_page_text(body: &[u8]) -> Option<String> {
+    (body.len() <= MAX_CHALLENGE_BODY_BYTES).then(|| String::from_utf8_lossy(body).to_lowercase())
+}
+
 fn challenge_from_body(body: &[u8]) -> Option<BotChallenge> {
-    if body.len() > MAX_CHALLENGE_BODY_BYTES {
-        return None;
-    }
-    let text = String::from_utf8_lossy(body).to_lowercase();
+    challenge_from_text(&small_page_text(body)?)
+}
+
+/// The challenge lowercase page `text` is by its markup or title.
+fn challenge_from_text(text: &str) -> Option<BotChallenge> {
     if let Some((_, vendor, evidence)) = CHALLENGE_BODY_MARKERS
         .iter()
         .find(|(marker, _, _)| text.contains(marker))
@@ -139,7 +205,7 @@ fn challenge_from_body(body: &[u8]) -> Option<BotChallenge> {
             evidence,
         });
     }
-    let title = normalized_title(&text)?;
+    let title = normalized_title(text)?;
     CHALLENGE_TITLES
         .iter()
         .find(|(known, _)| *known == title)
@@ -190,6 +256,26 @@ document.getElementsByTagName('head')[0].appendChild(a);}());</script></body></h
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js"></script></head>
 <body><h1>Georgian Mahogany Chest c.1820</h1><p>Just a moment... of your time to admire this chest.</p>
 <span class="price">£2,400</span></body></html>"#;
+
+    /// AWS WAF's captcha page, served with 405 when a rule's action is CAPTCHA.
+    const AWS_WAF_CAPTCHA: &str = r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title></title>
+<script>window.awsWafCookieDomainList = [];
+window.gokuProps = {"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AE","iv":"CgAHJCJ+eAAAAQBk","context":"d2bE5d0Zp1"};</script>
+<script src="https://3cc1b8a2c1c5.edge.captcha-sdk.awswaf.com/3cc1b8a2c1c5/jsapi.js"></script></head>
+<body><div id="captcha-container"></div>
+<script>AwsWafCaptcha.renderCaptcha(document.getElementById("captcha-container"), {apiKey: window.gokuProps.key});</script>
+</body></html>"#;
+
+    /// Cloudflare's block page for a request a firewall rule refused (error 1020).
+    const CLOUDFLARE_BLOCK: &str = r#"<!DOCTYPE html><html class="no-js" lang="en-US"><head>
+<title>Attention Required! | Cloudflare</title><meta charset="UTF-8" />
+<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/cf.errors.css" /></head>
+<body><div id="cf-wrapper"><div id="cf-error-details" class="cf-error-details-wrapper">
+<h1 data-translate="block_headline">Sorry, you have been blocked</h1>
+<h2 class="cf-subheadline"><span data-translate="unable_to_access">You are unable to access</span> shop.example</h2>
+<p>This website is using a security service to protect itself from online attacks.</p>
+<span class="cf-footer-item">Cloudflare Ray ID: <strong>8f0a1b2c3d4e5f60</strong></span></div></div></body></html>"#;
 
     fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -263,6 +349,17 @@ document.getElementsByTagName('head')[0].appendChild(a);}());</script></body></h
         }
 
         #[test]
+        fn should_recognise_an_aws_waf_captcha_answered_with_405() {
+            let by_header = detect(405, &[("x-amzn-waf-action", "captcha")], "").unwrap();
+            assert_eq!(by_header.vendor, ChallengeVendor::AwsWaf);
+            assert_eq!(by_header.evidence, "aws_waf_action_header");
+
+            let by_body = detect(405, &[("server", "awselb/2.0")], AWS_WAF_CAPTCHA).unwrap();
+            assert_eq!(by_body.vendor, ChallengeVendor::AwsWaf);
+            assert_eq!(by_body.evidence, "aws_waf_challenge_page");
+        }
+
+        #[test]
         fn should_read_the_title_with_entities_and_spacing() {
             let page =
                 "<html><head><TITLE>\n  One moment,&nbsp;please&hellip; </TITLE></head></html>";
@@ -314,6 +411,32 @@ document.getElementsByTagName('head')[0].appendChild(a);}());</script></body></h
         }
 
         #[test]
+        fn should_not_take_an_ordinary_405_for_a_challenge() {
+            let method_not_allowed = "<html><head><title>405 Method Not Allowed</title></head>\
+<body><h1>Method Not Allowed</h1></body></html>";
+            assert_eq!(detect(405, &[("allow", "POST")], method_not_allowed), None);
+            assert_eq!(detect(405, &[("x-amzn-waf-action", "allow")], ""), None);
+        }
+
+        #[test]
+        fn should_read_only_aws_waf_evidence_on_a_405() {
+            assert_eq!(
+                detect(405, &[("cf-mitigated", "challenge")], CLOUDFLARE_CHALLENGE),
+                None
+            );
+            assert_eq!(detect(405, &[], GERMAN_BOT_CHECK), None);
+            assert_eq!(detect(405, &[], SITEGROUND_CAPTCHA), None);
+        }
+
+        #[test]
+        fn should_not_take_an_aws_waf_protected_page_for_a_challenge() {
+            let page = r#"<html><head><title>Walnut Bureau</title>
+<script type="text/javascript" src="https://3cc1b8a2c1c5.edge.sdk.awswaf.com/3cc1b8a2c1c5/challenge.js" defer></script>
+<script>AwsWafIntegration.saveReferrer();</script></head><body><h1>Walnut Bureau</h1></body></html>"#;
+            assert_eq!(detect(200, &[], page), None);
+        }
+
+        #[test]
         fn should_not_take_a_header_without_a_challenge_value_for_a_challenge() {
             assert_eq!(detect(403, &[("cf-mitigated", "block")], ""), None);
             assert_eq!(detect(200, &[("x-amzn-waf-action", "allow")], ""), None);
@@ -326,6 +449,71 @@ document.getElementsByTagName('head')[0].appendChild(a);}());</script></body></h
                 "<p>catalogue</p>".repeat(MAX_CHALLENGE_BODY_BYTES / 16 + 1)
             );
             assert_eq!(detect(200, &[], &large), None);
+        }
+    }
+
+    mod hard_blocks {
+        use super::*;
+
+        #[test]
+        fn should_recognise_a_cloudflare_block_page_as_a_hard_block_not_a_challenge() {
+            assert_eq!(
+                detect_hard_block(403, CLOUDFLARE_BLOCK.as_bytes()),
+                Some(HardBlock {
+                    vendor: ChallengeVendor::Cloudflare,
+                    evidence: "cloudflare_block_title",
+                })
+            );
+            assert_eq!(
+                detect(403, &[("server", "cloudflare")], CLOUDFLARE_BLOCK),
+                None
+            );
+        }
+
+        #[test]
+        fn should_recognise_a_cloudflare_block_page_under_another_title() {
+            let page = CLOUDFLARE_BLOCK.replace(
+                "Attention Required! | Cloudflare",
+                "shop.example | Access denied",
+            );
+            assert_eq!(
+                detect_hard_block(403, page.as_bytes()).map(|block| block.evidence),
+                Some("cloudflare_block_page")
+            );
+        }
+
+        #[test]
+        fn should_keep_a_passable_cloudflare_challenge_a_challenge() {
+            let captcha = CLOUDFLARE_CHALLENGE
+                .replace("Just a moment...", "Attention Required! | Cloudflare");
+            assert_eq!(detect_hard_block(403, captcha.as_bytes()), None);
+            assert_eq!(
+                detect(403, &[], &captcha).map(|challenge| challenge.vendor),
+                Some(ChallengeVendor::Cloudflare)
+            );
+            assert_eq!(
+                detect_hard_block(403, CLOUDFLARE_CHALLENGE.as_bytes()),
+                None
+            );
+        }
+
+        #[test]
+        fn should_not_take_other_answers_for_a_hard_block() {
+            for status in [200, 405, 429, 503] {
+                assert_eq!(
+                    detect_hard_block(status, CLOUDFLARE_BLOCK.as_bytes()),
+                    None,
+                    "{status}"
+                );
+            }
+            let forbidden = "<html><head><title>403 Forbidden</title></head>\
+<body><h1>Forbidden</h1><p>Sorry, you have been blocked from this area.</p></body></html>";
+            assert_eq!(detect_hard_block(403, forbidden.as_bytes()), None);
+            let large = format!(
+                "{CLOUDFLARE_BLOCK}{}",
+                "<p>catalogue</p>".repeat(MAX_CHALLENGE_BODY_BYTES / 16 + 1)
+            );
+            assert_eq!(detect_hard_block(403, large.as_bytes()), None);
         }
     }
 }

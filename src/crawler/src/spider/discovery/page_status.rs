@@ -40,8 +40,9 @@ impl StatusCounts {
     }
 }
 
-/// A page answer that asks the crawler for less traffic: 429, or 503, the
-/// two statuses RFC 9110 pairs with `Retry-After` as a wait request.
+/// A page answer that asks the crawler for less traffic: a 429, or a 503 the
+/// shop sent with a wait request, the two statuses RFC 9110 pairs with
+/// `Retry-After`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RateLimitSignal {
     pub status: u16,
@@ -49,19 +50,37 @@ pub struct RateLimitSignal {
     pub retry_after: Option<Duration>,
 }
 
+/// Headers whose value `0` says the client's request quota is spent: the
+/// IETF draft's `RateLimit-Remaining` and its common `X-` predecessor.
+const QUOTA_REMAINING_HEADERS: [&str; 2] = ["ratelimit-remaining", "x-ratelimit-remaining"];
+
 impl RateLimitSignal {
+    /// The rate-limit answer a page with `status` and the response `headers`
+    /// is. `headers` is `None` for a status Spider synthesized for a page it
+    /// could not fetch, which is never the shop's answer. A 503 also means
+    /// overload or maintenance, so it is a rate-limit answer only with a wait
+    /// request: a `Retry-After` header, usable or not, or a spent quota.
     pub fn from_page(status: u16, headers: Option<&HeaderMap>) -> Option<Self> {
-        if !matches!(status, 429 | 503) {
-            return None;
-        }
-        let retry_after = headers
-            .and_then(|headers| headers.get(RETRY_AFTER))
-            .and_then(parse_retry_after);
-        Some(Self {
+        let headers = headers?;
+        let asks_to_wait = match status {
+            429 => true,
+            503 => headers.contains_key(RETRY_AFTER) || quota_spent(headers),
+            _ => false,
+        };
+        asks_to_wait.then(|| Self {
             status,
-            retry_after,
+            retry_after: headers.get(RETRY_AFTER).and_then(parse_retry_after),
         })
     }
+}
+
+fn quota_spent(headers: &HeaderMap) -> bool {
+    QUOTA_REMAINING_HEADERS.iter().any(|name| {
+        headers
+            .get(*name)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.trim() == "0")
+    })
 }
 
 #[cfg(test)]
@@ -95,25 +114,74 @@ mod tests {
         );
     }
 
-    #[test]
-    fn should_signal_only_429_and_503_pages() {
-        for status in [200, 301, 403, 404, 500, 502, 504] {
-            assert_eq!(RateLimitSignal::from_page(status, None), None, "{status}");
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in pairs {
+            headers.insert(*name, HeaderValue::from_static(value));
         }
+        headers
+    }
+
+    fn signal(status: u16, retry_after: Option<Duration>) -> Option<RateLimitSignal> {
+        Some(RateLimitSignal {
+            status,
+            retry_after,
+        })
+    }
+
+    #[test]
+    fn should_signal_a_429_the_shop_answered() {
         assert_eq!(
-            RateLimitSignal::from_page(429, None),
-            Some(RateLimitSignal {
-                status: 429,
-                retry_after: None,
-            })
+            RateLimitSignal::from_page(429, Some(&HeaderMap::new())),
+            signal(429, None)
         );
+    }
+
+    #[test]
+    fn should_not_signal_other_statuses_even_with_a_retry_after() {
+        let headers = headers_with_retry_after("60");
+        for status in [200, 301, 403, 404, 500, 502, 504] {
+            assert_eq!(
+                RateLimitSignal::from_page(status, Some(&headers)),
+                None,
+                "{status}"
+            );
+        }
+    }
+
+    /// Spider builds a page without headers for a request that got no answer,
+    /// and gives it a synthetic status such as 503 for an unreachable request.
+    #[test]
+    fn should_not_signal_a_status_spider_synthesized() {
+        assert_eq!(RateLimitSignal::from_page(503, None), None);
+        assert_eq!(RateLimitSignal::from_page(429, None), None);
+    }
+
+    #[test]
+    fn should_not_signal_a_plain_503_without_a_wait_request() {
+        let maintenance = headers(&[("content-type", "text/html"), ("server", "nginx")]);
+        assert_eq!(RateLimitSignal::from_page(503, Some(&maintenance)), None);
+
+        let quota_left = headers(&[("x-ratelimit-remaining", "12")]);
+        assert_eq!(RateLimitSignal::from_page(503, Some(&quota_left)), None);
+    }
+
+    #[test]
+    fn should_signal_a_503_with_a_retry_after_or_a_spent_quota() {
+        let headers_with_wait = headers_with_retry_after("120");
         assert_eq!(
-            RateLimitSignal::from_page(503, None),
-            Some(RateLimitSignal {
-                status: 503,
-                retry_after: None,
-            })
+            RateLimitSignal::from_page(503, Some(&headers_with_wait)),
+            signal(503, Some(Duration::from_secs(120)))
         );
+        for name in ["ratelimit-remaining", "x-ratelimit-remaining"] {
+            let mut spent = HeaderMap::new();
+            spent.insert(name, HeaderValue::from_static(" 0"));
+            assert_eq!(
+                RateLimitSignal::from_page(503, Some(&spent)),
+                signal(503, None),
+                "{name}"
+            );
+        }
     }
 
     #[test]
@@ -121,19 +189,13 @@ mod tests {
         let headers = headers_with_retry_after("1800");
         assert_eq!(
             RateLimitSignal::from_page(429, Some(&headers)),
-            Some(RateLimitSignal {
-                status: 429,
-                retry_after: Some(Duration::from_secs(1800)),
-            })
+            signal(429, Some(Duration::from_secs(1800)))
         );
 
         let headers = headers_with_retry_after("soon");
         assert_eq!(
             RateLimitSignal::from_page(503, Some(&headers)),
-            Some(RateLimitSignal {
-                status: 503,
-                retry_after: None,
-            })
+            signal(503, None)
         );
     }
 }
