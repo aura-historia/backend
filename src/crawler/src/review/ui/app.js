@@ -980,6 +980,16 @@ function urlOrigin(url) {
     }
 }
 
+// Only an http(s) URL becomes a link, as `linkifyText` links them: the console's policy runs
+// inline script, so a `javascript:` URL from a shop must never reach an href.
+function isHttpUrl(url) {
+    try {
+        return ['http:', 'https:'].includes(new URL(url).protocol);
+    } catch (_) {
+        return false;
+    }
+}
+
 function relativeToOrigin(url, origin) {
     if (!origin || urlOrigin(url) !== origin) return url;
     return url.slice(origin.length) || '/';
@@ -1139,8 +1149,11 @@ function renderUrls(review, view) {
             const cell = editable
                 ? renderSampleLabelSelect(label, `setSampleLabelOfSampleUrl(${row.index}, this.value)`, true)
                 : (label ? statusBadge(label) : '');
+            const path = isHttpUrl(row.url)
+                ? `<a class="product-url" href="${escapeHtmlAttr(row.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(row.url)}">${escapeHtml(row.path)}</a>`
+                : escapeHtml(row.path);
             return `<tr class="${row.changed ? 'url-row-changed' : ''}">
-              <td><a class="product-url" href="${escapeHtmlAttr(row.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(row.url)}">${escapeHtml(row.path)}</a></td>
+              <td>${path}</td>
               <td>${patternMatchIcon(row.currentMatch)}</td>
               <td>${patternMatchIcon(row.candidateMatch)}</td>
               <td>${row.candidateClass ? badge(displayName(row.candidateClass), row.candidateClass === 'product' ? 'approved' : undefined) : ''}</td>
