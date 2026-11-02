@@ -1107,14 +1107,19 @@ iframe {
     font-family: var(--mono);
 }
 
-.raw-attribute-adder {
+.raw-attribute-card {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
     gap: var(--s2);
 }
 
-.raw-attribute-adder label, .raw-attribute-adder select {
+.raw-attribute-adder {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--s2);
+}
+
+.raw-attribute-adder select {
     width: 100%;
     min-width: 0;
 }

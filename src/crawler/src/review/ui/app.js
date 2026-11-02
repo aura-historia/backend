@@ -1570,12 +1570,9 @@ function renderSelectorPanel(schemas, matrix) {
       ${renderSchemaOrderControls(schemas, disabled)}
       <section class="panel-section">
         <h3>Field</h3>
-        <label>Field
-          <select id="selectedFieldSelect" onchange="selectedField=this.value; rerenderWorkbench()">
-            ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
-          </select>
-        </label>
-        ${renderRawAttributeAdder(disabled)}
+        <select id="selectedFieldSelect" aria-label="Field" onchange="selectedField=this.value; rerenderWorkbench()">
+          ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
+        </select>
         <label>Selector
           <span class="selector-box">
             <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
@@ -1591,6 +1588,7 @@ function renderSelectorPanel(schemas, matrix) {
         ${renderPickedElement()}
         ${renderRuleOptions(rule)}
         ${renderAdditionalSelectors(rule)}
+        ${renderRawAttributeAdder(disabled)}
       </section>
       <section class="panel-section">
         <h3>Highlight legend</h3>
@@ -1606,16 +1604,17 @@ function renderRawAttributeAdder(disabled) {
     const available = (rawAttributeKeys || []).filter(entry => !configured.has(entry.key));
     if (!available.length) return '';
     const groups = [...new Set(available.map(entry => entry.group))];
-    return `<div class="raw-attribute-adder">
-      <label>Raw attribute
-        <select id="newRawAttributeKey" ${disabled}>
+    return `<div class="raw-attribute-card">
+      <h4 title="A registry key the schema does not configure yet; adding it selects it as the field to edit">Raw attributes</h4>
+      <div class="raw-attribute-adder">
+        <select id="newRawAttributeKey" aria-label="Raw attribute key" ${disabled}>
           ${groups.map(group => `<optgroup label="${escapeHtmlAttr(displayName(group))}">${
             available.filter(entry => entry.group === group).map(entry =>
                 `<option value="${escapeHtmlAttr(entry.key)}" title="${escapeHtmlAttr(entry.description)}">${escapeHtml(entry.key)}</option>`
             ).join('')}</optgroup>`).join('')}
         </select>
-      </label>
-      <button ${disabled} onclick="addRawAttribute()" title="Starts from the clicked element when one is picked; save the field to store it">Add raw attribute</button>
+        <button ${disabled} onclick="addRawAttribute()" title="Starts from the clicked element when one is picked; save the field to store it">Add raw attribute</button>
+      </div>
     </div>`;
 }
 
