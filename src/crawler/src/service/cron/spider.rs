@@ -145,12 +145,13 @@ fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownPro
     crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile)
 }
 
-/// Consecutive same-kind failures after which a domain stops retrying and
-/// waits for an operator. Only failures that need a site or configuration
-/// change (the recoverable profile) escalate: with two short retries and
-/// then the long cooldown, the fifth failure comes about a week after the
-/// first. Transient failures keep retrying because the site may recover,
-/// durable blocks already cool for a month.
+/// Consecutive failures of one streak ([`continues_failure_streak`]) after
+/// which a domain stops retrying and waits for an operator. Only failures
+/// that need a site or configuration change (the recoverable profile)
+/// escalate: with two short retries and then the long cooldown, the fifth
+/// failure comes about a week after the first. Transient failures keep
+/// retrying because the site may recover, durable blocks already cool for a
+/// month.
 const NEEDS_OPERATOR_FAILURE_COUNT: i32 = 5;
 
 fn needs_operator(error: &SpiderServiceError, failure_count: i32) -> bool {
@@ -489,7 +490,7 @@ async fn record_run_stopped_for_operator(
         error = %error.cause(),
         error_kind,
         failure_count,
-        "Spider run failed repeatedly with the same kind; domain waits for an operator"
+        "Spider run kept failing; domain waits for an operator"
     );
     SpiderSlotStatus::StoppedForOperator
 }

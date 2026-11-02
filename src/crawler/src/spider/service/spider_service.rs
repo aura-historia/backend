@@ -1019,8 +1019,9 @@ fn log_crawl_outcome(
     );
 }
 
-/// The frontier a run that found no product URL left for the next crawl; the scheduler logs the
-/// failure itself.
+/// The frontier a run that found no product URL left for the next crawl: `frontier_left` is
+/// absent when the crawl could not tell it, and a failed write is logged on its own. The
+/// scheduler logs the failure itself.
 fn log_failed_run_frontier(
     error: &SpiderServiceError,
     diagnostics: &CrawlDiagnostics,
@@ -1032,7 +1033,7 @@ fn log_failed_run_frontier(
         crawl_budget_ms = diagnostics.crawl_budget_ms,
         seeds = diagnostics.seeds,
         frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
-        "Spider run found no product URL; keeping the frontier it left for the next crawl"
+        "Spider run found no product URL among the pages it delivered"
     );
 }
 
