@@ -1920,7 +1920,7 @@ mod tests {
     use crate::network::robots::RobotsRules;
     use crate::spider::discovery::frontier::CrawlSeeds;
     use crate::spider::discovery::root_host;
-    use crate::spider::utils::url::canonical::ShopPlatform;
+    use crate::spider::utils::url::canonical::{ShopPlatform, canonical_product_url};
     use std::collections::HashSet;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2356,6 +2356,75 @@ mod tests {
             identities.get("http://example.com/products/old"),
             Some(&PageIdentityEvidence::default())
         );
+    }
+
+    /// The crawl's robots.txt decides whether a collection page names its Shopify product URL:
+    /// where robots.txt disallows `/products/`, no rule moves the page, which is stored as
+    /// fetched (`docs/crawler/networking.md#canonical-product-urls`).
+    #[tokio::test]
+    async fn should_apply_the_shopify_rule_only_where_robots_txt_allows_the_product_url() {
+        let pattern = regex::Regex::new(r"/products/[^/]+$").unwrap();
+        for (robots, expected) in [
+            (
+                "User-agent: *\nDisallow: /cart\n",
+                Some("http://example.com/products/ladle"),
+            ),
+            ("User-agent: *\nDisallow: /products/\n", None),
+        ] {
+            // The collection page names no canonical link, so only the Shopify rule can move it.
+            let site = TestSite::spawn(Arc::new(move |target: &str, _| match target {
+                "/robots.txt" => SiteResponse::Html("200 OK", robots.to_string()),
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<a href="/collections/all/products/ladle">Ladle</a>"#.to_string(),
+                ),
+                "/collections/all/products/ladle" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<!doctype html><html><head>
+                       <script>Shopify.shop = "shop.myshopify.com";</script>
+                       </head><body></body></html>"#
+                        .to_string(),
+                ),
+                _ => SiteResponse::Html("404 Not Found", String::new()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let SpiderCrawl { mut pages, .. } = spider
+                .crawl_with_body_limit(
+                    CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                    Some("8388608"),
+                )
+                .await
+                .unwrap();
+            let mut collection_page = None;
+            while let Some(page) = pages.recv().await {
+                if page.url.as_url().path() == "/collections/all/products/ladle" {
+                    collection_page = Some(page);
+                }
+            }
+            site.finish().await;
+
+            let page = collection_page.expect("collection page delivered");
+            assert_eq!(
+                canonical_product_url(
+                    &page.url,
+                    &page.identity,
+                    Some(ShopPlatform::Shopify),
+                    &pattern
+                )
+                .map(|url| url.to_string())
+                .as_deref(),
+                expected,
+                "{robots}"
+            );
+            assert_eq!(
+                page.identity.platform_product_urls.is_empty(),
+                expected.is_none(),
+                "{robots}"
+            );
+        }
     }
 
     fn entity_encoded_href_site(target: &str, _previous: usize) -> SiteResponse {
