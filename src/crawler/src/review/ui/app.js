@@ -3432,7 +3432,8 @@ window.addEventListener('message', event => {
 });
 
 // The URL fragment names the selected review and, for a schema review, its page and schema, so
-// reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`.
+// reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`,
+// with the 0-based schema index that `schemaLabel` shows from 1.
 // A link is untrusted and the review id becomes part of API paths, so only an id of the review
 // id's characters is taken; anything else, such as `/` or `?`, selects no review.
 const REVIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
