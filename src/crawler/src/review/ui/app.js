@@ -9,6 +9,7 @@ let selectedField = 'title';
 let selectedPageId = null;
 let activeWorkbenchPanel = 'selector';
 let pickedSelector = '';
+let pickedSample = '';
 let editRefusal = null;
 // The confirmation of the selected review's last successful request, shown until the next one.
 let editNotice = null;
@@ -26,11 +27,11 @@ let selectedReviewRefreshReason = '';
 let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') === 'true';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
-let collapsedListingSourceGroups = new Set(JSON.parse(
-    localStorage.getItem('crawlerReviewCollapsedListingSourceGroups')
-    || localStorage.getItem('crawlerReviewCollapsedShopGroups')
-    || '[]'
-));
+// Shop groups start collapsed; the reviewer's expanded ones are remembered per browser.
+const EXPANDED_GROUPS_KEY = 'crawlerReviewExpandedListingSourceGroups';
+let expandedListingSourceGroups = new Set(readStoredList(EXPANDED_GROUPS_KEY));
+// The review whose group the queue last opened for it, so a reviewer can collapse it again.
+let reviewWhoseGroupWasOpened = null;
 let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
@@ -65,12 +66,10 @@ const REMOVABLE_PAGE_ROLES = new Set(['REVIEWER_ADDED', 'WAITING_PAGE']);
 
 applyTheme(theme);
 
+// Reviewers count schemas from 1; the URL fragment, the API and the matrix keep the 0-based
+// schema index, so links and agents stay valid.
 function schemaLabel(index) {
-    return `Schema ${index}`;
-}
-
-function schemaLabelWithTotal(index, total) {
-    return `${schemaLabel(index)} (${total} total)`;
+    return `Schema ${Number(index) + 1}`;
 }
 
 function applyTheme(nextTheme) {
@@ -97,6 +96,14 @@ function setReviewAuthToken(token) {
     } else {
         sessionStorage.removeItem('crawlerReviewAuthToken');
     }
+    updateSignOutButton();
+}
+
+// Signing out matters only where the console asked for a review token: it ends the browser
+// session and forgets the token. The tokenless local console has nothing to sign out of.
+function updateSignOutButton() {
+    const button = document.getElementById('signOutButton');
+    if (button) button.hidden = !reviewAuthToken;
 }
 
 async function clearReviewAuthToken() {
@@ -108,7 +115,7 @@ async function clearReviewAuthToken() {
         }).catch(() => {});
     }
     setReviewAuthToken('');
-    document.getElementById('reloadState').textContent = 'Review token and browser session cleared';
+    document.getElementById('reloadState').textContent = 'Signed out';
 }
 
 // A request the browser could not send, or whose answer never arrived, carries no HTTP status;
@@ -203,16 +210,30 @@ async function loadReviews() {
 }
 
 // A refresh that changes nothing leaves the queue's elements alone, and one that does keeps the
-// reviewer's scroll position in it.
+// reviewer's scroll position and keyboard focus in it, such as on a group just toggled or a
+// review just opened from the keyboard.
 let shownQueueHtml = '';
 
 function showQueue(html) {
     const list = document.getElementById('reviewList');
     if (html === shownQueueHtml && list.childElementCount) return;
     const scrollTop = list.scrollTop;
+    const focused = list.contains(document.activeElement) ? queueControlKey(document.activeElement) : null;
     list.innerHTML = html;
     list.scrollTop = scrollTop;
     shownQueueHtml = html;
+    if (focused) {
+        Array.from(list.querySelectorAll('a, button'))
+            .find(control => queueControlKey(control) === focused)
+            ?.focus({preventScroll: true});
+    }
+}
+
+// A queue control is named by what it opens or toggles, which a render does not change.
+function queueControlKey(control) {
+    return ['href', 'aria-controls', 'onclick']
+        .map(name => control.getAttribute(name) || '')
+        .join(' ');
 }
 
 function renderReviewGroups(reviews) {
@@ -241,20 +262,26 @@ function renderReviewGroups(reviews) {
 
     return groups.map(group => {
         const pendingCount = group.reviews.filter(review => review.status === 'PENDING_REVIEW').length;
-        const collapsed = collapsedListingSourceGroups.has(group.listingSourceId);
+        if (selectedId && selectedId !== reviewWhoseGroupWasOpened
+            && group.reviews.some(review => review.review_id === selectedId)) {
+            reviewWhoseGroupWasOpened = selectedId;
+            expandedListingSourceGroups.add(group.listingSourceId);
+            storeExpandedGroups();
+        }
+        const collapsed = !expandedListingSourceGroups.has(group.listingSourceId);
+        const listId = `queueGroup-${escapeHtmlAttr(group.listingSourceId)}`;
         return `<div class="listing-source-group">
-          <div class="listing-source-group-head" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
-            <div>
-              <div class="queue-title">${escapeHtml(group.listingSourceName)}</div>
-              <div class="queue-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}</div>
-              ${group.crawlEnabled ? '' : '<div class="queue-meta">Crawling disabled</div>'}
-            </div>
-            <div class="listing-source-group-actions">
-              ${pendingCount ? badge(`${pendingCount} pending`, 'pending') : '<span class="muted">Reviewed</span>'}
-              <span class="collapse-indicator">${collapsed ? '+' : '-'}</span>
-            </div>
-          </div>
-          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}">
+          <button type="button" class="listing-source-group-head" aria-expanded="${!collapsed}" aria-controls="${listId}" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
+            <span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span>
+            <span class="group-text">
+              <span class="group-title-row">
+                <span class="queue-title" title="${escapeHtmlAttr(group.listingSourceName)}">${escapeHtml(group.listingSourceName)}</span>
+                ${pendingCount ? badge(`${pendingCount} pending`, 'pending') : '<span class="queue-meta">Reviewed</span>'}
+              </span>
+              <span class="queue-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}${group.crawlEnabled ? '' : ' · crawling disabled'}</span>
+            </span>
+          </button>
+          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}" id="${listId}">
             ${group.reviews.map(renderReviewQueueItem).join('')}
           </div>
         </div>`;
@@ -356,7 +383,7 @@ function renderMissingValueSources(listingSources) {
 // URL in the handler's source would let the shop run script in the console.
 function renderMissingValuePages(listingSourceId, pages) {
     if (pages.error) return `<div class="queue-meta">${escapeHtml(pages.error)}</div>`;
-    return pages.map((page, index) => `<div class="queue-meta" onclick="event.stopPropagation()">
+    return pages.map((page, index) => `<div class="queue-meta missing-value-page" onclick="event.stopPropagation()">
         ${productPageLink(page.url)} ${escapeHtml(page.missing || '')}
         <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', ${index})">Add to review</button>
       </div>`).join('');
@@ -410,28 +437,42 @@ function setReviewSearch(value) {
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
-function toggleListingSourceGroup(listingSourceId) {
-    if (collapsedListingSourceGroups.has(listingSourceId)) {
-        collapsedListingSourceGroups.delete(listingSourceId);
-    } else {
-        collapsedListingSourceGroups.add(listingSourceId);
+function readStoredList(key) {
+    try {
+        const list = JSON.parse(localStorage.getItem(key) || '[]');
+        return Array.isArray(list) ? list : [];
+    } catch (_) {
+        return [];
     }
-    localStorage.setItem('crawlerReviewCollapsedListingSourceGroups', JSON.stringify([...collapsedListingSourceGroups]));
+}
+
+function storeExpandedGroups() {
+    localStorage.setItem(EXPANDED_GROUPS_KEY, JSON.stringify([...expandedListingSourceGroups]));
+}
+
+function toggleListingSourceGroup(listingSourceId) {
+    if (expandedListingSourceGroups.has(listingSourceId)) {
+        expandedListingSourceGroups.delete(listingSourceId);
+    } else {
+        expandedListingSourceGroups.add(listingSourceId);
+    }
+    storeExpandedGroups();
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
 function renderReviewQueueItem(r) {
     const evaluation = autoSchemaEvaluation(r);
-    return `<div class="item ${r.review_id === selectedId ? 'active' : ''}" onclick="selectReview('${r.review_id}')">
-      <div class="queue-row">
+    const active = r.review_id === selectedId;
+    // A link to the review's fragment: following it goes through the same hashchange path as
+    // browser back, so it asks before discarding unsaved edits, and it opens in a new tab too.
+    return `<a class="item ${active ? 'active' : ''}" href="#${new URLSearchParams({review: r.review_id})}" ${active ? 'aria-current="true"' : ''}>
+      <span class="queue-row">
         <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
-        ${statusBadge(r.status)}
-        ${repairBadge(r)}
-      </div>
-      <div class="queue-meta">${escapeHtml(displayName(r.reason))}</div>
-      ${evaluation ? `<div class="queue-meta">${autoSchemaOutcomeBadge(evaluation, 'LLM evaluation: ')}</div>` : ''}
-      <div class="queue-meta">${timeBadge(r.created, 'Created')}</div>
-    </div>`;
+        <span class="queue-badges">${statusBadge(r.status)}${repairBadge(r)}</span>
+      </span>
+      <span class="queue-meta">${escapeHtml(displayName(r.reason))} · ${timeBadge(r.created, 'Created')}</span>
+      ${evaluation ? `<span class="queue-meta">${autoSchemaOutcomeBadge(evaluation, 'LLM evaluation: ')}</span>` : ''}
+    </a>`;
 }
 
 // `requested` names the page and schema a URL fragment asks for; without it the review opens on
@@ -439,6 +480,8 @@ function renderReviewQueueItem(r) {
 async function selectReview(id, requested = null) {
     selectedId = id;
     requestedSelection = requested;
+    pickedSelector = '';
+    pickedSample = '';
     if (selectionFromUrl().reviewId !== id) recordSelectionInUrl();
     dirty = false;
     sampleLabelDraft = null;
@@ -566,7 +609,6 @@ function renderDetail(detail, matrix) {
           </div>
           <div class="review-meta">
             <span>${escapeHtml(displayName(review.reason))}</span>
-            <span>${escapeHtml(review.review_id)}</span>
             ${timeBadge(review.updated, 'Updated')}
           </div>
         </div>
@@ -803,19 +845,23 @@ function rejectionRevoked(detail) {
         && (detail.events || []).some(event => event.action === 'REJECTION_REVOKED');
 }
 
+// The review whose history the reviewer opened, so a re-render, such as a tab or schema change,
+// keeps it open.
+let reviewEventsOpenReviewId = null;
+
+function reviewEventsToggled(open) {
+    reviewEventsOpenReviewId = open ? selectedId : null;
+}
+
 // The review's event trail, newest first: each decision and edit with the actor that made it.
 function renderReviewEvents(detail) {
     const events = detail?.events || [];
     if (!events.length) return '';
-    return `<div class="review-card review-events-card">
-      <div class="panel-head">
-        <div class="panel-title">
-          <strong>History</strong>
-          <span class="muted">Who changed this review: a human, the review agent or the crawler</span>
-        </div>
-      </div>
+    const open = reviewEventsOpenReviewId === detail.review.review_id;
+    return `<details class="review-card review-events-card" ${open ? 'open' : ''} ontoggle="reviewEventsToggled(this.open)">
+      <summary><span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span><strong>History</strong><span class="muted">${events.length} event${events.length === 1 ? '' : 's'}, latest ${escapeHtml(REVIEW_EVENT_LABELS[events[events.length - 1].action] || displayName(events[events.length - 1].action)).toLowerCase()} ${timeBadge(events[events.length - 1].created, 'Latest change')}</span></summary>
       <ol class="review-events">${events.slice().reverse().map(renderReviewEvent).join('')}</ol>
-    </div>`;
+    </details>`;
 }
 
 function renderReviewEvent(event) {
@@ -932,7 +978,7 @@ function renderNonSchemaReview(review, urls) {
         ${renderSampleLabels(review)}
         <details class="raw-payload" ${open ? 'open' : ''} ontoggle="rawPayloadToggled(this.open)">
           <summary>Raw payload</summary>
-          <h3>Candidate Payload</h3>
+          <h3>Candidate payload</h3>
           <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
           <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
           <h3>Validation</h3>
@@ -1355,7 +1401,7 @@ function renderSampleLabels(review) {
         <button onclick="addSampleLabel()">Add label</button>
       </div>
       <div class="actions"><button class="primary" onclick="saveSampleLabels()">Save labels</button></div>` : '';
-    return `<h3>Sample Labels</h3>
+    return `<h3>Sample labels</h3>
       <div class="hint-card">${escapeHtml(sampleLabelCountsText(counts))} (${status}). The reviewer agent's approval needs enough labels of each and a decision that takes every PRODUCT URL and no NOT_PRODUCT URL; schema.org Product markup decides nothing.</div>
       ${labels.length ? `<div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Label</th><th>Reason</th><th>Decision takes it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
       ${adder}`;
@@ -1445,17 +1491,19 @@ function renderSchemaWorkbench(detail, matrix) {
     return `
     <div class="schema-workbench">
       <div class="preview-panel">
-        <div class="panel-head">
-          <div class="panel-title">
+        <div class="panel-head preview-head">
+          <div class="preview-head-row">
             <strong>Product View</strong>
-            <span class="muted">${previewUrl ? `${productPageLink(previewUrl)} (${previewUrlOverride ? 'custom URL' : `${escapeHtml(page.role)}, live HTML`})` : 'No live page available'}</span>
+            <div class="preview-page-picker">
+              <select aria-label="Review page" onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
+                ${pages.map(p => `<option value="${escapeHtmlAttr(p.review_page_id)}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
+              </select>
+              <button ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay">Remove page</button>
+            </div>
           </div>
-          <div class="toolbar">
-            <select onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
-              ${pages.map(p => `<option value="${p.review_page_id}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
-            </select>
-            <button ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay">Remove page</button>
-          </div>
+          <div class="preview-url-row muted">${previewUrl
+            ? `${productPageLink(previewUrl)}<span class="preview-url-kind">${previewUrlOverride ? 'Custom URL' : `${escapeHtml(displayName(page.role))} page`} · live HTML</span>`
+            : 'No live page available'}</div>
         </div>
         <div class="live-url-bar">
           <input id="livePreviewUrl" value="${escapeHtmlAttr(previewUrl)}" placeholder="https://example.com/product" onkeydown="if(event.key==='Enter') loadPreviewUrl()">
@@ -1468,9 +1516,9 @@ function renderSchemaWorkbench(detail, matrix) {
       <div class="right-panel">
         <div class="tabs">
           ${workbenchTab('selector', 'Selector')}
-          ${workbenchTab('data', 'Extracted Data')}
-          ${workbenchTab('diff', 'Schema Diff')}
-          ${workbenchTab('removed', `Removed Page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
+          ${workbenchTab('data', 'Data')}
+          ${workbenchTab('diff', 'Schema diff')}
+          ${workbenchTab('removed', `Removed page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
           ${workbenchTab('json', 'JSON')}
         </div>
         ${renderWorkbenchPanel(detail, matrix, schemas)}
@@ -1522,40 +1570,36 @@ function renderSelectorPanel(schemas, matrix) {
     return `<div class="tab-panel">
       ${renderCandidateEditHint(selectedDetail)}
       ${renderSchemaOrderControls(schemas, disabled)}
-      <div class="field-grid">
-        <label>Schema
-          <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>${schemaLabelWithTotal(i, schemas.length)}</option>`).join('')}
-          </select>
+      <section class="panel-section">
+        <h3>Field</h3>
+        <select id="selectedFieldSelect" aria-label="Field" onchange="selectedField=this.value; rerenderWorkbench()">
+          ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
+        </select>
+        <label>Selector
+          <span class="selector-box">
+            <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
+            <button class="primary" ${disabled} onclick="saveCurrentField()">Save field</button>
+            <button class="danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()">Delete rule</button>
+          </span>
         </label>
-        <label>Field
-          <select onchange="selectedField=this.value; rerenderWorkbench()">
-            ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
-          </select>
-        </label>
-      </div>
-      ${renderRawAttributeAdder(disabled)}
-      <div>
-        <h3>Selected Selector</h3>
-        <div class="selector-box">
-          <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
-          <button class="primary" ${disabled} onclick="saveCurrentField()">Save field</button>
-          <button class="danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()">Delete rule</button>
-        </div>
         ${renderSelectedFieldFindings(matrixPage)}
-      </div>
-      ${renderRuleOptions(rule)}
-      ${renderAdditionalSelectors(rule)}
-      <div class="actions">
-        <button onclick="applyPickedSelector()">Use clicked element</button>
-        <button onclick="postHighlight(currentSelector())">Highlight field</button>
-        <button onclick="postHighlightSchema()">Highlight schema</button>
-        <button onclick="reevaluateMatrix()">Re-evaluate</button>
-        <button onclick="discardEdits()">Discard edits</button>
-      </div>
-      <div class="picked" id="pickedElement">No element picked yet.</div>
-      <h3>Schema Highlight Legend</h3>
-      ${renderSchemaLegend(currentSchema())}
+        <div class="actions">
+          <button onclick="applyPickedSelector()">Use clicked element</button>
+          <button onclick="postHighlight(currentSelector())">Highlight field</button>
+        </div>
+        ${renderPickedElement()}
+        ${renderRuleOptions(rule)}
+        ${renderAdditionalSelectors(rule)}
+        ${renderRawAttributeAdder(disabled)}
+        <div class="actions edit-actions">
+          <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages">Re-evaluate</button>
+          <button onclick="discardEdits()">Discard edits</button>
+        </div>
+      </section>
+      <section class="panel-section">
+        <h3>Highlight legend</h3>
+        ${renderSchemaLegend(currentSchema())}
+      </section>
     </div>`;
 }
 
@@ -1566,16 +1610,17 @@ function renderRawAttributeAdder(disabled) {
     const available = (rawAttributeKeys || []).filter(entry => !configured.has(entry.key));
     if (!available.length) return '';
     const groups = [...new Set(available.map(entry => entry.group))];
-    return `<div class="raw-attribute-adder">
-      <label>Raw attribute
-        <select id="newRawAttributeKey" ${disabled}>
+    return `<div class="raw-attribute-card">
+      <h4 title="A registry key the schema does not configure yet; adding it selects it as the field to edit">Raw attributes</h4>
+      <div class="raw-attribute-adder">
+        <select id="newRawAttributeKey" aria-label="Raw attribute key" ${disabled}>
           ${groups.map(group => `<optgroup label="${escapeHtmlAttr(displayName(group))}">${
             available.filter(entry => entry.group === group).map(entry =>
                 `<option value="${escapeHtmlAttr(entry.key)}" title="${escapeHtmlAttr(entry.description)}">${escapeHtml(entry.key)}</option>`
             ).join('')}</optgroup>`).join('')}
         </select>
-      </label>
-      <button ${disabled} onclick="addRawAttribute()" title="Starts from the clicked element when one is picked; save the field to store it">Add raw attribute</button>
+        <button ${disabled} onclick="addRawAttribute()" title="Starts from the clicked element when one is picked; save the field to store it">Add raw attribute</button>
+      </div>
     </div>`;
 }
 
@@ -1589,15 +1634,18 @@ function addRawAttribute() {
     rerenderWorkbench();
 }
 
+// The element last clicked in the preview, kept across side-panel renders.
+function renderPickedElement() {
+    return `<div class="picked" id="pickedElement">${pickedSelector
+        ? `<code>${escapeHtml(pickedSelector)}</code>${pickedSample ? `<span class="muted">${escapeHtml(pickedSample)}</span>` : ''}`
+        : '<span class="muted">Click an element in the preview to pick it.</span>'}</div>`;
+}
+
 function renderRuleOptions(rule) {
     const effectiveRule = rule || defaultRuleFor(selectedField);
     const cardinality = effectiveRule.cardinality || 'first';
     const type = effectiveRule.type || 'text';
-    return `<div class="rule-options-card">
-      <div class="panel-title">
-        <strong>Extraction Rule</strong>
-        <span class="muted">Applies to the primary and additional selectors for this field</span>
-      </div>
+    return `<div class="rule-options-card" title="Applies to the primary and additional selectors for this field">
       <div class="field-grid">
         <label>Cardinality
           <select onchange="setCurrentRuleCardinality(this.value)">
@@ -1613,29 +1661,27 @@ function renderRuleOptions(rule) {
           </select>
         </label>
       </div>
-      <label>Attribute name
-        <input value="${escapeHtmlAttr(effectiveRule.name || '')}" ${type === 'attribute' ? '' : 'disabled'} oninput="setCurrentRuleAttributeName(this.value)">
-      </label>
+      ${type === 'attribute' ? `<label>Attribute name
+        <input value="${escapeHtmlAttr(effectiveRule.name || '')}" oninput="setCurrentRuleAttributeName(this.value)">
+      </label>` : ''}
     </div>`;
 }
 
 function renderSchemaOrderControls(schemas, disabled) {
     if (!schemas.length) return '<div class="hint-card">No schemas available for ordering.</div>';
-    return `<div class="schema-order-card">
-      <div>
-        <h3>Schema Order</h3>
-        <div class="muted">Approval writes schemas in this order for the ListingSource.</div>
-      </div>
+    return `<section class="panel-section schema-order-card">
+      <h3 title="Approval writes schemas in this order for the ListingSource">Schemas</h3>
       <div class="schema-order-list">
         ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
       </div>
       <div class="schema-order-actions">
-        <button ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)">Move up</button>
-        <button ${disabled || (selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : '')} onclick="moveCurrentSchema(1)">Move down</button>
+        ${schemas.length > 1 ? `<button ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)">Move up</button>
+        <button ${disabled || (selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : '')} onclick="moveCurrentSchema(1)">Move down</button>` : ''}
         <button ${disabled} onclick="addNewSchema()" title="Adds a copy of the selected schema to rewrite for another template">Add schema</button>
-        <button class="danger" ${disabled || (schemas.length <= 1 ? 'disabled' : '')} onclick="deleteCurrentSchema()">Delete schema</button>
+        ${schemas.length > 1 ? `<button class="danger" ${disabled} onclick="deleteCurrentSchema()">Delete schema</button>` : ''}
+        <button onclick="postHighlightSchema()">Highlight schema</button>
       </div>
-    </div>`;
+    </section>`;
 }
 
 // The handlers let postHighlight name the selected field: a raw attribute key comes from the
@@ -1643,10 +1689,7 @@ function renderSchemaOrderControls(schemas, disabled) {
 function renderAdditionalSelectors(rule) {
     const additional = (rule && Array.isArray(rule.additional_selectors)) ? rule.additional_selectors : [];
     return `<div class="additional-selector-card">
-      <div class="panel-title">
-        <strong>Additional Selectors</strong>
-        <span class="muted">Fallback or extra selectors for the selected field</span>
-      </div>
+      <h4 title="Fallback or extra selectors for the selected field">Additional selectors</h4>
       <div class="additional-selector-list">
         ${additional.length ? additional.map((selector, index) => `
           <div class="additional-selector-row">
@@ -1654,7 +1697,7 @@ function renderAdditionalSelectors(rule) {
             <button onclick="usePickedForAdditionalSelector(${index})">Use clicked</button>
             <button onclick="postHighlight(additionalSelectorAt(${index}))">Highlight</button>
             <button class="danger" onclick="removeAdditionalSelector(${index})">Delete</button>
-          </div>`).join('') : '<div class="muted">No additional selectors configured.</div>'}
+          </div>`).join('') : ''}
       </div>
       <div class="actions">
         <button onclick="addAdditionalSelector()">Add additional selector</button>
@@ -1665,10 +1708,6 @@ function renderAdditionalSelectors(rule) {
 
 function renderDataPanel(matrix) {
     return `<div class="tab-panel">
-      <div class="panel-title">
-        <strong>Extracted Data</strong>
-        <span class="muted">Current selected page and schema, evaluated against live HTML</span>
-      </div>
       ${renderCoverageSummary(matrix)}
       ${renderCurrentExtractedData(matrix)}
     </div>`;
@@ -1727,7 +1766,7 @@ function renderRemovedPagePanel(detail, matrix) {
         <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>
         <button ${disabled} onclick="discardEdits()">Discard edits</button>
       </div>
-      <div class="picked" id="pickedElement">${pickedSelector ? `<strong>${escapeHtml(pickedSelector)}</strong>` : 'No element picked yet.'}</div>
+      ${renderPickedElement()}
       <h3>Matched review pages</h3>
       ${renderRemovedPageMatches(matrix, templates)}
     </div>`;
@@ -1767,11 +1806,11 @@ function renderRemovedPageMatches(matrix, templates) {
     if (dirty) return '<div class="muted">Save the templates to evaluate them on the review pages.</div>';
     const matches = (matrix && matrix.removed_page_matches) || [];
     if (!matches.length) return '<div class="muted">No review page matches the templates.</div>';
-    return `<table>
+    return `<div class="data-grid-wrap"><table>
       <thead><tr><th>Page</th><th>Role</th><th>Outcome</th><th>Matched notices</th></tr></thead>
       <tbody>${matches.map(match => `<tr>
         <td>${productPageLink(match.url)}</td>
-        <td>${escapeHtml(match.role)}</td>
+        <td>${escapeHtml(displayName(match.role))}</td>
         <td>${match.outcome === 'REMOVED'
             ? statusBadge('Captured as removed')
             : statusBadge('Scraped as a product: a candidate schema extracts it')}</td>
@@ -1779,7 +1818,7 @@ function renderRemovedPageMatches(matrix, templates) {
             ? `<br>${statusBadge('Check breadth')} takes the title “${escapeHtml(t.product_title)}” a candidate schema extracts for its notice: too broad unless this page is a removal notice`
             : ''}`).join('<br>')}</td>
       </tr>`).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 // An emptied list stays in the payload as `[]`: the server keeps the candidate's templates when
@@ -1994,7 +2033,7 @@ function apiErrorMessage(error) {
 function renderJsonPanel(detail) {
     return `<div class="tab-panel">
       <div class="panel-title">
-        <strong>Full Candidate JSON</strong>
+        <strong>Full candidate JSON</strong>
         <span class="muted">Use field controls for normal edits; this is the raw payload.</span>
       </div>
       <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(detail.review.candidate_payload, null, 2))}</textarea>
@@ -2134,11 +2173,14 @@ function renderFindingBadges(findings) {
 }
 
 // Cross-page findings name the values another product page repeats; for a list such as
-// the images they point out the default share image among the product photos.
-function renderSharedValues(findings) {
+// the images they point out the default share image among the product photos, which lists
+// like the field's own images, by its resolved first candidate.
+function renderSharedValues(findings, key) {
     const values = findings.flatMap(finding => finding.values || []);
     if (!values.length) return '';
-    return `<div class="muted">Also extracted from another product page: ${values.map(value => expandableValue(value)).join(', ')}</div>`;
+    return `<div class="muted">Also extracted from another product page: ${key === 'images'
+        ? renderImageCandidateGroups(values)
+        : values.map(value => expandableValue(value)).join(', ')}</div>`;
 }
 
 // Identity agreement findings name the identities that contradict the extracted one: the
@@ -2162,15 +2204,15 @@ function renderPlausibilitySummary(matrix) {
     }
     const candidate = selectedCandidate(matrix);
     const failingPages = (candidate?.pages || []).filter(page => pageFindings(page).length > 0);
-    const perPage = failingPages.map(page =>
-        `${escapeHtml(displayName(page.role))} (${pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join(', ')})`
-    ).join('; ');
+    const perPage = failingPages.map(page => `<li><strong>${escapeHtml(displayName(page.role))}</strong>${matrixPagePath(page) ? `<code>${escapeHtml(matrixPagePath(page))}</code> ` : ''}<span>${
+        pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join('; ')
+    }</span></li>`).join('');
     const pagePlural = failingPages.length === 1 ? '' : 's';
     return `<div class="plausibility-summary">
       <strong>Plausibility</strong>
       <div>${failingSchemas.map(c => escapeHtml(schemaLabel(c.schema_index))).join(', ')} failed plausibility checks, which keeps a generated schema out of auto-approval.</div>
       ${failingPages.length
-        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}: ${perPage}</div>`
+        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}:</div><ul class="plausibility-pages">${perPage}</ul>`
         : '<div class="muted">Selected schema passed them on every live page.</div>'}
     </div>`;
 }
@@ -2394,7 +2436,7 @@ function rawDataCell(raw, page) {
             return `
       <div class="${findings.length ? 'implausible-field' : ''}">
         <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? rawValue(value) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : renderContradictingIdentities(findings)}</dd>
+        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value)) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings, key) : renderContradictingIdentities(findings)}</dd>
       </div>`;
         }).join('')
     }</dl>`;
@@ -2459,6 +2501,71 @@ function stableValue(value) {
         acc[key] = stableValue(value[key]);
         return acc;
     }, {});
+}
+
+// An extracted image is a candidate group: the address the page shows first, then its
+// fallbacks (srcset sizes, data attributes), joined by the scraper's U+001F separator. The list
+// shows one image per line by its first candidate, resolved against the selected page as the
+// crawler resolves it, and keeps the whole group in the tooltip; a long list collapses.
+const IMAGE_CANDIDATE_SEPARATOR = '\u001f';
+const IMAGES_SHOWN_BEFORE_COLLAPSE = 5;
+
+function renderImageCandidateGroups(groups) {
+    const rows = groups.map(renderImageCandidateGroup);
+    const shown = rows.slice(0, IMAGES_SHOWN_BEFORE_COLLAPSE).join('');
+    const rest = rows.slice(IMAGES_SHOWN_BEFORE_COLLAPSE);
+    return `<ol class="image-list">${shown}</ol>${rest.length
+        ? `<details class="expandable-text"><summary>${rest.length} more image${rest.length === 1 ? '' : 's'}</summary><ol class="image-list" start="${IMAGES_SHOWN_BEFORE_COLLAPSE + 1}">${rest.join('')}</ol></details>`
+        : ''}`;
+}
+
+function renderImageCandidateGroup(group) {
+    const candidates = imageCandidates(group);
+    const [first = ''] = candidates;
+    const address = resolvedPageAddress(first);
+    const fallbacks = candidates.length - 1;
+    const tooltip = escapeHtmlAttr(candidates.map(resolvedPageAddress).join('\n'));
+    const label = escapeHtml(shortImageAddress(address));
+    return `<li title="${tooltip}"><div>${/^https?:\/\//i.test(address)
+        ? `<a href="${escapeHtmlAttr(address)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+        : `<span>${label}</span>`}${fallbacks > 0 ? `<span class="image-fallbacks">+${fallbacks} fallback${fallbacks === 1 ? '' : 's'}</span>` : ''}</div></li>`;
+}
+
+// Image addresses of one shop share their whole prefix, so the list shows host and file name,
+// which tell them apart; the tooltip and the link keep the full address.
+function shortImageAddress(address) {
+    try {
+        const url = new URL(address);
+        const file = url.pathname.split('/').filter(Boolean).pop() || '';
+        return file ? `${url.host}/…/${decodeURIComponent(file)}` : address;
+    } catch (_) {
+        return address;
+    }
+}
+
+// The path of the review page a matrix page was evaluated on, which tells pages of one role apart.
+function matrixPagePath(page) {
+    const reference = page.page_reference;
+    if (reference?.kind !== 'persisted') return '';
+    const reviewPage = (selectedDetail?.pages || []).find(candidate => candidate.review_page_id === reference.review_page_id);
+    try {
+        return reviewPage ? new URL(reviewPage.url).pathname : '';
+    } catch (_) {
+        return '';
+    }
+}
+
+function imageCandidates(group) {
+    return String(group ?? '').split(IMAGE_CANDIDATE_SEPARATOR).map(candidate => candidate.trim()).filter(Boolean);
+}
+
+function resolvedPageAddress(value) {
+    const page = (selectedDetail?.pages || []).find(candidate => candidate.review_page_id === selectedPageId);
+    try {
+        return page ? new URL(value, page.url).href : value;
+    } catch (_) {
+        return value;
+    }
 }
 
 function hasRawValue(value) {
@@ -3123,18 +3230,17 @@ function markDirty() {
     updateReloadState();
 }
 
+// The state is a live region that every render updates, so it changes its text only when the
+// state changes: rewriting the same text would have a screen reader announce it again.
 function updateReloadState() {
     const state = document.getElementById('reloadState');
-    if (dirty) {
-        state.textContent = 'Review has local edits';
-        state.className = 'system-status dirty';
-    } else if (selectedReviewNeedsRefresh) {
-        state.textContent = 'Selected review changed elsewhere - refresh to update';
-        state.className = 'system-status stale';
-    } else {
-        state.textContent = 'Queue auto refresh active';
-        state.className = 'system-status';
-    }
+    const [text, className] = dirty
+        ? ['Review has local edits', 'system-status dirty']
+        : selectedReviewNeedsRefresh
+            ? ['Selected review changed elsewhere – refresh to update', 'system-status stale']
+            : ['Queue auto refresh active', 'system-status'];
+    if (state.textContent !== text) state.textContent = text;
+    state.className = className;
 }
 
 function toggleSidebar() {
@@ -3148,6 +3254,7 @@ function setSidebarCollapsed(collapsed) {
     const toggle = document.getElementById('sidebarToggle');
     if (shell) shell.classList.toggle('sidebar-collapsed', collapsed);
     if (toggle) {
+        toggle.setAttribute('aria-expanded', String(!collapsed));
         toggle.setAttribute('aria-label', collapsed ? 'Expand reviews' : 'Collapse reviews');
         toggle.setAttribute('title', collapsed ? 'Expand reviews' : 'Collapse reviews');
     }
@@ -3246,13 +3353,21 @@ function badge(text, tone) {
     return `<span class="${cls}">${escapeHtml(text)}</span>`;
 }
 
+const DISPLAY_ACRONYMS = {url: 'URL', id: 'ID', html: 'HTML', json: 'JSON', llm: 'LLM'};
+
+// A persisted value such as `PENDING_REVIEW` or `source_listing_id` as the console shows it: in
+// sentence case, like the console's headings, with its acronyms kept ("Pending review",
+// "Source listing ID", "URL pattern").
 function displayName(value) {
-    return String(value ?? '')
+    const text = String(value ?? '')
         .replace(/[_-]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase()
-        .replace(/\b\w/g, ch => ch.toUpperCase());
+        .split(' ')
+        .map(word => DISPLAY_ACRONYMS[word] || word)
+        .join(' ');
+    return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function formatDate(value) {
@@ -3264,11 +3379,13 @@ function formatDate(value) {
 
 function timeBadge(value, label) {
     if (!value) return '';
-    return `<span class="time-badge" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${clockIcon()}${escapeHtml(elapsedTime(value))}</span>`;
+    return `<span class="time-badge" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${escapeHtml(elapsedTime(value))}</span>`;
 }
 
-function clockIcon() {
-    return `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
+// The one disclosure glyph of the console: it points down while its section is open and right
+// while it is closed (the CSS turns it); the sidebar turns it to point where the sidebar moves.
+function chevronIcon() {
+    return '<svg viewBox="0 0 16 16" width="16" height="16" focusable="false"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
 function elapsedTime(value) {
@@ -3307,16 +3424,16 @@ window.addEventListener('message', event => {
     const data = event.data || {};
     if (data.type !== 'crawler-review-selector-picked') return;
     pickedSelector = data.selector || '';
-    const sample = data.text || data.src || data.href || '';
+    // The sample is what the element says, or for an image or link where it points: the selector
+    // already names the tag.
+    pickedSample = data.text ? `“${data.text}”` : `${data.tag || ''} ${data.src || data.href || ''}`.trim();
     const picked = document.getElementById('pickedElement');
-    if (!picked) return;
-    picked.innerHTML = `
-    <strong>${escapeHtml(pickedSelector)}</strong>
-    <div class="muted">${escapeHtml(data.tag || '')} ${escapeHtml(sample)}</div>`;
+    if (picked) picked.outerHTML = renderPickedElement();
 });
 
 // The URL fragment names the selected review and, for a schema review, its page and schema, so
-// reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`.
+// reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`,
+// with the 0-based schema index that `schemaLabel` shows from 1.
 // A link is untrusted and the review id becomes part of API paths, so only an id of the review
 // id's characters is taken; anything else, such as `/` or `?`, selects no review.
 const REVIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -3448,4 +3565,7 @@ scheduleQueueRefresh();
 
 loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 setSidebarCollapsed(sidebarCollapsed);
+updateSignOutButton();
+localStorage.removeItem('crawlerReviewCollapsedListingSourceGroups');
+localStorage.removeItem('crawlerReviewCollapsedShopGroups');
 if (selectionFromUrl().reviewId) applySelectionFromUrl();

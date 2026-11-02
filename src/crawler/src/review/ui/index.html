@@ -15,29 +15,33 @@
 </head>
 <body>
 <header>
-    <div>
-        <h1>Crawler Review Console</h1>
-        <div class="header-subtitle">Human review for URL patterns and product schemas</div>
-    </div>
+    <h1>Crawler review</h1>
     <div class="header-actions">
-        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" type="button">Dark mode</button>
-        <button class="theme-toggle" onclick="clearReviewAuthToken()" type="button">Clear review token</button>
-        <div class="system-status" id="reloadState">Queue auto refresh active</div>
+        <span class="system-status" id="reloadState" role="status">Queue auto refresh active</span>
+        <button class="ghost" hidden id="signOutButton" onclick="clearReviewAuthToken()" title="End the browser session and forget the review token" type="button">Sign out</button>
+        <button class="ghost" id="themeToggle" onclick="toggleTheme()" type="button">Dark mode</button>
     </div>
 </header>
 <main id="appShell">
     <section class="sidebar" id="reviewSidebar">
         <h2>
             <span>Reviews</span>
-            <button aria-label="Collapse reviews" class="icon-button" id="sidebarToggle"
-                    onclick="toggleSidebar()" title="Collapse reviews">&lt;
+            <button aria-controls="reviewSidebarBody" aria-expanded="true" aria-label="Collapse reviews"
+                    class="icon-button sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()"
+                    title="Collapse reviews" type="button">
+                <svg aria-hidden="true" focusable="false" height="16" viewBox="0 0 16 16" width="16">
+                    <path d="M10 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-linecap="round"
+                          stroke-linejoin="round" stroke-width="1.6"/>
+                </svg>
             </button>
         </h2>
-        <div class="sidebar-search">
-            <input id="reviewSearch" oninput="setReviewSearch(this.value)" placeholder="Search listing_sources or reviews"
-                   type="search">
+        <div id="reviewSidebarBody">
+            <div class="sidebar-search">
+                <input aria-label="Search reviews" id="reviewSearch" oninput="setReviewSearch(this.value)"
+                       placeholder="Search reviews" type="search">
+            </div>
+            <div class="list" id="reviewList"></div>
         </div>
-        <div class="list" id="reviewList"></div>
     </section>
     <section class="detail-shell">
         <div class="detail muted" id="detail">Select a review.</div>
