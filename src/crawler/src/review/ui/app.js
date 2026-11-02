@@ -990,9 +990,11 @@ function isHttpUrl(url) {
     }
 }
 
+// The origin's spelling may differ from the stored URL's, such as by credentials or a default
+// port, so only a URL that starts with it is shortened.
 function relativeToOrigin(url, origin) {
-    if (!origin || urlOrigin(url) !== origin) return url;
-    return url.slice(origin.length) || '/';
+    if (!origin || urlOrigin(url) !== origin || !url.startsWith(`${origin}/`)) return url;
+    return url.slice(origin.length);
 }
 
 function renderUrlPatternSummary(review, view) {
