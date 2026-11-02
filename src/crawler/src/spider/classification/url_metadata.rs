@@ -64,6 +64,10 @@ impl UrlClass {
 pub enum CrawlerDisposition {
     Active,
     DormantSold,
+    /// The URL serves a product page the crawler stores under another URL, its canonical URL or
+    /// the known destination it redirects to. Terminal: the URL is neither scraped nor
+    /// reclassified again (`docs/crawler/networking.md#canonical-product-urls`).
+    Duplicate,
 }
 
 impl CrawlerDisposition {
@@ -71,6 +75,7 @@ impl CrawlerDisposition {
         match self {
             Self::Active => "ACTIVE",
             Self::DormantSold => "DORMANT_SOLD",
+            Self::Duplicate => "DUPLICATE",
         }
     }
 }

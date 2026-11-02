@@ -763,6 +763,51 @@ async fn run_candidate_scrape(
     outcome
 }
 
+/// Retires a URL that redirects to a page the crawler already stores: the destination is the
+/// page's canonical URL and is scraped under its own row, so the URL is recorded `DUPLICATE` and
+/// never selected again instead of being fetched and skipped on every pass. Nothing is captured
+/// for it: the product's listing is captured from its destination.
+async fn retire_duplicate_of_known_destination(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+    scraped: &ScrapedProduct,
+) -> ScrapeCandidateOutcome {
+    match ctx
+        .scraper_candidates
+        .set_disposition(
+            &candidate.listing_source_id,
+            &candidate.url,
+            CrawlerDisposition::Duplicate,
+            candidate.last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
+    {
+        Ok(write_outcome) => {
+            info!(
+                event = "crawler.product_url_retired_duplicate_of_known_destination",
+                listing_source_id = %candidate.listing_source_id,
+                old_url = %candidate.url,
+                new_url = %scraped.effective_url,
+                crawler_url_write_outcome = ?write_outcome,
+                "Retired a product URL that redirects to a URL the crawler already stores"
+            );
+            ScrapeCandidateOutcome {
+                skipped: true,
+                ..Default::default()
+            }
+        }
+        Err(error) => {
+            warn!(
+                error = %error,
+                listing_source_id = %candidate.listing_source_id,
+                url = %candidate.url,
+                "Failed to retire a product URL that redirects to a known destination"
+            );
+            errored_outcome()
+        }
+    }
+}
+
 async fn handle_successful_scrape(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
@@ -784,17 +829,7 @@ async fn handle_successful_scrape(
         {
             Ok(true) => {}
             Ok(false) => {
-                warn!(
-                    event = "crawler.product_url_move_rejected_destination_known",
-                    listing_source_id = %candidate.listing_source_id,
-                    old_url = %candidate.url,
-                    new_url = %scraped.effective_url,
-                    "Deferring redirect destination reconciliation to issue #1899"
-                );
-                return ScrapeCandidateOutcome {
-                    skipped: true,
-                    ..Default::default()
-                };
+                return retire_duplicate_of_known_destination(candidate, ctx, &scraped).await;
             }
             Err(error) => {
                 warn!(error = %error, "Failed to check redirect destination before raw capture");
@@ -3267,6 +3302,89 @@ mod tests {
                 .contains(effective_url.as_str()),
             "the captured raw input must retain the effective redirect URL"
         );
+    }
+
+    fn redirected_product(
+        acquired_at: time::OffsetDateTime,
+        effective_url: &url::Url,
+    ) -> ScrapedProduct {
+        ScrapedProduct {
+            acquired_at,
+            raw_input: crawler_verified_removal_input(effective_url)
+                .unwrap_or_else(|error| panic!("test raw input: {error}")),
+            effective_url: effective_url.clone(),
+            source_listing_id: "SKU-123".to_owned(),
+            hash: "redirect-hash".to_owned(),
+            schema_fingerprint: "redirect-schema".to_owned(),
+            raw_input_sha256: vec![9; 32],
+        }
+    }
+
+    /// A Shopify collection URL that redirects to its product URL, which the crawler already
+    /// stores, is retired once instead of being fetched and skipped on every pass.
+    #[tokio::test]
+    async fn should_retire_a_url_that_redirects_to_a_known_destination_as_duplicate() {
+        let original_url =
+            url::Url::parse("https://example.com/collections/all/products/ladle").unwrap();
+        let effective_url = url::Url::parse("https://example.com/products/ladle").unwrap();
+        let mut candidate = scraper_candidate("ListingSource", original_url.clone());
+        candidate.last_captured_raw_input_sha256 = Some(vec![4; 32]);
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_redirect_destination_is_available()
+            .once()
+            .returning(|_| Box::pin(async { Ok(false) }));
+        scraper_candidates
+            .expect_set_disposition()
+            .once()
+            .withf(move |_, url, disposition, expected| {
+                *url == original_url
+                    && *disposition == CrawlerDisposition::Duplicate
+                    && expected == &Some([4_u8; 32].as_slice())
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        scraper_candidates.expect_mark_as_scraped().never();
+        scraper_candidates.expect_move_redirected_url().never();
+        let ctx = scrape_candidate_context(scraper_candidates, MockScraperService::new());
+
+        let outcome = handle_successful_scrape(
+            &candidate,
+            &ctx,
+            redirected_product(time::OffsetDateTime::now_utc(), &effective_url),
+        )
+        .await;
+
+        assert!(outcome.capture.is_none(), "a duplicate captures nothing");
+        assert!(outcome.skipped);
+        assert!(!outcome.errored);
+    }
+
+    #[tokio::test]
+    async fn should_report_an_error_when_retiring_a_duplicate_url_fails() {
+        let effective_url = url::Url::parse("https://example.com/products/ladle").unwrap();
+        let candidate = scraper_candidate(
+            "ListingSource",
+            url::Url::parse("https://example.com/collections/all/products/ladle").unwrap(),
+        );
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_redirect_destination_is_available()
+            .returning(|_| Box::pin(async { Ok(false) }));
+        scraper_candidates
+            .expect_set_disposition()
+            .returning(|_, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
+        let ctx = scrape_candidate_context(scraper_candidates, MockScraperService::new());
+
+        let outcome = handle_successful_scrape(
+            &candidate,
+            &ctx,
+            redirected_product(time::OffsetDateTime::now_utc(), &effective_url),
+        )
+        .await;
+
+        assert!(outcome.errored);
+        assert!(outcome.capture.is_none());
     }
 
     #[tokio::test]

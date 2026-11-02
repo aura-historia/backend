@@ -56,6 +56,16 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
     }
 }
 
+/// A URL the spider found, with the class it is stored under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredUrl {
+    pub url: url::Url,
+    pub url_class: UrlClass,
+    /// The canonical URL of this product page when the page is a duplicate of it
+    /// (`docs/crawler/networking.md#canonical-product-urls`): the page is stored there instead.
+    pub canonical: Option<url::Url>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum UrlMetadataRepositoryError {
     #[error("crawler domain does not belong to ListingSource")]
@@ -104,8 +114,7 @@ pub trait UrlMetadataRepository: Send + Sync {
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        urls: &[url::Url],
-        url_classes: &[UrlClass],
+        links: &[DiscoveredUrl],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError>;
 
     async fn set_disposition(
@@ -288,6 +297,195 @@ impl UrlMetadataRepositoryImpl {
         Ok(())
     }
 
+    /// `links` with the canonical URLs storage may use. A canonical URL is dropped, and the page
+    /// stored as fetched, when it names the page itself in another spelling, when it is no crawler
+    /// URL of this domain, when a rejection covers the page or its canonical URL (the rejection
+    /// keeps the fetched page `other`), when another ListingSource or domain owns it, when it is
+    /// itself retired as a duplicate, or when the batch canonicalizes a page onto a page that is
+    /// itself canonicalized, so no row is moved along a chain the shop may not mean. Pages are
+    /// compared whatever their trailing slash.
+    async fn admit_canonical_urls(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing_source_id: ListingSourceId,
+        domain_id: CrawlerDomainId,
+        domain: &str,
+        rejected: &RejectedPages,
+        links: &[DiscoveredUrl],
+    ) -> Result<Vec<DiscoveredUrl>, UrlMetadataRepositoryError> {
+        let page_of = |url: &url::Url| CrawledUrl::new(url.clone()).page_spelling();
+        let mut links = links.to_vec();
+        for link in &mut links {
+            link.canonical = link.canonical.take().filter(|canonical| {
+                page_of(canonical) != page_of(&link.url)
+                    && canonical.fragment().is_none()
+                    && validate_public_http_url(canonical).is_ok()
+                    && url_matches_configured_domain(canonical, domain)
+                    && !rejected.covers(link.url.as_str())
+                    && !rejected.covers(canonical.as_str())
+            });
+        }
+        let sources = links
+            .iter()
+            .filter(|link| link.canonical.is_some())
+            .map(|link| page_of(&link.url))
+            .collect::<HashSet<_>>();
+        let targets = links
+            .iter()
+            .filter_map(|link| link.canonical.as_ref().map(page_of))
+            .collect::<HashSet<_>>();
+        let target_spellings = links
+            .iter()
+            .filter_map(|link| link.canonical.clone())
+            .flat_map(|target| CrawledUrl::new(target).page_spellings())
+            .map(String::from)
+            .collect::<Vec<_>>();
+        let unusable_targets = if target_spellings.is_empty() {
+            HashSet::new()
+        } else {
+            sqlx::query_scalar::<_, String>(
+                "SELECT url FROM listing_source_urls \
+                 WHERE url = ANY($3::text[]) \
+                   AND (listing_source_id <> $1 OR domain_id <> $2 \
+                        OR crawler_disposition = $4)",
+            )
+            .bind(uuid::Uuid::from(listing_source_id))
+            .bind(domain_id.as_uuid())
+            .bind(&target_spellings)
+            .bind(CrawlerDisposition::Duplicate.as_str())
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(database_error)?
+            .into_iter()
+            .filter_map(|url| url::Url::parse(&url).ok())
+            .map(|url| page_of(&url))
+            .collect::<HashSet<_>>()
+        };
+        for link in &mut links {
+            link.canonical = link.canonical.take().filter(|canonical| {
+                let target = page_of(canonical);
+                !targets.contains(&page_of(&link.url))
+                    && !sources.contains(&target)
+                    && !unusable_targets.contains(&target)
+            });
+        }
+        Ok(links)
+    }
+
+    /// Moves or retires the rows a canonicalized page was stored under before
+    /// (`docs/crawler/networking.md#canonical-product-urls`). While no spelling of the canonical
+    /// URL has a row, the first such row moves there and keeps its scrape state and raw-capture
+    /// identity; every other row of the duplicate is recorded `DUPLICATE`, so neither the
+    /// scraper nor a later crawl selects it again. A row already retired stays as it is.
+    async fn collapse_duplicate_rows(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing_source_id: ListingSourceId,
+        domain_id: CrawlerDomainId,
+        duplicates: &[DuplicateRows],
+    ) -> Result<(), UrlMetadataRepositoryError> {
+        if duplicates.is_empty() {
+            return Ok(());
+        }
+        let duplicate_spellings = duplicates
+            .iter()
+            .flat_map(|duplicate| duplicate.spellings.iter().map(ToString::to_string))
+            .collect::<Vec<_>>();
+        let stored_duplicates = sqlx::query_scalar::<_, String>(
+            "SELECT url FROM listing_source_urls \
+             WHERE url = ANY($3::text[]) AND listing_source_id = $1 AND domain_id = $2 \
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD') \
+             ORDER BY url FOR UPDATE",
+        )
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(domain_id.as_uuid())
+        .bind(&duplicate_spellings)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(database_error)?
+        .into_iter()
+        .collect::<HashSet<_>>();
+        if stored_duplicates.is_empty() {
+            return Ok(());
+        }
+        let target_spellings = duplicates
+            .iter()
+            .flat_map(|duplicate| CrawledUrl::new(duplicate.canonical.clone()).page_spellings())
+            .map(String::from)
+            .collect::<Vec<_>>();
+        let mut stored_targets = sqlx::query_scalar::<_, String>(
+            "SELECT url FROM listing_source_urls WHERE url = ANY($1::text[]) ORDER BY url FOR UPDATE",
+        )
+        .bind(&target_spellings)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(database_error)?
+        .into_iter()
+        .filter_map(|url| url::Url::parse(&url).ok())
+        .map(|url| CrawledUrl::new(url).page_spelling())
+        .collect::<HashSet<_>>();
+
+        let mut moves = Vec::<(String, String)>::new();
+        let mut retired = Vec::<String>::new();
+        for duplicate in duplicates {
+            let target_page = CrawledUrl::new(duplicate.canonical.clone()).page_spelling();
+            for spelling in &duplicate.spellings {
+                let spelling = spelling.to_string();
+                if !stored_duplicates.contains(&spelling)
+                    || moves.iter().any(|(source, _)| *source == spelling)
+                    || retired.contains(&spelling)
+                {
+                    continue;
+                }
+                if stored_targets.insert(target_page.clone()) {
+                    moves.push((spelling, duplicate.canonical.to_string()));
+                } else {
+                    retired.push(spelling);
+                }
+            }
+        }
+
+        let (sources, targets): (Vec<String>, Vec<String>) = moves.into_iter().unzip();
+        let moved = sqlx::query(
+            "UPDATE listing_source_urls AS stored SET url = input.target, updated = NOW() \
+             FROM UNNEST($3::text[], $4::text[]) AS input(source, target) \
+             WHERE stored.url = input.source \
+               AND stored.listing_source_id = $1 \
+               AND stored.domain_id = $2",
+        )
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(domain_id.as_uuid())
+        .bind(&sources)
+        .bind(&targets)
+        .execute(&mut **transaction)
+        .await
+        .map_err(database_error)?
+        .rows_affected();
+        let retired = sqlx::query(
+            "UPDATE listing_source_urls \
+             SET crawler_disposition = $4, next_retry_at = NULL, updated = NOW() \
+             WHERE url = ANY($3::text[]) \
+               AND listing_source_id = $1 \
+               AND domain_id = $2 \
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",
+        )
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(domain_id.as_uuid())
+        .bind(&retired)
+        .bind(CrawlerDisposition::Duplicate.as_str())
+        .execute(&mut **transaction)
+        .await
+        .map_err(database_error)?
+        .rows_affected();
+        if moved + retired > 0 {
+            tracing::info!(
+                event = "crawler.spider.duplicate_urls_collapsed",
+                moved,
+                retired,
+                "Crawler URLs of duplicate product pages moved to or retired in favour of their canonical URL"
+            );
+        }
+        Ok(())
+    }
+
     fn verify_url_hosts(urls: &[url::Url], domain: &str) -> Result<(), UrlMetadataRepositoryError> {
         for url in urls {
             if url.fragment().is_some() {
@@ -326,8 +524,11 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         self.upsert_links_batch(
             listing_source_id,
             domain_id,
-            std::slice::from_ref(url),
-            std::slice::from_ref(url_class),
+            &[DiscoveredUrl {
+                url: url.clone(),
+                url_class: *url_class,
+                canonical: None,
+            }],
         )
         .await?
         .pop()
@@ -340,44 +541,52 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         &self,
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
-        urls: &[url::Url],
-        url_classes: &[UrlClass],
+        links: &[DiscoveredUrl],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError> {
-        if urls.is_empty() {
+        if links.is_empty() {
             return Ok(Vec::new());
         }
-        if urls.len() != url_classes.len() {
-            return Err(UrlMetadataRepositoryError::Database {
-                source: sqlx::Error::Protocol("URL and URL-class batch lengths differ".to_owned()),
-            });
-        }
-
         let mut transaction = self.pool.begin().await.map_err(database_error)?;
         let domain =
             Self::verify_domain_owner(&mut transaction, *listing_source_id, *domain_id).await?;
-        Self::verify_url_hosts(urls, &domain)?;
+        let fetched = links
+            .iter()
+            .map(|link| link.url.clone())
+            .collect::<Vec<_>>();
+        Self::verify_url_hosts(&fetched, &domain)?;
         Self::validate_existing_url_ownership(
             &mut transaction,
             *listing_source_id,
             *domain_id,
-            &urls.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            &fetched.iter().map(ToString::to_string).collect::<Vec<_>>(),
         )
         .await?;
-        let (urls, url_classes): (Vec<url::Url>, Vec<UrlClass>) = Self::stored_spellings(
-            &mut transaction,
-            *listing_source_id,
-            *domain_id,
-            urls,
-            url_classes,
-        )
-        .await?
-        .into_iter()
-        .unzip();
         // An operator's rejection outranks the URL pattern: the page stays `other` instead of
         // being scraped again only to be classified `other` by the rejection check.
         let rejected = RejectedPages::load(&mut *transaction, listing_source_id)
             .await
             .map_err(database_error)?;
+        let links = Self::admit_canonical_urls(
+            &mut transaction,
+            *listing_source_id,
+            *domain_id,
+            &domain,
+            &rejected,
+            links,
+        )
+        .await?;
+        let (urls, url_classes): (Vec<url::Url>, Vec<UrlClass>) =
+            canonical_batch(&links).into_iter().unzip();
+        let (urls, url_classes): (Vec<url::Url>, Vec<UrlClass>) = Self::stored_spellings(
+            &mut transaction,
+            *listing_source_id,
+            *domain_id,
+            &urls,
+            &url_classes,
+        )
+        .await?
+        .into_iter()
+        .unzip();
         let url_classes: Vec<UrlClass> = urls
             .iter()
             .zip(url_classes)
@@ -391,6 +600,13 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             .collect();
         Self::adopt_legacy_spellings(&mut transaction, *listing_source_id, *domain_id, &urls)
             .await?;
+        Self::collapse_duplicate_rows(
+            &mut transaction,
+            *listing_source_id,
+            *domain_id,
+            &duplicate_rows_of(&links, &urls),
+        )
+        .await?;
         let url_strings = urls.iter().map(ToString::to_string).collect::<Vec<_>>();
 
         let records = sqlx::query_as::<_, SpiderUrlRecord>(
@@ -465,4 +681,76 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
 
 fn database_error(source: sqlx::Error) -> UrlMetadataRepositoryError {
     UrlMetadataRepositoryError::Database { source }
+}
+
+/// The URLs and classes `links` are stored under: each page under its canonical URL when it has
+/// one. A canonical URL the batch already stores, fetched itself or as the canonical URL of an
+/// earlier page, is stored once; the batch's other URLs stay as given, so a batch that names one
+/// fetched URL twice is still refused.
+fn canonical_batch(links: &[DiscoveredUrl]) -> Vec<(url::Url, UrlClass)> {
+    let mut stored = links
+        .iter()
+        .filter(|link| link.canonical.is_none())
+        .map(|link| link.url.clone())
+        .collect::<HashSet<_>>();
+    links
+        .iter()
+        .filter_map(|link| match &link.canonical {
+            None => Some((link.url.clone(), link.url_class)),
+            Some(canonical) => stored
+                .insert(canonical.clone())
+                .then(|| (canonical.clone(), link.url_class)),
+        })
+        .collect()
+}
+
+/// The rows a canonicalized page may have been stored under, and the spelling its canonical URL
+/// is stored under in this batch.
+#[derive(Debug)]
+struct DuplicateRows {
+    spellings: Vec<url::Url>,
+    canonical: url::Url,
+}
+
+/// The [`DuplicateRows`] of each canonicalized page of `links`: the page's own spellings and
+/// earlier spellings, with its canonical URL in the spelling among `stored` that names its page.
+/// A spelling that names the canonical URL's page, or that the batch stores as a page of its own,
+/// is no row of the duplicate: an earlier spelling may be exactly the canonical URL (`+` for
+/// `%20`).
+fn duplicate_rows_of(links: &[DiscoveredUrl], stored: &[url::Url]) -> Vec<DuplicateRows> {
+    let stored_by_page = stored
+        .iter()
+        .map(|url| (CrawledUrl::new(url.clone()).page_spelling(), url))
+        .collect::<std::collections::HashMap<_, _>>();
+    let stored = stored.iter().collect::<HashSet<_>>();
+    let mut duplicates = links
+        .iter()
+        .filter_map(|link| {
+            let canonical_page = CrawledUrl::new(link.canonical.clone()?).page_spelling();
+            let canonical = stored_by_page
+                .get(&canonical_page)
+                .map_or_else(|| link.canonical.clone(), |url| Some((*url).clone()))?;
+            let page = CrawledUrl::new(link.url.clone());
+            let mut spellings = Vec::new();
+            for spelling in page
+                .page_spellings()
+                .into_iter()
+                .chain(page.legacy_spellings())
+            {
+                if !spellings.contains(&spelling)
+                    && !stored.contains(&spelling)
+                    && CrawledUrl::new(spelling.clone()).page_spelling() != canonical_page
+                {
+                    spellings.push(spelling);
+                }
+            }
+            Some(DuplicateRows {
+                spellings,
+                canonical,
+            })
+        })
+        .filter(|duplicate| !duplicate.spellings.is_empty())
+        .collect::<Vec<_>>();
+    duplicates.sort_by(|left, right| left.spellings[0].as_str().cmp(right.spellings[0].as_str()));
+    duplicates
 }
