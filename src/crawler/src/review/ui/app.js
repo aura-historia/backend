@@ -817,11 +817,20 @@ function rejectionRevoked(detail) {
         && (detail.events || []).some(event => event.action === 'REJECTION_REVOKED');
 }
 
+// The review whose history the reviewer opened, so a re-render, such as a tab or schema change,
+// keeps it open.
+let reviewEventsOpenReviewId = null;
+
+function reviewEventsToggled(open) {
+    reviewEventsOpenReviewId = open ? selectedId : null;
+}
+
 // The review's event trail, newest first: each decision and edit with the actor that made it.
 function renderReviewEvents(detail) {
     const events = detail?.events || [];
     if (!events.length) return '';
-    return `<details class="review-card review-events-card">
+    const open = reviewEventsOpenReviewId === detail.review.review_id;
+    return `<details class="review-card review-events-card" ${open ? 'open' : ''} ontoggle="reviewEventsToggled(this.open)">
       <summary><span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span><strong>History</strong><span class="muted">${events.length} event${events.length === 1 ? '' : 's'}, latest ${escapeHtml(REVIEW_EVENT_LABELS[events[events.length - 1].action] || displayName(events[events.length - 1].action)).toLowerCase()} ${timeBadge(events[events.length - 1].created, 'Latest change')}</span></summary>
       <ol class="review-events">${events.slice().reverse().map(renderReviewEvent).join('')}</ol>
     </details>`;
