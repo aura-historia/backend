@@ -852,6 +852,11 @@ impl SpiderServiceImpl {
             self.replace_frontier_best_effort(domain_id, discovery)
                 .await;
         }
+        if let Err(error) = &judged
+            && keeps_its_frontier
+        {
+            log_failed_run_frontier(error, diagnostics, discovery);
+        }
         let state = judged?;
         let completion = diagnostics.completion;
 
@@ -1011,6 +1016,23 @@ fn log_crawl_outcome(
             diagnostics.stopped_early,
             state.pending_url_pattern_review().is_some()
         )
+    );
+}
+
+/// The frontier a run that found no product URL left for the next crawl; the scheduler logs the
+/// failure itself.
+fn log_failed_run_frontier(
+    error: &SpiderServiceError,
+    diagnostics: &CrawlDiagnostics,
+    discovery: Option<&CrawlDiscovery>,
+) {
+    info!(
+        error = %error,
+        completion = %diagnostics.completion,
+        crawl_budget_ms = diagnostics.crawl_budget_ms,
+        seeds = diagnostics.seeds,
+        frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
+        "Spider run found no product URL; keeping the frontier it left for the next crawl"
     );
 }
 
