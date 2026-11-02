@@ -268,10 +268,22 @@ impl ExtractionRule {
         let mut first_blank = None;
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
-            match self.first_value(html.select(&parsed), css_selector, layout)? {
+            let found = match self.first_value(html.select(&parsed), css_selector, layout) {
+                // An element without a value after a blank one ends the search: the rule
+                // yields that blank, as it did before blank values were skipped.
+                Err(ExtractionError::MissingAttribute { .. }) if first_blank.is_some() => break,
+                found => found?,
+            };
+            match found {
                 SelectorValue::Value(value) => return Ok(single_value(value)),
-                SelectorValue::OnlyBlankElements { first_blank: value } => {
+                SelectorValue::OnlyBlankElements {
+                    first_blank: value,
+                    ends_search,
+                } => {
                     first_blank.get_or_insert((css_selector, value));
+                    if ends_search {
+                        break;
+                    }
                 }
                 SelectorValue::NoElement => {}
             }
@@ -390,7 +402,8 @@ impl ExtractionRule {
 
     /// The first non-blank value of the elements `css_selector` matched, in document
     /// order. A matched element without a value (no attribute of an attribute rule, no
-    /// image URL candidate) still fails the rule.
+    /// image URL candidate) fails the rule when it comes first and ends the search after
+    /// a blank one.
     fn first_value(
         &self,
         elements: scraper::html::Select<'_, '_>,
@@ -399,12 +412,28 @@ impl ExtractionRule {
     ) -> Result<SelectorValue, ExtractionError> {
         let mut found = SelectorValue::NoElement;
         for element in elements {
-            let value = extract_from_element(&element, &self.extract, css_selector, layout)?;
+            let value = match extract_from_element(&element, &self.extract, css_selector, layout) {
+                Ok(value) => value,
+                Err(error) => {
+                    return match found {
+                        SelectorValue::OnlyBlankElements { first_blank, .. } => {
+                            Ok(SelectorValue::OnlyBlankElements {
+                                first_blank,
+                                ends_search: true,
+                            })
+                        }
+                        _ => Err(error),
+                    };
+                }
+            };
             if !is_blank(&value) {
                 return Ok(SelectorValue::Value(value));
             }
             if matches!(found, SelectorValue::NoElement) {
-                found = SelectorValue::OnlyBlankElements { first_blank: value };
+                found = SelectorValue::OnlyBlankElements {
+                    first_blank: value,
+                    ends_search: false,
+                };
             }
         }
 
@@ -416,10 +445,12 @@ impl ExtractionRule {
 enum SelectorValue {
     /// The first non-blank value.
     Value(String),
-    /// The selector matched elements, but every value is blank; `first_blank` is the
-    /// first one, as the layout gave it.
+    /// The selector matched no non-blank value before its elements ran out or an element
+    /// without a value ended the search (`ends_search`); `first_blank` is the first blank
+    /// value, as the layout gave it.
     OnlyBlankElements {
         first_blank: String,
+        ends_search: bool,
     },
     NoElement,
 }
@@ -873,8 +904,32 @@ mod tests {
         }
 
         #[test]
-        fn should_still_fail_on_an_element_without_the_attribute_after_a_blank_one() {
+        fn should_yield_the_blank_when_an_element_without_the_attribute_follows_it() {
             let doc = html("<a href=\" \"></a><a>No href</a><a href=\"/oak\"></a>");
+            let r = rule("a", attr_kind("href"), ExtractionCardinality::First);
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec![" "]);
+        }
+
+        #[test]
+        fn should_yield_the_blank_when_a_fallback_selector_lacks_the_attribute() {
+            let doc = html(
+                "<a class=\"a\" href=\"\"></a><a class=\"b\">No href</a><a class=\"c\" href=\"/oak\"></a>",
+            );
+            let r = rule_with_additional(
+                "a.a",
+                vec!["a.b", "a.c"],
+                attr_kind("href"),
+                ExtractionCardinality::First,
+            );
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+        }
+
+        #[test]
+        fn should_fail_on_an_element_without_the_attribute_before_any_value() {
+            let doc = html("<a>No href</a><a href=\" \"></a><a href=\"/oak\"></a>");
             let r = rule("a", attr_kind("href"), ExtractionCardinality::First);
 
             assert!(matches!(
