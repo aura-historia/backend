@@ -1150,6 +1150,18 @@ iframe {
     gap: var(--s2);
 }
 
+/* A removed-page template: its selector on one line, the match kind beside the text it matches,
+   its actions on their own row. Templates are told apart by a rule, not a box. */
+.removed-page-template > label:first-child,
+.removed-page-template > .actions {
+    grid-column: 1 / -1;
+}
+
+.removed-page-template + .removed-page-template {
+    padding-top: var(--s3);
+    border-top: 1px solid var(--line);
+}
+
 .additional-selector-list {
     display: grid;
     gap: var(--s2);
