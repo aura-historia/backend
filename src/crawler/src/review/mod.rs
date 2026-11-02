@@ -11,6 +11,7 @@ pub mod model;
 pub mod page_coverage;
 pub mod page_projection;
 pub mod product_markup;
+pub mod readers;
 pub mod repository;
 pub mod schema_evaluation;
 pub mod server;

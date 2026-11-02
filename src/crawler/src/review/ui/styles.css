@@ -668,6 +668,45 @@ div.item[onclick] {
     font-size: 12px;
 }
 
+/* ListingSource health: the detail pane while no review is selected. */
+
+.source-health-entry {
+    padding-bottom: var(--s2);
+    border-bottom: 1px solid var(--line);
+}
+
+.source-health-page .data-grid-wrap {
+    background: var(--surface);
+}
+
+.source-health-table td {
+    vertical-align: middle;
+}
+
+.source-health-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s1) var(--s2);
+}
+
+.source-health-name strong {
+    font-weight: 600;
+}
+
+/* A ListingSource that a pending review blocks takes the pending tone, with a bar to find it by. */
+.source-health-table tr.source-health-blocked td {
+    background: var(--warn-soft);
+}
+
+.source-health-table tr.source-health-blocked td:first-child {
+    box-shadow: inset 3px 0 0 var(--warn);
+}
+
+.source-health-table tr.source-health-disabled td {
+    color: var(--muted);
+}
+
 /* Review page */
 
 .review-page {

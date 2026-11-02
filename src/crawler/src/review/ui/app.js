@@ -208,11 +208,153 @@ async function loadReviews() {
         api('/api/listing_sources').catch(() => null)
     ]);
     if (sequence !== queueLoadSequence) return reviews;
-    showQueue(renderDomainsNeedingOperator(listingSources)
+    latestQueue = reviews;
+    latestListingSources = listingSources;
+    showQueue(renderSourceHealthEntry(listingSources)
+        + renderDomainsNeedingOperator(listingSources)
         + renderMissingValueSources(listingSources)
         + renderReviewGroups(reviews));
+    showSourceHealth();
     updateSelectedReviewFreshness(reviews);
     return reviews;
+}
+
+// The ListingSource health view fills the detail pane while no review is selected: one row per
+// ListingSource with its scrape failure streak and that failure's kind, its last successful
+// scrape and its pending reviews. It shows the overview and queue of the last poll, so it stays
+// as current as the queue. `undefined` until the first poll answers, `null` when the overview
+// could not be read.
+let latestListingSources;
+let latestQueue = [];
+let shownSourceHealthHtml = '';
+
+// A pending review of a crawl-enabled ListingSource holds back the work waiting on it until it is
+// decided; one of a disabled ListingSource holds back nothing.
+function blockedByReview(source) {
+    return Boolean(source.crawl_enabled) && Number(source.pending_reviews) > 0;
+}
+
+// The scraper circuit keeps a failure streak per domain; a ListingSource shows its longest, or
+// null while every domain scrapes.
+function failingScrapeDomain(source) {
+    return (source.domains || []).reduce((worst, domain) =>
+        scrapeFailureStreak(domain) > scrapeFailureStreak(worst) ? domain : worst, null);
+}
+
+function scrapeFailureStreak(domain) {
+    return Number(domain?.scrape_failure_streak) || 0;
+}
+
+function listingSourceName(source) {
+    return String(source.listing_source_name || source.listing_source_id);
+}
+
+// Crawl-enabled ListingSources first; among them the blocked ones, then the longest failure
+// streaks, then by name.
+function compareSourceHealth(a, b) {
+    return Number(Boolean(b.crawl_enabled)) - Number(Boolean(a.crawl_enabled))
+        || Number(blockedByReview(b)) - Number(blockedByReview(a))
+        || scrapeFailureStreak(failingScrapeDomain(b)) - scrapeFailureStreak(failingScrapeDomain(a))
+        || listingSourceName(a).localeCompare(listingSourceName(b));
+}
+
+// The queue's first entry opens the health view; it links to the fragment without a review, so
+// leaving a review for it asks before discarding unsaved edits, like opening another review.
+function renderSourceHealthEntry(listingSources) {
+    const sources = listingSources || [];
+    const blocked = sources.filter(blockedByReview).length;
+    const failing = sources.filter(source => source.crawl_enabled && failingScrapeDomain(source)).length;
+    const active = !selectedId;
+    return `<div class="listing-source-group source-health-entry">
+      <a class="item ${active ? 'active' : ''}" href="#" ${active ? 'aria-current="page"' : ''}>
+        <span class="queue-row">
+          <span class="queue-title">ListingSource health</span>
+          <span class="queue-badges">${blocked ? badge(`${blocked} blocked`, 'pending') : ''}${failing ? badge(`${failing} failing`, 'rejected') : ''}</span>
+        </span>
+        <span class="queue-meta">Scrape failures, last scrapes, pending reviews</span>
+      </a>
+    </div>`;
+}
+
+// A render that changes nothing leaves the view alone, and one that does, such as a poll that
+// only moves an elapsed time, keeps the reviewer's keyboard focus on the link they were on.
+function showSourceHealth() {
+    if (selectedId) return;
+    const detail = document.getElementById('detail');
+    const html = renderSourceHealth();
+    if (html === shownSourceHealthHtml && detail.querySelector('.source-health-page')) return;
+    replaceKeepingFocus(detail, html);
+    shownSourceHealthHtml = html;
+}
+
+function renderSourceHealth() {
+    if (latestListingSources === undefined) {
+        return '<div class="review-page source-health-page"><div class="muted">Loading ListingSource health…</div></div>';
+    }
+    if (latestListingSources === null) {
+        return `<div class="review-page source-health-page"><div class="error-panel"><strong>ListingSource health is unavailable.</strong> The ListingSource overview could not be read; the next queue refresh tries again.</div></div>`;
+    }
+    const sources = latestListingSources.slice().sort(compareSourceHealth);
+    const blocked = sources.filter(blockedByReview).length;
+    return `<div class="review-page source-health-page">
+      <div class="review-topbar">
+        <div>
+          <div class="review-title">
+            <strong>ListingSource health</strong>
+            ${blocked ? badge(`${blocked} blocked by a pending review`, 'pending') : ''}
+          </div>
+          <div class="review-meta">
+            <span>A highlighted ListingSource is blocked: its pending review holds back the work waiting on it until it is decided. Select a review in the queue to work on it.</span>
+          </div>
+        </div>
+      </div>
+      ${sources.length ? `<div class="data-grid-wrap">
+        <table class="source-health-table">
+          <thead><tr>
+            <th scope="col">ListingSource</th>
+            <th scope="col">Pending reviews</th>
+            <th scope="col">Scrape failure streak</th>
+            <th scope="col">Last error kind</th>
+            <th scope="col">Last successful scrape</th>
+          </tr></thead>
+          <tbody>${sources.map(renderSourceHealthRow).join('')}</tbody>
+        </table>
+      </div>` : '<div class="hint-card">No ListingSource is registered.</div>'}
+    </div>`;
+}
+
+function renderSourceHealthRow(source) {
+    const blocked = blockedByReview(source);
+    const failing = failingScrapeDomain(source);
+    const classes = [blocked ? 'source-health-blocked' : '', source.crawl_enabled ? '' : 'source-health-disabled']
+        .filter(Boolean).join(' ');
+    const severalDomains = (source.domains || []).length > 1;
+    return `<tr${classes ? ` class="${classes}"` : ''}>
+      <td><span class="source-health-name">
+        <strong>${escapeHtml(listingSourceName(source))}</strong>
+        ${blocked ? badge('Blocked by review', 'pending') : ''}
+        ${source.crawl_enabled ? '' : badge('Crawling disabled')}
+      </span></td>
+      <td>${renderPendingReviewsCell(source)}</td>
+      <td>${failing
+        ? `${badge(scrapeFailureStreakText(scrapeFailureStreak(failing)), 'rejected')}${severalDomains ? ` <span class="muted">${escapeHtml(failing.domain)}</span>` : ''}`
+        : '<span class="muted">None</span>'}</td>
+      <td>${failing?.last_scrape_error_kind ? `<code>${escapeHtml(failing.last_scrape_error_kind)}</code>` : '<span class="muted">None</span>'}</td>
+      <td>${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
+    </tr>`;
+}
+
+function scrapeFailureStreakText(streak) {
+    return streak === 1 ? '1 failure' : `${streak} failures in a row`;
+}
+
+// The count links to the ListingSource's first pending review in the queue.
+function renderPendingReviewsCell(source) {
+    const pending = Number(source.pending_reviews) || 0;
+    if (!pending) return '<span class="muted">None</span>';
+    const text = `${pending} pending`;
+    const review = latestQueue.find(r => r.listing_source_id === source.listing_source_id && r.status === 'PENDING_REVIEW');
+    return review ? `<a href="#${new URLSearchParams({review: review.review_id})}">${escapeHtml(text)}</a>` : escapeHtml(text);
 }
 
 // A refresh that changes nothing leaves the queue's elements alone, and one that does keeps the
@@ -224,19 +366,25 @@ function showQueue(html) {
     const list = document.getElementById('reviewList');
     if (html === shownQueueHtml && list.childElementCount) return;
     const scrollTop = list.scrollTop;
-    const focused = list.contains(document.activeElement) ? queueControlKey(document.activeElement) : null;
-    list.innerHTML = html;
+    replaceKeepingFocus(list, html);
     list.scrollTop = scrollTop;
     shownQueueHtml = html;
+}
+
+// Replaces what `container` shows with `html` and moves the keyboard focus it held to the
+// control of the new render that opens or toggles the same thing.
+function replaceKeepingFocus(container, html) {
+    const focused = container.contains(document.activeElement) ? controlKey(document.activeElement) : null;
+    container.innerHTML = html;
     if (focused) {
-        Array.from(list.querySelectorAll('a, button'))
-            .find(control => queueControlKey(control) === focused)
+        Array.from(container.querySelectorAll('a, button'))
+            .find(control => controlKey(control) === focused)
             ?.focus({preventScroll: true});
     }
 }
 
-// A queue control is named by what it opens or toggles, which a render does not change.
-function queueControlKey(control) {
+// A control is named by what it opens or toggles, which a render does not change.
+function controlKey(control) {
     return ['href', 'aria-controls', 'onclick']
         .map(name => control.getAttribute(name) || '')
         .join(' ');
@@ -471,8 +619,10 @@ function toggleListingSourceGroup(listingSourceId) {
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
+// A queue row is a summary without the candidate and validation summary, which only the selected
+// review's detail carries; it names the LLM evaluation's outcome as `auto_schema_evaluation`.
 function renderReviewQueueItem(r) {
-    const evaluation = autoSchemaEvaluation(r);
+    const evaluation = r.auto_schema_evaluation;
     const active = r.review_id === selectedId;
     // A link to the review's fragment: following it goes through the same hashchange path as
     // browser back, so it asks before discarding unsaved edits, and it opens in a new tab too.
@@ -922,6 +1072,7 @@ function actorBadge(actor) {
     return `<span class="badge badge-actor-${kind}">${escapeHtml(displayName(actor))}</span>`;
 }
 
+// The LLM evaluation of the selected review, from its validation summary.
 function autoSchemaEvaluation(review) {
     return (((review || {}).validation_summary || {}).auto_schema_evaluation) || null;
 }
@@ -3536,8 +3687,7 @@ function clearSelectedReview() {
     dirty = false;
     editNotice = null;
     pendingAction = null;
-    const detail = document.getElementById('detail');
-    detail.textContent = 'Select a review.';
+    showSourceHealth();
     updateReloadState();
     return loadReviews().catch(reportQueueFailure);
 }

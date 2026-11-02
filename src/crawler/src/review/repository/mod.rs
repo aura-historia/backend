@@ -14,7 +14,6 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
-use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
@@ -60,7 +59,8 @@ use review_events::{
 };
 
 use crate::review::source_url::is_review_source_url;
-use repair_rounds::{agent_repair_rounds, refuse_agent_while_human_required};
+pub(crate) use repair_rounds::agent_repair_rounds;
+use repair_rounds::refuse_agent_while_human_required;
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, holds_live_schemas,
@@ -335,6 +335,12 @@ impl CrawlerReviewRepository {
         self.agent_decisions
     }
 
+    /// The pool this repository persists through, from which the console builds its
+    /// [readers](crate::review::readers), so they read the same database.
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn has_pending_review(
         &self,
         listing_source_id: &ListingSourceId,
@@ -426,41 +432,6 @@ impl CrawlerReviewRepository {
         .transpose()
     }
 
-    /// Pending reviews of crawl-enabled ListingSources come first, newest first: a pending review
-    /// of a disabled ListingSource holds back no crawling or scraping, so it follows them, ahead of
-    /// the closed reviews.
-    pub async fn list_reviews(&self, limit: i64) -> Result<Vec<CrawlerReview>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT r.review_id, r.listing_source_id, s.listing_source_name,
-                    COALESCE(s.crawl_enabled, FALSE) AS listing_source_crawl_enabled,
-                    r.domain_id, r.artifact_type, r.status, r.reason,
-                    r.candidate_payload, r.candidate_version, r.validation_summary, r.reviewer_notes,
-                    r.repair_requested, r.repair_note, r.created, r.updated, r.reviewed
-             FROM crawler_reviews r
-             LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
-             ORDER BY
-               CASE
-                 WHEN r.status = 'PENDING_REVIEW' AND COALESCE(s.crawl_enabled, FALSE) THEN 0
-                 WHEN r.status = 'PENDING_REVIEW' THEN 1
-                 ELSE 2
-               END,
-               r.created DESC
-             LIMIT $1",
-        )
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
-
-        let review_ids = rows
-            .iter()
-            .map(|row| crawler_review_id_from_uuid(row.try_get("review_id")?))
-            .collect::<Result<Vec<_>, sqlx::Error>>()?;
-        let agent_rounds = agent_repair_rounds(&self.pool, &review_ids).await?;
-        rows.into_iter()
-            .map(|row| row_to_review(row, &agent_rounds, &self.agent_decisions))
-            .collect()
-    }
-
     /// A page of the review agents' queue, the pending reviews of crawl-enabled ListingSources,
     /// oldest first, with the totals of the whole queue; see [`PendingReviewQuery`].
     pub async fn list_pending_reviews(
@@ -478,122 +449,6 @@ impl CrawlerReviewRepository {
         limit: usize,
     ) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
         fetch_review_events_since(&self.pool, since, limit).await
-    }
-
-    /// Enabled ListingSources with a domain waiting for an operator come first: nothing else
-    /// in the console points at them, so the limit must not cut them off.
-    pub async fn list_listing_sources(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<ListingSourceOverview>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT
-                s.listing_source_id,
-                s.listing_source_name,
-                s.crawl_enabled,
-                s.llm_calls_count,
-                COALESCE(d.domain_count, 0) AS domain_count,
-                d.last_successful_crawl,
-                COALESCE(r.pending_reviews, 0) AS pending_reviews,
-                COALESCE(u.product_urls, 0) AS product_urls,
-                COALESCE(u.blocked_urls, 0) AS blocked_urls,
-                COALESCE(u.missing_value_urls, 0) AS missing_value_urls
-             FROM listing_sources s
-             LEFT JOIN (
-                SELECT listing_source_id, COUNT(*) AS domain_count, MAX(last_crawled) AS last_successful_crawl,
-                       COUNT(*) FILTER (WHERE last_crawl_outcome = $2) AS needs_operator_domains
-                FROM listing_source_domains GROUP BY listing_source_id
-             ) d ON d.listing_source_id = s.listing_source_id
-             LEFT JOIN (
-                SELECT listing_source_id, COUNT(*) AS pending_reviews
-                FROM crawler_reviews
-                WHERE status = 'PENDING_REVIEW'
-                GROUP BY listing_source_id
-             ) r ON r.listing_source_id = s.listing_source_id
-             LEFT JOIN (
-                SELECT listing_source_id,
-                       COUNT(*) FILTER (WHERE url_class = 'product') AS product_urls,
-                       COUNT(*) FILTER (WHERE last_error_kind IN ('PendingSchemaReview', 'PendingUrlPatternReview')) AS blocked_urls,
-                       COUNT(*) FILTER (WHERE url_class = 'product'
-                                          AND last_error_kind = 'MissingRequiredValue') AS missing_value_urls
-                FROM listing_source_urls
-                WHERE crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-                GROUP BY listing_source_id
-             ) u ON u.listing_source_id = s.listing_source_id
-             ORDER BY s.crawl_enabled DESC, COALESCE(d.needs_operator_domains, 0) > 0 DESC,
-                      pending_reviews DESC, s.updated DESC
-             LIMIT $1",
-        )
-            .bind(limit)
-            .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
-            .fetch_all(&self.pool)
-            .await?;
-
-        let mut listing_sources = Vec::with_capacity(rows.len());
-        for row in rows {
-            listing_sources.push(ListingSourceOverview {
-                listing_source_id: listing_source_id_from_uuid(
-                    row.try_get::<uuid::Uuid, _>("listing_source_id")?,
-                )?,
-                listing_source_name: row.try_get("listing_source_name")?,
-                crawl_enabled: row.try_get("crawl_enabled")?,
-                llm_calls_count: row.try_get("llm_calls_count")?,
-                domain_count: row.try_get("domain_count")?,
-                last_successful_crawl: row.try_get("last_successful_crawl")?,
-                pending_reviews: row.try_get("pending_reviews")?,
-                product_urls: row.try_get("product_urls")?,
-                blocked_urls: row.try_get("blocked_urls")?,
-                missing_value_urls: row.try_get("missing_value_urls")?,
-                domains: Vec::new(),
-            });
-        }
-        let mut domains = self
-            .list_domain_crawl_states(
-                &listing_sources
-                    .iter()
-                    .map(|overview| uuid::Uuid::from(overview.listing_source_id))
-                    .collect::<Vec<_>>(),
-            )
-            .await?;
-        for overview in &mut listing_sources {
-            overview.domains = domains
-                .remove(&uuid::Uuid::from(overview.listing_source_id))
-                .unwrap_or_default();
-        }
-        Ok(listing_sources)
-    }
-
-    /// The spider's last recorded state per domain, grouped by ListingSource.
-    async fn list_domain_crawl_states(
-        &self,
-        listing_source_ids: &[uuid::Uuid],
-    ) -> Result<HashMap<uuid::Uuid, Vec<DomainCrawlOverview>>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT listing_source_id, domain_id, listing_source_domain, last_crawled,
-                    last_crawl_outcome, last_crawl_error_kind, crawl_failure_count, next_crawl_at
-             FROM listing_source_domains
-             WHERE listing_source_id = ANY($1)
-             ORDER BY listing_source_domain",
-        )
-        .bind(listing_source_ids)
-        .fetch_all(&self.pool)
-        .await?;
-        let mut by_listing_source: HashMap<uuid::Uuid, Vec<DomainCrawlOverview>> = HashMap::new();
-        for row in rows {
-            by_listing_source
-                .entry(row.try_get("listing_source_id")?)
-                .or_default()
-                .push(DomainCrawlOverview {
-                    domain_id: crawler_domain_id_from_uuid(row.try_get("domain_id")?)?,
-                    domain: row.try_get("listing_source_domain")?,
-                    last_crawled: row.try_get("last_crawled")?,
-                    last_crawl_outcome: row.try_get("last_crawl_outcome")?,
-                    last_crawl_error_kind: row.try_get("last_crawl_error_kind")?,
-                    crawl_failure_count: row.try_get("crawl_failure_count")?,
-                    next_crawl_at: row.try_get("next_crawl_at")?,
-                });
-        }
-        Ok(by_listing_source)
     }
 
     pub async fn get_review(
@@ -1805,7 +1660,7 @@ fn row_to_review(
     })
 }
 
-fn row_to_repair_request(
+pub(crate) fn row_to_repair_request(
     row: &sqlx::postgres::PgRow,
 ) -> Result<Option<RepairRequest>, sqlx::Error> {
     match (
@@ -1864,17 +1719,23 @@ fn persisted_object_id_error(
     }))
 }
 
-fn listing_source_id_from_uuid(value: uuid::Uuid) -> Result<ListingSourceId, sqlx::Error> {
+pub(crate) fn listing_source_id_from_uuid(
+    value: uuid::Uuid,
+) -> Result<ListingSourceId, sqlx::Error> {
     ListingSourceId::try_from(value)
         .map_err(|source| persisted_object_id_error("ListingSourceId", value, source))
 }
 
-fn crawler_domain_id_from_uuid(value: uuid::Uuid) -> Result<CrawlerDomainId, sqlx::Error> {
+pub(crate) fn crawler_domain_id_from_uuid(
+    value: uuid::Uuid,
+) -> Result<CrawlerDomainId, sqlx::Error> {
     CrawlerDomainId::try_from(value)
         .map_err(|source| persisted_object_id_error("CrawlerDomainId", value, source))
 }
 
-fn crawler_review_id_from_uuid(value: uuid::Uuid) -> Result<CrawlerReviewId, sqlx::Error> {
+pub(crate) fn crawler_review_id_from_uuid(
+    value: uuid::Uuid,
+) -> Result<CrawlerReviewId, sqlx::Error> {
     CrawlerReviewId::try_from(value)
         .map_err(|source| persisted_object_id_error("CrawlerReviewId", value, source))
 }

@@ -3,6 +3,7 @@ use crawler::review::model::{
     PAGE_ROLE_SEED, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
     ReviewEventAction, STATUS_PENDING_REVIEW, STATUS_REJECTED, SchemaReviewPageInput,
 };
+use crawler::review::readers::ListingSourceOverviewReader;
 use crawler::review::repository::{
     CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewRepositoryError,
 };
@@ -1457,6 +1458,7 @@ async fn should_count_only_the_missing_value_pages_it_lists() {
     for page in [&listed, &retired] {
         record_missing_value_page(&pool, listing_source_id, page.as_str()).await;
     }
+    let overview_reader = ListingSourceOverviewReader::new(pool.clone());
     let overview_of = |sources: Vec<ListingSourceOverview>| {
         sources
             .into_iter()
@@ -1464,7 +1466,7 @@ async fn should_count_only_the_missing_value_pages_it_lists() {
             .unwrap()
     };
     let product_urls_before =
-        overview_of(repository.list_listing_sources(10).await.unwrap()).product_urls;
+        overview_of(overview_reader.list_listing_sources(10).await.unwrap()).product_urls;
     sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
         .bind(retired.as_str())
         .execute(&pool)
@@ -1475,7 +1477,7 @@ async fn should_count_only_the_missing_value_pages_it_lists() {
         .list_missing_value_pages(&listing_source_id)
         .await
         .unwrap();
-    let overview = overview_of(repository.list_listing_sources(10).await.unwrap());
+    let overview = overview_of(overview_reader.list_listing_sources(10).await.unwrap());
 
     assert_eq!(
         pages
