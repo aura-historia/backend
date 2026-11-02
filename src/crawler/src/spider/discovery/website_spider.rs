@@ -316,7 +316,8 @@ pub struct CrawlDiagnostics {
     /// Seed URLs carried over from the previous crawl, which the crawl visits
     /// after link discovery from the root.
     pub seeds: usize,
-    /// Known product URLs an incremental crawl does not fetch.
+    /// Known product pages the delivered pages link that an incremental
+    /// crawl did not fetch again, each page once.
     pub known_skipped: usize,
 }
 
@@ -1362,7 +1363,6 @@ impl SpiderImpl {
             request_delay_ms: delay_millis,
             crawl_budget_ms: u64::try_from(crawl_duration.as_millis()).unwrap_or(u64::MAX),
             seeds: seed_count,
-            known_skipped: seeds.known.len(),
             ..CrawlDiagnostics::default()
         };
         tokio::spawn(async move {
@@ -1387,6 +1387,7 @@ impl SpiderImpl {
                     let discovery = CrawlDiscovery {
                         frontier: found_links.frontier(&frontier_seeds, &known_links),
                     };
+                    diagnostics.known_skipped = found_links.skipped_known(&known_links);
                     apply_library_outcome(&mut diagnostics, outcome);
                     diagnostics.completion = completion_with_frontier(
                         diagnostics.completion,

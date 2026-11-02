@@ -340,6 +340,7 @@ async fn record_incremental_run(
         completion = %result.completion,
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
+        known_product_urls_skipped = result.known_product_urls_skipped,
         "Incremental spider run finished"
     );
     match result.completion.is_full() {
@@ -648,14 +649,17 @@ fn persisted_crawl_outcome(
 }
 
 /// The product URL count and completion of a run that classified its URLs with the
-/// domain's product pattern, including a pattern that matched nothing.
+/// domain's product pattern, including a pattern that matched nothing. An incremental crawl
+/// counts the stored product pages it found linked and did not fetch again too, so a day
+/// without new products does not read as a pattern that matched nothing.
 fn classified_crawl(
     run: &Result<SpiderRunResult, SpiderServiceError>,
 ) -> Option<(usize, CrawlCompletion)> {
     match run {
-        Ok(result) if result.pending_url_pattern_review.is_none() => {
-            Some((result.product_urls_count, result.completion))
-        }
+        Ok(result) if result.pending_url_pattern_review.is_none() => Some((
+            result.product_urls_count + result.known_product_urls_skipped,
+            result.completion,
+        )),
         Err(error) => match error.cause() {
             SpiderServiceError::NoProductUrls { completion, .. } => Some((0, *completion)),
             _ => None,
@@ -1243,6 +1247,7 @@ mod tests {
             product_pattern: Some("/product/".to_string()),
             completion,
             pending_url_pattern_review: None,
+            known_product_urls_skipped: 0,
         })
     }
 
@@ -1339,6 +1344,7 @@ mod tests {
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
+                        known_product_urls_skipped: 0,
                     })
                 })
             });
@@ -1433,6 +1439,7 @@ mod tests {
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
+                        known_product_urls_skipped: 0,
                     })
                 })
             });
@@ -1495,6 +1502,7 @@ mod tests {
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
+                        known_product_urls_skipped: 0,
                     })
                 })
             });
@@ -2222,6 +2230,7 @@ mod tests {
             product_pattern: Some("/product/".to_string()),
             completion,
             pending_url_pattern_review: None,
+            known_product_urls_skipped: 0,
         }
     }
 
@@ -2455,6 +2464,7 @@ mod tests {
                         product_pattern: None,
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
+                        known_product_urls_skipped: 0,
                     })
                 })
             });
@@ -2849,6 +2859,20 @@ mod tests {
             assert_eq!(
                 classified_crawl(&run),
                 Some((0, CrawlCompletion::Completed))
+            );
+        }
+
+        #[test]
+        fn should_count_the_stored_product_pages_an_incremental_crawl_skipped() {
+            let run = Ok(SpiderRunResult {
+                product_urls_count: 0,
+                known_product_urls_skipped: 12,
+                ..run_result(CrawlCompletion::Completed)
+            });
+
+            assert_eq!(
+                classified_crawl(&run),
+                Some((12, CrawlCompletion::Completed))
             );
         }
 

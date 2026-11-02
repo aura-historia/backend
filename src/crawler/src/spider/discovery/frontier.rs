@@ -213,6 +213,26 @@ impl FoundLinks {
             .collect()
     }
 
+    /// How many pages of `known` the delivered pages link that the crawl did not deliver, each
+    /// page once whatever its trailing slash.
+    pub(super) fn skipped_known(&self, known: &HashSet<CaseInsensitiveString>) -> usize {
+        let delivered = self
+            .delivered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        self.snapshot()
+            .iter()
+            .filter(|link| {
+                let link = CaseInsensitiveString::from(link.as_str());
+                known.contains(&link) && !delivered.contains(&link)
+            })
+            .filter_map(|link| Url::parse(link).ok())
+            .map(|url| CrawledUrl::new(url).page_spelling())
+            .collect::<HashSet<_>>()
+            .len()
+    }
+
     /// Records the links of the page at `page_url`, written as the page writes them: Spider
     /// reports them unresolved.
     pub(super) fn record<'a>(
@@ -389,6 +409,29 @@ mod tests {
             .into_iter()
             .collect()
         );
+    }
+
+    #[test]
+    fn should_count_each_known_page_linked_but_not_delivered_once() {
+        let found = FoundLinks::new(Arc::new(follow_rules(r"/denied")));
+        let links: Vec<CaseInsensitiveString> = [
+            "/product/1",
+            "/product/1/",
+            "/product/2",
+            "/product/3",
+            "/category/1",
+        ]
+        .into_iter()
+        .map(CaseInsensitiveString::from)
+        .collect();
+        found.record("https://shop.example/", &links);
+        found.record_delivered("https://shop.example/product/2");
+        let known: HashSet<CaseInsensitiveString> =
+            known_spellings(&[url("/product/1"), url("/product/2"), url("/product/9")])
+                .into_iter()
+                .collect();
+
+        assert_eq!(found.skipped_known(&known), 1);
     }
 
     #[test]

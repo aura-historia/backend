@@ -44,6 +44,9 @@ pub struct SpiderRunResult {
     /// decision for the crawl's re-reads to find, so the scheduler records the
     /// wait only while the review is still pending.
     pub pending_url_pattern_review: Option<CrawlerReviewId>,
+    /// Product pages the domain stores that an incremental crawl found linked
+    /// and did not fetch again; never counted in `product_urls_count`.
+    pub known_product_urls_skipped: usize,
 }
 
 /// What the spider reported about a crawl once it ended.
@@ -52,6 +55,19 @@ struct EndedCrawl {
     diagnostics: CrawlDiagnostics,
     /// `None` when the crawl could not tell what it left unvisited.
     discovery: Option<CrawlDiscovery>,
+}
+
+impl EndedCrawl {
+    /// Product pages the domain stores that the crawl found linked and, being incremental, did
+    /// not fetch again. They are product pages the shop still links, so the crawl is not judged
+    /// as if it had found no product page
+    /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+    fn skipped_known_products(&self) -> usize {
+        match self.kind {
+            CrawlKind::Incremental => self.diagnostics.known_skipped,
+            CrawlKind::Full => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -752,22 +768,34 @@ impl SpiderServiceImpl {
             diagnostics,
         } = ended;
         let (kind, discovery) = (*kind, discovery.as_ref());
+        let skipped_known_products = ended.skipped_known_products();
         let mut state =
             consumed.inspect_err(|error| log_crawl_stopped_early(diagnostics, error))?;
-        if let Some(error) = crawl_failure_error(crawl_root_url, state.total_crawled, diagnostics) {
+        if let Some(error) = crawl_failure_error(
+            crawl_root_url,
+            state.total_crawled,
+            skipped_known_products,
+            diagnostics,
+        ) {
             log_crawl_stopped_early(diagnostics, &error);
             return Err(error);
         }
 
         self.classify_at_end_if_needed(&mut state, listing_source_id, domain_id, crawl_root_url)
             .await?;
-        self.reclassify_if_persisted_pattern_failed(
-            &mut state,
-            listing_source_id,
-            domain_id,
-            crawl_root_url,
-        )
-        .await?;
+        // A stored pattern that matched none of the pages an incremental crawl
+        // fetched still takes the stored product pages the crawl skipped.
+        let judged_on_fetched_pages =
+            skipped_known_products == 0 || !state.pattern_loaded_from_store;
+        if judged_on_fetched_pages {
+            self.reclassify_if_persisted_pattern_failed(
+                &mut state,
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+            )
+            .await?;
+        }
         self.flush_remaining_pages(&mut state, listing_source_id, domain_id)
             .await?;
         self.classify_with_decision_made_while_waiting(&mut state, listing_source_id, domain_id)
@@ -776,6 +804,7 @@ impl SpiderServiceImpl {
         // URLs stay stored either way; only the recorded outcome differs.
         let completion = diagnostics.completion;
         if state.pending_url_pattern_review().is_none()
+            && judged_on_fetched_pages
             && let Some(error) = no_product_urls_error(crawl_root_url, &state, completion)
         {
             return Err(error);
@@ -813,6 +842,7 @@ impl SpiderServiceImpl {
             product_pattern,
             completion,
             pending_url_pattern_review: state.pending_url_pattern_review(),
+            known_product_urls_skipped: skipped_known_products,
         })
     }
 }
@@ -1250,6 +1280,120 @@ mod service_tests {
 
         assert_eq!(result.completion, CrawlCompletion::Completed);
         assert_eq!(result.product_urls_count, 1);
+    }
+
+    /// An incremental crawl of `paths` whose pages link `known_skipped` stored product pages it
+    /// did not fetch again.
+    fn setup_mock_incremental_crawl(
+        mock: &mut MockSpider,
+        paths: Vec<String>,
+        known_skipped: usize,
+    ) {
+        mock.expect_crawl().times(1).return_once(move |_| {
+            let (tx, rx) = mpsc::channel(paths.len().max(1));
+            for path in paths {
+                tx.try_send(CrawledPage::new(CrawledUrl::new(example(&path))))
+                    .unwrap();
+            }
+            let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+            diagnostics_tx
+                .send(CrawlDiagnostics {
+                    known_skipped,
+                    ..CrawlDiagnostics::default()
+                })
+                .unwrap();
+            let (discovery_tx, discovery_rx) = oneshot::channel();
+            discovery_tx.send(CrawlDiscovery::default()).unwrap();
+            Box::pin(async {
+                Ok(SpiderCrawl {
+                    pages: rx,
+                    diagnostics: diagnostics_rx,
+                    discovery: discovery_rx,
+                })
+            })
+        });
+    }
+
+    fn listing_pages() -> Vec<String> {
+        (1..=20).map(|i| format!("/category/{i}")).collect()
+    }
+
+    #[tokio::test]
+    async fn should_not_judge_an_incremental_crawl_on_the_stored_product_pages_it_skipped() {
+        for paths in [listing_pages(), vec!["/".to_string()]] {
+            let domain_id = CrawlerDomainId::new();
+            let mut mock_spider = MockSpider::new();
+            let mut mock_url_repo = MockUrlMetadataRepository::new();
+            let mut pattern_service = pattern_service_with_stored_pattern();
+            pattern_service.expect_classify_and_save().times(0);
+            pattern_service.expect_mark_as_crawled().times(0);
+            setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+            setup_mock_incremental_crawl(&mut mock_spider, paths.clone(), 3);
+            let service = SpiderServiceImpl::new(
+                SpiderServiceConfig::default(),
+                Box::new(mock_spider),
+                Box::new(pattern_service),
+                Arc::new(mock_url_repo),
+                frontier_repository(Vec::new(), vec![example("/product/9")], Some(Vec::new())),
+            );
+
+            let result = service
+                .run(
+                    &ListingSourceId::new(),
+                    &domain_id,
+                    "https://example.com",
+                    20,
+                    CrawlPace::default(),
+                    CrawlKind::Incremental,
+                )
+                .await
+                .unwrap_or_else(|error| panic!("{paths:?}: {error:?}"));
+
+            assert_eq!(result.completion, CrawlCompletion::Completed);
+            assert_eq!(result.product_urls_count, 0);
+            assert_eq!(result.known_product_urls_skipped, 3);
+            assert_eq!(result.product_pattern.as_deref(), Some("/product/"));
+        }
+    }
+
+    #[tokio::test]
+    async fn should_judge_an_incremental_crawl_that_met_no_stored_product_page_like_a_full_one() {
+        let domain_id = CrawlerDomainId::new();
+        let mut mock_spider = MockSpider::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
+        pattern_service.expect_mark_as_crawled().times(0);
+        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_incremental_crawl(&mut mock_spider, listing_pages(), 0);
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(mock_url_repo),
+            frontier_repository(Vec::new(), vec![example("/product/9")], None),
+        );
+
+        let result = service
+            .run(
+                &ListingSourceId::new(),
+                &domain_id,
+                "https://example.com",
+                20,
+                CrawlPace::default(),
+                CrawlKind::Incremental,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(SpiderServiceError::NoProductUrls { .. })),
+            "{result:?}"
+        );
     }
 
     #[tokio::test]
@@ -3136,13 +3280,18 @@ fn no_product_urls_error(
 }
 
 /// A crawl with at most one usable page is a failure. A library or local
-/// diagnostic explains it when present; otherwise the size alone does.
+/// diagnostic explains it when present; otherwise the size alone does. An
+/// incremental crawl whose healthy root links product pages the domain stores
+/// reached the shop, although it fetched nothing else.
 fn crawl_failure_error(
     crawl_root_url: &str,
     total_links: usize,
+    skipped_known_products: usize,
     diagnostics: &CrawlDiagnostics,
 ) -> Option<SpiderServiceError> {
-    if total_links > 1 {
+    let reached_known_products =
+        total_links == 1 && skipped_known_products > 0 && diagnostics.failure_kind.is_none();
+    if total_links > 1 || reached_known_products {
         return None;
     }
     let kind = diagnostics.failure_kind.unwrap_or(match total_links {
