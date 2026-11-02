@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{Notify, broadcast, mpsc, oneshot};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 use url::Url;
 
 use crate::network::CRAWLER_USER_AGENT;
@@ -23,6 +23,9 @@ use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
     network_error_kind_for_public_target_error, resolve_public_http_target,
+};
+use crate::spider::discovery::frontier::{
+    CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission, known_spellings,
 };
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
@@ -220,6 +223,16 @@ fn crawl_completion(
     }
 }
 
+/// A crawl that left a frontier did not reach everything it found, whatever
+/// else ended it: the link-discovery phase stopped at its share of the
+/// budget, or Spider dropped seeds beyond its memory limit.
+fn completion_with_frontier(completion: CrawlCompletion, frontier_left: bool) -> CrawlCompletion {
+    match completion {
+        CrawlCompletion::Completed if frontier_left => CrawlCompletion::HardTimeoutTruncated,
+        completion => completion,
+    }
+}
+
 /// Why discovery stopped Spider's crawl before Spider ended it on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlStopReason {
@@ -296,6 +309,16 @@ pub struct CrawlDiagnostics {
     /// Why discovery stopped Spider's crawl, when it did; unset when Spider
     /// ended the crawl itself.
     pub stopped_early: Option<CrawlStopReason>,
+    /// Wall-clock budget the crawl ran with: the configured one, raised so
+    /// that a robots.txt `Crawl-delay` still leaves room for an inference
+    /// sample (`crawl_budget`).
+    pub crawl_budget_ms: u64,
+    /// Seed URLs carried over from the previous crawl, which the crawl visits
+    /// after link discovery from the root.
+    pub seeds: usize,
+    /// Known product pages the delivered pages link that an incremental
+    /// crawl did not fetch again, each page once.
+    pub known_skipped: usize,
 }
 
 impl CrawlDiagnostics {
@@ -333,6 +356,9 @@ impl DiagnosticSignal {
 pub struct SpiderCrawl {
     pub pages: mpsc::Receiver<CrawledPage>,
     pub diagnostics: oneshot::Receiver<CrawlDiagnostics>,
+    /// What the crawl left unvisited, once it has ended. A crawl that cannot
+    /// tell drops the sender, and the caller keeps the frontier it had.
+    pub discovery: oneshot::Receiver<CrawlDiscovery>,
 }
 
 #[derive(Debug, Error)]
@@ -453,14 +479,38 @@ impl CrawlPace {
 
 const DEFAULT_DELAY_MILLIS: u64 = 500;
 
+/// Pages a crawl must have time for although robots.txt `Crawl-delay` paces
+/// it: the minimum URL-pattern inference sample, with room for pages the local
+/// filter drops.
+const MIN_PAGES_WITHIN_CRAWL_DELAY: u32 = 40;
+
+/// Longest wall-clock budget a `Crawl-delay` can raise a crawl to.
+const MAX_DELAY_LIMITED_CRAWL_DURATION: Duration = Duration::from_secs(60 * 60);
+
+/// The wall-clock budget of a crawl: the configured one, raised for a shop
+/// whose robots.txt `Crawl-delay` would leave it fewer than
+/// [`MIN_PAGES_WITHIN_CRAWL_DELAY`] pages, up to
+/// [`MAX_DELAY_LIMITED_CRAWL_DURATION`]. The delay between requests stays as
+/// the shop asked; only the crawl lasts longer. A pace slowed by rate limits
+/// does not raise it: that shop asked for fewer requests, not slower ones.
+fn crawl_budget(configured: Duration, crawl_delay: Option<Duration>) -> Duration {
+    let Some(crawl_delay) = crawl_delay else {
+        return configured;
+    };
+    let needed = crawl_delay.saturating_mul(MIN_PAGES_WITHIN_CRAWL_DELAY);
+    configured.max(needed.min(MAX_DELAY_LIMITED_CRAWL_DURATION))
+}
+
+/// A crawl with seeds gives link discovery from the root at most this share
+/// (one over the value) of its budget before it turns to the seeds, so neither
+/// starves the other; link discovery not finished by then continues among the
+/// seeds.
+const LINK_DISCOVERY_BUDGET_DIVISOR: u32 = 2;
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait Spider: Send + Sync {
-    async fn crawl(
-        &self,
-        crawl_root_url: &str,
-        pace: CrawlPace,
-    ) -> Result<SpiderCrawl, SpiderDiscoveryError>;
+    async fn crawl(&self, request: CrawlRequest) -> Result<SpiderCrawl, SpiderDiscoveryError>;
 }
 
 /// Builds the HTTP client used for the crawl root and every Spider request.
@@ -552,7 +602,7 @@ fn configured_spider_body_limit(
     Ok(())
 }
 
-fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
+pub(super) fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
     let host = url.host_str().ok_or_else(|| {
         SpiderDiscoveryError::preflight(
             CrawlFailureKind::InvalidUrl,
@@ -840,11 +890,25 @@ struct LibraryOutcome {
 struct CrawlBounds {
     max_crawl_duration: Duration,
     max_pages_per_crawl: u32,
+    /// The share of `max_crawl_duration` link discovery from the root takes
+    /// before the crawl turns to its seeds.
+    link_discovery_duration: Duration,
+    /// Links marked visited before the crawl, which Spider counts as pages.
+    known_links: usize,
 }
 
 /// Runs Spider to its end, or until the filter task asks it to stop, and
 /// snapshots what the library learned about the site. Spider's broadcast
 /// closes with the unsubscribe, which ends the filter task's page loop.
+///
+/// The crawl runs in two phases on one `Website`, so the second skips every
+/// link the first visited. Link discovery from the root runs first, for its
+/// share of the budget when there are seeds. The seeds, with the links the
+/// first phase found but did not reach, follow for the rest of the budget,
+/// unless the first phase failed at the root or was stopped. The filter task
+/// tells, once it has relayed every page, what both phases left unvisited.
+/// Spider reports a root answered with a challenge as idle, like a healthy
+/// one, so the seed phase waits for the filter task's judgement of the root.
 ///
 /// A stop drops the crawl future, which aborts Spider's in-flight page
 /// fetches: Spider runs them in a `JoinSet` the crawl future owns, the same
@@ -855,45 +919,128 @@ async fn run_library_crawl(
     mut website: Website,
     link_decoder: FoundLinkDecoder,
     bounds: CrawlBounds,
+    seeds: Vec<String>,
+    found: FoundLinks,
     stop: Arc<Notify>,
+    mut root_judgement: RootJudgement,
 ) -> LibraryOutcome {
     let started = tokio::time::Instant::now();
     website.with_on_link_find_callback(Some(Arc::new(move |link, html| {
         (link_decoder.decode(link), html)
     })));
-    let stopped = {
-        let crawl = website.crawl();
-        let stop = stop.notified();
-        tokio::pin!(crawl, stop);
-        tokio::select! {
-            biased;
-            () = &mut crawl => false,
-            () = &mut stop => true,
+    website.with_crawl_timeout(Some(bounds.link_discovery_duration));
+    let mut stopped = crawl_until_stopped(&mut website, &stop).await;
+    let root_outcome = library_outcome(&website);
+
+    let pages_visited = |website: &Website| website.size().saturating_sub(bounds.known_links);
+    let remaining = || bounds.max_crawl_duration.saturating_sub(started.elapsed());
+    let seed_phase_allowed = !stopped
+        && root_outcome.status == CrawlStatus::Idle
+        && pages_visited(&website) < bounds.max_pages_per_crawl as usize
+        && !remaining().is_zero();
+    if seed_phase_allowed {
+        match judged_root(&mut root_judgement, &stop, remaining()).await {
+            None => stopped = true,
+            Some(RootVerdict::Refused) => {}
+            Some(RootVerdict::Accepted) => {
+                // Pages the filter task has not relayed yet miss here; what their
+                // links lead to carries over in the frontier instead.
+                let visited = website.get_links();
+                let pending = found.unvisited(&seeds, |link| visited.contains(link));
+                let remaining = remaining();
+                if !pending.is_empty() && !remaining.is_zero() {
+                    website.persist_links();
+                    website.set_extra_links(pending.into_iter().map(Into::into).collect());
+                    website.with_crawl_timeout(Some(remaining));
+                    // Spider gives every crawl it runs the whole page limit again.
+                    website.with_limit(seed_phase_page_limit(
+                        bounds.max_pages_per_crawl,
+                        pages_visited(&website),
+                    ));
+                    stopped = crawl_until_stopped(&mut website, &stop).await;
+                }
+            }
         }
-    };
+    }
+
     let completion = if stopped {
         CrawlCompletion::HardTimeoutTruncated
     } else {
         crawl_completion(
             started.elapsed(),
             bounds.max_crawl_duration,
-            website.size(),
+            pages_visited(&website),
             bounds.max_pages_per_crawl,
         )
     };
-    let outcome = library_outcome(&website, completion, stopped);
     website.unsubscribe();
-    outcome
-}
-
-fn library_outcome(
-    website: &Website,
-    completion: CrawlCompletion,
-    stopped: bool,
-) -> LibraryOutcome {
     LibraryOutcome {
         completion,
         stopped,
+        ..root_outcome
+    }
+}
+
+/// The page limit that leaves the seed phase the pages link discovery did not
+/// use of `max_pages`. Spider's limit counts the root page, which the seed
+/// phase does not fetch again, so it allows one page fewer than it says.
+fn seed_phase_page_limit(max_pages: u32, pages_visited: usize) -> u32 {
+    let used = u32::try_from(pages_visited).unwrap_or(u32::MAX);
+    max_pages.saturating_sub(used).saturating_add(1)
+}
+
+/// The filter task's judgement of the root page, unset until it relayed the
+/// first page Spider delivered.
+type RootJudgement = watch::Receiver<Option<RootVerdict>>;
+
+/// Whether a crawl may go on from its root page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RootVerdict {
+    Accepted,
+    /// The root failed the crawl, refused it or answered a bot challenge:
+    /// nothing else the crawl fetches can help.
+    Refused,
+}
+
+/// Waits, for at most `within`, until the filter task has judged the root
+/// page; `None` when the filter task asked the crawl to stop meanwhile. A
+/// root it did not judge in time, or could not judge, counts as refused.
+async fn judged_root(
+    judgement: &mut RootJudgement,
+    stop: &Notify,
+    within: Duration,
+) -> Option<RootVerdict> {
+    let judged = tokio::time::timeout(within, judgement.wait_for(Option::is_some));
+    let stop = stop.notified();
+    tokio::pin!(judged, stop);
+    tokio::select! {
+        biased;
+        () = &mut stop => None,
+        judged = &mut judged => Some(match judged {
+            Ok(Ok(verdict)) => verdict.unwrap_or(RootVerdict::Refused),
+            Ok(Err(_)) | Err(_) => RootVerdict::Refused,
+        }),
+    }
+}
+
+/// Runs one Spider crawl to its end; true when the filter task stopped it.
+async fn crawl_until_stopped(website: &mut Website, stop: &Notify) -> bool {
+    let crawl = website.crawl();
+    let stop = stop.notified();
+    tokio::pin!(crawl, stop);
+    tokio::select! {
+        biased;
+        () = &mut crawl => false,
+        () = &mut stop => true,
+    }
+}
+
+/// What Spider learned about the site from its root; the completion is
+/// judged once the whole crawl has ended.
+fn library_outcome(website: &Website) -> LibraryOutcome {
+    LibraryOutcome {
+        completion: CrawlCompletion::default(),
+        stopped: false,
         status: *website.get_status(),
         meta: *website.get_website_meta_info(),
         initial_html_length: website.get_initial_html_length(),
@@ -924,6 +1071,8 @@ struct LocalFilter {
     /// Spider's deny list, so a page's canonical link counts only when the crawl may fetch it.
     deny_list: Arc<RegexSet>,
     seen: Bloom<String>,
+    /// The links on every delivered page, for the crawl's frontier.
+    found_links: FoundLinks,
 }
 
 impl LocalFilter {
@@ -1049,16 +1198,21 @@ impl FoundLinkDecoder {
 impl SpiderImpl {
     async fn crawl_with_body_limit(
         &self,
-        crawl_root_url: &str,
-        pace: CrawlPace,
+        request: CrawlRequest,
         configured_body_limit: Option<&str>,
     ) -> Result<SpiderCrawl, SpiderDiscoveryError> {
         configured_spider_body_limit(configured_body_limit, self.config.max_response_body_bytes)?;
+        let CrawlRequest {
+            crawl_root_url,
+            pace,
+            seeds,
+        } = request;
         let (tx, rx) = mpsc::channel(self.config.channel_size);
         let (outcome_tx, outcome_rx) = oneshot::channel();
         let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+        let (discovery_tx, discovery_rx) = oneshot::channel();
 
-        let configured_root = Url::parse(crawl_root_url).map_err(|_| {
+        let configured_root = Url::parse(&crawl_root_url).map_err(|_| {
             SpiderDiscoveryError::preflight(
                 CrawlFailureKind::InvalidUrl,
                 "configured crawler URL is invalid",
@@ -1090,7 +1244,7 @@ impl SpiderImpl {
         let refused_links = RefusedLinks::default();
         let decoder_refused_links = Arc::clone(&refused_links);
         let mut website = Website::new(root_url.as_str());
-        website.set_http_client(client);
+        website.set_http_client(client.clone());
 
         let mut blacklist_regex = CrawledUrl::spider_deny_patterns();
         blacklist_regex.extend(
@@ -1108,6 +1262,21 @@ impl SpiderImpl {
                 "robots.txt rules do not compile into Spider's deny list",
             )
         })?;
+        let crawl_duration = crawl_budget(self.config.max_crawl_duration, robots.crawl_delay);
+        let follow_rules = Arc::new(FollowRules::new(
+            root_url.clone(),
+            host_whitelist_regex.clone(),
+            Arc::clone(&deny_list),
+        ));
+        let admission = SeedAdmission {
+            rules: &follow_rules,
+            robots: &robots,
+        };
+        let seed_urls = admission.admit_all(&seeds.frontier);
+        let link_discovery_duration = match seed_urls.is_empty() {
+            true => crawl_duration,
+            false => crawl_duration / LINK_DISCOVERY_BUDGET_DIVISOR,
+        };
         let auto_throttle_config = AutoThrottleConfig {
             min_delay_ms: delay_millis,
             max_delay_ms: 60_000,
@@ -1124,10 +1293,11 @@ impl SpiderImpl {
             .with_blacklist_url(Some(blacklist_regex))
             .with_whitelist_url(Some(vec![host_whitelist.into()]))
             .with_respect_robots_txt(false)
+            .with_return_page_links(true)
             .with_headers(Some(spider_request_headers()))
             .with_user_agent(Some(CRAWLER_USER_AGENT))
             .with_request_timeout(Some(request_timeout))
-            .with_crawl_timeout(Some(self.config.max_crawl_duration))
+            .with_crawl_timeout(Some(link_discovery_duration))
             .with_limit(self.config.max_pages_per_crawl)
             .with_delay(delay_millis)
             .with_caching(false)
@@ -1136,22 +1306,40 @@ impl SpiderImpl {
             }))
             .build()
             .map_err(|_| SpiderDiscoveryError::Config("Failed to build website".to_string()))?;
+        let known_links = known_links(&root_url, &seeds.known);
+        let known_link_count = mark_known_links_visited(&mut website, &known_links).await;
 
         let spider_rx = website.subscribe(512);
 
+        let found_links = FoundLinks::new(follow_rules);
         let link_decoder = FoundLinkDecoder {
             host_whitelist: host_whitelist_regex,
             deny_list: Arc::clone(&deny_list),
             refused: decoder_refused_links,
         };
         let bounds = CrawlBounds {
-            max_crawl_duration: self.config.max_crawl_duration,
+            max_crawl_duration: crawl_duration,
             max_pages_per_crawl: self.config.max_pages_per_crawl,
+            link_discovery_duration,
+            known_links: known_link_count,
         };
         let stop_crawl = Arc::new(Notify::new());
         let crawl_stop = Arc::clone(&stop_crawl);
+        let (root_verdict, root_judgement) = watch::channel(None);
+        let seed_count = seed_urls.len();
+        let crawl_found_links = found_links.clone();
+        let frontier_seeds = seed_urls.clone();
         tokio::spawn(async move {
-            let outcome = run_library_crawl(website, link_decoder, bounds, crawl_stop).await;
+            let outcome = run_library_crawl(
+                website,
+                link_decoder,
+                bounds,
+                seed_urls,
+                crawl_found_links,
+                crawl_stop,
+                root_judgement,
+            )
+            .await;
             let _ = outcome_tx.send(outcome);
         });
 
@@ -1163,6 +1351,7 @@ impl SpiderImpl {
             deny_list,
             seen: Bloom::new_for_fp_rate(self.config.bloom_capacity, self.config.bloom_fp_rate)
                 .expect("bloom filter init failed"),
+            found_links: found_links.clone(),
         };
         let mut diagnostics = CrawlDiagnostics {
             root_preflight_status: Some(root_preflight_status),
@@ -1172,6 +1361,8 @@ impl SpiderImpl {
                 .map(|delay| u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)),
             robots_rules_failing_closed: robots.deny_list.failing_closed.len(),
             request_delay_ms: delay_millis,
+            crawl_budget_ms: u64::try_from(crawl_duration.as_millis()).unwrap_or(u64::MAX),
+            seeds: seed_count,
             ..CrawlDiagnostics::default()
         };
         tokio::spawn(async move {
@@ -1182,6 +1373,7 @@ impl SpiderImpl {
                 &mut diagnostics,
                 &crawl_root_url,
                 &stop_crawl,
+                &root_verdict,
             )
             .await;
             // Spider's crawl has ended once its outcome arrives, so the
@@ -1191,7 +1383,17 @@ impl SpiderImpl {
                     if outcome.stopped {
                         diagnostics.stopped_early = stop_requested;
                     }
+                    // Every page is relayed by now, so its links are known.
+                    let discovery = CrawlDiscovery {
+                        frontier: found_links.frontier(&frontier_seeds, &known_links),
+                    };
+                    diagnostics.known_skipped = found_links.skipped_known(&known_links);
                     apply_library_outcome(&mut diagnostics, outcome);
+                    diagnostics.completion = completion_with_frontier(
+                        diagnostics.completion,
+                        !discovery.frontier.is_empty(),
+                    );
+                    let _ = discovery_tx.send(discovery);
                 }
                 // The crawl task died without reporting; never call that full.
                 Err(_) => {
@@ -1208,8 +1410,37 @@ impl SpiderImpl {
         Ok(SpiderCrawl {
             pages: rx,
             diagnostics: diagnostics_rx,
+            discovery: discovery_rx,
         })
     }
+}
+
+/// The links of the product URLs an incremental crawl already knows, in both
+/// trailing-slash spellings; never the root, which stays crawlable.
+fn known_links(root: &Url, known: &[Url]) -> HashSet<CaseInsensitiveString> {
+    let root_spelling = CaseInsensitiveString::from(root.as_str());
+    known_spellings(known)
+        .into_iter()
+        .filter(|link| *link != root_spelling)
+        .collect()
+}
+
+/// Marks the known links visited so Spider skips them. Spider keeps marked
+/// links only when the crawl continues an earlier state, so the website is
+/// marked as such. Returns how many links Spider now counts as visited, which
+/// its page count includes.
+async fn mark_known_links_visited(
+    website: &mut Website,
+    known: &HashSet<CaseInsensitiveString>,
+) -> usize {
+    if known.is_empty() {
+        return 0;
+    }
+    website.persist_links();
+    for link in known {
+        website.insert_link(link).await;
+    }
+    website.size()
 }
 
 /// Relays the pages Spider broadcasts through the local filter to the
@@ -1224,6 +1455,7 @@ async fn relay_library_pages(
     diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
     stop_crawl: &Notify,
+    root_verdict: &watch::Sender<Option<RootVerdict>>,
 ) -> Option<CrawlStopReason> {
     let mut stop_requested = None;
     let mut request_stop = |reason| {
@@ -1293,14 +1525,30 @@ async fn relay_library_pages(
                 diagnostics.failure_kind,
                 Some(CrawlFailureKind::RedirectProblem)
             );
+            // Seeds cannot help a crawl whose root failed or refused it.
+            let refused =
+                diagnostics.failure_kind.is_some() || is_access_denied_status(status_code);
+            root_verdict.send_replace(Some(match refused {
+                true => RootVerdict::Refused,
+                false => RootVerdict::Accepted,
+            }));
             first_page_seen = true;
         }
 
+        let rate_limit_answer = RateLimitSignal::from_page(status_code, page.headers.as_ref());
         if diagnostics.rate_limit.is_none()
-            && let Some(signal) = RateLimitSignal::from_page(status_code, page.headers.as_ref())
+            && let Some(signal) = rate_limit_answer
         {
             apply_rate_limit_signal(diagnostics, signal);
             request_stop(CrawlStopReason::RateLimited);
+        }
+        // A challenge or a rate-limit answer is not the page: it stays in the
+        // frontier for the next crawl, and its links are not the shop's.
+        if challenge.is_none() && rate_limit_answer.is_none() {
+            filter.found_links.record_delivered(page.get_url());
+            if let Some(page_links) = page.page_links.as_deref() {
+                filter.found_links.record(page.get_url(), page_links);
+            }
         }
 
         match filter.admit(page.get_url()) {
@@ -1317,13 +1565,9 @@ async fn relay_library_pages(
 
 #[async_trait::async_trait]
 impl Spider for SpiderImpl {
-    async fn crawl(
-        &self,
-        crawl_root_url: &str,
-        pace: CrawlPace,
-    ) -> Result<SpiderCrawl, SpiderDiscoveryError> {
+    async fn crawl(&self, request: CrawlRequest) -> Result<SpiderCrawl, SpiderDiscoveryError> {
         let configured_body_limit = std::env::var(SPIDER_MAX_BODY_BYTES_ENV).ok();
-        self.crawl_with_body_limit(crawl_root_url, pace, configured_body_limit.as_deref())
+        self.crawl_with_body_limit(request, configured_body_limit.as_deref())
             .await
     }
 }
@@ -1559,6 +1803,7 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 mod tests {
     use super::*;
     use crate::network::robots::RobotsRules;
+    use crate::spider::discovery::frontier::CrawlSeeds;
     use crate::spider::utils::url::canonical::ShopPlatform;
     use std::collections::HashSet;
     use std::net::SocketAddr;
@@ -1848,8 +2093,12 @@ mod tests {
         let SpiderCrawl {
             mut pages,
             diagnostics,
+            ..
         } = spider
-            .crawl_with_body_limit(root, CrawlPace::default(), Some("8388608"))
+            .crawl_with_body_limit(
+                CrawlRequest::from_root(root, CrawlPace::default()),
+                Some("8388608"),
+            )
             .await?;
         let mut discovered = HashSet::new();
         while let Some(page) = pages.recv().await {
@@ -1956,7 +2205,10 @@ mod tests {
         let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
         let SpiderCrawl { mut pages, .. } = spider
-            .crawl_with_body_limit("http://example.com/", CrawlPace::default(), Some("8388608"))
+            .crawl_with_body_limit(
+                CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                Some("8388608"),
+            )
             .await
             .unwrap();
         let mut identities = std::collections::HashMap::new();
@@ -2195,6 +2447,18 @@ mod tests {
             crawl_completion(budget + Duration::from_secs(1), budget, 10_000, 10_000),
             CrawlCompletion::PageBudgetReached
         );
+        assert_eq!(
+            completion_with_frontier(CrawlCompletion::Completed, true),
+            CrawlCompletion::HardTimeoutTruncated
+        );
+        assert_eq!(
+            completion_with_frontier(CrawlCompletion::PageBudgetReached, true),
+            CrawlCompletion::PageBudgetReached
+        );
+        assert_eq!(
+            completion_with_frontier(CrawlCompletion::Completed, false),
+            CrawlCompletion::Completed
+        );
     }
 
     #[test]
@@ -2317,6 +2581,41 @@ mod tests {
             assert_eq!(diagnostics.http_status, Some(202));
         }
 
+        /// Spider reports a crawl whose root answered `202` idle, like a healthy one; only the
+        /// filter task recognises the challenge, so the seed phase waits for its judgement.
+        #[tokio::test]
+        async fn should_fetch_no_seed_after_a_challenged_root() {
+            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| {
+                SiteResponse::HtmlWithHeaders(
+                    "202 Accepted",
+                    "sg-captcha: challenge\r\n",
+                    "<html><body><p>Please wait.</p></body></html>".to_string(),
+                )
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+            let seeds = CrawlSeeds {
+                frontier: (1..=5).map(|i| example(&format!("/seed/{i}"))).collect(),
+                ..CrawlSeeds::default()
+            };
+
+            let (_, diagnostics, _) = run_seeded_crawl(&spider, seeds).await;
+            let requests = site.finish().await;
+
+            assert_eq!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::BotProtection),
+                "{diagnostics:?}"
+            );
+            assert!(
+                !requests
+                    .iter()
+                    .any(|(_, target, ..)| target.starts_with("/seed/")),
+                "{requests:?}"
+            );
+        }
+
         #[tokio::test]
         async fn should_count_a_challenged_listing_page_without_failing_an_ordinary_root() {
             let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
@@ -2355,10 +2654,13 @@ mod tests {
         let SpiderCrawl {
             mut pages,
             diagnostics,
+            ..
         } = spider
             .crawl_with_body_limit(
-                "http://example.com/",
-                CrawlPace::after_rate_limited_crawls(1),
+                CrawlRequest::from_root(
+                    "http://example.com/",
+                    CrawlPace::after_rate_limited_crawls(1),
+                ),
                 Some("8388608"),
             )
             .await
@@ -2418,6 +2720,352 @@ mod tests {
         }
     }
 
+    async fn run_seeded_crawl(
+        spider: &SpiderImpl,
+        seeds: CrawlSeeds,
+    ) -> (HashSet<String>, CrawlDiagnostics, CrawlDiscovery) {
+        let SpiderCrawl {
+            mut pages,
+            diagnostics,
+            discovery,
+        } = spider
+            .crawl_with_body_limit(
+                CrawlRequest {
+                    seeds,
+                    ..CrawlRequest::from_root("http://example.com/", CrawlPace::default())
+                },
+                Some("8388608"),
+            )
+            .await
+            .unwrap();
+        let mut delivered = HashSet::new();
+        while let Some(page) = pages.recv().await {
+            delivered.insert(page.url.to_string());
+        }
+        (
+            delivered,
+            diagnostics.await.unwrap(),
+            discovery.await.unwrap(),
+        )
+    }
+
+    fn example(path: &str) -> Url {
+        Url::parse(&format!("http://example.com{path}")).unwrap()
+    }
+
+    /// The root links two products and a hanging page; `/deep/1` is only
+    /// known from an earlier crawl's frontier and links `/deep/2`.
+    fn carried_over_site(target: &str, _: usize) -> SiteResponse {
+        match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/product/1">1</a><a href="/product/2">2</a>"#.to_string(),
+            ),
+            "/deep/1" => SiteResponse::Html("200 OK", r#"<a href="/deep/2">2</a>"#.to_string()),
+            "/product/1" | "/product/2" | "/deep/2" => {
+                SiteResponse::Html("200 OK", "<p>p</p>".to_string())
+            }
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_continue_from_the_carried_over_frontier_after_link_discovery() {
+        let site = TestSite::spawn(Arc::new(carried_over_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: vec![
+                example("/deep/1"),
+                example("/product/1"),
+                Url::parse("http://other.example/deep/3").unwrap(),
+                example("/cart"),
+            ],
+            ..CrawlSeeds::default()
+        };
+
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        for expected in [
+            "http://example.com/",
+            "http://example.com/product/1",
+            "http://example.com/product/2",
+            "http://example.com/deep/1",
+            "http://example.com/deep/2",
+        ] {
+            assert!(delivered.contains(expected), "missing {expected}");
+        }
+        // Off-host and blacklisted seeds are never handed to Spider.
+        assert_eq!(diagnostics.seeds, 2, "{diagnostics:?}");
+        assert!(!requests.iter().any(|(_, target, ..)| target == "/cart"));
+        // A page both seeded and linked is fetched once.
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(_, target, ..)| target == "/product/1")
+                .count(),
+            1
+        );
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    #[tokio::test]
+    async fn should_leave_what_a_cut_short_crawl_did_not_visit_as_its_frontier() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/slow">slow</a><a href="/product/1">1</a>"#.to_string(),
+            ),
+            "/slow" => SiteResponse::Hang,
+            "/product/1" => {
+                SiteResponse::Html("200 OK", r#"<a href="/product/2">2</a>"#.to_string())
+            }
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let config = CrawlerConfig {
+            request_timeout_secs: 5,
+            concurrency_limit: 1,
+            delay_millis: 300,
+            max_crawl_duration: Duration::from_millis(1_200),
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: (1..=20).map(|i| example(&format!("/seed/{i}"))).collect(),
+            ..CrawlSeeds::default()
+        };
+
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        site.finish().await;
+
+        assert_eq!(
+            diagnostics.completion,
+            CrawlCompletion::HardTimeoutTruncated
+        );
+        assert!(!discovery.frontier.is_empty());
+        for left in &discovery.frontier {
+            assert!(
+                !delivered.contains(left.as_str()),
+                "{left} was visited but carried over"
+            );
+        }
+        assert!(
+            discovery
+                .frontier
+                .iter()
+                .any(|url| url.path().starts_with("/seed/")),
+            "unvisited seeds carry over: {discovery:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn should_carry_over_the_links_a_crawl_without_seeds_found_but_did_not_reach() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                (1..=30)
+                    .map(|i| format!(r#"<a href="/item/{i}">{i}</a>"#))
+                    .collect(),
+            ),
+            _ => {
+                SiteResponse::SlowHtml(Duration::from_millis(200), "200 OK", "<p>p</p>".to_string())
+            }
+        }))
+        .await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 100,
+            max_crawl_duration: Duration::from_millis(1_500),
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+
+        let (delivered, diagnostics, discovery) =
+            run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+        site.finish().await;
+
+        assert_eq!(
+            diagnostics.completion,
+            CrawlCompletion::HardTimeoutTruncated
+        );
+        assert!(delivered.len() < 31, "{delivered:?}");
+        assert_eq!(
+            discovery.frontier.len(),
+            31 - delivered.len(),
+            "{discovery:?}"
+        );
+    }
+
+    /// Spider fetches the crawl root's host alone and every link under the root's scheme, so a
+    /// link to the `www` twin or under the other scheme can never be visited and must not keep
+    /// a crawl that reached everything else from completing.
+    #[tokio::test]
+    async fn should_complete_a_crawl_whose_pages_link_the_www_twin_or_the_other_scheme() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/product/1">1</a>
+                   <a href="http://www.example.com/product/2">twin</a>
+                   <a href="https://example.com/product/3">other scheme</a>"#
+                    .to_string(),
+            ),
+            "/product/1" | "/product/3" => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let (delivered, diagnostics, discovery) =
+            run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+        let requests = site.finish().await;
+
+        assert!(delivered.contains("http://example.com/product/3"));
+        assert!(
+            !requests.iter().any(|(host, ..)| host == "www.example.com"),
+            "{requests:?}"
+        );
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    /// Spider gives every crawl it runs the whole page budget again, while the budget bounds the
+    /// whole crawl, link discovery and seed phase together.
+    #[tokio::test]
+    async fn should_bound_link_discovery_and_seed_phase_together_by_the_page_budget() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html("200 OK", r#"<a href="/slow">slow</a>"#.to_string()),
+            "/slow" => SiteResponse::Hang,
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let config = CrawlerConfig {
+            request_timeout_secs: 5,
+            concurrency_limit: 2,
+            max_pages_per_crawl: 4,
+            max_crawl_duration: Duration::from_secs(2),
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: (1..=10).map(|i| example(&format!("/seed/{i}"))).collect(),
+            ..CrawlSeeds::default()
+        };
+
+        let (_, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        let seeds_fetched = requests
+            .iter()
+            .filter(|(_, target, ..)| target.starts_with("/seed/"))
+            .count();
+        // The root and the hanging page took two pages of the budget.
+        assert_eq!(seeds_fetched, 2, "{requests:?}");
+        assert_eq!(diagnostics.completion, CrawlCompletion::PageBudgetReached);
+        assert_eq!(discovery.frontier.len(), 9, "{discovery:?}");
+    }
+
+    /// Spider counts the link as written visited, while the page arrives under the spelling the
+    /// crawler stores, so the seed phase must not take the delivered page for an unvisited link.
+    #[tokio::test]
+    async fn should_fetch_a_page_linked_with_tracking_parameters_once() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/product/1?utm_source=newsletter">1</a>"#.to_string(),
+            ),
+            "/product/1" | "/deep/1" => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: vec![example("/deep/1")],
+            ..CrawlSeeds::default()
+        };
+
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(delivered.contains("http://example.com/deep/1"));
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(_, target, ..)| target.starts_with("/product/1"))
+                .count(),
+            1,
+            "{requests:?}"
+        );
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    #[tokio::test]
+    async fn should_keep_a_page_answered_with_a_rate_limit_in_the_frontier() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html("200 OK", r#"<a href="/limited">l</a>"#.to_string()),
+            "/limited" => SiteResponse::WithHeaders("429 Too Many Requests", "Retry-After: 60\r\n"),
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (_, diagnostics, discovery) = run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+        site.finish().await;
+
+        assert!(
+            matches!(diagnostics.completion, CrawlCompletion::RateLimited(_)),
+            "{diagnostics:?}"
+        );
+        assert_eq!(discovery.frontier, [example("/limited")]);
+    }
+
+    #[tokio::test]
+    async fn should_skip_known_urls_in_either_spelling_on_an_incremental_crawl() {
+        let site = TestSite::spawn(Arc::new(carried_over_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            known: vec![example("/product/1/")],
+            ..CrawlSeeds::default()
+        };
+
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(delivered.contains("http://example.com/product/2"));
+        assert!(
+            !requests
+                .iter()
+                .any(|(_, target, ..)| target == "/product/1")
+        );
+        assert_eq!(diagnostics.known_skipped, 1);
+        assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    #[test]
+    fn crawl_budget_should_leave_a_crawl_delay_limited_shop_room_for_the_inference_sample() {
+        let configured = Duration::from_secs(600);
+
+        assert_eq!(crawl_budget(configured, None), configured);
+        assert_eq!(
+            crawl_budget(configured, Some(Duration::from_secs(1))),
+            configured
+        );
+        // antieksite.nl: `Crawl-delay: 30` left 20 pages in 600 s.
+        assert_eq!(
+            crawl_budget(configured, Some(Duration::from_secs(30))),
+            Duration::from_secs(30 * u64::from(MIN_PAGES_WITHIN_CRAWL_DELAY))
+        );
+        assert_eq!(
+            crawl_budget(configured, Some(Duration::from_secs(600))),
+            MAX_DELAY_LIMITED_CRAWL_DURATION
+        );
+    }
+
     /// An endless chain of slow pages: only a stop ends the crawl before
     /// its wall-clock budget.
     fn endless_chain_site(target: &str, _: usize) -> SiteResponse {
@@ -2448,6 +3096,46 @@ mod tests {
             "/limited" => limited.clone(),
             _ => endless_chain_site(target, previous),
         })
+    }
+
+    /// A shop that asked for less traffic during link discovery gets no seed phase: the seeds
+    /// carry over to the crawl its rate-limit hold allows.
+    #[tokio::test]
+    async fn should_fetch_no_seed_after_a_rate_limit_answer() {
+        let site = TestSite::spawn(rate_limited_site(SiteResponse::WithHeaders(
+            "429 Too Many Requests",
+            "Retry-After: 60\r\n",
+        )))
+        .await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 1_000,
+            ..test_config()
+        };
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            frontier: (1..=5).map(|i| example(&format!("/seed/{i}"))).collect(),
+            ..CrawlSeeds::default()
+        };
+
+        let (_, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(
+            matches!(diagnostics.completion, CrawlCompletion::RateLimited(_)),
+            "{diagnostics:?}"
+        );
+        assert!(
+            !requests
+                .iter()
+                .any(|(_, target, ..)| target.starts_with("/seed/")),
+            "{requests:?}"
+        );
+        for kept in ["/limited", "/seed/1", "/seed/5"] {
+            assert!(
+                discovery.frontier.contains(&example(kept)),
+                "{kept} carries over: {discovery:?}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2541,8 +3229,12 @@ mod tests {
         let SpiderCrawl {
             mut pages,
             diagnostics,
+            ..
         } = spider
-            .crawl_with_body_limit("http://example.com/", CrawlPace::default(), Some("8388608"))
+            .crawl_with_body_limit(
+                CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                Some("8388608"),
+            )
             .await
             .unwrap();
         for _ in 0..3 {
@@ -2995,6 +3687,11 @@ mod tests {
                 .unwrap(),
             ),
             seen: Bloom::new_for_fp_rate(1_000, 0.0001).unwrap(),
+            found_links: FoundLinks::new(Arc::new(FollowRules::new(
+                Url::parse("https://example.com/").unwrap(),
+                whitelist_for("https://example.com/"),
+                Arc::new(RegexSet::empty()),
+            ))),
         }
     }
 
@@ -3103,8 +3800,12 @@ mod tests {
         let SpiderCrawl {
             mut pages,
             diagnostics,
+            ..
         } = spider
-            .crawl_with_body_limit("http://example.com/", CrawlPace::default(), Some("8388608"))
+            .crawl_with_body_limit(
+                CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                Some("8388608"),
+            )
             .await
             .unwrap();
 

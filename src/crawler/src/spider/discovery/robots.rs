@@ -24,8 +24,18 @@ use url::Url;
 pub(super) struct CrawlRobots {
     pub(super) deny_list: DenyList,
     pub(super) crawl_delay: Option<Duration>,
+    /// The rules themselves, to admit crawl seeds; none when robots.txt is unavailable, which
+    /// allows everything.
+    pub(super) rules: Option<RobotsRules>,
     /// Stable label for the crawl diagnostics.
     pub(super) policy: &'static str,
+}
+
+impl CrawlRobots {
+    /// Whether robots.txt allows the crawler to request `url`.
+    pub(super) fn allows(&self, url: &Url) -> bool {
+        self.rules.as_ref().is_none_or(|rules| rules.allows(url))
+    }
 }
 
 /// Fetches robots.txt for `root` and admits the crawl. A root robots.txt
@@ -47,6 +57,7 @@ pub(super) async fn admit_crawl(
         RobotsPolicy::Unavailable => Ok(CrawlRobots {
             deny_list: DenyList::default(),
             crawl_delay: None,
+            rules: None,
             policy: label,
         }),
         RobotsPolicy::Rules(rules) if !rules.allows(root) => Err(SpiderDiscoveryError::preflight(
@@ -70,6 +81,7 @@ fn crawl_robots(root: &Url, rules: &RobotsRules, policy: &'static str) -> CrawlR
     CrawlRobots {
         deny_list,
         crawl_delay: rules.crawl_delay(),
+        rules: Some(rules.clone()),
         policy,
     }
 }

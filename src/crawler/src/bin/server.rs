@@ -278,7 +278,7 @@ async fn main() {
 
         // 1. Build cron config (needed for pool sizing before everything else)
         let config = CrawlerCronConfig {
-            spider_interval: Duration::from_hours(72),
+            spider_interval: Duration::from_hours(1),
             scraper_interval: Duration::from_mins(10),
             scraper_urls_per_domain: 100,
             spider_concurrency: 3,

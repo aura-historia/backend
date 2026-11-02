@@ -7,6 +7,10 @@ use crawler::service::listing_source_registration::{
     RegisteredListingSource,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
+use crawler::spider::crawl_frontier_repository::{
+    CrawlFrontierRepository, CrawlFrontierRepositoryImpl,
+};
+use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::{Domain, ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use test_api::*;
@@ -230,6 +234,12 @@ async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_
     .execute(&pool)
     .await
     .unwrap();
+    let frontier = CrawlFrontierRepositoryImpl::new(pool.clone());
+    let unvisited = [url::Url::parse("https://example.com/product/7").unwrap()];
+    frontier
+        .replace_frontier(&bare.domain_id, &unvisited)
+        .await
+        .unwrap();
 
     let unchanged = domains
         .register(listing_source_id, Domain::try_from("Example.com.").unwrap())
@@ -248,6 +258,10 @@ async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_
         "registering the same crawl root again must keep the crawl state"
     );
     assert!(candidates.get_candidates(10, &[]).await.unwrap().is_empty());
+    assert_eq!(
+        frontier.load_frontier(&bare.domain_id).await.unwrap(),
+        unvisited
+    );
 
     let moved = domains
         .register(
@@ -273,9 +287,18 @@ async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_
             None
         )
     );
+    assert!(
+        frontier
+            .load_frontier(&bare.domain_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the old root's frontier does not carry over to the new root"
+    );
     let candidates = candidates.get_candidates(10, &[]).await.unwrap();
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].listing_source_domain, "www.example.com");
+    assert_eq!(candidates[0].kind, CrawlKind::Full);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

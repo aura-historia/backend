@@ -51,6 +51,8 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceError
 use crawler::spider::classification::url_pattern_service::{
     UrlPatternAuthoring, UrlPatternServiceImpl,
 };
+use crawler::spider::crawl_frontier_repository::CrawlFrontierRepositoryImpl;
+use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::CrawlPace;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
@@ -161,6 +163,7 @@ async fn main() {
             Box::new(SpiderImpl::default()),
             pattern_service,
             url_repository,
+            Arc::new(CrawlFrontierRepositoryImpl::new(pool.clone())),
         );
 
         let listing_source_id: ListingSourceId = "ls_01h455vb4pex5ty7enb1p677vg"
@@ -191,6 +194,7 @@ async fn main() {
                 &crawl_root_url,
                 DEFAULT_CLASSIFY_THRESHOLD,
                 CrawlPace::default(),
+                CrawlKind::Full,
             )
             .await
         {

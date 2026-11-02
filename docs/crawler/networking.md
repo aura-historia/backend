@@ -82,7 +82,7 @@ Recognition is conservative, so an ordinary page is never taken for a challenge 
 
 ## Resource rails
 
-Spider fetches use a bounded per-request timeout plus whole-crawl bounds: at most 500,000 pages and 10 minutes. [Scheduling](scheduling-and-retries.md#spider-crawl-completion) defines how a crawl stopped by either bound is recorded. Its response limit must be supplied through `SPIDER_MAX_SIZE_BYTES`; accepted values range from 1 MiB through 8 MiB, and the limit applies to declared and streamed response bodies.
+Spider fetches use a bounded per-request timeout plus whole-crawl bounds: at most 500,000 pages and 10 minutes, raised for a robots.txt `Crawl-delay` ([crawl-delay budget](scheduling-and-retries.md#discovery-coverage)). [Scheduling](scheduling-and-retries.md#spider-crawl-completion) defines how a crawl stopped by either bound is recorded. Its response limit must be supplied through `SPIDER_MAX_SIZE_BYTES`; accepted values range from 1 MiB through 8 MiB, and the limit applies to declared and streamed response bodies.
 
 Scraper HTML and image requests also use bounded redirects, timeouts, and response bodies. An HTML fetch attempt starts from a fixed timeout and grows with the domain's smoothed response latency, to a fixed upper bound, so a shop that is slow throughout is waited for instead of timed out; the whole fetch with its retries grows by the same amount, while DNS and connect timeouts stay fixed. Image-cache results never exempt the current target from destination checks.
 

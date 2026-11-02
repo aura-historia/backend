@@ -233,9 +233,9 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
 
 /// Moves an already registered domain to the crawl root it is registered with again, for example
 /// from `example.com` to `www.example.com`. The crawl state recorded for the old root, including a
-/// `NEEDS_OPERATOR` stop and a rate-limit streak and hold, no longer describes the domain, so the
-/// next spider cycle crawls the new root as if the domain were new. The URL pattern, the crawled URLs and the scrape state belong to
-/// the site and stay.
+/// `NEEDS_OPERATOR` stop, a rate-limit streak and hold and the frontier left unvisited, no longer
+/// describes the domain, so the next spider cycle crawls the new root as if the domain were new.
+/// The URL pattern, the crawled URLs and the scrape state belong to the site and stay.
 async fn replace_crawl_root(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     domain_id: CrawlerDomainId,
@@ -251,7 +251,8 @@ async fn replace_crawl_root(
              last_crawl_outcome = NULL, \
              crawl_truncation_count = 0, \
              crawl_rate_limit_streak = 0, \
-             crawl_rate_limited_until = NULL \
+             crawl_rate_limited_until = NULL, \
+             last_crawl_run_at = NULL \
          WHERE domain_id = $1",
     )
     .bind(domain_id.as_uuid())
@@ -259,6 +260,11 @@ async fn replace_crawl_root(
     .execute(&mut **transaction)
     .await
     .map_err(database_error)?;
+    sqlx::query("DELETE FROM listing_source_domain_crawl_frontier WHERE domain_id = $1")
+        .bind(domain_id.as_uuid())
+        .execute(&mut **transaction)
+        .await
+        .map_err(database_error)?;
     Ok(())
 }
 

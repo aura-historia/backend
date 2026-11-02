@@ -1,3 +1,4 @@
+pub mod frontier;
 pub mod page_identity;
 pub mod page_status;
 mod robots;

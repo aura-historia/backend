@@ -14,6 +14,8 @@ use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPat
 use crawler::spider::classification::url_pattern_service::{
     MANUAL_URL_PATTERN_REASON, UrlPatternAuthoring, UrlPatternServiceImpl,
 };
+use crawler::spider::crawl_frontier_repository::CrawlFrontierRepositoryImpl;
+use crawler::spider::discovery::frontier::{CrawlDiscovery, CrawlKind};
 use crawler::spider::discovery::website_spider::{
     CrawlCompletion, CrawlDiagnostics, CrawlPace, CrawledPage, MockSpider, SpiderCrawl,
 };
@@ -47,11 +49,14 @@ fn crawl_fed_by_the_test() -> (mpsc::Sender<CrawledPage>, MockSpider) {
     let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
     diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
     let mut spider = MockSpider::new();
-    spider.expect_crawl().return_once(move |_, _| {
+    let (discovery_tx, discovery_rx) = oneshot::channel();
+    discovery_tx.send(CrawlDiscovery::default()).unwrap();
+    spider.expect_crawl().return_once(move |_| {
         Box::pin(async move {
             Ok(SpiderCrawl {
                 pages: pages_rx,
                 diagnostics: diagnostics_rx,
+                discovery: discovery_rx,
             })
         })
     });
@@ -159,6 +164,7 @@ impl ManualCrawlFixture {
                 },
             )),
             Arc::new(UrlMetadataRepositoryImpl::new(self.pool.clone())),
+            Arc::new(CrawlFrontierRepositoryImpl::new(self.pool.clone())),
         );
         let (listing_source_id, domain_id) = (self.listing_source_id, self.domain_id);
         let crawl = tokio::spawn(async move {
@@ -169,6 +175,7 @@ impl ManualCrawlFixture {
                     &format!("https://{DOMAIN}"),
                     THRESHOLD,
                     CrawlPace::default(),
+                    CrawlKind::Full,
                 )
                 .await
         });
