@@ -18,7 +18,7 @@
     <h1>Crawler review</h1>
     <div class="header-actions">
         <span class="system-status" id="reloadState" role="status">Queue auto refresh active</span>
-        <button class="ghost" onclick="clearReviewAuthToken()" type="button">Clear review token</button>
+        <button class="ghost" hidden id="signOutButton" onclick="clearReviewAuthToken()" title="End the browser session and forget the review token" type="button">Sign out</button>
         <button class="ghost" id="themeToggle" onclick="toggleTheme()" type="button">Dark mode</button>
     </div>
 </header>

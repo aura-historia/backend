@@ -27,11 +27,11 @@ let selectedReviewRefreshReason = '';
 let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') === 'true';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
-let collapsedListingSourceGroups = new Set(JSON.parse(
-    localStorage.getItem('crawlerReviewCollapsedListingSourceGroups')
-    || localStorage.getItem('crawlerReviewCollapsedShopGroups')
-    || '[]'
-));
+// Shop groups start collapsed; the reviewer's expanded ones are remembered per browser.
+const EXPANDED_GROUPS_KEY = 'crawlerReviewExpandedListingSourceGroups';
+let expandedListingSourceGroups = new Set(readStoredList(EXPANDED_GROUPS_KEY));
+// The review whose group the queue last opened for it, so a reviewer can collapse it again.
+let reviewWhoseGroupWasOpened = null;
 let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
 let reviewSessionEstablished = false;
 let previewUrlOverride = '';
@@ -94,6 +94,14 @@ function setReviewAuthToken(token) {
     } else {
         sessionStorage.removeItem('crawlerReviewAuthToken');
     }
+    updateSignOutButton();
+}
+
+// Signing out matters only where the console asked for a review token: it ends the browser
+// session and forgets the token. The tokenless local console has nothing to sign out of.
+function updateSignOutButton() {
+    const button = document.getElementById('signOutButton');
+    if (button) button.hidden = !reviewAuthToken;
 }
 
 async function clearReviewAuthToken() {
@@ -105,7 +113,7 @@ async function clearReviewAuthToken() {
         }).catch(() => {});
     }
     setReviewAuthToken('');
-    document.getElementById('reloadState').textContent = 'Review token and browser session cleared';
+    document.getElementById('reloadState').textContent = 'Signed out';
 }
 
 // A request the browser could not send, or whose answer never arrived, carries no HTTP status;
@@ -252,7 +260,13 @@ function renderReviewGroups(reviews) {
 
     return groups.map(group => {
         const pendingCount = group.reviews.filter(review => review.status === 'PENDING_REVIEW').length;
-        const collapsed = collapsedListingSourceGroups.has(group.listingSourceId);
+        if (selectedId && selectedId !== reviewWhoseGroupWasOpened
+            && group.reviews.some(review => review.review_id === selectedId)) {
+            reviewWhoseGroupWasOpened = selectedId;
+            expandedListingSourceGroups.add(group.listingSourceId);
+            storeExpandedGroups();
+        }
+        const collapsed = !expandedListingSourceGroups.has(group.listingSourceId);
         const listId = `queueGroup-${escapeHtmlAttr(group.listingSourceId)}`;
         return `<div class="listing-source-group">
           <button type="button" class="listing-source-group-head" aria-expanded="${!collapsed}" aria-controls="${listId}" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
@@ -421,13 +435,26 @@ function setReviewSearch(value) {
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
-function toggleListingSourceGroup(listingSourceId) {
-    if (collapsedListingSourceGroups.has(listingSourceId)) {
-        collapsedListingSourceGroups.delete(listingSourceId);
-    } else {
-        collapsedListingSourceGroups.add(listingSourceId);
+function readStoredList(key) {
+    try {
+        const list = JSON.parse(localStorage.getItem(key) || '[]');
+        return Array.isArray(list) ? list : [];
+    } catch (_) {
+        return [];
     }
-    localStorage.setItem('crawlerReviewCollapsedListingSourceGroups', JSON.stringify([...collapsedListingSourceGroups]));
+}
+
+function storeExpandedGroups() {
+    localStorage.setItem(EXPANDED_GROUPS_KEY, JSON.stringify([...expandedListingSourceGroups]));
+}
+
+function toggleListingSourceGroup(listingSourceId) {
+    if (expandedListingSourceGroups.has(listingSourceId)) {
+        expandedListingSourceGroups.delete(listingSourceId);
+    } else {
+        expandedListingSourceGroups.add(listingSourceId);
+    }
+    storeExpandedGroups();
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
@@ -580,7 +607,6 @@ function renderDetail(detail, matrix) {
           </div>
           <div class="review-meta">
             <span>${escapeHtml(displayName(review.reason))}</span>
-            <span>${escapeHtml(review.review_id)}</span>
             ${timeBadge(review.updated, 'Updated')}
           </div>
         </div>
@@ -3527,4 +3553,7 @@ scheduleQueueRefresh();
 
 loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 setSidebarCollapsed(sidebarCollapsed);
+updateSignOutButton();
+localStorage.removeItem('crawlerReviewCollapsedListingSourceGroups');
+localStorage.removeItem('crawlerReviewCollapsedShopGroups');
 if (selectionFromUrl().reviewId) applySelectionFromUrl();
