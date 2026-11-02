@@ -18,6 +18,7 @@ use crawler::spider::classification::url_metadata_repository::{
 use crawler::spider::crawl_frontier_repository::{
     CrawlFrontierRepository, CrawlFrontierRepositoryImpl, KnownUrls,
 };
+use crawler::spider::crawled_root::CrawledRoot;
 use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::CrawlCompletion;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
@@ -296,6 +297,7 @@ async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_
         "spider-incremental.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-incremental.example.com");
     sqlx::query(
         "UPDATE listing_source_domains \
          SET last_crawled = NOW() - INTERVAL '3 days', crawl_truncation_count = 2, \
@@ -309,7 +311,7 @@ async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_
     .unwrap();
 
     service
-        .mark_incremental_crawl_finished(&domain_id, CrawlCompletion::HardTimeoutTruncated)
+        .mark_incremental_crawl_finished(&root, CrawlCompletion::HardTimeoutTruncated)
         .await
         .unwrap();
     let (failures, error_kind, next_crawl_at, outcome, truncations, last_crawled) =
@@ -320,7 +322,7 @@ async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_
     assert_eq!(truncations, 2);
 
     service
-        .mark_incremental_crawl_finished(&domain_id, CrawlCompletion::Completed)
+        .mark_incremental_crawl_finished(&root, CrawlCompletion::Completed)
         .await
         .unwrap();
     let (failures, error_kind, _, outcome, truncations, last_crawled_after) =
@@ -354,19 +356,21 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
     let domain_id =
         insert_listing_source_with_domain(&pool, listing_source_id, "spider-frontier.example.com")
             .await;
+    let root = CrawledRoot::new(domain_id, "spider-frontier.example.com");
     let other =
         insert_domain_for_listing_source(&pool, listing_source_id, "spider-other.example.com")
             .await;
+    let other_root = CrawledRoot::new(other, "spider-other.example.com");
     let url = |path: &str| {
         url::Url::parse(&format!("https://spider-frontier.example.com{path}")).unwrap()
     };
 
     repository
-        .replace_frontier(&domain_id, &[url("/a"), url("/b"), url("/a")])
+        .replace_frontier(&root, &[url("/a"), url("/b"), url("/a")])
         .await
         .unwrap();
     repository
-        .replace_frontier(&other, &[url("/other")])
+        .replace_frontier(&other_root, &[url("/other")])
         .await
         .unwrap();
     assert_eq!(
@@ -375,14 +379,14 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
     );
 
     repository
-        .replace_frontier(&domain_id, &[url("/c")])
+        .replace_frontier(&root, &[url("/c")])
         .await
         .unwrap();
     assert_eq!(
         repository.load_frontier(&domain_id).await.unwrap(),
         [url("/c")]
     );
-    repository.replace_frontier(&domain_id, &[]).await.unwrap();
+    repository.replace_frontier(&root, &[]).await.unwrap();
     assert!(
         repository
             .load_frontier(&domain_id)
@@ -447,7 +451,7 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
 
     repository
         .replace_frontier(
-            &domain_id,
+            &root,
             &[
                 url("/collections/all/products/1"),
                 url("/collections/all/products/1/"),
@@ -612,16 +616,11 @@ async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
         "spider-mark-failure.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-mark-failure.example.com");
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::hours(6);
 
     service
-        .mark_crawl_failure(
-            &domain_id,
-            "InsufficientInferenceSample",
-            3,
-            None,
-            next_crawl_at,
-        )
+        .mark_crawl_failure(&root, "InsufficientInferenceSample", 3, None, next_crawl_at)
         .await
         .unwrap();
 
@@ -700,9 +699,10 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
         "spider-rate-limited.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-rate-limited.example.com");
     service
         .mark_crawl_failure(
-            &domain_id,
+            &root,
             "ConnectError",
             1,
             None,
@@ -714,7 +714,7 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
     let not_before = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
     service
         .mark_crawl_rate_limited(
-            &domain_id,
+            &root,
             CrawlRateLimitWrite {
                 streak: 2,
                 not_before,
@@ -741,7 +741,7 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
     assert!((stored_next.unwrap() - not_before).whole_seconds().abs() <= 1);
 
     service
-        .mark_crawl_truncated(&domain_id, 1, time::OffsetDateTime::now_utc())
+        .mark_crawl_truncated(&root, 1, time::OffsetDateTime::now_utc())
         .await
         .unwrap();
     assert!(
@@ -769,7 +769,7 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
 
     service
         .mark_crawl_failure(
-            &domain_id,
+            &root,
             "ConnectError",
             2,
             None,
@@ -786,7 +786,7 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
     );
 
     service
-        .mark_crawl_completed(&domain_id, CrawlCompletion::Completed)
+        .mark_crawl_completed(&root, CrawlCompletion::Completed)
         .await
         .unwrap();
     let candidate = due_spider_candidate(&pool, &service, domain_id)
@@ -808,9 +808,10 @@ async fn spider_rate_limit_state_should_survive_a_review_releasing_the_domain() 
         "spider-rate-limited-review.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-rate-limited-review.example.com");
     service
         .mark_crawl_rate_limited(
-            &domain_id,
+            &root,
             CrawlRateLimitWrite {
                 streak: 1,
                 not_before: time::OffsetDateTime::now_utc() + time::Duration::hours(1),
@@ -847,10 +848,11 @@ async fn spider_rate_limit_streak_should_reject_a_negative_value() {
         "spider-rate-limit-check.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-rate-limit-check.example.com");
 
     let written = service
         .mark_crawl_rate_limited(
-            &domain_id,
+            &root,
             CrawlRateLimitWrite {
                 streak: -1,
                 not_before: time::OffsetDateTime::now_utc(),
@@ -870,9 +872,10 @@ async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retr
     let domain_id =
         insert_listing_source_with_domain(&pool, listing_source_id, "spider-truncated.example.com")
             .await;
+    let root = CrawledRoot::new(domain_id, "spider-truncated.example.com");
     let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
     service
-        .mark_crawl_failure(&domain_id, "RateLimited", 2, None, past)
+        .mark_crawl_failure(&root, "RateLimited", 2, None, past)
         .await
         .unwrap();
     assert_eq!(
@@ -882,7 +885,7 @@ async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retr
 
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::hours(24);
     service
-        .mark_crawl_truncated(&domain_id, 1, next_crawl_at)
+        .mark_crawl_truncated(&root, 1, next_crawl_at)
         .await
         .unwrap();
 
@@ -934,18 +937,19 @@ async fn spider_mark_crawl_completed_should_clear_failure_and_truncation_state()
     let domain_id =
         insert_listing_source_with_domain(&pool, listing_source_id, "spider-at-budget.example.com")
             .await;
+    let root = CrawledRoot::new(domain_id, "spider-at-budget.example.com");
     let future = time::OffsetDateTime::now_utc() + time::Duration::hours(24);
     service
-        .mark_crawl_failure(&domain_id, "ConnectError", 1, None, future)
+        .mark_crawl_failure(&root, "ConnectError", 1, None, future)
         .await
         .unwrap();
     service
-        .mark_crawl_truncated(&domain_id, 3, future)
+        .mark_crawl_truncated(&root, 3, future)
         .await
         .unwrap();
 
     service
-        .mark_crawl_completed(&domain_id, CrawlCompletion::PageBudgetReached)
+        .mark_crawl_completed(&root, CrawlCompletion::PageBudgetReached)
         .await
         .unwrap();
 
@@ -970,14 +974,15 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
         "spider-misused-completed.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-misused-completed.example.com");
     let future = time::OffsetDateTime::now_utc() + time::Duration::hours(6);
     service
-        .mark_crawl_failure(&domain_id, "RateLimited", 2, None, future)
+        .mark_crawl_failure(&root, "RateLimited", 2, None, future)
         .await
         .unwrap();
 
     let result = service
-        .mark_crawl_completed(&domain_id, CrawlCompletion::HardTimeoutTruncated)
+        .mark_crawl_completed(&root, CrawlCompletion::HardTimeoutTruncated)
         .await;
 
     assert!(result.is_err());
@@ -1017,16 +1022,17 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
         "spider-review-wait.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-review-wait.example.com");
     let review_id = insert_pending_url_pattern_review(&pool, listing_source_id, domain_id).await;
     let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
     service
-        .mark_crawl_failure(&domain_id, "RateLimited", 2, None, past)
+        .mark_crawl_failure(&root, "RateLimited", 2, None, past)
         .await
         .unwrap();
 
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::days(7);
     let wait_write = service
-        .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, None, next_crawl_at)
+        .mark_crawl_awaiting_url_pattern_review(&root, &review_id, None, next_crawl_at)
         .await
         .unwrap();
 
@@ -1066,6 +1072,7 @@ async fn spider_should_record_a_url_pattern_review_wait_only_on_a_pending_review
         "spider-wait-guard.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-wait-guard.example.com");
     let other_domain_id = insert_domain_for_listing_source(
         &pool,
         listing_source_id,
@@ -1083,7 +1090,7 @@ async fn spider_should_record_a_url_pattern_review_wait_only_on_a_pending_review
     ] {
         assert_eq!(
             service
-                .mark_crawl_awaiting_url_pattern_review(&domain_id, &review_id, None, next_crawl_at)
+                .mark_crawl_awaiting_url_pattern_review(&root, &review_id, None, next_crawl_at)
                 .await
                 .unwrap(),
             UrlPatternReviewWaitWrite::ReviewNotPending,
@@ -1106,9 +1113,10 @@ async fn spider_mark_crawl_needs_operator_should_take_domain_out_of_the_schedule
         "spider-needs-operator.example.com",
     )
     .await;
+    let root = CrawledRoot::new(domain_id, "spider-needs-operator.example.com");
 
     service
-        .mark_crawl_needs_operator(&domain_id, "NoUrlPattern", 5)
+        .mark_crawl_needs_operator(&root, "NoUrlPattern", 5)
         .await
         .unwrap();
 

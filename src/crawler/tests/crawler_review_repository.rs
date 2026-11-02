@@ -42,6 +42,7 @@ use crawler::spider::classification::url_metadata::{
 use crawler::spider::classification::url_metadata_repository::{
     DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
+use crawler::spider::crawled_root::CrawledRoot;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -2993,7 +2994,11 @@ async fn should_list_listing_source_with_a_domain_waiting_for_an_operator_first(
     insert_listing_source(&pool, stopped_source).await;
     let stopped_domain = insert_domain(&pool, stopped_source, "stopped.example.com").await;
     SpiderCandidateServiceImpl::new(pool.clone())
-        .mark_crawl_needs_operator(&stopped_domain, "RobotsBlocked", 5)
+        .mark_crawl_needs_operator(
+            &CrawledRoot::new(stopped_domain, "stopped.example.com"),
+            "RobotsBlocked",
+            5,
+        )
         .await
         .unwrap();
 
@@ -3758,7 +3763,7 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> Domain
                     .await;
             let wait_write = SpiderCandidateServiceImpl::new(pool.clone())
                 .mark_crawl_awaiting_url_pattern_review(
-                    &domain_id,
+                    &CrawledRoot::new(domain_id, "restored-pattern.example.com"),
                     &newer,
                     None,
                     OffsetDateTime::now_utc() + time::Duration::days(7),

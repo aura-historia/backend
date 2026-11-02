@@ -235,7 +235,10 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
 /// from `example.com` to `www.example.com`. The crawl state recorded for the old root, including a
 /// `NEEDS_OPERATOR` stop, a rate-limit streak and hold and the frontier left unvisited, no longer
 /// describes the domain, so the next spider cycle crawls the new root as if the domain were new.
-/// The URL pattern, the crawled URLs and the scrape state belong to the site and stay.
+/// The URL pattern, the crawled URLs and the scrape state belong to the site and stay. A crawl of
+/// the old root that is still running records nothing over the move when it ends: each write of
+/// its outcome names the root it crawled
+/// ([`CrawledRoot`](crate::spider::crawled_root::CrawledRoot)) and finds the domain on another one.
 async fn replace_crawl_root(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     domain_id: CrawlerDomainId,

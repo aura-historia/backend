@@ -10,6 +10,7 @@ use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidate
 use crawler::spider::crawl_frontier_repository::{
     CrawlFrontierRepository, CrawlFrontierRepositoryImpl,
 };
+use crawler::spider::crawled_root::CrawledRoot;
 use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::{Domain, ListingSourceId, ListingSourceName, ListingSourceSlugId};
@@ -237,7 +238,7 @@ async fn should_move_a_stopped_domain_to_the_changed_crawl_root_when_registered_
     let frontier = CrawlFrontierRepositoryImpl::new(pool.clone());
     let unvisited = [url::Url::parse("https://example.com/product/7").unwrap()];
     frontier
-        .replace_frontier(&bare.domain_id, &unvisited)
+        .replace_frontier(&CrawledRoot::new(bare.domain_id, "example.com"), &unvisited)
         .await
         .unwrap();
 

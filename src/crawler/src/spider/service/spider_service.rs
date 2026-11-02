@@ -14,6 +14,7 @@ use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
 use crate::spider::crawl_frontier_repository::{CrawlFrontierRepository, KnownUrls};
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds};
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
@@ -49,8 +50,9 @@ pub struct SpiderRunResult {
     pub known_product_urls_skipped: usize,
 }
 
-/// What the spider reported about a crawl once it ended.
+/// A crawl that ended: the root it crawled and what the spider reported about it.
 struct EndedCrawl {
+    root: CrawledRoot,
     kind: CrawlKind,
     diagnostics: CrawlDiagnostics,
     /// `None` when the crawl could not tell what it left unvisited.
@@ -282,23 +284,29 @@ impl SpiderServiceImpl {
         })
     }
 
-    /// Keeps what the crawl left unvisited for the domain's next crawl. A failed write leaves
-    /// the previous frontier, which the next crawl revisits at worst.
+    /// Keeps what the crawl of `root` left unvisited for the domain's next crawl. A failed
+    /// write leaves the previous frontier, which the next crawl revisits at worst; a domain that
+    /// moved to another root keeps the empty frontier the move left.
     async fn replace_frontier_best_effort(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         discovery: Option<&CrawlDiscovery>,
     ) {
         let Some(discovery) = discovery else {
             warn!("Spider crawl reported no frontier; keeping the previous one");
             return;
         };
-        if let Err(error) = self
+        match self
             .frontier_repository
-            .replace_frontier(domain_id, &discovery.frontier)
+            .replace_frontier(root, &discovery.frontier)
             .await
         {
-            warn!(error = ?error, "Failed to persist the crawl frontier");
+            Ok(CrawlOutcomeWrite::Recorded) => {}
+            Ok(CrawlOutcomeWrite::RootMoved) => debug!(
+                frontier_urls = discovery.frontier.len(),
+                "The domain moved to another crawl root during the crawl; its frontier is not kept"
+            ),
+            Err(error) => warn!(error = ?error, "Failed to persist the crawl frontier"),
         }
     }
 
@@ -639,20 +647,23 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_mark_as_crawled_best_effort",
         skip(self),
-        fields(listing_source_id = %listing_source_id, crawl_root_url = %crawl_root_url)
+        fields(listing_source_id = %listing_source_id, crawl_root_host = %root.crawl_root_host)
     )]
     async fn mark_as_crawled_best_effort(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
-        crawl_root_url: &str,
+        root: &CrawledRoot,
     ) {
-        if let Err(error) = self
+        match self
             .pattern_service
-            .mark_as_crawled(listing_source_id, domain_id)
+            .mark_as_crawled(listing_source_id, root)
             .await
         {
-            warn!(error = ?error, "Failed to mark ListingSource as crawled");
+            Ok(CrawlOutcomeWrite::Recorded) => {}
+            Ok(CrawlOutcomeWrite::RootMoved) => debug!(
+                "The domain moved to another crawl root during the crawl; its full crawl is not recorded"
+            ),
+            Err(error) => warn!(error = ?error, "Failed to mark ListingSource as crawled"),
         }
     }
 
@@ -735,6 +746,14 @@ impl SpiderServiceImpl {
                 root_reroot: None,
             })
         })?;
+        let root = CrawledRoot::of_root_url(*domain_id, &configured_root).ok_or_else(|| {
+            SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::InvalidUrl,
+                reason: "configured crawler domain URL has no host",
+                source: None,
+                root_reroot: None,
+            })
+        })?;
         let seeds = self.crawl_seeds(domain_id, kind).await?;
         let crawl = self
             .spider
@@ -769,6 +788,7 @@ impl SpiderServiceImpl {
                 ..CrawlDiagnostics::default()
             });
         let ended = EndedCrawl {
+            root,
             kind,
             discovery: crawl.discovery.await.ok(),
             diagnostics,
@@ -865,6 +885,7 @@ impl SpiderServiceImpl {
         crawl_root_url: &str,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let EndedCrawl {
+            root,
             kind,
             discovery,
             diagnostics,
@@ -884,8 +905,7 @@ impl SpiderServiceImpl {
             Err(error) => error.found_no_product_urls(),
         };
         if keeps_its_frontier {
-            self.replace_frontier_best_effort(domain_id, discovery)
-                .await;
+            self.replace_frontier_best_effort(root, discovery).await;
         }
         if let Err(error) = &judged
             && keeps_its_frontier
@@ -906,7 +926,7 @@ impl SpiderServiceImpl {
         // classifies its stored URLs, so no second crawl from the root is due.
         // An incremental crawl skipped known product pages, so it is never one.
         if completion.is_full() && kind == CrawlKind::Full {
-            self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
+            self.mark_as_crawled_best_effort(listing_source_id, root)
                 .await;
         }
 
@@ -1203,7 +1223,7 @@ mod service_tests {
             .returning(|_| Box::pin(async { Ok(KnownUrls::default()) }));
         repository
             .expect_replace_frontier()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         Arc::new(repository)
     }
 
@@ -1248,7 +1268,7 @@ mod service_tests {
         mock.expect_mark_as_crawled()
             .with(mockall::predicate::always(), mockall::predicate::always())
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
     }
 
     fn setup_mock_crawl<I, S>(mock: &mut MockSpider, crawl_root_url: &'static str, paths: I)
@@ -1376,7 +1396,7 @@ mod service_tests {
                     .expect_replace_frontier()
                     .withf(move |_, frontier| frontier == expected.as_slice())
                     .times(1)
-                    .returning(|_, _| Box::pin(async { Ok(()) }));
+                    .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
             }
             None => {
                 repository.expect_replace_frontier().times(0);
@@ -2423,7 +2443,7 @@ mod service_tests {
             });
         mock_pattern_service
             .expect_mark_as_crawled()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         let stored: StoredBatches = Arc::default();
         let recorded = Arc::clone(&stored);
         mock_url_repo.expect_upsert_links_batch().returning(
@@ -3889,7 +3909,7 @@ mod service_tests {
         setup_mock_review_still_pending(&mut mock_pattern_service);
         mock_pattern_service
             .expect_mark_as_crawled()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         let stored = Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = Arc::clone(&stored);
         mock_url_repo.expect_upsert_links_batch().returning(
