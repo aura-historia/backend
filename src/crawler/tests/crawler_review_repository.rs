@@ -906,6 +906,12 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
     let missing_value = fixture
         .add_product_url(&pool, "https://example.com/products/untitled")
         .await;
+    let retired_duplicate = fixture
+        .add_product_url(&pool, "https://example.com/products/untitled-copy")
+        .await;
+    let cooling_down = fixture
+        .add_product_url(&pool, "https://example.com/products/challenged")
+        .await;
     let candidates = &fixture.candidates;
     for (url, templates, hash) in [
         (&removed_by_narrowed, vec![narrowed], [1; 32]),
@@ -917,14 +923,42 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
             .await
             .unwrap();
     }
+    for url in [&missing_value, &retired_duplicate] {
+        candidates
+            .mark_scraped_without_capture(
+                &fixture.listing_source_id,
+                url,
+                "MissingRequiredValue",
+                "`title` is blank",
+                None,
+            )
+            .await
+            .unwrap();
+    }
     candidates
-        .mark_scraped_without_capture(
+        .mark_removed(
             &fixture.listing_source_id,
-            &missing_value,
-            "MissingRequiredValue",
-            "`title` is blank",
+            &cooling_down,
+            &[4; 32],
             None,
+            &[notice_schema("no longer available")],
         )
+        .await
+        .unwrap();
+    // A later fetch of the removed page met a bot challenge, whose cooldown still holds, and a
+    // duplicate of the missing-value page was retired: re-arming honours the one and never
+    // resurrects the other.
+    sqlx::query(
+        "UPDATE listing_source_urls SET next_retry_at = NOW() + INTERVAL '5 minutes', \
+         last_error_kind = 'BotChallenge' WHERE url = $1",
+    )
+    .bind(cooling_down.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
+        .bind(retired_duplicate.as_str())
+        .execute(&pool)
         .await
         .unwrap();
     assert!(fixture.candidate_urls().await.is_empty());
@@ -966,6 +1000,27 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
     let mut expected = vec![missing_value, removed_by_narrowed];
     expected.sort();
     assert_eq!(rearmed, expected);
+    let held: (Option<OffsetDateTime>, Option<OffsetDateTime>) = sqlx::query_as(
+        "SELECT last_scraped, next_retry_at FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(cooling_down.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        held.0.is_none() && held.1.is_some(),
+        "the challenged page is re-armed behind its cooldown: {held:?}"
+    );
+    let duplicate_scraped: Option<OffsetDateTime> =
+        sqlx::query_scalar("SELECT last_scraped FROM listing_source_urls WHERE url = $1")
+            .bind(retired_duplicate.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        duplicate_scraped.is_some(),
+        "a DUPLICATE URL is never re-armed"
+    );
 }
 
 /// A scrape that matched a template before a change of the stored templates committed records

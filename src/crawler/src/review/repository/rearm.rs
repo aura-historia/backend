@@ -15,8 +15,10 @@ use tracing::info;
 ///   unchanged, because the template was retired or narrowed: the page may be a product page
 ///   the old template withdrew, and only a scrape recaptures it.
 ///
-/// A re-armed page is due as if never scraped; its outcome and capture stay until the scrape
-/// replaces them. Returns how many pages it re-armed.
+/// A re-armed page is due as if never scraped, unless a retry cooldown a later fetch outcome set,
+/// such as a bot challenge's, still holds it back; its outcome and capture stay until the scrape
+/// replaces them. A retired `DUPLICATE` URL is never re-armed. Returns how many pages it
+/// re-armed.
 pub(super) async fn rearm_pages_for_new_configuration(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
@@ -25,7 +27,7 @@ pub(super) async fn rearm_pages_for_new_configuration(
     let live_templates = serde_json::to_value(live_removed_page_schemas)?;
     let rearmed = sqlx::query(
         "UPDATE listing_source_urls \
-         SET last_scraped = NULL, next_retry_at = NULL, updated = NOW() \
+         SET last_scraped = NULL, updated = NOW() \
          WHERE listing_source_id = $1 \
            AND url_class = 'product' \
            AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD') \
