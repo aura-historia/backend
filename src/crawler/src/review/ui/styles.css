@@ -927,7 +927,7 @@ div.item[onclick] {
 
 .schema-workbench {
     display: grid;
-    grid-template-columns: minmax(0, 1.6fr) minmax(380px, 1fr);
+    grid-template-columns: minmax(480px, 1.6fr) minmax(340px, 1fr);
     gap: var(--s4);
     align-items: start;
 }
@@ -1478,10 +1478,27 @@ iframe {
     margin: var(--s2) 0 0;
 }
 
-/* Responsive: stack the workbench when the preview and side panel no longer fit side by side,
-   then the sidebar, then single-column forms. */
+/* Responsive. Preview and side panel stay side by side while at least 480 + 340 px fit: from
+   1280 px with the queue sidebar open and from 1024 px with it collapsed. Narrower, they stack,
+   then the sidebar stacks, then forms go single-column. Toggling the sidebar only re-lays out
+   the grid, so the preview frame stays loaded. */
 
 @media (max-width: 1279px) {
+    main:not(.sidebar-collapsed) .schema-workbench {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    main:not(.sidebar-collapsed) .preview-panel {
+        position: static;
+    }
+
+    main:not(.sidebar-collapsed) iframe {
+        height: 62vh;
+        min-height: 460px;
+    }
+}
+
+@media (max-width: 1023px) {
     .schema-workbench {
         grid-template-columns: minmax(0, 1fr);
     }
