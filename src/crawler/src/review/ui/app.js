@@ -2146,14 +2146,14 @@ function renderFindingBadges(findings) {
 }
 
 // Cross-page findings name the values another product page repeats; for a list such as
-// the images they point out the default share image among the product photos.
-function renderSharedValues(findings) {
+// the images they point out the default share image among the product photos, which lists
+// like the field's own images, by its resolved first candidate.
+function renderSharedValues(findings, key) {
     const values = findings.flatMap(finding => finding.values || []);
     if (!values.length) return '';
-    const shown = values.map(value => String(value ?? '').includes(IMAGE_CANDIDATE_SEPARATOR)
-        ? resolvedPageAddress(imageCandidates(value)[0] || '')
-        : value);
-    return `<div class="muted">Also extracted from another product page: ${shown.map(value => expandableValue(value)).join(', ')}</div>`;
+    return `<div class="muted">Also extracted from another product page: ${key === 'images'
+        ? renderImageCandidateGroups(values)
+        : values.map(value => expandableValue(value)).join(', ')}</div>`;
 }
 
 // Identity agreement findings name the identities that contradict the extracted one: the
@@ -2409,7 +2409,7 @@ function rawDataCell(raw, page) {
             return `
       <div class="${findings.length ? 'implausible-field' : ''}">
         <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value)) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings) : renderContradictingIdentities(findings)}</dd>
+        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value)) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings, key) : renderContradictingIdentities(findings)}</dd>
       </div>`;
         }).join('')
     }</dl>`;
