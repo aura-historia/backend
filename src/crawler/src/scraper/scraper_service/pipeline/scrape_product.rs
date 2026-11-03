@@ -626,6 +626,17 @@ impl ScraperServiceImpl {
             ),
         )?;
 
+        // Ahead of the schemas and the unchanged-page skip, so a page rejected as no product page
+        // is never captured, whichever schema extracts it, and ahead of the unverified-target
+        // check, so a redirect onto it is a removal even before any schema is cached.
+        self.skip_rejected_page(
+            listing_source_id,
+            url,
+            &page.effective_url,
+            expected_last_captured_raw_input_sha256,
+        )
+        .await?;
+
         // A redirect outside the pattern that no cached schema can judge is no page to capture or
         // to open a schema review on.
         if page.redirect == RedirectTarget::OutsideProductPattern
@@ -637,16 +648,6 @@ impl ScraperServiceImpl {
                 destination: page.effective_url.clone(),
             });
         }
-
-        // Ahead of the schemas and the unchanged-page skip, so a page rejected as no product page
-        // is never captured, whichever schema extracts it.
-        self.skip_rejected_page(
-            listing_source_id,
-            url,
-            &page.effective_url,
-            expected_last_captured_raw_input_sha256,
-        )
-        .await?;
 
         let fetched_page = FetchedPage {
             listing_source_id,

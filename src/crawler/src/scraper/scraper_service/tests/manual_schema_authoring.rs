@@ -410,6 +410,62 @@ async fn should_remove_the_product_when_its_url_redirects_onto_a_rejected_page()
     .await;
 }
 
+/// A rejection is the operator's verdict on the page, so a URL that redirects onto a rejected page
+/// outside the product URL pattern is a removal even before any schema is cached, rather than a
+/// target no schema can judge.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_remove_the_product_when_its_url_redirects_outside_the_pattern_onto_a_rejected_page_before_any_schema_is_cached()
+ {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let rejected_page = Url::parse("https://example.com/collections/chairs").unwrap();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let opening = scraper_with_review_gate(
+        fetcher_returning_sample_page_at(&rejected_page, 1),
+        schema_service_without_generation(Some(cached_schemas(id, vec![stale_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+    let rejected = pending_review_id(
+        opening
+            .scrape(primary_only_request(&id, &rejected_page))
+            .await
+            .result,
+    );
+    repository
+        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .await
+        .unwrap_or_else(|error| panic!("reject manual review: {error}"));
+    let requested_url = Url::parse("https://example.com/products/sold-chair").unwrap();
+    let rescraping = scraper_with_review_gate(
+        fetcher_returning_sample_page_at(&rejected_page, 1),
+        schema_service_without_generation(None),
+        repository,
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let result = rescraping
+        .scrape(primary_only_request_with_pattern(
+            &id,
+            &requested_url,
+            r"/products/",
+        ))
+        .await
+        .result;
+
+    let Err(ScraperError::ProductListingRemoved(removal)) = &result else {
+        panic!("a redirect onto a rejected page is a removal: {result:?}");
+    };
+    assert_eq!(removal.url, requested_url);
+    assert_eq!(
+        removal.evidence.kind,
+        RemovalEvidenceKind::RedirectToRejectedPage
+    );
+    assert_eq!(removal.evidence.final_url.as_ref(), Some(&rejected_page));
+}
+
 /// A rejected page captured before, such as by a cached schema before the rejection took effect,
 /// and unchanged since, is classified as other too: the rejection is checked before the
 /// unchanged-page skip, under the guard of that capture.
