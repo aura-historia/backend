@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-111",
+  "country": "IT",
+  "observedAt": "2026-11-03T13:03:52.021584Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 30695,
+  "apiWritesThisRun": 8,
+  "decisions": {
+    "added": [
+      "mobilisisi.com",
+      "nostalgiantiquariato.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "personeantichita.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Full prewrite snapshot and both explicit-country onboarding invocations checked domain, Party name and contacts. Nostalgia UK Limited was explicitly reconciled as a distinct GB-owned Stockport company; its records were not changed.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot111-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T13:03:08.982849Z",
+    "fullVerifiedAt": "2026-11-03T12:45:58.662905Z",
+    "counts": {
+      "parties": 189,
+      "listingSources": 189,
+      "locations": 223,
+      "logos": 159,
+      "identifiedPlatforms": 143,
+      "deliveryProfiles": 116,
+      "emptyIngestionMethods": 189,
+      "excluded": 18,
+      "deferred": 53
+    }
+  },
+  "crossLedgerOwnership": "All raw journals including hosted dealers read; no other ledger owns either new domain or business identity.",
+  "omissions": "Sisi destinations/rates/timing, collection and inventory remain unknown. Nostalgia formal legal suffix and outbound shipping are unconfirmed. Personè sampled stock is sold/empty; no resource created.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

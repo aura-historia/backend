@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-130",
+  "country": "IT",
+  "observedAt": "2026-11-03T15:24:17.403665Z",
+  "result": "PASSED",
+  "rawJournalFiles": 55,
+  "rawJournalRecordsScanned": 36395,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "galleriamossini.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "genovesiantichitarestauri.it",
+      "rigattieremantova.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot130-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T15:23:50.037772Z",
+    "fullVerifiedAt": "2026-11-03T15:06:57.688424Z",
+    "counts": {
+      "parties": 214,
+      "listingSources": 214,
+      "locations": 258,
+      "logos": 182,
+      "identifiedPlatforms": 163,
+      "deliveryProfiles": 126,
+      "emptyIngestionMethods": 214,
+      "excluded": 23,
+      "deferred": 77
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Mossini current operator Marcello is verified by native privacy and exact native VAT/current VIES, separate from founder Massimo. Current works catalogue is distinct from treated/archive works. Original logo and detailed early twentieth-century inkwell photo inspected. Native Cavour104 gallery retained; government Cavour96 tax address not another location. WordPress directly identified. No shipping, collection or inventory defaults inferred. Auction-house advisory links and external auction provenance do not establish owned auction operation. Genovesi keeps Alessandro antiques and Sebastiano restoration/VAT identities separate; current sale status of photographed work remains unclear. Rigattiere identity corroborated, but inspected gallery images do not establish historical stock. Deferred dealers receive no API writes.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

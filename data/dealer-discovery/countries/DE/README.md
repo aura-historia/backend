@@ -3,6 +3,11 @@
 Owned scope: Germany (`DE`), including earlier incidental foreign dealers retained
 by this ledger. Follow the [shared workflow and country ownership rules](../../README.md).
 
+Discovery scope: specialist art and antique dealers whose core business directly
+fits this catalogue. General camera, music, fashion and secondhand retailers are
+outside the current discovery scope, even if they occasionally offer an old item.
+Qualify current dealer-owned art or antiques from first-party evidence.
+
 ## Current index
 
 [index.tsv](index.tsv) is the compact domain lookup; [dealers.jsonl](dealers.jsonl) is
@@ -16,14 +21,14 @@ each dealer still requires its own qualification.
 [searches.jsonl](searches.jsonl) records recent queries and duplicate-filter results.
 Check it before repeating regional searches; search results remain leads, not import evidence.
 
-Current production checkpoint `2026-11-02-de-120`: **500 Parties and 503 listing sources**,
-**564 locations**, **299 original logo URLs**, **319 advertised-delivery profiles/defaults**,
-and **443 identified platforms**. All 503 ingestion lists are empty. A Party
+Current production checkpoint `2026-11-03-de-195`: **615 Parties and 618 listing sources**,
+**698 locations**, **381 original logo URLs**, **396 advertised-delivery profiles/defaults**,
+and **545 identified platforms**. All 618 ingestion lists are empty. A Party
 represents the business/operator; the API has no additional organization-create resource.
 This workflow has not submitted product listings. Paid search, Places, lead verification
 and treg spend: **$0**.
 
-The ledger currently records **97 excluded** and **238 deferred** domains. Use the compact
+The ledger currently records **116 excluded** and **330 deferred** domains. Use the compact
 index for names, IDs, platforms and decision codes, and the ledger for evidence, omissions
 and revisit dates. Research deferrals are not fraud findings. Primary closure notices
 exclude inactive businesses; a closed historic branch or showroom does not by itself
@@ -35,6 +40,21 @@ or an actual blocking condition, preserving enough evidence and IDs to resume.
 
 ## Practical lessons and remaining enrichment
 
+- Check the live legal notice after a business takeover: indexed search results can still
+  name the former proprietor. A temporary renovation or maintenance notice establishes
+  neither permanent closure nor inspectable current stock.
+- Native product availability and enabled purchase controls can resolve hidden universal
+  “sold out” template text. Inspect the actual offer, while keeping sold archives and
+  model examples separate. Bidder clauses in a retail shop’s terms require an operator-wide
+  auction review; fixed-price checkout alone does not settle that scope.
+- When a dealer labels product images as generated examples, inspect its separately
+  published original stock photographs. Public app bundles can also expose the actual
+  legal-page content: distinguish the owner from the contact representative, and a
+  postal address from a shop or registered office.
+- Similar dealer names can identify separate businesses: compare legal operators, contacts
+  and premises before merging domains. Antikhalle Dresden Thomas Lauke and AntikHalle
+  Dresden Schömann remain separate. Conversely, an exact embedded commerce catalogue ID
+  can establish one hosted-shop alias; retain the existing managed IDs when enriching it.
 - A source's generic shipping tariff cannot override explicit pickup-only items. Rainer
   Völz advertises a Germany tariff while inspected large furniture/clocks forbid
   shipment. Without real per-item class assignments, retain confirmed collection in
@@ -249,6 +269,14 @@ or an actual blocking condition, preserving enough evidence and IDs to resume.
   rates. arthome24's worldwide island exclusion is retained as an unresolved area,
   keeping assessment conservative instead of promising delivery to islands.
 
+- Inspect native offer controls and image banners together. Sold markers may be
+  raster images absent from extracted text, while hidden sold-out template labels
+  can coexist with an active, available offer. Provider marks are not dealer logos.
+
 Next discovery work: qualify the queued German leads and continue region-by-region
 queries for independent antique/vintage dealers. Deferred identity, catalogue and closure
 checks are separate from new discovery; no paid provider is currently necessary.
+
+- Large destination tables must respect the API limit of 64 areas per shipping zone. Split verified destinations into disjoint zones with identical reviewed terms; retain ambiguous legacy labels separately. After a rejected profile write, confirm the live profile collection and default before correcting input and reusing existing resource IDs.
+
+- Batch 190: a legacy German domain can redirect to a legally distinct French gallery. Queue the verified current home country and redirect evidence for its owner; historical directories and family names do not prove a transferred business, current German premises or shared operator.

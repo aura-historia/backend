@@ -1,25 +1,25 @@
 {
-  "run": "2026-11-02-it-108",
-  "verifiedAt": "2026-11-03T09:16:03.859367Z",
-  "scope": "FULL",
+  "run": "2026-11-02-it-169",
+  "verifiedAt": "2026-11-03T19:52:28.578762Z",
+  "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T09:16:03.859367Z",
-  "dealersCheckedThisRun": 183,
-  "dealersReused": 0,
+  "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 269,
   "counts": {
-    "parties": 183,
-    "listingSources": 183,
-    "locations": 216,
-    "logos": 153,
-    "identifiedPlatforms": 138,
-    "deliveryProfiles": 114,
-    "emptyIngestionMethods": 183,
-    "excluded": 17,
-    "deferred": 51
+    "parties": 270,
+    "listingSources": 270,
+    "locations": 318,
+    "logos": 224,
+    "identifiedPlatforms": 211,
+    "deliveryProfiles": 145,
+    "emptyIngestionMethods": 270,
+    "excluded": 25,
+    "deferred": 89
   },
   "environmentCounts": {
-    "parties": 1985,
-    "listingSources": 2009
+    "parties": 3464,
+    "listingSources": 3499
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
@@ -40,8 +40,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:32.147173Z",
-      "observationDigest": "8f567b602248f8eff04c071694809e348df9cffddb662422bc92c32b6ddfb4db"
+      "verifiedAt": "2026-11-03T19:45:20.165517Z",
+      "observationDigest": "8f567b602248f8eff04c071694809e348df9cffddb662422bc92c32b6ddfb4db",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mercandstore.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "centromercatoantiquariato.it",
@@ -53,8 +56,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:31.702748Z",
-      "observationDigest": "83100d1ff5c47a1153fe8e178736fba9008e2e05a85bfd177124bbaa946919cc"
+      "verifiedAt": "2026-11-03T19:45:20.105631Z",
+      "observationDigest": "83100d1ff5c47a1153fe8e178736fba9008e2e05a85bfd177124bbaa946919cc",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "centromercatoantiquariato.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "gascoantichita.it",
@@ -66,8 +72,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:31.759116Z",
-      "observationDigest": "a3baa5341a9ec3ca354e43a4d229ca91eec0bc550ce3b6924ddc8a2b9df02bc4"
+      "verifiedAt": "2026-11-03T19:45:20.106254Z",
+      "observationDigest": "a3baa5341a9ec3ca354e43a4d229ca91eec0bc550ce3b6924ddc8a2b9df02bc4",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "gascoantichita.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "n7antiquariato.it",
@@ -79,8 +88,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:32.248847Z",
-      "observationDigest": "204dc8f0cf4a8cf70373d9a71e7ca81a1dc997e282833f38094609d5ec7a3c66"
+      "verifiedAt": "2026-11-03T19:45:20.600636Z",
+      "observationDigest": "204dc8f0cf4a8cf70373d9a71e7ca81a1dc997e282833f38094609d5ec7a3c66",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "n7antiquariato.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "cherubinovintage.com",
@@ -92,8 +104,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:32.346913Z",
-      "observationDigest": "8bfa9bf03e37652f379ae048e16d8c038d4f9b7fe8a3dcb07b9b22a3c73da898"
+      "verifiedAt": "2026-11-03T19:45:20.598616Z",
+      "observationDigest": "8bfa9bf03e37652f379ae048e16d8c038d4f9b7fe8a3dcb07b9b22a3c73da898",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "cherubinovintage.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitapetrone.it",
@@ -105,8 +120,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:32.689049Z",
-      "observationDigest": "a2c2f76b4c35a7d12f9fdd4d9227ecbdae00971934761eb474b76c3e4ce8888b"
+      "verifiedAt": "2026-11-03T19:45:20.656462Z",
+      "observationDigest": "a2c2f76b4c35a7d12f9fdd4d9227ecbdae00971934761eb474b76c3e4ce8888b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitapetrone.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "arrediantiquariato.it",
@@ -118,8 +136,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:32.917507Z",
-      "observationDigest": "9422628bef970c680a43a1542164ce87ca65000147bca34b63a8998be7d6e921"
+      "verifiedAt": "2026-11-03T19:45:21.213911Z",
+      "observationDigest": "9422628bef970c680a43a1542164ce87ca65000147bca34b63a8998be7d6e921",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "arrediantiquariato.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "storeonlineshopgest.jimdofree.com",
@@ -131,8 +152,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:32.988164Z",
-      "observationDigest": "8a4b80c498ec13caeaff8196d33e2c928f808d0ad39d4ca981ca16e981a4a9c1"
+      "verifiedAt": "2026-11-03T19:45:21.241555Z",
+      "observationDigest": "8a4b80c498ec13caeaff8196d33e2c928f808d0ad39d4ca981ca16e981a4a9c1",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "storeonlineshopgest.jimdofree.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "ghilli.it",
@@ -144,8 +168,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:33.261212Z",
-      "observationDigest": "bcff46bebda114b4aaa9fe67ef1add514438e5f16ae24432df74f64924eac822"
+      "verifiedAt": "2026-11-03T19:45:21.163683Z",
+      "observationDigest": "bcff46bebda114b4aaa9fe67ef1add514438e5f16ae24432df74f64924eac822",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "ghilli.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquariatomonte.it",
@@ -157,8 +184,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:33.466622Z",
-      "observationDigest": "0742a942cdbd0dc76ded1f512c7ad6421a658e69d7146cd23e57ef7fa0764bf8"
+      "verifiedAt": "2026-11-03T19:45:21.691665Z",
+      "observationDigest": "0742a942cdbd0dc76ded1f512c7ad6421a658e69d7146cd23e57ef7fa0764bf8",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatomonte.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "sgantiques.com",
@@ -170,8 +200,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:33.641141Z",
-      "observationDigest": "eb6e3d14bdce873af74ed8e4f262de93823b3fc4aef533e8327118775561da3a"
+      "verifiedAt": "2026-11-03T19:45:21.806766Z",
+      "observationDigest": "eb6e3d14bdce873af74ed8e4f262de93823b3fc4aef533e8327118775561da3a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "sgantiques.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquarius.it",
@@ -183,8 +216,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:33.730897Z",
-      "observationDigest": "12700e9db1a9c9a3b4183278943b05ffac0a5781b781d3f52adc68eaf99514e1"
+      "verifiedAt": "2026-11-03T19:45:21.694201Z",
+      "observationDigest": "12700e9db1a9c9a3b4183278943b05ffac0a5781b781d3f52adc68eaf99514e1",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquarius.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitanevio.it",
@@ -196,8 +232,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:34.005028Z",
-      "observationDigest": "4bcada5e3f386cdbded02e92f1b58b3dad8c28019d21bef651fae6e4ef1755fe"
+      "verifiedAt": "2026-11-03T19:45:22.211413Z",
+      "observationDigest": "4bcada5e3f386cdbded02e92f1b58b3dad8c28019d21bef651fae6e4ef1755fe",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitanevio.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitalecolonne.it",
@@ -209,8 +248,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:34.099323Z",
-      "observationDigest": "fe01ce52e899d90612e22cc760b71099ca50528fc4340ae258ca3dbf58018bfe"
+      "verifiedAt": "2026-11-03T19:45:22.086789Z",
+      "observationDigest": "fe01ce52e899d90612e22cc760b71099ca50528fc4340ae258ca3dbf58018bfe",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitalecolonne.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "bertiantiquariato.com",
@@ -222,8 +264,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:34.202314Z",
-      "observationDigest": "3d81caed9e9a3b661964954a60271a218e45e19c87557c09bb4f7d3720b0f2c4"
+      "verifiedAt": "2026-11-03T19:45:22.254887Z",
+      "observationDigest": "3d81caed9e9a3b661964954a60271a218e45e19c87557c09bb4f7d3720b0f2c4",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "bertiantiquariato.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "bourlot.it",
@@ -235,8 +280,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:34.522661Z",
-      "observationDigest": "60c8b4718eb817c920dbe3d40e44393f3b1916a1bf8152839b6cf69839f3f231"
+      "verifiedAt": "2026-11-03T19:45:22.573529Z",
+      "observationDigest": "60c8b4718eb817c920dbe3d40e44393f3b1916a1bf8152839b6cf69839f3f231",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "bourlot.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriadallai.it",
@@ -248,8 +296,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:34.634898Z",
-      "observationDigest": "def4db5b3a8911c9e7fd4a738c949749b68b24860566898e4bfbb5d300c1757c"
+      "verifiedAt": "2026-11-03T19:45:22.670529Z",
+      "observationDigest": "def4db5b3a8911c9e7fd4a738c949749b68b24860566898e4bfbb5d300c1757c",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriadallai.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "shop.antichitagiglio.it",
@@ -261,8 +312,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:34.820398Z",
-      "observationDigest": "bbcb508e8f252d9bce9f7d69b26f56fef483001552b03cf8158d8092c91e319c"
+      "verifiedAt": "2026-11-03T19:45:22.810632Z",
+      "observationDigest": "bbcb508e8f252d9bce9f7d69b26f56fef483001552b03cf8158d8092c91e319c",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "shop.antichitagiglio.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "laboratoriolamole.com",
@@ -274,8 +328,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:34.967588Z",
-      "observationDigest": "d8315ac4ef235ba4f7a4786a15a23aadd2e7a4df5c01fe5ed8100ffc75f85da5"
+      "verifiedAt": "2026-11-03T19:45:22.991857Z",
+      "observationDigest": "d8315ac4ef235ba4f7a4786a15a23aadd2e7a4df5c01fe5ed8100ffc75f85da5",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "laboratoriolamole.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "dentisrarebooks.it",
@@ -287,8 +344,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:35.168198Z",
-      "observationDigest": "ede9eafbb6835ba77f1c274b3539e2ea9ef2f340dfc5336f797e7472ff1d36ce"
+      "verifiedAt": "2026-11-03T19:45:23.177536Z",
+      "observationDigest": "ede9eafbb6835ba77f1c274b3539e2ea9ef2f340dfc5336f797e7472ff1d36ce",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "dentisrarebooks.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriapontremoli.it",
@@ -300,8 +360,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:35.352223Z",
-      "observationDigest": "c9cee28d6fac5d8cb3655601826bbdc0d89a5221a3c2688f30c04df238493dad"
+      "verifiedAt": "2026-11-03T19:45:23.298455Z",
+      "observationDigest": "c9cee28d6fac5d8cb3655601826bbdc0d89a5221a3c2688f30c04df238493dad",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriapontremoli.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "fecarottantichita.com",
@@ -313,8 +376,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:35.433505Z",
-      "observationDigest": "95bc3bfd851ba282a2edc41348b3abf4803b4a4637d521d95f503fbb6c66f9ce"
+      "verifiedAt": "2026-11-03T19:45:23.388063Z",
+      "observationDigest": "95bc3bfd851ba282a2edc41348b3abf4803b4a4637d521d95f503fbb6c66f9ce",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "fecarottantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "athenantichita.com",
@@ -326,8 +392,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:35.701954Z",
-      "observationDigest": "91db3d5f6a94232a451065d033c300e51da16319fa40b27bc9718bde372f5e48"
+      "verifiedAt": "2026-11-03T19:45:23.680781Z",
+      "observationDigest": "91db3d5f6a94232a451065d033c300e51da16319fa40b27bc9718bde372f5e48",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "athenantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "domusaureacatania.it",
@@ -339,8 +408,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:35.807006Z",
-      "observationDigest": "7a4f91d9c5166be1d8e3da0a2e4a55e67748b99383b28552ad92a2f5a77566e9"
+      "verifiedAt": "2026-11-03T19:45:23.729681Z",
+      "observationDigest": "7a4f91d9c5166be1d8e3da0a2e4a55e67748b99383b28552ad92a2f5a77566e9",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "domusaureacatania.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitaioviero.com",
@@ -352,8 +424,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:35.867905Z",
-      "observationDigest": "51c8412477c8d6a97514de7db694649dae24486cc1b678b49b30928a3aa85a3d"
+      "verifiedAt": "2026-11-03T19:45:23.816559Z",
+      "observationDigest": "51c8412477c8d6a97514de7db694649dae24486cc1b678b49b30928a3aa85a3d",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitaioviero.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "tilacino.com",
@@ -365,8 +440,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:36.367893Z",
-      "observationDigest": "f9e5a4dcde3074228921f5b9a917ac76c85126581207a836865fce7af7ccbf7b"
+      "verifiedAt": "2026-11-03T19:45:24.276424Z",
+      "observationDigest": "f9e5a4dcde3074228921f5b9a917ac76c85126581207a836865fce7af7ccbf7b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "tilacino.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "historyantichita-trieste.it",
@@ -378,8 +456,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:36.259506Z",
-      "observationDigest": "92bdff085924f4dd8a37d2ae41e0e910480cc6bf18812f845399f0fd31d4f555"
+      "verifiedAt": "2026-11-03T19:45:24.201601Z",
+      "observationDigest": "92bdff085924f4dd8a37d2ae41e0e910480cc6bf18812f845399f0fd31d4f555",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "historyantichita-trieste.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitailtemporitrovato.it",
@@ -391,8 +472,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:36.440049Z",
-      "observationDigest": "d83c03b331fd6ec7506334479c736c5182c5c558ff1cec5e46dc777faa4ceaf8"
+      "verifiedAt": "2026-11-03T19:45:24.311899Z",
+      "observationDigest": "d83c03b331fd6ec7506334479c736c5182c5c558ff1cec5e46dc777faa4ceaf8",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitailtemporitrovato.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "rigatteria.com",
@@ -404,8 +488,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:36.705696Z",
-      "observationDigest": "c0b8c709ce3c46c1a5d9f813c542d88ab3bf8360293f218cc0e0d82f775a74b9"
+      "verifiedAt": "2026-11-03T19:45:24.619522Z",
+      "observationDigest": "c0b8c709ce3c46c1a5d9f813c542d88ab3bf8360293f218cc0e0d82f775a74b9",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "rigatteria.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "triestemodernariatoeantiquariato.it",
@@ -417,8 +504,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:36.900241Z",
-      "observationDigest": "c105b43282a8cb160baa9d5abab27da4aab943b55e94092ec210a28501ceebea"
+      "verifiedAt": "2026-11-03T19:45:24.800067Z",
+      "observationDigest": "c105b43282a8cb160baa9d5abab27da4aab943b55e94092ec210a28501ceebea",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "triestemodernariatoeantiquariato.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "memorabiliaantichita.com",
@@ -430,8 +520,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:36.898067Z",
-      "observationDigest": "000636f55d3d6a5f4691ce9e41106b882b199a7b06e54e5edac4aa568df01be4"
+      "verifiedAt": "2026-11-03T19:45:24.742508Z",
+      "observationDigest": "000636f55d3d6a5f4691ce9e41106b882b199a7b06e54e5edac4aa568df01be4",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "memorabiliaantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquariatobarberini.com",
@@ -443,8 +536,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:37.168162Z",
-      "observationDigest": "adb9054b26a3277005cb5515a141c9b46ec1519501757baa64a60f20cc975eb7"
+      "verifiedAt": "2026-11-03T19:45:25.033906Z",
+      "observationDigest": "adb9054b26a3277005cb5515a141c9b46ec1519501757baa64a60f20cc975eb7",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatobarberini.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquariatovisconti.com",
@@ -456,8 +552,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:37.385400Z",
-      "observationDigest": "08416d8a97f5de5311777b628f8c701304eef9e92e4b99e1c8ba5ae8c28ac5f0"
+      "verifiedAt": "2026-11-03T19:45:25.136029Z",
+      "observationDigest": "08416d8a97f5de5311777b628f8c701304eef9e92e4b99e1c8ba5ae8c28ac5f0",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatovisconti.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "silviafranchini.it",
@@ -469,8 +568,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:37.452748Z",
-      "observationDigest": "38f67e1b7d9c4d9d07c56f7b45ab53a103a0ea1797d2743efa1aaef4c09271da"
+      "verifiedAt": "2026-11-03T19:45:25.319360Z",
+      "observationDigest": "38f67e1b7d9c4d9d07c56f7b45ab53a103a0ea1797d2743efa1aaef4c09271da",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "silviafranchini.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "arte-orientale.com",
@@ -482,8 +584,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:37.725421Z",
-      "observationDigest": "cfef5492f8981f2458cbfa4cd2248c80153c1002ed3841a6d0c6f4a43c4679c6"
+      "verifiedAt": "2026-11-03T19:45:25.506932Z",
+      "observationDigest": "cfef5492f8981f2458cbfa4cd2248c80153c1002ed3841a6d0c6f4a43c4679c6",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "arte-orientale.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libriseab.it",
@@ -495,8 +600,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:37.938208Z",
-      "observationDigest": "8be1ff8f8698b618350aadfab0fea94971fae6830c362901d20c8a32e1ad631f"
+      "verifiedAt": "2026-11-03T19:45:25.641461Z",
+      "observationDigest": "8be1ff8f8698b618350aadfab0fea94971fae6830c362901d20c8a32e1ad631f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libriseab.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquariobologna.it",
@@ -508,8 +616,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:37.986428Z",
-      "observationDigest": "6ca7dad805ad35298d613362c33c774c588d434a03f111593c55113393c398f3"
+      "verifiedAt": "2026-11-03T19:45:25.835899Z",
+      "observationDigest": "6ca7dad805ad35298d613362c33c774c588d434a03f111593c55113393c398f3",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariobologna.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "demunariantiquariato.com",
@@ -521,8 +632,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:38.188767Z",
-      "observationDigest": "a60189b8c1e91869ee511233f1e78311e69a1b7e7a46094a9f11dd3d04dec0be"
+      "verifiedAt": "2026-11-03T19:45:25.938893Z",
+      "observationDigest": "a60189b8c1e91869ee511233f1e78311e69a1b7e7a46094a9f11dd3d04dec0be",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "demunariantiquariato.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "fiorillorestauro.com",
@@ -534,8 +648,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:38.484931Z",
-      "observationDigest": "e4a80900bdd03bebd950e542c58d0a57a84773414bef286c21c9ac197a78dc58"
+      "verifiedAt": "2026-11-03T19:45:26.122934Z",
+      "observationDigest": "e4a80900bdd03bebd950e542c58d0a57a84773414bef286c21c9ac197a78dc58",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "fiorillorestauro.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "soloartepg.com",
@@ -547,8 +664,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:38.541713Z",
-      "observationDigest": "a085cc527de6f0a4200e15efeec926bfa3b320ef5f82f2c924c09a17b0b0d4cc"
+      "verifiedAt": "2026-11-03T19:45:26.317044Z",
+      "observationDigest": "a085cc527de6f0a4200e15efeec926bfa3b320ef5f82f2c924c09a17b0b0d4cc",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "soloartepg.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquando.it",
@@ -560,8 +680,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:38.641247Z",
-      "observationDigest": "c183ea1b0d1739c1afcdfc04f1c28ed498181f4792dae06f95b37e1a4390af24"
+      "verifiedAt": "2026-11-03T19:45:26.376779Z",
+      "observationDigest": "c183ea1b0d1739c1afcdfc04f1c28ed498181f4792dae06f95b37e1a4390af24",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquando.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitademattei.com",
@@ -573,8 +696,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:39.046208Z",
-      "observationDigest": "002cb50a6d0f8c9945551159d8b8d6052abd1724c4fc12ab13317204807c5182"
+      "verifiedAt": "2026-11-03T19:45:26.664414Z",
+      "observationDigest": "002cb50a6d0f8c9945551159d8b8d6052abd1724c4fc12ab13317204807c5182",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitademattei.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitaviani.it",
@@ -586,8 +712,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:39.047904Z",
-      "observationDigest": "514768e862fe715b56e008832652b7549f780b59566287415e3c2a1ad80782f7"
+      "verifiedAt": "2026-11-03T19:45:26.830729Z",
+      "observationDigest": "514768e862fe715b56e008832652b7549f780b59566287415e3c2a1ad80782f7",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitaviani.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "librietalia.it",
@@ -599,8 +728,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:39.169560Z",
-      "observationDigest": "b127af0a8c454444796cc28ef3e2ee17eb2849e6f16b0e1a76c9c2c71b36bc89"
+      "verifiedAt": "2026-11-03T19:45:26.880001Z",
+      "observationDigest": "b127af0a8c454444796cc28ef3e2ee17eb2849e6f16b0e1a76c9c2c71b36bc89",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "librietalia.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "principessasissi.com",
@@ -612,8 +744,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:39.556251Z",
-      "observationDigest": "6277477029f7fde834d63aceb9c6ff938459e2fbeec09b8035d32be17fb14de5"
+      "verifiedAt": "2026-11-03T19:45:27.169445Z",
+      "observationDigest": "6277477029f7fde834d63aceb9c6ff938459e2fbeec09b8035d32be17fb14de5",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "principessasissi.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriacherubin.it",
@@ -625,8 +760,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:39.634145Z",
-      "observationDigest": "40ce27a4f56e1968a56c0c632a23eb754acc7293c43ce1deeb3a9865f48ef141"
+      "verifiedAt": "2026-11-03T19:45:27.420423Z",
+      "observationDigest": "40ce27a4f56e1968a56c0c632a23eb754acc7293c43ce1deeb3a9865f48ef141",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriacherubin.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "rasoloantichita.com",
@@ -638,8 +776,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:39.671638Z",
-      "observationDigest": "73395e08c8789b509ca3c1ba9d436593638a7638b6d8116e5c11a0dcc921f28a"
+      "verifiedAt": "2026-11-03T19:45:27.416195Z",
+      "observationDigest": "73395e08c8789b509ca3c1ba9d436593638a7638b6d8116e5c11a0dcc921f28a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "rasoloantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "pescetta.it",
@@ -651,8 +792,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:40.169894Z",
-      "observationDigest": "6d6c15b99f14a6229c6b1ef07c6c2ff7d9749e66fce02a7ce39bd79c54945b1d"
+      "verifiedAt": "2026-11-03T19:45:27.755843Z",
+      "observationDigest": "6d6c15b99f14a6229c6b1ef07c6c2ff7d9749e66fce02a7ce39bd79c54945b1d",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "pescetta.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitabeggio.it",
@@ -664,8 +808,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:40.076054Z",
-      "observationDigest": "ef13a6522533793469e2b4379caacb7f5e68b43621503dbf15830c81b01e6156"
+      "verifiedAt": "2026-11-03T19:45:27.793261Z",
+      "observationDigest": "ef13a6522533793469e2b4379caacb7f5e68b43621503dbf15830c81b01e6156",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitabeggio.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "mobilimerlin.com",
@@ -677,8 +824,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:40.220430Z",
-      "observationDigest": "4221108f6d9fbafc60ee05a6573ff793cdae1102033e4623fc1599719d3a9589"
+      "verifiedAt": "2026-11-03T19:45:27.873888Z",
+      "observationDigest": "4221108f6d9fbafc60ee05a6573ff793cdae1102033e4623fc1599719d3a9589",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mobilimerlin.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "lvsantique.it",
@@ -690,8 +840,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:40.562709Z",
-      "observationDigest": "5b30e128b6ab1046047f5f75dc63a538888786bade6297fb75a8ef1dba223f4a"
+      "verifiedAt": "2026-11-03T19:45:28.219778Z",
+      "observationDigest": "5b30e128b6ab1046047f5f75dc63a538888786bade6297fb75a8ef1dba223f4a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lvsantique.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriaenricobrunello.it",
@@ -703,8 +856,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:40.666640Z",
-      "observationDigest": "9f6da6a9ba567f8a03f37b998a286e950f004ec2b1435284af0095cc2275b6d0"
+      "verifiedAt": "2026-11-03T19:45:28.188588Z",
+      "observationDigest": "9f6da6a9ba567f8a03f37b998a286e950f004ec2b1435284af0095cc2275b6d0",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriaenricobrunello.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "zogia.it",
@@ -716,8 +872,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:40.846759Z",
-      "observationDigest": "8b8f4e2d56d51cfdbdd80a4cff368774d1d9f7d9044783b0fc41dc44df03f551"
+      "verifiedAt": "2026-11-03T19:45:28.433934Z",
+      "observationDigest": "8b8f4e2d56d51cfdbdd80a4cff368774d1d9f7d9044783b0fc41dc44df03f551",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "zogia.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "dimanoinmano.it",
@@ -729,8 +888,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:41.294705Z",
-      "observationDigest": "1b28e409bcee24b315066e23e8d87911b29eb207a5dd5530750a6e8092a6df9c"
+      "verifiedAt": "2026-11-03T19:45:28.855847Z",
+      "observationDigest": "1b28e409bcee24b315066e23e8d87911b29eb207a5dd5530750a6e8092a6df9c",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "dimanoinmano.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitacastelbarco.it",
@@ -742,8 +904,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:41.245126Z",
-      "observationDigest": "558dbb5f8309aa8f2fc23e33a7cde7388c2accb9164a6e1431bdc07063958299"
+      "verifiedAt": "2026-11-03T19:45:28.699619Z",
+      "observationDigest": "558dbb5f8309aa8f2fc23e33a7cde7388c2accb9164a6e1431bdc07063958299",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitacastelbarco.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "gallerianovecento.it",
@@ -755,8 +920,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:41.367608Z",
-      "observationDigest": "8961d835f343b475622418ebcb3716bd59cd28f5fb33f105e178e8b96ec6c536"
+      "verifiedAt": "2026-11-03T19:45:28.894296Z",
+      "observationDigest": "8961d835f343b475622418ebcb3716bd59cd28f5fb33f105e178e8b96ec6c536",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "gallerianovecento.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "sbadige.com",
@@ -768,8 +936,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:41.801734Z",
-      "observationDigest": "598218d4483cb78b6d26d9a3be2e4538ea3daf4ba9529173b9309dc04b7b86be"
+      "verifiedAt": "2026-11-03T19:45:29.137211Z",
+      "observationDigest": "598218d4483cb78b6d26d9a3be2e4538ea3daf4ba9529173b9309dc04b7b86be",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "sbadige.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "studiobenacense.it",
@@ -781,8 +952,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:41.829358Z",
-      "observationDigest": "664d36338805852e1a4440510264b31f7e4f25627de0c2d21e92d8bb517b03ae"
+      "verifiedAt": "2026-11-03T19:45:29.334515Z",
+      "observationDigest": "664d36338805852e1a4440510264b31f7e4f25627de0c2d21e92d8bb517b03ae",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "studiobenacense.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "vecchilibri.net",
@@ -794,8 +968,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:41.904810Z",
-      "observationDigest": "1b84b59a6ca5a50efbb39efdf3367dfc826caa563cc4d632c73b5b1fcc5377b7"
+      "verifiedAt": "2026-11-03T19:45:29.379905Z",
+      "observationDigest": "1b84b59a6ca5a50efbb39efdf3367dfc826caa563cc4d632c73b5b1fcc5377b7",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "vecchilibri.net",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriantiquaria.com",
@@ -807,8 +984,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:42.531572Z",
-      "observationDigest": "c3738da07cda43830c1972438f612d133e1cea0116a1bc331c2176eb1e3bbe5b"
+      "verifiedAt": "2026-11-03T19:45:29.615372Z",
+      "observationDigest": "c3738da07cda43830c1972438f612d133e1cea0116a1bc331c2176eb1e3bbe5b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriantiquaria.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquariatonapoli.it",
@@ -820,8 +1000,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:42.418250Z",
-      "observationDigest": "4cc46d60265c64db8d730da514c888469dc8e404db48a5fca3e9bf6fa74b2519"
+      "verifiedAt": "2026-11-03T19:45:29.735438Z",
+      "observationDigest": "4cc46d60265c64db8d730da514c888469dc8e404db48a5fca3e9bf6fa74b2519",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatonapoli.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "depotsr.com",
@@ -833,8 +1016,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:42.656273Z",
-      "observationDigest": "12632a0a9593135dad6e622ccb91ca9a8ae56f29d3d0ecf9dbf2e65e52a1b215"
+      "verifiedAt": "2026-11-03T19:45:29.872038Z",
+      "observationDigest": "12632a0a9593135dad6e622ccb91ca9a8ae56f29d3d0ecf9dbf2e65e52a1b215",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "depotsr.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriaantiquariacoenobium.it",
@@ -846,8 +1032,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:42.966794Z",
-      "observationDigest": "24fa4eced2cca87c450d80073fe01f0bfb7dd3fcfb1e3a28d1bbc88781745791"
+      "verifiedAt": "2026-11-03T19:45:30.140633Z",
+      "observationDigest": "24fa4eced2cca87c450d80073fe01f0bfb7dd3fcfb1e3a28d1bbc88781745791",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriaantiquariacoenobium.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "anticalibreria.it",
@@ -859,8 +1048,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:43.052168Z",
-      "observationDigest": "e52cb5d2426fbc6c3c52aab1d3cabaeac19837440fae951e820c1a94064b682f"
+      "verifiedAt": "2026-11-03T19:45:30.263447Z",
+      "observationDigest": "e52cb5d2426fbc6c3c52aab1d3cabaeac19837440fae951e820c1a94064b682f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "anticalibreria.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "iltempochefu.it",
@@ -872,8 +1064,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:43.195153Z",
-      "observationDigest": "52c196ff958babd9edca55be95e85fa9b1bcb4aa679b5d4e14c538f0bc8eff7f"
+      "verifiedAt": "2026-11-03T19:45:30.360624Z",
+      "observationDigest": "52c196ff958babd9edca55be95e85fa9b1bcb4aa679b5d4e14c538f0bc8eff7f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "iltempochefu.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "rmantichita.com",
@@ -885,8 +1080,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:43.421803Z",
-      "observationDigest": "0ba1f457b4a7c84151518c8ffc9249a18f06851004abc7f0719e82d5379b4f69"
+      "verifiedAt": "2026-11-03T19:45:30.511545Z",
+      "observationDigest": "0ba1f457b4a7c84151518c8ffc9249a18f06851004abc7f0719e82d5379b4f69",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "rmantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "bottegadarteantichita.com",
@@ -898,8 +1096,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:43.483473Z",
-      "observationDigest": "507d836d8376bb4c48097b291f64d90f694bbf18257bc45454d5e26126cd2ab3"
+      "verifiedAt": "2026-11-03T19:45:30.651664Z",
+      "observationDigest": "507d836d8376bb4c48097b291f64d90f694bbf18257bc45454d5e26126cd2ab3",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "bottegadarteantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitalarghi.it",
@@ -911,8 +1112,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:43.626567Z",
-      "observationDigest": "854558385f0ab0ebbd7a1a21ea3845794b5a3f64b616f978c8cd9c27f1ee399f"
+      "verifiedAt": "2026-11-03T19:45:30.759876Z",
+      "observationDigest": "854558385f0ab0ebbd7a1a21ea3845794b5a3f64b616f978c8cd9c27f1ee399f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitalarghi.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "barbieriantiquariato.it",
@@ -924,8 +1128,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:43.869449Z",
-      "observationDigest": "f576680de0776243b694dc43db509f1f0728453a0cd1f0e21d4ea8e8104a4dac"
+      "verifiedAt": "2026-11-03T19:45:30.884426Z",
+      "observationDigest": "f576680de0776243b694dc43db509f1f0728453a0cd1f0e21d4ea8e8104a4dac",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "barbieriantiquariato.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "laprimularossa.it",
@@ -937,8 +1144,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:44.047509Z",
-      "observationDigest": "5d1b9c0c00240ed918bfa280859d2eb821a222ac50a6c69486f8d45bb9de852e"
+      "verifiedAt": "2026-11-03T19:45:31.180346Z",
+      "observationDigest": "5d1b9c0c00240ed918bfa280859d2eb821a222ac50a6c69486f8d45bb9de852e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "laprimularossa.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitatoscana.com",
@@ -950,8 +1160,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:44.167552Z",
-      "observationDigest": "6b020893965ab33bf7288428349ccae0613832a4a5afda6865c2d8092d9796a0"
+      "verifiedAt": "2026-11-03T19:45:31.265573Z",
+      "observationDigest": "6b020893965ab33bf7288428349ccae0613832a4a5afda6865c2d8092d9796a0",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitatoscana.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitaradogna.com",
@@ -963,8 +1176,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:44.410259Z",
-      "observationDigest": "fa915552919da26f305343adadac9f7978f8b1fc0cb8ca2a75353a29e3ad3e37"
+      "verifiedAt": "2026-11-03T19:45:31.421859Z",
+      "observationDigest": "fa915552919da26f305343adadac9f7978f8b1fc0cb8ca2a75353a29e3ad3e37",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitaradogna.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "piumacciodoro.it",
@@ -976,8 +1192,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:44.609892Z",
-      "observationDigest": "fdab36a18fc6d42434566fb731d498388458185f5f9ea76c5991dbe97692dcce"
+      "verifiedAt": "2026-11-03T19:45:31.587659Z",
+      "observationDigest": "fdab36a18fc6d42434566fb731d498388458185f5f9ea76c5991dbe97692dcce",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "piumacciodoro.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "velonantichita.com",
@@ -989,8 +1208,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:44.607530Z",
-      "observationDigest": "1a2f87eb7ac0da5ccd9f8c28939d10663cc491f4806e34be01ca617b9056321f"
+      "verifiedAt": "2026-11-03T19:45:31.665178Z",
+      "observationDigest": "1a2f87eb7ac0da5ccd9f8c28939d10663cc491f4806e34be01ca617b9056321f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "velonantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antoniofrosini.it",
@@ -1002,8 +1224,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:44.955435Z",
-      "observationDigest": "cf74f3d4a4355ea15749ddfc4f9d5e56242c451c50e1218fbf24a3d97937e65f"
+      "verifiedAt": "2026-11-03T19:45:31.977420Z",
+      "observationDigest": "cf74f3d4a4355ea15749ddfc4f9d5e56242c451c50e1218fbf24a3d97937e65f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antoniofrosini.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitaglussich.com",
@@ -1015,8 +1240,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:45.277326Z",
-      "observationDigest": "b85c012634434d8962d80e2f8ad9947cb625077b5b811f296fabfd078089c8a7"
+      "verifiedAt": "2026-11-03T19:45:32.053204Z",
+      "observationDigest": "b85c012634434d8962d80e2f8ad9947cb625077b5b811f296fabfd078089c8a7",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitaglussich.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "cosevecchielenzi.com",
@@ -1028,8 +1256,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:45.274656Z",
-      "observationDigest": "3d34e28bf2c9efb0228c0f9e449949ac752052b3ad9d5764fff1baaf2a680be4"
+      "verifiedAt": "2026-11-03T19:45:32.171598Z",
+      "observationDigest": "3d34e28bf2c9efb0228c0f9e449949ac752052b3ad9d5764fff1baaf2a680be4",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "cosevecchielenzi.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "turchiantichita.com",
@@ -1041,8 +1272,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:45.719826Z",
-      "observationDigest": "9a597a8d36fc2cb9ede992c2efee6dbf97b5f8c4fd26420f15da93f9cef96981"
+      "verifiedAt": "2026-11-03T19:45:32.469995Z",
+      "observationDigest": "9a597a8d36fc2cb9ede992c2efee6dbf97b5f8c4fd26420f15da93f9cef96981",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "turchiantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitaretini.com",
@@ -1054,8 +1288,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:45.906764Z",
-      "observationDigest": "21b501da3608e9a8a12aa3efee63f6b7d17a07714901f1cf17834568acbf3afc"
+      "verifiedAt": "2026-11-03T19:45:32.552458Z",
+      "observationDigest": "21b501da3608e9a8a12aa3efee63f6b7d17a07714901f1cf17834568acbf3afc",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitaretini.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "dagantiqua.it",
@@ -1067,8 +1304,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:45.792991Z",
-      "observationDigest": "95449727653d4a75e09464e0e1b65641225314d99349adc2a5298fbbf6c10629"
+      "verifiedAt": "2026-11-03T19:45:32.622626Z",
+      "observationDigest": "95449727653d4a75e09464e0e1b65641225314d99349adc2a5298fbbf6c10629",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "dagantiqua.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "lamobille.it",
@@ -1080,8 +1320,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:46.151824Z",
-      "observationDigest": "afac1c51d7f4b21ef1dcef86b0c0a12fcaf9ea285a9ef4b73133f28e85f815d7"
+      "verifiedAt": "2026-11-03T19:45:32.865156Z",
+      "observationDigest": "afac1c51d7f4b21ef1dcef86b0c0a12fcaf9ea285a9ef4b73133f28e85f815d7",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lamobille.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquastyle.it",
@@ -1093,8 +1336,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:46.332559Z",
-      "observationDigest": "6cb741b39141dae89d11be410a846825ac81241321980e2667260735eafbaa89"
+      "verifiedAt": "2026-11-03T19:45:33.048812Z",
+      "observationDigest": "6cb741b39141dae89d11be410a846825ac81241321980e2667260735eafbaa89",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquastyle.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "domus13.com",
@@ -1106,8 +1352,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:46.521031Z",
-      "observationDigest": "2bd49a7ddbe3a0c083fac5d3675a77920a709c05f96900988e689d9b3be82448"
+      "verifiedAt": "2026-11-03T19:45:33.199923Z",
+      "observationDigest": "2bd49a7ddbe3a0c083fac5d3675a77920a709c05f96900988e689d9b3be82448",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "domus13.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "crazyart-milano.com",
@@ -1119,8 +1368,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:46.704057Z",
-      "observationDigest": "94eca16ef6f14e8a5b529898b220380abe53d470db6fc2dda07399dfd0d4d1f8"
+      "verifiedAt": "2026-11-03T19:45:33.347007Z",
+      "observationDigest": "94eca16ef6f14e8a5b529898b220380abe53d470db6fc2dda07399dfd0d4d1f8",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "crazyart-milano.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriadelsalento.it",
@@ -1132,8 +1384,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:46.861180Z",
-      "observationDigest": "b3b26ef9685d34b010eb700548736554dbf7a9ccfd0a80bce34608cea204255a"
+      "verifiedAt": "2026-11-03T19:45:33.553521Z",
+      "observationDigest": "b3b26ef9685d34b010eb700548736554dbf7a9ccfd0a80bce34608cea204255a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriadelsalento.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "callegariantiquariato.it",
@@ -1145,8 +1400,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:47.060673Z",
-      "observationDigest": "30763997b00472205517e5b4fc0724c81a9b09d70278a1b7b8eb6efbcacce29b"
+      "verifiedAt": "2026-11-03T19:45:33.664796Z",
+      "observationDigest": "30763997b00472205517e5b4fc0724c81a9b09d70278a1b7b8eb6efbcacce29b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "callegariantiquariato.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitaborelli.com",
@@ -1158,8 +1416,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:47.210571Z",
-      "observationDigest": "ef71d84af24dba4359064db151717a4bc0de2d317cae68aef29e0797202e766b"
+      "verifiedAt": "2026-11-03T19:45:33.810822Z",
+      "observationDigest": "ef71d84af24dba4359064db151717a4bc0de2d317cae68aef29e0797202e766b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitaborelli.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "margheriantichita.com",
@@ -1171,8 +1432,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:47.385776Z",
-      "observationDigest": "d8efd9cdd3572aa1935164ecbb8a4a076a99a0efe9407ef5db6e7d006e8f1416"
+      "verifiedAt": "2026-11-03T19:45:34.070050Z",
+      "observationDigest": "d8efd9cdd3572aa1935164ecbb8a4a076a99a0efe9407ef5db6e7d006e8f1416",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "margheriantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitailtarlomancini.it",
@@ -1184,8 +1448,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:47.585068Z",
-      "observationDigest": "049d2ec10a702d1581a8633cae973f3e6d7a6973f48a19ada18ea44ca6493869"
+      "verifiedAt": "2026-11-03T19:45:34.156051Z",
+      "observationDigest": "049d2ec10a702d1581a8633cae973f3e6d7a6973f48a19ada18ea44ca6493869",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitailtarlomancini.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitabellini.it",
@@ -1197,8 +1464,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:47.746888Z",
-      "observationDigest": "8704e765d7021ff2082d879da52a505fdab7f96d5a6df90c406f7e5d7faf3beb"
+      "verifiedAt": "2026-11-03T19:45:34.284545Z",
+      "observationDigest": "8704e765d7021ff2082d879da52a505fdab7f96d5a6df90c406f7e5d7faf3beb",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitabellini.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "bobeche.it",
@@ -1210,8 +1480,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:48.137715Z",
-      "observationDigest": "db6201b6e0b23fe31164eb8d6b73ec8e6ffdd8a5aadfa97490567a8b920b9274"
+      "verifiedAt": "2026-11-03T19:45:34.749501Z",
+      "observationDigest": "db6201b6e0b23fe31164eb8d6b73ec8e6ffdd8a5aadfa97490567a8b920b9274",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "bobeche.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitailghiretto.com",
@@ -1223,8 +1496,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:48.005767Z",
-      "observationDigest": "7f74b0ac5a6c27934c0391183e12948025ca16d0e41eae456717ab17d1172d59"
+      "verifiedAt": "2026-11-03T19:45:34.553261Z",
+      "observationDigest": "7f74b0ac5a6c27934c0391183e12948025ca16d0e41eae456717ab17d1172d59",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitailghiretto.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "acciarriantiques.com",
@@ -1236,8 +1512,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:48.183936Z",
-      "observationDigest": "c4f539a10ae827c4765e45ab832bfd6e9babb03d4c0a301d8a985b8f55902e9a"
+      "verifiedAt": "2026-11-03T19:45:34.687706Z",
+      "observationDigest": "c4f539a10ae827c4765e45ab832bfd6e9babb03d4c0a301d8a985b8f55902e9a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "acciarriantiques.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriaitalica.it",
@@ -1249,8 +1528,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:48.551175Z",
-      "observationDigest": "3ad98a918ecd6dc1164e6fbdf92358ffb3ae8dab9fc1002b0d6fbf1baf9be06a"
+      "verifiedAt": "2026-11-03T19:45:35.058781Z",
+      "observationDigest": "3ad98a918ecd6dc1164e6fbdf92358ffb3ae8dab9fc1002b0d6fbf1baf9be06a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriaitalica.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriaantiquariapiemontese.it",
@@ -1262,8 +1544,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:48.684676Z",
-      "observationDigest": "ef047cf123bf477c8b3d82783d2ee22d7463293b8bfafca1d11e7d4ff6e241ca"
+      "verifiedAt": "2026-11-03T19:45:35.215394Z",
+      "observationDigest": "ef047cf123bf477c8b3d82783d2ee22d7463293b8bfafca1d11e7d4ff6e241ca",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriaantiquariapiemontese.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libram.net",
@@ -1275,8 +1560,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:48.730071Z",
-      "observationDigest": "f47bc469f76288a42cf7ea01c5a67be1ea94bd15d073540abed8f0f99ac6d672"
+      "verifiedAt": "2026-11-03T19:45:35.282385Z",
+      "observationDigest": "f47bc469f76288a42cf7ea01c5a67be1ea94bd15d073540abed8f0f99ac6d672",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libram.net",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "exlibrisroma.it",
@@ -1288,8 +1576,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:49.095600Z",
-      "observationDigest": "f673814102d38316e7ce8dc9c20df36acb0ccc68aec4c4c5b28749d0d4207775"
+      "verifiedAt": "2026-11-03T19:45:35.559243Z",
+      "observationDigest": "f673814102d38316e7ce8dc9c20df36acb0ccc68aec4c4c5b28749d0d4207775",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "exlibrisroma.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "deantiquislibris.it",
@@ -1301,8 +1592,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:49.212025Z",
-      "observationDigest": "6f11460e66dfee1a846cd9e68617ea325549499916470ec8eda2d9e1828f1928"
+      "verifiedAt": "2026-11-03T19:45:35.682976Z",
+      "observationDigest": "6f11460e66dfee1a846cd9e68617ea325549499916470ec8eda2d9e1828f1928",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "deantiquislibris.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "librerialdrovandi.it",
@@ -1314,8 +1608,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:49.264345Z",
-      "observationDigest": "0bddb541ad1d662dafd2afb839d2e65a1b5c796a1cce24e0d37f115643b3f34b"
+      "verifiedAt": "2026-11-03T19:45:35.766707Z",
+      "observationDigest": "0bddb541ad1d662dafd2afb839d2e65a1b5c796a1cce24e0d37f115643b3f34b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "librerialdrovandi.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriamediolanum.com",
@@ -1327,8 +1624,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:49.518504Z",
-      "observationDigest": "991c922908f2f2babea0e420c9b0f76c570a7a75b73d820f48f863334b2d3873"
+      "verifiedAt": "2026-11-03T19:45:35.966498Z",
+      "observationDigest": "991c922908f2f2babea0e420c9b0f76c570a7a75b73d820f48f863334b2d3873",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriamediolanum.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriamarini.it",
@@ -1340,8 +1640,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:49.731659Z",
-      "observationDigest": "d6cea9e6f04b5156d4c91c73023942632322f822a36b1b1138b69ba7754553d7"
+      "verifiedAt": "2026-11-03T19:45:36.170514Z",
+      "observationDigest": "d6cea9e6f04b5156d4c91c73023942632322f822a36b1b1138b69ba7754553d7",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriamarini.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitabompadre.com",
@@ -1353,8 +1656,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:49.855466Z",
-      "observationDigest": "f3ede819db4a714f96b4dcc0d215016b8dafd4cf0ca1d6fa1b3cab14d303f40b"
+      "verifiedAt": "2026-11-03T19:45:36.351049Z",
+      "observationDigest": "f3ede819db4a714f96b4dcc0d215016b8dafd4cf0ca1d6fa1b3cab14d303f40b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitabompadre.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "parino.it",
@@ -1366,8 +1672,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:50.047131Z",
-      "observationDigest": "c5753e3c50f94336b284a7d5559c4c0f6418fb55ed1f3d220012e8bffa7aa3e0"
+      "verifiedAt": "2026-11-03T19:45:36.508415Z",
+      "observationDigest": "c5753e3c50f94336b284a7d5559c4c0f6418fb55ed1f3d220012e8bffa7aa3e0",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "parino.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "vassalloantiquesonline.it",
@@ -1379,8 +1688,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:50.356364Z",
-      "observationDigest": "abf28305595cee6a294ca351cbdcf51efd72b7918b14eb06d7e65e0246653066"
+      "verifiedAt": "2026-11-03T19:45:36.767671Z",
+      "observationDigest": "abf28305595cee6a294ca351cbdcf51efd72b7918b14eb06d7e65e0246653066",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "vassalloantiquesonline.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriaesposito.com",
@@ -1392,8 +1704,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:50.416916Z",
-      "observationDigest": "ac37e5a1556a56a6f2cd5af5036b21c59846485ef36cac0be86e633aebe4f4a7"
+      "verifiedAt": "2026-11-03T19:45:36.829304Z",
+      "observationDigest": "ac37e5a1556a56a6f2cd5af5036b21c59846485ef36cac0be86e633aebe4f4a7",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriaesposito.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "mercatino-antiquariato.com",
@@ -1405,8 +1720,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:50.625693Z",
-      "observationDigest": "118d27a5f7f793a511c5be8335648bdd0e7deb2013d590f654b84cc767e9064e"
+      "verifiedAt": "2026-11-03T19:45:36.996437Z",
+      "observationDigest": "118d27a5f7f793a511c5be8335648bdd0e7deb2013d590f654b84cc767e9064e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mercatino-antiquariato.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquariatonline.net",
@@ -1418,8 +1736,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:50.874753Z",
-      "observationDigest": "9f30a4901036f2b49a892839dc44f7d128c0288a549f4e594002076926a5d20e"
+      "verifiedAt": "2026-11-03T19:45:37.246632Z",
+      "observationDigest": "9f30a4901036f2b49a892839dc44f7d128c0288a549f4e594002076926a5d20e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatonline.net",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriamalavasi.it",
@@ -1431,8 +1752,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:50.931886Z",
-      "observationDigest": "0f9aa1640e860b8728bf69d99e8be0ee3f070da56698bdf3625af835cd842ef6"
+      "verifiedAt": "2026-11-03T19:45:37.332592Z",
+      "observationDigest": "0f9aa1640e860b8728bf69d99e8be0ee3f070da56698bdf3625af835cd842ef6",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriamalavasi.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriagovi.com",
@@ -1444,8 +1768,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:51.176879Z",
-      "observationDigest": "47bd0d97a36560082e38ac8882e37259935bd2848ddd28c502ae908808dde424"
+      "verifiedAt": "2026-11-03T19:45:37.501757Z",
+      "observationDigest": "47bd0d97a36560082e38ac8882e37259935bd2848ddd28c502ae908808dde424",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriagovi.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriaprandi.it",
@@ -1457,8 +1784,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:51.471449Z",
-      "observationDigest": "738009e936ec247f134f116ca159b455b5e593a4d037221a671821fcfc417831"
+      "verifiedAt": "2026-11-03T19:45:37.736204Z",
+      "observationDigest": "738009e936ec247f134f116ca159b455b5e593a4d037221a671821fcfc417831",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriaprandi.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "corderobooks.com",
@@ -1470,8 +1800,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:51.540854Z",
-      "observationDigest": "0e80dd740d052479b6b27e0c3de8e6421ab526796b39fd18ab7f4c1136ba3669"
+      "verifiedAt": "2026-11-03T19:45:37.831756Z",
+      "observationDigest": "0e80dd740d052479b6b27e0c3de8e6421ab526796b39fd18ab7f4c1136ba3669",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "corderobooks.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "aitretorchi.it",
@@ -1483,8 +1816,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:51.629691Z",
-      "observationDigest": "56625968e3dd04f15c773db97f401050997b5af91312d6911c7f9c4326752ae0"
+      "verifiedAt": "2026-11-03T19:45:37.897506Z",
+      "observationDigest": "56625968e3dd04f15c773db97f401050997b5af91312d6911c7f9c4326752ae0",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "aitretorchi.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "alfeararebooks.com",
@@ -1496,8 +1832,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:52.028528Z",
-      "observationDigest": "9d00b4ad99a1af3f0a49551cd2cc871b7ed517a6123d2a263497564297deca54"
+      "verifiedAt": "2026-11-03T19:45:38.224833Z",
+      "observationDigest": "9d00b4ad99a1af3f0a49551cd2cc871b7ed517a6123d2a263497564297deca54",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "alfeararebooks.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libriantichionline.com",
@@ -1509,8 +1848,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:52.068959Z",
-      "observationDigest": "f5790a51eb6a22426576a0be12276e56b069f6eeb30092d8420cc9246b748915"
+      "verifiedAt": "2026-11-03T19:45:38.308570Z",
+      "observationDigest": "f5790a51eb6a22426576a0be12276e56b069f6eeb30092d8420cc9246b748915",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libriantichionline.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriabazzanistampeantiche.com",
@@ -1522,8 +1864,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:52.169699Z",
-      "observationDigest": "f76b35d63a5861181c8952b29af839162eea7cf33154c53202470a1d1454f125"
+      "verifiedAt": "2026-11-03T19:45:38.394749Z",
+      "observationDigest": "f76b35d63a5861181c8952b29af839162eea7cf33154c53202470a1d1454f125",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriabazzanistampeantiche.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "masperolibri.com",
@@ -1535,8 +1880,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:52.577460Z",
-      "observationDigest": "0e97cc90cd23964c95d98cdc1b906e0b8fe8fcf41e320b462f3175f36e5a1872"
+      "verifiedAt": "2026-11-03T19:45:38.707500Z",
+      "observationDigest": "0e97cc90cd23964c95d98cdc1b906e0b8fe8fcf41e320b462f3175f36e5a1872",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "masperolibri.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "gallinimusica.it",
@@ -1548,8 +1896,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:52.511430Z",
-      "observationDigest": "def256b10478d5d37b7f62acd2fcace348ea30a21ab6d8413b9842596c772fdb"
+      "verifiedAt": "2026-11-03T19:45:38.663516Z",
+      "observationDigest": "def256b10478d5d37b7f62acd2fcace348ea30a21ab6d8413b9842596c772fdb",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "gallinimusica.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "gilibert.it",
@@ -1561,8 +1912,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:52.670122Z",
-      "observationDigest": "2f737748c214327b272f99ececaa6ab9e75b92bb2375f33d8b97c72f4a7adaee"
+      "verifiedAt": "2026-11-03T19:45:38.908386Z",
+      "observationDigest": "2f737748c214327b272f99ececaa6ab9e75b92bb2375f33d8b97c72f4a7adaee",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "gilibert.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "grimaldilibri.it",
@@ -1574,8 +1928,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:53.054642Z",
-      "observationDigest": "a5cceb312ed03744877a6189394fa0341ee8951810b5b89ed4fe30c8ccaa4a2e"
+      "verifiedAt": "2026-11-03T19:45:39.124916Z",
+      "observationDigest": "a5cceb312ed03744877a6189394fa0341ee8951810b5b89ed4fe30c8ccaa4a2e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "grimaldilibri.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "prospero-libri.it",
@@ -1587,8 +1944,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:53.115456Z",
-      "observationDigest": "862cb4a3365ea365861a656100487331c9aab8b8053b8d28fee22c9a1f0ed9b0"
+      "verifiedAt": "2026-11-03T19:45:39.211281Z",
+      "observationDigest": "862cb4a3365ea365861a656100487331c9aab8b8053b8d28fee22c9a1f0ed9b0",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "prospero-libri.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "matteocrespi.eu",
@@ -1600,8 +1960,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:53.111314Z",
-      "observationDigest": "391334d124aebda9e1c09a0b5a48c2a1782065ab700b76ac8654d6f9ca9a7862"
+      "verifiedAt": "2026-11-03T19:45:39.308797Z",
+      "observationDigest": "391334d124aebda9e1c09a0b5a48c2a1782065ab700b76ac8654d6f9ca9a7862",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "matteocrespi.eu",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "cartiglio.it",
@@ -1613,8 +1976,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:53.599352Z",
-      "observationDigest": "c0d8d990128e1ed3df4e3567d0168c0a027ac8122598d22e735735eaff5cc8ce"
+      "verifiedAt": "2026-11-03T19:45:39.876669Z",
+      "observationDigest": "c0d8d990128e1ed3df4e3567d0168c0a027ac8122598d22e735735eaff5cc8ce",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "cartiglio.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "donatilibri.it",
@@ -1626,8 +1992,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:53.641787Z",
-      "observationDigest": "d85f642306fbdd5e3dde37498fff00b58b08679763f238e80359d38c14870206"
+      "verifiedAt": "2026-11-03T19:45:39.682927Z",
+      "observationDigest": "d85f642306fbdd5e3dde37498fff00b58b08679763f238e80359d38c14870206",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "donatilibri.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "arengario.it",
@@ -1639,8 +2008,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:53.651708Z",
-      "observationDigest": "a7a8de0865cf8c21c8ef2fcdb230f7aada9944d05b6bbef361ec7b3984a041b1"
+      "verifiedAt": "2026-11-03T19:45:39.783287Z",
+      "observationDigest": "a7a8de0865cf8c21c8ef2fcdb230f7aada9944d05b6bbef361ec7b3984a041b1",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "arengario.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "librerialafenice.it",
@@ -1652,8 +2024,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:54.137386Z",
-      "observationDigest": "e3fda2748c283adb539c28bfdccc275f3a0455d82885fc6ed5cb7dac9a4cecfb"
+      "verifiedAt": "2026-11-03T19:45:40.207328Z",
+      "observationDigest": "e3fda2748c283adb539c28bfdccc275f3a0455d82885fc6ed5cb7dac9a4cecfb",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "librerialafenice.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "toninieditore.com",
@@ -1665,8 +2040,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:54.075045Z",
-      "observationDigest": "93375351b7adbcec5070e3d31aee14e754435501d47afe2c2a0f12476ac5ee85"
+      "verifiedAt": "2026-11-03T19:45:40.181392Z",
+      "observationDigest": "93375351b7adbcec5070e3d31aee14e754435501d47afe2c2a0f12476ac5ee85",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "toninieditore.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "letteraturatattile.it",
@@ -1678,8 +2056,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:54.070569Z",
-      "observationDigest": "c005bc244c3a6321bec733018156e8e3a96d7264b5c9c733c4c94d1a87f0c568"
+      "verifiedAt": "2026-11-03T19:45:40.296583Z",
+      "observationDigest": "c005bc244c3a6321bec733018156e8e3a96d7264b5c9c733c4c94d1a87f0c568",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "letteraturatattile.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriaperini.com",
@@ -1691,8 +2072,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:54.587232Z",
-      "observationDigest": "0b2f73517d5f9c90bbd44002526115c372c745dd0c7bdf93a28115cb82fe5051"
+      "verifiedAt": "2026-11-03T19:45:40.696422Z",
+      "observationDigest": "0b2f73517d5f9c90bbd44002526115c372c745dd0c7bdf93a28115cb82fe5051",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriaperini.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriadrogheria28.it",
@@ -1704,8 +2088,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:54.678258Z",
-      "observationDigest": "8074642f6546b983ee2683a17f26d2f847dd7cb11432112c9d9744cdad4c0ccf"
+      "verifiedAt": "2026-11-03T19:45:40.803655Z",
+      "observationDigest": "8074642f6546b983ee2683a17f26d2f847dd7cb11432112c9d9744cdad4c0ccf",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriadrogheria28.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "pera.it",
@@ -1717,8 +2104,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:54.655553Z",
-      "observationDigest": "e727d55e5b2f1432d43e195c8c93fc6d2a17eb792c6b0fecf960892eb3eb45bd"
+      "verifiedAt": "2026-11-03T19:45:40.802013Z",
+      "observationDigest": "e727d55e5b2f1432d43e195c8c93fc6d2a17eb792c6b0fecf960892eb3eb45bd",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "pera.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "orsiniartelibri.it",
@@ -1730,8 +2120,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:55.114024Z",
-      "observationDigest": "bb0518f538a28f35e9ec708ddc3333d23d4d0056ef3495bf6e366d6be505def1"
+      "verifiedAt": "2026-11-03T19:45:41.200657Z",
+      "observationDigest": "bb0518f538a28f35e9ec708ddc3333d23d4d0056ef3495bf6e366d6be505def1",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "orsiniartelibri.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriapeyrot.com",
@@ -1743,8 +2136,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:55.122333Z",
-      "observationDigest": "e14e8490dab45e89e7db138e2efb79a295e545e77535e1f5dda28d282fad7683"
+      "verifiedAt": "2026-11-03T19:45:41.183280Z",
+      "observationDigest": "e14e8490dab45e89e7db138e2efb79a295e545e77535e1f5dda28d282fad7683",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriapeyrot.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "trippini.it",
@@ -1756,8 +2152,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:55.131199Z",
-      "observationDigest": "8a64947f65764a28d04330dba1fbb92c6361517e9107022782ae13b0b075a829"
+      "verifiedAt": "2026-11-03T19:45:41.202957Z",
+      "observationDigest": "8a64947f65764a28d04330dba1fbb92c6361517e9107022782ae13b0b075a829",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "trippini.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriascriptorium.it",
@@ -1769,8 +2168,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:55.655532Z",
-      "observationDigest": "164a44f3e5329820167e606c60cf3c78eaa740fed95c62e4481c436b8d3b1ee9"
+      "verifiedAt": "2026-11-03T19:45:41.698739Z",
+      "observationDigest": "164a44f3e5329820167e606c60cf3c78eaa740fed95c62e4481c436b8d3b1ee9",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriascriptorium.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "bosiolibri.com",
@@ -1782,8 +2184,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:55.569581Z",
-      "observationDigest": "1f511af9a15976e68bc6623cd8afe3450c10a3fce38c33ab165da1a22ec9d22b"
+      "verifiedAt": "2026-11-03T19:45:41.605414Z",
+      "observationDigest": "1f511af9a15976e68bc6623cd8afe3450c10a3fce38c33ab165da1a22ec9d22b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "bosiolibri.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriapiani.it",
@@ -1795,8 +2200,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:55.748711Z",
-      "observationDigest": "5f2107960fdc711060e360580aab25b4e1a96531d90295c7a8feeeea1e70a2ca"
+      "verifiedAt": "2026-11-03T19:45:41.798721Z",
+      "observationDigest": "5f2107960fdc711060e360580aab25b4e1a96531d90295c7a8feeeea1e70a2ca",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriapiani.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "lineadacqua.it",
@@ -1808,8 +2216,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:56.023738Z",
-      "observationDigest": "2d0648c830d017953f1986a75b5988f517e8e0a63334036a346db73478a20b8d"
+      "verifiedAt": "2026-11-03T19:45:41.993322Z",
+      "observationDigest": "2d0648c830d017953f1986a75b5988f517e8e0a63334036a346db73478a20b8d",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lineadacqua.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriadifrusaglia.it",
@@ -1821,8 +2232,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:56.191013Z",
-      "observationDigest": "3d9f36e581238f0c0c252c26909c311b2c02dedce9b27afef403d4dc020656c7"
+      "verifiedAt": "2026-11-03T19:45:42.437421Z",
+      "observationDigest": "3d9f36e581238f0c0c252c26909c311b2c02dedce9b27afef403d4dc020656c7",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriadifrusaglia.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreria-menabo.it",
@@ -1834,8 +2248,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:56.208213Z",
-      "observationDigest": "6af4718b37e4c03d5e68088bcf5488bba1bd654a68b8e9894d580f7f79088982"
+      "verifiedAt": "2026-11-03T19:45:42.527483Z",
+      "observationDigest": "6af4718b37e4c03d5e68088bcf5488bba1bd654a68b8e9894d580f7f79088982",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreria-menabo.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "librisenzadata.it",
@@ -1847,8 +2264,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:56.435067Z",
-      "observationDigest": "cd4f244a836a36c35fafe5bc3a58eb53672a824b7622211b7d4d7f390be2f29a"
+      "verifiedAt": "2026-11-03T19:45:42.756983Z",
+      "observationDigest": "cd4f244a836a36c35fafe5bc3a58eb53672a824b7622211b7d4d7f390be2f29a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "librisenzadata.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "limantiqua.com",
@@ -1860,8 +2280,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:56.705301Z",
-      "observationDigest": "b548ad2c8cdb5b73272ea69eedd8bb79a989f17fc99f6fb572d2ac90678e1469"
+      "verifiedAt": "2026-11-03T19:45:43.028972Z",
+      "observationDigest": "b548ad2c8cdb5b73272ea69eedd8bb79a989f17fc99f6fb572d2ac90678e1469",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "limantiqua.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antiquafreddi.it",
@@ -1873,8 +2296,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:56.761421Z",
-      "observationDigest": "5408bcd5074ea0d86afac8f52d78916dcf88cc97a775ff8b1ba807015248ad56"
+      "verifiedAt": "2026-11-03T19:45:43.038424Z",
+      "observationDigest": "5408bcd5074ea0d86afac8f52d78916dcf88cc97a775ff8b1ba807015248ad56",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquafreddi.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "librirarieantichi.it",
@@ -1886,8 +2312,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:56.949652Z",
-      "observationDigest": "c80aac0b003b9a4913449294159f32372b257909c7f7f2d43cd151f6ce999121"
+      "verifiedAt": "2026-11-03T19:45:43.271697Z",
+      "observationDigest": "c80aac0b003b9a4913449294159f32372b257909c7f7f2d43cd151f6ce999121",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "librirarieantichi.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "colonneselibrerie.it",
@@ -1899,8 +2328,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:57.529144Z",
-      "observationDigest": "528e2fa2be741aafa165d87edbc6e7ca913fd343395d69dca62612a19ffc9c98"
+      "verifiedAt": "2026-11-03T19:45:43.765183Z",
+      "observationDigest": "528e2fa2be741aafa165d87edbc6e7ca913fd343395d69dca62612a19ffc9c98",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "colonneselibrerie.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "orsilibri.com",
@@ -1912,8 +2344,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:57.225054Z",
-      "observationDigest": "e2b40b8da2c48ed1b615be3e1c45c49d78e7bdc86b957c0a591acc1d409e1ca3"
+      "verifiedAt": "2026-11-03T19:45:43.444730Z",
+      "observationDigest": "e2b40b8da2c48ed1b615be3e1c45c49d78e7bdc86b957c0a591acc1d409e1ca3",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "orsilibri.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "tabernalibraria.it",
@@ -1925,8 +2360,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:57.484567Z",
-      "observationDigest": "1ecea87d86e92f6b94314a71dc452c878ed3e02aae854d9bd0383c503f6b2871"
+      "verifiedAt": "2026-11-03T19:45:43.734692Z",
+      "observationDigest": "1ecea87d86e92f6b94314a71dc452c878ed3e02aae854d9bd0383c503f6b2871",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "tabernalibraria.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libriantichixodo.it",
@@ -1938,8 +2376,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:57.830187Z",
-      "observationDigest": "d10cc923a08aaa2c135298d726baada9efcaa7b6609be62fd4394b7f6493ec8c"
+      "verifiedAt": "2026-11-03T19:45:44.026211Z",
+      "observationDigest": "d10cc923a08aaa2c135298d726baada9efcaa7b6609be62fd4394b7f6493ec8c",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libriantichixodo.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libsoave.com",
@@ -1951,8 +2392,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:57.935531Z",
-      "observationDigest": "ed85f113086537a4ceccb12d6d6c0736956ca5f47f25df0fe713d9c06b32191a"
+      "verifiedAt": "2026-11-03T19:45:44.097133Z",
+      "observationDigest": "ed85f113086537a4ceccb12d6d6c0736956ca5f47f25df0fe713d9c06b32191a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libsoave.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "zanfrogninibooks.com",
@@ -1964,8 +2408,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:58.068937Z",
-      "observationDigest": "da74b2f0cfeb6262f067016385132323c1318b3ccae9103297fa839086bcd3ac"
+      "verifiedAt": "2026-11-03T19:45:44.229245Z",
+      "observationDigest": "da74b2f0cfeb6262f067016385132323c1318b3ccae9103297fa839086bcd3ac",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "zanfrogninibooks.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "preliber.com",
@@ -1977,8 +2424,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:58.425853Z",
-      "observationDigest": "a5f106e0326b0d28a18d101a260d38b8fb179a7cc38c20fdae052fd4fe6ffa1e"
+      "verifiedAt": "2026-11-03T19:45:44.482544Z",
+      "observationDigest": "a5f106e0326b0d28a18d101a260d38b8fb179a7cc38c20fdae052fd4fe6ffa1e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "preliber.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "darsenarte.wordpress.com",
@@ -1990,8 +2440,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:58.484942Z",
-      "observationDigest": "44d683c5b5c3059a49f7dd732e107765f0f7fbbfe251f7a4207ee5e4def8e765"
+      "verifiedAt": "2026-11-03T19:45:44.534207Z",
+      "observationDigest": "44d683c5b5c3059a49f7dd732e107765f0f7fbbfe251f7a4207ee5e4def8e765",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "darsenarte.wordpress.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitaforesti.it",
@@ -2003,8 +2456,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:58.586455Z",
-      "observationDigest": "e0f0b1677fbc9377acc5da639ddf2f22f765744e3ec11b7eaf4c84342eb3ab5f"
+      "verifiedAt": "2026-11-03T19:45:44.666179Z",
+      "observationDigest": "e0f0b1677fbc9377acc5da639ddf2f22f765744e3ec11b7eaf4c84342eb3ab5f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitaforesti.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "cronosbresciaitaliavintage.com",
@@ -2016,8 +2472,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:58.977217Z",
-      "observationDigest": "4927d992dc10d08cac05fed49bed488efff62e6d510a9ae1e7dc4db41bf7ae00"
+      "verifiedAt": "2026-11-03T19:45:44.937556Z",
+      "observationDigest": "4927d992dc10d08cac05fed49bed488efff62e6d510a9ae1e7dc4db41bf7ae00",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "cronosbresciaitaliavintage.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "vintail.it",
@@ -2029,8 +2488,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:59.035165Z",
-      "observationDigest": "731ed461929bbfd16a0bce4ee3980169cb264679d66ab4bd3c8226fe3b1e73c2"
+      "verifiedAt": "2026-11-03T19:45:44.983475Z",
+      "observationDigest": "731ed461929bbfd16a0bce4ee3980169cb264679d66ab4bd3c8226fe3b1e73c2",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "vintail.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "angolodellemeraviglie.com",
@@ -2042,8 +2504,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:59.103953Z",
-      "observationDigest": "fd40eacc2ef2af314a28ed1559bee0f9b882ebc3aa4da354f6e04044561bd164"
+      "verifiedAt": "2026-11-03T19:45:45.239452Z",
+      "observationDigest": "fd40eacc2ef2af314a28ed1559bee0f9b882ebc3aa4da354f6e04044561bd164",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "angolodellemeraviglie.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitagasperi.it",
@@ -2055,8 +2520,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:59.416511Z",
-      "observationDigest": "eb4f966dfede67e9a433d6d567f6ed88ea2502f8d6877266e2bdab34fd35620e"
+      "verifiedAt": "2026-11-03T19:45:45.525934Z",
+      "observationDigest": "eb4f966dfede67e9a433d6d567f6ed88ea2502f8d6877266e2bdab34fd35620e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitagasperi.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriaprevitali.com",
@@ -2068,8 +2536,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:59.484200Z",
-      "observationDigest": "0c383344a3e89d699a6e920a1c62790005e21248fd4c05d2c36f37b857344a6e"
+      "verifiedAt": "2026-11-03T19:45:45.536040Z",
+      "observationDigest": "0c383344a3e89d699a6e920a1c62790005e21248fd4c05d2c36f37b857344a6e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriaprevitali.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "artstudiopedrazzini.it",
@@ -2081,8 +2552,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:59.544613Z",
-      "observationDigest": "65a26e6e92b144169ce29bcfcc7984403e4ddfbe52b7dd4b92c13983d1407964"
+      "verifiedAt": "2026-11-03T19:45:45.701711Z",
+      "observationDigest": "65a26e6e92b144169ce29bcfcc7984403e4ddfbe52b7dd4b92c13983d1407964",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "artstudiopedrazzini.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "ajassa.com",
@@ -2094,8 +2568,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:59.867530Z",
-      "observationDigest": "c05cc738ce698b7ebc3fc08d3572d081b4002dd3e01ce8d3ba95b732bc6690e1"
+      "verifiedAt": "2026-11-03T19:45:45.968654Z",
+      "observationDigest": "c05cc738ce698b7ebc3fc08d3572d081b4002dd3e01ce8d3ba95b732bc6690e1",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "ajassa.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriacantore.it",
@@ -2107,8 +2584,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:59.886813Z",
-      "observationDigest": "10b8eda2d994717b0534c13a0262f7e35b78696fba6747d2e3149bc3d6cf3727"
+      "verifiedAt": "2026-11-03T19:45:45.974909Z",
+      "observationDigest": "10b8eda2d994717b0534c13a0262f7e35b78696fba6747d2e3149bc3d6cf3727",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriacantore.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "alessandrobruna.com",
@@ -2120,8 +2600,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:15:59.976512Z",
-      "observationDigest": "d8a4f73ca582a17ea076b6084c426741605c0e96746dd432526aa3d2fc1bf3fb"
+      "verifiedAt": "2026-11-03T19:45:46.100356Z",
+      "observationDigest": "d8a4f73ca582a17ea076b6084c426741605c0e96746dd432526aa3d2fc1bf3fb",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "alessandrobruna.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriacosta.com",
@@ -2133,8 +2616,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:00.669980Z",
-      "observationDigest": "d3a3280198be4a256e75ed70467edbb4c33d2e488e436fbee6849ee3c93be7fe"
+      "verifiedAt": "2026-11-03T19:45:46.515334Z",
+      "observationDigest": "d3a3280198be4a256e75ed70467edbb4c33d2e488e436fbee6849ee3c93be7fe",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriacosta.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "ilbalon.it",
@@ -2146,8 +2632,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:00.562158Z",
-      "observationDigest": "59718241c9970f9d82b2711f55ef2ba1824222afd83a67c81013bc8e51b647c8"
+      "verifiedAt": "2026-11-03T19:45:46.471097Z",
+      "observationDigest": "59718241c9970f9d82b2711f55ef2ba1824222afd83a67c81013bc8e51b647c8",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "ilbalon.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriabertola.com",
@@ -2159,8 +2648,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:00.586479Z",
-      "observationDigest": "e9587e82b9c4bb1eac7c1a8fec81336ee2c09503ec0575c46f53c7497a895868"
+      "verifiedAt": "2026-11-03T19:45:46.491034Z",
+      "observationDigest": "e9587e82b9c4bb1eac7c1a8fec81336ee2c09503ec0575c46f53c7497a895868",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriabertola.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "fanedecorations.com",
@@ -2172,8 +2664,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:01.114622Z",
-      "observationDigest": "dd9d75e28d65856505e7e6445c95f0c3171ef5c9b669fac96267987d081a9cea"
+      "verifiedAt": "2026-11-03T19:45:46.937593Z",
+      "observationDigest": "dd9d75e28d65856505e7e6445c95f0c3171ef5c9b669fac96267987d081a9cea",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "fanedecorations.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriagiamblanco.com",
@@ -2185,8 +2680,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:01.025022Z",
-      "observationDigest": "386bae767b9342f167fb57106c30cc32cd24e9b5a89dbb402b4dbad0525f9b16"
+      "verifiedAt": "2026-11-03T19:45:46.917612Z",
+      "observationDigest": "386bae767b9342f167fb57106c30cc32cd24e9b5a89dbb402b4dbad0525f9b16",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriagiamblanco.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "mirabilia.gallery",
@@ -2198,8 +2696,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:01.214850Z",
-      "observationDigest": "ef3caeb5a5a5eaf83fd10399fba920717b38a2d76f6224e67cbb98344f6feeeb"
+      "verifiedAt": "2026-11-03T19:45:46.976593Z",
+      "observationDigest": "ef3caeb5a5a5eaf83fd10399fba920717b38a2d76f6224e67cbb98344f6feeeb",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mirabilia.gallery",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriapirra.it",
@@ -2211,8 +2712,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:01.456972Z",
-      "observationDigest": "7c2a6d68da408b0d106e34739769cc34d56f0845598a7cd343ff131de76838f8"
+      "verifiedAt": "2026-11-03T19:45:47.307299Z",
+      "observationDigest": "7c2a6d68da408b0d106e34739769cc34d56f0845598a7cd343ff131de76838f8",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriapirra.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "lentiniantichita.com",
@@ -2224,8 +2728,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:01.560821Z",
-      "observationDigest": "5c372af41a367386c6cafb1277d706c3a499e5d0e14c67290cae43d4efc8a3cd"
+      "verifiedAt": "2026-11-03T19:45:47.355989Z",
+      "observationDigest": "5c372af41a367386c6cafb1277d706c3a499e5d0e14c67290cae43d4efc8a3cd",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lentiniantichita.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "shop.gallerialestampe.com",
@@ -2237,8 +2744,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:01.816451Z",
-      "observationDigest": "20aff9519c1a220a47beaa18406670065febda75b7ed7b1888cf269aced7da1e"
+      "verifiedAt": "2026-11-03T19:45:47.539749Z",
+      "observationDigest": "20aff9519c1a220a47beaa18406670065febda75b7ed7b1888cf269aced7da1e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "shop.gallerialestampe.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "mobilidelpassato.com",
@@ -2250,8 +2760,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:01.996448Z",
-      "observationDigest": "a46e702f19956276b5f5d27f487bae145dd8e53b7b64803e59a9756f6e1c8aee"
+      "verifiedAt": "2026-11-03T19:45:47.774471Z",
+      "observationDigest": "a46e702f19956276b5f5d27f487bae145dd8e53b7b64803e59a9756f6e1c8aee",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mobilidelpassato.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "novarinofineart.it",
@@ -2263,8 +2776,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:01.970315Z",
-      "observationDigest": "106aa79616c7bd0cf47632c208086fc0a27c1154dc07e47336d4d06fc6b0a8ed"
+      "verifiedAt": "2026-11-03T19:45:47.793514Z",
+      "observationDigest": "106aa79616c7bd0cf47632c208086fc0a27c1154dc07e47336d4d06fc6b0a8ed",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "novarinofineart.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriadartesanbarnaba.it",
@@ -2276,8 +2792,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:02.238672Z",
-      "observationDigest": "7ffa9580c458c47712adb6ae141065e23db753ed4e71c99d322a1a3c7e71e6c1"
+      "verifiedAt": "2026-11-03T19:45:47.943230Z",
+      "observationDigest": "7ffa9580c458c47712adb6ae141065e23db753ed4e71c99d322a1a3c7e71e6c1",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriadartesanbarnaba.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriaorsi.com",
@@ -2289,8 +2808,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:02.426567Z",
-      "observationDigest": "70517565cb49da314bf99fbd2557a566fbe59f6534ff8adbbe0e477a31aab6d6"
+      "verifiedAt": "2026-11-03T19:45:48.154837Z",
+      "observationDigest": "70517565cb49da314bf99fbd2557a566fbe59f6534ff8adbbe0e477a31aab6d6",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriaorsi.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "alessandrobiffanti.com",
@@ -2302,8 +2824,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:02.434942Z",
-      "observationDigest": "7b4adf9af62f5d45f1ab96577ee3bad00644f292cc45d8f2acdd391d5b74a6e4"
+      "verifiedAt": "2026-11-03T19:45:48.167134Z",
+      "observationDigest": "7b4adf9af62f5d45f1ab96577ee3bad00644f292cc45d8f2acdd391d5b74a6e4",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "alessandrobiffanti.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "matheusgallery.com",
@@ -2315,8 +2840,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:02.668018Z",
-      "observationDigest": "88680800042223160a9c83f0e1f621b0ffaa348de8d0f069d656b505e559668d"
+      "verifiedAt": "2026-11-03T19:45:48.347863Z",
+      "observationDigest": "88680800042223160a9c83f0e1f621b0ffaa348de8d0f069d656b505e559668d",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "matheusgallery.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "subert.it",
@@ -2328,8 +2856,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:02.892168Z",
-      "observationDigest": "ccfcbb3b629f6932c9534289d102499fe889f12e245821df6468dbe87d9fffc8"
+      "verifiedAt": "2026-11-03T19:45:48.556540Z",
+      "observationDigest": "ccfcbb3b629f6932c9534289d102499fe889f12e245821df6468dbe87d9fffc8",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "subert.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitafiorillo.it",
@@ -2341,8 +2872,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:02.991364Z",
-      "observationDigest": "73f8f6c2734f4e0198944e5942556b12550828f76cd015512af8d533545bf2be"
+      "verifiedAt": "2026-11-03T19:45:48.630007Z",
+      "observationDigest": "73f8f6c2734f4e0198944e5942556b12550828f76cd015512af8d533545bf2be",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitafiorillo.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "antichitamartini.it",
@@ -2354,8 +2888,11 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:03.246237Z",
-      "observationDigest": "09dc69ead117b88ffdd604c8591c84e73460d7941230a14617fd6d25d7621607"
+      "verifiedAt": "2026-11-03T19:45:48.799991Z",
+      "observationDigest": "09dc69ead117b88ffdd604c8591c84e73460d7941230a14617fd6d25d7621607",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitamartini.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriarobertoducci.com",
@@ -2367,8 +2904,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:03.450593Z",
-      "observationDigest": "6e2e9e2b0c1e98066c140a4bbb16a7db65cd93e7b4b5270b61e8e9c2013d4431"
+      "verifiedAt": "2026-11-03T19:45:49.008454Z",
+      "observationDigest": "6e2e9e2b0c1e98066c140a4bbb16a7db65cd93e7b4b5270b61e8e9c2013d4431",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriarobertoducci.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "aquafortis.com",
@@ -2380,8 +2920,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:03.418299Z",
-      "observationDigest": "3321f4c891c7050bc0efbe0122dbd5cdaeb22a1d81cf25a25517c3202c13ee72"
+      "verifiedAt": "2026-11-03T19:45:49.096383Z",
+      "observationDigest": "3321f4c891c7050bc0efbe0122dbd5cdaeb22a1d81cf25a25517c3202c13ee72",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "aquafortis.com",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "galleriadelcaminetto.it",
@@ -2393,8 +2936,11 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:03.683076Z",
-      "observationDigest": "b80ac356c7ce779fd3ec9345ee594a6f9e29e35b541876cf32184d756c990ce5"
+      "verifiedAt": "2026-11-03T19:45:49.392775Z",
+      "observationDigest": "b80ac356c7ce779fd3ec9345ee594a6f9e29e35b541876cf32184d756c990ce5",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriadelcaminetto.it",
+      "catalogueIdentityKey": null
     },
     {
       "domain": "libreriadocet.it",
@@ -2406,8 +2952,1604 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:16:03.856870Z",
-      "observationDigest": "b2365eba6d148a40fb1277ddc8bafb76f21164f7bf933a3878b90ee70f37458c"
+      "verifiedAt": "2026-11-03T19:45:49.412248Z",
+      "observationDigest": "b2365eba6d148a40fb1277ddc8bafb76f21164f7bf933a3878b90ee70f37458c",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriadocet.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "andreasantichita.it",
+      "listingSourceId": "ls_01m6gqep4ve5mt44n7gy5t6hzy",
+      "partyId": "pty_01m6gqep4aeq2th7ehnrv8gh57",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:49.702506Z",
+      "observationDigest": "88b7e7f887489487f8ba7fd6126f5d02a02daee60b4ac9c25b48c2ff3127908a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "andreasantichita.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "lantiquasi.it",
+      "listingSourceId": "ls_01m6gqerqne7086kv9wgpa3g4r",
+      "partyId": "pty_01m6gqerq5e42twhpp9fewd07e",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:49.802393Z",
+      "observationDigest": "ff217fd54c44edbadb02b414758f8a2766e0e98cefe2bd18305cd439aed7b3dc",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lantiquasi.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antiquariatoasseretoroberto.it",
+      "listingSourceId": "ls_01m6gqp4nweed8zjwt1z55qkbd",
+      "partyId": "pty_01m6gqp4nceddta5jqmr7421np",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:49.836859Z",
+      "observationDigest": "0ba6d737f6d4b4ae78ea869aa4a1b3898aa9ac17647fb8796aedf30390304da9",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatoasseretoroberto.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "mazzitelliantichita.it",
+      "listingSourceId": "ls_01m6gqp6ktex08trevkfm3wgjp",
+      "partyId": "pty_01m6gqp6k7e14rxhzqknpt50ea",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:50.140621Z",
+      "observationDigest": "c90496c4fa0fc4a3067145f79dcf8d4f231b0b118b8e3512803f7eedd8aeb1ac",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mazzitelliantichita.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "mobilisisi.com",
+      "listingSourceId": "ls_01m6gr2h2netq8bk5ttn4j9nwr",
+      "partyId": "pty_01m6gr2h23e9gr51pk42h03jm8",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:50.297941Z",
+      "observationDigest": "ce33b5fbf94e9c11fc682de419301d45e8801c027ebf3cdb59e31f52616d16b6",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mobilisisi.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "nostalgiantiquariato.com",
+      "listingSourceId": "ls_01m6gr2k7bec5t7jqjgjekfjw0",
+      "partyId": "pty_01m6gr2k6yefgtbrx0mjrvvesh",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:50.235070Z",
+      "observationDigest": "55daae2d2923c384af9b3ccea34f970a1400def1568908daedf024746dc5d789",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "nostalgiantiquariato.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "galleriazonin.it",
+      "listingSourceId": "ls_01m6grdw5fe5radby53h3asfjh",
+      "partyId": "pty_01m6grdw53e34ve3qxn9tc126t",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:50.559912Z",
+      "observationDigest": "07b40634910be6a62099bf5709f9ebcd3e1fca319bcd58ccc683316f77fe4a42",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriazonin.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "delvillanomobili.it",
+      "listingSourceId": "ls_01m6grdxvxeyqvxa4ab0e7bh13",
+      "partyId": "pty_01m6grdxvae6xa8ydm5srmm2rt",
+      "locations": 1,
+      "logo": true,
+      "platform": "JIMDO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:50.718520Z",
+      "observationDigest": "d3ca761a5e03bed6f950f8c17586f3065981eb79e329d559c8f6dbaff98d564a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "delvillanomobili.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "profumidantico.com",
+      "listingSourceId": "ls_01m6grx3r5ej1vnwj7yqhsa6kn",
+      "partyId": "pty_01m6grx3qje30rmgzd744600gd",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:50.720985Z",
+      "observationDigest": "ee4e9428ce76846071d03a66c81a49233c7306c7b8dfb60222ba5ef1ad249c26",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "profumidantico.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antiquariatoaosta.it",
+      "listingSourceId": "ls_01m6grx5g0e688bj39r22314zw",
+      "partyId": "pty_01m6grx5feewt975vf8ctwbt3v",
+      "locations": 1,
+      "logo": true,
+      "platform": "JOOMLA",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:50.955676Z",
+      "observationDigest": "65ca9940af5db631b2034e1f45bdbbc5386606ec3a6fb84976b46317300e4c0b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatoaosta.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "labifora.it",
+      "listingSourceId": "ls_01m6gsep2bej5bffyh6tn92m6h",
+      "partyId": "pty_01m6gsep1we7a95t6mascbp9bd",
+      "locations": 3,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:51.366325Z",
+      "observationDigest": "c79421b5e2b49e38547728b4d84445cbf573e04b17dd9c79b0e9b028b9106998",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "labifora.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "trodele.com",
+      "listingSourceId": "ls_01m6gsera9ea1be82pynt91rmt",
+      "partyId": "pty_01m6gser9tefm9fpw9k1qn03f8",
+      "locations": 2,
+      "logo": true,
+      "platform": "JIMDO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:51.359351Z",
+      "observationDigest": "e62d22ee4ef118a094f841dd89ca7f7fbbe30ed6b6c480f3cfb2503d4d3df980",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "trodele.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "zanella-antiquariato.com",
+      "listingSourceId": "ls_01m6gsets3ez59bg50a3rykj24",
+      "partyId": "pty_01m6gsetrkefjb3zrfbea513se",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:51.413653Z",
+      "observationDigest": "b10422f90446f21a218ac6f96453c7934031363016262dc2a15c75cd4818e7d9",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "zanella-antiquariato.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "portobellocatanzaro.it",
+      "listingSourceId": "ls_01m6gsv9syet1rmhfjrye49ed0",
+      "partyId": "pty_01m6gsv9she4vawgr102jb52wa",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:51.905215Z",
+      "observationDigest": "547c3cf1398a6a198a2a514e0ae1139188b0ba736d38ae25b41d6b0c463efa99",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "portobellocatanzaro.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "trifoglioarte.it",
+      "listingSourceId": "ls_01m6gt466kef38kz4fs1cg2g78",
+      "partyId": "pty_01m6gt465yehxvn4em5fv8x3cw",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:51.870050Z",
+      "observationDigest": "20078922f94d06033a5e456ca3354fb946c9c36882601a00e041780a53e0f895",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "trifoglioarte.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "oldisgoldantiques.com",
+      "listingSourceId": "ls_01m6gthaz1ejeaa0bgjn4crrzh",
+      "partyId": "pty_01m6gthay9e4jryj2r9r3dgv2p",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:51.969418Z",
+      "observationDigest": "e601cf7289a938e3a773aa0eac065334255a326cc72791ac72265e2207c82b66",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "oldisgoldantiques.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "altomani.com",
+      "listingSourceId": "ls_01m6gthdm6efwvwdv3yky1zrqz",
+      "partyId": "pty_01m6gthdkmexftqfpspk7ykx43",
+      "locations": 3,
+      "logo": true,
+      "platform": "FLAZIO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:52.446469Z",
+      "observationDigest": "4d30b7bf80fbae40df4445a2b2eba3e999a95eac74aca18b95364e8ea64c0f04",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "altomani.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitafallavena.com",
+      "listingSourceId": "ls_01m6gv0gn6enx8nfyxycjervav",
+      "partyId": "pty_01m6gv0gmreg3abqf9hvtvyqfs",
+      "locations": 1,
+      "logo": true,
+      "platform": "NEXT_JS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:52.334182Z",
+      "observationDigest": "34d4c5a26dbe9852ca697a315d940288ab0e9003f00465bebc9499af00b533ab",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitafallavena.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "libreriagrandangolo.it",
+      "listingSourceId": "ls_01m6gv0jfwenwbvy7dhf2vzkc6",
+      "partyId": "pty_01m6gv0jf9ex0tsk9yatjpjdsp",
+      "locations": 1,
+      "logo": true,
+      "platform": "VIRTUEMART",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:52.481667Z",
+      "observationDigest": "6373b05ac85697bedc9373993e45e26692537b8126dd23743168e84d6bb4169d",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriagrandangolo.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "fondantico.it",
+      "listingSourceId": "ls_01m6gvj84eexvamkev4ea48v8a",
+      "partyId": "pty_01m6gvj83ye8nbq77t5kwj4peg",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:52.781935Z",
+      "observationDigest": "45f92a67268759ef89dd3a15ef85edf94871fff52a48bde42be73ca66ee92125",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "fondantico.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "ivolpini.it",
+      "listingSourceId": "ls_01m6gvj9tmecy8nhcvk5yxs53g",
+      "partyId": "pty_01m6gvj9t5e16b31c6kvbt6v39",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:52.956729Z",
+      "observationDigest": "5b8f67e998e0b2605895e79fc2ea1cb9b373772107ae5e5ca13b762150623480",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "ivolpini.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "mercalandia.it",
+      "listingSourceId": "ls_01m6gwkbhaegkb4ma2ryrndbx0",
+      "partyId": "pty_01m6gwkbgpe7cayv9bh2etkmb9",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:52.977862Z",
+      "observationDigest": "92bac7ccfc0ec2d3efb60953b2086c96ec71aa4abc15de0556c488b3610a6fbb",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mercalandia.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "vicodeibolognesi.com",
+      "listingSourceId": "ls_01m6gwkdwdec59m6gctndxj6e8",
+      "partyId": "pty_01m6gwkdvte5jtcr77ha05572v",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:53.372422Z",
+      "observationDigest": "e1d703ea39b031e26c66f716a2c8ce99ce77d725d872dbe38ae9cb4c9c81db39",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "vicodeibolognesi.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "libreriacanesi.it",
+      "listingSourceId": "ls_01m6gx6mq5er7s3x8emqds8shd",
+      "partyId": "pty_01m6gx6mpqes9sg22r8e5mpaa7",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:53.382213Z",
+      "observationDigest": "59b0a6c90c0670ddd6e1932b652342cd321a2d0bb5c80e6687031b91e360acf0",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriacanesi.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitadecomania.it",
+      "listingSourceId": "ls_01m6gxsja8em0s1rrd0bxemy5j",
+      "partyId": "pty_01m6gxsj9jeqt9cabkghkwndzt",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:53.428612Z",
+      "observationDigest": "59b9e33717828a7203d0c37b8259ca07c63dd543ef3cb0c1a0eefc592cfb5098",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitadecomania.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "salottoviennese.it",
+      "listingSourceId": "ls_01m6gxsmd1eadtrnnp7g092z19",
+      "partyId": "pty_01m6gxsmcme3kssft7pfzjezqp",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:53.865603Z",
+      "observationDigest": "1b715f9bdd5fae2721e10e5ee2a84b2852f6d453f635bb8f70cdc35c88bddb6e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "salottoviennese.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "lacongrega.com",
+      "listingSourceId": "ls_01m6gy630cea8ra5whdm4yjz2f",
+      "partyId": "pty_01m6gy62zyecprdk3ajdyqd080",
+      "locations": 2,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:53.847782Z",
+      "observationDigest": "c69f13206006af097e515e236024742bd14fe36cb221cebf09d4f1b67d3ff446",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lacongrega.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "fifty-fifty.it",
+      "listingSourceId": "ls_01m6gyh9ntev9s3tvbeehwx0av",
+      "partyId": "pty_01m6gyh9n9e8gabn5v0yhsnq5t",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:53.811760Z",
+      "observationDigest": "5601ea0b970c69527baf2c36d9ab57de9e224965c08fc6f491eebc56c7b19d73",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "fifty-fifty.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitapasettibergamo.net",
+      "listingSourceId": "ls_01m6gz3sfme8bs21xe30xpkte2",
+      "partyId": "pty_01m6gz3sf6ek3swsnjjc4rga77",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:54.323020Z",
+      "observationDigest": "ec628730b3dc789f9ed04ae163f7d0e8cba65c3f8d1d55f56d833d21bcd146a1",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitapasettibergamo.net",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitabonetti.it",
+      "listingSourceId": "ls_01m6gzxrwbesjtgt1kxn106xb0",
+      "partyId": "pty_01m6gzxrw3ecgsg4eb9j03p38c",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:54.270396Z",
+      "observationDigest": "b6f2f7eb1f49309aad2d207510ff7e83a1e714159a4dbf1d349f60769592394b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitabonetti.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "galleriamossini.it",
+      "listingSourceId": "ls_01m6h0415neq0aac570er0d2j5",
+      "partyId": "pty_01m6h04152ek4svf8z7hhz7szz",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:54.308224Z",
+      "observationDigest": "943a60004918bfa42578d13808c04893f8b1987353cc1d220b52af2724dcbaea",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriamossini.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "zennaroantiquariato.it",
+      "listingSourceId": "ls_01m6h0a14tejc82tw7f3gsjreb",
+      "partyId": "pty_01m6h0a142efz8eq4shej25gam",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:54.736308Z",
+      "observationDigest": "972f4a2fab772c1c1ca8ca2b3afbd9c7e2074f8a6e941d38d866aacdaf0ddf22",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "zennaroantiquariato.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "mvtirelliantiquario.it",
+      "listingSourceId": "ls_01m6h0gvz6e2nr5namskvbq8fm",
+      "partyId": "pty_01m6h0gvyvemq8jfqk6g7whg00",
+      "locations": 1,
+      "logo": false,
+      "platform": "IONOS_MYWEBSITE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:54.738373Z",
+      "observationDigest": "56fc7d17b7eb295aedfeb254207767ed627afe54fd6cb1c0fe1cde4b615eb2ac",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mvtirelliantiquario.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitafulviofarina.com",
+      "listingSourceId": "ls_01m6h0gxmxe1msdtasxdhn6dsw",
+      "partyId": "pty_01m6h0gxmhe9n992j9c1znq21m",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:54.752697Z",
+      "observationDigest": "d62f643995cca0e94a457426e7b358f93a4112bb9ba13eacae44fa3919ec6208",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitafulviofarina.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "credulapostero.com",
+      "listingSourceId": "ls_01m6h0wdreegravj6bn0rtr1aa",
+      "partyId": "pty_01m6h0wdr0etd8np1e4p4x1vb6",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:55.253910Z",
+      "observationDigest": "df773fbebedfd2690d4f587246304f102e8ce0cc8d674e02cf29c8add87d00d8",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "credulapostero.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "libreriapalatinaeditrice.it",
+      "listingSourceId": "ls_01m6h1g6k7ej98k0tv7k30vc71",
+      "partyId": "pty_01m6h1g6jkepxbzh0e39kw4v37",
+      "locations": 1,
+      "logo": false,
+      "platform": "WEEBLY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:55.160306Z",
+      "observationDigest": "b98c10ed0b126e51fa2a52c3dabbc7960fc0923cd222a6b36e50fafb02dea0de",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "libreriapalatinaeditrice.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "labottegadelmobileparma.it",
+      "listingSourceId": "ls_01m6h1g8d8eezax9q1eevaza6t",
+      "partyId": "pty_01m6h1g8cnery8bdmwt0ev5fcc",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:55.259506Z",
+      "observationDigest": "8595754fd19283a937b756c801f49a043f0572e897b3f8d82d13ef08b28fbc4a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "labottegadelmobileparma.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "olivastampeantiche.com",
+      "listingSourceId": "ls_01m6h1gatwesjv40gnb04wmeyn",
+      "partyId": "pty_01m6h1gat8eahsfhhj281q1cdg",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:55.607654Z",
+      "observationDigest": "498c4ffc8965923c79e3304ee6fdca4e6629695392bebfea622c4e6a12b43c0f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "olivastampeantiche.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "galleriapuglisi.it",
+      "listingSourceId": "ls_01m6h1x4sveskryh30bafxkqge",
+      "partyId": "pty_01m6h1x4sdenz8fr35r3zj3npm",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:55.693677Z",
+      "observationDigest": "cabe9d161b33c04ee710293f124b338e5f7e88954b3af8258a54477957aaa912",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriapuglisi.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "itinerasiena.com",
+      "listingSourceId": "ls_01m6h1x6edesatf0w0ecwyxadz",
+      "partyId": "pty_01m6h1x6e2enm9aaa1w7fpj9ry",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:55.703996Z",
+      "observationDigest": "fcf6650158f478e9715cec4d67e2af44b426223fc775f9b03d49ac677db7b7a8",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "itinerasiena.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "uomoarte.com",
+      "listingSourceId": "ls_01m6h2x3wpezevvr93sqrwvzcw",
+      "partyId": "pty_01m6h2x3wee9n8pnvbhcarh563",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:56.039837Z",
+      "observationDigest": "32fb786b792467781b8472261043739ff3905985c24ebf7aa630797c98540071",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "uomoarte.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "botteghinadarte.it",
+      "listingSourceId": "ls_01m6h2x5k1ephstxbmmpwr7ys1",
+      "partyId": "pty_01m6h2x5jge65s0q0661nyn4bd",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:56.219237Z",
+      "observationDigest": "1919ce69825d22e323647fba599ebcd1a838bd0febe2a71bf092476477ef8029",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "botteghinadarte.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "skvintage.it",
+      "listingSourceId": "ls_01m6h45e7veb7rdx4ynmnab86t",
+      "partyId": "pty_01m6h45e7detvsgyn11sf26504",
+      "locations": 1,
+      "logo": true,
+      "platform": "DUDA",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:56.207243Z",
+      "observationDigest": "186227c714594d70ac650540b18a65d0e416fdee8f40ad75e26b6739b0c15db6",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "skvintage.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "marri.it",
+      "listingSourceId": "ls_01m6h45gcrezgs06q1fcs6s5aj",
+      "partyId": "pty_01m6h45gcaevcr3801ev0smzh7",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX_STORES",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:56.536854Z",
+      "observationDigest": "546751a3503e25c6a07f68dec2a519ef6c3d84bc4f3a481c63838dccdcc88a65",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "marri.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "pratoantichita.it",
+      "listingSourceId": "ls_01m6h45jhbect9kk88101kkant",
+      "partyId": "pty_01m6h45jgyeaese033tqrjnx71",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:56.631196Z",
+      "observationDigest": "ddf7f0c1c5ff69f4a759977aa33e661721d26a031e11909f8412df42e4ed709e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "pratoantichita.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitagiorgis.it",
+      "listingSourceId": "ls_01m6h4e92tew1a6517h3gedxhr",
+      "partyId": "pty_01m6h4e92eesjvtka3rafgg1b2",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:56.720425Z",
+      "observationDigest": "e8d7bafb48fef2d7ccbef4e459fcf8c6fbae9d2dda94360dc43bbc0a91a48c76",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitagiorgis.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "vecchia-europa.com",
+      "listingSourceId": "ls_01m6h4eb76e5etw3eex0y492t7",
+      "partyId": "pty_01m6h4eb6pe80tqxjac47406gc",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:57.105119Z",
+      "observationDigest": "ab305450efc07289e576f59062ec63896c986a6f83b80a5294b87505033cdc9c",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "vecchia-europa.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "beggiantichita.com",
+      "listingSourceId": "ls_01m6h4q3dteta865bj06xc59e4",
+      "partyId": "pty_01m6h4q3d9eg4r3x1er73s2rtv",
+      "locations": 1,
+      "logo": true,
+      "platform": "DRUPAL",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:57.062613Z",
+      "observationDigest": "dbb73471c644e3885770d306701d1477ae5da2575496bc8c8f6db1aa5ce4db98",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "beggiantichita.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "furlanantichita.com",
+      "listingSourceId": "ls_01m6h4q56jeq99qh90p20ewsr2",
+      "partyId": "pty_01m6h4q54tejvbvz8bqhmhtgk4",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX_STORES",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:57.218763Z",
+      "observationDigest": "a2b927202c470d40a53162faf8adf565551dc4248add64a8e84ecfbe1e9b8abd",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "furlanantichita.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "anticartantichita.it",
+      "listingSourceId": "ls_01m6h4zyr2ew8vzzxnxqjw7rd2",
+      "partyId": "pty_01m6h4zyq4e3j8fnrf0rkrh4h5",
+      "locations": 1,
+      "logo": true,
+      "platform": "PAGINESI_CMS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:57.490647Z",
+      "observationDigest": "8eabd8d19dafe6929557989324772cd4f699400a7cc6b16d3709d50bca213fa3",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "anticartantichita.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "lafenicelibriantichi.com",
+      "listingSourceId": "ls_01m6h500mnevxv9w3aexqffkjn",
+      "partyId": "pty_01m6h500m1e72r19k0w6fe28qd",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:57.600379Z",
+      "observationDigest": "1a1f43f552fcde3575bc366635bb60e4e3917e0a8980d45f1385b4bc5d00ea2b",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lafenicelibriantichi.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitaaurame.com",
+      "listingSourceId": "ls_01m6h5854zebvtkey0np28bwvb",
+      "partyId": "pty_01m6h5854her49zb2t88a6dfdp",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:57.642772Z",
+      "observationDigest": "983feb09e28ba6d2a3c849615db21b2c6b3910cd8168398daa70054b8c58aeb9",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitaaurame.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "adresantiquariato.eu",
+      "listingSourceId": "ls_01m6h5rqkfe5j9ahj8e9fdhe38",
+      "partyId": "pty_01m6h5rqk2e4cvfsxkmj2m4jbg",
+      "locations": 1,
+      "logo": false,
+      "platform": "FLAZIO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:57.903916Z",
+      "observationDigest": "bfc93f9e1ce32c5a39977cd19109e52a0b14daa3cd8c52452c813d2702afba5e",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "adresantiquariato.eu",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitadisarcina.it",
+      "listingSourceId": "ls_01m6h5rs5je1j8mk5qbx89btkx",
+      "partyId": "pty_01m6h5rs55ecnaj3rhvb26fytv",
+      "locations": 1,
+      "logo": false,
+      "platform": "FLAZIO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:58.014424Z",
+      "observationDigest": "fb0fc54f75b69d9fbf515d6c452da7f8e138e902ce6275ac153a0f40abd32676",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitadisarcina.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "leonidegianluca.com",
+      "listingSourceId": "ls_01m6h68n1me2htb9nxpmatfk60",
+      "partyId": "pty_01m6h68n12enfaw9f7jh315myq",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:58.064250Z",
+      "observationDigest": "6ec7b5804b311d7cca2e107e1dbf5e712ae91e283228f960a62226779ddeba48",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "leonidegianluca.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "galleriadarteanticadibattista.com",
+      "listingSourceId": "ls_01m6h6ejgge5zstxwkpvtgj3x6",
+      "partyId": "pty_01m6h6ejg3e74bxmceet1zms5w",
+      "locations": 1,
+      "logo": true,
+      "platform": "DUDA",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:58.347687Z",
+      "observationDigest": "8d5e1d167af61a9c6c21a66f6c33787ad80fb0b94a6257997829d9588c2166fc",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriadarteanticadibattista.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "angeliniavezzano.it",
+      "listingSourceId": "ls_01m6h6pt05e80sprawzbr2dbtn",
+      "partyId": "pty_01m6h6pszwenhrk98ahhmvv18w",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:58.502260Z",
+      "observationDigest": "297ad86cabe99b82b6e8c37492638b47f30c6727271d620c80257bc374610b38",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "angeliniavezzano.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "fuoricatalogoartem.it",
+      "listingSourceId": "ls_01m6h6pw9ee5zr1q8pr2y605qf",
+      "partyId": "pty_01m6h6pw95eehs3vrtaymdz4nh",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:58.500342Z",
+      "observationDigest": "2923752d87c65410a75ba3565b78512974c54a11e9b6c8447263f011fead945a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "fuoricatalogoartem.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "ilmercanteinfiera.eu",
+      "listingSourceId": "ls_01m6h6x7kke95946k0hjny40rn",
+      "partyId": "pty_01m6h6x7k3esta4w5hrdg6m47x",
+      "locations": 3,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:58.939973Z",
+      "observationDigest": "da226883579f79d82c9ca7c19d331d93bd2aced5f8b9f10e2a626f733283e5e6",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "ilmercanteinfiera.eu",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitarestauro.com",
+      "listingSourceId": "ls_01m6h74wwfeefsfvffd7cf9241",
+      "partyId": "pty_01m6h74wvxe278yx5w1zfd5xaa",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:58.994692Z",
+      "observationDigest": "d79340faaa4f7f72eb4fbda72a562fc26156895b6b2bb0655225a0f39d0e2b2c",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitarestauro.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "dallantiquario.it",
+      "listingSourceId": "ls_01m6h7epv2eahan2fde34gyjne",
+      "partyId": "pty_01m6h7eptkesgr895kjq94gvmm",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:58.905241Z",
+      "observationDigest": "d92f75455c1909d2f901a1871eb1817e0b3978bb345292e472a7eff419810275",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "dallantiquario.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "lecuriositadelpassatoboutique.it",
+      "listingSourceId": "ls_01m6h7ergzeyvb1fmq2weksbas",
+      "partyId": "pty_01m6h7erghefbrh1722t2jyc5a",
+      "locations": 1,
+      "logo": true,
+      "platform": "PAGINESI_CMS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:59.332534Z",
+      "observationDigest": "4b079112e2eb79ff0417ce637ee69011dccbd03a8a7d1b7ab79d401368a10391",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lecuriositadelpassatoboutique.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antiquariatocosta.com",
+      "listingSourceId": "ls_01m6h7xw36e4ntm90mawy6mp4r",
+      "partyId": "pty_01m6h7xw2me86txkfjs6crnv2x",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:59.433748Z",
+      "observationDigest": "16e306b682d80403a18b112684f1afadca064af25e6325a774b1f88702caa3e5",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatocosta.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "bertinatoantiques.it",
+      "listingSourceId": "ls_01m6h7xya5e71at1gvgz78g4mn",
+      "partyId": "pty_01m6h7xy9kew0t1029w3brt3km",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:59.489215Z",
+      "observationDigest": "cbb65c38873e8f030a1b04aaefcd6fc15bfedb9cb6c3f138ee0eb622423861cf",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "bertinatoantiques.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "bfacchini.it",
+      "listingSourceId": "ls_01m6h92beber3s072qrdqqr56g",
+      "partyId": "pty_01m6h92bdterhtxyk4qs60t0y1",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:59.752752Z",
+      "observationDigest": "56554302053a9f3fee331268e64b8a0957c3b06e57a364a33983ad19b1a5cf3c",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "bfacchini.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "tordi.com",
+      "listingSourceId": "ls_01m6h9gwt8e9hv4phewg8dw7z6",
+      "partyId": "pty_01m6h9gwryeg28zznkwk1v3qj9",
+      "locations": 1,
+      "logo": true,
+      "platform": "DUDA",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:59.865920Z",
+      "observationDigest": "535f0adfa376d08bef9f9e3e6fbbdd3024e2cad7ba658185f53a8a25d5cf8248",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "tordi.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "artevintage.shop",
+      "listingSourceId": "ls_01m6h9gyf3ek88rkt32336b5nc",
+      "partyId": "pty_01m6h9gyere0ksy3akyg3mss69",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:59.978912Z",
+      "observationDigest": "23312340add1ff2e30c375023c8a207fe026a0a4141e6e8230899e5fd9307cfb",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "artevintage.shop",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "orvietoarte.it",
+      "listingSourceId": "ls_01m6h9ye3teg19pe71c92z67ee",
+      "partyId": "pty_01m6h9ye3bec99ycc3fsvea34r",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:00.307842Z",
+      "observationDigest": "68c538ad8e447bed45bc0613965664b9df196fe2db0c612b3867d951e0e76509",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "orvietoarte.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "callirestauro.com",
+      "listingSourceId": "ls_01m6ha8ny6esgb31ztscjwgs03",
+      "partyId": "pty_01m6ha8nxwend9yssf5drake4a",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:00.494845Z",
+      "observationDigest": "83000d96b3343d178f73fa4671751cd05c32d33210514cebdec6d97233463cd4",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "callirestauro.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "lottocentospoleto.it",
+      "listingSourceId": "ls_01m6ha8r5se5tawzxamsr435pv",
+      "partyId": "pty_01m6ha8r5hed79zrp2a6nk3bq4",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:00.770066Z",
+      "observationDigest": "427f10cb043785e446423e9f97ec9b157aeba6d586b0f47e9df27202e4fe51bd",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "lottocentospoleto.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "clexidra.net",
+      "listingSourceId": "ls_01m6hajhvkef4rfd7medce16ky",
+      "partyId": "pty_01m6hajhv7eycth5ddzep5mh6w",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:00.845494Z",
+      "observationDigest": "c15b913639620772bc1c60a459dedea40fe5742c57f63ae867b27e73759ac9fd",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "clexidra.net",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antiquariatocecchini.it",
+      "listingSourceId": "ls_01m6hb3d29ekt836adepzm8z14",
+      "partyId": "pty_01m6hb3d22eth8eppm5gemtmw9",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:00.933689Z",
+      "observationDigest": "fcdfdefbad4c24844d3723fb2cf345a0a70152e9d770fbca3e434fa2b320a9a5",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antiquariatocecchini.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "mobiliduchi.it",
+      "listingSourceId": "ls_01m6hb3ekbeddbv5wrvmzg6w3m",
+      "partyId": "pty_01m6hb3ek4e74sy1n9hty1njnr",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:01.181966Z",
+      "observationDigest": "239679aafca3dbb44bffcede50d8522909a32b51fc2257e265f2701cd0139ef9",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "mobiliduchi.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitabaldrighi.it",
+      "listingSourceId": "ls_01m6hbb6fpe3wsxax35zgndhky",
+      "partyId": "pty_01m6hbb6fbekqaanv6crn44ydd",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:01.256837Z",
+      "observationDigest": "2086c2dae25af8e315a9672b2d248b2465eb5053e4c93b6a0cf65c30daf8d651",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitabaldrighi.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antichitamissaglia.it",
+      "listingSourceId": "ls_01m6hbz7gved9r6d1reh11kcf7",
+      "partyId": "pty_01m6hbz7geey3tzwbwz3waywt9",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:01.677904Z",
+      "observationDigest": "965a6e7c5b82158ee5119ae3607358b078a244a2612620541fe21b2e4ccc4bc0",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antichitamissaglia.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "alicefineart.com",
+      "listingSourceId": "ls_01m6he5g3qem5a10bp8c79c9yc",
+      "partyId": "pty_01m6he5g3ce3st32dy3a3a796a",
+      "locations": 2,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:01.661542Z",
+      "observationDigest": "202582b36329d1d975320111628a2310555a20d0cf9cacb5f0c7dbdae0b8a9a4",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "alicefineart.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "antemioantiquariato.it",
+      "listingSourceId": "ls_01m6hf2trbe84a6841s5y309bp",
+      "partyId": "pty_01m6hf2tqtek7ay99b898asj1t",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:01.681963Z",
+      "observationDigest": "bbe7b47fe0298694d0d4512014fb97e6a1d8168d86983d266e8e9f4450050e6a",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "antemioantiquariato.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "galleriabosi.com",
+      "listingSourceId": "ls_01m6hfez9henq93j0yf10v1vtv",
+      "partyId": "pty_01m6hfez8het0rqcezz2h4nq84",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:52:14.341605Z",
+      "observationDigest": "fb12159ee52ddbb7ccf84b46fb13f2d08987c508f6d109353227763e4c3d7b0f",
+      "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "identityDomain": "galleriabosi.com",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hd4qyzejg8na5sb3ze3b8x",
+      "partyId": "pty_01m6hd4qyjemm8ec5bkbmjqjcf",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:20.026664Z",
+      "observationDigest": "2cb7b4b20e75ba12bc3d05b7945136327b82a23d30d06787478226bdedbecb70",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/abbona-roberto/dealers.jsonl",
+      "identityDomain": "anticoantico.com",
+      "catalogueIdentityKey": "IT:ANTICOANTICO:855"
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hdj0p9eegbf4s2t5njsssc",
+      "partyId": "pty_01m6hdj0npebk9t1jjnx73rpa9",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:19.964788Z",
+      "observationDigest": "476e70ca489064ed6c8a5d8d0df0dc5c4998f2421a9c950798600a1e5307ba8c",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/abellonio-ivano/dealers.jsonl",
+      "identityDomain": "anticoantico.com",
+      "catalogueIdentityKey": "IT:ANTICOANTICO:862"
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hdsvs3ezkbkefv7cqtnk4n",
+      "partyId": "pty_01m6hdsvrqec2skqmv41ff47gd",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:20.237686Z",
+      "observationDigest": "51a0c3120bd07bec47dafd3e30d30bba53b85b9857c2e65764c076a91fbd2637",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/acasadimanu74/dealers.jsonl",
+      "identityDomain": "anticoantico.com",
+      "catalogueIdentityKey": "IT:ANTICOANTICO:2439"
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hdsnq8evtvr7v584m4qadw",
+      "partyId": "pty_01m6hdsnpre7dbp1p030kkm2h3",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:20.235840Z",
+      "observationDigest": "4ea83476bcdb56cd0fcd0785b1d577494e1ec68af561dd4acd188698084ebd6d",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/ag-antichita/dealers.jsonl",
+      "identityDomain": "anticoantico.com",
+      "catalogueIdentityKey": "IT:ANTICOANTICO:2193"
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hcqyf5e7db5yj1xfbt2ghh",
+      "partyId": "pty_01m6hcqyeqe8y873d1rhhpb07s",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:27.475116Z",
+      "observationDigest": "cf5f5afa5da53bb56cce56247e475071e17e488ea18d9febb2a1932198e8e3fa",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/alberto-savio/dealers.jsonl",
+      "identityDomain": "anticoantico.com",
+      "catalogueIdentityKey": "IT:ANTICOANTICO:467"
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hc8dxae8ysb3g8dxmyqzmg",
+      "partyId": "pty_01m6hc8dwveqfty706epd2t9cb",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:27.198756Z",
+      "observationDigest": "1d2e43f2c47db93a8be70ddd283075eaa35052c80c15e1b1fddf301f434fb882",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/am-marcelli/dealers.jsonl",
+      "identityDomain": "anticoantico.com",
+      "catalogueIdentityKey": "IT:ANTICOANTICO:825"
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6h8nfeceryabeahd2afzcc1",
+      "partyId": "pty_01m6h8nfdveqet85rvkjkke8j7",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:27.481341Z",
+      "observationDigest": "b6e94cc143b55c37befb01ec1b8c5d30d9767d772b4e97a8cdf979c9fabdc005",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/antichi-ricordi/dealers.jsonl",
+      "identityDomain": "antichiricordiantiquariato.it",
+      "catalogueIdentityKey": null
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hegeb7e0mr0jn8v68r24yt",
+      "partyId": "pty_01m6hegeateqkr216vn2szwhjw",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:34.182571Z",
+      "observationDigest": "e69de44818ce7c62402b58a0a73ea9d4c11e7abe131e9832340e4519d3139786",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/federico-andrisani/dealers.jsonl",
+      "identityDomain": "anticoantico.com",
+      "catalogueIdentityKey": "IT:ANTICOANTICO:438"
+    },
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hegmhwe3n85p6yk0mg3ae9",
+      "partyId": "pty_01m6hegmhges7b452crb7h9v9e",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:34.349826Z",
+      "observationDigest": "bc35655a98049d7334c559995619332d2df822d0d5c73701d3e3745f7d8a15e8",
+      "owningLedger": "data/dealer-discovery/countries/IT/hosted/la-cassapanca-fiori/dealers.jsonl",
+      "identityDomain": "anticoantico.com",
+      "catalogueIdentityKey": "IT:ANTICOANTICO:765"
     }
-  ]
+  ],
+  "ownedLedgers": [
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/main-verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:14.342391Z",
+      "fullVerifiedAt": "2026-11-03T19:46:01.683741Z",
+      "counts": {
+        "parties": 261,
+        "listingSources": 261,
+        "locations": 309,
+        "logos": 224,
+        "identifiedPlatforms": 202,
+        "deliveryProfiles": 144,
+        "emptyIngestionMethods": 261,
+        "excluded": 25,
+        "deferred": 88
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/abbona-roberto/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/abbona-roberto/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:13.925839Z",
+      "fullVerifiedAt": "2026-11-03T19:45:20.026926Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/abellonio-ivano/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/abellonio-ivano/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:14.441393Z",
+      "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/acasadimanu74/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/acasadimanu74/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:14.024362Z",
+      "fullVerifiedAt": "2026-11-03T19:45:20.237986Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/ag-antichita/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/ag-antichita/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:13.989153Z",
+      "fullVerifiedAt": "2026-11-03T19:45:20.236240Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/alberto-savio/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/alberto-savio/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.100429Z",
+      "fullVerifiedAt": "2026-11-03T19:45:27.475503Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/am-marcelli/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/am-marcelli/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.201987Z",
+      "fullVerifiedAt": "2026-11-03T19:45:27.199279Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/antichi-ricordi/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/antichi-ricordi/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.200799Z",
+      "fullVerifiedAt": "2026-11-03T19:45:27.481773Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-amore/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/antichita-amore/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.701267Z",
+      "fullVerifiedAt": "2026-11-03T19:45:26.984848Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/federico-andrisani/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/federico-andrisani/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.787098Z",
+      "fullVerifiedAt": "2026-11-03T19:45:34.183534Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/la-cassapanca-fiori/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/la-cassapanca-fiori/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:28.578762Z",
+      "fullVerifiedAt": "2026-11-03T19:45:34.350371Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    }
+  ],
+  "aggregation": "Every ownedledger was explicitly verified for thisrun; resourceIDs deduplicated acrossmain/hosted journals. Rootreport/index aggregate thoseactualreadbacks; main-verification.json preservesmainhelperbaseline."
 }

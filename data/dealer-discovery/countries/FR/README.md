@@ -2,9 +2,9 @@
 
 Owned scope: France (`FR`). Read all country ledgers for duplicates; write only this directory and resources owned by this ledger. Earlier French records in Germany's ledger remain owned by that ledger until an explicit handoff.
 
-Ongoing goal: continue free research and verified API onboarding until the user stops. Credentials stay in `/tmp/aura-dealer-credential` (owner-only); raw pages/assets and API snapshots are cached outside the repository under `/tmp/aura-dealer-discovery/FR/`.
+Ongoing goal: continue free research and verified API onboarding until the user stops. Only dealers with direct art and antiques relevance qualify; general recent secondhand, unrelated collectibles and decorative retail alone are insufficient. Credentials stay in `/tmp/aura-dealer-credential` (owner-only); raw pages/assets and API snapshots are cached outside the repository under `/tmp/aura-dealer-discovery/FR/`.
 
-Checkpoint `FULL170`: **289 Parties, 292 sources, 370 unique locations (372 source-location associations), 244 original logos, 257 identified platforms, 216 delivery profiles/defaults**. All ingestion lists are empty. **17 excluded, 150 deferred**. Paid-tool spend **$0**. FULL170 completed; next due FULL175.
+Checkpoint `2026-11-03-fr-239`: **378 Parties, 382 sources, 474 unique locations, 318 original logos, 326 identified platforms, 280 delivery profiles/defaults**. All ingestion lists are empty. **26 excluded, 279 deferred**. Paid-tool spend **$0**. Last complete readback: 2026-11-03T19:41:27.566301Z; next due FULL240.
 
 Use explicit country `--ledger` and verifier `--output` paths. Journal reviewed facts before mutation; reconcile uncertain writes by recorded IDs before retrying. Full verification every fifth batch; incremental checks otherwise.
 
@@ -56,3 +56,210 @@ Run 168 added Galerie Saint Martin Antiquités Paris (WooCommerce; active GALERI
 
 
 Run 170 completed the scheduled full readback across 292 sources and all managed Parties, locations, defaults and shipping profiles. Hirsch Antiquités was added (Wix catalogue; active HIRSCH ANTIQUITES registration; Paris Village Suisse gallery). Its current unique antique listings are priced and cart-enabled. CGV describe post, Chronopost and carrier delivery by item/recipient agreement, but no geographic coverage or general rate, so no API shipping profile was created. No original logo could be identified and verified. Ingestion remains empty. A legal-domain inconsistency found on the already managed Le Grenier d’Adèle source is queued for review; no existing resources were changed.
+
+
+Run 171 deferred Philippe Vichot pending explicit current item availability, Louis de Montignacq pending a working own catalogue and current address reconciliation, and Bouquinerie d’Anvers pending inspectable item-level historic stock. No API resources were created; incremental country verification passed. Corrected the Numa research URL to galerienuma.com; Directory’s free lookup returned no suitable merchant results.
+
+
+Run 172 deferred Galerie Numa (own item catalogue/contact gaps), Au Baroque (published operator ceased despite cart-enabled historic linen), Antiquités Rhône Alpes Odoo (unfinished site and default contract trust gaps), and Paris Change (empty historic-coin category). Authentique Île de Ré was excluded for contemporary craft stock. No API resources were created; incremental verification passed.
+
+
+Run 173 added Brocstore (PrestaShop; Jean-Noël Large; registered/correspondence address at Saint-Tugdual) and Stock en Bulle (Backstore; active STOCK EN BULLE; Dury registered seat and Amiens shop). Both have inspectable current collectible stock. Stock en Bulle’s original PNG and France/EU/international delivery terms were reviewed; international geography remains unresolved. Brocstore has no verified logo or destination scope, so both are omitted. All resources/defaults and empty ingestion lists passed readback and incremental country verification.
+
+
+Run 174 added Librairie Yvon Lambert (Shopify; Paris bookshop; in-stock original 1982 Cy Twombly print) and Le Savoir de Marie (OpenCart/Smartboutique; NED EURL; Haguenau appointment office; in-stock 1980s Cartier set). Both original logos were inspected. Yvon Lambert’s worldwide profile excludes Belarus, Ukraine and Russia; Savoir de Marie’s item-dependent insurance and free-shipping exceptions remain unpriced. Rue de Siam was deferred after two sampled historic sculptures showed sold-out status and showroom statements conflicted. All managed readbacks and incremental verification passed.
+
+
+Run FULL175 completed the scheduled full readback of all 296 managed sources and their Parties, 375 locations, defaults and 219 shipping profiles. All ingestion lists are empty. Brocante O Temps Passé was deferred because its own shop is empty and a linked item route returns 404, while the current full legal operator link remains incomplete. Its advertised logo is a stock-object photograph and was rejected. Next full readback is FULL180.
+
+
+Run 176 added DDAY MILITARIA (WooCommerce; Jonathan Bonhomme; Carentan shop; original in-stock WWII compass) and L’Atelier 50 (WooCommerce; active Paris vintage-design shop). Both original PNG logos were inspected. DDAY’s explicitly EU-only coverage uses the current official 27-member list with unknown rates; L’Atelier 50 has an explicit collection-only profile. Patine Concept Store and Le Débarras Bigouden were deferred for missing private item-level stock/auction-channel clarification. All resources/defaults and incremental verification passed.
+
+
+Run 177 added Ma Cabane Vintage (Shopify; Elodie Soulier; current Nice registered seat) and Rieunier (WooCommerce; L.R.B.J; two Toulouse shops). Both original logos were inspected. Current public Shopify variant data resolved Ma Cabane’s generic stock-message conflict. Named delivery countries, unenumerated destinations and local hand delivery remain distinct; Rieunier’s metropolitan scope and unresolved fees are preserved. Haverlant Collection, Société Forezienne d’Antiquités, MS Brocante and AntiquiDesign were deferred for current own-stock/legal/access gaps. All readbacks and incremental verification passed; 300 managed sources have empty ingestion lists.
+
+
+Run 178 added Calaoshop (PrestaShop; Jean-Claude Gouigoux; Amiens registered address; in-stock African-art collector figure). Its original JPEG mark and current active legal identity were verified. France delivery and unspecified other countries are separate; the order-count postage tariff and destination-unclear free-postage threshold remain unpriced. L’Art en BRUT and Antiquités Portier were deferred for missing item-level stock evidence and temporary DNS failures respectively. All readbacks and incremental country verification passed.
+
+
+Batch 179 added Antiquités Asseray under its linked shop domain, retaining the parent as an alias. Active Didier Asseray registration confirms France; detailed antique watch sale advertises 3–7-day item delivery without a stock-quantity assertion. Metropolitan-France-only shipping has unknown fees while checkout is broken; shop and restoration workshop stay distinct. Original logo is PNG despite its JPEG URL/header. Le Coin Brocante, Le Puits aux Livres and Rudolph B deferred for current availability, qualifying collectible-book stock or missing own retail offers. Audit/index and explicit incremental country verification passed for all 302 sources, ingestion empty; paid spend USD 0. Next full verification FULL180.
+
+
+FULL180 passed full readback of all 304 sources, 301 parties, 385 locations, 255 original logos, 268 platform fields and 226 delivery profiles/defaults, with ingestion empty and paid spend USD 0. Batch 180 added 110 Volts and Galerie Alexis Pentcheff; two contemporary general-retail shops excluded. 110 Volts’ updated French legal/contact pages reconcile its Aubais registration and Vauvert shop presence against stale English Montpellier details. Only the registered/correspondence address is imported; pickup site unknown. The gallery’s .co.uk language alias remains French-owned; original available Renoir stock verified, platform and gallery shipping omitted as unproven. Related bookshop remains deferred. Continue Strasbourg leads; next scheduled full check FULL185.
+
+
+Batch 181 added Antiquités Julie Schon-Grandin after active legal-operator reconciliation and inspection of a nineteenth-century silver/vermeil locket with an InStock offer. Original logo and WooCommerce verified. Shipping retains metropolitan France, seven named foreign destinations and unresolved other-country enquiries; conflicting homepage free-postage and contractual extra fees leave rates unknown. Shop pickup explicitly selected. De ci De ça Design, Brocante du Bâtiment and Antiquités Richard deferred for current availability and/or exact legal identity; auction-news reporting alone is not treated as auction operation. Audit/index and explicit incremental verification passed for 305 sources, all ingestion empty, paid spend USD 0. Next full check FULL185.
+
+
+Batch 182 reviewed and deferred Antiques Lyon, Kreuzer Antiquités and La Brocanterie Antiquités Dach. The first lacks an inspectable private-stock channel and exact legal reconciliation; Kreuzer shows buying/valuation categories and a broken linked furniture page; Dach has active registration but general stock descriptions and an address change requiring later role reconciliation. No auction operation inferred from auction purchases/external channels. No additions or exclusions. Audit/index and explicit incremental verification passed for all 305 sources, ingestion empty, paid spend USD 0. Next full check FULL185.
+
+
+Batch 183 added four sources: Antiquités Art Nouveau, Nord Antique, Rosycabroc and Univers Collection Shop. Univers reuses the existing Nicolas Roblin / Arts Elysion Party and registered location owned by Art Antiquités, after live and all-ledger reconciliation; no duplicate operator, location or Party contact patch. Separate platforms/delivery stay source-specific. Three new French operators verified from current primary/official evidence. Original logos inspected, unknown destinations/rates retained, Rosycabroc pickup explicit and Nord warehouse pickup site unresolved. L’Acquisition deferred because legal registration remains an explicit placeholder and same-name Nice result does not establish its Houdemont operator. Audit/index and explicit incremental verification passed: 309 sources, 305 parties, all ingestion empty, paid spend USD 0. Next full check FULL185.
+
+
+Batch 184 deferred Galerie Françoise Patris, Bon Filon, Au Troc Malouin and La Calèche Caennaise; no additions or exclusions. Primary and official identities were researched, but individual current stock is incomplete; three sampled latest La Calèche items are explicitly sold despite catalogue stock wording. Au Troc Malouin contains an unrelated injected link block requiring trust/control reconciliation, with no external injected links followed or confirmed fraud allegation. Audit/index and explicit incremental verification passed for all 309 sources, ingestion empty, paid spend USD 0. Continue fresh Tours leads and perform full readback FULL185 next.
+
+
+FULL185 passed full readback for all 311 sources, 307 parties, 391 locations, 262 logos, 274 platform fields and 232 delivery profiles/defaults; ingestion remains empty and paid spend USD 0. Batch 185 added Philarama under its current SAS Les Collections de C et J operator, supported by an in-stock 1850 Cérès stamp; predecessor SARL CGV are kept distinct and unscoped delivery/pickup omitted. Occasionnel Luxe qualifies through explicitly vintage available design stock; active unchanged SIREN reconciles the address/establishment change. Its explicit metropolitan-France EUR 15 fee is per seller order, foreign/overseas quote geography stays unresolved and old pickup address unassigned. Both original logos and PrestaShop verified. No exclusions or deferrals in this batch. Continue new Bordeaux private sites; next full check FULL190.
+
+
+Batch 186 added Le Centre Ville Antiquités, Pipat Antiquités and Objets Chinois; Bassam deferred for current individual availability and later address-role reconciliation. Current first-party stock and active legal operators verified. A directory Guirriec-to-Bassam link was not treated as shared identity. Le Centre Ville’s SNCAO association mark was inspected and rejected as dealer logo. Pipat preserves worldwide delivery and its identified Blaye collection site; Objets Chinois preserves metropolitan-France/Corsica/Belgium and EU policy scopes, unknown product-dependent eligibility and the explicit EUR 9.90 per-shipment EU tariff, without inventing Swiss delivery from a carrier name. Current EURL identity remains distinct from the active legacy individual named in old terms. Audit/index and explicit incremental verification passed for 314 sources, all ingestion empty, paid spend USD 0. Next full check FULL190.
+
+
+Batch 187 added Galerie Lassus under active current Bordeaux operator/registered address, with an explicitly available detailed 1724–1725 silver wine taster. Former Paris legal address and US theme-demo contacts are not imported. Original logo and WordPress independently verified; France handling is explicitly within three business days after settled payment, foreign timing component/rates remain unknown, and personalized packing is retained. Marina Labro private-domain requests failed DNS on www and bare variants; no closure, country assignment or marketplace source inferred. Audit/index and explicit incremental verification passed for 315 sources, ingestion empty, paid spend USD 0. Next full check FULL190; continue Nantes leads and independently verify business home for Lilagem.
+
+
+Batch 188: no additions; Alberteau, MC Chiron and Michel Witold Gierzod deferred after primary-site access failures; Lilagem/Expertigem verified Belgian home and queued for BE owner only. Incremental verification passed; no blocker; USD 0 paid-data spend.
+
+
+Batch 189: added Aenigm’Attic / Muriel Koenig with exact active French identity, detailed current 1800 silver offer, original logo and WordPress; no unsupported delivery defaults. Deferred Pascal Badié, Achille, Perrin and DZ Nice for control, maintenance, stock or current-operator gaps. Incremental verification passed; no blocker; USD 0 spend.
+
+
+Batch 190: added Joanna H and Temps d’antan with current private antique offers, exact active French identities and scoped shipping; protected/coarse address and no-visitor Lentilly registered site preserved. Joanna’s rejected evidence-scope and absent/null postcode readback were reconciled using existing IDs before successful completion; no duplicate creation. Mill’or and Mémoires d’un âne deferred. FULL190 readback passed for all 318 sources, all ingestion empty; USD 0 spend; no blocker.
+
+
+Batch 191: added Tomaselli Collection’s own current art sale catalogue, active French SAS identity and current Lyon gallery with original SVG/WordPress. Kept museum-only works and old legal address separate. Excluded Villa Rosemaine’s collector-member exchange source; no account or marketplace resource created. Incremental verification passed; USD 0 spend; no blocker.
+
+
+Batch 192: added Antiques d’Avignon / Anthony Thornton, Galerie Origines / ONE.ART and La Valise Arlésienne with active French identities, current private historical stock, scoped locations and shipping/collection. Original logos and technologies verified; no ingestion configured. Laura Fine Art deferred for current availability gap. Verification passed for 322 sources; USD 0 spend; no blocker.
+
+
+Batch 193: no additions; Richard Renaux and Le Béryl d’Or deferred after bounded primary www/bare DNS failures. Accents Baroques private channel unverified; Heliez alternate candidate channel queued under existing FR owner without alias adoption or duplicate record. Incremental verification passed; USD 0 spend; no blocker.
+
+
+Batch 194: no additions; Les Billes de la Gamine deferred after bounded DNS failures; REVE’s active French identity verified but all three private product collections are empty. Existing AG Antiquités ownership and follow-up preserved. Verification passed for 322 sources; USD 0 spend; no blocker.
+
+
+Batch 195: added Guillaume Duchemin Antiquités, Galerie Rotomagus and Galerieprivée.ART / Thierry Tuffier with native current stock, active French legal identities, original logos and scoped delivery. Art en Seine relationship retained under FR owner without a second source or TLS bypass. Questel deferred for hosting suspension. FULL195 verified all325 sources and empty ingestion; USD0 spend; no blocker.
+
+
+Batch196: added Maison Baume / BAUME with active French identity, available ArtDeco ring, original PNG, explicit OASIS Commerce and scoped shipping/appointment collection. Maison Circé and Cordeau-Oudoux deferred for access or legal/current-stock gaps. Verification passed for326sources, all ingestion empty; USD0 spend; no blocker.
+
+
+Batch197: added Valérie Muné Antiquités under active REVES ET REALITE, current Biarritz site, exact1-in-stock historical candelabra offer and Ecwid; no unsupported shipping defaults or stale Paris premises. Biarritz Antiques deferred for ceased published operator; Lhoste .com deferred as parked domain, separate namesake not merged. Verification passed for327sources; USD0 spend; no blocker.
+
+
+Batch198: added Van Rijn / Nathalie Mayen with active exact-address French identity, native available shipping/pickup variation, original logo and Weebly. Shipping scope preserved without generalising local free concierge delivery or item/weight tariffs. Global Interior Design TLS and Gabillet timeout leads deferred. Verification passed for328sources; USD0 spend; no blocker.
+
+
+Batch199: added Paul Foulon Antiquités under active French SARL with individually inspected unsold private antique offers, original PNG and explicit showroom pickup by appointment. Shipping geography not inferred from suggested carrier directory. Galerie des Minimes verified Belgian home and queued for BE owner; unverified private-channel leads retained separately. Verification passed for329sources; USD0 spend; no blocker.
+
+
+Two galleries added: Patrick Damidot in Dijon and Galerie Laurent Goudard in Limoges; Nicolas Bordet deferred for TLS hostname failure. Full managed-country API readback passed: 331 sources and all ingestion settings empty. Former ceased Goudard EI was distinguished from the active company; existing Porro and Grenier d’Augustine ownership preserved.
+
+
+No7 Gallery and Antiquités Lassaussois added after fresh API identity checks; Vangeon domain-sale channel and Art Lalique unresolved current operator/private availability deferred. Verified 333 sources with empty ingestion; original logos inspected, collection and delivery terms kept separate.
+
+
+Rennes Antiquités and Galerie Stéphane Brugal added; 335 sources verified with empty ingestion. Nativelle DNS failure, Divet contradictory ceased publisher and Dubalai insufficient item-level primary stock/continuity deferred. Future January2027 stock, registered addresses and warehousing kept distinct; existing Havas ownership preserved.
+
+
+Bretagne Ancienne added: active company matched current brand/manager/shop and private priced stock; external auction expert role distinguished from auction operation. 336 sources verified with empty ingestion. Blaise Busquet unrelated redirect and Rome Antiquités hosted TLS failure deferred; existing Remparts and Adequantik ownership preserved.
+
+
+No additions: Yves Delaune SumUp private stock positive but first-party legal-home binding incomplete; Galerie de Frise legal operator/current private offer unresolved. Both deferred without API mutation. Audit, country index and explicit verification passed for336 managed sources with empty ingestion; existing Antik-France ownership preserved.
+
+
+We Art Together and Arte Collection added; full managed-country readback passed for338 sources, all with empty ingestion. Insured shipping coverage and asserted Paris appointment collection kept faithful; Arte illustrated hero omitted as logo. Commenchal private historic stock deferred. Foreign leads queued for AT existing owner and PL/DE candidate owners without foreign mutations.
+
+
+Philippe Fustemberg added after active exactSIRET/private own-stock gallery checks; registered city only preserved against conflicting shop heading. 339 sources verified with empty ingestion. Nantes buying-only channel and Bonheur du Jour DNS deferred; AntiquitésDuBois new mass-market furniture excluded. Existing Nantes-region ownership preserved.
+
+
+DAMIA/Arialouise added after matching unique active Niorttrade-nameEI; 340 sources verified with empty ingestion and asserted Niortdispatch only. Micka’Broc ceased exactoperator/template conflict, Ferreira buying-only channel and BrocFred current-stock/operator gaps deferred; SalleDesVentesDeChinon excluded as auction operator.
+
+
+123 Numismatique, Cap Or Numismatique and Numisméo/Maison Creusy added; 343 sources verified, all ingestion empty. External auction expert role confirmed for Numisméo. Original logos and tariff image inspected; postal/basket restrictions retained, no inferred branch or dispatch defaults. Hugon private stock deferred; Belgian AuTempsJadis queued for BE owner.
+
+
+Le Holdy Militaria and Busch Collectibles added; 345 sources verified with empty ingestion. Original historical stock checked, registered and customer premises kept distinct, private masked registry fields respected. Débarquement parts age and MilitariaImport reproduction-vs-period qualification deferred. Existing AFW and Obdissy ownership preserved.
+
+
+NUMIXPERT, Antika and Suffren Numismatique added; full managed-country readback passed for348 sources, all ingestion empty. EU-only/DOM-TOM restrictions and Antika US/Asia exclusions retained; precise fees, city-only dispatch and explicit pickup read back. Crédit du Palet current private historical stock deferred.
+
+
+Batch211: added Librairie L’Histoire Vagabonde/Denis Mondot in Tréguier from a current1701private offer, verified operator/shop, original logo and literal worldwide dispatch policy. Septentrion, La Biblioseraie and Havre Secret deferred for unresolved current item/operator evidence. Audit, index and incremental readback passed; empty ingestion throughout. Continue antiquarian bookshop leads; FULL215 next.
+
+
+Batch212: added Christophe Hüe/Bibliographique, Grégory Delannoy/Entre2actions and Angelo Falcone/La Petite Librairie des Jardins from actual1751,1662 and1714current private volumes. Exact active legal operators, original2logos and named2platforms verified; shipping regions, weight/basket conditions, optional insurance and relay delivery retained without invented universal rates/pickup. Cluny rebuild legal pages blank and La Perle Rare private individual availability deferred. Audit/index/incremental verification passed,352sources all empty ingestion. Continue own-channel bookshops; FULL215 next.
+
+
+Batch213: added La Librairie Antique/Frédéric de Boislorey and L’Œil Cacodylate from an available1898volume and specificallynumbered1974/1968originalprints. Registered/correspondence sites kept distinct; conflicting French/English freight prices omitted. Veyssière2014blog deferred. ExistingDiogène/Clagahé channels skipped. OriginalSVGviewBox metadata omission repaired in ownedledger/assetindex without APIrecreation. Audit/index and incremental readback passed;354sources emptyingestion. Continue olderfrontier privatechannels; FULL215 next.
+
+
+Batch214: no newFrance resources. CahorsNumismatique privatepages lack an inspectablecurrenthistoricalitem and remain deferred. Lilagem/Expertigem explicitlyBelgianlegalhome queuedforBEowner; MachinsTrucs legalhome unresolved withCHcandidate only. Fiveoldfrontierchannels reconciledtoalreadyowned records. Audit/index/incrementalverification passed,354emptyingestionSources,231deferrals,USD0. Continue newregionalbrocantechannels; FULL215 due after nextbatch.
+
+
+Batch215/FULL215: added La Family Brocante/Odile Grunberg, Thierry Brocante/Thierry Boureau and L’Atelier de la Dorure from currenthistoricaltoy, shopstock and detailedantiquebronzeoffers with activeexactoperators. Twooriginalmerchantlogos preserved, oneWooCommerceplatform and onepartialshippingprofile; no clearance-radius/pickup/inventory assumptions. JajaBroc identity/currentitem and Armoires403 deferred. Audit/index and full resource/defaultreadback passed:357Sources353Parties442locations298logos308platforms267profiles, all357ingestionlists empty,USD0. Continue Creuse/Corrèze tapestry andbrocanteleads; FULL220 next.
+
+
+Batch216: added GalerieJabert underactiveCollectionUnique349833962 from nativecurrent1973DomRoberttapestry78J/3162Enstock; Ecwididentified, twoexplicitParis/Aubussongalleries keptapart from governmentregisteredBoutique6. No inventedfree0price, CNElogo, freightorhomepresentationpickup. BrocantesduTigre deferred: publishedEIceased, no currentpublisher/individualofferresolved. Retro&Styles sellerprofilequeuedforhosted/privatechannelreview. Audit/index/incrementalreadbackpassed;358Sourcesemptyingestion,USD0. ContinueAuvergneandLoiret leads; FULL220 next.
+
+
+Batch217: noadditions; LeGrenierArverne advertisesownresale butnoindividualcurrenthistoricitemlist, MS Débarras exposesclearance/purchasingonly. Bothdeferred, existingComtesseG/Chacon/Antiquidesignrecords preserved. CrocetBroc tourismleadqueuedforprivatechannelresearch. Audit/index/incrementalverificationpassed,358emptyingestionSources,236deferrals,USD0. ContinueLoiretprivatechannels; FULL220 next.
+
+
+Batch218: fourdeferrals, noadditions. LesMontées has available1960AudouxMinetbuffet but exactoperatorunverified; sharedbuildingwithLaurentBriondoesnotestablishownership. Brioncurrentbuyingchannel, Polochetteexplicitbuyingonly andSuarezgenericresale/clearancegallery lackindividualcurrenthistoricstock. ThreenewLoiretsearchleadsqueued. Audit/index/incrementalverificationpassed,358emptyingestionSources,240deferrals,USD0. Continuefreshprivatebook/collectorstores; FULL220 next.
+
+
+Batch 219: added Monnaies et Collections, the verified active SARL in Andernos-les-Bains, from an available historical Dupré An5 coin on its own storefront. Shipping geography, platform and standalone logo remain unknown. TheRedshop and Librairie de l’Escurial have verified operators but their private catalogues did not yield current item evidence, including bounded public-browser attempts; both deferred. Audit, index and incremental verification passed: 359 sources, all ingestion empty, USD0. Continue numismatic and philatelic shops; full readback due FULL220.
+
+
+Batch 220 / FULL220: added Boutique Loisir et Collection (LEFRERE SARL) and Philatélie 72 from available1872 Cérès coin and1954 Gandon stamp offers. Verified exact operators, two original logos, WooCommerce for the Tours shop and two scoped shipping profiles. Main stamp availability was kept distinct from its unavailable variety. Monaco contact evidence queued for the MC owner. Full audit, index and resource/default readback passed: 361 sources,357 Parties,447 locations,300 logos,310 platforms,269 profiles; every ingestion list empty, USD0. Continue regional brocante leads; next full readback FULL225.
+
+
+Batch 221: added Maison Loupret Antiquités / Patrick Loupret from current first-party stock posts and inspected antique clock/art/furniture photos. The shop and current registered address remain separate; original white merchant wordmark verified against a temporary dark preview. La Trouvaille Enchantée and La Boutique de Caylus deferred for unresolved qualifying stock or exact legal operator. Existing Jebroc/BabaetTchoupinet owners preserved. Audit, index and incremental verification passed: 362 sources,358 Parties,449 locations,301 logos; every ingestion list empty, USD0. Continue Cotentin dealers; FULL225 next.
+
+
+Batch 222: added Printimeuble under its active French successor882411440. Official BODACC2021business-sale evidence resolves the stale UKLtd legal page; the current1970sRenéPierre offer and original logo were verified. MASK’s identity is resolved through official address history, but current trading during its temporaryshopclosure remains deferred. LaClédesTemps403 and MimiZenadoDNS also deferred. Audit, index and incremental verification passed:363sources359Parties450locations302logos, every ingestion empty,USD0. Continue Seine-Maritime collectors and galleries; FULL225 next.
+
+
+Batch 223: added Galerie Rollin under active B’Art SAS from an available PierreGodet painting. Official registered29rueÉcuyère and privategallery31 remain distinct. Originallogo/WooCommerce and advertised destination list verified; conflicting freightprices leftunknown. Mayer and StarLivre deferred for current historicalsale evidence; externalauctionadvice is not operatedauctionevidence. Audit, index and incremental readback passed:364sources360Parties452locations303logos311platforms270profiles, allingestionempty,USD0. Continue dealer-owned linked catalogues and Burgundy leads; FULL225 next.
+
+
+Batch 224: added Julien Cordier’s independent private business site from verified linked dealer-controlled stock, and Antiquités Edelweiss from an available19cBourumeaucoffret. Sampled seals wereoutofstock and excluded as stock evidence. No marketplace source/alias or policy was created; originalCordierlogo and Jimdo/partialFrancecoverage forEdelweiss verified. RécupCréations403 and Entropium retailoperator allocation deferred despite a positiveoriginaloiloffer. Audit/index/incrementalreadback passed:366sources362Parties454locations304logos312platforms271profiles, allingestionempty,USD0. ContinueGrandEst; FULL225 due after nextbatch.
+
+
+Batch 225 / FULL225: added Maison Bally and Napoli Antic from available Legras glass and Art Deco/Louis XVI offers with exact active French operators. Two original PNG logos verified; Bally’s .jpg URL carries actual PNG bytes. Mainland-France-only delivery retained, Napoli’s separate Charmes depot recorded without inventory or collection assumptions. Adenot and Antiquités Achat Estimation deferred for current own antique sale evidence. Full country audit and resource/default readback passed: 368 sources,364 Parties,457 locations,306 logos,313 platforms,273 profiles; all ingestion empty,USD0. Renewed user scope requires direct art/antiques relevance for every addition. Continue fresh antique dealers; FULL230 next.
+
+
+Batch 226: added Le Broc’Antique / Alain Baumeister from an explicitly in-stock1902 painting and NapoléonIII chair, with matching primary legal proprietor, inspected original logo and WooCommerce. Uncertain official registration/address candidates omitted. Déco des Carmes excluded as reviewed general modern decorative retail; Kretz’s two channels and Grenier Ruaudais TLS deferred. Audit, index and incremental readback passed:369 sources365 Parties458 locations307 logos314 platforms273 profiles, every ingestion empty,USD0. Continue direct antique/art dealers; FULL230 next.
+
+
+Batch 227: added Cyril Tremblin Antiquités / active exact EI478444433 from current in-stock PierreCornu oil and1906 Sèvres vase. Native Ecwid product links resolved under declared /nouveautés storebase; broken root paths and sold archives were not substituted. Original balloon logo verified; no free0price or buyer-shipping assumptions. GrenierdesCuriosités DNS, Trouvaillesd’Antan identity/item gaps and DenisBraconnot current sale availability deferred. Audit/index/incremental readback passed:370 sources366 Parties459 locations308 logos315 platforms273 profiles, all ingestion empty,USD0. Continue direct art/antique dealers; FULL230 next.
+
+
+Batch 228: added Le Grenier de Saint Lié / Yannick Vesseron from native current19c games table and harmonium offers; public embeddedCGV resolves exact active347787038 identity. Original1500px logo and Strikingly verified. Complete literal mainland-France-only insured delivery plus explicit shop collection retained. Cabinet de Curieux construction deferred; AT’Brocante and Arles Enchères excluded for operating auctions. Audit/index/incremental verification passed:371 sources367 Parties460 locations309 logos316 platforms274 profiles, all ingestion empty,USD0. Continue Riconti, Dealeuse and Martynoff; FULL230 next.
+
+
+Batch 229: added Dealeuse under exact activeSTUDIOA817399264 and GalerieMartynoff under activeMARTYNOFF820860849 from current19c mirror and1900Daumvase. Two original logos verified, includingSVGviewBox; WooCommerce/PrestaShop identified. Paris pickup and partial mainlandFrance delivery kept separate from Martynoff worldwide insured packing; conflicting fees/conditional item scope remain unknown. Riconti currentantique stockpositive but activefamilyretailallocation deferred. BE Daisy existingowner preserved. Audit/index/incremental readback passed:373 sources369 Parties462 locations311 logos318 platforms276 profiles, all ingestion empty,USD0. Continue Boulogne and AuSecondEmpire; FULL230 after nextbatch.
+
+
+Batch 230 / FULL230: added Boulogne Antiquités and Au Second Empire from current own eighteenth-century furniture and a sculptural biscuit bust. Exact active operators, one original logo and two WooCommerce platforms were verified. Registered-only Vichy geography remains separate from customer premises; uncertain decorative marks were omitted. Worldwide shipping scope is partial with unknown eligibility and rates. Full audit and resource/default readback passed: 375 sources,371 Parties,464 locations,312 logos,320 platforms,277 profiles; all ingestion empty,USD0. Continue direct art and antiques dealers. Next full check FULL235.
+
+
+Batch 231: added La Salle des Ventes du Particulier under active SAPB and Sélection Julien Segard under active JULMAN. Their available eighteenth-century Nevers statuette and original kinetic artwork establish direct antiques/art relevance. Fixed-price consignment was distinguished from auctions; the confirmed juliensegard.com redirect is an alias. Two original logos and separated registered/customer locations verified; no shipping geography or pickup inferred. Georges Bac TLS and MLD403 deferred. Audit/index/incremental readback passed:377 sources,373 Parties,467 locations,314 logos,322 platforms,277 profiles; all ingestion empty,USD0. Continue new primary channels; FULL235 next.
+
+
+Batch 232: no new API resources. Paris Fine Arts HTTP403, Justine de Paris TLS/connection failure and Carpentier’s published carpentier-antiq.com DNS failure were deferred. Business home remains explicitly unverified for inaccessible research leads; four earlier failed channels received the same clarification without changing backend state. Audit/index/incremental verification passed:377 sources,373 Parties,467 locations,314 logos,322 platforms,277 profiles; all ingestion empty,USD0. Continue Emmanuel Redon, Galerie Cristo and Hassler primary channels; FULL235 next.
+
+
+Batch 233: added Galerie Cristo under exact active LEV-ANA from its available old Chinese elm desk, with two explicit gallery addresses, original logo and WooCommerce. No precise object age, freight, pickup or multi-site inventory was invented. Emmanuel Redon has relevant stock and a verified operator but Drouot auction/fixed-price status remains unresolved; Hassler’s private WordPress/Wix channels lack current stock/operator evidence. Both deferred. Audit/index/incremental readback passed:378 sources,374 Parties,469 locations,315 logos,323 platforms,277 profiles; all ingestion empty,USD0. Continue Violon d’Ingres, Samarkande and Sarthe leads; FULL235 next.
+
+
+Batch234 added Violon d’Ingres / VIOLON D’INGRES SARL 430242131: current original Jules René Hervé painting, active French operator, two explicitly distinguished Saint-Ouen stands, native PrestaShop and original PNG logo. Fresh live API name-only homonym with the Swiss SNC was reconciled as a distinct operator; no Swiss records were changed. Shipping destinations and buyer collection were unverified and omitted. Trésors d’Antan and Samarkande private channels were deferred for connection/TLS failures without closure or home-country assumptions. Readbacks passed; all 379 ingestion lists remain empty; no unresolved writes and $0 paid-data spend.
+
+
+FULL235 passed complete live readback of 380 sources, 376 Parties, 472 locations and all selected defaults/profiles. Batch235 added Brocante O’Plus / active TROC AMOUR SARL 388101677 in Anglet, qualified by an available circa1900 dressing table and original Fabrice Mulheim sculpture with inspected photos. Original native PNG500x254 attached; custom platform left unknown. Advertised France-and-everywhere-else transport geography retained with null item eligibility, rates and timing; shop access and consignment reception do not become buyer collection. Galerie Dubasque, Antique BAB and Lennox were deferred for DNS/login/access-code/identity-stock gaps. All380 ingestion lists empty; $0 paid spend; no unresolved writes. Continue regional primary research; next full readback FULL240.
+
+
+Batch236 added no resources: ABCèb Antiquités, Antics&Déco Pau and Brocante de Barcelonne-du-Gers deferred for missing currently inspectable individual art/antique stock and/or exact operator evidence. Buying wish lists, supplier inquiries and generic categories were not treated as available stock. Existing Pau/Tarbes owners and dated deferrals were respected. Audit/index and incremental verification passed across380 sources with empty ingestion; 276 deferrals,26 exclusions, $0 paid spend, no unresolved writes. FULL235 remains the last complete readback; continue Gers/private catalogue research.
+
+
+Batch237 deferred Gettantik and Raymond Raigné: relevant antique themes were visible, but exact legal/current-availability evidence or individually described current stock was insufficient. Gettantik FAQ template text was not imported as delivery policy. Marchesi Lectoure remains a queued individual hosted-seller lead, never a whole Proantic source. No API additions; audit/index and incremental readback passed for380 empty-ingestion sources,278 deferrals,26 exclusions and $0 paid spend. Continue new direct-antique catalogue research; no global blocker.
+
+
+Batch238 added Le Repaire des Antiquités / active GROUPE GUITTET SARL911202844: current original eighteenth-century furniture offer with nativeShopify available variant, current registered-only La Ferté-sous-Jouarre seat, verified contacts and scoped shipping. Same SIREN and manager reconcile older legal company name/address; no old address promoted to current premises. MetroFranceincludingCorsica and unenumeratedinternational destinations retain unknown rates/lead times and item-dependent eligibility; specificitem FR/BE/LU includedfreight stays documentary only. Plaintext header/third-party brandmarks were not substituted as a logo. All381sources emptyingestion; readbacks,audit,index and incrementalverification passed; no exclusions or new deferrals, $0 spend, no unresolved writes. Continue MaisonGossot and Occadeco primary research.
+
+
+Batch239 added Antiquités Maison Gossot / active Jean Michaud-Nerard EI334338753, Dijon registered shop. Qualification rests on an available1939 AugusteDrouot originalwatercolour and antique paintings, independently of unrelatedtoy/militaria stock. NativeJimdo and original1117x507JPEG logo inspected. Partial expressly named deliverycountries with insurance retain unknownrates; obsoletecountrylabels, zero/defaultfees and2021indicativepostage were not generalized. Occadeco/MAREAS deferred for blankobjectphotos despite positivearttitles/prices/nativequantity1. All382sources emptyingestion; readbacks,audit,index and incrementalverification passed,279deferrals,26exclusions,$0spend,no unresolvedwrites. Continue unowned directart/antique leads; FULL240 next.

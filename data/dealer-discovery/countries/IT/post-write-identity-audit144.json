@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-144",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:14:43.309169Z",
+  "result": "PASSED",
+  "rawJournalFiles": 93,
+  "rawJournalRecordsScanned": 40400,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "galleriadarteanticadibattista.com"
+    ],
+    "excluded": [
+      "asteilconte.webnode.it"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot144-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T17:14:23.617913Z",
+    "fullVerifiedAt": "2026-11-03T17:11:46.779380Z",
+    "counts": {
+      "parties": 239,
+      "listingSources": 239,
+      "locations": 283,
+      "logos": 202,
+      "identifiedPlatforms": 182,
+      "deliveryProfiles": 135,
+      "emptyIngestionMethods": 239,
+      "excluded": 24,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "DiBattista exactnativeCrescentiniEnrica/VAT01809700675 positively corroborated official. Native AntonioDiBattista is consultant, notoperator. One actualnative DAnnunzio42Teramogallery; officialtaxTravazzano3 notextra/currentphysical/registered/dispatchsite. Native offers own collection for sale and currentcaptionedexhibition; actual1141x1600handsstudy plusframedart photo inspected. Exact artist/date/authenticity/value not imported. OriginaltransparentbeigeGDBmonogram PNG212x147 inspected; opt1920upscale notimported. Direct Duda runtime, no shipping/collection/INV. IlConte excludedforcurrentexplicitnativeauctionhouseidentity, notjustcollaborationwithotherauctionhouses; noAPI. FiadoneDNSunavailableunassignedDec3hint, unrelatedfoodcompanynotmerged. ExistingTrifoglioItalyownedskippedwithoutenrichment.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

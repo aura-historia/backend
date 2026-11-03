@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-150",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:55:35.219762Z",
+  "result": "PASSED",
+  "rawJournalFiles": 110,
+  "rawJournalRecordsScanned": 42021,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "antichiricordiantiquariato.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot150-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T17:54:20.362383Z",
+    "fullVerifiedAt": "2026-11-03T17:32:57.502178Z",
+    "counts": {
+      "parties": 248,
+      "listingSources": 248,
+      "locations": 294,
+      "logos": 210,
+      "identifiedPlatforms": 190,
+      "deliveryProfiles": 139,
+      "emptyIngestionMethods": 248,
+      "excluded": 25,
+      "deferred": 81
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "AntichiRicordi isonlyindependentAntonioToscano exactdealer942 hostedcatalogue. NativeprofileVAT01182650786 positivelymatchesofficialTOSCANOANTONIO; nativeadvertisedownsite500notclosure. Actualcurrentphysicalbookcasephoto960x720anddetailedcurrentenquiryofferinspected. SourceURLexclusivedealer942, no marketplacewideURL/Party/providerVAT. ExactmerchantIDchecksacrossURLqueryvariantsplusnativeidentity/VAT/contacts beforedryrunandwrite,110rawjournalsfreshread. NativeidentitykeyinitialREVIEWEDrowwasrejectedbysharedcanonicalhostreaderbeforeanyAPIwrite; thatsingleunmutatedreviewmovedintacttoItalyownedhosted/antichi-ricordi/dealers.jsonl withcanonicalanticoantico.com andjournalReconciliationhash. Mainexistinghistorypreservedbyte-for-byte, noIDsrecreated/lost. Run-localexactmerchantselectorusedunchangedsharedonboardingflow; no sharedscript/runtimeedits. CurrentVialeSantAngelo41contactroles[] only, officialContradaLevicataxaddress/87064distinctfromnative87067contact, no relocation/postalrepair/premises/registered/INV/dispatch/pickup. Lombardy/Lazioappoggi/nationalbuyingnotbranches/shipping. No dealerlogoestablished; actualhostingplatformANTICOANTICOdescriptiveonly. Main247andhosted1explicitlyverifiedandactualsourceIDsaggregated; all248ingestionlists[]/$0.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

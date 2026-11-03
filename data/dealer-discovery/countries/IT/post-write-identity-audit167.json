@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-167",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:36:12.594536Z",
+  "result": "PASSED",
+  "rawJournalFiles": 142,
+  "rawJournalRecordsScanned": 45295,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:438",
+      "IT:ANTICOANTICO:765"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot167-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T19:35:31.076526Z",
+    "fullVerifiedAt": "2026-11-03T19:14:10.305024Z",
+    "counts": {
+      "parties": 268,
+      "listingSources": 268,
+      "locations": 316,
+      "logos": 222,
+      "identifiedPlatforms": 210,
+      "deliveryProfiles": 145,
+      "emptyIngestionMethods": 268,
+      "excluded": 25,
+      "deferred": 88
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Two exact hosted sources438FedericoAndrisani and765AndreaFioriGalleryLaCassapanca created after positive officialVAT and originalcurrent stockphotos810x1080stilllife/1920x1920Empiretable inspected. NativePadovaexhibitionpremises94 distincttaxPonteSanNicolò; nativeSassuoloFossetta23contactroles[] distincttaxMaranelloMistral2int5. Andrisanistandalone404, CassapancaHTTPSinvalidhost and explicitlyadvertisedHTTPmalformedwrapper do not proveclosure. Wrapperhref936 contradictsvisible765;936notfollowed/owned/aliased/repaired. No email/logo guess, watermarkcrop, professionalpersonalhistory, shipping/purchasedpickup/inventory/dispatch or itemguarantees. Due Italy-ownedPera3Novnativepausepersists: journalonlyreview rescheduled10Nov, existingeligibilitynull/IDsunchanged, noAPIwrite. Tenownedjournalsverified,newtwoinitialfull,268emptyingestion,no pendingwrites,$0. Fullreadbackdue168alljournals.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

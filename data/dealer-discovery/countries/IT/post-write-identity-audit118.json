@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-118",
+  "country": "IT",
+  "observedAt": "2026-11-03T13:56:17.664588Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 33264,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "antichitafallavena.com",
+      "libreriagrandangolo.it"
+    ],
+    "excluded": [
+      "exnovo-pn.it"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot118-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T13:55:45.919520Z",
+    "fullVerifiedAt": "2026-11-03T13:55:45.919520Z",
+    "counts": {
+      "parties": 202,
+      "listingSources": 202,
+      "locations": 243,
+      "logos": 172,
+      "identifiedPlatforms": 153,
+      "deliveryProfiles": 122,
+      "emptyIngestionMethods": 202,
+      "excluded": 20,
+      "deferred": 61
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Fallavena is an inquiry catalogue with explicit Next.js technology, no online checkout or concrete delivery policy. Negative VIES is not Italian invalidity or closure. Grandangolo’s old registered address differs from current contact/VIES; no extra registered premises imported. Weight tariffs and country coverage remain unresolved; only verified handling and collection arrangements adopted. Market attendance is not branches. Ex Novo exclusion concerns recent fashion scope,not trustworthiness.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

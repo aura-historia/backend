@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-158",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:46:01.799442Z",
+  "result": "PASSED",
+  "rawJournalFiles": 125,
+  "rawJournalRecordsScanned": 43414,
+  "apiWriteAttemptsThisRun": 0,
+  "decisions": {
+    "added": [],
+    "excluded": [],
+    "deferred": [
+      "antichitaitaliane.it",
+      "antichitacastello.it"
+    ]
+  },
+  "freshApiIdentityCheck": "No API mutations in this batch; every managed Party/source identity read and verified by explicit country verification. Deferred observations create no resources.",
+  "prewriteSnapshot": null,
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T18:44:52.268900Z",
+    "fullVerifiedAt": "2026-11-03T18:44:09.845362Z",
+    "counts": {
+      "parties": 258,
+      "listingSources": 258,
+      "locations": 305,
+      "logos": 220,
+      "identifiedPlatforms": 200,
+      "deliveryProfiles": 143,
+      "emptyIngestionMethods": 258,
+      "excluded": 25,
+      "deferred": 86
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Two direct-antique leads deferred without resources. AntichitàItaliane current captioned furniture/photo and Roman shop are clear, but formal legal seller is not established by inspected brand-only privacy/native pages; stale2023promotion not current pricing or closure. Castello native antique activity and image/222x80logo inspected, but generic trumeau definition does not prove a specific available own-stock offer and exact formal seller remains unresolved. SecondaryVAT02508260136/company/civic163vs176 and externalLuisago lead not adopted; .comconnectionrefusal/privacypagetimeout are incomplete observations, not closure or verifiedalias. Historical email associations outside current business evidence ignored. Both owned ledgers passed full actual resource/default readbacks; all258ingestionlists empty.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

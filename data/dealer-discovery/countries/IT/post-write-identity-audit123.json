@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-123",
+  "country": "IT",
+  "observedAt": "2026-11-03T14:34:33.356546Z",
+  "result": "PASSED",
+  "rawJournalFiles": 42,
+  "rawJournalRecordsScanned": 34376,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "libreriacanesi.it"
+    ],
+    "excluded": [
+      "globolibri.it"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot123-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T14:33:25.176550Z",
+    "fullVerifiedAt": "2026-11-03T14:33:25.176550Z",
+    "counts": {
+      "parties": 207,
+      "listingSources": 207,
+      "locations": 250,
+      "logos": 176,
+      "identifiedPlatforms": 157,
+      "deliveryProfiles": 124,
+      "emptyIngestionMethods": 207,
+      "excluded": 21,
+      "deferred": 67
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Canesi’s currentnativeabout explicitly identifies proprietorRobertoCanesi andcurrentVaresebookshop. ExactVAT/registeredcompanysuffix unverifiedand omitted. A boundedpublicWooCommerceStoreAPI singleproductrequest and matchingfullproductpage establishactual1915physicalbookoffer, independentofhomepageLoremIpsum. Noindividualitemphoto; actualbookshopphoto inspected, withoutclaimingitemauthentication. Internalstockposition negozio4 isnotfourthpremises. No verifiedoriginalbitmap/SVGlogo,shippingpolicy,collection orinventorydefault. GloboLibri currentnewpublisherstock excluded,withoutclosurefinding.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

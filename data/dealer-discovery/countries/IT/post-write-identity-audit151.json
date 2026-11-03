@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-151",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:02:42.818398Z",
+  "result": "PASSED",
+  "rawJournalFiles": 111,
+  "rawJournalRecordsScanned": 42207,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "bfacchini.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "libriusatisonnino.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot151-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T18:00:42.468439Z",
+    "fullVerifiedAt": "2026-11-03T17:32:57.502178Z",
+    "counts": {
+      "parties": 249,
+      "listingSources": 249,
+      "locations": 295,
+      "logos": 211,
+      "identifiedPlatforms": 191,
+      "deliveryProfiles": 139,
+      "emptyIngestionMethods": 249,
+      "excluded": 25,
+      "deferred": 82
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "BFacchiniexactnativeSRLcompany andpublishedunchanged11digits02626370411 positiveofficialB&FACCHINISRL. RawPU026...provinceprefixpreserved, noVATdigitrepair orPUISOclaim. NativecurrentFano16/AgalleryvsGovSNtaxdistinctnoregistered/extraaddress. FoundersMarco/CathrinenotParties. Actual2560x1707mythologicalpastigliachestphoto/descriptioninspected; exactXVcentury/authenticitynotimported. Native297x88JPEGwordmark, currentWordPressNextGENnotWooCommercefromisolatedasset. 2026eventtitle/2025bodycopymismatchnotattendance/datefacts. NoINV/dispatch/shipping/pickup. SonninoDEFERRED: nativegenericrare/oldbookclaimdoesnotexposeactualcurrenthistoricaledition/offer, currentfulllegaloperatorunconfirmed; nativeendorsedreviewnamesPierluiginotPaolo/emailguess. NativeeBayGET403andordinaryChromiumerrornotclosure; noauth. Schoolbookactivityended2020notwholebusiness. No managedfacts/APIresources. Allmain248plusownedhosted1explicitlyverifiedandIDsaggregated.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

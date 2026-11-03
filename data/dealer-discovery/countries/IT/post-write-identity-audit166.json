@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-166",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:30:24.216623Z",
+  "result": "PASSED",
+  "rawJournalFiles": 140,
+  "rawJournalRecordsScanned": 45093,
+  "apiWriteAttemptsThisRun": 4,
+  "decisions": {
+    "added": [
+      "alicefineart.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot166-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T19:29:43.620376Z",
+    "fullVerifiedAt": "2026-11-03T19:14:10.305024Z",
+    "counts": {
+      "parties": 266,
+      "listingSources": 266,
+      "locations": 314,
+      "logos": 222,
+      "identifiedPlatforms": 208,
+      "deliveryProfiles": 145,
+      "emptyIngestionMethods": 266,
+      "excluded": 25,
+      "deferred": 88
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Native AliceFineArt primary source added only, exact hosted1098 closed as same managed identity without second source/globalhostalias. Current native privacy and hosted fulloperator/VAT agree proprietorPaoloRotili, officialpositive; secondary samebrandSRL/VAT04831800406 is an unadopted dated follow-up, no merge/successor assumption/extraParty. Rimini galleryBUSINESS_PREMISES and explicit native Orvieto postalprivacy correspondenceCORRESPONDENCE distinct; tax10/1 not correctedinto native10 or extra gallery/registered/stock/dispatch site. Actual original500x137whitewordmark and2062x2106currentterracottabust inspected, current Opere distinct from sold artwork. WordPress direct; no shipping/purchasedpickup or inventory/dispatch defaults. No invented claims, contact/purchase/ingestion. All eight journals verified,266empty ingestion,nopending,$0.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-164",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:19:02.129748Z",
+  "result": "PASSED",
+  "rawJournalFiles": 136,
+  "rawJournalRecordsScanned": 44699,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:862"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot164-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T19:18:43.485067Z",
+    "fullVerifiedAt": "2026-11-03T19:14:10.305024Z",
+    "counts": {
+      "parties": 263,
+      "listingSources": 263,
+      "locations": 310,
+      "logos": 221,
+      "identifiedPlatforms": 205,
+      "deliveryProfiles": 144,
+      "emptyIngestionMethods": 263,
+      "excluded": 25,
+      "deferred": 88
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Abellonio exact seller862 company/VAT officialpositive, native CrovaDiVaglio2 and phone verified; actual original1774x1211 currentpainting464342 inspected. No email/logo/shipping/pickup verified, historic fair11/A address/email omitted. Taxaddress match not registered/premises/inventory/dispatch proof. Secondary hypothetical auction-agency corporate-purpose wording is not owned auction operation; inspected native pages show direct antique retail. OlivieroArte exactReteimprese65664 remains frontierdeferred pending current native full operator/country/authorship corroboration; standaloneDNSfails, VIESnegative not closure/domesticinvalidity. No platform operator/source, extraParty, invented standalonealias, providerwidepolicy, itemguarantee or ingestion. Six owned journals verified, new Abellonio initialfull, all263emptyingestion, no pendingwrites, $0.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-160",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:56:57.887414Z",
+  "result": "PASSED",
+  "rawJournalFiles": 129,
+  "rawJournalRecordsScanned": 43860,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:825"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot160-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T18:56:09.284490Z",
+    "fullVerifiedAt": "2026-11-03T18:44:09.845362Z",
+    "counts": {
+      "parties": 260,
+      "listingSources": 260,
+      "locations": 307,
+      "logos": 221,
+      "identifiedPlatforms": 202,
+      "deliveryProfiles": 144,
+      "emptyIngestionMethods": 260,
+      "excluded": 25,
+      "deferred": 86
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "A.M.Marcelli exact seller825/operator/VAT confirmed by current seller-authored catalogue and positive official identity. Original1400x1050 lacqueredbox photo and specific current enquiry offer462792 inspected; no independent object age/material/condition/availability guarantee. Source is exact hosted merchant catalogue, canonical hostAnticoAntico with stable keyIT:ANTICOANTICO:825; no standalone domain, platform Party/source or unrelated hosted dealer adopted. Native ViaPopolo23Gubbio contact has roles[]; taxViaCarducci9 not extra registered/stock/dispatch site. No original merchant logo/email or seller-specific shipping/pickup verified. Secondary family/10outlets/auctionexpertise not imported, auction participation not owned operation. Broad CA match was only localitySainteMarcelline in unrelated reves-antiques.com, not shared identity; no CA mutation. All129 raw journals read before exact-seller mutation, fresh global identities checked, three owned journals fully accounted for and independently verified.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

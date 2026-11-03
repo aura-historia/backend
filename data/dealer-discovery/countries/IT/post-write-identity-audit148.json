@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-148",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:33:32.133522Z",
+  "result": "PASSED",
+  "rawJournalFiles": 100,
+  "rawJournalRecordsScanned": 41303,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "dallantiquario.it",
+      "lecuriositadelpassatoboutique.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot148-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T17:32:57.502178Z",
+    "fullVerifiedAt": "2026-11-03T17:32:57.502178Z",
+    "counts": {
+      "parties": 245,
+      "listingSources": 245,
+      "locations": 291,
+      "logos": 208,
+      "identifiedPlatforms": 187,
+      "deliveryProfiles": 137,
+      "emptyIngestionMethods": 245,
+      "excluded": 24,
+      "deferred": 81
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Dall nativeMarini&GerardiSRL/VAT03395960754 positiveofficialcurrentmatch. Nativeownperiodfurnishingsforsaleandrent, actual1500x1001cabinetcollectionphotoinspectedwithdealerwatermark. Native540x80PNGwordmark andWordPressdirect. OneactualMonteroniRubichi2showroom, no registeredrolefromtax/stock/dispatch. RelatedsameoperatorMarinitextilecatalogue notalias/extraParty/antiquefreightpolicy; no almostworldwide/made-to-ordertimings generalized. Curiosita exactfullnativeDeChiricoMarialuisaoperator/privacy/VAT07365960728, negativeVIESnotnationalinvalidity. Actualownhomepageantiquecabinetphoto800x1201inspecteddespiteemptydedicatedgallery. Nativecmsi.paginesi.it tenant/contentmetadata directPAGINESI_CMS notjustfooter. Currentworkinggenuine156x156JPEGbrandassetinspected/imported; metadata361originalHTTP500notupscaled/invented. OneactualStradaCalo7Bisceglieshop, no registered/INV/dispatch/pickup/shipping. Founders/relativesnotParties.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-134",
+  "country": "IT",
+  "observedAt": "2026-11-03T15:48:48.979628Z",
+  "result": "PASSED",
+  "rawJournalFiles": 65,
+  "rawJournalRecordsScanned": 37343,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "libreriapalatinaeditrice.it",
+      "labottegadelmobileparma.it",
+      "olivastampeantiche.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot134-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T15:48:16.181752Z",
+    "fullVerifiedAt": "2026-11-03T15:37:46.101221Z",
+    "counts": {
+      "parties": 221,
+      "listingSources": 221,
+      "locations": 265,
+      "logos": 187,
+      "identifiedPlatforms": 169,
+      "deliveryProfiles": 128,
+      "emptyIngestionMethods": 221,
+      "excluded": 23,
+      "deferred": 79
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Palatina native current proprietor Carlotta is separate from founders and past owners; actual1823copy/photo verified, Bodoni empty category not dealer closure. Native public email resolved in ordinary browser; Weebly directly identified. No VAT/logo invented or postal shipping country inferred. Bottega native legal SNC preserved with initials unexpanded; actual1960s cabinet/shop photo and original200x40JPEG inspected, PrestaShop direct. Speculative about-page history ignored. Italy/UNRESOLVED Europe shipping with null item eligibility/rate; special1500EUR/250km program not made free/universal, payment-mode times not universalized, pickup only where offered with appointment. Oliva exact operating SNC independently named by current official10April2026ordinance at same nativeaddress/mobile; Nicola manager not substituted for company. Ordinance body is cellar clearing, not shop relocation/closure. Original print/133x131logo inspected and WooCommerce direct. Broken privacy link/no published privacy search result not presented as legal notice. No uncertain VAT/registered/dispatch/inventory facts adopted. Ticci DNS-domain hint queued with no verified country; existing Prospero and Anticosi untouched.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

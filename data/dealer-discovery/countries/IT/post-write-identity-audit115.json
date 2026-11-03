@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-115",
+  "country": "IT",
+  "observedAt": "2026-11-03T13:35:05.464480Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 32185,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "portobellocatanzaro.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "portobellorc.com",
+      "deimainella.it",
+      "anticamaisonpz.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot115-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T13:34:29.858430Z",
+    "fullVerifiedAt": "2026-11-03T13:18:24.652857Z",
+    "counts": {
+      "parties": 197,
+      "listingSources": 197,
+      "locations": 235,
+      "logos": 167,
+      "identifiedPlatforms": 148,
+      "deliveryProfiles": 119,
+      "emptyIngestionMethods": 197,
+      "excluded": 19,
+      "deferred": 58
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "PortobelloCatanzaro UPS75kg and/or0.25m3 policy retained with unknown universal eligibility and price. Local delivery boundaries unresolved; pickup offered with unknown site/arrangement. Two shops have no whole-source inventorydefault. VIES taxaddress not newpremises. RClegaloperator unresolved despite actualantique stock; no inferredGranatosoletrader. Mainella/AnticaMaison DNSfailures notclosure. Related logistics service not another antique storefront.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

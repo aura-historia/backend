@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-135",
+  "country": "IT",
+  "observedAt": "2026-11-03T15:57:47.158746Z",
+  "result": "PASSED",
+  "rawJournalFiles": 65,
+  "rawJournalRecordsScanned": 37716,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "galleriapuglisi.it",
+      "itinerasiena.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot135-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T15:55:23.045019Z",
+    "fullVerifiedAt": "2026-11-03T15:37:46.101221Z",
+    "counts": {
+      "parties": 223,
+      "listingSources": 223,
+      "locations": 267,
+      "logos": 189,
+      "identifiedPlatforms": 170,
+      "deliveryProfiles": 128,
+      "emptyIngestionMethods": 223,
+      "excluded": 23,
+      "deferred": 79
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Puglisi and Itinera exact current native VAT/operator links corroborated by positive VIES; actual physical-book photos and original120x120JPEG/600x72PNGlogos inspected. One native shop each, government tax addresses not extra premises. Puglisi phone unknown and CasaSKU not a warehouse/default. Return address and tracking advice are return terms, not outbound policy. Itinera17/SNC address preserved literally without inventing an SNC company suffix. Full operatorDuccio distinct from existing ExLibrisLeone/VAT18374211003: fresh surname hit reconciled, original existing record untouched. Unrelated SPLASHSTORE footer ignored; TNX developer credit not enough platform evidence. No shipping/collection/inventory defaults inferred from blank terms, selectors or generic icons. Burzi certificate and Brocante gateway failures queued as unassigned-country hints without closure inference. Existing Dagantiqua, Retini, Prospero and Anticosi retained without enrichment.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

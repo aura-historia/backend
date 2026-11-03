@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-139",
+  "country": "IT",
+  "observedAt": "2026-11-03T16:45:41.804716Z",
+  "result": "PASSED",
+  "rawJournalFiles": 83,
+  "rawJournalRecordsScanned": 39397,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "beggiantichita.com",
+      "furlanantichita.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot139-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T16:44:41.843276Z",
+    "fullVerifiedAt": "2026-11-03T16:39:52.591829Z",
+    "counts": {
+      "parties": 232,
+      "listingSources": 232,
+      "locations": 276,
+      "logos": 197,
+      "identifiedPlatforms": 177,
+      "deliveryProfiles": 134,
+      "emptyIngestionMethods": 232,
+      "excluded": 23,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Beggi exactGabriele operator/positiveVIES, actual current non-sold Cano4000EURoffer/photo; featuredMaggi andcopperlandscape VENDUTO notavailableproof. Drupal7direct, original1920x160PNG. Empty SpedizioneinItalia cell not coverage/freefreight, no profile/inventory. Furlan exactnativeDavide plus own-native-linked dealer1114VAT/itemfooter positiveofficialFURLANDAVIDE, noextraDiegoParty/taxMassazza location. Native repeated3487652132 adopted, isolatedoverlongfootertypo ignored. Current dealer-authored1920slead-glasswindow offer/nativeoriginalphoto inspected; soldnativezeroprice safes notavailable/free. WixStores direct. Original1772x1057dealerwordmark fromnative-linked specificstorefront preferred to chair icon, no marketplaceParty/source. Insured/packedcurbside delivery withZTL/difficultaccesslimits and unknowncountries/rates/times preservedPARTIALUNRESOLVED/nullsourceeligibility; arranged independentpickupMilano84boundexplicitly. NoANYWHEREfrominternationalcouriers, inventory ordispatch.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

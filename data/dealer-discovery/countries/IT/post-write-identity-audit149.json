@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-149",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:43:25.974589Z",
+  "result": "PASSED",
+  "rawJournalFiles": 106,
+  "rawJournalRecordsScanned": 41653,
+  "apiWriteAttemptsThisRun": 10,
+  "decisions": {
+    "added": [
+      "antiquariatocosta.com",
+      "bertinatoantiques.it"
+    ],
+    "excluded": [
+      "portobellomolfetta.com"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot149-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T17:42:03.252459Z",
+    "fullVerifiedAt": "2026-11-03T17:32:57.502178Z",
+    "counts": {
+      "parties": 247,
+      "listingSources": 247,
+      "locations": 293,
+      "logos": 210,
+      "identifiedPlatforms": 189,
+      "deliveryProfiles": 139,
+      "emptyIngestionMethods": 247,
+      "excluded": 25,
+      "deferred": 81
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Costa currentnativeexactSRLS/VAT02171650563 positiveofficial; actual184x184PNGwordmark and1920x2560originalvintagefloorashtrayphoto inspected. No exactproductiondecadefromstylewording; currentnativebroaderoriginalhistorical/artstock qualifies. Sole73/BViterbopremiseplusexplicitregisteredreturnaddress bothrolesindependently. PartialITalmostalllocalities/nullsourceeligibility, groundfloor, PACKINGunknownrate/time; Europe/extraEuropeUNRESOLVEDrequestconfirmationnotANYWHERE.15–20daysonlyalmostalllocationsnotuniversal. Explicitpurchasedpickup73/B/site0/arrangementnull, no appointmentinference. NoINV/dispatch. Bertinato exactnativeVAT03122910247 positiveofficialBERTINATOANDREA; nativeAndrea/Cristian notsecondParty. NativepublishedPellico1contactroles[], workshopTezzeexactsiteunconfirmed. GenuineSVG895x188wordmarksafeinspected, WooCommerce11.1.0. Mainroomshotsstagednotpremisesproof; actual1920x1920paintingdetailmatchingcomposition/texture inspected. Worldwideexplicit/mostitems=>PARTIALANYWHERE/nullsourceeligibility/INSURED/PACKING/rateandtimingnull. CFpublicemaildecodedfromdeliveredHTML,noauth. PortoBello nativeTermsexplicitprivate-privatebrokerageandvendorprogramoutsideownstockscope, excludedwithoutAPI. No dueactivityreviews.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

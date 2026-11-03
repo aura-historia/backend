@@ -1,0 +1,47 @@
+{
+  "run": "tw-2026-11-03-060",
+  "verifiedAt": "2026-11-03T19:52:31.787334Z",
+  "scope": "FULL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T19:52:31.787334Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 0,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 1,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 3464,
+    "listingSources": 3499
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "pinkoi.com",
+      "listingSourceId": "ls_01m6gz5xefer3tz0hn6w3er6t6",
+      "partyId": "pty_01m6gz5xdxe82v2smpd13ckz39",
+      "locations": 1,
+      "logo": true,
+      "platform": "PINKOI",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:52:31.786358Z",
+      "observationDigest": "f441bc51175d39523f3a9a45e156cf476fadd34f22f19158ae5a81d5e167e52b"
+    }
+  ]
+}

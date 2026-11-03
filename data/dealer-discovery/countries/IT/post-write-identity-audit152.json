@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-152",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:11:57.131614Z",
+  "result": "PASSED",
+  "rawJournalFiles": 113,
+  "rawJournalRecordsScanned": 42433,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "tordi.com",
+      "artevintage.shop"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot152-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T18:11:17.650567Z",
+    "fullVerifiedAt": "2026-11-03T17:32:57.502178Z",
+    "counts": {
+      "parties": 251,
+      "listingSources": 251,
+      "locations": 297,
+      "logos": 213,
+      "identifiedPlatforms": 193,
+      "deliveryProfiles": 140,
+      "emptyIngestionMethods": 251,
+      "excluded": 25,
+      "deferred": 82
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Tordi one current Snc from exact native VAT/current official match, one Rimini shop/workshop and actual antique secretaire photos; original257x105PNG/DUDA. No family individuals/registered role/inventory/dispatch/shipping/pickup. Arte Vintage current AntichitàSAS full native Michela versus isolatedSRLpaymentcopy discrepancy; no corporate conversion or extra Party. Art qualification from actual available charcoal drawing beyond recent fashion. Original440x50logo/WooCommerce, one Cesena shop. Preserve basket250-inclusive9.90/freeover250normal rule, bulky39.90orhigher, foreign+10 and approximate courier estimates in ledger only; profile rates/timesnull, ITpartial/foreignunresolved, actual purchasedcollectionsite0arrangementnull. No bank details/financial credentials, pickup fee/appointment, warehouse/dispatch or ingestion.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

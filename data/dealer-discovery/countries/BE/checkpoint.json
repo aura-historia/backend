@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "run": "be-2026-11-03-055",
+  "observedAt": "2026-11-03T19:50:39.423492Z",
+  "counts": {
+    "parties": 111,
+    "listingSources": 111,
+    "locations": 151,
+    "logos": 71,
+    "identifiedPlatforms": 79,
+    "deliveryProfiles": 50,
+    "emptyIngestionMethods": 111,
+    "excluded": 10,
+    "deferred": 131
+  },
+  "verification": "PASSED_FULL",
+  "paidDataSpendUsd": 0,
+  "blockers": [],
+  "countryCoverage": "OPEN",
+  "description": "No new Belgian API resources in this routing batch. Completed initial triage of all 109 Antica Namur 2026 profiles, preserving open identity, stock and country follow-ups. Verified eight foreign legal homes and queued them to Germany, Italy or France; existing French and Swiss ownership retained. Full verification passed across all four Belgian ledgers: 111 sources, 151 locations and 50 shipping profiles, all ingestion empty. Paid-data spend USD 0; no country blocker. Country coverage remains open. Next full check060."
+}

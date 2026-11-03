@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-129",
+  "country": "IT",
+  "observedAt": "2026-11-03T15:20:57.416685Z",
+  "result": "PASSED",
+  "rawJournalFiles": 55,
+  "rawJournalRecordsScanned": 36212,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "antichitabonetti.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "contebiancamano.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot129-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T15:20:29.158914Z",
+    "fullVerifiedAt": "2026-11-03T15:06:57.688424Z",
+    "counts": {
+      "parties": 213,
+      "listingSources": 213,
+      "locations": 257,
+      "logos": 181,
+      "identifiedPlatforms": 162,
+      "deliveryProfiles": 126,
+      "emptyIngestionMethods": 213,
+      "excluded": 23,
+      "deferred": 75
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Bonetti Flavio exact native header/VAT is corroborated by current official VIES, distinct from Paolo Bonetti. Original logo and current cabinet photo inspected. Native Stelvio shop retained; secondary Ventina listings and separate tax address not imported. Individual furniture shipping prices and island supplement retained in ledger only: destinations/source-wide applicability unresolved. Platform unknown, no inventory or collection default. Conte Biancamano native-linked rendered privacy identifies only trading brand, not the secondary-suggested full proprietor/VAT; positive VIES does not independently link that identity. EUR0.00 beside request-a-quote is not free stock. Deferred without API writes. Existing Merlin alias reconciled in own frontier, no API mutation. Annelise Conte HTTP526 retained as an unassigned-country domain hint.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

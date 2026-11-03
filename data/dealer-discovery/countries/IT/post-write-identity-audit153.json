@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-153",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:17:19.039495Z",
+  "result": "PASSED",
+  "rawJournalFiles": 119,
+  "rawJournalRecordsScanned": 42563,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "orvietoarte.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot153-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T18:16:11.527429Z",
+    "fullVerifiedAt": "2026-11-03T18:15:30.686840Z",
+    "counts": {
+      "parties": 252,
+      "listingSources": 252,
+      "locations": 298,
+      "logos": 214,
+      "identifiedPlatforms": 194,
+      "deliveryProfiles": 140,
+      "emptyIngestionMethods": 252,
+      "excluded": 25,
+      "deferred": 82
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Orvieto Arte: one current native Antichità dell’Arcone Srl operator from explicit repeated footers; Martare Petronela is named as privacy data controller, not a separate seller Party. Negative VIES concerns intra-EU registration, not national VAT invalidity or closure. Original736x255 logo and actual1024x473 furniture photo inspected. Current Orvieto contact address has roles[]; old Baschi image caption does not establish a current branch. No inventory/dispatch, exact item age/authenticity/availability, shipping or purchased pickup inferred from international clientele. Bulzomì .it/.com DNS failures saved as an unassigned frontier deferral for December3, not a closure or verified country. Full actual readbacks passed for both owned journals.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

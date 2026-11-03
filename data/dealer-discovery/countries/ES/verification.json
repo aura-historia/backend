@@ -1,25 +1,25 @@
 {
-  "run": "2026-11-03-es-221",
-  "verifiedAt": "2026-11-03T09:02:24.021933Z",
+  "run": "2026-11-03-es-289",
+  "verifiedAt": "2026-11-03T19:46:46.929778Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T08:25:51.194970Z",
-  "dealersCheckedThisRun": 0,
-  "dealersReused": 243,
+  "fullVerifiedAt": "2026-11-03T19:18:07.535194Z",
+  "dealersCheckedThisRun": 3,
+  "dealersReused": 318,
   "counts": {
-    "parties": 242,
-    "listingSources": 243,
-    "locations": 315,
-    "logos": 221,
-    "identifiedPlatforms": 215,
-    "deliveryProfiles": 169,
-    "emptyIngestionMethods": 243,
-    "excluded": 41,
-    "deferred": 324
+    "parties": 320,
+    "listingSources": 321,
+    "locations": 423,
+    "logos": 293,
+    "identifiedPlatforms": 289,
+    "deliveryProfiles": 220,
+    "emptyIngestionMethods": 321,
+    "excluded": 71,
+    "deferred": 411
   },
   "environmentCounts": {
-    "parties": 1975,
-    "listingSources": 1999
+    "parties": 3451,
+    "listingSources": 3486
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
@@ -40,7 +40,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:08.389246Z",
+      "verifiedAt": "2026-11-03T19:17:14.347733Z",
       "observationDigest": "52465ec439734dedc080f6c5efd11769e46c065f9c6ec2f9fd821d9bce48ea5a"
     },
     {
@@ -53,7 +53,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:08.586783Z",
+      "verifiedAt": "2026-11-03T19:17:14.552612Z",
       "observationDigest": "287d9744dbc7ba2fe8351dae5ec4e4120ddd5f0dcda37e7e6ba60151d4a7414a"
     },
     {
@@ -66,7 +66,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:08.471473Z",
+      "verifiedAt": "2026-11-03T19:17:14.456159Z",
       "observationDigest": "582819d6b7f311b04d0597eca862a0dfa92f371193581b9722f09d3e3f9ba817"
     },
     {
@@ -79,7 +79,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:08.978745Z",
+      "verifiedAt": "2026-11-03T19:17:14.843703Z",
       "observationDigest": "57c66ddcd85b3df3de84d599848c66f82a31a818505fdde1426ebcdbcabf2228"
     },
     {
@@ -92,7 +92,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:09.001563Z",
+      "verifiedAt": "2026-11-03T19:17:14.986478Z",
       "observationDigest": "28fa683c7494da321b71c7c0347301a8b32ef6587d61967e1f2dddc69b3bada4"
     },
     {
@@ -105,7 +105,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:09.151482Z",
+      "verifiedAt": "2026-11-03T19:17:15.094003Z",
       "observationDigest": "3573aa521c4625cee67f654dccf3930dcfef9c4d259ac0e9a98178e609b479eb"
     },
     {
@@ -118,8 +118,21 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:09.506304Z",
+      "verifiedAt": "2026-11-03T19:17:15.406263Z",
       "observationDigest": "9dc369f935813ea9960861579f33a7561ead969a7bf370dc299108e005fa5b58"
+    },
+    {
+      "domain": "mediterraneanemporium.com",
+      "listingSourceId": "ls_01m6gydjf6ewwrmzxde9kp4dnv",
+      "partyId": "pty_01m6gydjenewgaxvb212j69nw5",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:15.508937Z",
+      "observationDigest": "25265f29c2a1a6f89392742567f29f98e34a6f1f7ddffd359f42f586188e216c"
     },
     {
       "domain": "milantiguo.es",
@@ -131,7 +144,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:09.534447Z",
+      "verifiedAt": "2026-11-03T19:17:15.597160Z",
       "observationDigest": "f109e9a1ec057f0117f799fac55b8d0f52b8d22f0733de1d6c7420f4159f0f79"
     },
     {
@@ -144,7 +157,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:09.665756Z",
+      "verifiedAt": "2026-11-03T19:17:15.927296Z",
       "observationDigest": "1cc657f829ad247e0d143bc4e3c415adee31489eecc77045f674ea4cef54f16c"
     },
     {
@@ -157,7 +170,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:10.124925Z",
+      "verifiedAt": "2026-11-03T19:17:16.129488Z",
       "observationDigest": "afb5617ab346031477455406f9ef7295a320029ad7a9c6339ad69aa7410a1480"
     },
     {
@@ -170,7 +183,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:10.051314Z",
+      "verifiedAt": "2026-11-03T19:17:16.131062Z",
       "observationDigest": "37e846a4ddf23d8aeca9fd33dc90b4a282f301a95f98c6c3c5c1f5aade1fa4b6"
     },
     {
@@ -183,7 +196,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:10.170822Z",
+      "verifiedAt": "2026-11-03T19:17:16.457963Z",
       "observationDigest": "0556dd2b09cfdab79588f7801f394b98597cbf38e458a1c8cf46410fe1492e38"
     },
     {
@@ -196,7 +209,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:10.646220Z",
+      "verifiedAt": "2026-11-03T19:17:16.727425Z",
       "observationDigest": "2947fe027cc465a1c0723a5cff916ef6b2d91b2fe6e6e7333b09dab988a0eaab"
     },
     {
@@ -209,7 +222,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:10.655593Z",
+      "verifiedAt": "2026-11-03T19:17:16.639260Z",
       "observationDigest": "ec4c3737092eb53a5bb3078422aa2adcf582f73b488a57bc2e33997047bd2bcb"
     },
     {
@@ -222,7 +235,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:10.709173Z",
+      "verifiedAt": "2026-11-03T19:17:17.004269Z",
       "observationDigest": "5ed02fb85d4147d774accfe94e0d457f541721d0cb1387418adc15dc05e42f80"
     },
     {
@@ -235,7 +248,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:11.202800Z",
+      "verifiedAt": "2026-11-03T19:17:17.211847Z",
       "observationDigest": "33424bbb08d697358f352a75eeacf0941dc25b85e1a63607fb72402b7d018fb0"
     },
     {
@@ -248,7 +261,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:11.199178Z",
+      "verifiedAt": "2026-11-03T19:17:17.276658Z",
       "observationDigest": "319ff68d1e17471ba0f0bf8caed44a882d68b369c56ab24b88497e764c227811"
     },
     {
@@ -261,7 +274,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:11.155438Z",
+      "verifiedAt": "2026-11-03T19:17:17.435158Z",
       "observationDigest": "e95ae68d833b03f06d803ff76c5ed3bcc78919985420b0a33fbb631425274518"
     },
     {
@@ -274,7 +287,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:11.556213Z",
+      "verifiedAt": "2026-11-03T19:17:17.873279Z",
       "observationDigest": "4f200be9407a936c2de3378b7b5a572c8708a0d7eed517fe15e3b259d3e9e715"
     },
     {
@@ -287,7 +300,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:11.676953Z",
+      "verifiedAt": "2026-11-03T19:17:17.786247Z",
       "observationDigest": "907c5ca9b51b4c3b7261b6502f74242cd953ede33509e8cd1f58c5aee3cae90d"
     },
     {
@@ -300,7 +313,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:11.795755Z",
+      "verifiedAt": "2026-11-03T19:17:18.068576Z",
       "observationDigest": "9ee17e1299c6319c94afe5ffc3fc821346b736f639422978aebe82287af1c5a4"
     },
     {
@@ -313,7 +326,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:12.103205Z",
+      "verifiedAt": "2026-11-03T19:17:18.344336Z",
       "observationDigest": "9d98460886943da11a306a305d11d7d00f5a0c267fb1448fffa67c979e399cc1"
     },
     {
@@ -326,7 +339,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:12.317340Z",
+      "verifiedAt": "2026-11-03T19:17:18.522959Z",
       "observationDigest": "79eb59b05a5db85fdf4a9146a0a5b2351c6a6c7849d8ca6aa075e8afde9d3531"
     },
     {
@@ -339,7 +352,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:12.321268Z",
+      "verifiedAt": "2026-11-03T19:17:18.615785Z",
       "observationDigest": "207ab66de249d619d90a90dff0374fb56c24beb350293c53e7fcd24536de4bfa"
     },
     {
@@ -352,7 +365,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:12.526066Z",
+      "verifiedAt": "2026-11-03T19:17:18.795709Z",
       "observationDigest": "afdd964f89b6e82295a6e0e6b3e47ad9db714f833666948c2b1c1fb92e4100be"
     },
     {
@@ -365,7 +378,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:12.896499Z",
+      "verifiedAt": "2026-11-03T19:17:19.134102Z",
       "observationDigest": "40bc07f80f841cfe037a4a717fe5aec2c002df9644772c4a12693be8d99d1023"
     },
     {
@@ -378,7 +391,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:12.827533Z",
+      "verifiedAt": "2026-11-03T19:17:19.160629Z",
       "observationDigest": "0c829172ddfe13545085b3ac2eacb645accd29cf94864dcb1d516fa7c50d2770"
     },
     {
@@ -391,7 +404,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:13.045643Z",
+      "verifiedAt": "2026-11-03T19:17:19.289511Z",
       "observationDigest": "91ab22cb19befab13a570ac71661630f6f95774b6415d4d7869106615051ea45"
     },
     {
@@ -404,7 +417,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:13.252006Z",
+      "verifiedAt": "2026-11-03T19:17:19.562368Z",
       "observationDigest": "1436fc03b5f549b49bbc20cc38f3b3230e829d0cb560934ffe28a44be064948d"
     },
     {
@@ -417,7 +430,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:13.422618Z",
+      "verifiedAt": "2026-11-03T19:17:19.650097Z",
       "observationDigest": "da88e18a76fcab9f5607c9b095c73c55c3accebe533951910e4974d0449da1e1"
     },
     {
@@ -430,7 +443,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:13.488366Z",
+      "verifiedAt": "2026-11-03T19:17:19.697357Z",
       "observationDigest": "cdbc0e6ed1bb9c23bfaf1aa03a2914ce2a6a09c21cce073ec105a0ec135d05b0"
     },
     {
@@ -443,7 +456,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:13.664554Z",
+      "verifiedAt": "2026-11-03T19:17:20.007737Z",
       "observationDigest": "d0a751f90479759b13ab41be122e6cbfab4adf291eea3604962bf2af0af7a9c2"
     },
     {
@@ -456,7 +469,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:13.863071Z",
+      "verifiedAt": "2026-11-03T19:17:20.110288Z",
       "observationDigest": "3cdb468ba64c0371ddc2090d923e5f9f7cb57e3d5091f79c7a907219589372d7"
     },
     {
@@ -469,7 +482,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:14.023663Z",
+      "verifiedAt": "2026-11-03T19:17:20.245317Z",
       "observationDigest": "b14c945632e3673940c47da2a15690fb9ebafd0a808351de53474547aca90fe9"
     },
     {
@@ -482,7 +495,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:14.185546Z",
+      "verifiedAt": "2026-11-03T19:17:20.539933Z",
       "observationDigest": "540be1b0f1c577d319f5c20cb42802d622fe750d19b46fff1d2b13ec6e3aebfe"
     },
     {
@@ -495,7 +508,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:14.385423Z",
+      "verifiedAt": "2026-11-03T19:17:20.629397Z",
       "observationDigest": "662bb0d95f8005da8dfc2d0ef10ac4ce15cce2baea0ed30f96a02c0dad0b7fd6"
     },
     {
@@ -508,7 +521,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:14.607061Z",
+      "verifiedAt": "2026-11-03T19:17:20.879338Z",
       "observationDigest": "6ab73aebe7244fdd712aeb3642316fc4913232bfd063218b247e7989b57f60bf"
     },
     {
@@ -521,8 +534,21 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:14.817234Z",
+      "verifiedAt": "2026-11-03T19:17:21.162270Z",
       "observationDigest": "a6142c99d58bb97383ac41b12881adc58e6a42125e7e078eb5951dadc95d6867"
+    },
+    {
+      "domain": "diegoreinaldos.com",
+      "listingSourceId": "ls_01m6gxnj7jez2b7ktg0syrxjv8",
+      "partyId": "pty_01m6gxnj75edgb16q6vk05j3pw",
+      "locations": 2,
+      "logo": true,
+      "platform": "ANGULAR",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:21.243669Z",
+      "observationDigest": "3fdef9105f730d4317ee7e80fbc18ab50bc9b3cc8899250a7a486383f700e5c6"
     },
     {
       "domain": "laclandestina.es",
@@ -534,7 +560,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:14.936119Z",
+      "verifiedAt": "2026-11-03T19:17:21.497744Z",
       "observationDigest": "4b8624b49586f9a3831c7c947b36362f3c0adf52d0627815d34eaefb39777cad"
     },
     {
@@ -547,8 +573,21 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:15.152012Z",
+      "verifiedAt": "2026-11-03T19:17:21.665863Z",
       "observationDigest": "a914dcdd6090fd5e25b9585fbb0a4bbb8dfae0464c750f7e21c64e940b643a25"
+    },
+    {
+      "domain": "elmercadodelousado.es",
+      "listingSourceId": "ls_01m6gxnmkcezfacjh4p33kqv97",
+      "partyId": "pty_01m6gxnmk2etmbqzr51df5z3gw",
+      "locations": 2,
+      "logo": false,
+      "platform": "ECWID",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:21.797248Z",
+      "observationDigest": "b583dad15575ddb32ca8697c12af4db55f3673b6e4e25e753feb212b86ba0152"
     },
     {
       "domain": "numismaticahispania.es",
@@ -560,7 +599,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:15.261572Z",
+      "verifiedAt": "2026-11-03T19:17:21.920886Z",
       "observationDigest": "9f77dabe911976453cd710690188a592436484253ad4509d6eedba5b594b147a"
     },
     {
@@ -573,7 +612,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:15.371353Z",
+      "verifiedAt": "2026-11-03T19:17:22.109921Z",
       "observationDigest": "df387742630fb2b9d1971680cbc83280b478a9ed0a639f6c3edbf1914703e11a"
     },
     {
@@ -586,7 +625,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:15.542579Z",
+      "verifiedAt": "2026-11-03T19:17:22.232895Z",
       "observationDigest": "653c3f502ba688dcc6c7fa6e74ea34e7f8ab5e1995d283760c918e42e75d67c4"
     },
     {
@@ -599,7 +638,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:15.756557Z",
+      "verifiedAt": "2026-11-03T19:17:22.473880Z",
       "observationDigest": "87d63f977ba426c09a3bd5c8e14b781ad20144c80ecd1502b78942183f0c6720"
     },
     {
@@ -612,7 +651,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:15.801999Z",
+      "verifiedAt": "2026-11-03T19:17:22.538302Z",
       "observationDigest": "917d158bd09e704db4bd06f4cc5fc00c479427ddf511115bd90331d3baa071ba"
     },
     {
@@ -625,7 +664,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:16.228525Z",
+      "verifiedAt": "2026-11-03T19:17:22.950727Z",
       "observationDigest": "510109a4622874b901e3a085223849c9e6a100488e942008059cdaddc5bfca20"
     },
     {
@@ -638,7 +677,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:16.157418Z",
+      "verifiedAt": "2026-11-03T19:17:22.929144Z",
       "observationDigest": "ab749c53f607b47f4c9afa169cd0cc709e98af6a33c52d5dce6f8890116e217e"
     },
     {
@@ -651,7 +690,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:16.220705Z",
+      "verifiedAt": "2026-11-03T19:17:22.990666Z",
       "observationDigest": "3744267f1ab991abc19a7dc264c672f2fc79d4eabc559b1bb61be13ac5c8ef1c"
     },
     {
@@ -664,7 +703,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:16.679586Z",
+      "verifiedAt": "2026-11-03T19:17:23.449684Z",
       "observationDigest": "d75537d355f255fc08f811d966c7be2bcf7ddb334e32212e8216153dd88c2952"
     },
     {
@@ -677,7 +716,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:16.765005Z",
+      "verifiedAt": "2026-11-03T19:17:23.460114Z",
       "observationDigest": "41c19129cbefabd2f7975d4ce2650630e3b05c493c12c0f5afbf6f48aaf9af7e"
     },
     {
@@ -690,7 +729,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:16.932208Z",
+      "verifiedAt": "2026-11-03T19:17:23.711638Z",
       "observationDigest": "d2d780d05ac572f37ef81b5ef8946475d61ff647a836a0caf5f672a9ddc4020a"
     },
     {
@@ -703,7 +742,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:17.359735Z",
+      "verifiedAt": "2026-11-03T19:17:24.151418Z",
       "observationDigest": "1045e084864bbaed79bf9f7d436c4e36cccec125fa4d56f35005caf043ba9273"
     },
     {
@@ -716,7 +755,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:17.263886Z",
+      "verifiedAt": "2026-11-03T19:17:23.982617Z",
       "observationDigest": "154f587cfd6a726e493d00ca865ff19b16fae89bd3cf8733669faf22cb7f50fd"
     },
     {
@@ -729,7 +768,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:17.380473Z",
+      "verifiedAt": "2026-11-03T19:17:24.159521Z",
       "observationDigest": "26a212ddb326283ac109f4e0e9c150f308f2cdcabf0252b55ef86c3a1ffc8463"
     },
     {
@@ -742,7 +781,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:17.893364Z",
+      "verifiedAt": "2026-11-03T19:17:24.592745Z",
       "observationDigest": "1873479ca9578c6f86122508b20a4327bb6514b12ca2c59ea40bdc10e67cefe6"
     },
     {
@@ -755,7 +794,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:17.782225Z",
+      "verifiedAt": "2026-11-03T19:17:24.572704Z",
       "observationDigest": "5e80562354a52389eff4c80ef8d12c426d753c458a34e18b5030ab4ec507ebc7"
     },
     {
@@ -768,7 +807,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:17.869900Z",
+      "verifiedAt": "2026-11-03T19:17:24.677393Z",
       "observationDigest": "24bfd7529c006be16cf6b11d99179049d8c95c044f7e6d0d8c3e7989b9ef4b22"
     },
     {
@@ -781,7 +820,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:18.442603Z",
+      "verifiedAt": "2026-11-03T19:17:25.201439Z",
       "observationDigest": "eb34ca4c8fdb07cb75f1c97ab7ba29d50466e410cfa5ca2b4a34e5402b1af5de"
     },
     {
@@ -794,7 +833,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:18.453918Z",
+      "verifiedAt": "2026-11-03T19:17:25.111706Z",
       "observationDigest": "40e8eda734306682a5557d882710de6363d0d69e535d2d00c497e09572a9cf92"
     },
     {
@@ -807,7 +846,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:18.509970Z",
+      "verifiedAt": "2026-11-03T19:17:25.280859Z",
       "observationDigest": "0488fa30e4f34f6ec2b13a87940fd2218b6e81487988dfb94674a36540a08a25"
     },
     {
@@ -820,7 +859,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:19.157810Z",
+      "verifiedAt": "2026-11-03T19:17:25.832633Z",
       "observationDigest": "12c466d724cf2ff89a8151b2035435c15ca494454523e2b087e60992db1c9739"
     },
     {
@@ -833,7 +872,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:18.996681Z",
+      "verifiedAt": "2026-11-03T19:17:25.745982Z",
       "observationDigest": "15f6f17eec72a2f0c81d7eadab76692b0c1437b4c78e920a4ee37d365b14d764"
     },
     {
@@ -846,7 +885,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:19.033199Z",
+      "verifiedAt": "2026-11-03T19:17:25.855233Z",
       "observationDigest": "882216c97411a86b3af14b975f2e6349dc9210274c54c7d6bd90f871369907c6"
     },
     {
@@ -859,7 +898,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:19.627287Z",
+      "verifiedAt": "2026-11-03T19:17:26.391811Z",
       "observationDigest": "979387bbd7327b2a0946aa042fd13ef35cbf674e6463099d488dcde6c09b9aaa"
     },
     {
@@ -872,7 +911,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:19.555202Z",
+      "verifiedAt": "2026-11-03T19:17:26.355618Z",
       "observationDigest": "bfbd1cc9044e7b78080a68da310101ce77bac4690ef8fa3095311266ca3dc182"
     },
     {
@@ -885,7 +924,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:19.682818Z",
+      "verifiedAt": "2026-11-03T19:17:26.379310Z",
       "observationDigest": "de49ab1bd48d056ebefec468306fc35f89203b5cabed9327226bff00e27bcd2a"
     },
     {
@@ -898,7 +937,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:20.105526Z",
+      "verifiedAt": "2026-11-03T19:17:26.887819Z",
       "observationDigest": "719cfe6be201a3f0f6a69f061708aceb5d58ff8d1be2dea5f1e009fd60ddc658"
     },
     {
@@ -911,7 +950,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:20.180586Z",
+      "verifiedAt": "2026-11-03T19:17:26.949606Z",
       "observationDigest": "da6a91d7b6e01186742815927b3a6c0d6ffba689731c84b0c0d63748998df4f9"
     },
     {
@@ -924,7 +963,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:20.242787Z",
+      "verifiedAt": "2026-11-03T19:17:26.928124Z",
       "observationDigest": "9ee240a0888c63e7b46df43a919f6eb01360b663dbebc096805a241cf735d57e"
     },
     {
@@ -937,7 +976,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:20.672899Z",
+      "verifiedAt": "2026-11-03T19:17:27.422995Z",
       "observationDigest": "806eb01b71d7ab3c2a2f15814df5c2242b28a3efbde8e4e1995d9d51ec198edb"
     },
     {
@@ -950,7 +989,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:20.714237Z",
+      "verifiedAt": "2026-11-03T19:17:27.429346Z",
       "observationDigest": "f382abc1cc4ace0ffc5180a0f3b2959fa72b3eb70ab07b0b7d6f820564e77197"
     },
     {
@@ -963,7 +1002,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:20.790897Z",
+      "verifiedAt": "2026-11-03T19:17:27.497135Z",
       "observationDigest": "e7ac7e8644a85e02a22b168b781709d73613b761f89d632a4442fe0f8bf8fd7a"
     },
     {
@@ -976,7 +1015,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:21.175110Z",
+      "verifiedAt": "2026-11-03T19:17:27.905746Z",
       "observationDigest": "a2f3dd560c6af901251e0e7b9f576deca1db1dd814801079472d8199e9de900b"
     },
     {
@@ -989,7 +1028,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:21.240692Z",
+      "verifiedAt": "2026-11-03T19:17:27.956616Z",
       "observationDigest": "84def577a2e3aee0b2f7a485007c7d4769531159e03215a8eee1872fd7698e4c"
     },
     {
@@ -1002,7 +1041,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:21.349789Z",
+      "verifiedAt": "2026-11-03T19:17:28.015024Z",
       "observationDigest": "9b875d8309697dca8b306a86505bc6c6cd7c226b26b810d76e17bf5fc8465b42"
     },
     {
@@ -1015,7 +1054,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:21.844354Z",
+      "verifiedAt": "2026-11-03T19:17:28.536500Z",
       "observationDigest": "5ee3f929e8e32f2a1a7a8d14268c588c849912d7d236edd4bcfc69d7408a5582"
     },
     {
@@ -1028,7 +1067,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:21.968513Z",
+      "verifiedAt": "2026-11-03T19:17:28.676364Z",
       "observationDigest": "e620e22229e87c06861411b94f8f8b98cae7bdb5beeb4e03c8e048c0f8d39f2b"
     },
     {
@@ -1041,7 +1080,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:21.890387Z",
+      "verifiedAt": "2026-11-03T19:17:28.534897Z",
       "observationDigest": "94e3a661931c2a6ad9316f6ed3ed2f644839570c925c76599711049d92e573fc"
     },
     {
@@ -1054,7 +1093,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:22.424251Z",
+      "verifiedAt": "2026-11-03T19:17:29.030387Z",
       "observationDigest": "66f75d1cdd566418c34d537ef8d192017b3970b0cd385db4606a5b9e7399cd46"
     },
     {
@@ -1067,7 +1106,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:22.453257Z",
+      "verifiedAt": "2026-11-03T19:17:29.031784Z",
       "observationDigest": "fe983884785032131ba6157ec91e3ae840666038776a5429841032fddec87a21"
     },
     {
@@ -1080,7 +1119,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:22.399649Z",
+      "verifiedAt": "2026-11-03T19:17:29.113663Z",
       "observationDigest": "3fd68abd363d72d51ebf70780a47154f959604a7692b2721e40faf975824dd8c"
     },
     {
@@ -1093,7 +1132,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:22.922454Z",
+      "verifiedAt": "2026-11-03T19:17:29.575932Z",
       "observationDigest": "d3bbc1cc1339c192755e38d136b5b0b448c5aeb74923c16bc4415591177fc6be"
     },
     {
@@ -1106,7 +1145,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:22.956671Z",
+      "verifiedAt": "2026-11-03T19:17:29.556160Z",
       "observationDigest": "8b073c1606f09254d57696c4e8193a4dedce4a208670876381f33e8ad959fd52"
     },
     {
@@ -1119,7 +1158,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:23.021302Z",
+      "verifiedAt": "2026-11-03T19:17:29.600838Z",
       "observationDigest": "fbc119e01eedd9a33280c9531b5cab21e4c350c2d233299f3cafe84125e43b51"
     },
     {
@@ -1132,7 +1171,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:23.371795Z",
+      "verifiedAt": "2026-11-03T19:17:30.003576Z",
       "observationDigest": "44695165ccbe9d789840cbe9f97350d1129f75b58faa70554d2e09f8f8c3f0f8"
     },
     {
@@ -1145,7 +1184,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:23.486582Z",
+      "verifiedAt": "2026-11-03T19:17:30.138606Z",
       "observationDigest": "7bc140088a96485c43cca9cd30c79e6f38542124f574ead98459cb8307e27b8c"
     },
     {
@@ -1158,7 +1197,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:23.547260Z",
+      "verifiedAt": "2026-11-03T19:17:30.126136Z",
       "observationDigest": "6637ebb44df54d774e68bebe48269626a944d86f35f713bcb38eef9c02dbb044"
     },
     {
@@ -1171,7 +1210,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:23.907667Z",
+      "verifiedAt": "2026-11-03T19:17:30.534732Z",
       "observationDigest": "2467cbbe939f2bf0c5a93834376e86fcf616bc985a6b361e57e56a95744be9a7"
     },
     {
@@ -1184,7 +1223,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:23.935052Z",
+      "verifiedAt": "2026-11-03T19:17:30.521917Z",
       "observationDigest": "ea45957b9966fa040fa48a4871bf993503f22b7d226da7d3926ccead732c4a13"
     },
     {
@@ -1197,7 +1236,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:24.177550Z",
+      "verifiedAt": "2026-11-03T19:17:30.707854Z",
       "observationDigest": "573385f0f6b300a780add7f04a3f3770daf20ffaa970fec8ffc4e63fbb2b6a7e"
     },
     {
@@ -1210,7 +1249,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:24.424659Z",
+      "verifiedAt": "2026-11-03T19:17:31.000674Z",
       "observationDigest": "754f29a2fd277de64143a9e970870c84ecf81d215ca65456a17008c669f571fb"
     },
     {
@@ -1223,7 +1262,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:24.536292Z",
+      "verifiedAt": "2026-11-03T19:17:31.089756Z",
       "observationDigest": "b40b22fa6a3a263d355b23744889716aa8b74030ee4ebfc9337bd45346343953"
     },
     {
@@ -1236,7 +1275,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:24.707274Z",
+      "verifiedAt": "2026-11-03T19:17:31.206855Z",
       "observationDigest": "3fc09fc1422812bea17efdaa1e413e0d0f0fe91d3a5505f4ec1b0c136e0df818"
     },
     {
@@ -1249,7 +1288,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:25.043427Z",
+      "verifiedAt": "2026-11-03T19:17:31.596909Z",
       "observationDigest": "ede7a56c67c4c710531a13175c021cf23a6f7b3414209420af0e128485e5c711"
     },
     {
@@ -1262,7 +1301,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:25.076116Z",
+      "verifiedAt": "2026-11-03T19:17:31.585363Z",
       "observationDigest": "0ceb02e8a4c286a0b76b170e2ce4761d66428b632bbfc715b8c1be7cbb6d9b62"
     },
     {
@@ -1275,7 +1314,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:25.284013Z",
+      "verifiedAt": "2026-11-03T19:17:31.719624Z",
       "observationDigest": "9fc7dad26eecaea1a30cd5f725fb8c5835e69619e513643f8413a67629afd2c8"
     },
     {
@@ -1288,7 +1327,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:25.660070Z",
+      "verifiedAt": "2026-11-03T19:17:32.208601Z",
       "observationDigest": "dcc3460fbf1ab67752d3017da4b92f1d7c2be969ec0415e63d5e0e5f800cb474"
     },
     {
@@ -1301,7 +1340,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:25.588499Z",
+      "verifiedAt": "2026-11-03T19:17:32.138542Z",
       "observationDigest": "9af4ae0f1ba76a0ffa78b280208fa9f7785891e68b8e05bed16ffa9eb78eb9de"
     },
     {
@@ -1314,7 +1353,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:25.698028Z",
+      "verifiedAt": "2026-11-03T19:17:32.171456Z",
       "observationDigest": "d7cc1f9f89b7a4fc01469c01eda1632e9b91082b2f3ab239f61fb0906bab9854"
     },
     {
@@ -1327,7 +1366,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:26.107959Z",
+      "verifiedAt": "2026-11-03T19:17:32.673601Z",
       "observationDigest": "5ac71f0639da66119bd4d7a5aa17afce3ee22ce31bff0e6c21d1e56b6813666b"
     },
     {
@@ -1340,7 +1379,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:26.184509Z",
+      "verifiedAt": "2026-11-03T19:17:32.696883Z",
       "observationDigest": "46c8e4a92493547408cc25c87636d637a1dcb9ea0a3d10256b84aba3e01a42e0"
     },
     {
@@ -1353,7 +1392,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:26.242017Z",
+      "verifiedAt": "2026-11-03T19:17:32.723842Z",
       "observationDigest": "39d515799f4f52b2a931bfc6106185738ff7c9db9c209c0203cd7570a06ba963"
     },
     {
@@ -1366,7 +1405,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:26.638047Z",
+      "verifiedAt": "2026-11-03T19:17:33.181332Z",
       "observationDigest": "88413ca0846c6bcc3d78a6bfbb9e4807b08872123c6c50dc8c94f0806407130d"
     },
     {
@@ -1379,7 +1418,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:26.623074Z",
+      "verifiedAt": "2026-11-03T19:17:33.132350Z",
       "observationDigest": "6f9a3e4f9362c68f3a4894a288fba3e31a5d47c35cd146e5b2317756280dd8a2"
     },
     {
@@ -1392,7 +1431,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:26.797786Z",
+      "verifiedAt": "2026-11-03T19:17:33.298284Z",
       "observationDigest": "e2800f33abef632eb88556991614dfe7024800838ac655f467873648a54eaf04"
     },
     {
@@ -1405,7 +1444,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:27.143078Z",
+      "verifiedAt": "2026-11-03T19:17:33.662481Z",
       "observationDigest": "3ef6fc84675e87ada5858b4c64e3ae9ad2750821e305d5a5a40202a397c05af3"
     },
     {
@@ -1418,7 +1457,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:27.150666Z",
+      "verifiedAt": "2026-11-03T19:17:33.717541Z",
       "observationDigest": "a6d9e2c52ef146c9e2d3418e203509ce0cecd8dd1950072abf75e6c0be2d049a"
     },
     {
@@ -1431,7 +1470,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:27.317943Z",
+      "verifiedAt": "2026-11-03T19:17:33.802991Z",
       "observationDigest": "aad03257ccca5e8fe124a247e9a78e4c2f7f60710c2bdf2f1bd774c80bd3b91b"
     },
     {
@@ -1444,7 +1483,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:27.677725Z",
+      "verifiedAt": "2026-11-03T19:17:34.183011Z",
       "observationDigest": "fdfa4bff5d9c2fe2cde844a817a9162aef307f1496bd62ae6f18b4e079f90750"
     },
     {
@@ -1457,7 +1496,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:27.588011Z",
+      "verifiedAt": "2026-11-03T19:17:34.157325Z",
       "observationDigest": "6db1ead3e7726f42c2073e08f221b40c8c046a3ecea0a564b97bdb65407c14b4"
     },
     {
@@ -1470,7 +1509,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:27.764813Z",
+      "verifiedAt": "2026-11-03T19:17:34.262671Z",
       "observationDigest": "20078c3285bc504764a07a0576c41da1aa81b6d6b76f557c19a6d5ecbc2c8bf1"
     },
     {
@@ -1483,7 +1522,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:28.119881Z",
+      "verifiedAt": "2026-11-03T19:17:34.666882Z",
       "observationDigest": "1b176c6a077b626301e7274b6618da7ef8b4d50a95a6998fc359714c0db48e83"
     },
     {
@@ -1496,7 +1535,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:28.212589Z",
+      "verifiedAt": "2026-11-03T19:17:34.695377Z",
       "observationDigest": "aef3efdb0aac9841333fd03adefeb37f37147dfb2d31969522432571b17e4144"
     },
     {
@@ -1509,7 +1548,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:28.280201Z",
+      "verifiedAt": "2026-11-03T19:17:34.778936Z",
       "observationDigest": "b6746e27af9333bd8a956ac280ef59574c8e81c958e1db8cf309d087a1eb7f84"
     },
     {
@@ -1522,7 +1561,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:28.717893Z",
+      "verifiedAt": "2026-11-03T19:17:35.316500Z",
       "observationDigest": "e812555c66b9e3553072b351f062c4199c5747e0c0f2ae37af4533e9f2916405"
     },
     {
@@ -1535,7 +1574,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:28.637623Z",
+      "verifiedAt": "2026-11-03T19:17:35.111626Z",
       "observationDigest": "01f5d92483890d1e958a9328f3c129d346662c8c2071004a0900060c90346857"
     },
     {
@@ -1548,7 +1587,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:28.784586Z",
+      "verifiedAt": "2026-11-03T19:17:35.299059Z",
       "observationDigest": "4add3b63a00373e0619d1c527c8c963a35f6955815b7d23e5320dbed2bebb919"
     },
     {
@@ -1561,7 +1600,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:29.124012Z",
+      "verifiedAt": "2026-11-03T19:17:35.621110Z",
       "observationDigest": "7f6b9007ee33cdb4d1481a6d0ab50ea7d84e70ea08726d1eeecadad6ebdf701f"
     },
     {
@@ -1574,7 +1613,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:29.205444Z",
+      "verifiedAt": "2026-11-03T19:17:35.789778Z",
       "observationDigest": "eaa7005f3063f7e893759efae858ff604567ef1d86366b27fee920e0132e75ce"
     },
     {
@@ -1587,7 +1626,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:29.290128Z",
+      "verifiedAt": "2026-11-03T19:17:35.810350Z",
       "observationDigest": "f3db2307a45833823335ea8e53fe4a566780de1387c7ef170bc035e15be16c9e"
     },
     {
@@ -1600,7 +1639,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:29.640639Z",
+      "verifiedAt": "2026-11-03T19:17:36.197567Z",
       "observationDigest": "c8dde34b738288348c85f20cac1afe20adcd67dfb3b07e1d932f260b754973f0"
     },
     {
@@ -1613,7 +1652,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:29.829122Z",
+      "verifiedAt": "2026-11-03T19:17:36.462094Z",
       "observationDigest": "aaf462442dd6e792d2d2ea4fc1f430775048847f6392314ff758e8061c639315"
     },
     {
@@ -1626,7 +1665,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:29.813506Z",
+      "verifiedAt": "2026-11-03T19:17:36.508589Z",
       "observationDigest": "cf0f1a0d0ae7e84cce44f9f716109ec0073e532d807713ee68d7bc964d1dd4ea"
     },
     {
@@ -1639,7 +1678,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:30.200125Z",
+      "verifiedAt": "2026-11-03T19:17:36.689291Z",
       "observationDigest": "ddb9c7c5d73c97e144eb22a0d38fb32bbb36080741726d8d4ff2179561919ee1"
     },
     {
@@ -1652,7 +1691,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:30.378320Z",
+      "verifiedAt": "2026-11-03T19:17:36.966065Z",
       "observationDigest": "257cac5d750c331a36cf7f6d24f06bdd37b8a165169355adae183dbf1aebf29f"
     },
     {
@@ -1665,7 +1704,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:30.322369Z",
+      "verifiedAt": "2026-11-03T19:17:36.928559Z",
       "observationDigest": "35c96a51f5128b43a2bb7ab5a9cdb1dffa40e651f250a89652b05580224c4b90"
     },
     {
@@ -1678,7 +1717,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:30.654766Z",
+      "verifiedAt": "2026-11-03T19:17:37.104654Z",
       "observationDigest": "fd5fb40cb6696274536cd051be0b42cbf18482e33354125d8ee452e425cdd4da"
     },
     {
@@ -1691,7 +1730,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:30.737391Z",
+      "verifiedAt": "2026-11-03T19:17:37.367987Z",
       "observationDigest": "ef90956c52b2ee597317843b5ff5b374327a1b3f52b183e6db9bdce9cf13970d"
     },
     {
@@ -1704,7 +1743,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:30.891640Z",
+      "verifiedAt": "2026-11-03T19:17:37.483148Z",
       "observationDigest": "d1701cb6716eff3d97f0bdcdfb8be96f15ff25a69ceb1b15e2df145dd9811f80"
     },
     {
@@ -1717,7 +1756,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:31.062346Z",
+      "verifiedAt": "2026-11-03T19:17:37.506035Z",
       "observationDigest": "192b70680b4d3caacdbf289c03fddfebb47ffada5f4b99443fa17e4a9cf1405e"
     },
     {
@@ -1730,7 +1769,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:31.401441Z",
+      "verifiedAt": "2026-11-03T19:17:37.974904Z",
       "observationDigest": "2a5a33a189d2e4cfc78c057699700b324b49e6cc6313bbef7e0cfcc66cc2aaa4"
     },
     {
@@ -1743,7 +1782,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:31.411843Z",
+      "verifiedAt": "2026-11-03T19:17:37.954836Z",
       "observationDigest": "f7690e66c9cb803ff70ecbd8d0c6c7b4664df22e70e1ef3150bf73686daf921e"
     },
     {
@@ -1756,7 +1795,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:31.603596Z",
+      "verifiedAt": "2026-11-03T19:17:37.992865Z",
       "observationDigest": "6c2c57c1cf7e4c9c23594ed62bba5b67eb4ea8fb0804020890c58713019210b1"
     },
     {
@@ -1769,7 +1808,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:31.947930Z",
+      "verifiedAt": "2026-11-03T19:17:38.442173Z",
       "observationDigest": "29ad80285b457bc93819aa8b9e86d3a1891dc970d62a9a79a7431dc18b6d5c5a"
     },
     {
@@ -1782,7 +1821,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:32.047626Z",
+      "verifiedAt": "2026-11-03T19:17:38.573414Z",
       "observationDigest": "4d603099f5296a95ddd098a87aed68520969bdd5269d593ac56cd9648ac5e652"
     },
     {
@@ -1795,7 +1834,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:32.049608Z",
+      "verifiedAt": "2026-11-03T19:17:38.405326Z",
       "observationDigest": "5e9ef5b0074103144a5ab221fb24cb5a907224609fb54eeb6e6d0261032c8fc6"
     },
     {
@@ -1808,7 +1847,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:32.467273Z",
+      "verifiedAt": "2026-11-03T19:17:38.952992Z",
       "observationDigest": "ca8ea00a571a0d0966caf9b344c56bc05beba83d39e9a78767f63630709fca8a"
     },
     {
@@ -1821,7 +1860,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:32.550415Z",
+      "verifiedAt": "2026-11-03T19:17:38.910705Z",
       "observationDigest": "719832df2ecb4cbe66bc4e9671a065e0b0a16e0538902aa7e2cee38020ebedea"
     },
     {
@@ -1834,7 +1873,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:32.484734Z",
+      "verifiedAt": "2026-11-03T19:17:38.983996Z",
       "observationDigest": "f8b2f78fae77a43dd74ed633c48cc305cd5565847ed2b4ee4e8de50d0b5f5158"
     },
     {
@@ -1847,7 +1886,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:32.966734Z",
+      "verifiedAt": "2026-11-03T19:17:39.392521Z",
       "observationDigest": "4c2383ba57876e2fb47c58ff8a976eba52c918160bef57a51be2b1aa9febd0b3"
     },
     {
@@ -1860,7 +1899,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:32.901271Z",
+      "verifiedAt": "2026-11-03T19:17:39.363538Z",
       "observationDigest": "0fe623cd62fb0c222612c664dc681c5cdce3273c6fba6cd71382c384e04acd25"
     },
     {
@@ -1873,7 +1912,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:34.061563Z",
+      "verifiedAt": "2026-11-03T19:17:39.447870Z",
       "observationDigest": "88911622fed771bdf3ab0b919b7365f70ba4dceef56c9a800cf9e7a71854ebc5"
     },
     {
@@ -1886,7 +1925,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:33.542818Z",
+      "verifiedAt": "2026-11-03T19:17:39.936518Z",
       "observationDigest": "badd405ced4dfcc4e31f072b16436e440af54d8eac70add51fec8e5beca409a3"
     },
     {
@@ -1899,7 +1938,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:33.523735Z",
+      "verifiedAt": "2026-11-03T19:17:39.900320Z",
       "observationDigest": "3291e057029cf2f4b94585d90c87948f0a94b9ca3a46f2b6e7679a90471de71a"
     },
     {
@@ -1912,7 +1951,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:34.044207Z",
+      "verifiedAt": "2026-11-03T19:17:39.980915Z",
       "observationDigest": "b69a147b159cab8a622965c9762211e4a48e6c36b1542cbf96b129f33f1d5e7f"
     },
     {
@@ -1925,7 +1964,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:33.984582Z",
+      "verifiedAt": "2026-11-03T19:17:40.334570Z",
       "observationDigest": "d0c2dd282bf7175b546d3acd966e4ad0540b4a79c31cff5d9a67ea65729e2ca2"
     },
     {
@@ -1938,7 +1977,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:34.546566Z",
+      "verifiedAt": "2026-11-03T19:17:40.432958Z",
       "observationDigest": "548e7383c5368f8bc1cce2b000d8bba0e76fa293a8e6e0ffaae86f334a3a6c1a"
     },
     {
@@ -1951,7 +1990,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:34.538252Z",
+      "verifiedAt": "2026-11-03T19:17:40.441249Z",
       "observationDigest": "d56c3cd7a4b9755fc4bb6ea1dbafcb14b1e090e6e93731d306ea774c25ed0b7d"
     },
     {
@@ -1964,7 +2003,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:34.570777Z",
+      "verifiedAt": "2026-11-03T19:17:40.844661Z",
       "observationDigest": "759fae97a10c20b6214a0434936061840a35de413194c3a2a207973843779b14"
     },
     {
@@ -1977,7 +2016,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:35.067655Z",
+      "verifiedAt": "2026-11-03T19:17:40.907704Z",
       "observationDigest": "9ca121a582cf3dd6a31630de4938ab7ccc1aa0258dcf730e0d548e0059199fa8"
     },
     {
@@ -1990,7 +2029,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:35.102016Z",
+      "verifiedAt": "2026-11-03T19:17:40.930465Z",
       "observationDigest": "f24e6a733cb13b30b0f9a073326c95e0c78023db5e71fce640b9f4a6fce77f15"
     },
     {
@@ -2003,7 +2042,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:35.012267Z",
+      "verifiedAt": "2026-11-03T19:17:41.257292Z",
       "observationDigest": "0b44360feb90c7e184a1da2a421b5fb26e446e8e79bffd347d568deba1bc092e"
     },
     {
@@ -2016,7 +2055,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:35.445996Z",
+      "verifiedAt": "2026-11-03T19:17:41.317878Z",
       "observationDigest": "9ecff3fcd711c7f2a0c601fd1f024910be197af5a4a90e8677bc081bce685056"
     },
     {
@@ -2029,7 +2068,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:35.587284Z",
+      "verifiedAt": "2026-11-03T19:17:41.458970Z",
       "observationDigest": "0e166109d12fff8f562150a4a67d11491f94b3f25ce19ea93da708c011d4a589"
     },
     {
@@ -2042,7 +2081,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:35.553668Z",
+      "verifiedAt": "2026-11-03T19:17:41.645014Z",
       "observationDigest": "0274a58133bfeb0db235463d578c2a559643d33d0eae95a112de29081df3e32f"
     },
     {
@@ -2055,7 +2094,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:35.989697Z",
+      "verifiedAt": "2026-11-03T19:17:41.838501Z",
       "observationDigest": "feaaaa2b583964cd0ba9c440f542fd074713ec878d3a214845f3e58f1906a3f2"
     },
     {
@@ -2068,7 +2107,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:36.065324Z",
+      "verifiedAt": "2026-11-03T19:17:41.950720Z",
       "observationDigest": "0b958b28ef938145e680a3395d896424f0046a70d420a6e1a0e7755b7c890ec8"
     },
     {
@@ -2081,7 +2120,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:36.096301Z",
+      "verifiedAt": "2026-11-03T19:17:42.371340Z",
       "observationDigest": "118db88d3d9019368b81a6815832a73a23d3b56bc37b7b1f20288be566dea575"
     },
     {
@@ -2094,7 +2133,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:36.632260Z",
+      "verifiedAt": "2026-11-03T19:17:42.565558Z",
       "observationDigest": "20b24a463e76d01f8524da2681e323c3e3adfafac813c7f57e21bf8d8c86fe83"
     },
     {
@@ -2107,7 +2146,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:36.605337Z",
+      "verifiedAt": "2026-11-03T19:17:42.673176Z",
       "observationDigest": "8a42f8b021921193f948af69bf6f3662c6742c98d4e18bc217009594f98e8f77"
     },
     {
@@ -2120,7 +2159,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:36.748131Z",
+      "verifiedAt": "2026-11-03T19:17:42.884867Z",
       "observationDigest": "377308fa2fce99c30ea7e2603144a9a8be9a9425aeb89947d470e5fda71c34bd"
     },
     {
@@ -2133,7 +2172,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:37.094597Z",
+      "verifiedAt": "2026-11-03T19:17:43.088310Z",
       "observationDigest": "04fd5653a6eb73d8fae2f1bfa30dfe4f7a9a9c24a0262aeee5061016488e6c00"
     },
     {
@@ -2146,7 +2185,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:37.157306Z",
+      "verifiedAt": "2026-11-03T19:17:43.166264Z",
       "observationDigest": "f59afd62449d2bcf716300a7bc2a71dac32f2ef7c5d4f9417c7fed976f76f6fb"
     },
     {
@@ -2159,7 +2198,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:37.237216Z",
+      "verifiedAt": "2026-11-03T19:17:43.379288Z",
       "observationDigest": "34cb039a940f44a6eb8938b2ed1bfbd49f9b546d7b93d67f6eceb32414d36cbc"
     },
     {
@@ -2172,7 +2211,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:37.563327Z",
+      "verifiedAt": "2026-11-03T19:17:43.572867Z",
       "observationDigest": "c7113f01b9dff9dd0b6bf2ad1ff9a0f53e68da12d2d4e73ff06286cf980950bf"
     },
     {
@@ -2185,7 +2224,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:37.682204Z",
+      "verifiedAt": "2026-11-03T19:17:43.680234Z",
       "observationDigest": "88136882fc63330904941954b985d98e16e987fb52c4347686bd791d7295d0aa"
     },
     {
@@ -2198,7 +2237,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:37.816051Z",
+      "verifiedAt": "2026-11-03T19:17:43.867216Z",
       "observationDigest": "ec9f73890c36a2bd5e842d1adaff471fed187b1f4712aa5b6a5e27110b974e8a"
     },
     {
@@ -2211,7 +2250,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:38.083211Z",
+      "verifiedAt": "2026-11-03T19:17:44.073229Z",
       "observationDigest": "fc162ad050fd37200937122c2b0be51a4e0e7373ea5cbef666fd8797c9b2c371"
     },
     {
@@ -2224,7 +2263,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:38.219519Z",
+      "verifiedAt": "2026-11-03T19:17:44.186379Z",
       "observationDigest": "50023aba691482a1a9ae2fca39a22adb17700e57faad0489f2c710e759ff4e6c"
     },
     {
@@ -2237,7 +2276,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:38.338063Z",
+      "verifiedAt": "2026-11-03T19:17:44.377206Z",
       "observationDigest": "d621b78cfae10eec1cfec7926ab89f098c87d1b8e757d950c6b9206a17be16e1"
     },
     {
@@ -2250,7 +2289,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:38.488128Z",
+      "verifiedAt": "2026-11-03T19:17:44.455008Z",
       "observationDigest": "7c0627c25bbcb16c4f0b53c5c342804954613369a8a4a1d54cafda7d65b22f6c"
     },
     {
@@ -2263,7 +2302,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:38.740469Z",
+      "verifiedAt": "2026-11-03T19:17:44.686837Z",
       "observationDigest": "abb1a1472f59a0ed5308987db19df3d2304cf81a7cfbb8393bd9f7e9cf81ebef"
     },
     {
@@ -2276,7 +2315,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:38.775948Z",
+      "verifiedAt": "2026-11-03T19:17:44.775239Z",
       "observationDigest": "e659add28b9d5da823b4c0889623eae4cdb06224949862a44c27905c89a595a3"
     },
     {
@@ -2289,7 +2328,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:39.007619Z",
+      "verifiedAt": "2026-11-03T19:17:44.941860Z",
       "observationDigest": "5078573fa66b6c43551f258bc48cd6760e45be872f182d62d2f9ae2b2c325d99"
     },
     {
@@ -2302,7 +2341,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:39.233298Z",
+      "verifiedAt": "2026-11-03T19:17:45.394204Z",
       "observationDigest": "0a715c5415764b44b8d331303c92a5238439b82bad41093aefdc0255d3e3accd"
     },
     {
@@ -2315,7 +2354,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:39.196729Z",
+      "verifiedAt": "2026-11-03T19:17:45.400276Z",
       "observationDigest": "c8b47430c39096005bfe0ba76ffa17f8c04669836ae132ca297e6193f55a07f5"
     },
     {
@@ -2328,7 +2367,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:39.482061Z",
+      "verifiedAt": "2026-11-03T19:17:45.601753Z",
       "observationDigest": "299b160376b31b81c9635e8f0f57999d3e505ef3ec4ad0f2764b82115e031dab"
     },
     {
@@ -2341,8 +2380,21 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:39.607024Z",
+      "verifiedAt": "2026-11-03T19:17:45.831469Z",
       "observationDigest": "806fed7cb8598671c635f3275d5e73bfa6a38aaf6185917a928dcd4a6a1bf14c"
+    },
+    {
+      "domain": "jbagot.com",
+      "listingSourceId": "ls_01m6gxxymzeqksabbh9rm4vjs0",
+      "partyId": "pty_01m6gxxymke1k9bfp2q1x6w1pk",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANGULAR",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:45.957020Z",
+      "observationDigest": "8eba40bcd890e67eae2e2fcffdee84d5db52c5496bda412482960222b87150ba"
     },
     {
       "domain": "deborahelvira.com",
@@ -2354,7 +2406,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:39.660913Z",
+      "verifiedAt": "2026-11-03T19:17:45.998615Z",
       "observationDigest": "cd33f50759928f869327389f19a22d2bcd012620bbadef24be74b09c59557258"
     },
     {
@@ -2367,7 +2419,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:40.068888Z",
+      "verifiedAt": "2026-11-03T19:17:46.470428Z",
       "observationDigest": "2a36b4970e890e025ba6d4690323c25bdbc63f58d959508e33896a42408ad703"
     },
     {
@@ -2380,7 +2432,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:40.005318Z",
+      "verifiedAt": "2026-11-03T19:17:46.361233Z",
       "observationDigest": "beb3c3bd4d9c7bf9677fcc57229d8a6dbe524386539e0c5c1a8fdf3af528d24a"
     },
     {
@@ -2393,7 +2445,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:40.263493Z",
+      "verifiedAt": "2026-11-03T19:17:46.695101Z",
       "observationDigest": "8ae2caa348f094569388fc5f3d7855b03230cb65ed78a324b66b716a19f0e370"
     },
     {
@@ -2406,7 +2458,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:40.500911Z",
+      "verifiedAt": "2026-11-03T19:17:46.823351Z",
       "observationDigest": "3b1f4d14e44e4eafa18e689f0cb847688d5246cb6cdf529ef9ff9b8a48ad1d8d"
     },
     {
@@ -2419,7 +2471,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:40.589383Z",
+      "verifiedAt": "2026-11-03T19:17:46.951532Z",
       "observationDigest": "c1604ed19183e7c4c50532d64b4f5ca7622817cff2c8e9777f41806c4ef00817"
     },
     {
@@ -2432,7 +2484,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:40.749513Z",
+      "verifiedAt": "2026-11-03T19:17:47.157069Z",
       "observationDigest": "05e3ff2941a1bf0909ddcf04a02ae4a107ef515eee480174490892e48590961b"
     },
     {
@@ -2445,7 +2497,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:41.005534Z",
+      "verifiedAt": "2026-11-03T19:17:47.275030Z",
       "observationDigest": "c66a458fb49f7174e8de3faf7f52946799df20992f244b813bbc4acd817e885a"
     },
     {
@@ -2458,7 +2510,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:41.264855Z",
+      "verifiedAt": "2026-11-03T19:17:47.593690Z",
       "observationDigest": "326f286cadcb3d3b3fa5e0ad0cf0c149399ece8348e589ce9a1880c55d815fb4"
     },
     {
@@ -2471,7 +2523,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:41.176891Z",
+      "verifiedAt": "2026-11-03T19:17:47.535331Z",
       "observationDigest": "3e01e944f9ab406cfa40b30e16c450cb208da467f8fe2713e6dae2aeb2e9bff9"
     },
     {
@@ -2484,7 +2536,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:41.572203Z",
+      "verifiedAt": "2026-11-03T19:17:47.796294Z",
       "observationDigest": "dedb44e1785122de9de9a0f7777b5eca2d8768bf0d7e3b84b45326325bacc89b"
     },
     {
@@ -2497,7 +2549,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:41.822302Z",
+      "verifiedAt": "2026-11-03T19:17:48.152002Z",
       "observationDigest": "a08eca5693a0824900468e1105bf6ac43bc0e5c2a9c061f14bc087c40cc909ed"
     },
     {
@@ -2510,7 +2562,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:41.775552Z",
+      "verifiedAt": "2026-11-03T19:17:48.079177Z",
       "observationDigest": "4bc7c75a30ccf05ce7d775419b8e0570a45b3f62aab7c0f5f479e9cd2f637bf4"
     },
     {
@@ -2523,7 +2575,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:42.282465Z",
+      "verifiedAt": "2026-11-03T19:17:48.364207Z",
       "observationDigest": "059e793c6b295ccf154b4b5729e129649e66930fbf14f276f8c0b5a4ddb7e282"
     },
     {
@@ -2536,7 +2588,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:42.442423Z",
+      "verifiedAt": "2026-11-03T19:17:48.587941Z",
       "observationDigest": "0a5af7aa7a1dcf0542908e8353ead79cf56342d25bc022ca11cb1fac4af0149d"
     },
     {
@@ -2549,7 +2601,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:42.505517Z",
+      "verifiedAt": "2026-11-03T19:17:48.633684Z",
       "observationDigest": "3ff05704f0eb9760d890ab1f9fc640603c9e8856e2cf1d4e9e96e5e91a877346"
     },
     {
@@ -2562,7 +2614,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:42.863572Z",
+      "verifiedAt": "2026-11-03T19:17:48.970775Z",
       "observationDigest": "e352ab74dc7b8c6a920a5493997cd06d326618ddb15da1e556c01e1cb144b2d4"
     },
     {
@@ -2575,7 +2627,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:42.944760Z",
+      "verifiedAt": "2026-11-03T19:17:49.038754Z",
       "observationDigest": "9d58a047b82df24d9bf12d97dea0f3d37e4407ad5ffe57f3569e962f2ae04bc0"
     },
     {
@@ -2588,7 +2640,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:42.939276Z",
+      "verifiedAt": "2026-11-03T19:17:49.037517Z",
       "observationDigest": "a9c614eeb388af27c60a9e5af2c7158376cfe7a3af68434230a556f2e091665b"
     },
     {
@@ -2601,7 +2653,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:43.437555Z",
+      "verifiedAt": "2026-11-03T19:17:49.531049Z",
       "observationDigest": "c82ccaf94d508f07c232243578618afc02f3db2ce15cfe94ee53ee6bf0e4a812"
     },
     {
@@ -2614,7 +2666,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:43.441154Z",
+      "verifiedAt": "2026-11-03T19:17:49.527976Z",
       "observationDigest": "a577727501f4dadc342c4bdba3d7a00fd58b9e4aa950acf23685d2de651415b3"
     },
     {
@@ -2627,7 +2679,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:43.461561Z",
+      "verifiedAt": "2026-11-03T19:17:49.580426Z",
       "observationDigest": "6958736590ea6f3601c7f5de60ed4f56df60f724fa33d88136e665e4ee5c69e2"
     },
     {
@@ -2640,7 +2692,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:43.951348Z",
+      "verifiedAt": "2026-11-03T19:17:50.031534Z",
       "observationDigest": "10d232b1328f5050312771db4cc3b5e8682e39fd145dd65c998c6c7786a55c5e"
     },
     {
@@ -2653,7 +2705,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:43.964813Z",
+      "verifiedAt": "2026-11-03T19:17:50.021163Z",
       "observationDigest": "a3998c9cd6b59a9afdceb40bca206ae6c5d5540ae02346344783b00542849e3e"
     },
     {
@@ -2666,7 +2718,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:44.046256Z",
+      "verifiedAt": "2026-11-03T19:17:50.161609Z",
       "observationDigest": "71a2dcdc4677241981a9a3c3f983e7814db1b910f9d589ec07c86762ce9a9cb1"
     },
     {
@@ -2679,7 +2731,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:44.699292Z",
+      "verifiedAt": "2026-11-03T19:17:50.772192Z",
       "observationDigest": "2f7143b15e0fc9df6973b91a4c49823a64a1ed12eb74bf462dc3c8c5a739e5f3"
     },
     {
@@ -2692,7 +2744,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:44.448310Z",
+      "verifiedAt": "2026-11-03T19:17:50.487035Z",
       "observationDigest": "c8bb2da9bbcebe4ebbfaf5550daf70286701f0f80c35d9d88a1e30eed0b4ae5a"
     },
     {
@@ -2705,7 +2757,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:44.559917Z",
+      "verifiedAt": "2026-11-03T19:17:50.618002Z",
       "observationDigest": "c331d1f1597adf3cf9bf24874e7a2c64e8fed731d2352b67a5c8104491847e5e"
     },
     {
@@ -2718,7 +2770,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:44.890837Z",
+      "verifiedAt": "2026-11-03T19:17:50.858899Z",
       "observationDigest": "e46f702813c280f0e770287080304bf71780f7dc9cb48a1831201fc659f2d033"
     },
     {
@@ -2731,7 +2783,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:45.322869Z",
+      "verifiedAt": "2026-11-03T19:17:51.226242Z",
       "observationDigest": "d3465ba82482fa754d45c402fa558742334071fc68370e8ae66fdae5de79a29e"
     },
     {
@@ -2744,7 +2796,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:45.441816Z",
+      "verifiedAt": "2026-11-03T19:17:51.367076Z",
       "observationDigest": "7c1ea954cf533e471ddb435d6b570268f19052a9bc1aac9aef63e4f2eeff5b44"
     },
     {
@@ -2757,7 +2809,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:45.667125Z",
+      "verifiedAt": "2026-11-03T19:17:51.407468Z",
       "observationDigest": "9f5425e76272c925ccab913182de986e04c183766afa7ede3a26cf5d9d5640f8"
     },
     {
@@ -2770,7 +2822,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:45.858596Z",
+      "verifiedAt": "2026-11-03T19:17:51.688935Z",
       "observationDigest": "9059576037fca1b5273273788e8e61037cb67848c020a792767ccda8b72263f6"
     },
     {
@@ -2783,7 +2835,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:45.835707Z",
+      "verifiedAt": "2026-11-03T19:17:51.755088Z",
       "observationDigest": "a90ec4b6692584884fc16c69ca2714322d7a4d0d18b7e69351529b84cbba2679"
     },
     {
@@ -2796,7 +2848,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:46.168317Z",
+      "verifiedAt": "2026-11-03T19:17:51.905448Z",
       "observationDigest": "8eab8d0f3419e00551ebb9b8afc349c69de60ed07f7a1f05847577b5f289d962"
     },
     {
@@ -2809,7 +2861,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:46.273352Z",
+      "verifiedAt": "2026-11-03T19:17:52.095846Z",
       "observationDigest": "256944ba64316c32197c0a65f0979c8a5e3673f2cb4afa474dcb38c396f991d9"
     },
     {
@@ -2822,7 +2874,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:46.350823Z",
+      "verifiedAt": "2026-11-03T19:17:52.261036Z",
       "observationDigest": "93c08416b27983b18e3ecae06798181859931e99b265b4b286a55a14c8ad0a7f"
     },
     {
@@ -2835,7 +2887,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:46.755952Z",
+      "verifiedAt": "2026-11-03T19:17:52.515176Z",
       "observationDigest": "1e34a34276610e95bc7b165fd6f68e5f19f0324dbdf1f5a29ca2a15e0e4126b4"
     },
     {
@@ -2848,7 +2900,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:46.785582Z",
+      "verifiedAt": "2026-11-03T19:17:52.625954Z",
       "observationDigest": "883da81dd6eae51fe468a605d1088e0a7794c8632cabc3a8183e5701bc866f2d"
     },
     {
@@ -2861,7 +2913,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:46.871964Z",
+      "verifiedAt": "2026-11-03T19:17:52.778311Z",
       "observationDigest": "3084ba41a074fcfa475174e002e2792e1ada2847b39b23061f7952d764040c86"
     },
     {
@@ -2874,7 +2926,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:47.271878Z",
+      "verifiedAt": "2026-11-03T19:17:53.015308Z",
       "observationDigest": "696e68197f741c8196d044d172d4f02c8591411bda8e80d551ed26d3f31dcef4"
     },
     {
@@ -2887,7 +2939,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:47.182927Z",
+      "verifiedAt": "2026-11-03T19:17:53.045678Z",
       "observationDigest": "3523b9d2324d15effc5e6a32154b8cd6065dd4df0697963ec4657efbab863f91"
     },
     {
@@ -2900,7 +2952,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:47.274161Z",
+      "verifiedAt": "2026-11-03T19:17:53.169970Z",
       "observationDigest": "a36b1fe444928e3b5cc303390751e1371f87e1726c0571f3ad7110ba1f297058"
     },
     {
@@ -2913,7 +2965,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:47.600876Z",
+      "verifiedAt": "2026-11-03T19:17:53.414630Z",
       "observationDigest": "6f675b5f61613dd7018023658f6a89ca3db16a4980c96aa651e4db56320c7893"
     },
     {
@@ -2926,7 +2978,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:47.664278Z",
+      "verifiedAt": "2026-11-03T19:17:53.428680Z",
       "observationDigest": "69c08f63521bfa19dd92c8dba3c4a7d83f3e3308417ce15ec558953156a6722e"
     },
     {
@@ -2939,7 +2991,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:47.691723Z",
+      "verifiedAt": "2026-11-03T19:17:53.544865Z",
       "observationDigest": "bdabbb8be8680a4e11e66bb30386a728fa954c6a9351889d84c469ab62945800"
     },
     {
@@ -2952,7 +3004,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:48.063933Z",
+      "verifiedAt": "2026-11-03T19:17:53.806754Z",
       "observationDigest": "0e60bc853e2423d81474bf47d51ad18ca12cdc90e8b178b2b7663aa552637a72"
     },
     {
@@ -2965,7 +3017,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:48.139178Z",
+      "verifiedAt": "2026-11-03T19:17:53.939650Z",
       "observationDigest": "909b311f523bb40c03a71112b515b2460f8ae3bbafe8a905fb579fceeff78e4b"
     },
     {
@@ -2978,7 +3030,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:48.411640Z",
+      "verifiedAt": "2026-11-03T19:17:54.207929Z",
       "observationDigest": "4c15282c9085eb702306112bb24ae78c4fa5590cbb904d13ed664de00ab8d71d"
     },
     {
@@ -2991,7 +3043,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:48.494842Z",
+      "verifiedAt": "2026-11-03T19:17:54.242201Z",
       "observationDigest": "fa8020b84bb7b3c5234a0b3a0cc57e44e084337c59d54ab6ae9a1ff298561b87"
     },
     {
@@ -3004,7 +3056,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:48.637601Z",
+      "verifiedAt": "2026-11-03T19:17:54.442495Z",
       "observationDigest": "515d555399dbc04c36b976206ab4c425d013e6a8c93356c444b2d59a18467ec9"
     },
     {
@@ -3017,7 +3069,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:48.933401Z",
+      "verifiedAt": "2026-11-03T19:17:54.710880Z",
       "observationDigest": "ed17e3bf1cf23bc104aa202606d25dd8ba262a4753caa8962fbe6ff5b56b4ac6"
     },
     {
@@ -3030,7 +3082,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:48.980769Z",
+      "verifiedAt": "2026-11-03T19:17:54.739693Z",
       "observationDigest": "89f6b60027b842cb67a50c80fdceaab0a11321c3d250429950b17e1fcc53eae9"
     },
     {
@@ -3043,7 +3095,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:49.135634Z",
+      "verifiedAt": "2026-11-03T19:17:54.935346Z",
       "observationDigest": "f754af640c7831ce35b8808ffd3a9146ed5922771e8ef5d52d80df38be7d7acb"
     },
     {
@@ -3056,7 +3108,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:49.778790Z",
+      "verifiedAt": "2026-11-03T19:17:55.569806Z",
       "observationDigest": "38ff4c3187efb72789b841be8b010efcbaea5b9b3a8e1f1c236cb64daa1b2e1d"
     },
     {
@@ -3069,7 +3121,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:49.485081Z",
+      "verifiedAt": "2026-11-03T19:17:55.217727Z",
       "observationDigest": "e64f876f7f887db1f04b2ed23ba537c3c73819e71b359ff24dec24b6e6fda39b"
     },
     {
@@ -3082,7 +3134,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:49.621581Z",
+      "verifiedAt": "2026-11-03T19:17:55.451080Z",
       "observationDigest": "385b9947c6ca5ec8a89fe5653bd3ea3b2ba1f5fe8f2964290ff9c44e08e1d2ac"
     },
     {
@@ -3095,7 +3147,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:49.983729Z",
+      "verifiedAt": "2026-11-03T19:17:55.710676Z",
       "observationDigest": "b13397b0981d28670b6b7543a2104d3237dd40994da394cbf1f7ba5064463655"
     },
     {
@@ -3108,7 +3160,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:50.141625Z",
+      "verifiedAt": "2026-11-03T19:17:55.935713Z",
       "observationDigest": "9ddecddd09d1f139a39b6e1b966beced55bb3ccc86583a15afc255286e607f4f"
     },
     {
@@ -3121,7 +3173,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:50.232899Z",
+      "verifiedAt": "2026-11-03T19:17:56.044822Z",
       "observationDigest": "9f99b7576412af248dcf90bd7ce6a17660e6b8a332929b8a3811828640fefc39"
     },
     {
@@ -3134,7 +3186,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:50.604401Z",
+      "verifiedAt": "2026-11-03T19:17:56.282656Z",
       "observationDigest": "0146e938076bcf2e517a5f075815161d123e1722fd2fed4e80a6066f8f0c5094"
     },
     {
@@ -3147,7 +3199,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:50.561746Z",
+      "verifiedAt": "2026-11-03T19:17:56.373881Z",
       "observationDigest": "fc9c1d8bef89b2ce12195eebc5e8daf04a7a3d30e0b36b6f08739a009cae2f6c"
     },
     {
@@ -3160,7 +3212,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:50.633388Z",
+      "verifiedAt": "2026-11-03T19:17:56.479015Z",
       "observationDigest": "7c4de3cf6da6f93dc612759d8177f39700ca7a1c8a79c5eb513c1933d47d5a98"
     },
     {
@@ -3173,7 +3225,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:50.980566Z",
+      "verifiedAt": "2026-11-03T19:17:56.668506Z",
       "observationDigest": "a921855606880acdf18bedcb5a102950eb3d046836d5c941eef5cf9809d24ce4"
     },
     {
@@ -3186,8 +3238,970 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T08:25:51.191624Z",
+      "verifiedAt": "2026-11-03T19:17:56.886824Z",
       "observationDigest": "0b9f9193eb0cd1669ed2c349ef2ae465638366a1b55370f1f6da64c96418e567"
+    },
+    {
+      "domain": "filateliajmarin.es",
+      "listingSourceId": "ls_01m6gqk6e9e12ar1hpdtm7ve17",
+      "partyId": "pty_01m6gqk6dvew4v748be8hfvmkv",
+      "locations": 1,
+      "logo": true,
+      "platform": "OPENCART",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:56.934831Z",
+      "observationDigest": "a60c03b5073d5682e78b5c0cc927249b434ac09338bd56000ccf552a45fb4923"
+    },
+    {
+      "domain": "filateliaenmadrid.com",
+      "listingSourceId": "ls_01m6gqk8e4e63rnne3x3y7c2w8",
+      "partyId": "pty_01m6gqk8dpev7t1mj3jtnsf4hw",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:57.080845Z",
+      "observationDigest": "3847a621cb93421f2847efb5c2d3099bb911af539e3404692cf6b1b979174441"
+    },
+    {
+      "domain": "101camaras.com",
+      "listingSourceId": "ls_01m6gqrdhfeq5a4n096jrjsbf3",
+      "partyId": "pty_01m6gqrdh0ebv94k77rvws2c5n",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:57.403196Z",
+      "observationDigest": "a4e7cf8c04b3ba3bcb1baa8797fd2a476e4760cd287548e551d86fec2ce98121"
+    },
+    {
+      "domain": "camarasvintage.es",
+      "listingSourceId": "ls_01m6gqrfpye2aah3zte06jxb33",
+      "partyId": "pty_01m6gqrfpbesf92f08jx7v0xmx",
+      "locations": 2,
+      "logo": false,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:57.474608Z",
+      "observationDigest": "a21d972d2bd510228fd3f18f62d25f6c146fa06cb91c924ae7f59c44770c624c"
+    },
+    {
+      "domain": "oscorpcameras.com",
+      "listingSourceId": "ls_01m6gqrj1he7tr79z3btq5cmj9",
+      "partyId": "pty_01m6gqrj12e8pay7d54r5t14mb",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:57.572814Z",
+      "observationDigest": "950df70759cba29a9b5e81f11c747e31d67c908fed4d4cfdec61e99663231b00"
+    },
+    {
+      "domain": "filateliaarias.com",
+      "listingSourceId": "ls_01m6gr0t2nezt84003pb5p4hxk",
+      "partyId": "pty_01m6gr0t24e4ftdjhhe1gzrptm",
+      "locations": 2,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:57.948800Z",
+      "observationDigest": "3be8cc757a9aa3f20701581f343617f6b7fcb19f88e1762bb495748de0e242f1"
+    },
+    {
+      "domain": "filateliafilgest.com",
+      "listingSourceId": "ls_01m6gr0wq1exdrrsqsxbcss889",
+      "partyId": "pty_01m6gr0wphe1da9baafhjkdng3",
+      "locations": 1,
+      "logo": true,
+      "platform": "YLOS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:57.957572Z",
+      "observationDigest": "04c59eadf67e832c3d8102ef419de5a3bb68088728778f376c6f8a90cdf2bf3e"
+    },
+    {
+      "domain": "filateliacarmenrodriguez.com",
+      "listingSourceId": "ls_01m6grc01qe5d91bp8dkxqss1w",
+      "partyId": "pty_01m6grc016eq78q9cqk7ab9bdm",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:58.053214Z",
+      "observationDigest": "610afe1475e5fa894a4eb0b42350abd1021dbf104c0a48af8a36ce4baa268d85"
+    },
+    {
+      "domain": "coleccionismobaral.es",
+      "listingSourceId": "ls_01m6grc296eeebscqa9tdkxkdh",
+      "partyId": "pty_01m6grc28resgbne37j121h8pa",
+      "locations": 1,
+      "logo": false,
+      "platform": "DUDA",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:58.337892Z",
+      "observationDigest": "37e688a3968b790b5aab99d8db0b593c6fc3cd3c5659080bb5758b335117898f"
+    },
+    {
+      "domain": "filateliahobby.es",
+      "listingSourceId": "ls_01m6grc43qeb1vwpv83sbgp4jz",
+      "partyId": "pty_01m6grc41fe1grd46bpj5ybher",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:58.602319Z",
+      "observationDigest": "fa6c25fe0375eec0d168f13b1360d612d80332d94bc220cb2a71184e733a02cc"
+    },
+    {
+      "domain": "numismaticabarcala.com",
+      "listingSourceId": "ls_01m6grmj2veq989161jf23j1rq",
+      "partyId": "pty_01m6grmj2je4fb47g9f3jszv0e",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:58.531827Z",
+      "observationDigest": "9b2d9c45b898bba9e33f1c3dba25bfca8770c601175e6ddf412f62653c9448d9"
+    },
+    {
+      "domain": "filateliasuarez.com",
+      "listingSourceId": "ls_01m6gs3631e1dt86dm0zbnmzv7",
+      "partyId": "pty_01m6gs362hend9ehp5na5e0m8x",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:58.801806Z",
+      "observationDigest": "e4b85be3025e2068de4ca071bbbcbbdaa93a8244efbe9d9eb091a6894bf3d2ab"
+    },
+    {
+      "domain": "filatelias-tudela.com",
+      "listingSourceId": "ls_01m6gs38dhe1wrnwj3zsc4mtq6",
+      "partyId": "pty_01m6gs38d1e6dr5364yxnjr3rw",
+      "locations": 3,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:59.094980Z",
+      "observationDigest": "f5ae14764875b82e20b5d97a6a9f05337343d5e79482599142d8a7fb0bca6045"
+    },
+    {
+      "domain": "filateliahaeffner.com",
+      "listingSourceId": "ls_01m6gs3as8ejvve5veagnw552z",
+      "partyId": "pty_01m6gs3arse6e8hgymk3h18wwv",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:59.066159Z",
+      "observationDigest": "d4792d38c91b8962c77b484a80ac723ecf236811546f36b46307299c48128d7b"
+    },
+    {
+      "domain": "circulomadrid.eu",
+      "listingSourceId": "ls_01m6gy4858eqhtjky0v3j9s647",
+      "partyId": "pty_01m6gy484qertrw3gk7t70dfmt",
+      "locations": 1,
+      "logo": true,
+      "platform": "SIWEB",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:59.251198Z",
+      "observationDigest": "2d9c228a6fe6b697f423aaa9f032f87bab678d73da9a66a47747eafa97a49a9c"
+    },
+    {
+      "domain": "luistarre.com",
+      "listingSourceId": "ls_01m6gsbkcrepms2cs20htja3c9",
+      "partyId": "pty_01m6gsbkc9e9jarnxd7wm3sv0j",
+      "locations": 1,
+      "logo": false,
+      "platform": "EPAGES",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:59.526169Z",
+      "observationDigest": "e5e4de653199dfd692ddc1ce7fedacb13f20e3b6b23d87732ad44243777dc4a0"
+    },
+    {
+      "domain": "sellomania.com",
+      "listingSourceId": "ls_01m6gsbnpgewxakdb90jmk8gbg",
+      "partyId": "pty_01m6gsbnp1erx9s0bv634yvke7",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:59.556252Z",
+      "observationDigest": "23abf919d62b8e6d24cc935c77506a807da5dd895f97fe3e187273f82d7da122"
+    },
+    {
+      "domain": "sisodifusiones.com",
+      "listingSourceId": "ls_01m6gsnqr2eynvsp5fc0edsd69",
+      "partyId": "pty_01m6gsnqqqev2ajskeq3z9dwpp",
+      "locations": 2,
+      "logo": true,
+      "platform": "NOPCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:59.780214Z",
+      "observationDigest": "62babd5c6a812b1c54f3b5d4a8f144628adff529334f0d44423fc10eabffeb2f"
+    },
+    {
+      "domain": "monedasysellos.es",
+      "listingSourceId": "ls_01m6gsntb3ehrtm244e88m49tz",
+      "partyId": "pty_01m6gsntarezq9a84aqn4km7zc",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:17:59.971887Z",
+      "observationDigest": "5b80be91f986ab1aad08ca19bc3c451f1b5508a73f4f187f180f14ad5675a5b9"
+    },
+    {
+      "domain": "filatelia.online",
+      "listingSourceId": "ls_01m6gt23m1efp9fsaa0y0xnewv",
+      "partyId": "pty_01m6gt23kke29at956pb5kg4qr",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:00.023361Z",
+      "observationDigest": "31a7502db206355445fab9dfec5a956c391570cc7a918268127b26b72671baba"
+    },
+    {
+      "domain": "filateliavega.com",
+      "listingSourceId": "ls_01m6gvg5jpepgangd3g8gecva1",
+      "partyId": "pty_01m6gvg5j0ev2r4w6wdj19x7y9",
+      "locations": 1,
+      "logo": false,
+      "platform": "ZEN_CART",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:00.431660Z",
+      "observationDigest": "0bec73de46c1c42ad85b1951f9b02fe611a7958f9607c3bc56039e2279250bde"
+    },
+    {
+      "domain": "filateliaynumismaticafilargent.com",
+      "listingSourceId": "ls_01m6gvg7tvemmtrg3fbsbg45h2",
+      "partyId": "pty_01m6gvg7tcef6vfqyws7t8sen9",
+      "locations": 1,
+      "logo": true,
+      "platform": "ODOO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:00.563424Z",
+      "observationDigest": "1be7dec2f31931eee05549d408d60cfca966e1186043a9b4174b5bcd3139bd69"
+    },
+    {
+      "domain": "mayor25.com",
+      "listingSourceId": "ls_01m6gvqavteffvy7kbah5ze2rt",
+      "partyId": "pty_01m6gvqavdeg8b31vpr3frmdg9",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:00.565459Z",
+      "observationDigest": "79b58cff823fd3a0de92da67ea17e2a28f59a0deecc7a70c27aa1e5da1b3df0f"
+    },
+    {
+      "domain": "numismaticainternacional.com",
+      "listingSourceId": "ls_01m6gvqcnje8vs5ms1yjgmxc2a",
+      "partyId": "pty_01m6gvqcn5e849csz7c2fnwfd0",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:00.943284Z",
+      "observationDigest": "a8ce97364a75d6f088650233f6a0a1942a1eff865d9e8e76c14042ba788a9939"
+    },
+    {
+      "domain": "numismaticabilbao.com",
+      "listingSourceId": "ls_01m6gvzsq3ecpv40w337jpbnn9",
+      "partyId": "pty_01m6gvzspqebc8xv2t2atmkwv6",
+      "locations": 2,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:01.106308Z",
+      "observationDigest": "302e199b113a5ab546ec6276501ade7b32de9c87100422f7a9bfd79d370943cb"
+    },
+    {
+      "domain": "numismaticadena.com",
+      "listingSourceId": "ls_01m6gw8r9newts3crx7pbbca1z",
+      "partyId": "pty_01m6gw8r98ens85rw6g6811kgq",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:00.968321Z",
+      "observationDigest": "b91fc36aa56b377458f003bbe92be5c3a47371fcbeef01e9e2ca552a38c9a64c"
+    },
+    {
+      "domain": "anticuana.com",
+      "listingSourceId": "ls_01m6gy7snkevftefpyqarzcyy3",
+      "partyId": "pty_01m6gy7sn3en7aehj7hx0s9kpf",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:01.511546Z",
+      "observationDigest": "b828cb6308354fce4245c75a3140d98c119da3edf7f28907d529ee57252a1370"
+    },
+    {
+      "domain": "anciennewatches.com",
+      "listingSourceId": "ls_01m6gyt0h0etaawsdgsc4pxcdk",
+      "partyId": "pty_01m6gyt0ggewjae0ya83ds5ka6",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:01.431003Z",
+      "observationDigest": "f4cf63b937e08d93bfc89b3e5e99266d9015a56e87c5ec3c8c2a2650e3aa754b"
+    },
+    {
+      "domain": "cuartocolorlab.com",
+      "listingSourceId": "ls_01m6gz6dk5ekcb507yrv30t0j7",
+      "partyId": "pty_01m6gz6djqe0zaw0yvq8j3h8x9",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:01.601724Z",
+      "observationDigest": "cea57d1a027d51ca4123527ad69576caa0564a2b9be86f2b52fd02780ddbc4f5"
+    },
+    {
+      "domain": "hemisferium.net",
+      "listingSourceId": "ls_01m6gz6fe4ezy8d52acw8hmp1f",
+      "partyId": "pty_01m6gz6fdqesr91rev6rfax4vn",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:01.909775Z",
+      "observationDigest": "e0c9b860a143d59d38cc5899b9ae79463866b9bc974976d43d8544ba5a92b8f7"
+    },
+    {
+      "domain": "cameras.carmencitafilmlab.com",
+      "listingSourceId": "ls_01m6gzh79yetjsnbstxaydr76c",
+      "partyId": "pty_01m6gzh79hek9ve94vr77ara7p",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:01.982776Z",
+      "observationDigest": "c28464c9d34c18cd209140cfc1dedf8696f32bc88ea6300d66f28bd1452c829d"
+    },
+    {
+      "domain": "dubblefilm.com",
+      "listingSourceId": "ls_01m6h04rnde6yv511twnphbpzd",
+      "partyId": "pty_01m6h04rn1eafbr59kjzb227vp",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:02.148185Z",
+      "observationDigest": "b06b5c111a1d71350c36535ef4f5670c314d7a43b1a43e8ec54a941706dc32ac"
+    },
+    {
+      "domain": "revelab.es",
+      "listingSourceId": "ls_01m6h04tzneak92p2g5gbsp9c4",
+      "partyId": "pty_01m6h04tzbe5s98yp1xg9k6bfx",
+      "locations": 3,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:02.582049Z",
+      "observationDigest": "f28c4eb4e81ea8270252d2336bb44f97823adfaf0d47ea764bc37b6c44f5fe49"
+    },
+    {
+      "domain": "doradovintage.com",
+      "listingSourceId": "ls_01m6h0a51ce79aj8cpn6jhdvq1",
+      "partyId": "pty_01m6h0a511ehyab7g766s1q9q7",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:02.453687Z",
+      "observationDigest": "f1f16b5a3e1a62d1b963702da1073b03572057b9e4b739ba7e72ba8bf2e458af"
+    },
+    {
+      "domain": "guitargiraffe.com",
+      "listingSourceId": "ls_01m6h0gdrweqgtrw378gw8p8kr",
+      "partyId": "pty_01m6h0gdrgem8t9e1sspmw865e",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:02.617426Z",
+      "observationDigest": "a579ed32ff8fa852543eb2154238e0a24129914ea1a2143aab9c4138b3b1674c"
+    },
+    {
+      "domain": "acompas.es",
+      "listingSourceId": "ls_01m6h0sp5jepmb5m9jr423fjb0",
+      "partyId": "pty_01m6h0sp5besprkx30bb2fz86s",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:03.052049Z",
+      "observationDigest": "00a90821b3b18611eb24009d28d6354a60161c264a66fbdebd419195e5b961da"
+    },
+    {
+      "domain": "vinylclubbarcelona.com",
+      "listingSourceId": "ls_01m6h1a89ted0tre95wbaqd6rf",
+      "partyId": "pty_01m6h1a88pejrvet3w92qkb732",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:03.133712Z",
+      "observationDigest": "f93cf0c0fd747a6a727dbd12a3042e0a13797514f9616080993844a1d6d6a6ca"
+    },
+    {
+      "domain": "bajoelvolcan.es",
+      "listingSourceId": "ls_01m6h1t6apegcanp2jgm5xfa9e",
+      "partyId": "pty_01m6h1t6a8eksrtpst0vcgrcd4",
+      "locations": 1,
+      "logo": true,
+      "platform": "TREVENQUE_WEBLIB",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:03.061682Z",
+      "observationDigest": "2588dbb96c1787edaf6ead2d20b675f03e1e6cc9038b57b09c04302e6edde370"
+    },
+    {
+      "domain": "siloe.es",
+      "listingSourceId": "ls_01m6h28yx4ebrvs4c17nsfbkbq",
+      "partyId": "pty_01m6h28ywmeezt05twt99zb2pm",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:03.463011Z",
+      "observationDigest": "006846040257b466cb47368a4dafb2be5d0e4f9339558ff84475bce1e304ac45"
+    },
+    {
+      "domain": "gonzaloperezarte.es",
+      "listingSourceId": "ls_01m6h2yr38eysv4k5be50qerr1",
+      "partyId": "pty_01m6h2yr2qeft9v18s6qk1wnf3",
+      "locations": 1,
+      "logo": true,
+      "platform": "ASP_NET_WEB_FORMS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:03.451379Z",
+      "observationDigest": "d2a88f96efb63f83c70c2ad46c49e45d3e5f01799562214e39b5ab4ddfbd27db"
+    },
+    {
+      "domain": "matutahome.com",
+      "listingSourceId": "ls_01m6h3kpvmemnbc8784f529t25",
+      "partyId": "pty_01m6h3kpv8en7tzs34ayktjmb8",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:03.747878Z",
+      "observationDigest": "9711ebd6a9a6b1e1710cf902660d4206467235b909b899b9450a237864358d2f"
+    },
+    {
+      "domain": "antiguedadesrolle.com",
+      "listingSourceId": "ls_01m6h4e2wzezfb7em57xeaebp7",
+      "partyId": "pty_01m6h4e2waeeess2bjhx675cd9",
+      "locations": 1,
+      "logo": true,
+      "platform": "JOOMLA",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:03.971537Z",
+      "observationDigest": "41ac17f88f2f90c1971553519de5589483f04c16c7f7131533ff62b62645de7a"
+    },
+    {
+      "domain": "manosdehada.es",
+      "listingSourceId": "ls_01m6h4e59ke92aveykpjs9e1jb",
+      "partyId": "pty_01m6h4e593e3hs835sfmt3eqp6",
+      "locations": 1,
+      "logo": true,
+      "platform": "NEXT_JS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:03.919027Z",
+      "observationDigest": "683ed2e38c850c801f5c6d34c4a34aa92ebfc5be7e3c3e3d31ce2f29d3784b7e"
+    },
+    {
+      "domain": "1492maps.com",
+      "listingSourceId": "ls_01m6h4z226exm9y47nma05az5x",
+      "partyId": "pty_01m6h4z218ec8s32m7aarxyvbm",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:04.269449Z",
+      "observationDigest": "15618ffc9d40c84687a9972bb48c76c0d76382e579ea065aa3154142e61efe3d"
+    },
+    {
+      "domain": "labizarresusu.com",
+      "listingSourceId": "ls_01m6h6r32eeezsbemaej2s24hr",
+      "partyId": "pty_01m6h6r325eyc8h6dn8pt5mbj0",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:04.434002Z",
+      "observationDigest": "6f6916ae6a05762ec60942cc8992ecf13d835d2f9eaed264e0b8a0b4cbbbd614"
+    },
+    {
+      "domain": "salazarybermudez.com",
+      "listingSourceId": "ls_01m6h6r50je9g87fgq84e4q15k",
+      "partyId": "pty_01m6h6r509ejpsvzzpm23xqn0a",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:04.476787Z",
+      "observationDigest": "cc2d9b52b7b3ea9110dc75c7ffe27160db51922719da88ffbf5f01e960030e07"
+    },
+    {
+      "domain": "goantiquejewels.com",
+      "listingSourceId": "ls_01m6h6r6q9e8q99yzwvsvxp6rr",
+      "partyId": "pty_01m6h6r6pye67tgcgb82dnzxzf",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:04.747913Z",
+      "observationDigest": "7cb2eb64f7d17aae234b0932928dc13930bfc8580668118e0f749488b94f835c"
+    },
+    {
+      "domain": "numinsa.com",
+      "listingSourceId": "ls_01m6h6r8pqe5fbhq5tzm40fg5q",
+      "partyId": "pty_01m6h6r8peenmsx6y967na36rc",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANGULAR",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:04.844014Z",
+      "observationDigest": "7d5ee226795ec17b87ff60ececbb721870a849a2e6a000991241600c44d013db"
+    },
+    {
+      "domain": "tasadoresjoyeros.com",
+      "listingSourceId": "ls_01m6h6z8bjewramesvazs4hzwz",
+      "partyId": "pty_01m6h6z8azeacvrzg8c6rf5xa4",
+      "locations": 6,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:05.284986Z",
+      "observationDigest": "cd6b30c25260ba533eb39793947adfa311f13d0970390191fb8f414859e5f52a"
+    },
+    {
+      "domain": "joyeriamellado.es",
+      "listingSourceId": "ls_01m6h6zbc4ex8b9yxf8vqkgdae",
+      "partyId": "pty_01m6h6zbbqee6vat6xpch1qcq0",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:05.209296Z",
+      "observationDigest": "03bdeeadc3892cf4bc2c2fee37f3ecfb494e7a9f28de1a8a4fe4962746dc5442"
+    },
+    {
+      "domain": "supragold.es",
+      "listingSourceId": "ls_01m6h771twecnstyeg3tthbet8",
+      "partyId": "pty_01m6h771teerh9h3vxt0t6zp5w",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:05.311329Z",
+      "observationDigest": "0cf2d93d354f007a9d73f164afaed03b37037e52bbbf175f1428042243737f08"
+    },
+    {
+      "domain": "eylia-vintage.com",
+      "listingSourceId": "ls_01m6h773x2e4ftbs6me1f4xj67",
+      "partyId": "pty_01m6h773wmeeevhx4b219fqr5v",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:05.669450Z",
+      "observationDigest": "9a84302783ecb0aa3b09234475686c837bb08e3ee41c4104044d6ce1f7021001"
+    },
+    {
+      "domain": "joyeriagracia.com",
+      "listingSourceId": "ls_01m6h775w2etzrmr1apq8swfha",
+      "partyId": "pty_01m6h775vmeb98h6sqz8ywmgr2",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:05.667280Z",
+      "observationDigest": "1ef9406d706a2ee758b0f53b9a0bb3aa2f95354843c7f95a4b3c409a8c1192a7"
+    },
+    {
+      "domain": "clocksbcn.com",
+      "listingSourceId": "ls_01m6h7ec0gehh9xgqbhrn8hns4",
+      "partyId": "pty_01m6h7ec01e4zsxtvvzra6w4kb",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:05.741839Z",
+      "observationDigest": "1901569eccd1d9fb1160f9ca4c7db0f2370cf65a1ff8488eb21bf5b971ba5943"
+    },
+    {
+      "domain": "thegreenroomcomicart.com",
+      "listingSourceId": "ls_01m6h84vqnewtra2m10eh1cqde",
+      "partyId": "pty_01m6h84vq4efrv1qt8qm13nrj2",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:06.062746Z",
+      "observationDigest": "0aa91e56a8d0b3a1ca5e7d87501a4a8d20a6ab8f045faa04efb5374b184a3d8c"
+    },
+    {
+      "domain": "lemurgallery.com",
+      "listingSourceId": "ls_01m6h8rc8fecvrmkjr5qxgsvr7",
+      "partyId": "pty_01m6h8rc86efe97vwv85wtt7dr",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:06.141498Z",
+      "observationDigest": "48b81cadcfb6f9a764d0fd1f5de084936d274abbaa5886b0392c2db48d36bc34"
+    },
+    {
+      "domain": "galeriapilares.es",
+      "listingSourceId": "ls_01m6h8re3gewx9th42yky97xsy",
+      "partyId": "pty_01m6h8re38e4mbnybv9wva7mya",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:06.241873Z",
+      "observationDigest": "c9832fb8879c6051997af69675c2477173abedc7f7a8dfdd61198a1615e96cbe"
+    },
+    {
+      "domain": "garridogallery.com",
+      "listingSourceId": "ls_01m6h9cjs1e5fvjqxn12bjkprx",
+      "partyId": "pty_01m6h9cjrgeg1bcpwrk57yqxwf",
+      "locations": 2,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:06.551249Z",
+      "observationDigest": "b5670a95956a1f7328d4bb1a12f39c0ad2d605311291ceb472aa428cd206626b"
+    },
+    {
+      "domain": "nicoletta.info",
+      "listingSourceId": "ls_01m6ha11b7ef9ts2tv42drf37k",
+      "partyId": "pty_01m6ha11atecgax9978nm1nres",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:06.633969Z",
+      "observationDigest": "0398188d0a62e204f33fc22f6b14023d6d57a12ff171809034631e570367e75b"
+    },
+    {
+      "domain": "galeriadeartecinabrio.com",
+      "listingSourceId": "ls_01m6hbhcqeewkasze9fhrabfh0",
+      "partyId": "pty_01m6hbhcpwez3bzcnfqd0sx110",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:06.660078Z",
+      "observationDigest": "5d40e5f0ae1786937baacbfc9a6fd6cbae7c30a646ef49233a81b79358ad741f"
+    },
+    {
+      "domain": "lasindicalistaestudio.com",
+      "listingSourceId": "ls_01m6hbheave928c43a63w9j1kr",
+      "partyId": "pty_01m6hbhea8eqabmz7cama86dt8",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:06.960596Z",
+      "observationDigest": "43cdbc154a42410d6b89a8ea0bc048241fe106c68ec0d1dfc18eb6bcbe988b55"
+    },
+    {
+      "domain": "espacio36.net",
+      "listingSourceId": "ls_01m6hc62kve2n8djam0xypjvsf",
+      "partyId": "pty_01m6hc62kdejvv5xkz963gn5pr",
+      "locations": 1,
+      "logo": true,
+      "platform": "NEXT_JS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:07.114882Z",
+      "observationDigest": "527e7f9fa77dd0f1e06723257f9c3eb297d418a32523dbfe4082086398830e02"
+    },
+    {
+      "domain": "sorolla.com",
+      "listingSourceId": "ls_01m6hcfhvxem2rdkd8va3561jf",
+      "partyId": "pty_01m6hcfhv7ebatgwcpy2bw9dgs",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:07.122282Z",
+      "observationDigest": "8632a155ff0319cf62bbbe212c87243ba7632fa20bc41684481fd1a3784dd702"
+    },
+    {
+      "domain": "galeriamichelmenendez.com",
+      "listingSourceId": "ls_01m6hctxkvegmrwbr69j505dvw",
+      "partyId": "pty_01m6hctxkcepx9m88a43se4ff7",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:07.346290Z",
+      "observationDigest": "a0de925c67c68bbc38f527d62b7d4992b0741407a1bcf453c672ab4d9b4b8952"
+    },
+    {
+      "domain": "artea2.com",
+      "listingSourceId": "ls_01m6hd9z0jewmvjhwbemygfm56",
+      "partyId": "pty_01m6hd9z04ek89adcagprtrq7x",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:07.488401Z",
+      "observationDigest": "e6ec1053b8cd2455d0ed4e226bcee2427b7b01bf4113c41d870d9ba7a4ea88bc"
+    },
+    {
+      "domain": "openartgallery.es",
+      "listingSourceId": "ls_01m6hdf259erxst1ccwpm3k2fk",
+      "partyId": "pty_01m6hdf24weq2rkvm3fps799d6",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:18:07.532563Z",
+      "observationDigest": "02561ee56796a31a805d816c1ca1b40cdb58cea5d91cf862f4f7d9297d990245"
+    },
+    {
+      "domain": "moretart.com",
+      "listingSourceId": "ls_01m6hdp71besq8ae8gqt8hs19n",
+      "partyId": "pty_01m6hdp70qemcrj83vqmgc4hcj",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:21:15.336350Z",
+      "observationDigest": "2c082cf9b68220546154cf1ca02bc6a8929abdc44ed900c5514fdde3543378fe"
+    },
+    {
+      "domain": "galeriasaracasoart.com",
+      "listingSourceId": "ls_01m6he2an6ed1vw7rhnksgwcxq",
+      "partyId": "pty_01m6he2amwe68a22290f4hbmqx",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:27:52.899461Z",
+      "observationDigest": "bf6adde04591ea5c3eab063d436aaedcdb22d1d94080a76b67ee2471300777ba"
+    },
+    {
+      "domain": "lamasylamas.es",
+      "listingSourceId": "ls_01m6he2d10e9kvm8t5paydmawm",
+      "partyId": "pty_01m6he2d0pe3mtf3z0ww7s9cbk",
+      "locations": 2,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:27:52.883914Z",
+      "observationDigest": "de8e49887dc3c20e29bffeae6a5b4e4396b85feb2cbf1c72ebe26af5e7fd74c0"
+    },
+    {
+      "domain": "vilaseco.com",
+      "listingSourceId": "ls_01m6heg8fhehq9h65ryn0a8wwy",
+      "partyId": "pty_01m6heg8exes7bbyz33yt49532",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:35:49.459990Z",
+      "observationDigest": "9eff5e4eaeeef7eaf5444087aca17cdd6d43d6643463b7c181c3fccbb7803549"
+    },
+    {
+      "domain": "luisapita.com",
+      "listingSourceId": "ls_01m6hegarge32r9hmrqbmvjzc4",
+      "partyId": "pty_01m6hegar1e4pv0hszsqcc5vxh",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:35:49.473299Z",
+      "observationDigest": "01a2659ff1a15390b131449b5ab0489dc0561710688fcc17e469fcd6983a0dc2"
+    },
+    {
+      "domain": "magdapuente.com",
+      "listingSourceId": "ls_01m6hf2t01ee18v4e3zpzqhwfn",
+      "partyId": "pty_01m6hf2szgejzbarhbec6p4zxz",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:46.928723Z",
+      "observationDigest": "0d3ddadf5aa2242565f882e5fa9b369d635f89eff1008164b26b3be87082664d"
+    },
+    {
+      "domain": "blacklightartgallery.com",
+      "listingSourceId": "ls_01m6hf2wj2e4vbyzrd034esk6t",
+      "partyId": "pty_01m6hf2whee4htqr425sb0q9na",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:46.747459Z",
+      "observationDigest": "a0bb53d8393a903765c1c4211d9b203cb76c3e1dc1ff2329c2b50b2997a7a9a1"
+    },
+    {
+      "domain": "ignaciofortun.com",
+      "listingSourceId": "ls_01m6hf2ycge3xs6zswmwn0m79r",
+      "partyId": "pty_01m6hf2ybzehrtwqn6jd8ft57n",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:46.832400Z",
+      "observationDigest": "af5c38cfd99512007b76ed621d0a0a2695bbf3e6911a76ece229837b8857d83f"
     }
   ]
 }

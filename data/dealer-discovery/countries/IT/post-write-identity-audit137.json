@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-137",
+  "country": "IT",
+  "observedAt": "2026-11-03T16:34:56.306088Z",
+  "result": "PASSED",
+  "rawJournalFiles": 80,
+  "rawJournalRecordsScanned": 39123,
+  "apiWriteAttemptsThisRun": 13,
+  "decisions": {
+    "added": [
+      "skvintage.it",
+      "marri.it",
+      "pratoantichita.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot137-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T16:34:26.500996Z",
+    "fullVerifiedAt": "2026-11-03T15:37:46.101221Z",
+    "counts": {
+      "parties": 228,
+      "listingSources": 228,
+      "locations": 272,
+      "logos": 193,
+      "identifiedPlatforms": 173,
+      "deliveryProfiles": 131,
+      "emptyIngestionMethods": 228,
+      "excluded": 23,
+      "deferred": 79
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "SK native telephone in VAT field omitted, personal fiscal code not imported. Current market2026 own offered painting photographs inspected, no age inference from1960s-style plate decoration. Livorno published contact address roles[] preserves unknown use; no shop/inventory/dispatch. Duda direct runtime, native500x415logo. Explicit world shipping retains RU and UNRESOLVED carrier-unserved exclusions/PARTIAL/INSURED, unknown prices/times. Marri exact native/VIES Carlo operator, WixStores direct, current1795chair photo, no original logo. Explicit guide says most stock not displayed: no inventory. Collection at Frascati6 CONTACT_TO_ARRANGE with24hour prerequisite ledger-only; not a24hour window. Italy tracked shipping preserves unknown per-product costs and timing overrides. Prato surname not Tuscany: native exact legal operator/Avolasca exhibition; malformed12digitVAT omitted without repair. Native original4616x799logo and carriage photo inspected through ordinary browser/public same-origin fetch after generic HTTP999, no authentication/forms/TLSbypass. Garbagna exactaddress/platform/shipping unknown; no extra locations or inventory.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

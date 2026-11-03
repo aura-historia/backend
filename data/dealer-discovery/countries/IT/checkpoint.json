@@ -2,53 +2,282 @@
   "schemaVersion": 1,
   "country": "IT",
   "goalStatus": "ACTIVE",
-  "observedAt": "2026-11-03T09:14:05.485886Z",
-  "lastVerifiedRun": "2026-11-02-it-107",
+  "observedAt": "2026-11-03T19:53:44.483744Z",
+  "lastVerifiedRun": "2026-11-02-it-169",
   "verificationScope": "INCREMENTAL",
-  "fullVerifiedAt": "2026-11-03T08:38:06.429705Z",
+  "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
   "counts": {
-    "parties": 183,
-    "listingSources": 183,
-    "locations": 216,
-    "logos": 153,
-    "identifiedPlatforms": 138,
-    "deliveryProfiles": 114,
-    "emptyIngestionMethods": 183,
-    "excluded": 17,
-    "deferred": 51
+    "parties": 270,
+    "listingSources": 270,
+    "locations": 318,
+    "logos": 224,
+    "identifiedPlatforms": 211,
+    "deliveryProfiles": 145,
+    "emptyIngestionMethods": 270,
+    "excluded": 25,
+    "deferred": 89
   },
   "paidDataSpendUsd": 0,
   "pendingOperations": [],
-  "nextRun": "2026-11-02-it-108",
+  "nextRun": "2026-11-02-it-170",
   "nextDomains": [
-    "novarinofineart.it"
+    "antichitadaziano.com"
   ],
   "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
   "frontier": "data/dealer-discovery/countries/IT/frontier.jsonl",
   "index": "data/dealer-discovery/countries/IT/index.tsv",
   "verification": "data/dealer-discovery/countries/IT/verification.json",
-  "nextAction": "Run the due full Italy resource verification, then continue frontier research from the next unreviewed candidate. Check current own antique stock, first-party legal identity and contacts, original logo, platform and advertised delivery. Dedupe against fresh global API and every ledger; persist only facts >0.95 confidence and keep ingestion empty.",
-  "fullCheckDueRun": "2026-11-02-it-108",
-  "lastCrossLedgerAuditAt": "2026-11-03T09:14:05.485886Z",
+  "nextAction": "Review AntichitàDaziano native fulloperator/VAT00340150044(DazianoFrancesco), BeinetteMartiri92/12081 and exact historical furniture offer with actualoriginalimage, logo/platform. Native homepage explicitly says shippingservice/cost agreed atpurchase dependingdestination, geographyunspecified; preserveunknowns, no ANYWHEREguess. Inspect Déballageevent to distinguish ownretail event from marketplace/auctionoperation. InitialallrawDazianoname noowner. Eleven owned journals verified169incremental; nextfull173. Bonetti and Fallavena already Italy-owned, skip.",
+  "fullCheckDueRun": "2026-11-02-it-173",
+  "lastCrossLedgerAuditAt": "2026-11-03T19:53:44.483744Z",
   "managedFactsConfidenceAudit": "ALL_STRICTLY_ABOVE_0_95",
-  "crossLedgerReadMode": "All 39 raw JSONL journals (33871 records) and a fresh global API snapshot checked. Root legacy mirror and other-country ledgers were read-only; no ownership collision.",
+  "crossLedgerReadMode": "All 146 raw journals (45879 records), including hosted ledgers; no competing owner identity matches.",
   "identityVerification": "data/dealer-discovery/countries/IT/identity-verification.jsonl",
   "postWriteIdentityAudit": {
-    "run": "2026-11-02-it-107",
-    "observedAt": "2026-11-03T09:14:05.485886Z",
+    "schemaVersion": 1,
+    "run": "2026-11-02-it-169",
+    "country": "IT",
+    "observedAt": "2026-11-03T19:53:44.483744Z",
     "result": "PASSED",
-    "apiWritesThisRun": 4,
-    "rawJournalFiles": 39,
-    "rawJournalRecordsScanned": 33871,
-    "ownedItalyRootsAndAliases": 289,
-    "freshGlobalApiSnapshot": "PASSED; prewrite snapshot contained 1983 Parties and 2007 sources with no Libreria Docet domain/name/contact/VAT match. Postwrite snapshot contained 1985 Parties and 2009 sources. Incremental verification checked all 183 managed Party/source identities and empty ingestion lists; new Docet Party/source/location/default/logo/platform readbacks passed.",
-    "crossLedgerOwnership": "PASSED; scanned 39 raw JSONL journals (33871 records); identity terms matched the current Italy Docet row/frontier only, with no root legacy or other-country dealer ledger matches.",
-    "newDealer": "Libreria Docet ADDED with source ls_01m6gazdf7ek6rc0spfv9zbs25, Party pty_01m6gazdevena9nk675xe1s32b, Bologna business-premises location ploc_01m6gazdv4eg591z0jbaby63w9 and location default revision 2. Duda technology and original native 488×90 JPEG logo read back; no shipping profile; ingestion empty. VIES exact legal name/VAT; separate tax address not assigned a location role.",
-    "paidResearchSpendUsd": 0,
-    "credentialMode": "0600",
+    "rawJournalFiles": 146,
+    "rawJournalRecordsScanned": 45879,
+    "apiWriteAttemptsThisRun": 3,
+    "decisions": {
+      "added": [
+        "galleriabosi.com"
+      ],
+      "excluded": [],
+      "deferred": []
+    },
+    "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+    "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot169-prewrite.json",
+    "verification": {
+      "path": "data/dealer-discovery/countries/IT/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:28.578762Z",
+      "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+      "counts": {
+        "parties": 270,
+        "listingSources": 270,
+        "locations": 318,
+        "logos": 224,
+        "identifiedPlatforms": 211,
+        "deliveryProfiles": 145,
+        "emptyIngestionMethods": 270,
+        "excluded": 25,
+        "deferred": 89
+      }
+    },
+    "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+    "omissions": "GalleriaBosi nativecurrentfooterABConsultingSrl/VAT16166161006 positiveofficial matches, no foundingperson/familyparties. Actual1021x571historicalinkwell and original600x254redB/blackwordmark inspected; PNGalpha correct viaHTMLpreview, originalasset retained. Current nativeViaComo2 distinctgov2/4taxrange, no expandedcivic/extra registered/warehouse/inventory/dispatch. WordPressdirect, no activecommerceengine verified. Generalpostpurchase assembly/transport/damagerepair help not shippingcoverage/rates/service; noneimported. Modernhomedecor and historicalartistauctionbiography are not qualificationbasis/ownedauctionoperation. Secondaryhostedseller471/oldSRLname only unadoptedlead, no sourcecopy/alias/renameguess. Current exactnative/API/rawidentities clear:146journals atprewrite, all elevenowned verified,270emptyingestion,nopending,$0. DeBleslead deferredunassigned; BEdebleshitpainteronly,BEuntouched. No globalblocker.",
     "noOtherCountryDealerMutations": true,
-    "explicitCountryPaths": "Onboarding, verification and index outputs targeted the Italy country ledger and files. Root and other-country ledgers were read-only identity deduplication inputs."
+    "paidResearchSpendUsd": 0,
+    "pendingOperations": []
   },
   "previousRunAudit": "data/dealer-discovery/countries/IT/post-write-identity-audit106.json",
-  "priorSharedVerificationRecovery": "Run 103 root output-path mistake/recovery is retained in post-write-identity-audit103.json; later runs use explicit country-scoped input/output paths."
+  "priorSharedVerificationRecovery": "Run 103 root output-path mistake/recovery is retained in post-write-identity-audit103.json; later runs use explicit country-scoped input/output paths.",
+  "ownedLedgers": [
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/main-verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:14.342391Z",
+      "fullVerifiedAt": "2026-11-03T19:46:01.683741Z",
+      "counts": {
+        "parties": 261,
+        "listingSources": 261,
+        "locations": 309,
+        "logos": 224,
+        "identifiedPlatforms": 202,
+        "deliveryProfiles": 144,
+        "emptyIngestionMethods": 261,
+        "excluded": 25,
+        "deferred": 88
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/abbona-roberto/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/abbona-roberto/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:13.925839Z",
+      "fullVerifiedAt": "2026-11-03T19:45:20.026926Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/abellonio-ivano/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/abellonio-ivano/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:14.441393Z",
+      "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/acasadimanu74/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/acasadimanu74/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:14.024362Z",
+      "fullVerifiedAt": "2026-11-03T19:45:20.237986Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/ag-antichita/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/ag-antichita/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:13.989153Z",
+      "fullVerifiedAt": "2026-11-03T19:45:20.236240Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/alberto-savio/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/alberto-savio/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.100429Z",
+      "fullVerifiedAt": "2026-11-03T19:45:27.475503Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/am-marcelli/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/am-marcelli/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.201987Z",
+      "fullVerifiedAt": "2026-11-03T19:45:27.199279Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/antichi-ricordi/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/antichi-ricordi/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.200799Z",
+      "fullVerifiedAt": "2026-11-03T19:45:27.481773Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-amore/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/antichita-amore/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.701267Z",
+      "fullVerifiedAt": "2026-11-03T19:45:26.984848Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/federico-andrisani/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/federico-andrisani/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:21.787098Z",
+      "fullVerifiedAt": "2026-11-03T19:45:34.183534Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/la-cassapanca-fiori/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/la-cassapanca-fiori/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:52:28.578762Z",
+      "fullVerifiedAt": "2026-11-03T19:45:34.350371Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    }
+  ],
+  "countryAggregation": "verification.json andindex.tsv includeallownedjournals; main-verification.json/main-index.tsv retainmain-onlyhelperstate.",
+  "qualificationScope": "DIRECT_ART_AND_ANTIQUES_ONLY",
+  "scopeInstructionObservedAt": "2026-11-03T18:34:12.000445Z",
+  "qualificationScopeNotes": "New additions must directly sell art or antiques. General used-goods, fashion and ordinary book shops are outside the tightened research scope. Existing resource IDs remain owned and must never be recreated."
 }

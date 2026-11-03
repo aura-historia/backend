@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-112",
+  "country": "IT",
+  "observedAt": "2026-11-03T13:11:40.204717Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 31060,
+  "apiWriteAttemptsThisRun": 9,
+  "successfulApiWrites": 8,
+  "definitelyRejectedWrites": 1,
+  "decisions": {
+    "added": [
+      "galleriazonin.it",
+      "delvillanomobili.it"
+    ],
+    "excluded": [
+      "antiquariatoeuropeo.com"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh prewrite full snapshot and country-scoped helper checks found no duplicate domain/operator/contact. Both created sources, Parties, locations, defaults and Del Villano shipping read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot112-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T13:11:03.941619Z",
+    "fullVerifiedAt": "2026-11-03T12:45:58.662905Z",
+    "counts": {
+      "parties": 191,
+      "listingSources": 191,
+      "locations": 225,
+      "logos": 161,
+      "identifiedPlatforms": 145,
+      "deliveryProfiles": 117,
+      "emptyIngestionMethods": 191,
+      "excluded": 19,
+      "deferred": 53
+    }
+  },
+  "writeReconciliation": "Del Villano shipping POST returned HTTP400 because unresolved text was265characters over255 limit. Fresh GET profiles=[] and unassigned default revision1 confirmed no profile. Reviewed complete facts replacement shortened text to229characters; same Party/source/location IDs and creation key retained; resumed profile/default creation succeeded and readbacks passed. No uncertain retry or duplicate resources.",
+  "crossLedgerOwnership": "All raw journals including hosted ledgers read; no competing owner identity matches.",
+  "omissions": "Zonin tax address and older prose address not added as extra premises. Del Villano mixed catalogue qualified from explicitly available Liberty antique wardrobe; reproduction labels excluded from basis. Nonbinding shipping fees, obsolete foreign country mappings and item-only timing not imported.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,52 @@
+{
+  "run": "2026-11-03-at-099",
+  "checkpointedAt": "2026-11-03T19:50:34.911938Z",
+  "discoveryStatus": "ACTIVE",
+  "country": "AT",
+  "counts": {
+    "parties": 160,
+    "listingSources": 164,
+    "locations": 200,
+    "logos": 139,
+    "identifiedPlatforms": 133,
+    "deliveryProfiles": 93,
+    "emptyIngestionMethods": 164,
+    "excluded": 19,
+    "deferred": 108
+  },
+  "verificationScope": "INCREMENTAL",
+  "verifiedAt": "2026-11-03T19:49:33.137099Z",
+  "fullVerifiedAt": "2026-11-03T19:28:44.161827Z",
+  "ledgerComponents": [
+    {
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/AT/verification-root.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:49:33.137099Z",
+      "fullVerifiedAt": "2026-11-03T19:29:09.424781Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/AT/hosted/schrattenecker/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/AT/hosted/schrattenecker/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:49:32.790680Z",
+      "fullVerifiedAt": "2026-11-03T19:28:44.273407Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/AT/hosted/nostalgie-antik/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/AT/hosted/nostalgie-antik/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:49:32.826863Z",
+      "fullVerifiedAt": "2026-11-03T19:28:44.252667Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/AT/hosted/mayrhofer/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/AT/hosted/mayrhofer/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-03T19:49:33.083308Z",
+      "fullVerifiedAt": "2026-11-03T19:28:44.161827Z"
+    }
+  ],
+  "paidDataSpendUsd": 0,
+  "blockers": []
+}

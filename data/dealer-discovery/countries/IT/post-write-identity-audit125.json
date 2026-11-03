@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-125",
+  "country": "IT",
+  "observedAt": "2026-11-03T14:43:44.523932Z",
+  "result": "PASSED",
+  "rawJournalFiles": 46,
+  "rawJournalRecordsScanned": 34762,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "antichitadecomania.it",
+      "salottoviennese.it"
+    ],
+    "excluded": [
+      "artecastellarin.com"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot125-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T14:43:06.964657Z",
+    "fullVerifiedAt": "2026-11-03T14:33:25.176550Z",
+    "counts": {
+      "parties": 209,
+      "listingSources": 209,
+      "locations": 252,
+      "logos": 177,
+      "identifiedPlatforms": 159,
+      "deliveryProfiles": 125,
+      "emptyIngestionMethods": 209,
+      "excluded": 22,
+      "deferred": 69
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Decomania’s original logo and collectible cane photo inspected; current official exact identity corroborated. Cormor Alto tax address is not a second premises. Salotto Viennese’s current official exact trading name/proprietor and matching native/hosted contacts establish identity; Romans tax address is not another current shop. Native Premariacco appointment premises retained. Explicit worldwide shipping preserved with null item eligibility/rate; pallet and street-level delivery, indicative times and item-specific warehouse collection remain evidence without invented pickup/default assignments. No Salotto logo verified. Native professional seller role on external Catawiki is distinct from operating an auction house. Castellarin explicitly says it organizes auctions and is excluded.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

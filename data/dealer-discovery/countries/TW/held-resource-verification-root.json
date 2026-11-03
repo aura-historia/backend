@@ -1,0 +1,58 @@
+{
+  "verifiedAt": "2026-11-03T19:51:07.175874Z",
+  "scope": "Resource integrity only; qualification decision remains in the owning ledger",
+  "dealers": [
+    {
+      "domain": "ccs-europe.com.tw",
+      "listingSourceId": "ls_01m6gqcw5ae8ks2zs8vt9hkhcy",
+      "partyId": "pty_01m6gqcw4xeb0b8afm8nxj5x9p",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:51:05.542747Z",
+      "observationDigest": "f259abddfb518299c9a2937637f0947de671a1ee36c734b809f4c63705c76858"
+    },
+    {
+      "domain": "motiveshowroom.com",
+      "listingSourceId": "ls_01m6gr5a77eb1vm8n2q714f7n4",
+      "partyId": "pty_01m6gr5a6sevfb7aqasxerwkpp",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPLINE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:51:06.180466Z",
+      "observationDigest": "5a5ddd6c74fd728c2eb1a9fb10406c901a9b9a132b0ad8a0283874a8f322f256"
+    },
+    {
+      "domain": "sunrecords.tw",
+      "listingSourceId": "ls_01m6gvbhzwew3rmkaghe2mt8mk",
+      "partyId": "pty_01m6gvbhzbeg0vs6k2j9s75xm9",
+      "locations": 0,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:51:06.627800Z",
+      "observationDigest": "e0e20090025290819f13fa2c387874abef87b6fc2272d61ffb2ebf54e998aee9"
+    },
+    {
+      "domain": "modpolyltd.com",
+      "listingSourceId": "ls_01m6h5zk7neqgszb5r9amh8r48",
+      "partyId": "pty_01m6h5zk79ezwv28fg749nn4ft",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:51:07.175617Z",
+      "observationDigest": "6071d17e98e0ef614e6412186475f1d05dd09716a24213a899177d0ebfcedfbc"
+    }
+  ]
+}

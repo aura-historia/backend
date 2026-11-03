@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-117",
+  "country": "IT",
+  "observedAt": "2026-11-03T13:47:16.049722Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 32734,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "oldisgoldantiques.com",
+      "altomani.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "antiquariatolalucerna.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot117-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T13:46:48.986624Z",
+    "fullVerifiedAt": "2026-11-03T13:18:24.652857Z",
+    "counts": {
+      "parties": 200,
+      "listingSources": 200,
+      "locations": 241,
+      "logos": 170,
+      "identifiedPlatforms": 151,
+      "deliveryProfiles": 121,
+      "emptyIngestionMethods": 200,
+      "excluded": 19,
+      "deferred": 61
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Old is Gold’s appointment showroom and registered address are distinct; unknown showroom postcode omitted. Its shipping quotation has unresolved countries and unknown lead-time bounds. Altomani’s current contact locations and VIES agree on Juvara; old privacy Borgospesso discrepancy retained without a fourth location/registered role. Licensing assistance is not delivery coverage. No inventory defaults. La Lucerna DNS failure is not closure.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

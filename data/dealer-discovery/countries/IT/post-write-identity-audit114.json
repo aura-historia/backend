@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-114",
+  "country": "IT",
+  "observedAt": "2026-11-03T13:28:37.344808Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 31884,
+  "apiWriteAttemptsThisRun": 14,
+  "decisions": {
+    "added": [
+      "labifora.it",
+      "trodele.com",
+      "zanella-antiquariato.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "antiksavoi.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot114-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T13:27:22.783243Z",
+    "fullVerifiedAt": "2026-11-03T13:18:24.652857Z",
+    "counts": {
+      "parties": 196,
+      "listingSources": 196,
+      "locations": 233,
+      "logos": 166,
+      "identifiedPlatforms": 148,
+      "deliveryProfiles": 118,
+      "emptyIngestionMethods": 196,
+      "excluded": 19,
+      "deferred": 55
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Trodele furniture15EUR is a deposit, not universal final fee; foreign destination policy conflicts, so unresolved. Tracking explicit, rates/timing/pickup unknown. SanCandido is seasonal. LaBifora historical/tax addresses remain distinct and seasonal opening observations retained. Zanella Bolzano historical reference has no current full verified premises/operator boundary. No inventory defaults. Savoi unresolved DNS is not closure.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

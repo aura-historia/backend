@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-145",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:19:55.856104Z",
+  "result": "PASSED",
+  "rawJournalFiles": 94,
+  "rawJournalRecordsScanned": 40696,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "angeliniavezzano.it",
+      "fuoricatalogoartem.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot145-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T17:18:57.214001Z",
+    "fullVerifiedAt": "2026-11-03T17:11:46.779380Z",
+    "counts": {
+      "parties": 241,
+      "listingSources": 241,
+      "locations": 285,
+      "logos": 204,
+      "identifiedPlatforms": 183,
+      "deliveryProfiles": 136,
+      "emptyIngestionMethods": 241,
+      "excluded": 24,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Angelini native legalSnc/operator/currentshop independentlyverified; founder and currentRemonamesakes distinct, no individualParties. VATcandidate00088510664 positiveofficial butnotnativepublished: omittedwith.9confidencecandidatejournal, no taxViaAlbensepremise. Nativecurrentpublic62itemcatalogue and selecteddeskchestactualphoto inspected; original547x135PNGwordmark inspected. No preciseplatformfromSupabasestorage. Native quotedITshipping retains partial/nullsourceeligibilitybecauseheavyitemlimits; EuropeUNRESOLVED/confirmation, unknowncurrency/basis/timing, packingincluded; purchasedshopcollectionCONTACT_TO_ARRANGE/site0explicitnativeproduct. NoINV/dispatch. Fuoricatalogo exactnativeEff’emmeartemSRLS/VAT02387940683 positiveGov. OneactualCalderai3Spoltoregallery, no registeredrolefromheadquarters/tax alone. Nativecurrentoffered19thdooranddesignshelves, actualoriginal1606x1200doorphoto inspected; current241x100PNGwordmark, nativeWooCommerce. Eventimages/museumcreditsnotstock; no shippingfromculturalreach, INV/dispatch/collection unknown. Similar.orgassociation notmerged.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

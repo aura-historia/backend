@@ -1,0 +1,47 @@
+{
+  "run": "tw-2026-11-03-060",
+  "verifiedAt": "2026-11-03T19:53:35.740396Z",
+  "scope": "FULL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T19:53:35.740396Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 0,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 3466,
+    "listingSources": 3501
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "tw.bid.yahoo.com",
+      "listingSourceId": "ls_01m6gxg4nyenq8exh4tv1y7j91",
+      "partyId": "pty_01m6gxg4nce2bssx7875822qsj",
+      "locations": 1,
+      "logo": false,
+      "platform": "YAHOO_AUCTIONS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:35.740022Z",
+      "observationDigest": "be5007009277e36d0c1e7adc65873f47dfa7001a40775fd45aa05116105a4fe6"
+    }
+  ]
+}

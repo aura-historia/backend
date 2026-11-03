@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-141",
+  "country": "IT",
+  "observedAt": "2026-11-03T16:55:00.283140Z",
+  "result": "PASSED",
+  "rawJournalFiles": 87,
+  "rawJournalRecordsScanned": 39763,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "antichitaaurame.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot141-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T16:53:44.859470Z",
+    "fullVerifiedAt": "2026-11-03T16:39:52.591829Z",
+    "counts": {
+      "parties": 235,
+      "listingSources": 235,
+      "locations": 279,
+      "logos": 200,
+      "identifiedPlatforms": 179,
+      "deliveryProfiles": 135,
+      "emptyIngestionMethods": 235,
+      "excluded": 23,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Aurame native exact full individual/footerVAT verified independently; negative intraEUVIES not national invalidity or closure. Original750x536PNGlogo and actual own advertised antique stock photographs inspected. Native sale gallery explicitly ties pictured stock to Alassio business, supporting separate advertised-inventory association atHanbury16. Salea diAlbenga restoration workshop has no verified exactaddress, omitted; Imperia/Albenga serviceSEO not branches/shipping. WordPress/Divi direct; no unknowncommerce claim. No delivery/purchasedcollection/dispatch assumptions. Ghersi directory domain failsDNS/emptyordinarybrowser; Sotto domain variants404 and ordinarybrowser explicitly disconnectedWix, eBay403. Both remain DEFERRED_UNASSIGNED frontier leads with country/operator/stock unverified and Dec3followup, no records or closure claim. All managed resources/defaults read back; no paid research/contact/ingestion.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

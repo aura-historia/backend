@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-155",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:28:20.780570Z",
+  "result": "PASSED",
+  "rawJournalFiles": 121,
+  "rawJournalRecordsScanned": 42898,
+  "apiWriteAttemptsThisRun": 5,
+  "decisions": {
+    "added": [
+      "clexidra.net"
+    ],
+    "excluded": [],
+    "deferred": [
+      "antichitalacappuccina.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot155-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T18:26:40.329858Z",
+    "fullVerifiedAt": "2026-11-03T18:15:30.686840Z",
+    "counts": {
+      "parties": 255,
+      "listingSources": 255,
+      "locations": 302,
+      "logos": 217,
+      "identifiedPlatforms": 197,
+      "deliveryProfiles": 143,
+      "emptyIngestionMethods": 255,
+      "excluded": 25,
+      "deferred": 83
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Clexidra exact native proprietor business/VAT positively matched. Actual1930Corticelli edition cover/rear scans and original700x283WebP inspected, independently of modern2009 book, author life dates and generic rare labels. Current ViaMercato23 shop retained without guessed postal code; ViaMunicipio9 government tax address is not a new shop or registered assertion. Weight/size-limited book postage EUR5/10, free-shipping exactEUR100 discrepancy and probabilistic4/6day courier figures remain ledger-only. Profile preserves Italy with null eligibility/rates and foreign contact-to-arrange with unresolved countries; no universal tracking/insurance or purchased pickup. LaCappuccina current native Spoleto gallery/contacts and original assets inspected, but formal seller/operator not expressly established; Elena/founder/restorer/family roles not legal identity. DeferredDec3 with no API resources, not closure. Both owned journals independently verified.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,25 +1,25 @@
 {
-  "run": "FULL170",
-  "verifiedAt": "2026-11-03T09:13:43.127421Z",
+  "run": "2026-11-03-fr-240",
+  "verifiedAt": "2026-11-03T19:53:24.246060Z",
   "scope": "FULL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T09:13:43.127421Z",
-  "dealersCheckedThisRun": 292,
+  "fullVerifiedAt": "2026-11-03T19:53:24.246060Z",
+  "dealersCheckedThisRun": 383,
   "dealersReused": 0,
   "counts": {
-    "parties": 289,
-    "listingSources": 292,
-    "locations": 370,
-    "logos": 244,
-    "identifiedPlatforms": 257,
-    "deliveryProfiles": 216,
-    "emptyIngestionMethods": 292,
-    "excluded": 17,
-    "deferred": 150
+    "parties": 379,
+    "listingSources": 383,
+    "locations": 475,
+    "logos": 319,
+    "identifiedPlatforms": 327,
+    "deliveryProfiles": 281,
+    "emptyIngestionMethods": 383,
+    "excluded": 26,
+    "deferred": 279
   },
   "environmentCounts": {
-    "parties": 1983,
-    "listingSources": 2007
+    "parties": 3464,
+    "listingSources": 3499
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
@@ -40,7 +40,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:50.381319Z",
+      "verifiedAt": "2026-11-03T19:52:15.256099Z",
       "observationDigest": "918894f77b9960238d491ff0c5d8c2c6f605c235070e8302c99a3b7d50219348"
     },
     {
@@ -53,7 +53,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:50.302841Z",
+      "verifiedAt": "2026-11-03T19:52:15.336783Z",
       "observationDigest": "81199a85dcb60832183e8e2ed27dd06b6c6bf66bc895b46f91cbba6b9a53fe1e"
     },
     {
@@ -66,7 +66,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:50.237221Z",
+      "verifiedAt": "2026-11-03T19:52:15.298926Z",
       "observationDigest": "b35416dc1243058aadbe69164be1b3647ffd50dc8c9fc481f9b794a5fb65f594"
     },
     {
@@ -79,7 +79,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:50.703560Z",
+      "verifiedAt": "2026-11-03T19:52:15.710826Z",
       "observationDigest": "356134e2d2827718b69a15877faef5298e6a78c271ec3a3c7cc06a030462f54e"
     },
     {
@@ -92,7 +92,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:50.854593Z",
+      "verifiedAt": "2026-11-03T19:52:15.831630Z",
       "observationDigest": "ac61323c72fd420616cff256d65110569e456be7607a018d911cb820b663d2b9"
     },
     {
@@ -105,7 +105,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:50.955776Z",
+      "verifiedAt": "2026-11-03T19:52:15.884617Z",
       "observationDigest": "5ec20b41fa5036c919fe30880a88e4f59898759b57da1cf8dbb5f1e572a991e1"
     },
     {
@@ -118,7 +118,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:51.270287Z",
+      "verifiedAt": "2026-11-03T19:52:16.224890Z",
       "observationDigest": "fea9ef1cb1b1238f8f86bd8ba5cce910a236d73eff6632f3bfd64ec4a329db69"
     },
     {
@@ -131,7 +131,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:51.472824Z",
+      "verifiedAt": "2026-11-03T19:52:16.349320Z",
       "observationDigest": "e2629af3f915d8c759899a4722151d6e1d9dd4f11bc37f4905f74072557d3a99"
     },
     {
@@ -144,7 +144,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:51.538009Z",
+      "verifiedAt": "2026-11-03T19:52:16.409882Z",
       "observationDigest": "25ce00f788fa6d2f7905694e1e87ceb2bf4f41e1dfe35b7bec3d123ab9997156"
     },
     {
@@ -157,7 +157,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:51.840540Z",
+      "verifiedAt": "2026-11-03T19:52:16.743904Z",
       "observationDigest": "7342e266abadf8bb872902499fb12375dd113569bb5c909851b8d9ea9b3d8e0d"
     },
     {
@@ -170,7 +170,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:52.026903Z",
+      "verifiedAt": "2026-11-03T19:52:16.887941Z",
       "observationDigest": "4f06d068b3ca1a6f9a0c28e34acefe930fb723315cba748c3f6f1c768f8993b6"
     },
     {
@@ -183,7 +183,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:52.091461Z",
+      "verifiedAt": "2026-11-03T19:52:17.049747Z",
       "observationDigest": "ec9e6be104de3211adb831ada6586d88226fb58eb2b6229953fee090a351dcfa"
     },
     {
@@ -196,7 +196,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:52.441821Z",
+      "verifiedAt": "2026-11-03T19:52:17.314914Z",
       "observationDigest": "159a5b56839930fc80c52f33348aabc80fe9fbb151591b67084ac6dde2e40c50"
     },
     {
@@ -209,7 +209,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:52.589780Z",
+      "verifiedAt": "2026-11-03T19:52:17.443841Z",
       "observationDigest": "00964cd84ded6b9a2e8fb30e87ae76fd6e0825503767607e83ef98dc7eb3dfc7"
     },
     {
@@ -222,7 +222,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:52.746873Z",
+      "verifiedAt": "2026-11-03T19:52:17.743918Z",
       "observationDigest": "868762c43c5ea28cdae42e17f00d7d25e6afcc9ba65fb4b313d5f4ff022221a4"
     },
     {
@@ -235,7 +235,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:53.124160Z",
+      "verifiedAt": "2026-11-03T19:52:17.929385Z",
       "observationDigest": "ff35e52565b488fa1c5258df044d1991124c3ebdf2575124190d3c4d7cb2dfe1"
     },
     {
@@ -248,7 +248,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:53.111791Z",
+      "verifiedAt": "2026-11-03T19:52:17.970296Z",
       "observationDigest": "687bc86444f780f511df99e03832103252fd624ee10750ce45f94c98b9e25953"
     },
     {
@@ -261,7 +261,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:53.297460Z",
+      "verifiedAt": "2026-11-03T19:52:18.338433Z",
       "observationDigest": "8d3cfabf9ea4d8ff004ca40c2e3d4cffb8eded69af4c0c983abadef9244547b4"
     },
     {
@@ -274,7 +274,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:53.653823Z",
+      "verifiedAt": "2026-11-03T19:52:18.409188Z",
       "observationDigest": "ce784bdd13b51ccc196641298bd2a9acf5845604d5c509eed2267047aba0afb5"
     },
     {
@@ -287,7 +287,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:53.803856Z",
+      "verifiedAt": "2026-11-03T19:52:18.621149Z",
       "observationDigest": "a4299a53cfbf72dbd130378b01ebbad069906579755dc758ab66ad450f65027c"
     },
     {
@@ -300,7 +300,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:53.852868Z",
+      "verifiedAt": "2026-11-03T19:52:18.898633Z",
       "observationDigest": "30f4e92b1b6fd443473248ac5b9cf883122fccbc0f18ca34f1a953e08a6e5bf7"
     },
     {
@@ -313,7 +313,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:54.181468Z",
+      "verifiedAt": "2026-11-03T19:52:19.007485Z",
       "observationDigest": "6797fd338da29d99523a50c36db14e09122f89a6cc12089e42accbbcfa995ae7"
     },
     {
@@ -326,7 +326,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:54.344798Z",
+      "verifiedAt": "2026-11-03T19:52:19.196477Z",
       "observationDigest": "063bf7f8cca1f3f2a6b811b3d1509f8daefdddd11eeb0128fd26e5cc6e6fabf3"
     },
     {
@@ -339,7 +339,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:54.407380Z",
+      "verifiedAt": "2026-11-03T19:52:19.443290Z",
       "observationDigest": "799783b923295b88bb24178077d3372de80e378ac28a350ee367645ce32c7cab"
     },
     {
@@ -352,7 +352,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:54.731705Z",
+      "verifiedAt": "2026-11-03T19:52:19.548231Z",
       "observationDigest": "5e4fa63f857f9b9bd73f04a23ed505747b4cbe4121a70d6bb185e16abcd0ea12"
     },
     {
@@ -365,7 +365,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:54.797988Z",
+      "verifiedAt": "2026-11-03T19:52:19.654054Z",
       "observationDigest": "1eb6756a10ecf14276a61b7658ca10e459b2e7d9aef8048dbfbac7d59200c84b"
     },
     {
@@ -378,7 +378,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:54.963710Z",
+      "verifiedAt": "2026-11-03T19:52:19.992049Z",
       "observationDigest": "2ea49cc1e7792e5a14164537357f24ac87abc084c57019f3f1c3e1fd4915a634"
     },
     {
@@ -391,7 +391,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:55.272859Z",
+      "verifiedAt": "2026-11-03T19:52:20.094603Z",
       "observationDigest": "fbbbdd5dde2b621522ca3ed422460faf3b1dd835412b27181f944e2d5363cc7b"
     },
     {
@@ -404,7 +404,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:55.423611Z",
+      "verifiedAt": "2026-11-03T19:52:20.258930Z",
       "observationDigest": "c151e099b8963ff62aa97bba68e5c63ba049cc2222b953da2a9083cca0778ef3"
     },
     {
@@ -417,7 +417,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:55.528771Z",
+      "verifiedAt": "2026-11-03T19:52:20.484690Z",
       "observationDigest": "f400217a711a4dc9576f65b398a51dd314b7d67c63f64e85b53293f7f17f8cf9"
     },
     {
@@ -430,7 +430,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:55.798185Z",
+      "verifiedAt": "2026-11-03T19:52:20.600606Z",
       "observationDigest": "f972ec1f9082b7a24d81fc4c5917d10127c89cbc1e2d520b3f49544a2e024f94"
     },
     {
@@ -443,7 +443,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:55.974662Z",
+      "verifiedAt": "2026-11-03T19:52:20.784355Z",
       "observationDigest": "599d7d9773b62948d586a18bf5c2b97d2b7a91b0bffab9bf7941fc10a593fa69"
     },
     {
@@ -456,7 +456,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:56.063108Z",
+      "verifiedAt": "2026-11-03T19:52:21.081081Z",
       "observationDigest": "6107aaa8a3f041bea6eabb3ba062ff5bd5fa8f6c89f9b47dd8db7c2153c5da08"
     },
     {
@@ -469,7 +469,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:56.429621Z",
+      "verifiedAt": "2026-11-03T19:52:21.237372Z",
       "observationDigest": "d50a640220fe8a78946f88889e0c8e5fa8d74c7746392fcd84005c2e87b4caf6"
     },
     {
@@ -482,7 +482,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:56.446986Z",
+      "verifiedAt": "2026-11-03T19:52:21.235816Z",
       "observationDigest": "bc46cc601c9fb8308efd9772444d2e80d51f7329e425da8f34594b3ec7aff71f"
     },
     {
@@ -495,7 +495,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:56.629247Z",
+      "verifiedAt": "2026-11-03T19:52:21.592447Z",
       "observationDigest": "b0affec3ebbfb4c648b8248824958ce34322bc94461e3d91502b6d3e605e0bab"
     },
     {
@@ -508,7 +508,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:56.972255Z",
+      "verifiedAt": "2026-11-03T19:52:21.763879Z",
       "observationDigest": "c5f97de50613d2ca040d0e78858c6d318c1a5ebdc0e457c73be8ce6136cecab3"
     },
     {
@@ -521,7 +521,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:57.095287Z",
+      "verifiedAt": "2026-11-03T19:52:21.849562Z",
       "observationDigest": "06c9b161fdfd11d5421a313f4c8d5a8a60934f8710c661eba3ac8e0a985337ac"
     },
     {
@@ -534,7 +534,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:57.262273Z",
+      "verifiedAt": "2026-11-03T19:52:22.225803Z",
       "observationDigest": "ba93a7ecbe3dcde984fcad0858cd5ef87928f65fbc0d8897b5264f393eb2e55c"
     },
     {
@@ -547,7 +547,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:57.451129Z",
+      "verifiedAt": "2026-11-03T19:52:22.220963Z",
       "observationDigest": "36cc60ca7cae2f05ff62baecda9b575da6e9d433c98d16931597984698a3c6e4"
     },
     {
@@ -560,7 +560,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:57.569455Z",
+      "verifiedAt": "2026-11-03T19:52:22.360911Z",
       "observationDigest": "df9d8912ce45c0ca03bf2908cb6246c122dd14e811b079060b1dc7305efc2bc3"
     },
     {
@@ -573,7 +573,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:57.894819Z",
+      "verifiedAt": "2026-11-03T19:52:22.883485Z",
       "observationDigest": "b91471d427a61e8b17587c9832388d94402455ac0579ca567e90b1ab1bc9fe04"
     },
     {
@@ -586,7 +586,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:57.981680Z",
+      "verifiedAt": "2026-11-03T19:52:22.777462Z",
       "observationDigest": "8d7bceb9468177b237f5533f2413c8d2b077ddf4478a64f9f42e14858a182268"
     },
     {
@@ -599,7 +599,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:58.049250Z",
+      "verifiedAt": "2026-11-03T19:52:22.826251Z",
       "observationDigest": "74110bf59d14865468dba0f48a7d3dff35addf79f6e13ee5b78e3bd03baa933c"
     },
     {
@@ -612,7 +612,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:58.667199Z",
+      "verifiedAt": "2026-11-03T19:52:23.435558Z",
       "observationDigest": "645c6003b86f03558c099b23da179dd4f3f52c065061c0575446584b55623281"
     },
     {
@@ -625,7 +625,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:58.520663Z",
+      "verifiedAt": "2026-11-03T19:52:23.354451Z",
       "observationDigest": "18dc2ab72d7214a9723ceab8db05afa45b1cf842b29e2c06dd546e1ad8c5f68d"
     },
     {
@@ -638,7 +638,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:58.679587Z",
+      "verifiedAt": "2026-11-03T19:52:23.498584Z",
       "observationDigest": "a2d0de673bd812c874aea845c77931c811ae01a957f7bca5a82a81b674d315a5"
     },
     {
@@ -651,7 +651,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:59.192817Z",
+      "verifiedAt": "2026-11-03T19:52:23.975280Z",
       "observationDigest": "6fbe3b9fbe015f2d10c8a8ea644be6ede0bf6e477eba90b573fa9b615b8f615a"
     },
     {
@@ -664,7 +664,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:59.314470Z",
+      "verifiedAt": "2026-11-03T19:52:24.076016Z",
       "observationDigest": "b4441db0f7387fa763b0d338420ec61c3e30a057b5043d2891f796882d1ec6a6"
     },
     {
@@ -677,7 +677,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:59.255423Z",
+      "verifiedAt": "2026-11-03T19:52:23.988700Z",
       "observationDigest": "c3c8d61ff6d6e834345169e66825bccb54947f9b033e7c000a1406359302785e"
     },
     {
@@ -690,7 +690,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:59.798767Z",
+      "verifiedAt": "2026-11-03T19:52:24.633642Z",
       "observationDigest": "b3683ac7a215c83d82658f768256cd1a3b2895aa8e59064e0e95f40626c1b30e"
     },
     {
@@ -703,7 +703,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:59.771688Z",
+      "verifiedAt": "2026-11-03T19:52:24.573178Z",
       "observationDigest": "033c05461132be7b5a85ca080c621ca49430c341beafb963b524f31c80135491"
     },
     {
@@ -716,7 +716,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:12:59.753517Z",
+      "verifiedAt": "2026-11-03T19:52:24.539887Z",
       "observationDigest": "8e181c7eb47a25337344bbc3e901f40aa8abb631a6fe58b721a2c41ab5262965"
     },
     {
@@ -729,7 +729,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:00.782438Z",
+      "verifiedAt": "2026-11-03T19:52:25.167281Z",
       "observationDigest": "f482311daa4daa7d247e759e49a0809e5c42beaec2466b383ebcc7bead356548"
     },
     {
@@ -742,7 +742,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:00.669575Z",
+      "verifiedAt": "2026-11-03T19:52:25.198135Z",
       "observationDigest": "cc009e21bd56d67e62e718576c811ea1e085539fc65bdacc30694f6b28a32955"
     },
     {
@@ -755,7 +755,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:00.674950Z",
+      "verifiedAt": "2026-11-03T19:52:25.188511Z",
       "observationDigest": "d100a13f61e216091085e74462fb8ee44478153b4ffa7bbd16b306daa6030ce4"
     },
     {
@@ -768,7 +768,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:01.319688Z",
+      "verifiedAt": "2026-11-03T19:52:25.822620Z",
       "observationDigest": "aff555bebdec6246b1fd534bfa2afad51efed89be9ce7c43404b621a72f108af"
     },
     {
@@ -781,7 +781,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:01.203513Z",
+      "verifiedAt": "2026-11-03T19:52:25.900567Z",
       "observationDigest": "ff224f4cdc4cac1b72cef9f0f1e1fee4986ca538ef93674ec31525c4b9524059"
     },
     {
@@ -794,7 +794,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:01.315632Z",
+      "verifiedAt": "2026-11-03T19:52:25.781853Z",
       "observationDigest": "e7578fd12d12f80a8acdc1a7b5aa81aee9ccc818e875f3bf2f5e17db52705c09"
     },
     {
@@ -807,7 +807,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:01.760936Z",
+      "verifiedAt": "2026-11-03T19:52:26.322383Z",
       "observationDigest": "f2c5c4f290fd47fed43fb9aebf1493de2206727829f0b06ae4a9b1ec86ad6e85"
     },
     {
@@ -820,7 +820,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:01.843464Z",
+      "verifiedAt": "2026-11-03T19:52:26.393118Z",
       "observationDigest": "80290ea6489707f82b001344ed2e534f03c611ca5b5bafc9f246030d0be2bf1f"
     },
     {
@@ -833,7 +833,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:01.756288Z",
+      "verifiedAt": "2026-11-03T19:52:26.327003Z",
       "observationDigest": "7a041805dbab18b248243b960276fdffa838cae8d30a09e771223f03f2fefe67"
     },
     {
@@ -846,7 +846,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:02.400807Z",
+      "verifiedAt": "2026-11-03T19:52:26.967258Z",
       "observationDigest": "3e4c84cfaebbcd5641c7f12ded30d7244acdb12e18331c6a649299a285525ff1"
     },
     {
@@ -859,7 +859,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:02.381235Z",
+      "verifiedAt": "2026-11-03T19:52:26.978099Z",
       "observationDigest": "d583e8ef8915e636184f80ad258e93323f8ac7dbc6b5113ce9d6a25ed033f5dd"
     },
     {
@@ -872,7 +872,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:02.485472Z",
+      "verifiedAt": "2026-11-03T19:52:27.051690Z",
       "observationDigest": "56ec1e70514c936299a94a459d670905b98eddd73a01a3f26b781e6590320c6f"
     },
     {
@@ -885,7 +885,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:02.995529Z",
+      "verifiedAt": "2026-11-03T19:52:27.622853Z",
       "observationDigest": "1b8d283d66ba2c7e1a1eb58a5e0662f7c34bdb9e007fbdb414553b27abe6e6f2"
     },
     {
@@ -898,7 +898,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:02.910830Z",
+      "verifiedAt": "2026-11-03T19:52:27.513485Z",
       "observationDigest": "bbbc6dc719b773642e9230828330cd3b6d170ed9d71b2550d4487a288379ded1"
     },
     {
@@ -911,7 +911,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:03.011979Z",
+      "verifiedAt": "2026-11-03T19:52:27.571081Z",
       "observationDigest": "f1992ee09f45e0c2871171f1b8da98643dac94c443b42a0b5c8b5c709ed10464"
     },
     {
@@ -924,7 +924,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:03.362625Z",
+      "verifiedAt": "2026-11-03T19:52:27.959714Z",
       "observationDigest": "d0cb529f61179336100b6e2ec6a0575ef29b762bd75474b3494938f058ea1de6"
     },
     {
@@ -937,7 +937,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:03.552748Z",
+      "verifiedAt": "2026-11-03T19:52:28.144545Z",
       "observationDigest": "fae20808780ed62abe93e9f1ea1211c8bd18917641c3ea51b9a0bb4616f25c27"
     },
     {
@@ -950,7 +950,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:03.567486Z",
+      "verifiedAt": "2026-11-03T19:52:28.138364Z",
       "observationDigest": "c956e36c8d57af75a1c6a8f5bd2041cb542862008ed73fc379ffbe29a06b957c"
     },
     {
@@ -963,7 +963,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:03.929950Z",
+      "verifiedAt": "2026-11-03T19:52:28.492899Z",
       "observationDigest": "ed940b6d1cb691726e74e357821461eb725645a5b930dd60bf31ca9d07909095"
     },
     {
@@ -976,7 +976,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:04.189350Z",
+      "verifiedAt": "2026-11-03T19:52:28.695788Z",
       "observationDigest": "1e527f4551c314044ef97e837202bc401b5fe11717d3327198ffac4937ca333f"
     },
     {
@@ -989,7 +989,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:04.203925Z",
+      "verifiedAt": "2026-11-03T19:52:28.756536Z",
       "observationDigest": "191b94ec41a88ba6bf0f28c4ccd35f5a613190f8028ed373d1f921921c537947"
     },
     {
@@ -1002,7 +1002,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:04.468971Z",
+      "verifiedAt": "2026-11-03T19:52:29.031244Z",
       "observationDigest": "99305b0d6d91aa8751e38e9c3cc7408e3bea4095a86cae31a288d7ccf7393a27"
     },
     {
@@ -1015,7 +1015,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:04.655741Z",
+      "verifiedAt": "2026-11-03T19:52:29.200384Z",
       "observationDigest": "1ae006c6d9e0e4298522073058a3e7b2429ec2eb095d8079f70f026a96243823"
     },
     {
@@ -1028,7 +1028,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:04.613678Z",
+      "verifiedAt": "2026-11-03T19:52:29.244568Z",
       "observationDigest": "4e1e4fd1935842f728362f9838032dd3fbd011f5c95791d99ecac563e6958252"
     },
     {
@@ -1041,7 +1041,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:04.927020Z",
+      "verifiedAt": "2026-11-03T19:52:29.516202Z",
       "observationDigest": "fcf35d26ab701561180bc56a31a252eed57cf5efbfe339b14eb75e942205c1a7"
     },
     {
@@ -1054,7 +1054,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:05.164476Z",
+      "verifiedAt": "2026-11-03T19:52:29.787303Z",
       "observationDigest": "4389a9561be5e31e03ff2eeabdd2df393950c5d968c2149ab53249eb193008a6"
     },
     {
@@ -1067,7 +1067,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:05.286918Z",
+      "verifiedAt": "2026-11-03T19:52:29.997385Z",
       "observationDigest": "6f210649bf153d31763bb78484b42a830de0d1e754c64d7cb1778c813a502a00"
     },
     {
@@ -1080,7 +1080,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:05.554183Z",
+      "verifiedAt": "2026-11-03T19:52:30.217383Z",
       "observationDigest": "8910608e9b1b7e598d2b0af9e4024992ca51f399c49c7da43e9c7cc19eb79353"
     },
     {
@@ -1093,7 +1093,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:05.709381Z",
+      "verifiedAt": "2026-11-03T19:52:30.453032Z",
       "observationDigest": "e92ffb91d0580053b0abc116de193cb904fd76105a25b3cb0f40fbaf802ccb08"
     },
     {
@@ -1106,7 +1106,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:05.883336Z",
+      "verifiedAt": "2026-11-03T19:52:30.732522Z",
       "observationDigest": "945eb84a2b060c43e3e351c79ec7ef76485192fca0435630eee10986d3272cff"
     },
     {
@@ -1119,7 +1119,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:06.103305Z",
+      "verifiedAt": "2026-11-03T19:52:30.818773Z",
       "observationDigest": "1eb24a50e50374b1824c1a2f528d91f62d99d1376b0b836c2b902ae61ae0dcc5"
     },
     {
@@ -1132,7 +1132,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:06.241065Z",
+      "verifiedAt": "2026-11-03T19:52:31.171753Z",
       "observationDigest": "70e4b65c1bdb1cfe8c53ef1ea723d1626fc336475e1ce1529a8592fdd9f9d269"
     },
     {
@@ -1145,7 +1145,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:06.407141Z",
+      "verifiedAt": "2026-11-03T19:52:31.317673Z",
       "observationDigest": "53ee84911691d16d3c4be3d65857af673452bad2feb4e90240fe66007ae652e2"
     },
     {
@@ -1158,7 +1158,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:06.647003Z",
+      "verifiedAt": "2026-11-03T19:52:31.395024Z",
       "observationDigest": "dd2203408ae50fad2a7955245223917a333d8f83d7278d7a7a12aef4c59541d9"
     },
     {
@@ -1171,7 +1171,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:06.901955Z",
+      "verifiedAt": "2026-11-03T19:52:31.832981Z",
       "observationDigest": "01e103385f90d8b8191facbca88943478ed07bc25b01e677670cf3ade54b4aaa"
     },
     {
@@ -1184,7 +1184,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:06.976606Z",
+      "verifiedAt": "2026-11-03T19:52:31.892000Z",
       "observationDigest": "a801c0dc67a4c1ee56d63afd383a24c7f131fb986c73e6b2cbda4ed154801875"
     },
     {
@@ -1197,7 +1197,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:07.293027Z",
+      "verifiedAt": "2026-11-03T19:52:32.044897Z",
       "observationDigest": "384c8227aab4120db83359e381ccf1a78a6a989330b9a25891bd9c438b2b8117"
     },
     {
@@ -1210,7 +1210,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:07.450712Z",
+      "verifiedAt": "2026-11-03T19:52:32.400476Z",
       "observationDigest": "551092af382962f484b3fa5bff9af236adbcae8720b48470a09199102099eaf2"
     },
     {
@@ -1223,7 +1223,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:07.508994Z",
+      "verifiedAt": "2026-11-03T19:52:32.476891Z",
       "observationDigest": "eae21ca882b74665c0e8f92264dabfc29601d1f9d00e812c09fb6ab20f07b63d"
     },
     {
@@ -1236,7 +1236,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:07.715816Z",
+      "verifiedAt": "2026-11-03T19:52:32.484515Z",
       "observationDigest": "f81b8c6f0e59d37c56440ca24bfa2a438d357a1d84bb2b4e5e45568b51693c99"
     },
     {
@@ -1249,7 +1249,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:07.984784Z",
+      "verifiedAt": "2026-11-03T19:52:32.934821Z",
       "observationDigest": "4e9808cfd566509685bf7362187ef3b5539f24e4fc5ce621cf12b48027537afc"
     },
     {
@@ -1262,7 +1262,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:08.072143Z",
+      "verifiedAt": "2026-11-03T19:52:33.037472Z",
       "observationDigest": "1caa36c57052180760635602b06f1203331cf9d30a787ad989db42e8b0bc4295"
     },
     {
@@ -1275,7 +1275,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:08.267509Z",
+      "verifiedAt": "2026-11-03T19:52:33.027149Z",
       "observationDigest": "095c6d428ab5ba696af13ad6f319df5db8b99a462bc3ea3e69ebe7aa5c9e7342"
     },
     {
@@ -1288,7 +1288,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:08.678387Z",
+      "verifiedAt": "2026-11-03T19:52:33.586785Z",
       "observationDigest": "8e37112d1cb0f833db2a4bbd28fd3b7f698a68099418c484e0ae96ea49e4c4a9"
     },
     {
@@ -1301,7 +1301,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:08.681559Z",
+      "verifiedAt": "2026-11-03T19:52:33.556045Z",
       "observationDigest": "d31bfcf90f2a01100d3594a921b9e5aec8b37e27da693631e9f1186d105cf952"
     },
     {
@@ -1314,7 +1314,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:08.855019Z",
+      "verifiedAt": "2026-11-03T19:52:33.591884Z",
       "observationDigest": "50c3ab505aedef4a93656b4712d4dfd178b06cd66b0cdd2ba338d9db898c5bd5"
     },
     {
@@ -1327,7 +1327,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:09.145417Z",
+      "verifiedAt": "2026-11-03T19:52:33.999861Z",
       "observationDigest": "439e5aae7b130deabedc7b80450096a6d4db89e7ce0152420494da6d8e46086d"
     },
     {
@@ -1340,7 +1340,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:09.238981Z",
+      "verifiedAt": "2026-11-03T19:52:34.088875Z",
       "observationDigest": "268233120ba476abe616f5f7a586d348d06087d0a327ce7d0eb421c2e65cc574"
     },
     {
@@ -1353,7 +1353,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:09.412798Z",
+      "verifiedAt": "2026-11-03T19:52:34.132693Z",
       "observationDigest": "02b33e71aaa619140bccfecda67972fd1328e6925ea7df28441fd530cad2ef42"
     },
     {
@@ -1366,7 +1366,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:09.678500Z",
+      "verifiedAt": "2026-11-03T19:52:34.981292Z",
       "observationDigest": "0366c2316c2ae7d2bd9a6a30d053d3ae01c467ced492573daace81491cd5ce1a"
     },
     {
@@ -1379,7 +1379,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:09.764402Z",
+      "verifiedAt": "2026-11-03T19:52:34.645582Z",
       "observationDigest": "f9001167977326dcf400260d224902fa07a0e745e0983a9b607997a18c928075"
     },
     {
@@ -1392,7 +1392,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:10.059913Z",
+      "verifiedAt": "2026-11-03T19:52:34.805526Z",
       "observationDigest": "289cda96643b605c9973398225560d23d3785c408d535449786081d6f91da7f0"
     },
     {
@@ -1405,7 +1405,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:10.266457Z",
+      "verifiedAt": "2026-11-03T19:52:35.272524Z",
       "observationDigest": "bf6712c5d56b770eefb8d5d8178b4373ba6bfba59a6096f156bc4db1c7d1d407"
     },
     {
@@ -1418,7 +1418,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:10.300670Z",
+      "verifiedAt": "2026-11-03T19:52:35.453403Z",
       "observationDigest": "50e0af810108e7f487c4b92374d694d2a3ac37a33c64d37b4a5c20e279494d89"
     },
     {
@@ -1431,7 +1431,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:10.500421Z",
+      "verifiedAt": "2026-11-03T19:52:35.488717Z",
       "observationDigest": "bd014b0ed4ad0a4e7ab6d487be6f358febe251e4ea3b8f193fba0aa4a331d583"
     },
     {
@@ -1444,7 +1444,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:10.821697Z",
+      "verifiedAt": "2026-11-03T19:52:35.813779Z",
       "observationDigest": "f70fbd884bfce4ed2d490373d1a70eb060bcb33c8e5becd289b6c569a759d510"
     },
     {
@@ -1457,7 +1457,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:10.843646Z",
+      "verifiedAt": "2026-11-03T19:52:36.001975Z",
       "observationDigest": "a9a79b6783e0a5367874c07b73c3dc12d034b23730b0747867d721037ae79524"
     },
     {
@@ -1470,7 +1470,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:11.130159Z",
+      "verifiedAt": "2026-11-03T19:52:36.177364Z",
       "observationDigest": "1e1ebfca3fbcfa9506cf9729a36ab02f9da7d3f1ad1c087d35db83ad89cb0b5f"
     },
     {
@@ -1483,7 +1483,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:11.347910Z",
+      "verifiedAt": "2026-11-03T19:52:36.356147Z",
       "observationDigest": "d187b6b4e1837afa20cca1d98f3304c28c320b833a3f714e45035806a7efd7c9"
     },
     {
@@ -1496,7 +1496,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:11.291187Z",
+      "verifiedAt": "2026-11-03T19:52:36.461794Z",
       "observationDigest": "2f27d8236ccfdd359a14873085284d803b5d4d8fd59c032754ad541c8935c379"
     },
     {
@@ -1509,7 +1509,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:11.753713Z",
+      "verifiedAt": "2026-11-03T19:52:36.818625Z",
       "observationDigest": "765eea85888c3dfed9235a79a6973bc9e78fa51498e4534acef10576f67f3816"
     },
     {
@@ -1522,7 +1522,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:11.822504Z",
+      "verifiedAt": "2026-11-03T19:52:36.880573Z",
       "observationDigest": "f3b7ac1b279668c0e33ed62e574b9b6ed84420a915428d6f39797756e696a1a6"
     },
     {
@@ -1535,7 +1535,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:11.984627Z",
+      "verifiedAt": "2026-11-03T19:52:37.104876Z",
       "observationDigest": "233b558343aaa6fdf6abc1c347c8acb65ae7b025540a5ca4c34d8371d5422b50"
     },
     {
@@ -1548,7 +1548,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:12.293320Z",
+      "verifiedAt": "2026-11-03T19:52:37.370905Z",
       "observationDigest": "3440d62625cc7a7e09ea41993c29d9cd7c59196ab869d4afe14fef094d8e56ff"
     },
     {
@@ -1561,7 +1561,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:12.288833Z",
+      "verifiedAt": "2026-11-03T19:52:37.347132Z",
       "observationDigest": "56b2210e8f75deb97aee0a7185361c6115d440efcf30d40aa53a4deb2d314e26"
     },
     {
@@ -1574,7 +1574,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:12.533229Z",
+      "verifiedAt": "2026-11-03T19:52:37.640719Z",
       "observationDigest": "00dfe31ac5e258e1d970269e1de21e7872ef3774f7ff337886df196590fe0791"
     },
     {
@@ -1587,7 +1587,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:12.873069Z",
+      "verifiedAt": "2026-11-03T19:52:37.974388Z",
       "observationDigest": "d4580f25c08f64c7ae13a6b946b392ba12b760f34b2bac3df1939133769d4006"
     },
     {
@@ -1600,7 +1600,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:12.867742Z",
+      "verifiedAt": "2026-11-03T19:52:38.056878Z",
       "observationDigest": "90efbb9ffffe6883e9dca3c6c980a16306789732b2e6aff0a86f82965f22262a"
     },
     {
@@ -1613,7 +1613,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:13.028584Z",
+      "verifiedAt": "2026-11-03T19:52:38.176600Z",
       "observationDigest": "8bc35bc8dce6a5268950f0b5b31367dc39f26b41da82e86ffc0f04e094250410"
     },
     {
@@ -1626,7 +1626,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:13.479815Z",
+      "verifiedAt": "2026-11-03T19:52:38.636037Z",
       "observationDigest": "24f9d59663a47cd47d1ae9a05f810f4667c65bfb99ab8337cd11b8cd0e7cf5e5"
     },
     {
@@ -1639,7 +1639,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:13.494370Z",
+      "verifiedAt": "2026-11-03T19:52:38.741077Z",
       "observationDigest": "3f0a6a7f84711806ec61cfabee6598c73ce2ec7ccf7f50d10d70cfd1e8b33479"
     },
     {
@@ -1652,7 +1652,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:13.547702Z",
+      "verifiedAt": "2026-11-03T19:52:38.730096Z",
       "observationDigest": "6f6545f177e72e3923f4faf88579a62e7d52b22d64a2040f7579375c4ef64e10"
     },
     {
@@ -1665,7 +1665,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:14.006779Z",
+      "verifiedAt": "2026-11-03T19:52:39.210632Z",
       "observationDigest": "a6aebcf15fd49a0343fe336046e86992637148806a2ef9a1b93a9293b7d1aeff"
     },
     {
@@ -1678,7 +1678,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:14.062949Z",
+      "verifiedAt": "2026-11-03T19:52:39.257646Z",
       "observationDigest": "0e868f0f2c3079d336d3678a08a9250bb317b5fc970cdef1538603abe23300e8"
     },
     {
@@ -1691,7 +1691,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:14.177830Z",
+      "verifiedAt": "2026-11-03T19:52:39.377815Z",
       "observationDigest": "b2ef037dda383a9762a40a84bf1a525425c4a6aacdc39e4b0237140fb2686456"
     },
     {
@@ -1704,7 +1704,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:14.539867Z",
+      "verifiedAt": "2026-11-03T19:52:39.717267Z",
       "observationDigest": "eb6d4e93e477e788505024c44a65edfbdbf5c4fef06a666ae1a27b19cd4c5556"
     },
     {
@@ -1717,7 +1717,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:14.609329Z",
+      "verifiedAt": "2026-11-03T19:52:39.772225Z",
       "observationDigest": "58c7805243fb122f2c0db3543c9af02d9c1fb5adf1b759797b1b13f2650ca4c4"
     },
     {
@@ -1730,7 +1730,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:14.717214Z",
+      "verifiedAt": "2026-11-03T19:52:39.892348Z",
       "observationDigest": "39432b326218ec7bea72f3a3b99da3869d5477d7b392985f05d61e586a61106f"
     },
     {
@@ -1743,7 +1743,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:15.073872Z",
+      "verifiedAt": "2026-11-03T19:52:40.257955Z",
       "observationDigest": "0d5eb478f24347eb69b54921168e1b7230af35e1c9eecc3c7463ae6e49483cc8"
     },
     {
@@ -1756,7 +1756,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:15.077375Z",
+      "verifiedAt": "2026-11-03T19:52:40.219830Z",
       "observationDigest": "fbef98615770afe659c2e0017f37fbb671d6776f738e383702d203bca2acc7f4"
     },
     {
@@ -1769,7 +1769,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:15.266990Z",
+      "verifiedAt": "2026-11-03T19:52:40.421999Z",
       "observationDigest": "4acf4165730ee91c6e9f5e8cfd655c7c19d0de514422298af28e8c3a7c15cdfd"
     },
     {
@@ -1782,7 +1782,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:15.710770Z",
+      "verifiedAt": "2026-11-03T19:52:40.843998Z",
       "observationDigest": "7218daa7c6a5a01689bf270df338419394de277336d90ce7f6cc9cd7e035112b"
     },
     {
@@ -1795,7 +1795,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:15.810488Z",
+      "verifiedAt": "2026-11-03T19:52:40.964256Z",
       "observationDigest": "c879cd349618c4bc4135aa697add2399f2b2463c328619af5962d9c265e0daae"
     },
     {
@@ -1808,7 +1808,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:15.782684Z",
+      "verifiedAt": "2026-11-03T19:52:40.950213Z",
       "observationDigest": "c9cc9b54e5b626a11543995df8a35e2fae23a47116fb4a7d2719d49b3fae5dbc"
     },
     {
@@ -1821,7 +1821,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:16.435372Z",
+      "verifiedAt": "2026-11-03T19:52:41.582500Z",
       "observationDigest": "0cbf0e38b18d5a98d7b52f2ebba2f571e230d31fb8c2731a792de651118dbf77"
     },
     {
@@ -1834,7 +1834,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:16.412646Z",
+      "verifiedAt": "2026-11-03T19:52:41.569063Z",
       "observationDigest": "4426974ff8989ffebe370be5a35d9cb37880bb7e41d7d906517a86084ad61afc"
     },
     {
@@ -1847,7 +1847,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:16.343163Z",
+      "verifiedAt": "2026-11-03T19:52:41.467183Z",
       "observationDigest": "04e9d607094413e137ebd1667e83e7ceaae20eb45ad35322416713a231027f0f"
     },
     {
@@ -1860,7 +1860,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:16.882836Z",
+      "verifiedAt": "2026-11-03T19:52:41.986119Z",
       "observationDigest": "b3ce90c920f861276c99fa1eb45038fb8a9349f134483b0984207656c8763d93"
     },
     {
@@ -1873,7 +1873,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:17.045891Z",
+      "verifiedAt": "2026-11-03T19:52:42.310834Z",
       "observationDigest": "1ea2250154f45434e8078dffed926e7446e11167b6cd5e7086091e05c2e0e064"
     },
     {
@@ -1886,7 +1886,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:16.976517Z",
+      "verifiedAt": "2026-11-03T19:52:42.227199Z",
       "observationDigest": "dc858533a720e2c1dbd7288f8351c69df0d12af6492fe6d4806404248e2367bd"
     },
     {
@@ -1899,7 +1899,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:17.499640Z",
+      "verifiedAt": "2026-11-03T19:52:42.860956Z",
       "observationDigest": "3a7f3cd2f038c23cd8d668de7f168f0aa19984b26f9e7e27d78921beb2d2946d"
     },
     {
@@ -1912,7 +1912,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:17.441827Z",
+      "verifiedAt": "2026-11-03T19:52:42.746743Z",
       "observationDigest": "c30d0ae1a0f3e59ba538522b92a63a331472c8c3da8131d1e582d26f2587ad91"
     },
     {
@@ -1925,7 +1925,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:17.571197Z",
+      "verifiedAt": "2026-11-03T19:52:42.932170Z",
       "observationDigest": "d7f3e1146f5680461226e400c382f01a2914859020af644876b0777ee0452fb5"
     },
     {
@@ -1938,7 +1938,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:18.060861Z",
+      "verifiedAt": "2026-11-03T19:52:43.384518Z",
       "observationDigest": "6b7e68ef376da56098bdc635f34191ed2dffed8d6b29ea717293861f0a6dbd79"
     },
     {
@@ -1951,7 +1951,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:17.935921Z",
+      "verifiedAt": "2026-11-03T19:52:43.321421Z",
       "observationDigest": "3c2ac92ce48a3d666d8f0dbb91d62940faf427ad309853babc05a824bfa6ff52"
     },
     {
@@ -1964,7 +1964,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:18.196497Z",
+      "verifiedAt": "2026-11-03T19:52:43.546881Z",
       "observationDigest": "bb3557690cd95c0641b7963f354aa0c2d9eb168dac874888d1e6664e87f79916"
     },
     {
@@ -1977,7 +1977,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:18.604742Z",
+      "verifiedAt": "2026-11-03T19:52:43.952759Z",
       "observationDigest": "f9a69cd7bb07332256b095ed806fdae8d350ee2e4ec9acacad3c3ef88ec240ac"
     },
     {
@@ -1990,7 +1990,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:18.495933Z",
+      "verifiedAt": "2026-11-03T19:52:43.821175Z",
       "observationDigest": "bdef23a2e29a35611b8bac44fe1b262ad527c729c4035a14d5cefb6c54e7536e"
     },
     {
@@ -2003,7 +2003,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:18.647631Z",
+      "verifiedAt": "2026-11-03T19:52:43.998257Z",
       "observationDigest": "83799471832dd8526da4ae398aa97b16dec4ade38aee53cf9218b9d85d00b20e"
     },
     {
@@ -2016,7 +2016,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:19.024497Z",
+      "verifiedAt": "2026-11-03T19:52:44.374220Z",
       "observationDigest": "020c83547781ac0ca2c21570c7b3ea54fcc87e0a6cfa02769b4c9635cfeaf8f0"
     },
     {
@@ -2029,7 +2029,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:19.111639Z",
+      "verifiedAt": "2026-11-03T19:52:44.463211Z",
       "observationDigest": "9088cf2a0383463a1f88ef035105a5dd96698fa2faf6eda97fe8f5aab8a9ce73"
     },
     {
@@ -2042,7 +2042,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:19.350325Z",
+      "verifiedAt": "2026-11-03T19:52:44.695403Z",
       "observationDigest": "084017ff50f324ebcef8ab2b970bc94915473f31912d3315fac7a78f5f3ac970"
     },
     {
@@ -2055,7 +2055,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:19.512662Z",
+      "verifiedAt": "2026-11-03T19:52:44.934338Z",
       "observationDigest": "1f080ad3df43954c566fbec29da4a632bc3a3d3a8224d3552b85abd160ce798c"
     },
     {
@@ -2068,7 +2068,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:19.655197Z",
+      "verifiedAt": "2026-11-03T19:52:44.992913Z",
       "observationDigest": "224bba91fa2b3629258b1165bf1fccf944eac648435f0d6f5f72776f97c7f1b3"
     },
     {
@@ -2081,7 +2081,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:19.808874Z",
+      "verifiedAt": "2026-11-03T19:52:45.234604Z",
       "observationDigest": "8e7a1aca5a20dad70fe051944845f14b7cbfd42d89f3541a643c82811cf7ff65"
     },
     {
@@ -2094,7 +2094,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:20.053627Z",
+      "verifiedAt": "2026-11-03T19:52:45.716018Z",
       "observationDigest": "447e4b42a84d8aadf763afdfbd56196aa7e3c51e29dfe7f9148c9d5efa6f35f2"
     },
     {
@@ -2107,7 +2107,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:20.103140Z",
+      "verifiedAt": "2026-11-03T19:52:45.620033Z",
       "observationDigest": "d256415a2dcd0a62aa4330eab1fd5f022f4ee29127f73f38d78b9cc7668135e4"
     },
     {
@@ -2120,7 +2120,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:20.237296Z",
+      "verifiedAt": "2026-11-03T19:52:45.794381Z",
       "observationDigest": "7108f379841e7aaed4acabe768ab8da058ef70fb87115632da1c41d281676f59"
     },
     {
@@ -2133,7 +2133,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:20.489529Z",
+      "verifiedAt": "2026-11-03T19:52:46.095539Z",
       "observationDigest": "5d9668240203f5d215ae54efb3fef9684f03229ca399296256d035865c3b3022"
     },
     {
@@ -2146,7 +2146,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:20.617675Z",
+      "verifiedAt": "2026-11-03T19:52:46.327372Z",
       "observationDigest": "89d04a1b5ce7822b421eda2ef67997371e85532a47f4df4d6f966ad54a3f7e42"
     },
     {
@@ -2159,7 +2159,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:20.749804Z",
+      "verifiedAt": "2026-11-03T19:52:46.358278Z",
       "observationDigest": "dd07a4c6801c4bf81ba1174173e3e31f568334d4898f45bbf98ed66b4df5160b"
     },
     {
@@ -2172,7 +2172,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:21.006056Z",
+      "verifiedAt": "2026-11-03T19:52:46.678404Z",
       "observationDigest": "3de707dbd34a31a175a75eebfb7c39071ba5f14557ee9f9d4bdc3b9a01fd9b5a"
     },
     {
@@ -2185,7 +2185,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:21.066728Z",
+      "verifiedAt": "2026-11-03T19:52:46.801150Z",
       "observationDigest": "9d73034f3d25836204c34b8f38e57e787ea573ebb90a1ef0a0530e1bbc5e3992"
     },
     {
@@ -2198,7 +2198,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:21.251981Z",
+      "verifiedAt": "2026-11-03T19:52:46.844887Z",
       "observationDigest": "b2df6557fd90e4fbb96493ce7ec9e6f062da91a9bf793939089e4feafe99f458"
     },
     {
@@ -2211,7 +2211,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:21.525876Z",
+      "verifiedAt": "2026-11-03T19:52:47.228622Z",
       "observationDigest": "6263c0c6b92b3206801a7538782584390a9be41f72b27a9c01036086f2b979bf"
     },
     {
@@ -2224,7 +2224,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:21.601878Z",
+      "verifiedAt": "2026-11-03T19:52:47.343723Z",
       "observationDigest": "6a66a7efb6e01f89d84555817cd52110366532ec8fe00410f8c38d777c14391b"
     },
     {
@@ -2237,7 +2237,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:21.787891Z",
+      "verifiedAt": "2026-11-03T19:52:47.387171Z",
       "observationDigest": "eb220bd822583c3510f461028dd56423d91a79370243dc22fee7c88632ed69d7"
     },
     {
@@ -2250,7 +2250,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:22.258736Z",
+      "verifiedAt": "2026-11-03T19:52:47.945037Z",
       "observationDigest": "758527f86023fb098cea9c37f9db257962c73c48b80685e1e64ff4156682baa2"
     },
     {
@@ -2263,7 +2263,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:22.134925Z",
+      "verifiedAt": "2026-11-03T19:52:47.876602Z",
       "observationDigest": "00fa9fe3f8f8d140e586ae83584a36bcf7a5c089b3f86e5d6e090d2aa4b91073"
     },
     {
@@ -2276,7 +2276,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:22.319201Z",
+      "verifiedAt": "2026-11-03T19:52:47.947139Z",
       "observationDigest": "bc57ebddfd67a7054eea769c023cc2dd62a2b02638f99c931315e35cfcce1606"
     },
     {
@@ -2289,7 +2289,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:22.666679Z",
+      "verifiedAt": "2026-11-03T19:52:48.402431Z",
       "observationDigest": "be536e9195b4cf7eeeb5c427c50587d8c9b9dbbef1b46bfa9397a59a7f62c027"
     },
     {
@@ -2302,7 +2302,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:22.757626Z",
+      "verifiedAt": "2026-11-03T19:52:48.481156Z",
       "observationDigest": "1f97d2a06df574df6fc61ab457a9956b220e63455cd2d4dfb23ef5bbe552890b"
     },
     {
@@ -2315,7 +2315,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:22.809411Z",
+      "verifiedAt": "2026-11-03T19:52:48.475572Z",
       "observationDigest": "d1f144e2b516794fede1599df86b4c09ac2e16650876fa32aa35489444c93f8e"
     },
     {
@@ -2328,7 +2328,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:23.188426Z",
+      "verifiedAt": "2026-11-03T19:52:48.935786Z",
       "observationDigest": "d4dd19cce0c930a36bc3184cfd7bed36d0b91d9682278783c61492a97a98ddba"
     },
     {
@@ -2341,7 +2341,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:23.234382Z",
+      "verifiedAt": "2026-11-03T19:52:49.022152Z",
       "observationDigest": "43168f9dd7045cbff3fb8490a46724c00ef328e4817cf584431375e6d1423d7c"
     },
     {
@@ -2354,7 +2354,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:23.239134Z",
+      "verifiedAt": "2026-11-03T19:52:48.952863Z",
       "observationDigest": "38bd70a2b6e219cdcbdaef88034135dd9c20f43dafe23fd5be6c09484fa9e6ab"
     },
     {
@@ -2367,7 +2367,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:23.705652Z",
+      "verifiedAt": "2026-11-03T19:52:49.446905Z",
       "observationDigest": "2325512d4b0e1983504c917a128ee56d9984a7a39aaeecbce58f8565964cd6b4"
     },
     {
@@ -2380,7 +2380,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:23.751915Z",
+      "verifiedAt": "2026-11-03T19:52:49.464994Z",
       "observationDigest": "e8c37a7534de064002a0dd441379c9b0903080c8c42041f57ad2e7c1639708da"
     },
     {
@@ -2393,7 +2393,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:23.867072Z",
+      "verifiedAt": "2026-11-03T19:52:49.659601Z",
       "observationDigest": "168aade82efb41b33a389c1aa131d0b9fe962971c80686eb7f176d71c988eebd"
     },
     {
@@ -2406,7 +2406,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:24.167713Z",
+      "verifiedAt": "2026-11-03T19:52:49.887390Z",
       "observationDigest": "c8224880fde3e22e3ff7f25920d3f6aad8debb00df8e2b345c52665bf79a6a3d"
     },
     {
@@ -2419,7 +2419,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:24.234120Z",
+      "verifiedAt": "2026-11-03T19:52:49.878068Z",
       "observationDigest": "ae973d47ef129cac996017702bafa80fdb8f32cd2b99be39c265fae635ad94ab"
     },
     {
@@ -2432,7 +2432,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:24.393432Z",
+      "verifiedAt": "2026-11-03T19:52:50.147560Z",
       "observationDigest": "dc34ae4fcc6dd96f74fd4ad4bbb2f88154fedd06a5acea81c21f2f91ea8945ae"
     },
     {
@@ -2445,7 +2445,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:24.564886Z",
+      "verifiedAt": "2026-11-03T19:52:50.287347Z",
       "observationDigest": "c4eccc2e2cd8914c1d9091b8bed6b644049eefd6c372fbd927106c7ac6677f52"
     },
     {
@@ -2458,7 +2458,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:24.752894Z",
+      "verifiedAt": "2026-11-03T19:52:50.390358Z",
       "observationDigest": "89bc811864127dd4773b5f59268b949d4bd59d604cb03dfc0556f549a2dcb22d"
     },
     {
@@ -2471,7 +2471,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:24.923526Z",
+      "verifiedAt": "2026-11-03T19:52:50.680011Z",
       "observationDigest": "d64bdac466a633ba5421ec44a370ec6c7d6cbfbde2d6c97391266d585457fad7"
     },
     {
@@ -2484,7 +2484,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:25.077797Z",
+      "verifiedAt": "2026-11-03T19:52:50.753236Z",
       "observationDigest": "e191216464a588a994ddbdc346ba196e5f779935fe745584ca5f9bfda7582c1f"
     },
     {
@@ -2497,7 +2497,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:25.170788Z",
+      "verifiedAt": "2026-11-03T19:52:50.843278Z",
       "observationDigest": "74de5de9aa718993354fc551baa74b15a3bc63410459b05a4681522644713cd5"
     },
     {
@@ -2510,7 +2510,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:25.463264Z",
+      "verifiedAt": "2026-11-03T19:52:51.188891Z",
       "observationDigest": "a4fa18a5362121e99528a38cc7739a462e96829926a370066aeec713cd2df4a6"
     },
     {
@@ -2523,7 +2523,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:25.609468Z",
+      "verifiedAt": "2026-11-03T19:52:51.298393Z",
       "observationDigest": "93d234d79e12e7a65aed667d91485ba64f4e629d1a898e40b2fb36d9787afdcc"
     },
     {
@@ -2536,7 +2536,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:25.623190Z",
+      "verifiedAt": "2026-11-03T19:52:51.273885Z",
       "observationDigest": "90c89b864fddf019250e4beb228d08b4553020c2d52945b3fd52f1345c314b37"
     },
     {
@@ -2549,7 +2549,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:25.887109Z",
+      "verifiedAt": "2026-11-03T19:52:51.614250Z",
       "observationDigest": "2e0f28fe36cc506cb05010cafde4e5d36c6268f58912a274edeee6fa22d8191b"
     },
     {
@@ -2562,7 +2562,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:26.121020Z",
+      "verifiedAt": "2026-11-03T19:52:51.787722Z",
       "observationDigest": "bcce9a1fc9e10596875af1a5f84a54ee74c68ae9a1572d5dd9ef7e0a3fd00e23"
     },
     {
@@ -2575,7 +2575,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:26.185906Z",
+      "verifiedAt": "2026-11-03T19:52:51.809463Z",
       "observationDigest": "df5b6bdadbe35dec64471fef05913e7501edc936d9587fa39829ceca64c88952"
     },
     {
@@ -2588,7 +2588,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:26.518318Z",
+      "verifiedAt": "2026-11-03T19:52:52.262437Z",
       "observationDigest": "e36ac33f42f66f067147261f05b59653732538109689f6f92f785e6e47f85c74"
     },
     {
@@ -2601,7 +2601,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:26.556822Z",
+      "verifiedAt": "2026-11-03T19:52:52.233476Z",
       "observationDigest": "9db4a40e36caf29a0932a5898a57a54ba688529972a08aaca111186ebe888f72"
     },
     {
@@ -2614,7 +2614,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:26.740368Z",
+      "verifiedAt": "2026-11-03T19:52:52.385579Z",
       "observationDigest": "ca5cd7cf195e50b2c9ba8513ff0a824b01a6da0c51135e18dd8b693a99316c1b"
     },
     {
@@ -2627,7 +2627,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:27.061984Z",
+      "verifiedAt": "2026-11-03T19:52:52.744540Z",
       "observationDigest": "e4c1d5d7508475064ffbfcae0aa3a244fbadbdfd2226d0055c6c323c1985b81f"
     },
     {
@@ -2640,7 +2640,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:27.074383Z",
+      "verifiedAt": "2026-11-03T19:52:52.886005Z",
       "observationDigest": "ca796834dcb07f5c1bdefe847e60c5aa2424ee8906ad2b90ee6b21d0a27fc2bd"
     },
     {
@@ -2653,7 +2653,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:27.349811Z",
+      "verifiedAt": "2026-11-03T19:52:53.040754Z",
       "observationDigest": "dbd60a2ae5c685e29a30541e4bb1914d800cc86aa1d71398ecd75075e196d77c"
     },
     {
@@ -2666,7 +2666,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:27.489617Z",
+      "verifiedAt": "2026-11-03T19:52:53.199935Z",
       "observationDigest": "159afd72dcfbe859f8a777ebf44b0bbba7985fc8bcfb0585489fc905834321c1"
     },
     {
@@ -2679,7 +2679,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:27.581071Z",
+      "verifiedAt": "2026-11-03T19:52:53.448118Z",
       "observationDigest": "7bc8858fc3b88c5ac0004f4acea28960b3b17445b63bfc46d96e096a31cea468"
     },
     {
@@ -2692,7 +2692,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:27.784566Z",
+      "verifiedAt": "2026-11-03T19:52:53.452051Z",
       "observationDigest": "41d73c547c5f794b19df3059c7909f7a8bfc57f8f34525c40cce27e4a8ff2fde"
     },
     {
@@ -2705,7 +2705,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:27.911461Z",
+      "verifiedAt": "2026-11-03T19:52:53.638254Z",
       "observationDigest": "fe9e669c70b588e656ca3b5b02b0aed63ea03cf6724ba0cc80dfe8d89335738d"
     },
     {
@@ -2718,7 +2718,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:28.193805Z",
+      "verifiedAt": "2026-11-03T19:52:54.074076Z",
       "observationDigest": "1e67aa5c6248bf1089ed6644da68084e821fcc4aff31fe53eb9f5700fb5b386a"
     },
     {
@@ -2731,7 +2731,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:28.231928Z",
+      "verifiedAt": "2026-11-03T19:52:53.845166Z",
       "observationDigest": "e84c9b7ce34f19df8bb3317f37242ac8392703c9900cbce1a2e32def7aa4b925"
     },
     {
@@ -2744,7 +2744,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:28.365152Z",
+      "verifiedAt": "2026-11-03T19:52:54.150169Z",
       "observationDigest": "0c23011f08f0e04b35e1e28f5185a325224609f4bf2710e09fbcc67db35a0a0b"
     },
     {
@@ -2757,7 +2757,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:28.605716Z",
+      "verifiedAt": "2026-11-03T19:52:54.256577Z",
       "observationDigest": "891bc8e6d4330a95b3750dd1880c3c7cd46ad910f62de182037904984517720f"
     },
     {
@@ -2770,7 +2770,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:28.932928Z",
+      "verifiedAt": "2026-11-03T19:52:54.692373Z",
       "observationDigest": "26b21d4e1fb989a331364588f4a2561d901aab4a861c28db47ec03d9e4a1ccf5"
     },
     {
@@ -2783,7 +2783,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:28.890502Z",
+      "verifiedAt": "2026-11-03T19:52:54.660844Z",
       "observationDigest": "32628c0f9d785bb06c36988d0e1bb4e8949111f3f97562055038fbe76019822f"
     },
     {
@@ -2796,7 +2796,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:29.125194Z",
+      "verifiedAt": "2026-11-03T19:52:54.778144Z",
       "observationDigest": "9ca5edede2fa57eed1e08b78793e670a5ec89712621f537177bac5cc9c5f9887"
     },
     {
@@ -2809,7 +2809,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:29.341362Z",
+      "verifiedAt": "2026-11-03T19:52:55.084331Z",
       "observationDigest": "63e69f5cd9bb42b748610582391b8dc630350f8f1342731308ce73e3ede14ec5"
     },
     {
@@ -2822,7 +2822,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:29.465524Z",
+      "verifiedAt": "2026-11-03T19:52:55.176336Z",
       "observationDigest": "9d08b3f6501935aaa0bb74fc2c2ffdd8179e4079d12018740879ecd35c69da32"
     },
     {
@@ -2835,7 +2835,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:29.729395Z",
+      "verifiedAt": "2026-11-03T19:52:55.390908Z",
       "observationDigest": "ec4e54f09375f941bdf79dae52790e38e049c8a9645fc47cb07a175a807aaca4"
     },
     {
@@ -2848,7 +2848,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:29.818766Z",
+      "verifiedAt": "2026-11-03T19:52:55.592091Z",
       "observationDigest": "91a9cc81716d1efb2f7598377553c6d0cf0eddeed87d884faf4ed5b6cefa3917"
     },
     {
@@ -2861,7 +2861,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:29.901931Z",
+      "verifiedAt": "2026-11-03T19:52:55.590674Z",
       "observationDigest": "323bc926a5f2353115ad2b6df900d14f7d82542cd2b31e18419bc6e3de459e37"
     },
     {
@@ -2874,7 +2874,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:30.277389Z",
+      "verifiedAt": "2026-11-03T19:52:55.826315Z",
       "observationDigest": "659d7859b1570f7743bd62901acb006118020351fce0ac61c21e0fb68cb8e37a"
     },
     {
@@ -2887,7 +2887,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:30.361902Z",
+      "verifiedAt": "2026-11-03T19:52:56.035629Z",
       "observationDigest": "a1019d1a6c28dd16f88f77140fefd8295d556738e7eef44b69f173e2cff4f2ec"
     },
     {
@@ -2900,7 +2900,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:30.530748Z",
+      "verifiedAt": "2026-11-03T19:52:56.113992Z",
       "observationDigest": "75da0c761a8cf8e2b9cbc2741179c958727bd1a1ed10e6d3d909c3a447536730"
     },
     {
@@ -2913,7 +2913,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:30.778828Z",
+      "verifiedAt": "2026-11-03T19:52:56.370441Z",
       "observationDigest": "f69d52d2e140f685f0be0158856e0ec4f1fb5158207ed760ee05a9a48af2dd5b"
     },
     {
@@ -2926,7 +2926,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:30.866284Z",
+      "verifiedAt": "2026-11-03T19:52:56.536314Z",
       "observationDigest": "6182f76cecf6db6b2845f2845ee417272426aadb2895dff88d46b467ed6bf7ad"
     },
     {
@@ -2939,7 +2939,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:31.070967Z",
+      "verifiedAt": "2026-11-03T19:52:56.620796Z",
       "observationDigest": "9fda46a084ed3ca6669013c77e28ca2a5a4af1f5a78181a6aa344087c733a158"
     },
     {
@@ -2952,7 +2952,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:31.255433Z",
+      "verifiedAt": "2026-11-03T19:52:56.797742Z",
       "observationDigest": "295a8d78a08271eb128b94a1208ef1c1e7cb7b07b256d8555ffdd5c2910790fc"
     },
     {
@@ -2965,7 +2965,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:31.390304Z",
+      "verifiedAt": "2026-11-03T19:52:57.051247Z",
       "observationDigest": "98222e095e7562222340ef463cc4cf7933d41722b2a0e15b7fd476600afc6f36"
     },
     {
@@ -2978,7 +2978,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:31.592626Z",
+      "verifiedAt": "2026-11-03T19:52:57.073636Z",
       "observationDigest": "f076da69c45cd105a5b4e0f5326179cc02769d2b0b86ea065af4b78eb4867efa"
     },
     {
@@ -2991,7 +2991,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:31.767739Z",
+      "verifiedAt": "2026-11-03T19:52:57.316721Z",
       "observationDigest": "cf75d0b63c0532416514cca629edab99e68feab7a0ea032ee8aad86d69f5ec7a"
     },
     {
@@ -3004,7 +3004,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:31.953578Z",
+      "verifiedAt": "2026-11-03T19:52:57.610034Z",
       "observationDigest": "eb7bff5b80af2ef6a6b8220e9b6373c166327b1d5681577fd0768d6c2a64213f"
     },
     {
@@ -3017,7 +3017,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:32.133194Z",
+      "verifiedAt": "2026-11-03T19:52:57.577623Z",
       "observationDigest": "f47be488fc3582a503ee940a30e25f1c12c325e896b95a63ce78f0198bdd3aaa"
     },
     {
@@ -3030,7 +3030,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:32.218245Z",
+      "verifiedAt": "2026-11-03T19:52:57.764542Z",
       "observationDigest": "db96caf5510dc8c3146fd87ee83414e3ee9dc2305c00eaf7503dd4b08718238f"
     },
     {
@@ -3043,7 +3043,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:32.402823Z",
+      "verifiedAt": "2026-11-03T19:52:57.968654Z",
       "observationDigest": "9f0cbe7b95a81373ac44736ad042ce71c2d65cc89888518a256c646df587bbd3"
     },
     {
@@ -3056,7 +3056,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:32.580183Z",
+      "verifiedAt": "2026-11-03T19:52:58.048879Z",
       "observationDigest": "9015bdd5f1ec6563afad09882e94224e187c45051d77f97f04131c2fe5dbdf5d"
     },
     {
@@ -3069,7 +3069,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:32.667552Z",
+      "verifiedAt": "2026-11-03T19:52:58.206001Z",
       "observationDigest": "f48872201eff397f72cf65c80e951154d55ab935e3f11c7f2afde0c0863521a9"
     },
     {
@@ -3082,7 +3082,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:32.944198Z",
+      "verifiedAt": "2026-11-03T19:52:58.488914Z",
       "observationDigest": "91956cca56347a23c4a0a7e8643e0953a6650f870acd37e41ba8ac4e36d07fbf"
     },
     {
@@ -3095,7 +3095,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:33.098080Z",
+      "verifiedAt": "2026-11-03T19:52:58.541643Z",
       "observationDigest": "28cd13e69372b12f5cf7897a71775c53fb11cea8589487d08ea78f64d66a21c3"
     },
     {
@@ -3108,7 +3108,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:33.121160Z",
+      "verifiedAt": "2026-11-03T19:52:58.610522Z",
       "observationDigest": "b5641baff0f687f70b6e0aa00d1632b85ae8103369b626694ef71707b247f3f8"
     },
     {
@@ -3121,7 +3121,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:33.487421Z",
+      "verifiedAt": "2026-11-03T19:52:58.963295Z",
       "observationDigest": "6632d1e74cdfa5f85c8b2e7ef160ac5f34e47ed92e1a241c0c5b5f94c44a9db9"
     },
     {
@@ -3134,7 +3134,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:33.534819Z",
+      "verifiedAt": "2026-11-03T19:52:59.000238Z",
       "observationDigest": "69d986e0c0c0da0e00121955f2022dfd4579cd26a72ecc00265ffb2aea49e2dc"
     },
     {
@@ -3147,7 +3147,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:33.525555Z",
+      "verifiedAt": "2026-11-03T19:52:59.024467Z",
       "observationDigest": "0b83fbdae0331bc9242d8558437806c75424aaf7b46e88d2aaff6bce9a999add"
     },
     {
@@ -3160,7 +3160,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:33.982747Z",
+      "verifiedAt": "2026-11-03T19:52:59.470037Z",
       "observationDigest": "80a59c3d40da7af11e7b8efca03ecd5375037f8383cd27e985dc70b0973a2d81"
     },
     {
@@ -3173,7 +3173,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:34.045555Z",
+      "verifiedAt": "2026-11-03T19:52:59.512402Z",
       "observationDigest": "e7d60f4178f53e65eabbac6a1b9c2b17c78abc4f9d90deeadaf00c7766c43d63"
     },
     {
@@ -3186,7 +3186,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:34.105420Z",
+      "verifiedAt": "2026-11-03T19:52:59.539577Z",
       "observationDigest": "86547d35412939512b9898eb7f64fe12a5f8419d6369c966863f07195fe2ca56"
     },
     {
@@ -3199,7 +3199,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:34.511193Z",
+      "verifiedAt": "2026-11-03T19:52:59.919864Z",
       "observationDigest": "62e6ad12363333bc9cc798954240fd0ffa9a43bf604f883bd32a5cbe381fb000"
     },
     {
@@ -3212,7 +3212,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:34.757552Z",
+      "verifiedAt": "2026-11-03T19:53:00.453306Z",
       "observationDigest": "cffb1ba5836583e3b4d103f9265bdc742313b4f52084498ba3fed7c839f8701e"
     },
     {
@@ -3225,7 +3225,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:34.636102Z",
+      "verifiedAt": "2026-11-03T19:53:00.210043Z",
       "observationDigest": "bc32d5bb8ecc530bd799e7c81c022985add67186887301d081766634766c1786"
     },
     {
@@ -3238,7 +3238,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:34.939213Z",
+      "verifiedAt": "2026-11-03T19:53:00.518732Z",
       "observationDigest": "ba4400949cd48403abff69e61994b54ad4f6c186e7cf8c75b49596eb074b0e35"
     },
     {
@@ -3251,7 +3251,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:35.151155Z",
+      "verifiedAt": "2026-11-03T19:53:00.729939Z",
       "observationDigest": "fa682728db9b8b67619e4785be016dccd8985d8707fe018fdf84cf2641c1c463"
     },
     {
@@ -3264,7 +3264,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:35.260950Z",
+      "verifiedAt": "2026-11-03T19:53:00.997768Z",
       "observationDigest": "2bd52f2b311038c497670004f477950f6886cc4b95441c5f01cad58473e4952b"
     },
     {
@@ -3277,7 +3277,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:35.353792Z",
+      "verifiedAt": "2026-11-03T19:53:00.933133Z",
       "observationDigest": "6d04e2e61fa186d2b77e6234db689b63261d0fe2eda5c427122b0654569811e7"
     },
     {
@@ -3290,7 +3290,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:35.572485Z",
+      "verifiedAt": "2026-11-03T19:53:01.152596Z",
       "observationDigest": "8d19626a2b9a6d1084a7140784f3063b4f2f090c0e9cc5457cb8dc6c9d4a687b"
     },
     {
@@ -3303,7 +3303,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:35.793836Z",
+      "verifiedAt": "2026-11-03T19:53:01.458386Z",
       "observationDigest": "b667416023f80c5c0e7e44e32d81920656fd24b0375f0e5c52cd471644c9c27f"
     },
     {
@@ -3316,7 +3316,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:35.870478Z",
+      "verifiedAt": "2026-11-03T19:53:01.502988Z",
       "observationDigest": "58d1c2ea84eff3bf696a6775259bd12460113f3268c5f08592be25ef95a080a3"
     },
     {
@@ -3329,7 +3329,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:36.039023Z",
+      "verifiedAt": "2026-11-03T19:53:01.598930Z",
       "observationDigest": "4656c2b7867c7469676f3fb4a7c5e892cf5d6fcaf4da2451adc90a297268017e"
     },
     {
@@ -3342,7 +3342,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:36.248410Z",
+      "verifiedAt": "2026-11-03T19:53:01.884426Z",
       "observationDigest": "f25bd75de4f69775b2c26f34b6165e0a87a4c60c650666838a3c90891432221d"
     },
     {
@@ -3355,7 +3355,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:36.420301Z",
+      "verifiedAt": "2026-11-03T19:53:02.038784Z",
       "observationDigest": "92a12d8f826217eec556c3540142ddb4312dad2f81e4d3d908e3a604fdf236d1"
     },
     {
@@ -3368,7 +3368,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:36.641726Z",
+      "verifiedAt": "2026-11-03T19:53:02.198643Z",
       "observationDigest": "018ce1dcd5fe217fe2e9ad1602793936cdcfd79d4507342750b463a7d4ed357a"
     },
     {
@@ -3381,7 +3381,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:36.762762Z",
+      "verifiedAt": "2026-11-03T19:53:02.378287Z",
       "observationDigest": "0fa1dfc808e1616a403a93dc8bc7076df6f77de978724cd93cd6a2cbb6fac091"
     },
     {
@@ -3394,7 +3394,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:36.961586Z",
+      "verifiedAt": "2026-11-03T19:53:02.551583Z",
       "observationDigest": "58f28682569ca37c92341c4079bfb5df57ce6b6da9285b2634282922674d9e1c"
     },
     {
@@ -3407,7 +3407,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:37.081300Z",
+      "verifiedAt": "2026-11-03T19:53:02.616239Z",
       "observationDigest": "99d7a370fb46d4649e865e5a1ec34d01576fbe2d03a0f9d9ddfe1e23dea4e476"
     },
     {
@@ -3420,7 +3420,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:37.308964Z",
+      "verifiedAt": "2026-11-03T19:53:02.882998Z",
       "observationDigest": "1c20abc8b322201dc3a57444058e68abeb97ae281e79b3f3c6ff3f69edc2f9d7"
     },
     {
@@ -3433,7 +3433,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:37.510740Z",
+      "verifiedAt": "2026-11-03T19:53:03.075418Z",
       "observationDigest": "87ae0c9ce6ce2d7cb1b8faf28fc40e3f8671273ba5e9cb979b6fc35363b514d3"
     },
     {
@@ -3446,7 +3446,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:37.588358Z",
+      "verifiedAt": "2026-11-03T19:53:03.131251Z",
       "observationDigest": "0f781e42b5472254a1b77ebfbecc8cfcbcd4d298e3d3a740dd4aaa867058bb9c"
     },
     {
@@ -3459,7 +3459,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:37.857385Z",
+      "verifiedAt": "2026-11-03T19:53:03.466024Z",
       "observationDigest": "250a58f65bd9df255c488cd39b5220f612e2b397a0c739dd9a6c46306e0dbeb2"
     },
     {
@@ -3472,7 +3472,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:37.985820Z",
+      "verifiedAt": "2026-11-03T19:53:03.612882Z",
       "observationDigest": "42cb6a07cc0f51c6ae25000cf052b36027b80f4e10cb575f6f6e8df71278795e"
     },
     {
@@ -3485,7 +3485,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:38.097403Z",
+      "verifiedAt": "2026-11-03T19:53:03.644182Z",
       "observationDigest": "ac2c15619b4ae0429a707d8416c4b16ed8ddb916b1d8a7a7e8289f2ca608c720"
     },
     {
@@ -3498,7 +3498,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:38.494876Z",
+      "verifiedAt": "2026-11-03T19:53:04.195708Z",
       "observationDigest": "9410f17135b625f8a681bd950200c02acf9a0364397327753f8dcfab444ed468"
     },
     {
@@ -3511,7 +3511,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:38.439805Z",
+      "verifiedAt": "2026-11-03T19:53:04.186682Z",
       "observationDigest": "a9ae0830b82fb09251968369a7dd1135dcaafb5ea7de5822ed1ceca487b870fc"
     },
     {
@@ -3524,7 +3524,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:38.626831Z",
+      "verifiedAt": "2026-11-03T19:53:04.394657Z",
       "observationDigest": "2273a37d3760803bb05f536897c18aa660b328c633d6c9b1121fa2d474a4a3c8"
     },
     {
@@ -3537,7 +3537,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:38.955298Z",
+      "verifiedAt": "2026-11-03T19:53:04.793137Z",
       "observationDigest": "ad2a22ef3cc0d5b0a73bfdb50af54136eff2f4305a2577555165e4c74e8e5307"
     },
     {
@@ -3550,7 +3550,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:39.138306Z",
+      "verifiedAt": "2026-11-03T19:53:04.827269Z",
       "observationDigest": "1aecebfd75d3d4ae1112a5d343c3cd8a7164bbc8ba8506be4afeb5f5daa37211"
     },
     {
@@ -3563,7 +3563,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:39.228627Z",
+      "verifiedAt": "2026-11-03T19:53:05.124937Z",
       "observationDigest": "dacf7e2083e85f99c7e6a2790ff6a90293ecc25e69ae2b2df45f4635f2fabd37"
     },
     {
@@ -3576,7 +3576,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:39.522806Z",
+      "verifiedAt": "2026-11-03T19:53:05.430112Z",
       "observationDigest": "9fa7f17691e217cd4b06a6ed8d80f4881ec880f4923bae9df0a1565885ebe220"
     },
     {
@@ -3589,7 +3589,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:39.660609Z",
+      "verifiedAt": "2026-11-03T19:53:05.365654Z",
       "observationDigest": "89856cc20943de2943147ad578d340088f1fd0396a028f13ad3e7678b133393e"
     },
     {
@@ -3602,7 +3602,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:39.746283Z",
+      "verifiedAt": "2026-11-03T19:53:05.678518Z",
       "observationDigest": "e53e554fdc2e283d02d8f954c3de1565c8a4986348a65fac685882a01ca868df"
     },
     {
@@ -3615,7 +3615,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:40.055769Z",
+      "verifiedAt": "2026-11-03T19:53:05.895875Z",
       "observationDigest": "989a0d21e3bb3ec1636b4665949c4860e060c04b6d2896fe7ecc90e1fa389e95"
     },
     {
@@ -3628,7 +3628,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:40.182347Z",
+      "verifiedAt": "2026-11-03T19:53:05.965723Z",
       "observationDigest": "7087a26441adb6641a9b2c2e11c8a1df3a22148d2ba871692adc78e051ee751d"
     },
     {
@@ -3641,7 +3641,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:40.264272Z",
+      "verifiedAt": "2026-11-03T19:53:06.261342Z",
       "observationDigest": "d4a17d22ae6c1438185783a7ee71c0fcaaa39cceceef40ffd6a8ebebd4d9c423"
     },
     {
@@ -3654,7 +3654,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:40.571686Z",
+      "verifiedAt": "2026-11-03T19:53:06.485151Z",
       "observationDigest": "a863e9ebfe7b991ba8337631ff0146bd0d59a6837704a25ce5312b771db317c1"
     },
     {
@@ -3667,7 +3667,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:40.726875Z",
+      "verifiedAt": "2026-11-03T19:53:06.532652Z",
       "observationDigest": "d4c38ca26fb01f32dab3307115c93e240a84b6620ef1911d6335cf99b120595b"
     },
     {
@@ -3680,7 +3680,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:40.808244Z",
+      "verifiedAt": "2026-11-03T19:53:06.780828Z",
       "observationDigest": "be2043f1acbe6777e9442540bc23f783c891e48be9caf8e97fb0375269028aaa"
     },
     {
@@ -3693,7 +3693,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:41.092888Z",
+      "verifiedAt": "2026-11-03T19:53:07.004147Z",
       "observationDigest": "019a73846f44577ce0a7e873d75a6d30646f175c69247cfb5f242694ea5c05f5"
     },
     {
@@ -3706,7 +3706,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:41.281215Z",
+      "verifiedAt": "2026-11-03T19:53:07.039469Z",
       "observationDigest": "255ef2f7f681872eefd085e8d9f63f2c0d0e63b84282b9a4ae3d4f7a203138f8"
     },
     {
@@ -3719,7 +3719,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:41.302982Z",
+      "verifiedAt": "2026-11-03T19:53:07.275191Z",
       "observationDigest": "ad7a6edfddbbe9c1ba9fa011348a9c3eb317f2deeeb9e15bc494e980ceb3e0bc"
     },
     {
@@ -3732,7 +3732,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:41.765551Z",
+      "verifiedAt": "2026-11-03T19:53:07.711805Z",
       "observationDigest": "b6474533b4f8be0d63f6cc4d9ee3529e7da4d8e1fc22f6955a97b2983824df0e"
     },
     {
@@ -3745,7 +3745,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:41.807719Z",
+      "verifiedAt": "2026-11-03T19:53:07.505035Z",
       "observationDigest": "f9e971f8de8ddf6a3f90e19e3bb7ffc07a4670e7621dd2e415cde26b41ae3a0d"
     },
     {
@@ -3758,7 +3758,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:41.903348Z",
+      "verifiedAt": "2026-11-03T19:53:07.918675Z",
       "observationDigest": "0c17370a11810ecbd662398d46140f5092285fb5ef7e742dc2a83d3ff9604620"
     },
     {
@@ -3771,7 +3771,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:42.420691Z",
+      "verifiedAt": "2026-11-03T19:53:08.030608Z",
       "observationDigest": "7bea26286e97d0d6dfbeabd3fd3911fbcf2e2618e670932b7af0b2daf85b2356"
     },
     {
@@ -3784,7 +3784,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:42.535349Z",
+      "verifiedAt": "2026-11-03T19:53:08.234259Z",
       "observationDigest": "d26132e02950d2fa2a9f6edf7eb611da92b24f311172f300deebfe3d01ff5e41"
     },
     {
@@ -3797,7 +3797,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:42.646105Z",
+      "verifiedAt": "2026-11-03T19:53:08.488517Z",
       "observationDigest": "48d55c03f87100f0c00f88ad180c113a4e99feadd0f62d06390ac4e04d8fd091"
     },
     {
@@ -3810,7 +3810,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:43.124075Z",
+      "verifiedAt": "2026-11-03T19:53:08.791890Z",
       "observationDigest": "2fc26a5f15036a8f37de8156e5755dbc0bba664939b10fd1fbe3f272ec7049ec"
     },
     {
@@ -3823,8 +3823,1191 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T09:13:42.965624Z",
+      "verifiedAt": "2026-11-03T19:53:08.662777Z",
       "observationDigest": "86525c88e0e67efdaa6b41a8dd87ae92d9d23c372ccede145c4bd36dd4fbc55b"
+    },
+    {
+      "domain": "brocstore.com",
+      "listingSourceId": "ls_01m6gqh5qwet9v8wjwgtxmtcaa",
+      "partyId": "pty_01m6gqh5qdeqhr6k7tqx3szsz1",
+      "locations": 1,
+      "logo": false,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:08.892950Z",
+      "observationDigest": "2f9ddc444065b359463ba1569ad8b6f58bde610cdc0ed98d231b88cc5ab0e844"
+    },
+    {
+      "domain": "stockenbulle.com",
+      "listingSourceId": "ls_01m6gqh7d4ehtahkxd7q5myfvj",
+      "partyId": "pty_01m6gqh7cnegs9nn319bvyv7j7",
+      "locations": 2,
+      "logo": true,
+      "platform": "BACKSTORE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:09.232007Z",
+      "observationDigest": "7569691b01635d6a3f57bcea39d85e2787f354414116aa457bb9734e9f67ce43"
+    },
+    {
+      "domain": "yvon-lambert.com",
+      "listingSourceId": "ls_01m6gqs0bae6gsam50g0tdtp8j",
+      "partyId": "pty_01m6gqs0awen4ajdmkv8nxq4zv",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:09.316209Z",
+      "observationDigest": "3a726d5dc052a1395cf0990ffd78f4d706b5fa6d1895a26b5d3d2afd1876cf9c"
+    },
+    {
+      "domain": "boutique.lesavoirdemarie.fr",
+      "listingSourceId": "ls_01m6gqs2a0ebrbnch0q3wm8qkg",
+      "partyId": "pty_01m6gqs29heqta3t78e4h3dmxq",
+      "locations": 1,
+      "logo": true,
+      "platform": "OPENCART",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:09.395728Z",
+      "observationDigest": "5639706665795ba0c509f9983e1627e75ca4923b4a83cd29482b99e40fe8be4e"
+    },
+    {
+      "domain": "ddaymilitaria.fr",
+      "listingSourceId": "ls_01m6gr8sacevx9vweaxnwp4ka3",
+      "partyId": "pty_01m6gr8s9te04v3s7qxwcavdcz",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:09.726850Z",
+      "observationDigest": "d4e8bd29ddd745082a23d026b309db8cf4b6467e308c97a3f9ff3c5aba242a39"
+    },
+    {
+      "domain": "latelier50.com",
+      "listingSourceId": "ls_01m6gr8vp7e3qvv2bh5nnd1dhk",
+      "partyId": "pty_01m6gr8vnqe3p9j0dg9st4yftt",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:09.816432Z",
+      "observationDigest": "e0b91ca6403f0967d37987b698b464cf842d6d36cca11dc1c865fd710f9e311d"
+    },
+    {
+      "domain": "ma-cabane-vintage.com",
+      "listingSourceId": "ls_01m6grmqr8ed48q0z48v8b35x2",
+      "partyId": "pty_01m6grmqr0eyns3wep7cdayw7h",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:09.903527Z",
+      "observationDigest": "7cc182c13fc10552edf2ae448170a9c9e5fcbf8d63d5399290980c73e6157fa0"
+    },
+    {
+      "domain": "rieunier-joailliers-horlogers.com",
+      "listingSourceId": "ls_01m6grmspcey5v400n9wnyg1k3",
+      "partyId": "pty_01m6grmsp5eaxtnr7de1w33m7g",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:10.326938Z",
+      "observationDigest": "bb44dc20d0d91139c8a8b3568b49d22e00aef946c89954a576efaa2bbb797213"
+    },
+    {
+      "domain": "calaoshop.com",
+      "listingSourceId": "ls_01m6grybjnewsrhax22wherkj1",
+      "partyId": "pty_01m6grybj9ewdtwm3my73fx6w3",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:10.291601Z",
+      "observationDigest": "dc68004049488fa16e71c1a4348ea44110236095899ec1a041f780a3b35cb40a"
+    },
+    {
+      "domain": "boutique.la-baule-antiquites.com",
+      "listingSourceId": "ls_01m6gsc5sqex4thv493fgfakyq",
+      "partyId": "pty_01m6gsc5s9edt9gkm15hgb4wt9",
+      "locations": 2,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:10.490220Z",
+      "observationDigest": "15722a7e4614b72daef4e99ef55881b8561047f3501a943e08c584d9104bdb21"
+    },
+    {
+      "domain": "110volts.fr",
+      "listingSourceId": "ls_01m6gstydwe7qr0rydrcxs6pmg",
+      "partyId": "pty_01m6gstyd8emgajbxvq05zteda",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:10.804256Z",
+      "observationDigest": "51ead7affcacb79d085b6bea53dd51d53201a3d4ad237d8385af4032a574867d"
+    },
+    {
+      "domain": "galeriepentcheff.fr",
+      "listingSourceId": "ls_01m6gsv0mneyd8evr0g8yv11mj",
+      "partyId": "pty_01m6gsv0m4ep7shsy58vw0rhg0",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:10.760273Z",
+      "observationDigest": "cde5aa0bc5cfb2bf48e9417db06dc6b51aac1cf91ad344923b760c3503bc5862"
+    },
+    {
+      "domain": "schon-grandin.com",
+      "listingSourceId": "ls_01m6gt3fcpe0eskz3jn2an23qe",
+      "partyId": "pty_01m6gt3fc7ejz8x22bshc5d8vp",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:11.028482Z",
+      "observationDigest": "6e62df2e889c97ff8595ada3ce5783283fd6d9349e467cfd531cca3975f65a86"
+    },
+    {
+      "domain": "antiquites-art-nouveau.fr",
+      "listingSourceId": "ls_01m6gts8g7e5w9zxhfb1pdtzwh",
+      "partyId": "pty_01m6gts8fneed92gd0hgevem53",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:11.352865Z",
+      "observationDigest": "923556ee0dbe6d2ad73472ebe449b96b12905a33a7f8718c8f300151d9b8a4eb"
+    },
+    {
+      "domain": "nord-antique.com",
+      "listingSourceId": "ls_01m6gtsaxce71aqfamnxrz6vjz",
+      "partyId": "pty_01m6gtsawzebt82ep9e5yecyj9",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:11.308322Z",
+      "observationDigest": "0b385fbe239dea2c702addd7c36d17d07037f32b1e3798f9c67cdec0052db4ed"
+    },
+    {
+      "domain": "rosycabroc.art",
+      "listingSourceId": "ls_01m6gtsd6vehwb3241rfd8atg0",
+      "partyId": "pty_01m6gtsd6defcbcm1z62mnf9c9",
+      "locations": 1,
+      "logo": true,
+      "platform": "SUMUP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:11.556819Z",
+      "observationDigest": "b8b4c37ac1e4607eeb587ae345332dae4a734af44530f9bb32fa1871af25114f"
+    },
+    {
+      "domain": "universcollectionshop.com",
+      "listingSourceId": "ls_01m6gtsfhces790xwnmmpf3ntm",
+      "partyId": "pty_01m6cqjfsbeqaaadwv4das31v8",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:11.890142Z",
+      "observationDigest": "f7de4826ea683889dad495b6c04ea26e3b902b8b866f9d511805c0e64a1fcff4"
+    },
+    {
+      "domain": "philarama37.com",
+      "listingSourceId": "ls_01m6gvgt93eahr1dbnpj3p7cef",
+      "partyId": "pty_01m6gvgt8me5rbdmj3txdvqv94",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:11.808323Z",
+      "observationDigest": "bf8342b9bb3fe2223977ca88990218a3c37ee241422692a5367c57267b530318"
+    },
+    {
+      "domain": "occasionnel-luxe.com",
+      "listingSourceId": "ls_01m6gvgw5ye75a5889k40sp64j",
+      "partyId": "pty_01m6gvgw5ge4zvj9q1a449m06x",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:12.068574Z",
+      "observationDigest": "b9aaa350a537b06c07cf5e7075ae75db16634a491ca7bd60eaeb9df7efe46936"
+    },
+    {
+      "domain": "lecentrevilleantiquites.com",
+      "listingSourceId": "ls_01m6gwqsbpezea5tef3evnqmag",
+      "partyId": "pty_01m6gwqsb2e3w9zr7h08d7s5mm",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:12.236751Z",
+      "observationDigest": "de9a8b32926fab394d7fc248cb1c2fae4871c4888bfedc3becfb597f6f3cfc39"
+    },
+    {
+      "domain": "pipat-antiquites.fr",
+      "listingSourceId": "ls_01m6gwqv9ceqbr0pqgww0xq427",
+      "partyId": "pty_01m6gwqv8te48s0rnzvrc7435c",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:12.538439Z",
+      "observationDigest": "28844753a7afea8b3969fa5dc5f12ae37b5e03c4762ea801c826789dfec231ea"
+    },
+    {
+      "domain": "objetschinois.com",
+      "listingSourceId": "ls_01m6gwqxvbe89vv60pzr28deea",
+      "partyId": "pty_01m6gwqxttewg9qnxahw3e92zw",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:12.605977Z",
+      "observationDigest": "b62b5ce7caa3c873bc8df6c264493892f45d47889a6fe3b55c2c1a6871ebae94"
+    },
+    {
+      "domain": "argenteriegalerielassus.com",
+      "listingSourceId": "ls_01m6gx3n5rej8amq0xex3vm51w",
+      "partyId": "pty_01m6gx3n55e08vrzbjcgzdbean",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:12.768872Z",
+      "observationDigest": "149f18fc86e681e6dcef300072b560f8b17c8a5c429ce3cb57224caf4a655c3c"
+    },
+    {
+      "domain": "aenigmattic.fr",
+      "listingSourceId": "ls_01m6gxygvvevfsbdbh8vn8t697",
+      "partyId": "pty_01m6gxygvce8dafw5jqevmhcbd",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:13.003885Z",
+      "observationDigest": "07d5da3c55f2c2db704d33e68780ac406c513c0ca903d9a7176b19ebe340fb38"
+    },
+    {
+      "domain": "joanna-h.com",
+      "listingSourceId": "ls_01m6gy4p9ge3vr4cyx5061bw9q",
+      "partyId": "pty_01m6gy4p8we40v15b7qpr35nbn",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:13.163609Z",
+      "observationDigest": "eea8e6aab334faeb0489169161928851e9e5e210c38f7fff2822b28590a8b3c6"
+    },
+    {
+      "domain": "temps-dantan.fr",
+      "listingSourceId": "ls_01m6gy4pzte3qsnkaen4hqr1bx",
+      "partyId": "pty_01m6gy4pzbev99ar3mrhc79pjr",
+      "locations": 1,
+      "logo": false,
+      "platform": "WEBADOR",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:13.323837Z",
+      "observationDigest": "119a923cf1bfefbbb29f4a977754ad3532021ca41475b384e88d46b51bf0f09c"
+    },
+    {
+      "domain": "tomaselli-collection.com",
+      "listingSourceId": "ls_01m6gyce6fehs8zbvt02nh2z9j",
+      "partyId": "pty_01m6gyce5xe6vb86k5cba09p0b",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:13.435997Z",
+      "observationDigest": "ef5397e7a017082a928bd8e3fcb99bc5cdf19f1609159aabcf59e771577e9dd6"
+    },
+    {
+      "domain": "antiquesdavignon.com",
+      "listingSourceId": "ls_01m6gyk3h8ezt8k20bvxyrzy1a",
+      "partyId": "pty_01m6gyk3gpen6awj6f0xfjryam",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:13.679972Z",
+      "observationDigest": "134ba0681d8ef9b354df4aacea2096b337f084e1524cba34e1de5508ff22af15"
+    },
+    {
+      "domain": "galerieorigines.com",
+      "listingSourceId": "ls_01m6gyk5xwetrbzy9y6vfc091r",
+      "partyId": "pty_01m6gyk5xfe2zrppgam252zx4a",
+      "locations": 2,
+      "logo": true,
+      "platform": "DRUPAL",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:13.941384Z",
+      "observationDigest": "133cf2faa840f9662875dcc6251beabbd056d9be4b9a039a6f6ab0d17130dc9a"
+    },
+    {
+      "domain": "lavalisearlesienne.com",
+      "listingSourceId": "ls_01m6gyk8gtezgaqeeqrvh0vq6t",
+      "partyId": "pty_01m6gyk8g6emaaxj7c6yg1zk4h",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:13.962595Z",
+      "observationDigest": "271765a5eb91c0d910b7284321d4a850e572b97c84374fb80f23780da5432bf9"
+    },
+    {
+      "domain": "guillaume-duchemin.fr",
+      "listingSourceId": "ls_01m6gz6vp1ej6v8616mm2s640a",
+      "partyId": "pty_01m6gz6vnkek18awybyjxqsrgq",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:14.193439Z",
+      "observationDigest": "a3815e1553886a2e76a8b29e6986a3f8e7fbaec0f816cc19a0af55a031cb4a3b"
+    },
+    {
+      "domain": "galerierotomagus.fr",
+      "listingSourceId": "ls_01m6gz6xmjezvsh61fphf92h1r",
+      "partyId": "pty_01m6gz6xm5e7qsfqvz4k4dcxd0",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:14.455401Z",
+      "observationDigest": "93dfe84014c3fd79e652a6bfe6d95a28f12637a6d7db0c498342ad7a031d1021"
+    },
+    {
+      "domain": "galerieprivee-art.fr",
+      "listingSourceId": "ls_01m6gz6ztkee8r1m5089nfek7c",
+      "partyId": "pty_01m6gz6zt5en39dcdcmn14txb4",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:14.473645Z",
+      "observationDigest": "bb3f96eb64af06746d1aa4e2c008522308b64842097c288e6005469aa95b755c"
+    },
+    {
+      "domain": "bijouxbaume.com",
+      "listingSourceId": "ls_01m6gzh3ace9wt663x97de52ze",
+      "partyId": "pty_01m6gzh39zegjt2k89nvkh9t9p",
+      "locations": 1,
+      "logo": true,
+      "platform": "OASIS_COMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:14.677963Z",
+      "observationDigest": "d7241d9e8b2a5557c24c24b1d7b677ad69f711d722ad60c38b78bcb041f5a77e"
+    },
+    {
+      "domain": "valeriemuneantiquites.fr",
+      "listingSourceId": "ls_01m6gzypncernvcjz8rm7krest",
+      "partyId": "pty_01m6gzypmyemxtzarqmtvk1mn2",
+      "locations": 1,
+      "logo": false,
+      "platform": "ECWID",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:14.878656Z",
+      "observationDigest": "c59531989eae649d23e05b122f2b0f51d9bd34e0ea08804fb6b1591c5f6d06d3"
+    },
+    {
+      "domain": "vanrijn-tours.com",
+      "listingSourceId": "ls_01m6h0dxyhe9fahc7xrj8ar4en",
+      "partyId": "pty_01m6h0dxxvep6b8fz6trxsa6d1",
+      "locations": 1,
+      "logo": true,
+      "platform": "WEEBLY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:15.093866Z",
+      "observationDigest": "952a692221b92b9f662e763b4604d4b80e081c00090015c35e61f16b97fe36c9"
+    },
+    {
+      "domain": "paulfoulon.com",
+      "listingSourceId": "ls_01m6h0vdzpejk9tbzb96c8gft4",
+      "partyId": "pty_01m6h0vdz9eny88n5g2d0gjydx",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:15.280311Z",
+      "observationDigest": "c4fe688aab0847ca95918ef0e829579fa8cb5ba0fd2d12329a224ab43369bdaf"
+    },
+    {
+      "domain": "galerie-damidot.fr",
+      "listingSourceId": "ls_01m6h1ey5tejxa8153mxpyhpah",
+      "partyId": "pty_01m6h1ey5de3frtr5ztk1k1cqf",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:15.425335Z",
+      "observationDigest": "fca27e05d324ad3231022b842716b4967f628c04cb9b327be910d5f61ffca7a8"
+    },
+    {
+      "domain": "galerie-goudard-87.com",
+      "listingSourceId": "ls_01m6h1f0b4eb0ascf77ze73cfc",
+      "partyId": "pty_01m6h1f0aremy804qxgw1b769e",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:15.538179Z",
+      "observationDigest": "2c096c82e1c9e3c1720d6444e30dc9e15b9859417b5e477a7f437210d7b78aee"
+    },
+    {
+      "domain": "no7gallery.com",
+      "listingSourceId": "ls_01m6h21sb6ezqtak9by9yb4b1p",
+      "partyId": "pty_01m6h21sapenkr90chkj3j8cmc",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:15.786212Z",
+      "observationDigest": "c7562416f870864bba7b4aceb00f8c663bccc1538a3391d9689c5d880aa2d2ac"
+    },
+    {
+      "domain": "antiquiteslassaussois.com",
+      "listingSourceId": "ls_01m6h21vkdeebazdkpqgp6xekx",
+      "partyId": "pty_01m6h21vjyefybewwdnrm7cxdt",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:16.029145Z",
+      "observationDigest": "ed657edd15c0e0a0e38267c1d96f8f3573839eb7fd31d6a9759e0549dc58bdcb"
+    },
+    {
+      "domain": "rennes-antiquites.com",
+      "listingSourceId": "ls_01m6h27sqge7f92btj33bah0nc",
+      "partyId": "pty_01m6h27sq4en0t9245gn9za2yy",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:16.018635Z",
+      "observationDigest": "04bb74cf8f0d17d5ee98a518ae9e3067aa87c94f58d9a6ee61f929e52c408433"
+    },
+    {
+      "domain": "brugal-antiquites.com",
+      "listingSourceId": "ls_01m6h27vx7emyvzk3zc52jmhtc",
+      "partyId": "pty_01m6h27vwref1v0f9svq9y6czk",
+      "locations": 1,
+      "logo": false,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:16.217603Z",
+      "observationDigest": "b294fa5b3d5b50b7d4566d4635a921f014668eabc540f60ccac84efc48a90a8e"
+    },
+    {
+      "domain": "bretagneancienne.com",
+      "listingSourceId": "ls_01m6h2d5e3ettthjt0nyh5wjjc",
+      "partyId": "pty_01m6h2d5dgewpteneyj8e8t0jn",
+      "locations": 1,
+      "logo": true,
+      "platform": "DRUPAL",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:16.477028Z",
+      "observationDigest": "0fd8ab4a4a9c6e565dcc3f162b60216f8937587afa489022629a45e31eb14af4"
+    },
+    {
+      "domain": "we-art-together.fr",
+      "listingSourceId": "ls_01m6h2zg61ew1vp8zc3khk04d1",
+      "partyId": "pty_01m6h2zg5hejhrz3b5ctv0pz1f",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:16.590161Z",
+      "observationDigest": "adb2acea66495dd565bc4f59d073ffd0b2f736c3c4558728f58413fd99f3e9d8"
+    },
+    {
+      "domain": "artecollection.fr",
+      "listingSourceId": "ls_01m6h2zj82exhvy502ymy81f9d",
+      "partyId": "pty_01m6h2zj7jevjt3k1rzcvxbjf2",
+      "locations": 1,
+      "logo": false,
+      "platform": "WAIBE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:16.743170Z",
+      "observationDigest": "11d283825b368e9125c67f7ee27cdf18fccdff80407c2bcdd94d9cbaa832a604"
+    },
+    {
+      "domain": "antiquite-philippe-fustemberg.fr",
+      "listingSourceId": "ls_01m6h37re3er8s1xb33sbebtt4",
+      "partyId": "pty_01m6h37rd8ek19wt3hc7jrtxcv",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:16.907453Z",
+      "observationDigest": "84bd2eed57c25f45b0fa5a5c3b2b9795fc059ca947807265ca83cef08b3d7ef0"
+    },
+    {
+      "domain": "arialouise.com",
+      "listingSourceId": "ls_01m6h3gmkne0ha79rs3sf0nm1t",
+      "partyId": "pty_01m6h3gmjrescbfgxpyk4nh2wd",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:17.100944Z",
+      "observationDigest": "4d0b149d1f81081c4210512ac1db8f993a34c74bafd52d9a1b575297ce9fc790"
+    },
+    {
+      "domain": "123numismatique.com",
+      "listingSourceId": "ls_01m6h448pyeyprcq44dj6wy27s",
+      "partyId": "pty_01m6h448pje79rykm2vf8am5a3",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:17.239524Z",
+      "observationDigest": "bb4c9d5234bbe83676547824db95d338b62ac4a3cf8961f22a11257cb830e0b1"
+    },
+    {
+      "domain": "capornumismatique.com",
+      "listingSourceId": "ls_01m6h44aq5e9398zxma3ry58bw",
+      "partyId": "pty_01m6h44apnek4bth1688vfy9cd",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:17.404953Z",
+      "observationDigest": "f6e2848df35a6cbb88954fb8687b37f2becded06a0326cfe5571316f80b01d88"
+    },
+    {
+      "domain": "numismeo.com",
+      "listingSourceId": "ls_01m6h44cvqept8ew532b3m7srn",
+      "partyId": "pty_01m6h44cv7ef09qb1gc8a8n3t2",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:17.585015Z",
+      "observationDigest": "206ecbe65804c08b05f549f8d79a049a88da41992995b7e80f6d897d36c0a7d7"
+    },
+    {
+      "domain": "leholdy.com",
+      "listingSourceId": "ls_01m6h4txxxe4b9rr24n3grqzep",
+      "partyId": "pty_01m6h4txxbev6bqjxfz8bdzjhw",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:17.789193Z",
+      "observationDigest": "2d192e2554289cb4705fd6fd44c650f87699d4a41a514838f984b84e42a01c19"
+    },
+    {
+      "domain": "buschcollectibles.com",
+      "listingSourceId": "ls_01m6h4v0evetyvg95j0hpgbjst",
+      "partyId": "pty_01m6h4v0ededj8vkqsrp99avb3",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:17.923305Z",
+      "observationDigest": "7c8aa5f230259bebee9001154ba9c5d1e2b7bf8f1943533c3a36f31985edf43a"
+    },
+    {
+      "domain": "numismatique-or-argent.eu",
+      "listingSourceId": "ls_01m6h5kajjey59dj94z59dym1z",
+      "partyId": "pty_01m6h5kaj3eyca0wqmbqcp4gwm",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:18.120136Z",
+      "observationDigest": "0a341d14ac4fe040f7d5430bc2478e78977f2e55ad773d451b517cc81db3ec8e"
+    },
+    {
+      "domain": "antika.fr",
+      "listingSourceId": "ls_01m6h5kcnbeevs6hbzbnqhc27q",
+      "partyId": "pty_01m6h5kcmyeemsskzgs05jrvgg",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:18.371406Z",
+      "observationDigest": "efb567dfda2c6cc1dce3b2f8b4dff5fafb94a54b8c685c243d5e389007559f19"
+    },
+    {
+      "domain": "suffren-numismatique.com",
+      "listingSourceId": "ls_01m6h5kewye39a76amanc6kq80",
+      "partyId": "pty_01m6h5kew9epdaer4kpf8nh5mg",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:18.342499Z",
+      "observationDigest": "f430a7dbd72b2a21c68486776d985f7aae9ca0ffe5e9def728cf29731afda2e5"
+    },
+    {
+      "domain": "lhistoirevagabonde.com",
+      "listingSourceId": "ls_01m6h6dkkgem1bnjgehj1hengk",
+      "partyId": "pty_01m6h6dkjxe6qv3rm09139h6dd",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:18.684718Z",
+      "observationDigest": "911eabfc369da6b6f5b74b931dc4a36b7008800f39cdf3360e6dd27ddb52ed8b"
+    },
+    {
+      "domain": "bibliographique.com",
+      "listingSourceId": "ls_01m6h6m59kefx9ys14zq2xygna",
+      "partyId": "pty_01m6h6m597ent9kqwtjkgkmdyh",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:18.850241Z",
+      "observationDigest": "15b91c5868c2ac9fa41e06467c034de36e33808ad5c5bc6dbf5af3a64e8ae6e2"
+    },
+    {
+      "domain": "livresentre2actions.fr",
+      "listingSourceId": "ls_01m6h6m79geknahf87kzf55d45",
+      "partyId": "pty_01m6h6m790e5h8h3wdr9xx5c4n",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:18.868148Z",
+      "observationDigest": "ef2ca1c2c5279c5798e425c53c94238f5211cddd57efc43a81d90e5fc65daf77"
+    },
+    {
+      "domain": "lapetitelibrairiedesjardins.fr",
+      "listingSourceId": "ls_01m6h6m9deegjb16xepgg2xv6z",
+      "partyId": "pty_01m6h6m9d4en2rr6ke8s8jvf06",
+      "locations": 1,
+      "logo": true,
+      "platform": "WEEZBE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:19.203799Z",
+      "observationDigest": "f71f4bbec9475ab75823c1d982e5d94caec47988efbdaa02b95bff2d0938ff8e"
+    },
+    {
+      "domain": "lalibrairieantique.fr",
+      "listingSourceId": "ls_01m6h6sknne9z81swgqxxwk9tc",
+      "partyId": "pty_01m6h6sknben6bqdgmxdrxtrj6",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:19.433218Z",
+      "observationDigest": "c5156addb71a3e21711745c0234d78e9519bda6a7fd6f6f50a65d0e705eda853"
+    },
+    {
+      "domain": "librairie-oeilcacodylate.com",
+      "listingSourceId": "ls_01m6h6snz6e6kt9cxacvaj7ze1",
+      "partyId": "pty_01m6h6snyqeqgaf7erxmyzq8fp",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:19.359748Z",
+      "observationDigest": "9457af34cd70e340c019929ea1d9f5a6564588bf09cebcb61f4e1b91daf0d459"
+    },
+    {
+      "domain": "lafamilybrocante.fr",
+      "listingSourceId": "ls_01m6h75e18easbktv0434j7yw3",
+      "partyId": "pty_01m6h75e0ve3qvf7r6a1es7yha",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:19.733841Z",
+      "observationDigest": "9177655a8ad128ed38df6c1baf3212556ff466c9b83915cff82edb673d9a5ab7"
+    },
+    {
+      "domain": "brocante-debarras-vendee.fr",
+      "listingSourceId": "ls_01m6h75g6mefma8ehkjcxq9d9a",
+      "partyId": "pty_01m6h75g66e6cbyhdva1hqaa9w",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:19.805321Z",
+      "observationDigest": "3828280d5636eda26c58548bb89f76780985184988c45bae2edba30cfda5c070"
+    },
+    {
+      "domain": "latelierdeladorure.com",
+      "listingSourceId": "ls_01m6h75htmer1s1eqf638r8y92",
+      "partyId": "pty_01m6h75ht6ezeayr4t8xm5qkn9",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:19.846756Z",
+      "observationDigest": "334a2b15d474cd2e077c7e963be52a4c2da02ff5eb131b2ab07ddaefc65f740c"
+    },
+    {
+      "domain": "galeriejabert.com",
+      "listingSourceId": "ls_01m6h7cnrhe76aq1hg7mfjsbsz",
+      "partyId": "pty_01m6h7cnr2eyetjjk34e8d312j",
+      "locations": 2,
+      "logo": false,
+      "platform": "ECWID",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:20.300592Z",
+      "observationDigest": "49fc639248dc4f7e911881011d9375f111c01f14995d6cce019a098761f037e4"
+    },
+    {
+      "domain": "monnaies-et-collections.fr",
+      "listingSourceId": "ls_01m6h7s54hes990n9hc706k2kk",
+      "partyId": "pty_01m6h7s541e6fsjq82cdgc44z8",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:20.256472Z",
+      "observationDigest": "ec8791784c74ab5e93a3e70dc2d05c25ef8d11795a309c91a9746b72d2ad243f"
+    },
+    {
+      "domain": "numismatique-tours.fr",
+      "listingSourceId": "ls_01m6h7zjqre31skj8reb094sas",
+      "partyId": "pty_01m6h7zjpyez0a3nd8de6ny4db",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:20.414247Z",
+      "observationDigest": "02aae5fdeccd0855b02d5bacce92ddc4e2fa707f04c751baa25290cc130e4f56"
+    },
+    {
+      "domain": "philatelie72.com",
+      "listingSourceId": "ls_01m6h7zmxjen5r3m5xj6fs4gc5",
+      "partyId": "pty_01m6h7zmx9ejrtz8p3bpfdb0jg",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:20.819946Z",
+      "observationDigest": "e938eb48084e22ccdab1df30e0642960afa3194e7afedeef82129e5da1f324dc"
+    },
+    {
+      "domain": "antiquites-brocante-landes.com",
+      "listingSourceId": "ls_01m6h88aj2edarrxnbr2h5da29",
+      "partyId": "pty_01m6h88ahheewbj4jtrnckrtc9",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:20.821988Z",
+      "observationDigest": "e4ac4fa23cab4ad4d2324c5ae4e359597d59161f11c1649ce680a77580d7b186"
+    },
+    {
+      "domain": "printimeuble.com",
+      "listingSourceId": "ls_01m6h8qj5ne8ht0rz3yqa71sfp",
+      "partyId": "pty_01m6h8qj5de0w964e9wn42yjcd",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:20.832131Z",
+      "observationDigest": "6bcd203ed4b39248d047b87c483fa813beecc6bbb9c7e452e7d0b946e26709d4"
+    },
+    {
+      "domain": "galerie-rollin.com",
+      "listingSourceId": "ls_01m6h92xf5eqs8geahjmkdtq67",
+      "partyId": "pty_01m6h92xepej8bydctqzqyq751",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:21.391812Z",
+      "observationDigest": "54f78b8c5680b59e28d0e908624d33ee779483a7e732425ffdfa2817e42ff370"
+    },
+    {
+      "domain": "cordier-ebeniste.fr",
+      "listingSourceId": "ls_01m6ha45w3e5brv4v61sp0tw2p",
+      "partyId": "pty_01m6ha45vse5fsqkd3z188sdfd",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:21.276182Z",
+      "observationDigest": "4ed2fed21291394218d195d64340ffb45d9cd91a61b38e615ed5d025f8680ba5"
+    },
+    {
+      "domain": "antiquites-edelweiss.jimdoweb.com",
+      "listingSourceId": "ls_01m6ha47d0e3ztbs3rqvg641pr",
+      "partyId": "pty_01m6ha47cke4h869ym219kz37p",
+      "locations": 1,
+      "logo": false,
+      "platform": "JIMDO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:21.343884Z",
+      "observationDigest": "2acfe72b4c64367aab7bc3598d3f8150e157b139b48e3497a4fd2a1faa28e7e0"
+    },
+    {
+      "domain": "antiquite-bally.fr",
+      "listingSourceId": "ls_01m6hb88jgejasrvf2hz8ct2zg",
+      "partyId": "pty_01m6hb88j0epea5rkw8fedady5",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:21.809818Z",
+      "observationDigest": "062348def383779b1cd325c5b9573db23b890b8a3631494f1d31731f710f1c4d"
+    },
+    {
+      "domain": "napoli-antic.fr",
+      "listingSourceId": "ls_01m6hb8amte90s38yw72safrtw",
+      "partyId": "pty_01m6hb8am9ev79c27w76cjcnsr",
+      "locations": 2,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:21.913942Z",
+      "observationDigest": "3bb5010b33fea81bba443a6885a26f7232b1edb6de4c7480cdabd735a7f8ab06"
+    },
+    {
+      "domain": "brocantique.pro",
+      "listingSourceId": "ls_01m6hbj983e0na6kxk4ppggdkb",
+      "partyId": "pty_01m6hbj97me5vb252m2cwhcgbv",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:21.808164Z",
+      "observationDigest": "38fa4a8fb6a41c6c7cab7a4c8ef924372a3d9a2b1b702d988db1ec9789a49d8c"
+    },
+    {
+      "domain": "antiquites-tremblin-cyril.fr",
+      "listingSourceId": "ls_01m6hbrgxfe2as3vcd9af9ftpg",
+      "partyId": "pty_01m6hbrgx1epq8sn2jzrvfpvtf",
+      "locations": 1,
+      "logo": true,
+      "platform": "ECWID",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:22.250390Z",
+      "observationDigest": "f94cdc39bc432a5cc06447f14be64011f39cfd04d34794bcf2b88c63474cd532"
+    },
+    {
+      "domain": "legrenierdesaintlie.fr",
+      "listingSourceId": "ls_01m6hc04e0emhrjtkp2syp9mhq",
+      "partyId": "pty_01m6hc04dhevksf9q8yw84ky87",
+      "locations": 1,
+      "logo": true,
+      "platform": "STRIKINGLY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:22.312734Z",
+      "observationDigest": "4ea05c6fd10f78a70161a70e0bfd383ac03d28bea25c7d74deaf39c5525339f7"
+    },
+    {
+      "domain": "dealeuse.com",
+      "listingSourceId": "ls_01m6hccmykevj8y69cnj90cbat",
+      "partyId": "pty_01m6hccmy2e2pskw8rjtgvs727",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:22.416234Z",
+      "observationDigest": "1e6f87ccfa78bf7d84c574bac77553bacc93c62c9cdaea718d65a56f442b3355"
+    },
+    {
+      "domain": "galerie-martynoff.com",
+      "listingSourceId": "ls_01m6hccq70enkswt32yr034wz3",
+      "partyId": "pty_01m6hccq6hebys88dth9e4wyct",
+      "locations": 1,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:22.780429Z",
+      "observationDigest": "8abff1218969b6a637bdac5b7b83d567d185ae6cdde2e0d8087422d05954a2b9"
+    },
+    {
+      "domain": "boulogneantiquites.com",
+      "listingSourceId": "ls_01m6hcnbjjefcb4khtkn2qv98m",
+      "partyId": "pty_01m6hcnbjbe3ebnmag557g2vv7",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:22.767373Z",
+      "observationDigest": "3397c38d9c2359429090d4761e1df1d7f4740047e93aa5801e92de851e151de6"
+    },
+    {
+      "domain": "ausecondempire.fr",
+      "listingSourceId": "ls_01m6hcnd2vefb9d9xh8cgmd2qq",
+      "partyId": "pty_01m6hcnd2ke16vmxhe2ca59vy2",
+      "locations": 1,
+      "logo": false,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:22.912494Z",
+      "observationDigest": "944db7aff38b9d4617694a4901386e4e1a966b7425643c0285236e66dde5b74b"
+    },
+    {
+      "domain": "lasalledesventes.fr",
+      "listingSourceId": "ls_01m6hd4z6ke3gsw0yyyrzcq4nb",
+      "partyId": "pty_01m6hd4z66ekg8snn5yhyyk4ym",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:23.178216Z",
+      "observationDigest": "cfe9eb045edc8145d761a51cfdbab69e6c704600f87b955a440cd502ca6edf45"
+    },
+    {
+      "domain": "selectionjuliensegard.com",
+      "listingSourceId": "ls_01m6hd50yme8ftrkbnmnrankd4",
+      "partyId": "pty_01m6hd50y7etnbfs2phxkdvz74",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:23.276799Z",
+      "observationDigest": "6a11a80f761ffb4e6cb656380712ad4cd547d1e6ee41d06f595ee8ec346fc985"
+    },
+    {
+      "domain": "galeriecristo.com",
+      "listingSourceId": "ls_01m6hdwqwpepssfyme3h3vefqb",
+      "partyId": "pty_01m6hdwqw8ertb47n7hsfbwsew",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:23.378877Z",
+      "observationDigest": "2ee1c2bf7089f50dbc709cce7f81181227f3847f392ac2a69865759bea70e8e2"
+    },
+    {
+      "domain": "violondingres.fr",
+      "listingSourceId": "ls_01m6hefm6gekmt41n4hwejyzay",
+      "partyId": "pty_01m6hefm5wetpstkqv4gjnwb5b",
+      "locations": 2,
+      "logo": true,
+      "platform": "PRESTASHOP",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:23.674510Z",
+      "observationDigest": "65610c44f2fba3e781d0fce608d5380aa27e68421e1b0f133d0cf184843405eb"
+    },
+    {
+      "domain": "brocante-oplus.fr",
+      "listingSourceId": "ls_01m6het1n3e63amrgf2q1xb276",
+      "partyId": "pty_01m6het1mjewy9dd9grnxyv2az",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:23.767021Z",
+      "observationDigest": "e930ba329de21ee6f3c25a96b882833e7c45540e8e39d4e7fad841ee94b7c48d"
+    },
+    {
+      "domain": "lerepairedesantiquites.com",
+      "listingSourceId": "ls_01m6hf2ppce0ashyhqmreqs6zy",
+      "partyId": "pty_01m6hf2pp1e11ttcbxz5g9njzx",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:23.882192Z",
+      "observationDigest": "ada3b95bfc4676e3427b903d24f66536f93d47bc16d22033d88277ce36c1e453"
+    },
+    {
+      "domain": "antiquitesmaisongossot.fr",
+      "listingSourceId": "ls_01m6hf8w88e4wbyqtea17v92vy",
+      "partyId": "pty_01m6hf8w7wesyb99dmcx3er4d8",
+      "locations": 1,
+      "logo": true,
+      "platform": "JIMDO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:24.158887Z",
+      "observationDigest": "d5357149182f24047450d32cfafcc7cee250013b4c36c3436103ffdfdbdab3a8"
+    },
+    {
+      "domain": "olive-bassett.com",
+      "listingSourceId": "ls_01m6hffaxrey0b9vbysf342xbm",
+      "partyId": "pty_01m6hffax8ehgax409wcw3ftnt",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:53:24.244735Z",
+      "observationDigest": "01443d3cdc1fab7a90a1cd4e71d1a4c92ec1f564af62a6dc7462176671871715"
     }
   ]
 }

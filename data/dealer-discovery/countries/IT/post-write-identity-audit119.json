@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-119",
+  "country": "IT",
+  "observedAt": "2026-11-03T14:06:19.920183Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 33645,
+  "apiWriteAttemptsThisRun": 7,
+  "decisions": {
+    "added": [
+      "fondantico.it",
+      "ivolpini.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot119-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T14:04:50.670136Z",
+    "fullVerifiedAt": "2026-11-03T13:55:45.919520Z",
+    "counts": {
+      "parties": 204,
+      "listingSources": 204,
+      "locations": 246,
+      "logos": 174,
+      "identifiedPlatforms": 154,
+      "deliveryProfiles": 122,
+      "emptyIngestionMethods": 204,
+      "excluded": 20,
+      "deferred": 61
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Fondantico has one current Bologna gallery; VIES tax address is not another premises. Historical Curio valuation visits were reviewed as a separate auction operator visiting the gallery, without evidence of Fondantico auction operations. IVolpini has two currently advertised galleries; seasonal dates from secondary sources are not imported. Its tax address and named staff are not extra operators/premises. No verified shipping or inventory defaults for either. Smaller IVolpini logo rejected with dated asset review.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

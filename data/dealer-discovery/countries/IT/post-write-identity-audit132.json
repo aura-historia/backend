@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-132",
+  "country": "IT",
+  "observedAt": "2026-11-03T15:31:28.639153Z",
+  "result": "PASSED",
+  "rawJournalFiles": 60,
+  "rawJournalRecordsScanned": 36601,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "mvtirelliantiquario.it",
+      "antichitafulviofarina.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot132-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T15:30:57.606713Z",
+    "fullVerifiedAt": "2026-11-03T15:06:57.688424Z",
+    "counts": {
+      "parties": 217,
+      "listingSources": 217,
+      "locations": 261,
+      "logos": 184,
+      "identifiedPlatforms": 165,
+      "deliveryProfiles": 126,
+      "emptyIngestionMethods": 217,
+      "excluded": 23,
+      "deferred": 78
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Both Piacenza dealers have current full native operator identities and actual inspected historical stock. Tirelli specific early twentieth-century vase captions are in native lightbox title attributes; original photo inspected. IONOS MyWebsite directly identified, no logo generated from HTML header text. Farina original400x120PNG inspected and WordPress directly identified. One clearly described Piacenza premises per dealer. Farina separately advertised Farini address lacks a clear role and remains a ledger observation; candidate VAT is secondary-only and current VIES positive but not natively linked, so omitted. No shipping, inventory or collection default inferred. Existing Cantore retained without mutation. All56 journals including nested ledgers read.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

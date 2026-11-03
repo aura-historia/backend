@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-121",
+  "country": "IT",
+  "observedAt": "2026-11-03T14:24:38.476345Z",
+  "result": "PASSED",
+  "rawJournalFiles": 42,
+  "rawJournalRecordsScanned": 34143,
+  "apiWriteAttemptsThisRun": 0,
+  "decisions": {
+    "added": [],
+    "excluded": [],
+    "deferred": [
+      "lecoseantiche.weebly.com",
+      "calypsoantiquariato.com",
+      "laquila.kece.it"
+    ]
+  },
+  "freshApiIdentityCheck": "No API mutations in this batch; every managed Party/source identity read and verified by explicit country verification. Deferred observations create no resources.",
+  "prewriteSnapshot": null,
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T14:24:10.350579Z",
+    "fullVerifiedAt": "2026-11-03T13:55:45.919520Z",
+    "counts": {
+      "parties": 206,
+      "listingSources": 206,
+      "locations": 249,
+      "logos": 176,
+      "identifiedPlatforms": 156,
+      "deliveryProfiles": 124,
+      "emptyIngestionMethods": 206,
+      "excluded": 20,
+      "deferred": 65
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Three deferrals, no API mutation. Le Cose Antiche lacks native exactoperator and individually available currentstock; secondary EmanuelaPerna is not adopted. Calypso publicsite failsDNS; directory hours do not establishclosure. Kecè localcatalogue has historicalleads, but terms name centralEDB onlyasportalowner and expresslyseparate affiliatedagency/privateintermediation. Localoperator/ownretailresponsibility remainsunverified; no centralParty orVeronalocation imported. Previouslyowned AnticaLibreria,IlBellodellUsato,RicordidelPassato notcopied orrecreated.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

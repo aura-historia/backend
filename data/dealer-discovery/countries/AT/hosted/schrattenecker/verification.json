@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-03-at-099",
+  "verifiedAt": "2026-11-03T19:49:32.790680Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T19:28:44.273407Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 1,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 3458,
+    "listingSources": 3493
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "willhaben.at",
+      "listingSourceId": "ls_01m6ghxxr5epnvnt6cvvfmsemg",
+      "partyId": "pty_01m6ghxxqne6fvmfdtj1tr146g",
+      "locations": 1,
+      "logo": false,
+      "platform": "WILLHABEN",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:28:44.273052Z",
+      "observationDigest": "9ef1ae7fb1038b6b641ba3a50f9848fed47853860d22f38c0473122e2b21828a"
+    }
+  ]
+}

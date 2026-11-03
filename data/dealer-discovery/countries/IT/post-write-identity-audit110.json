@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-110",
+  "country": "IT",
+  "observedAt": "2026-11-03T12:57:14.982163Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 30223,
+  "apiWritesThisRun": 6,
+  "decisions": {
+    "added": [
+      "antiquariatoasseretoroberto.it",
+      "mazzitelliantichita.it"
+    ],
+    "excluded": [
+      "capozziantichita.com"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Full prewrite global snapshot and both explicit country onboard invocations found no domain/operator/contact matches. Each returned source,Party,location and default read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot110-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T12:56:18.438445Z",
+    "fullVerifiedAt": "2026-11-03T12:45:58.662905Z",
+    "counts": {
+      "parties": 187,
+      "listingSources": 187,
+      "locations": 221,
+      "logos": 157,
+      "identifiedPlatforms": 141,
+      "deliveryProfiles": 115,
+      "emptyIngestionMethods": 187,
+      "excluded": 18,
+      "deferred": 52
+    }
+  },
+  "crossLedgerOwnership": "All raw journals including nested hosted dealers read; no other owner identity matches.",
+  "omissions": "No inventory assertions or shipping profiles. Mazzitelli tax address distinct from shop; Assereto VIES negative is not national-invalidity/closure evidence.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

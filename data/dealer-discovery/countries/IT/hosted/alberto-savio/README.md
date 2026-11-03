@@ -1,0 +1,5 @@
+# Alberto Savio Antichità — hosted catalogue
+
+Italy owns only [AnticoAntico seller 467](https://www.anticoantico.com/espositori/gallery.asp?idantiquario=467&lingua=ita), operated by **Alberto Savio Antichità di Gian Marco Savio & C. S.a.s.**, published VAT **01770940029**. Stable merchant key: `IT:ANTICOANTICO:467`. The canonical host is the shared provider, not the merchant operator. No standalone dealer domain is verified; its advertised legacy `/antiquari/albertosavio2/` path also needs duplicate reconciliation. The separate seller-authored Proantic profile supplies corroborating evidence without claiming that platform or another source.
+
+[Ledger](dealers.jsonl), [verification](verification.json), [index](index.tsv). Match exact seller ID/path, full company, VAT and contacts before writes. Keep resource IDs and ingestion empty. Native contact, secondary published address, stock, dispatch, collection and shipping remain separate assertions. Country totals aggregate this journal’s explicit readbacks.

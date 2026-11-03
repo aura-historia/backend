@@ -1,0 +1,47 @@
+{
+  "run": "ch-2026-11-03-091",
+  "verifiedAt": "2026-11-03T19:51:58.174645Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T19:46:06.073022Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 3,
+    "logos": 1,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 1,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 3464,
+    "listingSources": 3499
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "degussa.com",
+      "listingSourceId": "ls_01m6h4q0h7ez99rxjjf0zzegr6",
+      "partyId": "pty_01m6h4q0gqep5sw9f6px4tzjdk",
+      "locations": 3,
+      "logo": true,
+      "platform": "DYNAMIC_COMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:46:06.071761Z",
+      "observationDigest": "0ff772592359dfe89d389d48199d7a7e43301472b14ef940d3fd795ebdfcc349"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-147",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:27:33.977568Z",
+  "result": "PASSED",
+  "rawJournalFiles": 94,
+  "rawJournalRecordsScanned": 41088,
+  "apiWriteAttemptsThisRun": 5,
+  "decisions": {
+    "added": [
+      "antichitarestauro.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "oldera.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot147-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T17:26:44.922828Z",
+    "fullVerifiedAt": "2026-11-03T17:11:46.779380Z",
+    "counts": {
+      "parties": 243,
+      "listingSources": 243,
+      "locations": 289,
+      "logos": 206,
+      "identifiedPlatforms": 185,
+      "deliveryProfiles": 137,
+      "emptyIngestionMethods": 243,
+      "excluded": 24,
+      "deferred": 81
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Buttiglione currentnative fullSnc/VAT02345940734 corroborated byprivacy/contact/original425x193wordmark. NegativeVIESintraEUnotnationalVATinvalidity/closure. Nativecurrentofferedcarved19thchestwithmirror actual1440x1920photo inspected; conflictingFrenchtitle/Italiaprovenance notimported. OneactualMuraglie21Mottolashop/workshop, nativeWooCommerce11.2.1, PARTIALITshippingunknownrates/timing/features. No registered/INV/dispatch/purchasedpickup. OlderaDEFERRED: exactnativecurrentOlderaSRLS vsNuovaOlderaSRLSoperatorunresolved, noVATfound. Actualcurrent2560x2560cradleand238x44wordmarkinspected; currentVendiConNoiexplicitbuying supportsownretail, historicalpressmarketplacelabelnotexclusion. Preserve14advertiseddestinations, size-specificscope, islands/Alaskaremotestandardrateexceptionsnottransportban, 100%insuranceincluded, noAPIprofilewhiledeferred. EnricoArmentani www/apexDNS unassignedDec3hint. ExistingLecceownerspreserved.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

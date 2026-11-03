@@ -1,0 +1,47 @@
+{
+  "run": "tw-2026-11-03-059",
+  "verifiedAt": "2026-11-03T19:50:25.528404Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T19:22:38.826169Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 1,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 3459,
+    "listingSources": 3494
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "shop2000.com.tw",
+      "listingSourceId": "ls_01m6ha0d5je7xadfmmp68j4trz",
+      "partyId": "pty_01m6ha0d58eqhr0dtvyzm0zfm5",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOP2000",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:22:38.825238Z",
+      "observationDigest": "7d0798782c4e0ddf7f1d42293facb611bc4ad6dee10f5f8ea48a5d6d0087faf8"
+    }
+  ]
+}

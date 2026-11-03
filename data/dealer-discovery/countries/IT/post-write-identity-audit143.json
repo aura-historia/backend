@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-143",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:12:19.836522Z",
+  "result": "PASSED",
+  "rawJournalFiles": 93,
+  "rawJournalRecordsScanned": 40338,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "leonidegianluca.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot143-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T17:11:46.779380Z",
+    "fullVerifiedAt": "2026-11-03T17:11:46.779380Z",
+    "counts": {
+      "parties": 238,
+      "listingSources": 238,
+      "locations": 282,
+      "logos": 201,
+      "identifiedPlatforms": 181,
+      "deliveryProfiles": 135,
+      "emptyIngestionMethods": 238,
+      "excluded": 23,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Leonide current native full operator and VAT01072980111 positively match official identity. Public detailed offeredpainting and actual990x1399monk/angel photograph inspected without login. HeaderSeicento versus1720sessay inconsistency means only art-stock qualification, no artist/date/authenticity import. Native original1416x175PNGwordmark inspected and verified. Current dealer-authored Proantic linkednative contact CisaVecchia168 agrees current official address; roles[] only, no physical-use inference. NativeSarzanaCastruccio30/32andprivacy30 left unresolved, no move/date/extra branch asserted. Providercredits notpreciseplatform; shipping/collection/INV/dispatch unknown. PiccoloScrigno primary404browserunpublished remains unassignedDec3hint. No marketplace-wide source or contact action.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

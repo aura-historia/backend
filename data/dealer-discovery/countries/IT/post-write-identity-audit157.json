@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-157",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:41:22.368563Z",
+  "result": "PASSED",
+  "rawJournalFiles": 125,
+  "rawJournalRecordsScanned": 43280,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "antichitabaldrighi.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "olimantiquariato.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot157-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T18:40:20.192111Z",
+    "fullVerifiedAt": "2026-11-03T18:15:30.686840Z",
+    "counts": {
+      "parties": 258,
+      "listingSources": 258,
+      "locations": 305,
+      "logos": 220,
+      "identifiedPlatforms": 200,
+      "deliveryProfiles": 143,
+      "emptyIngestionMethods": 258,
+      "excluded": 25,
+      "deferred": 84
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Baldrighi native proprietor/VAT matched positive official EnzoBaldrighi. Original1264x843 AB inlay-monogram image resolved through native media API, actual900x675 antique fall-front desk photo inspected. Current Barona/Albuzzano contact roles[] distinct from official Pavia tax address, no registered/warehouse/stock/dispatch/pickup claim. No verified shipping. Olim deferred: current shop sells newly handmade pipes/smoking accessories and about lists antique sales/restoration without a specific inspectable current antique offer. Historic barrel/beam timber does not date a new pipe; craft utility objects/reproductions alone do not meet the direct art/antique scope. No Olim resources created; not a closure finding. All owned managed resources verified, empty ingestion and no pending operations.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

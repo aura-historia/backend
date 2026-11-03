@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-161",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:07:00.573817Z",
+  "result": "PASSED",
+  "rawJournalFiles": 134,
+  "rawJournalRecordsScanned": 44249,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:467"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot161-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T19:04:24.254178Z",
+    "fullVerifiedAt": "2026-11-03T18:44:09.845362Z",
+    "counts": {
+      "parties": 261,
+      "listingSources": 261,
+      "locations": 308,
+      "logos": 221,
+      "identifiedPlatforms": 203,
+      "deliveryProfiles": 144,
+      "emptyIngestionMethods": 261,
+      "excluded": 25,
+      "deferred": 86
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "AlbertoSavio exact native current SAS/legalVAT confirmed by positive official company and Torino36 address. Proantic seller-authored contact corroborates business email/mobile and operational home; it is not a sharedhost alias or a second source. Native Montenero2 footer preserved as unclear address role, not imported as registered/extra shop. Actual1399x912 current offeredpainting462720 inspected; broken image on separate463034 not stock evidence or business closure. Display photo rejected as logo, no seller-specific shipping/pickup verified. Exact hosted467 catalogue and legacyadvertised/albertosavio2/path404 checked for duplicates before mutation. No partner/brand/platform Parties, attribution/authenticity/availability guarantee, inventory/dispatch or ingestion. Allemandi URLs unusable in ordinary validated HTTP/browser; unassignedfrontierdeferralDec3, not closure or verified Italian home. All four owned journals independently verified, all raw133journals reread at onboarding.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

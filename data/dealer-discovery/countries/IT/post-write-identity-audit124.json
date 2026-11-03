@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-124",
+  "country": "IT",
+  "observedAt": "2026-11-03T14:35:48.748830Z",
+  "result": "PASSED",
+  "rawJournalFiles": 42,
+  "rawJournalRecordsScanned": 34418,
+  "apiWriteAttemptsThisRun": 0,
+  "decisions": {
+    "added": [],
+    "excluded": [],
+    "deferred": [
+      "librerialuigiportinaio.com",
+      "sicilianeilibri.eu"
+    ]
+  },
+  "freshApiIdentityCheck": "No API mutations in this batch; every managed Party/source identity read and verified by explicit country verification. Deferred observations create no resources.",
+  "prewriteSnapshot": null,
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T14:35:24.599672Z",
+    "fullVerifiedAt": "2026-11-03T14:33:25.176550Z",
+    "counts": {
+      "parties": 207,
+      "listingSources": 207,
+      "locations": 250,
+      "logos": 176,
+      "identifiedPlatforms": 157,
+      "deliveryProfiles": 124,
+      "emptyIngestionMethods": 207,
+      "excluded": 21,
+      "deferred": 69
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Two stock/identity deferrals and no API mutations. Portinaio identifies its legal company/VAT and links a fixed-price dealer store, but individual historical offers remain uninspectable after HTTP403 and one ordinary browser error. SiciliaNeiLibri redirects to lnx subdomain; current sampled1993paperback/zero-price metadata and empty antique-category result do not establish historical collectible stock or exact operator. Directory TizianaMazzola identity is not adopted. No closure, fraud, invalidVAT or general no-stock findings; dated follow-ups saved.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-122",
+  "country": "IT",
+  "observedAt": "2026-11-03T14:29:56.218686Z",
+  "result": "PASSED",
+  "rawJournalFiles": 42,
+  "rawJournalRecordsScanned": 34230,
+  "apiWriteAttemptsThisRun": 0,
+  "decisions": {
+    "added": [],
+    "excluded": [],
+    "deferred": [
+      "paginescolpite.it",
+      "antiquascrinium.it"
+    ]
+  },
+  "freshApiIdentityCheck": "No API mutations in this batch; every managed Party/source identity read and verified by explicit country verification. Deferred observations create no resources.",
+  "prewriteSnapshot": null,
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T14:29:02.078037Z",
+    "fullVerifiedAt": "2026-11-03T13:55:45.919520Z",
+    "counts": {
+      "parties": 206,
+      "listingSources": 206,
+      "locations": 249,
+      "logos": 176,
+      "identifiedPlatforms": 156,
+      "deliveryProfiles": 124,
+      "emptyIngestionMethods": 206,
+      "excluded": 20,
+      "deferred": 67
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Two legalidentitydeferrals, noAPIwrites. PagineScolpite has independentlyinspected actual1624bookphoto andcurrentdetailednativeoffers, but precisecurrentoperator isonlysecondarycorroborated. PublicVIEScapacityerror andtwotimeouts areUNAVAILABLE,notINVALIDVAT. Nativeversushostedshippingchannels notmerged. AntiquaScrinium has detailedbookoffers butnoexactoperator/VAT andPrivacyPolicyplaceholder. No inventedplatform,logo,premisesrole orshippingfact. AlreadyownedDallai,Athena,Bellini,AnticaLibreria,IlBellodellUsato,RicordidelPassato notrecreatedorenriched.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-138",
+  "country": "IT",
+  "observedAt": "2026-11-03T16:40:08.194248Z",
+  "result": "PASSED",
+  "rawJournalFiles": 82,
+  "rawJournalRecordsScanned": 39306,
+  "apiWriteAttemptsThisRun": 10,
+  "decisions": {
+    "added": [
+      "antichitagiorgis.it",
+      "vecchia-europa.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "pagettoarte.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot138-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T16:39:52.591829Z",
+    "fullVerifiedAt": "2026-11-03T16:39:52.591829Z",
+    "counts": {
+      "parties": 230,
+      "listingSources": 230,
+      "locations": 274,
+      "logos": 195,
+      "identifiedPlatforms": 175,
+      "deliveryProfiles": 133,
+      "emptyIngestionMethods": 230,
+      "excluded": 23,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Giorgis exact native company/VAT positiveVIES; oneCorsoNizza64showroom plus explicit native registeredrole, no60/62tax extra branches. Original safe SVG withviewBox1600x265/noabsoluteintrinsicdimensions inspected; WooCommerce10.9.4direct. Actual available1960teaksideboard photo inspected. Italy shipping preservedPARTIAL withunknownprice/times; couriertracking not generalized to own-deliverybranch, assembly/delicateconditions ledger-only. Indicative500EUR itemfreight/ambiguous48hourmarketing not universal. VecchiaEuropa exactAndreaMurini nativeTerms, registered/businessCavour21oneplace; negativeintraEUVIES not nationalinvalidity or closure. Actual1770/1780chest photo/native enquiry-offer reviewed, indicativeprice/availabilityconfirmationnotguarantee. Original522x170JPEG/WooCommerce3.6.7direct. Home-delivery profilePARTIALUNRESOLVED destinations/unknownprice/time, noANYWHERE/Italyinference; restorationpreleva not purchasedcollection. Pagetto deferredfulloperator/availableownstock unresolved; publicAboutsample andgenericDiviimage notidentity/closure/logo. NoAPIresourcesforPagetto. PreviouslydeferredCosta/managedAntiquando/Lentini/Gasco untouched.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

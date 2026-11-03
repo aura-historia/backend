@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-109",
+  "country": "IT",
+  "observedAt": "2026-11-03T12:53:06.903197Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 9,
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 30051,
+  "crossLedgerOwnership": "No other ledger raw identity matches for either added operator/domain/VAT/contact. Existing ownership respected.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot109-prewrite.json",
+  "freshApiIdentityCheck": "Onboard dry-run and actual invocation both performed fresh full source and filtered Party name/contact identity checks; no match.",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T12:52:22.168891Z",
+    "fullVerifiedAt": "2026-11-03T12:45:58.662905Z",
+    "counts": {
+      "parties": 185,
+      "listingSources": 185,
+      "locations": 219,
+      "logos": 155,
+      "identifiedPlatforms": 139,
+      "deliveryProfiles": 115,
+      "emptyIngestionMethods": 185,
+      "excluded": 17,
+      "deferred": 52
+    }
+  },
+  "decisions": {
+    "added": [
+      "andreasantichita.it",
+      "lantiquasi.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "galleriazabert.it"
+    ]
+  },
+  "omissions": "Andrea rate and lead times omitted because current first-party pages conflict. No inventory assertions for either source; no uncertain email,VAT,platform or shipping inferred for Antiquasi.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

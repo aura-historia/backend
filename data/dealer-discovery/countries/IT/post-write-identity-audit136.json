@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-136",
+  "country": "IT",
+  "observedAt": "2026-11-03T16:15:31.475707Z",
+  "result": "PASSED",
+  "rawJournalFiles": 72,
+  "rawJournalRecordsScanned": 38425,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "uomoarte.com",
+      "botteghinadarte.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot136-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T16:13:17.585681Z",
+    "fullVerifiedAt": "2026-11-03T15:37:46.101221Z",
+    "counts": {
+      "parties": 225,
+      "listingSources": 225,
+      "locations": 269,
+      "logos": 191,
+      "identifiedPlatforms": 171,
+      "deliveryProfiles": 129,
+      "emptyIngestionMethods": 225,
+      "excluded": 23,
+      "deferred": 79
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Uomo Arte exact nativeVAT and address positively identify MEGALL SAS; directory individual and personal fiscal code not substituted for company. Native current promotional paintings and original1949offered painting photo inspected; anniversary wording not closure. Original2250x2250header emblem confirmed in current public browser context; Wix direct. Botteghina native Cecilia proprietor/currentVAT verified; current Cantini heading and Botteghina/Kupros privacy/footer brand represent one source. Native284x76SVG validated and inspected; decorative framePNG rejected. Actual1570map offer/photo inspected, custom platform unknown. All-source tracking retained with PARTIAL UNRESOLVED delivery geography, null rate/times, no Italy/ANYWHERE inference from map subjects. Shop appointments not purchased-item collection; tax address not premise. Generic megall substring hits resolved as unrelated samegallery/homegallery text in foreign ledgers, with no identity claim or mutation.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

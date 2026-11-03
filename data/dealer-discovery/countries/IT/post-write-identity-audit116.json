@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-116",
+  "country": "IT",
+  "observedAt": "2026-11-03T13:40:06.322316Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 32382,
+  "apiWriteAttemptsThisRun": 5,
+  "decisions": {
+    "added": [
+      "trifoglioarte.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "mercatodellepulcisassari.com",
+      "portobellousato.jimdoweb.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot116-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T13:39:24.879447Z",
+    "fullVerifiedAt": "2026-11-03T13:18:24.652857Z",
+    "counts": {
+      "parties": 198,
+      "listingSources": 198,
+      "locations": 236,
+      "logos": 168,
+      "identifiedPlatforms": 149,
+      "deliveryProfiles": 120,
+      "emptyIngestionMethods": 198,
+      "excluded": 19,
+      "deferred": 60
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Trifoglio legal company from current native VAT/sales terms plus VIES; directorConti not assumedoperator. SameChieti address explicitly business/registered. Online-shop shipping onlyIT/SM,total0–30daysfromorderconfirmation,basisunknown,feesunknown; noextensiontoinquiry-onlyantique sales. No inventorydefault. SassariPortobello onlinecatalogue unavailable,notclosed; unrelated multilingual gambling spam onMercatoDellePulci is siteintegrity concern,not dealerfraudfinding. No APIwrites for deferredsites.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

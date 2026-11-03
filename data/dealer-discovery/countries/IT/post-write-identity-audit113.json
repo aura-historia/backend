@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-113",
+  "country": "IT",
+  "observedAt": "2026-11-03T13:19:19.407790Z",
+  "result": "PASSED",
+  "rawJournalFiles": 41,
+  "rawJournalRecordsScanned": 31432,
+  "apiWritesThisRun": 6,
+  "decisions": {
+    "added": [
+      "profumidantico.com",
+      "antiquariatoaosta.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "lagalleriadeltempo.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both country-scoped onboarding invocations found no duplicate domains, operators or contacts. New Party/source/location/defaults read back; subsequent full check covered every managed resource.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot113-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T13:18:24.652857Z",
+    "fullVerifiedAt": "2026-11-03T13:18:24.652857Z",
+    "counts": {
+      "parties": 193,
+      "listingSources": 193,
+      "locations": 227,
+      "logos": 163,
+      "identifiedPlatforms": 146,
+      "deliveryProfiles": 117,
+      "emptyIngestionMethods": 193,
+      "excluded": 19,
+      "deferred": 54
+    }
+  },
+  "crossLedgerOwnership": "All raw journals including hosted ledgers read; no competing owner identity matches.",
+  "omissions": "Profumi exact operator is from current first-party linked legal policy; negative VIES does not imply closure. Platform remains unknown. Conte operator and current tax identity reconcile; no extra personal Parties or tax/location roles. Neither has concrete verified delivery terms. No inventory default.",
+  "deferredEvidence": "La Galleria del Tempo /shop was inspected through isolated ordinary local Chromium and first-party web reads. Dummy product names and /EcommerceManager/data/dummy/ media are not own antique inventory. Public rendered caches and asset previews remain in external IT temp directory.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

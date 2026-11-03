@@ -1,0 +1,47 @@
+{
+  "run": "tw-2026-11-03-059",
+  "verifiedAt": "2026-11-03T19:50:10.760059Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T19:22:21.327865Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 1,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 3459,
+    "listingSources": 3494
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "ruten.com.tw",
+      "listingSourceId": "ls_01m6gxrge6ea2st7y8kew6mstw",
+      "partyId": "pty_01m6gxrgdnetfrqcpmejmdfsd8",
+      "locations": 1,
+      "logo": true,
+      "platform": "RUTEN",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:22:21.327610Z",
+      "observationDigest": "a61fa93a32b68f49753fb8bb024576ab8ccd3ff8d132181ed642f2e2a61e7f06"
+    }
+  ]
+}

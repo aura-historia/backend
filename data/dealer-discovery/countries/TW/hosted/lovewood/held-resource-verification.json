@@ -1,0 +1,19 @@
+{
+  "verifiedAt": "2026-11-03T19:51:05.525200Z",
+  "scope": "Resource integrity only; qualification decision remains in the owning ledger",
+  "dealers": [
+    {
+      "domain": "pinkoi.com",
+      "listingSourceId": "ls_01m6h3jphae9ntsm2qd9y98fra",
+      "partyId": "pty_01m6h3jpgte10swbnez9tkqv7d",
+      "locations": 0,
+      "logo": false,
+      "platform": "PINKOI",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:51:05.524784Z",
+      "observationDigest": "35bf44c2a44b2071a4a514ebc9f321488b710483851191a15d73679a32d49a52"
+    }
+  ]
+}

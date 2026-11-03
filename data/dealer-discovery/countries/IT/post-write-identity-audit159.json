@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-159",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:52:35.441251Z",
+  "result": "PASSED",
+  "rawJournalFiles": 128,
+  "rawJournalRecordsScanned": 43722,
+  "apiWriteAttemptsThisRun": 5,
+  "decisions": {
+    "added": [
+      "antichitamissaglia.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot159-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T18:51:31.310372Z",
+    "fullVerifiedAt": "2026-11-03T18:44:09.845362Z",
+    "counts": {
+      "parties": 259,
+      "listingSources": 259,
+      "locations": 306,
+      "logos": 221,
+      "identifiedPlatforms": 201,
+      "deliveryProfiles": 144,
+      "emptyIngestionMethods": 259,
+      "excluded": 25,
+      "deferred": 86
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Missaglia direct antique/art dealer, exact native legal proprietor/currentVAT positively confirmed. Original250x73 current logo and actual2560x1126 painted-chest/front plus2560x1920 open-detail photos inspected; categoryC199/detailC219 mismatch retained, no SKU guess. Native appointment contact/legal812 distinct from officialtax1342, no second location/registered role/move inference. Alpine stock origins and international installations not business home/branches. Explicit insured shipping worldwide retained as PARTIALANYWHERE/OFFERED/INSURED with rates/times/dispatch/collection unknown. No family/logistics provider Parties, universal tracking/packing/duty claims or ingestion. Both currently owned journals verified with all IDs/defaults read back.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

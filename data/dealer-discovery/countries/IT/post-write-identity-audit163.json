@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-163",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:15:39.475404Z",
+  "result": "PASSED",
+  "rawJournalFiles": 135,
+  "rawJournalRecordsScanned": 44567,
+  "apiWriteAttemptsThisRun": 0,
+  "decisions": {
+    "added": [],
+    "excluded": [],
+    "deferred": [
+      "antichitaceraunavolta.com",
+      "redibronzo.it"
+    ]
+  },
+  "freshApiIdentityCheck": "No API mutations in this batch; every managed Party/source identity read and verified by explicit country verification. Deferred observations create no resources.",
+  "prewriteSnapshot": null,
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T19:14:52.246729Z",
+    "fullVerifiedAt": "2026-11-03T19:14:10.305024Z",
+    "counts": {
+      "parties": 262,
+      "listingSources": 262,
+      "locations": 309,
+      "logos": 221,
+      "identifiedPlatforms": 204,
+      "deliveryProfiles": 144,
+      "emptyIngestionMethods": 262,
+      "excluded": 25,
+      "deferred": 88
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Both prospective businesses have direct inspected antique stock and Italian native home, but no API resources were created. C’eraunaVolta native SRL controller wording requires reconciliation with secondary same-phone sole-trader lead; generic legal-guarantee wording is not shipping coverage. IlRediBronzo full operator absent from inspected native pages; eBay sellerVAT visible only in search results is unadopted lead, native-linked eBay ordinaryHTTP403/browserErrorPage do not prove closure or authorize circumvention. Actual original2448x3264 secretaire and2313x1977 current October2026armchair photographs inspected. No guessedVAT/operator, correctedaddress, platform-wide source, unsupported logo/shipping/collection/inventory/dispatch or ingestion. All five owned journals fully read back and verified; all262empty ingestion, no pendingwrites, $0.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

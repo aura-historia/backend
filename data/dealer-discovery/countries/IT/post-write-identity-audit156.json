@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-156",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:36:22.961209Z",
+  "result": "PASSED",
+  "rawJournalFiles": 122,
+  "rawJournalRecordsScanned": 43022,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "antiquariatocecchini.it",
+      "mobiliduchi.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot156-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T18:35:57.467382Z",
+    "fullVerifiedAt": "2026-11-03T18:15:30.686840Z",
+    "counts": {
+      "parties": 257,
+      "listingSources": 257,
+      "locations": 304,
+      "logos": 219,
+      "identifiedPlatforms": 199,
+      "deliveryProfiles": 143,
+      "emptyIngestionMethods": 257,
+      "excluded": 25,
+      "deferred": 83
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Latest user scope restricts new additions to direct art and antiques relevance. Cecchini directly offers antique furniture; native full proprietor/current mobile verified, actual antique-table photo and270x70 own logo inspected. No native VAT adopted, malformed old privacy0624 postcode/domain not repaired, snc in rural address not company suffix, theme/provider marks rejected. Duchi current Snc/native VAT matched positive official full name, actual antique wardrobe stock/photo and300x100 logo inspected independently of bespoke furniture line. .it/.com are native WPML language variants of the same catalogue, one company/source with verified alias; do not assert equal translation stock counts. Native workshop/showroom literal1/4 retained versus tax1, no registered/warehouse role. Neither dealer has verified shipping/purchased pickup or source-wide inventory/dispatch. Both owned journals verified; no pending operations.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

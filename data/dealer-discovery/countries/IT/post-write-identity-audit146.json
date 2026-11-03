@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-146",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:23:21.842116Z",
+  "result": "PASSED",
+  "rawJournalFiles": 94,
+  "rawJournalRecordsScanned": 40806,
+  "apiWriteAttemptsThisRun": 5,
+  "decisions": {
+    "added": [
+      "ilmercanteinfiera.eu"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot146-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T17:22:31.098615Z",
+    "fullVerifiedAt": "2026-11-03T17:11:46.779380Z",
+    "counts": {
+      "parties": 242,
+      "listingSources": 242,
+      "locations": 288,
+      "logos": 205,
+      "identifiedPlatforms": 184,
+      "deliveryProfiles": 136,
+      "emptyIngestionMethods": 242,
+      "excluded": 24,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Mercante exactnativeVATpositiveofficialcooperative. Nativeoperatorformlimitata completes truncatedprovidername; founderAlfredo/partnerTonino/designagency notParties. Native independentcuratedstock/directantique retail plus commissionservice, notmarketplacebyFieraname. Native auction-origin purchases notownedauctionoperation. Actual current offered1930stable and original2400x2400photo inspected, native500x500PNGlogo verified, WooCommerce9.3.6. Threeactualbusinesspremises: LucoSPaddresswithoutcivic, CappelleViaTiburtinaValeriawithoutconflicting111.800/113.800marker, SulmonaPanfiloMazara14explicitTemporaryShop. No guessedpostcodes/registeredtaxsite/INV/dispatch/pickup/shipping. Source spansLuco/Cappelle stockcategories. Inboundsellerritiro notpurchasedpickup. Unrelatedprivacytemplateelevarlogisticdomain notmerged. Calypso121/AnticaMaison115rediscoveries reconciledexistingITDEFERRED/Dec3followups, no newunassignedrecords orduplicatedledgerdecisions.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

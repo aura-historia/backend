@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-140",
+  "country": "IT",
+  "observedAt": "2026-11-03T16:49:27.968872Z",
+  "result": "PASSED",
+  "rawJournalFiles": 87,
+  "rawJournalRecordsScanned": 39669,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "anticartantichita.it",
+      "lafenicelibriantichi.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot140-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T16:49:04.540279Z",
+    "fullVerifiedAt": "2026-11-03T16:39:52.591829Z",
+    "counts": {
+      "parties": 234,
+      "listingSources": 234,
+      "locations": 278,
+      "logos": 199,
+      "identifiedPlatforms": 178,
+      "deliveryProfiles": 135,
+      "emptyIngestionMethods": 234,
+      "excluded": 23,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Antic-Art current contact/linked privacy name Maria Tosi, exact native VAT positive VIES; Corso Libertà228 shop differs from government tax address. Actual own native framed landscape/art brochure and shop stock inspected; glass plate alone is not age evidence. Original600x354JPEG and explicit PagineSìCMS adopted; provider marks rejected. No shipping/inventory inferred. La Fenice current exact AnnaMariaVitale operator native terms/privacy positive VIES; historical Francesco not current Party. Physically described1774original with specific binding/wear/current180EUR offer distinguished from1975facsimile. No exactcopyphoto invented; original actual bookshop/artstock photograph inspected. Current native CSS references original981x126phoenix/header wordmark, imported unchanged. Unknown Warp commerce/CMS platform omitted. DeliveryPARTIALIT/null source eligibility retains UNRESOLVED hotel/restaurant/company address exclusions, unknown prices/free threshold and conditional dispatch times. No free/foreign/universalhandling/inventory/dispatch/purchasedcollection inference.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

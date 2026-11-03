@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-127",
+  "country": "IT",
+  "observedAt": "2026-11-03T14:56:59.104734Z",
+  "result": "PASSED",
+  "rawJournalFiles": 52,
+  "rawJournalRecordsScanned": 35283,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "fifty-fifty.it"
+    ],
+    "excluded": [
+      "alexnumismatica.it"
+    ],
+    "deferred": [
+      "antichitacertosa.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot127-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T14:56:20.634032Z",
+    "fullVerifiedAt": "2026-11-03T14:33:25.176550Z",
+    "counts": {
+      "parties": 211,
+      "listingSources": 211,
+      "locations": 255,
+      "logos": 179,
+      "identifiedPlatforms": 161,
+      "deliveryProfiles": 125,
+      "emptyIngestionMethods": 211,
+      "excluded": 23,
+      "deferred": 72
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "FiftyFifty native PulpSnc/exactVAT is corroborated as PulpSncdiAlessandroPisatiePaolaCasati. One current Pavia showroom retained; old ViaVigentina privacy address and Milano tax address are not additional current premises. Original table photo and268x125logo inspected. WordPress directly identified; carousel data-addwoocommerceclass=false is not commerce evidence. Opening hours conflict and are omitted. No shipping or inventory default. Petterle exact current operator remains only secondarily identified despite nativeVAT; negative VIES is not nationalinvalidity. Alex primary about and hosted auction terms explicitly establish own auction operation; excluded.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

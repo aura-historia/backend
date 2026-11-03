@@ -1,18 +1,13 @@
 {
-  "currentRun": "FULL170",
+  "currentRun": "2026-11-03-fr-239",
   "status": "RESEARCH",
-  "lastVerifiedRun": "FULL170",
-  "lastFullVerifiedRun": "FULL170",
+  "lastVerifiedRun": "2026-11-03-fr-239",
+  "lastFullVerifiedRun": "2026-11-03-fr-235",
   "ongoingUntilUserStops": true,
-  "candidateDomains": [
-    "vichot.com",
-    "galerie-numa.com",
-    "louisdemontignacq.com"
-  ],
+  "candidateDomains": [],
   "researchCache": "/tmp/aura-dealer-discovery/FR",
   "currentFetchFiles": [
-    "/tmp/aura-dealer-discovery/FR/api-snapshot-run170-final.json",
-    "/tmp/aura-dealer-discovery/pages"
+    "/tmp/aura-dealer-discovery/FR/pages"
   ],
   "countryLedger": "data/dealer-discovery/countries/FR/dealers.jsonl",
   "frontier": "data/dealer-discovery/countries/FR/frontier.jsonl",
@@ -23,7 +18,7 @@
     "Recheck effetssinguliers.com and lartetlafacon.fr after 2026-12-03.",
     "Retry didascalies.art after 2026-12-03 only with normal TLS hostname validation.",
     "Recheck deferred current-stock/legal candidates at their scheduled dates.",
-    "Next full managed-country readback FULL175.",
+    "Next full managed-country readback FULL240.",
     "Continue until explicit user stop."
   ],
   "assetVerification": "data/dealer-discovery/countries/FR/asset-verification.json",
@@ -74,5 +69,6 @@
       "note": "Current partners Olivier Baltzinger/Philippe Henry and company VAT appear in complete member profiles. No private website is linked. Do not substitute the federation or Livre Rare Book for a merchant Source or create former founder Jean-Luc Moresi as a current operator."
     }
   ],
-  "lastResearchCheckpoint": "FULL170"
+  "lastResearchCheckpoint": "2026-11-03-fr-239",
+  "qualificationScope": "Only dealers with direct art and antiques relevance; unrelated modern secondhand, collectibles and general decorative retail are insufficient."
 }

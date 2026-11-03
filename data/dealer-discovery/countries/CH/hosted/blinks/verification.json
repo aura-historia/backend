@@ -1,0 +1,47 @@
+{
+  "run": "ch-2026-11-03-091",
+  "verifiedAt": "2026-11-03T19:51:42.907761Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T19:45:50.321964Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 3463,
+    "listingSources": 3498
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "proantic.com",
+      "listingSourceId": "ls_01m6hdytcvejha55fzhjz0415a",
+      "partyId": "pty_01m6hdytcfek0bhcb5g7prmh5s",
+      "locations": 1,
+      "logo": false,
+      "platform": "PROANTIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:45:50.321355Z",
+      "observationDigest": "879bdc4bb93ba2d7e8c88514d56b3b8eb47302b5f474ab357775422b7f19135b"
+    }
+  ]
+}

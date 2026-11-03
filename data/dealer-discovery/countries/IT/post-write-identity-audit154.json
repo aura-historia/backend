@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-154",
+  "country": "IT",
+  "observedAt": "2026-11-03T18:22:20.769986Z",
+  "result": "PASSED",
+  "rawJournalFiles": 119,
+  "rawJournalRecordsScanned": 42662,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "callirestauro.com",
+      "lottocentospoleto.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot154-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T18:21:02.148594Z",
+    "fullVerifiedAt": "2026-11-03T18:15:30.686840Z",
+    "counts": {
+      "parties": 254,
+      "listingSources": 254,
+      "locations": 301,
+      "logos": 216,
+      "identifiedPlatforms": 196,
+      "deliveryProfiles": 142,
+      "emptyIngestionMethods": 254,
+      "excluded": 25,
+      "deferred": 82
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Calli current native Snc/VAT matched positive official full company name. Native Anghiari business home retained at city level with roles[], no street/postal from government tax or secondary interview. One current offered antique kneeler and original385x65 white logo inspected in ordinary browser/dark preview; native generic HTTP disconnect not inactivity. Personalised shipping destinations remain unresolved; rate/time unknown. L’Ottocento exact native SAS and positive official VAT, distinct Spoleto shop/Prato registered office. Actual antique goblet and historical1964 plate photos inspected; original510x170WebP logo. Italian fixedEUR12 per seller order preserved. Seventeen foreign countries retained with null rate/eligibility because EUR30 and10–14days are restricted to Christmas plates/specified Herend service and real classes are unassigned. Approximate packing/transit, conditional tracking, contractual30day fallback, purchased pickup, inventory/dispatch omitted. GalleriaSanGiovanni DNS failure is an unassigned frontier deferral, directory liquidation label not closure.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-126",
+  "country": "IT",
+  "observedAt": "2026-11-03T14:50:54.157529Z",
+  "result": "PASSED",
+  "rawJournalFiles": 49,
+  "rawJournalRecordsScanned": 34993,
+  "apiWriteAttemptsThisRun": 4,
+  "decisions": {
+    "added": [
+      "lacongrega.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "cremonantichita.it",
+      "antichitacastellini.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot126-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T14:50:20.721781Z",
+    "fullVerifiedAt": "2026-11-03T14:33:25.176550Z",
+    "counts": {
+      "parties": 210,
+      "listingSources": 210,
+      "locations": 254,
+      "logos": 178,
+      "identifiedPlatforms": 160,
+      "deliveryProfiles": 125,
+      "emptyIngestionMethods": 210,
+      "excluded": 22,
+      "deferred": 71
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "La Congrega current company isSRL, with original white-on-transparent logo inspected on a dark browser background and an actual own-gallery painting photograph. Two advertised business premises remain distinct; Mazzini postcode unknown. Legacy domain directly redirects and is an alias. No shipping or inventory default. CremonAntichità current legal identity is corroborated but its fully rendered Vetrina lacks inspectable individual offers; buying-category illustrations not substituted for stock. Castellini returns an actual WordPress critical-error page. Both deferred without a closure finding or API mutation.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

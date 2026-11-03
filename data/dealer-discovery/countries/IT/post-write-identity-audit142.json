@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-142",
+  "country": "IT",
+  "observedAt": "2026-11-03T17:03:57.956070Z",
+  "result": "PASSED",
+  "rawJournalFiles": 91,
+  "rawJournalRecordsScanned": 40120,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "adresantiquariato.eu",
+      "antichitadisarcina.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot142-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T17:02:57.332651Z",
+    "fullVerifiedAt": "2026-11-03T16:39:52.591829Z",
+    "counts": {
+      "parties": 237,
+      "listingSources": 237,
+      "locations": 281,
+      "logos": 200,
+      "identifiedPlatforms": 181,
+      "deliveryProfiles": 135,
+      "emptyIngestionMethods": 237,
+      "excluded": 23,
+      "deferred": 80
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "AD.RES exact nativeVAT/address/bothBosco principals match current official fullSAS operator; nativeSNC wording preserved as discrepancy, no conversiondate/history or extraParty inferred. Native current priced/InStock historical lamps and original1512x1512photo inspected. Flazio integrated commerce identified; nativeNewCondition/defaultEUR1 on otheritems not manufacture age or price facts. No standalone logo, registeredrole/inventory/dispatch/shipping. DiSarcina native current copyright/contactGabriele, privacyGARBIELEtransposition documented, oneperson. Currentnative56shop plus explicitregisteredrole; historical55storefrontphoto rejectedaslogo/currentaddress. Fullnative owncollection retailtagged antique/artphoto2900x1628 inspected. SecondarycandidateVAT01446660118positiveGovnamebutnotnativepublished andtaxCattani33differs: notimported, no extralocation. NativeFlazio identified. No itemguarantees/inventory/dispatch/shipping. EclecticaDNSemptybrowser unassignedDec3hint. OdisseusStockholm exhibitor queuedforSEownerwithnoexistingledgerownerfound, noItalianclaim/mutation.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

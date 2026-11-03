@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-162",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:11:32.934576Z",
+  "result": "PASSED",
+  "rawJournalFiles": 135,
+  "rawJournalRecordsScanned": 44437,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:855"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot162-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T19:11:19.168337Z",
+    "fullVerifiedAt": "2026-11-03T18:44:09.845362Z",
+    "counts": {
+      "parties": 262,
+      "listingSources": 262,
+      "locations": 309,
+      "logos": 221,
+      "identifiedPlatforms": 204,
+      "deliveryProfiles": 144,
+      "emptyIngestionMethods": 262,
+      "excluded": 25,
+      "deferred": 86
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "AbbonaRobertoAntichità exact seller855 only, publishedVAT00506120047 positively matches official ABBONAROBERTO ILMOBILIO. Two actual original1920x1198 photographs of current antique worktable464477 inspected. Native contact41 remains separate from tax35; one roles[] contact only, no inferred premises/registered/inventory/dispatch or pickup. No verified original logo/email or merchant shipping; provider-wide services excluded. No platform operator, standalone alias, professional registration or item guarantee. All five owned journals verified; new journal initial full. Fresh full global API snapshot plus exact-seller prewrite raw scan135journals found no other owner. No pending writes, no other-country mutation, ingestion empty and $0.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-03-fr-167",
-  "observedAt": "2026-11-03T09:04:11.998025Z",
+  "run": "2026-11-03-fr-240",
+  "observedAt": "2026-11-03T19:52:06.814324Z",
   "scope": "CACHED_ORIGINAL_ASSET_METADATA",
   "notes": [
     "Checks the already downloaded and visually reviewed original files against current owned-ledger metadata; this is not a fresh network/logo-availability claim.",
     "Raster pixels, SVG viewBox/rounded extents, binary media format and exact cached bytes are checked. API source URLs and original image URLs are unchanged."
   ],
-  "verifiedCount": 244,
+  "verifiedCount": 319,
   "mismatches": [],
   "resources": [
     {
@@ -3053,6 +3053,996 @@
         "kind": "RASTER_PIXELS",
         "width": 631,
         "height": 58
+      }
+    },
+    {
+      "domain": "stockenbulle.com",
+      "listingSourceId": "ls_01m6gqh7d4ehtahkxd7q5myfvj",
+      "url": "https://www.stockenbulle.com/assets/img/interface/logo.png",
+      "mediaType": "image/png",
+      "bytes": 97498,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 640,
+        "height": 180
+      }
+    },
+    {
+      "domain": "yvon-lambert.com",
+      "listingSourceId": "ls_01m6gqs0bae6gsam50g0tdtp8j",
+      "url": "https://www.yvon-lambert.com/cdn/shop/files/YL_titre-pixel_2_titre_seul.png",
+      "mediaType": "image/png",
+      "bytes": 16188,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1723,
+        "height": 171
+      }
+    },
+    {
+      "domain": "boutique.lesavoirdemarie.fr",
+      "listingSourceId": "ls_01m6gqs2a0ebrbnch0q3wm8qkg",
+      "url": "https://boutique.lesavoirdemarie.fr/catalog/view/theme/smartboutique_v1/stylesheet/img/logo.png",
+      "mediaType": "image/png",
+      "bytes": 9545,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 219,
+        "height": 106
+      }
+    },
+    {
+      "domain": "ddaymilitaria.fr",
+      "listingSourceId": "ls_01m6gr8sacevx9vweaxnwp4ka3",
+      "url": "https://ddaymilitaria.fr/wp-content/uploads/2026/10/dday-militaria-logo-anthracite.png",
+      "mediaType": "image/png",
+      "bytes": 1254649,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1983,
+        "height": 793
+      }
+    },
+    {
+      "domain": "latelier50.com",
+      "listingSourceId": "ls_01m6gr8vp7e3qvv2bh5nnd1dhk",
+      "url": "https://www.latelier50.com/wp-content/uploads/2015/11/logo-atelier50-mobilier-vintage-design.png",
+      "mediaType": "image/png",
+      "bytes": 4778,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 426,
+        "height": 174
+      }
+    },
+    {
+      "domain": "ma-cabane-vintage.com",
+      "listingSourceId": "ls_01m6grmqr8ed48q0z48v8b35x2",
+      "url": "https://ma-cabane-vintage.com/cdn/shop/files/Taille_originale_White_and_Gold_Couple_Monogram_Logo_a5cb21e1-b8b9-4968-828a-f7b06551aed5.png",
+      "mediaType": "image/png",
+      "bytes": 19296,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 500
+      }
+    },
+    {
+      "domain": "rieunier-joailliers-horlogers.com",
+      "listingSourceId": "ls_01m6grmspcey5v400n9wnyg1k3",
+      "url": "https://www.rieunier-joailliers-horlogers.com/wp-content/uploads/2024/11/rieunier.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 3517,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          141.2,
+          46
+        ],
+        "recordedDimensions": [
+          142,
+          46
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "calaoshop.com",
+      "listingSourceId": "ls_01m6grybjnewsrhax22wherkj1",
+      "url": "https://www.calaoshop.com/img/socles-masques-africains-logo-1570713134.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 39194,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 470,
+        "height": 273
+      }
+    },
+    {
+      "domain": "boutique.la-baule-antiquites.com",
+      "listingSourceId": "ls_01m6gsc5sqex4thv493fgfakyq",
+      "url": "https://boutique.la-baule-antiquites.com/img/logo-1729312299.jpg",
+      "mediaType": "image/png",
+      "bytes": 121473,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 334,
+        "height": 334
+      }
+    },
+    {
+      "domain": "110volts.fr",
+      "listingSourceId": "ls_01m6gstydwe7qr0rydrcxs6pmg",
+      "url": "https://static.wixstatic.com/media/d8dd0f_f41c5cf3ff7e421d8b4ccd707f5634a8~mv2.png",
+      "mediaType": "image/png",
+      "bytes": 42159,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 800,
+        "height": 800
+      }
+    },
+    {
+      "domain": "galeriepentcheff.fr",
+      "listingSourceId": "ls_01m6gsv0mneyd8evr0g8yv11mj",
+      "url": "https://www.galeriepentcheff.fr/assets/themes/front/img/logo_pentcheff.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 25723,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 480,
+        "height": 360
+      }
+    },
+    {
+      "domain": "schon-grandin.com",
+      "listingSourceId": "ls_01m6gt3fcpe0eskz3jn2an23qe",
+      "url": "https://www.schon-grandin.com/images/logo-schon-grandin.png",
+      "mediaType": "image/png",
+      "bytes": 45323,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 650,
+        "height": 150
+      }
+    },
+    {
+      "domain": "antiquites-art-nouveau.fr",
+      "listingSourceId": "ls_01m6gts8g7e5w9zxhfb1pdtzwh",
+      "url": "https://antiquites-art-nouveau.fr/wp-content/uploads/2026/03/LOGO_Antiquites-Art-Nouveau_H_512px.png",
+      "mediaType": "image/png",
+      "bytes": 19598,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 512,
+        "height": 144
+      }
+    },
+    {
+      "domain": "nord-antique.com",
+      "listingSourceId": "ls_01m6gtsaxce71aqfamnxrz6vjz",
+      "url": "https://www.nord-antique.com/images/logo.png",
+      "mediaType": "image/png",
+      "bytes": 4208,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 425,
+        "height": 92
+      }
+    },
+    {
+      "domain": "rosycabroc.art",
+      "listingSourceId": "ls_01m6gtsd6vehwb3241rfd8atg0",
+      "url": "https://cdn.sumup.store/shops/43152876/settings/th640/da7000b9-d7fe-4e21-b040-91a458045396.png",
+      "mediaType": "image/png",
+      "bytes": 13858,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 400,
+        "height": 400
+      }
+    },
+    {
+      "domain": "universcollectionshop.com",
+      "listingSourceId": "ls_01m6gtsfhces790xwnmmpf3ntm",
+      "url": "https://static.wixstatic.com/media/e3a647_635633316bc7451d8ca4b3e5dcae49bc~mv2.png",
+      "mediaType": "image/png",
+      "bytes": 1874588,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1024,
+        "height": 1024
+      }
+    },
+    {
+      "domain": "philarama37.com",
+      "listingSourceId": "ls_01m6gvgt93eahr1dbnpj3p7cef",
+      "url": "https://www.philarama37.com/img/logo-1.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 18986,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 351,
+        "height": 167
+      }
+    },
+    {
+      "domain": "occasionnel-luxe.com",
+      "listingSourceId": "ls_01m6gvgw5ye75a5889k40sp64j",
+      "url": "https://occasionnel-luxe.com/img/logo-1772625490.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 20292,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          236,
+          41
+        ],
+        "recordedDimensions": [
+          236,
+          41
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "pipat-antiquites.fr",
+      "listingSourceId": "ls_01m6gwqv9ceqbr0pqgww0xq427",
+      "url": "https://pipat-antiquites.fr/wp-content/uploads/2021/01/logo-pipat-v1.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 12819,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 499
+      }
+    },
+    {
+      "domain": "objetschinois.com",
+      "listingSourceId": "ls_01m6gwqxvbe89vv60pzr28deea",
+      "url": "https://www.objetschinois.com/template/webtao/icons/logo-fr.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 30004,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          328.7,
+          51.6
+        ],
+        "recordedDimensions": [
+          329,
+          52
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "argenteriegalerielassus.com",
+      "listingSourceId": "ls_01m6gx3n5rej8amq0xex3vm51w",
+      "url": "https://argenteriegalerielassus.com/wp-content/uploads/2020/10/galerielassus_logo_blanc.png",
+      "mediaType": "image/png",
+      "bytes": 12385,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 201,
+        "height": 54
+      }
+    },
+    {
+      "domain": "aenigmattic.fr",
+      "listingSourceId": "ls_01m6gxygvvevfsbdbh8vn8t697",
+      "url": "https://aenigmattic.fr/wp-content/uploads/2017/05/logo-AenigmAttic.png",
+      "mediaType": "image/png",
+      "bytes": 228446,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 590,
+        "height": 234
+      }
+    },
+    {
+      "domain": "tomaselli-collection.com",
+      "listingSourceId": "ls_01m6gyce6fehs8zbvt02nh2z9j",
+      "url": "https://tomaselli-collection.com/wp-content/uploads/2022/05/logoTomaselliCollection_industriel.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 8950,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          349.6,
+          269.3
+        ],
+        "recordedDimensions": [
+          350,
+          270
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "antiquesdavignon.com",
+      "listingSourceId": "ls_01m6gyk3h8ezt8k20bvxyrzy1a",
+      "url": "https://antiquesdavignon.com/wp-content/uploads/2020/09/cropped-A-DA-1.png.webp",
+      "mediaType": "image/webp",
+      "bytes": 7866,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 499
+      }
+    },
+    {
+      "domain": "galerieorigines.com",
+      "listingSourceId": "ls_01m6gyk5xwetrbzy9y6vfc091r",
+      "url": "https://www.galerieorigines.com/sites/default/files/galerie-origines-logo.png",
+      "mediaType": "image/png",
+      "bytes": 33370,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 476,
+        "height": 646
+      }
+    },
+    {
+      "domain": "guillaume-duchemin.fr",
+      "listingSourceId": "ls_01m6gz6vp1ej6v8616mm2s640a",
+      "url": "https://www.guillaume-duchemin.fr/images/logo.png",
+      "mediaType": "image/png",
+      "bytes": 4206,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 278,
+        "height": 80
+      }
+    },
+    {
+      "domain": "galerierotomagus.fr",
+      "listingSourceId": "ls_01m6gz6xmjezvsh61fphf92h1r",
+      "url": "https://static.wixstatic.com/media/567be9_4d1e319b2cf049c9b4581063e28bf685%7Emv2.png/v1/fit/w_2500,h_1330,al_c/567be9_4d1e319b2cf049c9b4581063e28bf685%7Emv2.png",
+      "mediaType": "image/png",
+      "bytes": 511392,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 2500,
+        "height": 733
+      }
+    },
+    {
+      "domain": "galerieprivee-art.fr",
+      "listingSourceId": "ls_01m6gz6ztkee8r1m5089nfek7c",
+      "url": "https://galerieprivee-art.fr/wp-content/uploads/2024/03/Logo-entete.png",
+      "mediaType": "image/png",
+      "bytes": 9205,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 190,
+        "height": 45
+      }
+    },
+    {
+      "domain": "bijouxbaume.com",
+      "listingSourceId": "ls_01m6gzh3ace9wt663x97de52ze",
+      "url": "https://www.bijouxbaume.com/themes/html_responsive/modeles/58/img/logo/logo_header_1.png?v=1621331223",
+      "mediaType": "image/png",
+      "bytes": 6503,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 250,
+        "height": 105
+      }
+    },
+    {
+      "domain": "vanrijn-tours.com",
+      "listingSourceId": "ls_01m6h0dxyhe9fahc7xrj8ar4en",
+      "url": "https://www.vanrijn-tours.com/uploads/8/2/1/5/82154340/editor/logo-vanrijn-blanc_37.png",
+      "mediaType": "image/png",
+      "bytes": 12356,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 330,
+        "height": 145
+      }
+    },
+    {
+      "domain": "paulfoulon.com",
+      "listingSourceId": "ls_01m6h0vdzpejk9tbzb96c8gft4",
+      "url": "https://www.paulfoulon.com/build/images/logos/paulfoulon.png",
+      "mediaType": "image/png",
+      "bytes": 3833,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 190,
+        "height": 22
+      }
+    },
+    {
+      "domain": "galerie-damidot.fr",
+      "listingSourceId": "ls_01m6h1ey5tejxa8153mxpyhpah",
+      "url": "https://galerie-damidot.fr/wp-content/uploads/2013/10/Untitled-2.png",
+      "mediaType": "image/png",
+      "bytes": 462848,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1638,
+        "height": 709
+      }
+    },
+    {
+      "domain": "galerie-goudard-87.com",
+      "listingSourceId": "ls_01m6h1f0b4eb0ascf77ze73cfc",
+      "url": "https://www.galerie-goudard-87.com/media/images/logo.png",
+      "mediaType": "image/png",
+      "bytes": 7832,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 148,
+        "height": 157
+      }
+    },
+    {
+      "domain": "no7gallery.com",
+      "listingSourceId": "ls_01m6h21sb6ezqtak9by9yb4b1p",
+      "url": "https://cdn.shopify.com/s/files/1/0270/5440/7744/files/logono7gallery-240.png?v=1613775428",
+      "mediaType": "image/png",
+      "bytes": 8080,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 240,
+        "height": 240
+      }
+    },
+    {
+      "domain": "antiquiteslassaussois.com",
+      "listingSourceId": "ls_01m6h21vkdeebazdkpqgp6xekx",
+      "url": "https://www.antiquiteslassaussois.com/wp-content/uploads/2020/10/logo-lassaussois-2.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 620,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          246,
+          33
+        ],
+        "recordedDimensions": [
+          246,
+          33
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "rennes-antiquites.com",
+      "listingSourceId": "ls_01m6h27sqge7f92btj33bah0nc",
+      "url": "https://d13d3b7e.delivery.rocketcdn.me/wp-content/uploads/2026/09/cropped-android-chrome-512x512-1-270x270.png",
+      "mediaType": "image/png",
+      "bytes": 6706,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 270,
+        "height": 270
+      }
+    },
+    {
+      "domain": "bretagneancienne.com",
+      "listingSourceId": "ls_01m6h2d5e3ettthjt0nyh5wjjc",
+      "url": "https://www.bretagneancienne.com/themes/custom/breizh/logo.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 22566,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          171.072,
+          105.763
+        ],
+        "recordedDimensions": [
+          172,
+          106
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "we-art-together.fr",
+      "listingSourceId": "ls_01m6h2zg61ew1vp8zc3khk04d1",
+      "url": "https://www.we-art-together.fr/img/logo_we-art-together.png",
+      "mediaType": "image/png",
+      "bytes": 11723,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 331,
+        "height": 97
+      }
+    },
+    {
+      "domain": "arialouise.com",
+      "listingSourceId": "ls_01m6h3gmkne0ha79rs3sf0nm1t",
+      "url": "https://arialouise.com/wp-content/uploads/2025/11/cropped-ChatGPT-Image-15-nov.-2025-09_19_55.png",
+      "mediaType": "image/png",
+      "bytes": 452274,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1521,
+        "height": 790
+      }
+    },
+    {
+      "domain": "123numismatique.com",
+      "listingSourceId": "ls_01m6h448pyeyprcq44dj6wy27s",
+      "url": "https://www.123numismatique.com/assets/banniere-ca9f1e34548e02f03002b9e3044f207004e29bb19bb865e4f8fd55076277ef4d.png",
+      "mediaType": "image/png",
+      "bytes": 60028,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 92
+      }
+    },
+    {
+      "domain": "capornumismatique.com",
+      "listingSourceId": "ls_01m6h44aq5e9398zxma3ry58bw",
+      "url": "https://capornumismatique.com/wp-content/uploads/2025/06/logo-TEXTURE-DOREE-480x160-1-1.webp",
+      "mediaType": "image/webp",
+      "bytes": 29820,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 480,
+        "height": 160
+      }
+    },
+    {
+      "domain": "numismeo.com",
+      "listingSourceId": "ls_01m6h44cvqept8ew532b3m7srn",
+      "url": "https://www.numismeo.com/wp-content/uploads/2022/09/LogoPetit.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 4579,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 164,
+        "height": 164
+      }
+    },
+    {
+      "domain": "leholdy.com",
+      "listingSourceId": "ls_01m6h4txxxe4b9rr24n3grqzep",
+      "url": "https://www.leholdy.com/wp-content/uploads/2021/11/logo.png",
+      "mediaType": "image/png",
+      "bytes": 52284,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 258,
+        "height": 258
+      }
+    },
+    {
+      "domain": "buschcollectibles.com",
+      "listingSourceId": "ls_01m6h4v0evetyvg95j0hpgbjst",
+      "url": "https://www.buschcollectibles.com/img/logo-bc.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 13514,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          187,
+          52
+        ],
+        "recordedDimensions": [
+          187,
+          52
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "numismatique-or-argent.eu",
+      "listingSourceId": "ls_01m6h5kajjey59dj94z59dym1z",
+      "url": "https://numismatique-or-argent.eu/img/my-shop-logo-1690454811.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 24922,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 302
+      }
+    },
+    {
+      "domain": "antika.fr",
+      "listingSourceId": "ls_01m6h5kcnbeevs6hbzbnqhc27q",
+      "url": "https://antika.fr/wp-content/uploads/2026/09/logo.png",
+      "mediaType": "image/png",
+      "bytes": 32044,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 268,
+        "height": 70
+      }
+    },
+    {
+      "domain": "suffren-numismatique.com",
+      "listingSourceId": "ls_01m6h5kewye39a76amanc6kq80",
+      "url": "https://www.suffren-numismatique.com/img/logo-1658130957.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 100283,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 3677,
+        "height": 704
+      }
+    },
+    {
+      "domain": "lhistoirevagabonde.com",
+      "listingSourceId": "ls_01m6h6dkkgem1bnjgehj1hengk",
+      "url": "https://static.wixstatic.com/media/6f311b_463f0e7013d84d429e262804eb49abaf~mv2.png",
+      "mediaType": "image/png",
+      "bytes": 221081,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1436,
+        "height": 626
+      }
+    },
+    {
+      "domain": "livresentre2actions.fr",
+      "listingSourceId": "ls_01m6h6m79geknahf87kzf55d45",
+      "url": "https://www.livresentre2actions.fr/wp-content/uploads/2025/01/book_logo_fr_2.png",
+      "mediaType": "image/png",
+      "bytes": 40286,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1435,
+        "height": 272
+      }
+    },
+    {
+      "domain": "lapetitelibrairiedesjardins.fr",
+      "listingSourceId": "ls_01m6h6m9deegjb16xepgg2xv6z",
+      "url": "https://static.weezbe.com/pldj/Images/logo_boutique.png",
+      "mediaType": "image/png",
+      "bytes": 10673,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 350,
+        "height": 165
+      }
+    },
+    {
+      "domain": "lalibrairieantique.fr",
+      "listingSourceId": "ls_01m6h6sknne9z81swgqxxwk9tc",
+      "url": "https://www.lalibrairieantique.fr/wp-content/uploads/2025/01/Logo-transparent.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 53326,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          545,
+          547
+        ],
+        "recordedDimensions": [
+          545,
+          547
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "librairie-oeilcacodylate.com",
+      "listingSourceId": "ls_01m6h6snz6e6kt9cxacvaj7ze1",
+      "url": "https://www.librairie-oeilcacodylate.com/image/front/logo.png",
+      "mediaType": "image/png",
+      "bytes": 16819,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 325,
+        "height": 53
+      }
+    },
+    {
+      "domain": "lafamilybrocante.fr",
+      "listingSourceId": "ls_01m6h75e18easbktv0434j7yw3",
+      "url": "https://lafamilybrocante.fr/wp-content/uploads/2026/09/image-1.png",
+      "mediaType": "image/png",
+      "bytes": 581119,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1200,
+        "height": 1001
+      }
+    },
+    {
+      "domain": "brocante-debarras-vendee.fr",
+      "listingSourceId": "ls_01m6h75g6mefma8ehkjcxq9d9a",
+      "url": "https://de.cdn-website.com/6b96a8e969ea4e12b7a81b5756d511d6/dms3rep/multi/277c4f95aa4444e7b5a13b5b429298ef_medium%5B1%5D.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 5282,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 160,
+        "height": 100
+      }
+    },
+    {
+      "domain": "numismatique-tours.fr",
+      "listingSourceId": "ls_01m6h7zjqre31skj8reb094sas",
+      "url": "https://www.numismatique-tours.fr/app/uploads/2025/03/LOGO.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 25415,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 414,
+        "height": 415
+      }
+    },
+    {
+      "domain": "philatelie72.com",
+      "listingSourceId": "ls_01m6h7zmxjen5r3m5xj6fs4gc5",
+      "url": "https://www.philatelie72.com/front/images/logo.png",
+      "mediaType": "image/png",
+      "bytes": 5943,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 333,
+        "height": 75
+      }
+    },
+    {
+      "domain": "antiquites-brocante-landes.com",
+      "listingSourceId": "ls_01m6h88aj2edarrxnbr2h5da29",
+      "url": "https://www.antiquites-brocante-landes.com/oktThemes/ra158-s/images/head-logo.png",
+      "mediaType": "image/png",
+      "bytes": 9807,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 191,
+        "height": 89
+      }
+    },
+    {
+      "domain": "printimeuble.com",
+      "listingSourceId": "ls_01m6h8qj5ne8ht0rz3yqa71sfp",
+      "url": "https://www.printimeuble.com/i/logo-2x.png",
+      "mediaType": "image/png",
+      "bytes": 86361,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 728,
+        "height": 552
+      }
+    },
+    {
+      "domain": "galerie-rollin.com",
+      "listingSourceId": "ls_01m6h92xf5eqs8geahjmkdtq67",
+      "url": "https://galerie-rollin.com/wp-content/uploads/2024/04/AEB25878-9229-46D4-8B00-100949B91BDE-e1712393122332.png",
+      "mediaType": "image/png",
+      "bytes": 75005,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1563,
+        "height": 747
+      }
+    },
+    {
+      "domain": "cordier-ebeniste.fr",
+      "listingSourceId": "ls_01m6ha45w3e5brv4v61sp0tw2p",
+      "url": "https://cordier-ebeniste.fr/img/logo_lg.png",
+      "mediaType": "image/png",
+      "bytes": 64306,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1200,
+        "height": 1370
+      }
+    },
+    {
+      "domain": "antiquite-bally.fr",
+      "listingSourceId": "ls_01m6hb88jgejasrvf2hz8ct2zg",
+      "url": "https://antiquite-bally.fr/img/logo-1733843311.jpg",
+      "mediaType": "image/png",
+      "bytes": 54932,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1667,
+        "height": 370
+      }
+    },
+    {
+      "domain": "napoli-antic.fr",
+      "listingSourceId": "ls_01m6hb8amte90s38yw72safrtw",
+      "url": "https://www.napoli-antic.fr/media/images/logo.png",
+      "mediaType": "image/png",
+      "bytes": 23729,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 299,
+        "height": 99
+      }
+    },
+    {
+      "domain": "brocantique.pro",
+      "listingSourceId": "ls_01m6hbj983e0na6kxk4ppggdkb",
+      "url": "https://brocantique.pro/wp-content/uploads/2021/04/Logo-le-BrocAntique-site.png",
+      "mediaType": "image/png",
+      "bytes": 26758,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 400,
+        "height": 400
+      }
+    },
+    {
+      "domain": "antiquites-tremblin-cyril.fr",
+      "listingSourceId": "ls_01m6hbrgxfe2as3vcd9af9ftpg",
+      "url": "https://de.cdn-website.com/0fa10818537f45d89b228bedb35da157/dms3rep/multi/Logo-d9b1167f.PNG",
+      "mediaType": "image/png",
+      "bytes": 28200,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 489,
+        "height": 526
+      }
+    },
+    {
+      "domain": "legrenierdesaintlie.fr",
+      "listingSourceId": "ls_01m6hc04e0emhrjtkp2syp9mhq",
+      "url": "https://user-images.strikinglycdn.com/res/hrscywv4p/image/upload/2031018/531367_918068.png",
+      "mediaType": "image/png",
+      "bytes": 105017,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1500,
+        "height": 1500
+      }
+    },
+    {
+      "domain": "dealeuse.com",
+      "listingSourceId": "ls_01m6hccmykevj8y69cnj90cbat",
+      "url": "https://www.dealeuse.com/wp-content/uploads/2023/01/Dealeuse-paris-annecy-logo.png",
+      "mediaType": "image/png",
+      "bytes": 18600,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 709,
+        "height": 680
+      }
+    },
+    {
+      "domain": "galerie-martynoff.com",
+      "listingSourceId": "ls_01m6hccq70enkswt32yr034wz3",
+      "url": "https://galerie-martynoff.com/img//logo-galerie-martynoff.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 13094,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          701,
+          83
+        ],
+        "recordedDimensions": [
+          701,
+          83
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "boulogneantiquites.com",
+      "listingSourceId": "ls_01m6hcnbjjefcb4khtkn2qv98m",
+      "url": "https://boulogneantiquites.com/wp-content/uploads/2020/01/Logo_boulogne_antiquite.png",
+      "mediaType": "image/png",
+      "bytes": 9437,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 700,
+        "height": 74
+      }
+    },
+    {
+      "domain": "lasalledesventes.fr",
+      "listingSourceId": "ls_01m6hd4z6ke3gsw0yyyrzcq4nb",
+      "url": "https://www.lasalledesventes.fr/static/uploads/2020/08/logo.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 9505,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          1329,
+          820
+        ],
+        "recordedDimensions": [
+          1329,
+          820
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "selectionjuliensegard.com",
+      "listingSourceId": "ls_01m6hd50yme8ftrkbnmnrankd4",
+      "url": "https://www.selectionjuliensegard.com/cdn/shop/files/NEW-logo-Julien-Segard_04ed95b7-1245-409d-a545-24d33f5cbf01.png",
+      "mediaType": "image/png",
+      "bytes": 43081,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1632,
+        "height": 496
+      }
+    },
+    {
+      "domain": "galeriecristo.com",
+      "listingSourceId": "ls_01m6hdwqwpepssfyme3h3vefqb",
+      "url": "https://galeriecristo.com/wp-content/uploads/2023/06/logo-cristo.png",
+      "mediaType": "image/png",
+      "bytes": 34568,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 600,
+        "height": 201
+      }
+    },
+    {
+      "domain": "violondingres.fr",
+      "listingSourceId": "ls_01m6hefm6gekmt41n4hwejyzay",
+      "url": "https://www.violondingres.fr/img/violon-d-ingres-logo-1633515807.jpg",
+      "mediaType": "image/png",
+      "bytes": 9272,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 468,
+        "height": 65
+      }
+    },
+    {
+      "domain": "brocante-oplus.fr",
+      "listingSourceId": "ls_01m6het1n3e63amrgf2q1xb276",
+      "url": "https://brocante-oplus.fr/Content/themes/front/img/oplus-image/logo.png",
+      "mediaType": "image/png",
+      "bytes": 30236,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 254
+      }
+    },
+    {
+      "domain": "antiquitesmaisongossot.fr",
+      "listingSourceId": "ls_01m6hf8w88e4wbyqtea17v92vy",
+      "url": "https://image.jimcdn.com/app/cms/image/transf/none/path/s92883d1d047ef7cc/image/i20312ba3d1a0e228/version/1552840144/image.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 96994,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1117,
+        "height": 507
+      }
+    },
+    {
+      "domain": "olive-bassett.com",
+      "listingSourceId": "ls_01m6hffaxrey0b9vbysf342xbm",
+      "url": "https://static.wixstatic.com/media/118053_009b5c2713844bdc8180a2cbabb4eb48~mv2.png",
+      "mediaType": "image/png",
+      "bytes": 100126,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1442,
+        "height": 723
       }
     }
   ]

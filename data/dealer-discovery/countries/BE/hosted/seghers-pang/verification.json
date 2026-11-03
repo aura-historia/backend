@@ -1,0 +1,47 @@
+{
+  "run": "be-2026-11-03-055",
+  "verifiedAt": "2026-11-03T19:50:19.957620Z",
+  "scope": "FULL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T19:50:19.957620Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 0,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 2,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 3459,
+    "listingSources": 3494
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "anticstore.com",
+      "listingSourceId": "ls_01m6gyayjne9jr3jmmmmav3hhz",
+      "partyId": "pty_01m6gyayj5e9jb4aw83rtqdkz8",
+      "locations": 2,
+      "logo": false,
+      "platform": "ANTICSTORE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T19:50:19.957296Z",
+      "observationDigest": "a41fbfd1f2286ab79f2fb8a0e472cd3e4e6ae0a0b4cb71499ad29f193fadf53f"
+    }
+  ]
+}

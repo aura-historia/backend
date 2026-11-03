@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-131",
+  "country": "IT",
+  "observedAt": "2026-11-03T15:27:43.754028Z",
+  "result": "PASSED",
+  "rawJournalFiles": 56,
+  "rawJournalRecordsScanned": 36442,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "zennaroantiquariato.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "hobbylibri.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot131-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T15:27:11.977990Z",
+    "fullVerifiedAt": "2026-11-03T15:06:57.688424Z",
+    "counts": {
+      "parties": 215,
+      "listingSources": 215,
+      "locations": 259,
+      "logos": 183,
+      "identifiedPlatforms": 163,
+      "deliveryProfiles": 126,
+      "emptyIngestionMethods": 215,
+      "excluded": 23,
+      "deferred": 78
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Zennaro native exact Davide proprietor/VAT and current stock are consistent. Current VIES is negative for intra-EU validation, not proof of national invalidity or closure. Original logo and antique boat-bed photo inspected; unchanged PNG was previewed on dark background. Native about independently states website products are exhibited at the Eridania premises, supporting advertised inventory. Appointment visits are not purchased-item collection. No shipping/platform inferred. Hobby Libri full proprietor remains initials-only, with negative VIES returning no name; linked dealer profile returns a JS/cookie notice, no bypass. Detailed1750 book and domestic/Europe/extra-Europe shipping tariffs retained as research only, without managed facts or writes.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

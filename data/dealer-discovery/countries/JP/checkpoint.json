@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "run": "jp-2026-11-03-063",
+  "observedAt": "2026-11-03T19:51:43.666239Z",
+  "statuses": {
+    "ADDED": 171,
+    "DEFERRED": 113,
+    "EXCLUDED": 17
+  },
+  "paidDataSpendUsd": 0,
+  "summary": "Added Taiko, Yamada Yukodo and Kaino using verified original painting/scroll stock and Japan operators. Preserved Taiko regional freight exceptions, Yamada’s unknown platform/shipping, and Kaino’s department-specific delivery restrictions. Legal/HQ addresses were not promoted to visitor or stock premises. Deferred Yamamoto’s hosted catalogue for unavailable individual stock and inconsistent legal/contact declarations. All 171 sources passed audit/index and incremental verification with empty ingestion. No pending writes or global blocker; USD 0 spent. Continuing batch 64; next full readback due65.",
+  "verification": "PASSED",
+  "countryCoverageComplete": false,
+  "blockers": []
+}

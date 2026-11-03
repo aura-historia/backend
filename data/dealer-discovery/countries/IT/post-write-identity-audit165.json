@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-165",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:24:16.665784Z",
+  "result": "PASSED",
+  "rawJournalFiles": 140,
+  "rawJournalRecordsScanned": 44902,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:2193",
+      "IT:ANTICOANTICO:2439"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot165-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T19:23:16.670200Z",
+    "fullVerifiedAt": "2026-11-03T19:14:10.305024Z",
+    "counts": {
+      "parties": 265,
+      "listingSources": 265,
+      "locations": 312,
+      "logos": 221,
+      "identifiedPlatforms": 207,
+      "deliveryProfiles": 145,
+      "emptyIngestionMethods": 265,
+      "excluded": 25,
+      "deferred": 88
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Two exact hosted dealers added after nativeVAT officialpositive and actual originalphotos: AG2193 carvedcapitels1920x1254, Acasa2439worktable1440x1920. AGtaxCorteCarletti14 distinctfromnativeMazzini35 contactroles[]; AcasataxNinoBixio1 distinctfromnativeDeGradi2shopBUSINESS_PREMISES. AGworldwidegeography on two currentoffers preserved PARTIALANYWHERE eligibilitynull; item-specific461991crate/tracking/localpickup retained in ledger, not sourcewidefeatures or defaultsite. Rates/times/carrier/dispatchunknown. Acasareadyforconsegna not coverage/time/pickup policy. No native merchantlogo/email/standalonealias, provider operator, extra proprietor/familyParty, exactitemguarantees or inventory/dispatchdefault. All eight owned journals verified; newtwo initialfull,265emptyingestion, no pendingwrites,$0. Bertinato/Altomani already Italy-owned; no newcopy or enrichment applied.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

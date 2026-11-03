@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-133",
+  "country": "IT",
+  "observedAt": "2026-11-03T15:37:54.759971Z",
+  "result": "PASSED",
+  "rawJournalFiles": 64,
+  "rawJournalRecordsScanned": 36935,
+  "apiWriteAttemptsThisRun": 5,
+  "decisions": {
+    "added": [
+      "credulapostero.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "loppis.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and both explicit country-scoped onboarding invocations checked domains,operators and contacts. Every new resource,selected defaults and empty ingestion read back.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot133-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T15:37:46.101221Z",
+    "fullVerifiedAt": "2026-11-03T15:37:46.101221Z",
+    "counts": {
+      "parties": 218,
+      "listingSources": 218,
+      "locations": 262,
+      "logos": 185,
+      "identifiedPlatforms": 166,
+      "deliveryProfiles": 127,
+      "emptyIngestionMethods": 218,
+      "excluded": 23,
+      "deferred": 79
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Credula native exact Camilla Robuschi/VAT corroborated by current official VIES. Detailed1806 physical-copy offer plus separately inspected original historical-stock and shop photographs; no claim the gallery photo shows that exact copy. Original350x209whitePNG inspected via dark browser preview. WordPress directly identified. One native Sauro shop; government tax address not another location. Explicit Italy delivery PARTIAL plus independent collection bound to verified shop. Light-object usual rates, optional added-cost insurance and approximate two-day dispatch retained in ledger without general rate, universal tracking/insurance or fixed timing. Loppis native full proprietor/VAT linkage unresolved despite a strong government candidate; no managed facts or writes. Available product.js resolves misleading hidden soldout text. Existing Cantore untouched. All raw ledgers including nested hosted journals read; no competing identities.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

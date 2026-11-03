@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-168",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:46:42.332326Z",
+  "result": "PASSED",
+  "rawJournalFiles": 144,
+  "rawJournalRecordsScanned": 45684,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "antemioantiquariato.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:ANTICOANTICO:562"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot168-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T19:46:01.683741Z",
+    "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+    "counts": {
+      "parties": 269,
+      "listingSources": 269,
+      "locations": 317,
+      "logos": 223,
+      "identifiedPlatforms": 210,
+      "deliveryProfiles": 145,
+      "emptyIngestionMethods": 269,
+      "excluded": 25,
+      "deferred": 89
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "NativeAntemio fullproprietor confirmed current linkedIubenda and native/hosted2213identity. VIESnegative is not domesticinvalidity/closure; repeatedly nativepublishedVAT retained asidentifier, no officialreturnedname invented. Current native originaloverall/detail4080x2304photos and250x104wordmark inspected. Nativepostcode25123 conflicts hosted25122/21a; one nativeCorsoGaribaldi21Bresciashop, postalCodeomitted and no addressrepair/extrasite. Platformunknown, no shipping/purchasedpickup/inventory/dispatch defaults. Exacthosted2213reference forduplicates only, no second source/sharedalias. Amore562 nativeSRLS/VAT positiveofficialcompany, legacysoletraderbody preservedwithoutpersonmerge or successionguess. ViterbocontactdistinctRomeTax/Nowarcprofile. Actualstockphotos403underordinaryHTTP, ordinaryChromiumhumanverification,nochallengeinteraction/circumvention or photoproofclaim. AmorejournalDEFERRED,noAPIresources. All eleven ownedjournals FULLverified,269emptyingestion,nopendingwrites,$0. No globalblocker; continuing otherprimarydealer sites.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}
