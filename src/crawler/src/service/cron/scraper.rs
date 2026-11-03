@@ -16,7 +16,7 @@ use crate::scraper::css_selector::product_schema_service::ProductListingSchemaSe
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::domain_circuit::{DomainBatchEvidence, DomainCircuitDecision, FailedAnswer};
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
-use crate::scraper::removal_guard::MassRemoval;
+use crate::scraper::removal_guard::{MASS_REMOVAL_HELD_ERROR_KIND, MassRemoval};
 use crate::scraper::scraper_service::domain::errors::ListingRemoval;
 use crate::scraper::scraper_service::domain::product::{
     current_fetch_failure, domain_health_for_scraper_error, with_scrape_observation,
@@ -56,10 +56,6 @@ const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 const SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY: Duration = Duration::from_secs(4 * 60 * 60);
 /// `last_error_kind` of a URL whose schema derived another identity than the captured one.
 const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
-/// `last_error_kind` of a URL whose removal the mass-removal guard held back
-/// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`).
-const MASS_REMOVAL_HELD_OUTCOME_KIND: &str = "MassRemovalHeld";
-
 /// Every scrape completion records its URL `ACTIVE`, sold pages included.
 /// `DORMANT_SOLD` is scheduled exactly like `ACTIVE`, so the scraper no longer writes
 /// it; rows that hold it stay valid.
@@ -1981,7 +1977,7 @@ async fn hold_mass_removal(
         persist_scraped_without_capture(
             &removal.candidate,
             ctx,
-            MASS_REMOVAL_HELD_OUTCOME_KIND,
+            MASS_REMOVAL_HELD_ERROR_KIND,
             &message,
         )
         .await;
@@ -5164,7 +5160,7 @@ mod tests {
                 .expect_mark_scraped_without_capture()
                 .times(12)
                 .withf(|_, _, kind, message, _| {
-                    kind == MASS_REMOVAL_HELD_OUTCOME_KIND && message.contains("12 of the 12")
+                    kind == MASS_REMOVAL_HELD_ERROR_KIND && message.contains("12 of the 12")
                 })
                 .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
             let (ctx, mut command_rx) = batch_context(

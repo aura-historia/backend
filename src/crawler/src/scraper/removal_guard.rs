@@ -11,6 +11,9 @@ pub const MASS_REMOVAL_MIN_URLS: usize = 10;
 /// The share of a batch's scraped URLs, in percent, that its new removals must exceed to be
 /// held: more than half, so the guard holds a batch that would remove most of what it checked.
 pub const MASS_REMOVAL_MAX_SHARE_PERCENT: usize = 50;
+/// `last_error_kind` the scraper records for a URL whose removal the guard held back, which the
+/// ListingSource overview counts as held removals.
+pub const MASS_REMOVAL_HELD_ERROR_KIND: &str = "MassRemovalHeld";
 
 /// The new removals of a batch that the guard holds back: at least [`MASS_REMOVAL_MIN_URLS`]
 /// and more than [`MASS_REMOVAL_MAX_SHARE_PERCENT`] percent of the URLs it scraped.

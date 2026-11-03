@@ -3,13 +3,10 @@
 
 use crate::review::model::{DomainCrawlOverview, ListingSourceOverview, UrlErrorKindCount};
 use crate::review::repository::{crawler_domain_id_from_uuid, listing_source_id_from_uuid};
+use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
-
-/// `last_error_kind` of a URL whose removal the mass-removal guard held back
-/// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`); the scraper records it.
-const MASS_REMOVAL_HELD_ERROR_KIND: &str = "MassRemovalHeld";
 
 /// Reads the ListingSource overview of the console.
 #[derive(Clone)]
