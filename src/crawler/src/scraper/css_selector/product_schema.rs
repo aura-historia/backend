@@ -1388,7 +1388,8 @@ mod tests {
                 .apply(&html)
                 .unwrap();
 
-            assert_eq!(result.source_listing_id, "");
+            // As written, like the blank a `first` rule yields; the blank check reports it.
+            assert_eq!(result.source_listing_id, " ");
         }
     }
 
@@ -2289,21 +2290,27 @@ mod tests {
         assert!(!result.raw_attributes.contains_key("rawOriginNote"));
     }
 
-    /// A `first` attribute rule whose every match is blank yields its blank for the optional
-    /// `description` and raw attributes too, so the blank check reports it, while the page
-    /// still applies.
-    #[test]
-    fn should_extract_the_blank_of_first_attribute_description_and_raw_attribute_rules() {
+    /// An attribute rule whose every match is blank yields its blank for the optional
+    /// `description`, `price` and raw attributes too, with either cardinality, so the blank
+    /// check reports it, while the page still applies.
+    #[rstest::rstest]
+    #[case::first(attr_rule)]
+    #[case::all(attr_rule_all)]
+    fn should_extract_the_blank_of_attribute_description_and_raw_attribute_rules(
+        #[case] attr_rule: fn(&str, &str) -> ExtractionRule,
+    ) {
         let html = Html::parse_document(
             r#"<html><head><meta name="description" content="  "><meta name="description" content=""></head><body>
               <span id="product-id">X</span><h1>Chair</h1><span id="state">ok</span>
               <img src="/chair.jpg">
               <span class="year" data-year="&nbsp;"></span>
               <span class="material" data-material="Oak"></span>
+              <span class="price" data-price=" "></span>
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
             description: Some(attr_rule("meta[name='description']", "content")),
+            price: Some(attr_rule(".price", "data-price")),
             raw_attributes: [
                 ("rawYear".to_string(), attr_rule(".year", "data-year")),
                 (
@@ -2318,6 +2325,7 @@ mod tests {
         let result = schema.apply(&html).unwrap();
 
         assert_eq!(result.description, vec![""]);
+        assert_eq!(result.price.as_deref(), Some(""));
         assert_eq!(
             result.raw_attributes,
             BTreeMap::from([
@@ -2331,6 +2339,10 @@ mod tests {
             [
                 PlausibilityFinding {
                     field: PlausibilityField::Description,
+                    check: PlausibilityCheck::Blank,
+                },
+                PlausibilityFinding {
+                    field: PlausibilityField::Price,
                     check: PlausibilityCheck::Blank,
                 },
                 PlausibilityFinding {

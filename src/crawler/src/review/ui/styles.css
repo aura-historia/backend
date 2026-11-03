@@ -683,6 +683,11 @@ div.item[onclick] {
     vertical-align: middle;
 }
 
+.source-health-kind {
+    display: inline-block;
+    white-space: nowrap;
+}
+
 .source-health-name {
     display: flex;
     flex-wrap: wrap;

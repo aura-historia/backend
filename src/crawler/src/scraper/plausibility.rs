@@ -6,10 +6,11 @@
 //! normalize.
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
+use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use product_listing_core::source_listing_id::SourceListingId;
 use regex::regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
 use std::fmt;
 
@@ -31,8 +32,11 @@ const MAX_LABEL_CHARS: usize = 100;
 const MIN_WORD_LIST_WORDS: usize = 3;
 
 /// A raw extracted field, named as in the product schema.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+///
+/// A stored name reads back through [`PlausibilityField::from_stored`]: a core field name or a
+/// registered raw attribute key, and anything else is rejected rather than taken for a raw
+/// attribute.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlausibilityField {
     SourceListingId,
     Title,
@@ -42,10 +46,9 @@ pub enum PlausibilityField {
     PriceEstimateMax,
     State,
     Images,
-    /// A raw attribute, named by its key as the schema matrix names its rule, such as
-    /// `rawMaterial`. Registered keys are camelCase `raw` names, so a stored finding never
+    /// A raw attribute, named by its registered key as the schema matrix names its rule, such
+    /// as `rawMaterial`. Registered keys are camelCase `raw` names, so a stored finding never
     /// reads back as one of the snake_case fields above.
-    #[serde(untagged)]
     RawAttribute(String),
 }
 
@@ -62,6 +65,41 @@ impl PlausibilityField {
             Self::Images => "images",
             Self::RawAttribute(key) => key,
         }
+    }
+
+    /// The field a stored name denotes: a core field or a registered raw attribute key.
+    pub fn from_stored(name: &str) -> Result<Self, UnknownPlausibilityField> {
+        Ok(match name {
+            "source_listing_id" => Self::SourceListingId,
+            "title" => Self::Title,
+            "description" => Self::Description,
+            "price" => Self::Price,
+            "price_estimate_min" => Self::PriceEstimateMin,
+            "price_estimate_max" => Self::PriceEstimateMax,
+            "state" => Self::State,
+            "images" => Self::Images,
+            key if is_registered_key(key) => Self::RawAttribute(key.to_owned()),
+            _ => return Err(UnknownPlausibilityField(name.to_owned())),
+        })
+    }
+}
+
+/// A stored plausibility field name that is neither a core field nor a registered raw
+/// attribute key.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("`{0}` is neither a plausibility field nor a registered raw attribute key")]
+pub struct UnknownPlausibilityField(String);
+
+impl Serialize for PlausibilityField {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for PlausibilityField {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(deserializer)?;
+        Self::from_stored(&name).map_err(serde::de::Error::custom)
     }
 }
 
@@ -1009,6 +1047,49 @@ mod tests {
 
     mod serialization {
         use super::*;
+
+        /// Findings stored before the field name was checked on read: every core field and
+        /// the raw attribute keys the schema matrix named. They must keep reading.
+        #[rstest::rstest]
+        #[case::identity("source_listing_id", SourceListingId)]
+        #[case::title("title", Title)]
+        #[case::description("description", Description)]
+        #[case::price("price", Price)]
+        #[case::estimate_min("price_estimate_min", PlausibilityField::PriceEstimateMin)]
+        #[case::estimate_max("price_estimate_max", PriceEstimateMax)]
+        #[case::state("state", State)]
+        #[case::images("images", Images)]
+        #[case::material("rawMaterial", RawAttribute("rawMaterial".to_owned()))]
+        #[case::year("rawYear", RawAttribute("rawYear".to_owned()))]
+        fn should_keep_reading_a_stored_finding(
+            #[case] name: &str,
+            #[case] field: PlausibilityField,
+        ) {
+            let stored = serde_json::json!({ "field": name, "check": "BLANK" });
+
+            assert_eq!(
+                serde_json::from_value::<PlausibilityFinding>(stored)
+                    .unwrap_or_else(|error| panic!("{name} must deserialize: {error}")),
+                finding(field, Blank)
+            );
+        }
+
+        #[rstest::rstest]
+        #[case::unknown_key("rawUnknown")]
+        #[case::wrong_case("rawmaterial")]
+        #[case::camel_core_field("sourceListingId")]
+        #[case::empty("")]
+        fn should_reject_a_stored_finding_with_an_unknown_field_name(#[case] name: &str) {
+            let stored = serde_json::json!({ "field": name, "check": "BLANK" });
+
+            let error = serde_json::from_value::<PlausibilityFinding>(stored)
+                .expect_err("an unregistered name must not read as a raw attribute");
+
+            assert!(
+                error.to_string().contains("registered raw attribute key"),
+                "{error}"
+            );
+        }
 
         #[test]
         fn should_serialize_findings_with_schema_field_names_and_stable_check_codes() {
