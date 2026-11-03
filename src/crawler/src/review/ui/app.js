@@ -462,7 +462,7 @@ function renderSourceStatus(source) {
     if (source.crawl_enabled) {
         for (const domain of needsOperatorDomains(source)) {
             lines.push(issueLine('bad', 'Domain needs an operator',
-                `${escapeHtml(domain.domain)} · ${escapeHtml(domain.last_crawl_error_kind || 'unknown failure')} · ${escapeHtml(String(domain.crawl_failure_count))} failed crawls — fix the crawl root, re-register the domain or disable crawling`));
+                `${escapeHtml(domain.domain)} · ${escapeHtml(errorKindLabel(domain.last_crawl_error_kind))} · ${escapeHtml(String(domain.crawl_failure_count))} failed crawls — fix the crawl root, re-register the domain or disable crawling`));
         }
         const blocked = Number(source.blocked_urls) || 0;
         if (blocked > 0) {
@@ -493,7 +493,8 @@ function renderSourceStatus(source) {
         lines.push(issueLine('', `<button class="toggle-link" aria-expanded="${expandedMissingValueSources.has(source.listing_source_id)}" onclick="toggleMissingValuePages('${id}')" type="button">${missing} page${missing === 1 ? '' : 's'} missing a required value</button>`, ''));
     }
     if (!lines.length) {
-        lines.push(source.crawl_enabled ? issueLine('ok', 'Scraping', '') : issueLine('', 'Crawling disabled', ''));
+        lines.push(!source.crawl_enabled ? issueLine('', 'Crawling disabled', '')
+            : source.last_successful_scrape ? issueLine('ok', 'Scraping', '') : issueLine('', 'Not scraped yet', ''));
     }
     return `<div class="issues">${lines.join('')}</div>`;
 }
@@ -653,10 +654,11 @@ function reviewCountsByArtifactType(reviews) {
 // declares a removed-page template for it there.
 const expandedMissingValueSources = new Map();
 
-// The scrape's outcome message names the blank values in backticks, such as "`title` is blank".
+// The scrape's outcome message names the blank values in backticks, such as "`title` is blank";
+// a message that names none is shown as it is.
 function missingValuesText(message) {
     const fields = [...String(message || '').matchAll(/`([^`]+)`/g)].map(match => displayName(match[1]));
-    if (!fields.length) return '';
+    if (!fields.length) return String(message || '').trim();
     return `${fields.join(' and ')} ${fields.length === 1 ? 'is' : 'are'} empty`;
 }
 
@@ -926,6 +928,7 @@ function renderDetail(detail, matrix) {
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`);
     if (matrix) highlightPreview(frameKept);
+    syncPageActions();
     recordSelectionInUrl();
     updateRefreshBanner();
     updateReloadState();
@@ -1949,7 +1952,6 @@ function renderSchemaChips(schemas, disabled) {
         <button class="chip add" ${disabled} onclick="addNewSchema()" title="Adds a copy of the selected schema to rewrite for another template" type="button">+ Add schema</button>
       </div>
       <div class="toolbar">
-        <span class="small muted">${escapeHtml(schemaLabel(selectedSchemaIndex))}:</span>
         <button class="quiet" ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)" type="button">Move up</button>
         <button class="quiet" ${disabled || (last ? 'disabled' : '')} onclick="moveCurrentSchema(1)" type="button">Move down</button>
         <button class="quiet danger" ${disabled || (schemas.length > 1 ? '' : 'disabled')} onclick="deleteCurrentSchema()" type="button">Delete</button>
@@ -2526,6 +2528,12 @@ function renderFailedChecksSection(matrix) {
     </div>`;
 }
 
+// The optional fields a page left empty and no failed check names: a field that failed a check on
+// the page is listed under Failed checks already.
+function notedOptionalMisses(page) {
+    return optionalFieldMisses(page).filter(field => fieldFindings(page, field.field).length === 0);
+}
+
 // Optional rules that left their field empty and rules that skipped matched elements, grouped by
 // field and kind: informational lines next to the notes, none of which blocks an approval.
 function optionalMissLines(candidate) {
@@ -2536,7 +2544,7 @@ function optionalMissLines(candidate) {
         lines.set(key, entry);
     };
     for (const page of candidate?.pages || []) {
-        for (const field of optionalFieldMisses(page)) {
+        for (const field of notedOptionalMisses(page)) {
             add(`${field.field}:${matchedOnlyEmptyElements(field)}`, {field: displayName(field.field), empty: matchedOnlyEmptyElements(field)}, page);
         }
     }
@@ -2573,7 +2581,7 @@ function renderNotesSection(matrix) {
     if (!groups.size && !lines.length) return '';
     const total = (candidate.pages || []).length;
     const pageCount = (candidate.pages || []).filter(page =>
-        pageNotices(page).length || optionalFieldMisses(page).length || fieldsWithSkippedElements(page).length).length;
+        pageNotices(page).length || notedOptionalMisses(page).length || fieldsWithSkippedElements(page).length).length;
     const notes = groups.size + lines.length;
     return `<div class="section">
       <div class="section-head"><h3><span class="dot dot-warn"></span>Notes</h3>${badge(`${notes} note${notes === 1 ? '' : 's'} · ${pageCount} page${pageCount === 1 ? '' : 's'}`, 'warn')}</div>
@@ -3407,6 +3415,16 @@ function renderActionPanel() {
 function updateActionPanel() {
     const panel = document.getElementById('actionPanel');
     if (panel) panel.innerHTML = renderActionPanel();
+    syncPageActions();
+}
+
+// While the action panel waits for its answer, its confirm button is the only action: the
+// verdict buttons in the header stay visible but off, so no second primary competes with it.
+function syncPageActions() {
+    const waiting = Boolean(pendingAction && pendingAction.reviewId === selectedId);
+    document.querySelectorAll('.page-actions button').forEach(button => {
+        button.disabled = waiting;
+    });
 }
 
 // Typing keeps the textarea focused, so it changes the notes without rendering the panel again.
