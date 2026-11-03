@@ -11,18 +11,24 @@ pub struct ListingSourceOverview {
     pub domain_count: i64,
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_successful_crawl: Option<time::OffsetDateTime>,
+    /// When a product page of the ListingSource was last scraped, the latest `last_scraped` of its
+    /// product URLs: a page the scraper evaluated, also one that left a required value empty,
+    /// which a failed fetch or a wait on a pending review does not move. `None` before its first
+    /// scraped page.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub last_successful_scrape: Option<time::OffsetDateTime>,
     pub pending_reviews: i64,
     pub product_urls: i64,
     pub blocked_urls: i64,
     /// Product pages whose last scrape recorded `MissingRequiredValue`, listed by
     /// `GET /api/listing-sources/{id}/missing-value-pages`.
     pub missing_value_urls: i64,
-    /// Crawl state of each configured domain, so an operator sees which domain
-    /// waits for a review or for an operator without reading the logs.
+    /// Crawl and scrape state of each configured domain, so an operator sees which domain
+    /// waits for a review or for an operator, or keeps failing to scrape, without reading the logs.
     pub domains: Vec<DomainCrawlOverview>,
 }
 
-/// How the spider last left one configured domain.
+/// How the spider and the scraper last left one configured domain.
 #[derive(Debug, Serialize)]
 pub struct DomainCrawlOverview {
     pub domain_id: CrawlerDomainId,
@@ -34,6 +40,11 @@ pub struct DomainCrawlOverview {
     pub crawl_failure_count: i32,
     #[serde(with = "time::serde::rfc3339::option")]
     pub next_crawl_at: Option<time::OffsetDateTime>,
+    /// The domain's consecutive scrape failures of one kind, as its scraper circuit records them;
+    /// 0 once a fetch of it succeeds again.
+    pub scrape_failure_streak: i32,
+    /// The kind of those failures, such as `TIMEOUT` or `HTTP_503`; `None` without a streak.
+    pub last_scrape_error_kind: Option<String>,
 }
 
 #[cfg(test)]
@@ -41,7 +52,7 @@ mod tests {
     use super::*;
     use time::macros::datetime;
 
-    fn overview(last_successful_crawl: Option<time::OffsetDateTime>) -> ListingSourceOverview {
+    fn overview(last_successful: Option<time::OffsetDateTime>) -> ListingSourceOverview {
         ListingSourceOverview {
             listing_source_id: ListingSourceId::try_from(uuid::Uuid::now_v7())
                 .expect("v7 uuid is a valid listing source id"),
@@ -49,7 +60,8 @@ mod tests {
             crawl_enabled: true,
             llm_calls_count: 0,
             domain_count: 1,
-            last_successful_crawl,
+            last_successful_crawl: last_successful,
+            last_successful_scrape: last_successful,
             pending_reviews: 0,
             product_urls: 0,
             blocked_urls: 0,
@@ -62,23 +74,27 @@ mod tests {
                 last_crawl_error_kind: Some("NoUrlPattern".to_owned()),
                 crawl_failure_count: 5,
                 next_crawl_at: None,
+                scrape_failure_streak: 3,
+                last_scrape_error_kind: Some("HTTP_503".to_owned()),
             }],
         }
     }
 
     #[test]
-    fn last_successful_crawl_serializes_as_rfc3339_string() {
+    fn last_successful_crawl_and_scrape_serialize_as_rfc3339_strings() {
         let json =
             serde_json::to_value(overview(Some(datetime!(2026-10-15 13:29:45 UTC)))).unwrap();
 
         assert_eq!(json["last_successful_crawl"], "2026-10-15T13:29:45Z");
+        assert_eq!(json["last_successful_scrape"], "2026-10-15T13:29:45Z");
     }
 
     #[test]
-    fn missing_last_successful_crawl_serializes_as_null() {
+    fn missing_last_successful_crawl_and_scrape_serialize_as_null() {
         let json = serde_json::to_value(overview(None)).unwrap();
 
         assert!(json["last_successful_crawl"].is_null());
+        assert!(json["last_successful_scrape"].is_null());
     }
 
     #[test]
@@ -90,5 +106,13 @@ mod tests {
         assert_eq!(json["domains"][0]["last_crawl_error_kind"], "NoUrlPattern");
         assert_eq!(json["domains"][0]["crawl_failure_count"], 5);
         assert!(json["domains"][0]["next_crawl_at"].is_null());
+    }
+
+    #[test]
+    fn domain_scrape_state_serializes_failure_streak_and_kind() {
+        let json = serde_json::to_value(overview(None)).unwrap();
+
+        assert_eq!(json["domains"][0]["scrape_failure_streak"], 3);
+        assert_eq!(json["domains"][0]["last_scrape_error_kind"], "HTTP_503");
     }
 }

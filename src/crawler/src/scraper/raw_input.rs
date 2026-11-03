@@ -1,13 +1,14 @@
 //! Crawler-owned mapping from selected CSS extraction output to the generic raw-input contract.
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
+use crate::scraper::plausibility::PlausibilityField;
 use money::Currency;
 use product_listing_core::source_listing_id::{InvalidSourceListingId, SourceListingId};
 use product_listing_normalization::{
     NormalizationContext, NormalizationError, NormalizationInputError,
     ProductListingNormalizationInput, ProductListingRawValuesPatch,
     ProductListingRawValuesPriceFormat, RawProductListingOperation, RawProductListingPayloadFormat,
-    RawProductListingProvenance, RawProductListingValues, SourcePayload,
+    RawProductListingProvenance, RawProductListingValues, SourcePayload, normalize_price,
     normalize_source_listing_id_with_url_sha_fallback,
 };
 use serde_json::json;
@@ -34,7 +35,8 @@ pub(crate) fn capture_source_listing_id(
 /// them, leaves a canonical field it cannot resolve unchanged and reports why. Only a
 /// missing extraction clears a price. `carried_forward_title`, the title the listing was last
 /// captured with, stands in for a title the page left blank; the source payload still shows the
-/// blank one.
+/// blank one. A raw attribute whose rule found only a blank value is left out of the generic raw
+/// values, which keep attributes as given; the source payload still shows it.
 pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     validated_image_urls: &[String],
@@ -49,6 +51,7 @@ pub(crate) fn crawler_raw_input(
     let attributes = raw
         .raw_attributes
         .iter()
+        .filter(|(_, values)| values.iter().any(|value| !value.trim().is_empty()))
         .map(|(key, values)| {
             (
                 key.clone(),
@@ -85,6 +88,40 @@ pub(crate) fn crawler_raw_input(
         raw_values,
         context,
     )
+}
+
+/// A captured price that names another currency than its ListingSource's fallback currency.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ForeignPriceCurrency {
+    pub(crate) field: PlausibilityField,
+    pub(crate) currency: Currency,
+    pub(crate) fallback_currency: Currency,
+}
+
+/// The first price of `raw`, in schema field order, whose currency, as the ProductListing
+/// normalization worker reads it, is not `fallback_currency`. A storefront that converted its
+/// prices for the crawler's egress country shows here and nowhere else, since the converted
+/// price passes every plausibility check (`docs/crawler/networking.md#request-headers`). The
+/// capture keeps the value as extracted either way.
+pub(crate) fn foreign_price_currency(
+    raw: &RawExtractedProduct,
+    fallback_currency: Option<Currency>,
+) -> Option<ForeignPriceCurrency> {
+    let fallback_currency = fallback_currency?;
+    [
+        (PlausibilityField::Price, &raw.price),
+        (PlausibilityField::PriceEstimateMin, &raw.price_estimate_min),
+        (PlausibilityField::PriceEstimateMax, &raw.price_estimate_max),
+    ]
+    .into_iter()
+    .find_map(|(field, value)| {
+        let price = normalize_price(value.as_deref(), Some(fallback_currency)).ok()??;
+        (price.currency != fallback_currency).then_some(ForeignPriceCurrency {
+            field,
+            currency: price.currency,
+            fallback_currency,
+        })
+    })
 }
 
 /// Builds durable evidence for a crawler-verified removal without retaining HTML or response data.
@@ -142,6 +179,76 @@ mod tests {
             state: "In Stock".to_owned(),
             images: vec!["/chair.jpg".to_owned()],
             raw_attributes: BTreeMap::new(),
+        }
+    }
+
+    mod foreign_price_currency {
+        use super::*;
+
+        fn priced(
+            price: Option<&str>,
+            estimate_min: Option<&str>,
+            estimate_max: Option<&str>,
+        ) -> RawExtractedProduct {
+            RawExtractedProduct {
+                price: price.map(str::to_owned),
+                price_estimate_min: estimate_min.map(str::to_owned),
+                price_estimate_max: estimate_max.map(str::to_owned),
+                ..raw()
+            }
+        }
+
+        #[test]
+        fn should_report_a_price_converted_to_another_currency() {
+            let converted = priced(Some("$38,284.00"), None, None);
+
+            assert_eq!(
+                foreign_price_currency(&converted, Some(Currency::Gbp)),
+                Some(ForeignPriceCurrency {
+                    field: PlausibilityField::Price,
+                    currency: Currency::Usd,
+                    fallback_currency: Currency::Gbp,
+                })
+            );
+        }
+
+        #[test]
+        fn should_report_the_first_estimate_in_another_currency_when_the_price_agrees() {
+            let estimates = priced(Some("£1,000"), Some("£800"), Some("€1.200"));
+
+            assert_eq!(
+                foreign_price_currency(&estimates, Some(Currency::Gbp)),
+                Some(ForeignPriceCurrency {
+                    field: PlausibilityField::PriceEstimateMax,
+                    currency: Currency::Eur,
+                    fallback_currency: Currency::Gbp,
+                })
+            );
+        }
+
+        #[test]
+        fn should_report_nothing_for_a_price_the_fallback_currency_covers() {
+            for price in [
+                Some("£28,000"),
+                Some("28,000"),
+                Some("POA"),
+                Some(" "),
+                None,
+            ] {
+                assert_eq!(
+                    foreign_price_currency(&priced(price, None, None), Some(Currency::Gbp)),
+                    None,
+                    "{price:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn should_report_nothing_without_a_fallback_currency() {
+            assert_eq!(
+                foreign_price_currency(&priced(Some("$38,284.00"), None, None), None),
+                None
+            );
         }
     }
 
@@ -300,6 +407,35 @@ mod tests {
                     "https://example.com/images/second-fallback-640x480.jpg",
                 ],
             }))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_leave_a_blank_raw_attribute_out_of_the_raw_values_and_keep_it_in_the_source_payload()
+    -> Result<(), NormalizationInputError> {
+        let url = Url::parse("https://example.com/products/1")
+            .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
+        let mut extracted = raw();
+        extracted
+            .raw_attributes
+            .insert("rawMaterial".to_owned(), vec!["Oak".to_owned()]);
+        extracted
+            .raw_attributes
+            .insert("rawYear".to_owned(), vec![String::new()]);
+
+        let input =
+            crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None, None)?;
+
+        assert_eq!(
+            input.raw_values().value().get("attributes"),
+            Some(&serde_json::json!({
+                "rawMaterial": {"action": "SET", "value": ["Oak"]},
+            }))
+        );
+        assert_eq!(
+            input.source_payload().value().get("raw_attributes"),
+            Some(&serde_json::json!({"rawMaterial": ["Oak"], "rawYear": [""]}))
         );
         Ok(())
     }

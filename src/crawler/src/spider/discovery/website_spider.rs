@@ -3,6 +3,7 @@ use bloomfilter::Bloom;
 use regex::{Regex, RegexSet};
 use reqwest::header::{ACCEPT_ENCODING, HeaderMap, HeaderValue};
 use spider::CaseInsensitiveString;
+use spider::compact_str::CompactString;
 use spider::page::{AntiBotTech, Page};
 use spider::retry_strategy::{AttemptOutcome, RetryDirective, RetryStrategy};
 use spider::tokio;
@@ -17,7 +18,6 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 use url::Url;
 
-use crate::network::CRAWLER_USER_AGENT;
 use crate::network::bot_challenge::{
     BotChallenge, ChallengeVendor, HardBlock, detect_bot_challenge, detect_hard_block,
 };
@@ -26,13 +26,14 @@ use crate::network::policy::{
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
+use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
 };
 use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
-use crate::spider::discovery::robots::admit_crawl;
+use crate::spider::discovery::robots::{CrawlRobots, admit_crawl};
 use crate::spider::discovery::root_host::{RootReroot, dominant_twin};
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::PageIdentityEvidence;
@@ -45,8 +46,10 @@ const DEFAULT_RETRY_COUNT: u8 = 2;
 const DEFAULT_PREFLIGHT_ATTEMPTS: u32 = 2;
 const DEFAULT_PREFLIGHT_DEADLINE: Duration = Duration::from_secs(90);
 
+/// The crawler request headers, with the transfer encodings Spider's client decodes; zstd stays
+/// out, as fix(#1174) decided.
 fn spider_request_headers() -> HeaderMap {
-    let mut headers = HeaderMap::new();
+    let mut headers = crawler_request_headers();
     headers.insert(
         ACCEPT_ENCODING,
         HeaderValue::from_static(SPIDER_ACCEPT_ENCODING),
@@ -307,6 +310,9 @@ pub struct CrawlDiagnostics {
     pub status_counts: StatusCounts,
     /// Delivered pages that were a bot challenge instead of the page asked for.
     pub bot_challenge_pages: usize,
+    /// The firewall's block page the root answered, with its vendor and the marker that proved
+    /// it, for the failure log; never the page, which can show the crawler's IP.
+    pub hard_block: Option<HardBlock>,
     /// The rate-limit answer that stopped the crawl, with the shop's
     /// `Retry-After`; the pages delivered before it were kept.
     pub rate_limit: Option<RateLimitSignal>,
@@ -389,6 +395,9 @@ pub enum SpiderDiscoveryError {
         reason: &'static str,
         #[source]
         source: Option<BoxError>,
+        /// The move to the twin host the preflight made before it failed there
+        /// (`docs/crawler/networking.md#destination-policy`).
+        root_reroot: Option<Box<RootReroot>>,
     },
 }
 
@@ -398,6 +407,7 @@ impl SpiderDiscoveryError {
             kind,
             reason,
             source: None,
+            root_reroot: None,
         }
     }
 
@@ -407,6 +417,27 @@ impl SpiderDiscoveryError {
             kind: CrawlFailureKind::RedirectProblem,
             reason,
             source: Some(Box::new(RootRedirect::to(target))),
+            root_reroot: None,
+        }
+    }
+
+    /// This failure as one the preflight met after `reroot` had moved the crawl root to its
+    /// twin host. Only a preflight failure is the domain's; the others stay as they are.
+    fn after_reroot(mut self, reroot: Option<&RootReroot>) -> Self {
+        if let (Self::Preflight { root_reroot, .. }, Some(reroot)) = (&mut self, reroot) {
+            *root_reroot = Some(Box::new(reroot.clone()));
+        }
+        self
+    }
+
+    /// The move to the twin host the preflight made before it failed there.
+    pub fn root_reroot(&self) -> Option<&RootReroot> {
+        match self {
+            Self::Preflight {
+                root_reroot: Some(reroot),
+                ..
+            } => Some(reroot),
+            _ => None,
         }
     }
 
@@ -746,6 +777,7 @@ fn preflight_transport_error(error: SpiderTransportError) -> PreflightAttemptErr
                     kind,
                     reason: "crawl-root target could not be resolved to a public address",
                     source: Some(Box::new(target_error)),
+                    root_reroot: None,
                 },
             }
         }
@@ -764,6 +796,7 @@ fn preflight_request_error(error: spider::reqwest::Error) -> PreflightAttemptErr
                 kind: CrawlFailureKind::TlsError,
                 reason: "crawl-root TLS handshake failed",
                 source: Some(Box::new(error)),
+                root_reroot: None,
             },
         };
     }
@@ -774,6 +807,7 @@ fn preflight_request_error(error: spider::reqwest::Error) -> PreflightAttemptErr
             kind: CrawlFailureKind::ConnectError,
             reason: "crawl-root request failed",
             source: Some(Box::new(error)),
+            root_reroot: None,
         },
     }
 }
@@ -845,9 +879,10 @@ async fn preflight_crawl_root(
     deadline: Duration,
     max_body_bytes: usize,
 ) -> Result<PreflightedRoot, SpiderDiscoveryError> {
-    tokio::time::timeout(
+    let mut chain = RootChain::new(configured_root);
+    let followed = tokio::time::timeout(
         deadline,
-        follow_crawl_root(transport, configured_root, timeout, retry, max_body_bytes),
+        follow_crawl_root(transport, &mut chain, timeout, retry, max_body_bytes),
     )
     .await
     .unwrap_or_else(|_| {
@@ -855,52 +890,85 @@ async fn preflight_crawl_root(
             CrawlFailureKind::ConnectError,
             "crawl-root preflight exceeded its time budget",
         ))
+    });
+    let (url, reroot) = chain.end();
+    let (status, client) = followed.map_err(|error| error.after_reroot(reroot.as_ref()))?;
+    Ok(PreflightedRoot {
+        url,
+        status,
+        client,
+        reroot,
     })
+}
+
+/// The crawl root as the preflight follows it, kept outside the time-bounded chain so that a
+/// preflight cut short still tells where it stood.
+struct RootChain {
+    configured: Url,
+    current: Url,
+    /// The hosts whose root the chain fetched, in order.
+    visited_hosts: Vec<Option<String>>,
+    /// The move to the twin host the root page's links asked for, once the chain made it.
+    reroot: Option<RootReroot>,
+}
+
+impl RootChain {
+    fn new(configured_root: Url) -> Self {
+        Self {
+            current: configured_root.clone(),
+            configured: configured_root,
+            visited_hosts: Vec::new(),
+            reroot: None,
+        }
+    }
+
+    /// Where the chain stands, and the move to the twin host while it stands there: a twin
+    /// that redirected back did not take the crawl.
+    fn end(self) -> (Url, Option<RootReroot>) {
+        let reroot = self
+            .reroot
+            .filter(|moved| moved.to.host_str() == self.current.host_str());
+        (self.current, reroot)
+    }
 }
 
 /// Follows the crawl root's redirects within its bare/www host, and moves it to its twin host
 /// once when the root page's links point mostly there ([`dominant_twin`]), the way a redirect to
 /// the twin would; a move counts against the redirect bound. A host the chain already left is
-/// never moved back to, and a move the twin redirects back from is not one.
+/// never moved back to, and a move the twin redirects back from is not one. Answers the status
+/// the root answered and the client pinned to it.
 async fn follow_crawl_root(
     transport: &dyn SpiderTransport,
-    configured_root: Url,
+    chain: &mut RootChain,
     timeout: Duration,
     retry: RetryPolicy,
     max_body_bytes: usize,
-) -> Result<PreflightedRoot, SpiderDiscoveryError> {
-    let mut current_root = configured_root.clone();
-    let mut visited_hosts = Vec::new();
-    let mut reroot = None;
-
+) -> Result<(u16, spider::reqwest::Client), SpiderDiscoveryError> {
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
         let RootFetch { response, client } =
-            fetch_crawl_root(transport, &current_root, timeout, retry).await?;
-        visited_hosts.push(current_root.host_str().map(str::to_owned));
+            fetch_crawl_root(transport, &chain.current, timeout, retry).await?;
+        chain
+            .visited_hosts
+            .push(chain.current.host_str().map(str::to_owned));
 
         if !response.status().is_redirection() {
             let status = response.status().as_u16();
-            if reroot.is_none()
+            if chain.reroot.is_none()
                 && response.status().is_success()
                 && redirect_count < MAX_ROOT_REDIRECTS
-                && let Some(moved) = root_page_reroot(&current_root, response, max_body_bytes)
+                && let Some(moved) = root_page_reroot(&chain.current, response, max_body_bytes)
                     .await
                     .filter(|moved| {
-                        !visited_hosts.contains(&moved.to.host_str().map(str::to_owned))
+                        !chain
+                            .visited_hosts
+                            .contains(&moved.to.host_str().map(str::to_owned))
                     })
             {
-                current_root = moved.to.clone();
-                reroot = Some(moved);
+                chain.current = moved.to.clone();
+                chain.reroot = Some(moved);
                 continue;
             }
-            // A twin that redirected back did not take the crawl.
-            let reroot = reroot.filter(|moved| moved.to.host_str() == current_root.host_str());
-            return Ok(PreflightedRoot {
-                url: current_root,
-                status,
-                client,
-                reroot,
-            });
+            return Ok((status, client));
         }
 
         if redirect_count == MAX_ROOT_REDIRECTS {
@@ -923,12 +991,12 @@ async fn follow_crawl_root(
                     "crawl-root redirect location is invalid",
                 )
             })?;
-        current_root = root_redirect_target(&configured_root, &current_root, location)?;
+        chain.current = root_redirect_target(&chain.configured, &chain.current, location)?;
     }
 
     Err(SpiderDiscoveryError::root_redirect(
         "crawl-root redirect limit exceeded",
-        &current_root,
+        &chain.current,
     ))
 }
 
@@ -1339,12 +1407,15 @@ impl SpiderImpl {
             max_body_bytes,
         )
         .await?;
-        let host_whitelist = configured_host_whitelist(&root_url)?;
-        let host_whitelist_regex = Regex::new(&host_whitelist).map_err(|_| {
-            SpiderDiscoveryError::Config("Failed to compile host whitelist".to_string())
-        })?;
-        let robots =
-            admit_crawl(self.transport.as_ref(), &root_url, &client, request_timeout).await?;
+        let CrawlRules {
+            host_whitelist,
+            host_whitelist_regex,
+            robots,
+            deny_patterns: blacklist_regex,
+            deny_list,
+        } = crawl_rules(self.transport.as_ref(), &root_url, &client, request_timeout)
+            .await
+            .map_err(|error| error.after_reroot(root_reroot.as_ref()))?;
         let delay_millis = crawl_delay_millis(
             pace.delay_millis(self.config.delay_millis),
             robots.crawl_delay,
@@ -1354,22 +1425,6 @@ impl SpiderImpl {
         let mut website = Website::new(root_url.as_str());
         website.set_http_client(client.clone());
 
-        let mut blacklist_regex = CrawledUrl::spider_deny_patterns();
-        blacklist_regex.extend(
-            robots
-                .deny_list
-                .patterns
-                .iter()
-                .map(|pattern| pattern.into()),
-        );
-        // Spider silently drops a deny list that fails to compile, which
-        // would drop robots.txt with it.
-        let deny_list = RegexSet::new(&blacklist_regex).map(Arc::new).map_err(|_| {
-            SpiderDiscoveryError::preflight(
-                CrawlFailureKind::RobotsBlocked,
-                "robots.txt rules do not compile into Spider's deny list",
-            )
-        })?;
         let crawl_duration = crawl_budget(self.config.max_crawl_duration, robots.crawl_delay);
         let follow_rules = Arc::new(FollowRules::new(
             root_url.clone(),
@@ -1527,6 +1582,57 @@ impl SpiderImpl {
             discovery: discovery_rx,
         })
     }
+}
+
+/// What a crawl from an established root may fetch: the root's host, less what the URL
+/// blacklist and robots.txt deny.
+struct CrawlRules {
+    /// Spider's host whitelist, and the same pattern compiled for the crawl's own checks.
+    host_whitelist: String,
+    host_whitelist_regex: Regex,
+    robots: CrawlRobots,
+    /// Spider's deny list: [`CrawledUrl::spider_deny_patterns`] and the robots.txt rules, and
+    /// the same patterns compiled.
+    deny_patterns: Vec<CompactString>,
+    deny_list: Arc<RegexSet>,
+}
+
+/// The rules a crawl from `root` runs under, with robots.txt read through the client pinned to
+/// the root in preflight.
+async fn crawl_rules(
+    transport: &dyn SpiderTransport,
+    root: &Url,
+    client: &spider::reqwest::Client,
+    request_timeout: Duration,
+) -> Result<CrawlRules, SpiderDiscoveryError> {
+    let host_whitelist = configured_host_whitelist(root)?;
+    let host_whitelist_regex = Regex::new(&host_whitelist).map_err(|_| {
+        SpiderDiscoveryError::Config("Failed to compile host whitelist".to_string())
+    })?;
+    let robots = admit_crawl(transport, root, client, request_timeout).await?;
+    let mut deny_patterns = CrawledUrl::spider_deny_patterns();
+    deny_patterns.extend(
+        robots
+            .deny_list
+            .patterns
+            .iter()
+            .map(|pattern| pattern.into()),
+    );
+    // Spider silently drops a deny list that fails to compile, which
+    // would drop robots.txt with it.
+    let deny_list = RegexSet::new(&deny_patterns).map(Arc::new).map_err(|_| {
+        SpiderDiscoveryError::preflight(
+            CrawlFailureKind::RobotsBlocked,
+            "robots.txt rules do not compile into Spider's deny list",
+        )
+    })?;
+    Ok(CrawlRules {
+        host_whitelist,
+        host_whitelist_regex,
+        robots,
+        deny_patterns,
+        deny_list,
+    })
 }
 
 /// Marks the known links visited so Spider skips them. Spider keeps marked
@@ -1729,6 +1835,7 @@ fn apply_library_page(
     if let Some(signal) = page_diagnostic_signal(crawl_root_url, final_url, status_code, refusal) {
         diagnostics.apply_signal(signal);
     }
+    diagnostics.hard_block = refusal.hard_block;
     diagnostics.final_url = loggable_url(final_url);
 }
 
@@ -1940,6 +2047,7 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::CRAWLER_ACCEPT;
     use crate::network::robots::RobotsRules;
     use crate::spider::discovery::frontier::CrawlSeeds;
     use crate::spider::discovery::root_host;
@@ -2066,8 +2174,9 @@ mod tests {
         Hang,
     }
 
-    /// `(host, target, user_agent, accept_encoding)` per request.
-    type RequestLog = Arc<tokio::sync::Mutex<Vec<(String, String, String, String)>>>;
+    /// `(host, target, user_agent, accept_encoding, accept, accept_language)` per request.
+    type RequestLog = Arc<tokio::sync::Mutex<Vec<LoggedRequest>>>;
+    type LoggedRequest = (String, String, String, String, String, String);
     type SiteHandler = Arc<dyn Fn(&str, usize) -> SiteResponse + Send + Sync>;
     /// A handler that answers by the request's `Host` as well: `(host, target, previous)`.
     type HostSiteHandler = Arc<dyn Fn(&str, &str, usize) -> SiteResponse + Send + Sync>;
@@ -2114,7 +2223,7 @@ mod tests {
                 .count()
         }
 
-        async fn finish(self) -> Vec<(String, String, String, String)> {
+        async fn finish(self) -> Vec<LoggedRequest> {
             let log = self.requests.lock().await.clone();
             self.server.abort();
             log
@@ -2157,10 +2266,19 @@ mod tests {
                 let host = header("host").to_ascii_lowercase();
                 let user_agent = header("user-agent");
                 let accept_encoding = header("accept-encoding");
+                let accept = header("accept");
+                let accept_language = header("accept-language");
                 let previous = {
                     let mut log = requests.lock().await;
                     let previous = log.iter().filter(|(_, seen, ..)| *seen == target).count();
-                    log.push((host.clone(), target.clone(), user_agent, accept_encoding));
+                    log.push((
+                        host.clone(),
+                        target.clone(),
+                        user_agent,
+                        accept_encoding,
+                        accept,
+                        accept_language,
+                    ));
                     previous
                 };
                 let html_response = |status: &str, extra_headers: &str, body: &str| {
@@ -2296,7 +2414,7 @@ mod tests {
         assert!(
             request_log
                 .iter()
-                .all(|(_, _, user_agent, _)| user_agent == CRAWLER_USER_AGENT),
+                .all(|(_, _, user_agent, ..)| user_agent == CRAWLER_USER_AGENT),
             "request without the spider user agent: {request_log:?}"
         );
         // Spider's reqwest would otherwise advertise zstd, which fix(#1174)
@@ -2304,8 +2422,17 @@ mod tests {
         assert!(
             request_log
                 .iter()
-                .all(|(_, _, _, accept_encoding)| accept_encoding == SPIDER_ACCEPT_ENCODING),
+                .all(|(_, _, _, accept_encoding, ..)| accept_encoding == SPIDER_ACCEPT_ENCODING),
             "request without the spider accept-encoding: {request_log:?}"
+        );
+        // The scraper sends the same negotiation, so it fetches the site the
+        // spider learned the URL patterns from.
+        assert!(
+            request_log
+                .iter()
+                .all(|(.., accept, accept_language)| accept == CRAWLER_ACCEPT
+                    && accept_language.is_empty()),
+            "request with another content negotiation: {request_log:?}"
         );
         assert!(
             request_log
@@ -2748,35 +2875,58 @@ mod tests {
 </head><body><div id=\"cf-error-details\"><h1>Sorry, you have been blocked</h1>\
 </div></body></html>";
 
-        fn block_page() -> SiteResponse {
+        /// Cloudflare's error 1020 page for a request a firewall rule denied.
+        const ERROR_1020: &str = "<html><head><title>Access denied | example.com | Cloudflare\
+</title></head><body><div class=\"cf-error-title\"><h1>Access denied</h1>\
+<span class=\"cf-code-label\">Error code <span>1020</span></span></div></body></html>";
+
+        fn cloudflare_403(body: &str) -> SiteResponse {
             SiteResponse::HtmlWithHeaders(
                 "403 Forbidden",
                 "server: cloudflare\r\ncf-ray: 8f0a1b2c3d4e5f60-FRA\r\n",
-                BLOCK.to_string(),
+                body.to_string(),
             )
         }
 
-        /// Cloudflare's block page refuses the crawler outright: access denied with that
-        /// kind's cooldown, never a challenge, even though Spider reads the vendor as one.
+        fn block_page() -> SiteResponse {
+            cloudflare_403(BLOCK)
+        }
+
+        /// Cloudflare's block pages refuse the crawler outright: access denied with that
+        /// kind's cooldown, never a challenge, even though Spider reads the vendor as one. The
+        /// diagnostics name the page's vendor and evidence for the failure log.
         #[tokio::test]
         async fn should_deny_access_to_a_crawl_whose_root_answers_a_firewall_block_page() {
-            let site = TestSite::spawn(Arc::new(|_: &str, _: usize| block_page())).await;
-            let spider =
-                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+            for (body, evidence) in [
+                (BLOCK, "cloudflare_block_title"),
+                (ERROR_1020, "cloudflare_error_1020"),
+            ] {
+                let site =
+                    TestSite::spawn(Arc::new(move |_: &str, _: usize| cloudflare_403(body))).await;
+                let spider =
+                    SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
-            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
-            site.finish().await;
+                let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+                site.finish().await;
 
-            assert_eq!(
-                diagnostics.failure_kind,
-                Some(CrawlFailureKind::AccessDenied),
-                "{diagnostics:?}"
-            );
-            assert_eq!(
-                diagnostics.diagnostic_reason.as_deref(),
-                Some("firewall_block_root_page")
-            );
-            assert_eq!(diagnostics.bot_challenge_pages, 0);
+                assert_eq!(
+                    diagnostics.failure_kind,
+                    Some(CrawlFailureKind::AccessDenied),
+                    "{diagnostics:?}"
+                );
+                assert_eq!(
+                    diagnostics.diagnostic_reason.as_deref(),
+                    Some("firewall_block_root_page")
+                );
+                assert_eq!(
+                    diagnostics.hard_block,
+                    Some(HardBlock {
+                        vendor: ChallengeVendor::Cloudflare,
+                        evidence,
+                    })
+                );
+                assert_eq!(diagnostics.bot_challenge_pages, 0);
+            }
         }
 
         /// No later crawl passes a block page either, so below the root it is the 403 it was
@@ -2801,6 +2951,7 @@ mod tests {
             site.finish().await;
 
             assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
+            assert_eq!(diagnostics.hard_block, None, "{diagnostics:?}");
             assert_eq!(diagnostics.status_counts.client_error, 1, "{diagnostics:?}");
             assert_eq!(diagnostics.bot_challenge_pages, 0);
             assert_eq!(
@@ -3540,15 +3691,7 @@ mod tests {
                 "http://www.example.com/product/1".to_string(),
             ])
         );
-        assert_eq!(
-            diagnostics.root_reroot,
-            Some(RootReroot {
-                from: Url::parse("http://example.com/").unwrap(),
-                to: Url::parse("http://www.example.com/").unwrap(),
-                twin_links: root_host::MIN_TWIN_LINKS,
-                root_links: 1,
-            })
-        );
+        assert_eq!(diagnostics.root_reroot, Some(www_move()));
         // The bare host is asked for its root page once, in preflight; robots.txt comes from
         // the host the crawl runs on.
         assert_eq!(
@@ -3650,6 +3793,134 @@ mod tests {
             ])
         );
         assert_eq!(diagnostics.root_reroot, None);
+    }
+
+    /// The move [`www_linked_site`] asks for, as the crawl records it.
+    fn www_move() -> RootReroot {
+        RootReroot {
+            from: Url::parse("http://example.com/").unwrap(),
+            to: Url::parse("http://www.example.com/").unwrap(),
+            twin_links: root_host::MIN_TWIN_LINKS,
+            root_links: 1,
+        }
+    }
+
+    /// The preflight failure of a crawl whose bare root moves to `www.`, where `www.` answers
+    /// `target` with `twin(target)` when it names an answer.
+    async fn failure_after_the_move(
+        config: CrawlerConfig,
+        twin: fn(&str) -> Option<SiteResponse>,
+    ) -> SpiderDiscoveryError {
+        let www_links = www_linked_site(root_host::MIN_TWIN_LINKS);
+        let site = TestSite::spawn_for_hosts(Arc::new(move |host, target, previous| {
+            match (host, twin(target)) {
+                ("www.example.com", Some(answer)) => answer,
+                _ => www_links(host, target, previous),
+            }
+        }))
+        .await;
+        let spider =
+            SpiderImpl::with_transport(config, site.transport(&["example.com", "www.example.com"]));
+
+        let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+        site.finish().await;
+        error
+    }
+
+    /// The failure log of a preflight that moved the root to `www.` and failed there names the
+    /// move, so the twin's failure is not taken for the configured host's.
+    #[tokio::test]
+    async fn should_record_the_move_when_the_preflight_then_fails_on_the_twin() {
+        let unreachable = failure_after_the_move(test_config(), |target| match target {
+            "/" => Some(SiteResponse::Drop),
+            _ => None,
+        })
+        .await;
+        let redirected_away = failure_after_the_move(test_config(), |target| match target {
+            "/" => Some(SiteResponse::Redirect("http://parked.example/")),
+            _ => None,
+        })
+        .await;
+        let robots_blocked = failure_after_the_move(test_config(), |target| match target {
+            "/robots.txt" => Some(SiteResponse::Html(
+                "200 OK",
+                "User-agent: *\nDisallow: /\n".to_string(),
+            )),
+            _ => None,
+        })
+        .await;
+        let out_of_time = failure_after_the_move(
+            CrawlerConfig {
+                preflight_deadline: Duration::from_millis(500),
+                ..test_config()
+            },
+            |target| match target {
+                "/" => Some(SiteResponse::Hang),
+                _ => None,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            redirected_away.redirect_target(),
+            Some("http://parked.example/")
+        );
+        assert!(
+            matches!(
+                out_of_time,
+                SpiderDiscoveryError::Preflight {
+                    reason: "crawl-root preflight exceeded its time budget",
+                    ..
+                }
+            ),
+            "{out_of_time:?}"
+        );
+        for (error, expected_kind) in [
+            (unreachable, CrawlFailureKind::ConnectError),
+            (redirected_away, CrawlFailureKind::RedirectProblem),
+            (robots_blocked, CrawlFailureKind::RobotsBlocked),
+            (out_of_time, CrawlFailureKind::ConnectError),
+        ] {
+            assert!(
+                matches!(error, SpiderDiscoveryError::Preflight { kind, .. } if kind == expected_kind),
+                "{error:?}"
+            );
+            assert_eq!(error.root_reroot(), Some(&www_move()), "{error:?}");
+        }
+    }
+
+    /// A twin that redirects back undoes the move, so a failure of the bare host after it is
+    /// the bare host's own.
+    #[tokio::test]
+    async fn should_record_no_move_when_the_preflight_fails_after_the_twin_redirected_back() {
+        let www_links = www_linked_site(root_host::MIN_TWIN_LINKS);
+        let site = TestSite::spawn_for_hosts(Arc::new(move |host, target, previous| {
+            match (host, target) {
+                ("www.example.com", "/") => SiteResponse::Redirect("http://example.com/"),
+                ("example.com", "/") if previous > 0 => SiteResponse::Drop,
+                _ => www_links(host, target, previous),
+            }
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "www.example.com"]),
+        );
+
+        let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+        site.finish().await;
+
+        assert!(
+            matches!(
+                error,
+                SpiderDiscoveryError::Preflight {
+                    kind: CrawlFailureKind::ConnectError,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert_eq!(error.root_reroot(), None);
     }
 
     #[test]
@@ -4388,7 +4659,7 @@ mod tests {
         assert!(
             request_log
                 .iter()
-                .all(|(_, _, user_agent, _)| user_agent == CRAWLER_USER_AGENT),
+                .all(|(_, _, user_agent, ..)| user_agent == CRAWLER_USER_AGENT),
             "{request_log:?}"
         );
     }

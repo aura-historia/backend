@@ -59,7 +59,9 @@ use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
-use crawler::service::cron::CrawlerCronConfig;
+use crawler::service::cron::{
+    CrawlerCronConfig, MASS_REMOVAL_CONFIRMED_DOMAINS_ENV, mass_removal_confirmed_domains,
+};
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
@@ -291,6 +293,14 @@ async fn main() {
             push_max_batch_age: Duration::from_secs(5),
             push_max_concurrency: 4,
             business_db_max_connections: 8,
+            mass_removal_confirmed_domains: mass_removal_confirmed_domains(
+                std::env::var(MASS_REMOVAL_CONFIRMED_DOMAINS_ENV)
+                    .ok()
+                    .as_deref(),
+            )
+            .unwrap_or_else(|error| {
+                panic!("invalid {MASS_REMOVAL_CONFIRMED_DOMAINS_ENV}: {error}")
+            }),
             ..Default::default()
         };
 
@@ -315,6 +325,7 @@ async fn main() {
             push_max_batch_age_ms = config.effective_push_max_batch_age().as_millis(),
             push_max_concurrency = config.effective_push_max_concurrency(),
             business_db_max_connections = config.effective_business_db_max_connections(),
+            mass_removal_confirmed_domains = ?config.mass_removal_confirmed_domains,
             "Crawler cron configuration loaded"
         );
 

@@ -1,10 +1,13 @@
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::model::{
+    AutoSchemaEvaluationOutcome, ReviewActor, UrlPatternDecision, UrlPatternReviewCandidate,
+};
+use crawler::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, STATUS_APPROVED,
     STATUS_PENDING_REVIEW, SchemaPageReference, SchemaReviewPageInput,
 };
-use crawler::review::model::{ReviewActor, UrlPatternDecision, UrlPatternReviewCandidate};
 use crawler::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
+use crawler::review::readers::{ListingSourceOverviewReader, ReviewQueueReader};
 use crawler::review::repository::{
     Approval, CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
 };
@@ -17,6 +20,9 @@ use crawler::scraper::css_selector::product_schema::{
 };
 use crawler::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
+};
+use crawler::scraper::css_selector::product_schema_service::{
+    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
 };
 use crawler::scraper::css_selector::removed_page_schema::{
     ListingSourceRemovedPageSchema, RemovedPageSchema,
@@ -36,6 +42,7 @@ use crawler::spider::classification::url_metadata::{
 use crawler::spider::classification::url_metadata_repository::{
     DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
+use crawler::spider::crawled_root::CrawledRoot;
 use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -268,7 +275,7 @@ async fn should_surface_invalid_persisted_v4_review_id() {
     .await
     .unwrap();
 
-    let result = repository.list_reviews(10).await;
+    let result = ReviewQueueReader::of(&repository).list_reviews(10).await;
 
     assert!(matches!(result, Err(sqlx::Error::Decode(_))));
 }
@@ -2987,11 +2994,18 @@ async fn should_list_listing_source_with_a_domain_waiting_for_an_operator_first(
     insert_listing_source(&pool, stopped_source).await;
     let stopped_domain = insert_domain(&pool, stopped_source, "stopped.example.com").await;
     SpiderCandidateServiceImpl::new(pool.clone())
-        .mark_crawl_needs_operator(&stopped_domain, "RobotsBlocked", 5)
+        .mark_crawl_needs_operator(
+            &CrawledRoot::new(stopped_domain, "stopped.example.com"),
+            "RobotsBlocked",
+            5,
+        )
         .await
         .unwrap();
 
-    let overview = repository.list_listing_sources(1).await.unwrap();
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(1)
+        .await
+        .unwrap();
 
     assert_eq!(
         overview
@@ -3014,6 +3028,138 @@ async fn should_list_listing_source_with_a_domain_waiting_for_an_operator_first(
     );
     assert_eq!(domains[0].crawl_failure_count, 5);
     assert_eq!(domains[0].next_crawl_at, None);
+}
+
+/// Inserts the URL `url` of `domain_id` as `url_class` with `disposition`, last scraped at
+/// `last_scraped`.
+async fn insert_scraped_url(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+    domain_id: CrawlerDomainId,
+    url: &str,
+    url_class: &str,
+    disposition: &str,
+    last_scraped: Option<&str>,
+) {
+    sqlx::query(
+        "INSERT INTO listing_source_urls \
+         (listing_source_id, domain_id, url, url_class, crawler_disposition, raw_source_record_key, last_scraped) \
+         VALUES ($1, $2, $3, $4, $5, $3, $6::timestamptz)",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(domain_id.as_uuid())
+    .bind(url)
+    .bind(url_class)
+    .bind(disposition)
+    .bind(last_scraped)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// The health view's row: the scraper circuit's failure streak and kind of each domain, and the
+/// latest scrape of a product page the ListingSource still scrapes, not of another URL class or of
+/// a URL retired as a duplicate.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_each_domains_scrape_failure_streak_and_the_last_successful_scrape() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let healthy = insert_domain(&pool, listing_source_id, "healthy.example.com").await;
+    let failing = insert_domain(&pool, listing_source_id, "failing.example.com").await;
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET scrape_failure_streak = 3, last_scrape_error_kind = 'HTTP_503', \
+             last_scrape_status_code = 503, next_scrape_at = NOW() + INTERVAL '1 hour' \
+         WHERE domain_id = $1",
+    )
+    .bind(failing.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    for (domain_id, url, url_class, disposition, last_scraped) in [
+        (
+            healthy,
+            "https://healthy.example.com/item/1",
+            "product",
+            "ACTIVE",
+            Some("2026-10-30T08:00:00Z"),
+        ),
+        (
+            healthy,
+            "https://healthy.example.com/item/2",
+            "product",
+            "DORMANT_SOLD",
+            Some("2026-10-30T09:00:00Z"),
+        ),
+        (
+            healthy,
+            "https://healthy.example.com/item/3",
+            "product",
+            "ACTIVE",
+            None,
+        ),
+        (
+            healthy,
+            "https://healthy.example.com/item/4",
+            "product",
+            "DUPLICATE",
+            Some("2026-10-30T11:00:00Z"),
+        ),
+        (
+            failing,
+            "https://failing.example.com/category",
+            "category",
+            "ACTIVE",
+            Some("2026-10-30T10:00:00Z"),
+        ),
+    ] {
+        insert_scraped_url(
+            &pool,
+            listing_source_id,
+            domain_id,
+            url,
+            url_class,
+            disposition,
+            last_scraped,
+        )
+        .await;
+    }
+
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(10)
+        .await
+        .unwrap();
+
+    let source = overview
+        .iter()
+        .find(|source| source.listing_source_id == listing_source_id)
+        .unwrap();
+    assert_eq!(
+        source.last_successful_scrape,
+        Some(
+            OffsetDateTime::parse(
+                "2026-10-30T09:00:00Z",
+                &time::format_description::well_known::Rfc3339
+            )
+            .unwrap()
+        )
+    );
+    assert_eq!(
+        source
+            .domains
+            .iter()
+            .map(|domain| (
+                domain.domain.as_str(),
+                domain.scrape_failure_streak,
+                domain.last_scrape_error_kind.as_deref()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("failing.example.com", 3, Some("HTTP_503")),
+            ("healthy.example.com", 0, None)
+        ]
+    );
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -3044,7 +3190,10 @@ async fn should_list_pending_reviews_of_disabled_listing_sources_after_those_of_
         .await
         .unwrap();
 
-    let queue = repository.list_reviews(10).await.unwrap();
+    let queue = ReviewQueueReader::of(&repository)
+        .list_reviews(10)
+        .await
+        .unwrap();
 
     assert_eq!(
         queue
@@ -3057,6 +3206,89 @@ async fn should_list_pending_reviews_of_disabled_listing_sources_after_those_of_
             (closed, true)
         ],
         "a newer pending review of a disabled ListingSource follows the older one of an enabled ListingSource"
+    );
+}
+
+/// The queue reads, of a review's validation summary, only the outcome of the LLM evaluation of a
+/// generated schema, so its rows stay as small with a stored schema matrix as without one; a
+/// review that no LLM evaluated has none.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_only_the_llm_evaluation_outcome_of_each_review_in_the_queue() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let generated_source = ListingSourceId::new();
+    insert_listing_source(&pool, generated_source).await;
+    let manual_source = ListingSourceId::new();
+    insert_listing_source(&pool, manual_source).await;
+    let generated = repository
+        .create_schema_review(
+            &generated_source,
+            "initial_schema_generation",
+            &[schema("h1")],
+            review_pages(),
+            json!({
+                "auto_schema_evaluation": {
+                    "decision": "NEEDS_HUMAN_REVIEW",
+                    "confidence": "MEDIUM",
+                    "approved_by_llm": false,
+                    "summary": "The price selector matches the shipping cost.",
+                    "risks": ["price"]
+                },
+                "schema_matrix": { "review_id": null, "candidates": [] }
+            }),
+        )
+        .await
+        .unwrap();
+    let manual = pending_schema_review(&repository, &manual_source).await;
+
+    let queue = ReviewQueueReader::of(&repository)
+        .list_reviews(10)
+        .await
+        .unwrap();
+
+    let outcome_of = |review_id: CrawlerReviewId| {
+        queue
+            .iter()
+            .find(|review| review.review_id == review_id)
+            .unwrap_or_else(|| panic!("review {review_id} is not listed"))
+            .auto_schema_evaluation
+    };
+    assert_eq!(
+        outcome_of(generated),
+        Some(AutoSchemaEvaluationOutcome {
+            decision: SchemaLlmEvaluationDecision::NeedsHumanReview,
+            confidence: SchemaLlmEvaluationConfidence::Medium,
+            approved_by_llm: false,
+        })
+    );
+    assert_eq!(outcome_of(manual), None);
+}
+
+/// A stored LLM evaluation the queue cannot read is invalid persisted state, as an invalid review
+/// id is, and fails the queue instead of reading as no evaluation, naming the review to fix.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_surface_a_persisted_llm_evaluation_the_queue_cannot_read() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = CrawlerReviewId::new();
+    sqlx::query(
+        "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary) \
+         VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', 'initial_schema_generation', '{}'::jsonb, \
+                 '{\"auto_schema_evaluation\": {\"decision\": \"MAYBE\", \"confidence\": \"HIGH\"}}'::jsonb)",
+    )
+    .bind(review_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let result = ReviewQueueReader::of(&repository).list_reviews(10).await;
+
+    assert!(
+        matches!(&result, Err(sqlx::Error::Decode(error)) if error.to_string().contains(&review_id.to_string())),
+        "{result:?}"
     );
 }
 
@@ -3531,7 +3763,7 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> Domain
                     .await;
             let wait_write = SpiderCandidateServiceImpl::new(pool.clone())
                 .mark_crawl_awaiting_url_pattern_review(
-                    &domain_id,
+                    &CrawledRoot::new(domain_id, "restored-pattern.example.com"),
                     &newer,
                     None,
                     OffsetDateTime::now_utc() + time::Duration::days(7),

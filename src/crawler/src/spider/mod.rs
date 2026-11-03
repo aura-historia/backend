@@ -1,6 +1,7 @@
 pub mod candidate_service;
 pub mod classification;
 pub mod crawl_frontier_repository;
+pub mod crawled_root;
 pub mod discovery;
 pub mod local_lock;
 pub mod service;

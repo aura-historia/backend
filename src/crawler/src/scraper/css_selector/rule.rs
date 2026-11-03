@@ -221,7 +221,8 @@ impl ExtractionRule {
     /// hidden text and whitespace included, and attribute values stay as written. A
     /// captured listing identity must not change with how text is laid out: a scrape whose
     /// identity differs from the one its listing was captured under is rejected as a
-    /// conflict.
+    /// conflict. As in [`Self::apply`], a blank item is skipped with either cardinality,
+    /// judged on its value as written, so the first item is the first non-blank one.
     pub(crate) fn apply_as_identity(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
         self.extract(html, TextLayout::AsWritten, ElementWithoutValue::Fails)
             .map(|extraction| extraction.values)
@@ -323,11 +324,7 @@ impl ExtractionRule {
                     continue;
                 }
                 let value = extract_from_element(&element, &self.extract, css_selector, layout)
-                    .and_then(|value| match layout {
-                        TextLayout::Rendered => non_empty(value, css_selector),
-                        // An identity keeps its items as written, empty ones included.
-                        TextLayout::AsWritten => Ok(value),
-                    });
+                    .and_then(|value| non_empty(value, css_selector));
                 match value {
                     Ok(value) => {
                         extracted.insert(element.id());
@@ -435,7 +432,8 @@ fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionErro
 }
 
 /// `value`, unless it is empty after trimming: cardinality `all` drops such an item, as
-/// cardinality `first` skips a blank value, so a list never holds a blank value.
+/// cardinality `first` skips a blank value, so a list never holds a blank value. An
+/// identity item that is not blank stays as written.
 fn non_empty(value: String, css_selector: &CssSelector) -> Result<String, ExtractionError> {
     if is_blank(&value) {
         Err(empty_value(css_selector))
@@ -1541,12 +1539,40 @@ mod tests {
             );
         }
 
-        #[test]
-        fn should_keep_empty_identity_items_as_written() {
-            let doc = html("<span class=\"sku\"> </span><span class=\"sku\">AB-12</span>");
-            let r = rule(".sku", text_kind(), ExtractionCardinality::All);
+        /// An `all` identity rule drops a blank item as a `first` one skips it, so both take
+        /// the first non-blank identity, and keeps the other items as written.
+        #[rstest]
+        #[case::text(
+            text_kind(),
+            "<span class=\"sku\"> </span><span class=\"sku\">AB  12</span>"
+        )]
+        #[case::attribute(
+            attr_kind("data-sku"),
+            "<span class=\"sku\" data-sku=\"\u{a0}\"></span><span class=\"sku\" data-sku=\"AB  12\"></span>"
+        )]
+        fn should_drop_a_leading_blank_identity_item_of_an_all_rule(
+            #[case] kind: ExtractionKind,
+            #[case] page: &str,
+        ) {
+            let doc = html(page);
+            let all = rule(".sku", kind.clone(), ExtractionCardinality::All);
+            let first = rule(".sku", kind, ExtractionCardinality::First);
 
-            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec!["", "AB-12"]);
+            assert_eq!(all.apply_as_identity(&doc).unwrap(), vec!["AB  12"]);
+            assert_eq!(first.apply_as_identity(&doc).unwrap(), vec!["AB  12"]);
+        }
+
+        #[test]
+        fn should_report_empty_elements_when_every_identity_item_of_an_all_rule_is_blank() {
+            let doc = html(
+                "<span class=\"sku\" data-sku=\" \"></span><span class=\"sku\" data-sku=\"\"></span>",
+            );
+            let r = rule(".sku", attr_kind("data-sku"), ExtractionCardinality::All);
+
+            assert!(matches!(
+                r.apply_as_identity(&doc),
+                Err(ExtractionError::EmptyValue { selector }) if selector == ".sku"
+            ));
         }
 
         #[test]

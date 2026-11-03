@@ -10,6 +10,7 @@ use url::Url;
 
 use crate::CrawlerDomainId;
 use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::utils::url::CrawledUrl;
 
 /// Most known product URLs an incremental crawl skips; a larger shop's further product pages are
@@ -36,12 +37,13 @@ pub trait CrawlFrontierRepository: Send + Sync {
     /// [`MAX_KNOWN_URLS`] together.
     async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<KnownUrls, sqlx::Error>;
 
-    /// Replaces the domain's frontier with what its latest crawl left unvisited.
+    /// Replaces the domain's frontier with what its latest crawl, of `root`, left unvisited,
+    /// while the domain still has that crawl root.
     async fn replace_frontier(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         frontier: &[Url],
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
 }
 
 pub struct CrawlFrontierRepositoryImpl {
@@ -125,15 +127,31 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
         })
     }
 
+    /// The share lock on the domain row holds back a move to another root, which updates that
+    /// row and drops the frontier, until the new frontier is committed; a move that committed
+    /// first leaves no row on the crawled root to lock.
     async fn replace_frontier(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         frontier: &[Url],
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
         let urls: Vec<&str> = frontier.iter().map(Url::as_str).collect();
         let mut transaction = self.pool.begin().await?;
+        let domain_has_root = sqlx::query_scalar::<_, i32>(
+            "SELECT 1 FROM listing_source_domains
+             WHERE domain_id = $1 AND crawl_root_host = $2
+             FOR SHARE",
+        )
+        .bind(root.domain_id.as_uuid())
+        .bind(&root.crawl_root_host)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .is_some();
+        if !domain_has_root {
+            return Ok(CrawlOutcomeWrite::RootMoved);
+        }
         sqlx::query("DELETE FROM listing_source_domain_crawl_frontier WHERE domain_id = $1")
-            .bind(domain_id.as_uuid())
+            .bind(root.domain_id.as_uuid())
             .execute(&mut *transaction)
             .await?;
         sqlx::query(
@@ -141,11 +159,12 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
              SELECT $1, url FROM UNNEST($2::text[]) AS frontier(url)
              ON CONFLICT DO NOTHING",
         )
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
         .bind(urls)
         .execute(&mut *transaction)
         .await?;
-        transaction.commit().await
+        transaction.commit().await?;
+        Ok(CrawlOutcomeWrite::Recorded)
     }
 }
 

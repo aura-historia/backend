@@ -1,3 +1,4 @@
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::discovery::frontier::CrawlKind;
 use crate::spider::discovery::website_spider::CrawlCompletion;
 use crate::{CrawlerDomainId, CrawlerReviewId};
@@ -39,6 +40,9 @@ pub enum UrlPatternReviewWaitWrite {
     /// was decided while the crawl ran. Nothing was written: the decision released the domain,
     /// and its crawl state stays as the decision left it.
     ReviewNotPending,
+    /// The domain moved to another crawl root after the run started, or was removed; nothing was
+    /// written ([`CrawlOutcomeWrite::RootMoved`]).
+    RootMoved,
 }
 
 /// What a run whose crawl a shop's rate-limit answer stopped records,
@@ -68,6 +72,16 @@ pub struct SpiderCandidate {
     pub kind: CrawlKind,
 }
 
+impl SpiderCandidate {
+    /// The crawl root the candidate's run crawls, which every write of the run's outcome names.
+    pub fn crawled_root(&self) -> CrawledRoot {
+        CrawledRoot::new(self.domain_id, self.listing_source_domain.as_str())
+    }
+}
+
+/// The spider scheduler's crawl candidates and the writes of their runs' outcomes. Each write
+/// names the [`CrawledRoot`] of the run and records only while the domain still has that crawl
+/// root, so a run of a root the domain moved away from leaves the move's crawl state alone.
 #[async_trait]
 #[mockall::automock]
 pub trait SpiderCandidateService: Send + Sync {
@@ -78,40 +92,40 @@ pub trait SpiderCandidateService: Send + Sync {
     ) -> Result<Vec<SpiderCandidate>, sqlx::Error>;
     async fn mark_crawl_failure(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         error_kind: &str,
         crawl_failure_count: i32,
         rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
     /// Records a full crawl (`completion.is_full()`) and clears failure,
     /// truncation, rate-limit and cooldown state.
     async fn mark_crawl_completed(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         completion: CrawlCompletion,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
     /// Records a hard-timeout truncation without touching failure state; it
     /// steps the rate-limit streak down by one.
     async fn mark_crawl_truncated(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         crawl_truncation_count: i32,
         next_crawl_at: time::OffsetDateTime,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
     /// Records a crawl a shop's rate-limit answer ended, without touching
     /// failure or truncation state; the next crawl is due at `not_before`.
     async fn mark_crawl_rate_limited(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         rate_limit: CrawlRateLimitWrite,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
     /// Records a crawl that waits for the URL-pattern review `review_id` without touching
     /// failure or truncation state, while that review is still a pending review of the domain.
     /// `next_crawl_at` is the latest the domain waits; the review's decision releases it sooner.
     async fn mark_crawl_awaiting_url_pattern_review(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         review_id: &CrawlerReviewId,
         rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
@@ -122,17 +136,17 @@ pub trait SpiderCandidateService: Send + Sync {
     /// neither touches truncation or rate-limit state.
     async fn mark_incremental_crawl_finished(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         completion: CrawlCompletion,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
     /// Records a repeated deterministic failure and takes the domain out of
     /// the schedule until an operator acts.
     async fn mark_crawl_needs_operator(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         error_kind: &str,
         crawl_failure_count: i32,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
 }
 
 pub struct SpiderCandidateServiceImpl {
@@ -226,13 +240,13 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
 
     async fn mark_crawl_failure(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         error_kind: &str,
         crawl_failure_count: i32,
         rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
+        let result = sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_failure_count = $3,
                  last_crawl_error_kind = $2,
@@ -241,33 +255,34 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                  crawl_rate_limit_streak = COALESCE($6, crawl_rate_limit_streak),
                  crawl_rate_limited_until = COALESCE($7, crawl_rate_limited_until),
                  last_crawl_run_at = NOW()
-             WHERE domain_id = $1",
+             WHERE domain_id = $1 AND crawl_root_host = $8",
         )
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
         .bind(error_kind)
         .bind(crawl_failure_count)
         .bind(next_crawl_at)
         .bind(FAILED_CRAWL_OUTCOME)
         .bind(rate_limit.map(|rate_limit| rate_limit.streak))
         .bind(rate_limit.map(|rate_limit| rate_limit.not_before))
+        .bind(&root.crawl_root_host)
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(CrawlOutcomeWrite::of_guarded_update(result.rows_affected()))
     }
 
     async fn mark_crawl_completed(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         completion: CrawlCompletion,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
         // Clearing failure state for a truncated crawl is exactly the #1912 bug.
         if !completion.is_full() {
             return Err(sqlx::Error::InvalidArgument(format!(
                 "{completion} is not a completed crawl outcome"
             )));
         }
-        sqlx::query(
+        let result = sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_failure_count = 0,
                  last_crawl_error_kind = NULL,
@@ -277,73 +292,77 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                  crawl_rate_limited_until = NULL,
                  last_crawl_outcome = $2,
                  last_crawl_run_at = NOW()
-             WHERE domain_id = $1",
+             WHERE domain_id = $1 AND crawl_root_host = $3",
         )
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
         .bind(completion.as_str())
+        .bind(&root.crawl_root_host)
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(CrawlOutcomeWrite::of_guarded_update(result.rows_affected()))
     }
 
     async fn mark_crawl_truncated(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         crawl_truncation_count: i32,
         next_crawl_at: time::OffsetDateTime,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
+        let result = sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_truncation_count = $2,
                  crawl_rate_limit_streak = GREATEST(crawl_rate_limit_streak - 1, 0),
                  next_crawl_at = $3,
                  last_crawl_outcome = $4,
                  last_crawl_run_at = NOW()
-             WHERE domain_id = $1",
+             WHERE domain_id = $1 AND crawl_root_host = $5",
         )
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
         .bind(crawl_truncation_count)
         .bind(next_crawl_at)
         .bind(CrawlCompletion::HardTimeoutTruncated.as_str())
+        .bind(&root.crawl_root_host)
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(CrawlOutcomeWrite::of_guarded_update(result.rows_affected()))
     }
 
     async fn mark_crawl_rate_limited(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         rate_limit: CrawlRateLimitWrite,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
+        let result = sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_rate_limit_streak = $2,
                  crawl_rate_limited_until = $3,
                  next_crawl_at = $3,
                  last_crawl_outcome = $4,
                  last_crawl_run_at = NOW()
-             WHERE domain_id = $1",
+             WHERE domain_id = $1 AND crawl_root_host = $5",
         )
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
         .bind(rate_limit.streak)
         .bind(rate_limit.not_before)
         .bind(RATE_LIMITED_CRAWL_OUTCOME)
+        .bind(&root.crawl_root_host)
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(CrawlOutcomeWrite::of_guarded_update(result.rows_affected()))
     }
 
     /// The pending check share-locks the review row before the domain row is written. Approval
     /// and rejection lock the review row first and release the domain before they commit, so a
     /// wait written while either verdict commits waits for it and then finds the review closed,
     /// instead of passing a check that read the review before the verdict committed and parking
-    /// the domain the verdict just released.
+    /// the domain the verdict just released. A wait that wrote nothing is reported as a moved
+    /// root when the domain no longer has the crawled root, whatever the review's state.
     async fn mark_crawl_awaiting_url_pattern_review(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         review_id: &CrawlerReviewId,
         rate_limit: Option<CrawlRateLimitWrite>,
         next_crawl_at: time::OffsetDateTime,
@@ -356,6 +375,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                  crawl_rate_limited_until = COALESCE($6, crawl_rate_limited_until),
                  last_crawl_run_at = NOW()
              WHERE domain_id = $1
+               AND crawl_root_host = $7
                AND EXISTS (
                    SELECT 1
                    FROM crawler_reviews cr
@@ -366,71 +386,87 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                    FOR SHARE
                )",
         )
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
         .bind(next_crawl_at)
         .bind(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
         .bind(review_id.as_uuid())
         .bind(rate_limit.map(|rate_limit| rate_limit.streak))
         .bind(rate_limit.map(|rate_limit| rate_limit.not_before))
+        .bind(&root.crawl_root_host)
         .execute(&self.pool)
         .await?;
+        if result.rows_affected() > 0 {
+            return Ok(UrlPatternReviewWaitWrite::Recorded);
+        }
 
-        Ok(match result.rows_affected() {
-            0 => UrlPatternReviewWaitWrite::ReviewNotPending,
-            _ => UrlPatternReviewWaitWrite::Recorded,
+        let domain_has_root = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                 SELECT 1 FROM listing_source_domains
+                 WHERE domain_id = $1 AND crawl_root_host = $2
+             )",
+        )
+        .bind(root.domain_id.as_uuid())
+        .bind(&root.crawl_root_host)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(match domain_has_root {
+            true => UrlPatternReviewWaitWrite::ReviewNotPending,
+            false => UrlPatternReviewWaitWrite::RootMoved,
         })
     }
 
     async fn mark_incremental_crawl_finished(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         completion: CrawlCompletion,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
         if completion.rate_limit().is_some() {
             return Err(sqlx::Error::InvalidArgument(format!(
                 "{completion} is recorded as a rate-limited crawl"
             )));
         }
-        sqlx::query(
+        let result = sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_failure_count = CASE WHEN $3 THEN 0 ELSE crawl_failure_count END,
                  last_crawl_error_kind = CASE WHEN $3 THEN NULL ELSE last_crawl_error_kind END,
                  next_crawl_at = NULL,
                  last_crawl_outcome = $2,
                  last_crawl_run_at = NOW()
-             WHERE domain_id = $1",
+             WHERE domain_id = $1 AND crawl_root_host = $4",
         )
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
         .bind(completion.as_str())
         .bind(completion.is_full())
+        .bind(&root.crawl_root_host)
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(CrawlOutcomeWrite::of_guarded_update(result.rows_affected()))
     }
 
     async fn mark_crawl_needs_operator(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         error_kind: &str,
         crawl_failure_count: i32,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
+        let result = sqlx::query(
             "UPDATE listing_source_domains
              SET crawl_failure_count = $3,
                  last_crawl_error_kind = $2,
                  next_crawl_at = NULL,
                  last_crawl_outcome = $4,
                  last_crawl_run_at = NOW()
-             WHERE domain_id = $1",
+             WHERE domain_id = $1 AND crawl_root_host = $5",
         )
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
         .bind(error_kind)
         .bind(crawl_failure_count)
         .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
+        .bind(&root.crawl_root_host)
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(CrawlOutcomeWrite::of_guarded_update(result.rows_affected()))
     }
 }

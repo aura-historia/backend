@@ -84,7 +84,7 @@ pub struct ExtractedView {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct FieldMatchView {
-    /// The schema field, such as `title` or `raw_attributes.rawMaterial`.
+    /// The schema field, such as `title`, or a raw attribute's key, such as `rawMaterial`.
     pub field: String,
     /// Elements the primary selector matched (with visible text, for a text rule); absent when
     /// the selector does not parse.
@@ -125,6 +125,7 @@ pub enum FindingKind {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct FindingView {
     pub kind: FindingKind,
+    /// The field the check ran on, named as in `fields`.
     pub field: String,
     /// The check's code, such as `BLANK` or `REPEATED_ACROSS_PAGES`.
     pub check: String,

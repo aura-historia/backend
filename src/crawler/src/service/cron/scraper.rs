@@ -4,7 +4,8 @@ use super::stop::CronStop;
 use crate::CrawlerReviewId;
 use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::policy::{
-    DomainFailureKind, NetworkErrorKind, domain_cooldown, durable_retry_cooldown_for,
+    DomainFailureKind, NetworkErrorKind, canonical_crawler_domain, domain_cooldown,
+    durable_retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{
     DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, RedirectDestination,
@@ -15,12 +16,15 @@ use crate::scraper::css_selector::product_schema_service::ProductListingSchemaSe
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::domain_circuit::{DomainBatchEvidence, DomainCircuitDecision, FailedAnswer};
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
+use crate::scraper::removal_guard::MassRemoval;
+use crate::scraper::scraper_service::domain::errors::ListingRemoval;
 use crate::scraper::scraper_service::domain::product::{
     current_fetch_failure, domain_health_for_scraper_error, with_scrape_observation,
 };
 use crate::scraper::scraper_service::{
-    DomainFetchHealth, DomainFetchStats, FetchFailureContext, FetchFailureSource, ScrapeMode,
-    ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperError, ScraperService,
+    DomainFetchHealth, DomainFetchStats, FetchFailureContext, FetchFailureSource, RemovalEvidence,
+    RemovalEvidenceKind, ScrapeMode, ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperError,
+    ScraperService,
 };
 use crate::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
@@ -56,6 +60,9 @@ const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
 /// `last_error_kind` of a URL whose redirect leads to a page whose stored rows do not settle
 /// whether the URL is a duplicate (`docs/crawler/networking.md#duplicate-targets`).
 const REDIRECT_DESTINATION_UNSETTLED_OUTCOME_KIND: &str = "RedirectDestinationUnsettled";
+/// `last_error_kind` of a URL whose removal the mass-removal guard held back
+/// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`).
+const MASS_REMOVAL_HELD_OUTCOME_KIND: &str = "MassRemovalHeld";
 
 /// Every scrape completion records its URL `ACTIVE`, sold pages included.
 /// `DORMANT_SOLD` is scheduled exactly like `ACTIVE`, so the scraper no longer writes
@@ -72,6 +79,9 @@ struct ScrapeDomainContext {
     domain_id: crate::CrawlerDomainId,
     batch_time_budget: Duration,
     stop: CronStop,
+    /// The ListingSource domains whose mass removal an operator confirmed, which the
+    /// mass-removal guard does not hold back.
+    mass_removal_confirmed_domains: Arc<HashSet<String>>,
 }
 
 /// Metadata applied only after durable raw capture succeeds.
@@ -154,6 +164,28 @@ struct ScrapeCandidateOutcome {
     /// The error kind the failure recorded on its URL; `None` for a review wait, which is no
     /// failure.
     failure_kind: Option<String>,
+    /// The scrape ran: the URL was neither deferred nor skipped before its fetch.
+    scraped: bool,
+    /// The scrape verified the page's removal.
+    removal: Option<CandidateRemoval>,
+}
+
+/// A verified removal a candidate's scrape found.
+enum CandidateRemoval {
+    /// The page is still removed and its removal is the URL's last capture already: only the
+    /// scrape metadata was refreshed.
+    Rechecked,
+    /// A removal the URL's last capture does not record, which its domain batch captures once
+    /// the mass-removal guard admits it.
+    New(Box<NewRemoval>),
+}
+
+/// A new verified removal waiting for its domain batch's mass-removal guard.
+struct NewRemoval {
+    candidate: ScraperCandidate,
+    removal: ListingRemoval,
+    input: ProductListingNormalizationInput,
+    raw_input_sha256: Vec<u8>,
 }
 
 struct ScrapeDomainOutcome {
@@ -502,9 +534,10 @@ async fn enqueue_raw_capture(
     Ok(wait_started_at.elapsed())
 }
 
-/// Captures a verified removal once. A recheck of a page that is still removed finds the raw
-/// delete it would capture already recorded as the URL's last capture and refreshes only the
-/// crawler scrape metadata, as an unchanged product page does.
+/// Records a verified removal of `candidate`. A recheck of a page that is still removed finds
+/// the raw delete it would capture already recorded as the URL's last capture and refreshes only
+/// the crawler scrape metadata, as an unchanged product page does. Any other removal is new and
+/// waits for its batch's mass-removal guard ([`settle_new_removals`]) before it is captured.
 #[tracing::instrument(
     name = "crawler_scrape_candidate",
     skip(candidate, ctx),
@@ -516,15 +549,55 @@ async fn enqueue_raw_capture(
 async fn handle_verified_removal(
     candidate: &ScraperCandidate,
     ctx: &ScrapeDomainContext,
-    removed_by_templates: Vec<RemovedPageSchema>,
+    removal: ListingRemoval,
 ) -> ScrapeCandidateOutcome {
     let Some((input, raw_input_sha256)) = verified_removal_input(candidate) else {
         return errored_outcome();
     };
     if candidate.last_captured_raw_input_sha256.as_deref() == Some(raw_input_sha256.as_slice()) {
-        return refresh_repeated_removal(candidate, ctx, &raw_input_sha256, &removed_by_templates)
-            .await;
+        return ScrapeCandidateOutcome {
+            removal: Some(CandidateRemoval::Rechecked),
+            ..refresh_repeated_removal(
+                candidate,
+                ctx,
+                &raw_input_sha256,
+                &removal.removed_by_templates,
+            )
+            .await
+        };
     }
+    ScrapeCandidateOutcome {
+        removal: Some(CandidateRemoval::New(Box::new(NewRemoval {
+            candidate: candidate.clone(),
+            removal,
+            input,
+            raw_input_sha256,
+        }))),
+        ..Default::default()
+    }
+}
+
+/// Queues the raw delete of a removal the URL's last capture does not record yet, after
+/// forgetting that capture, and logs the evidence it is captured on.
+#[tracing::instrument(
+    name = "crawler_scrape_candidate",
+    skip(ctx, new_removal),
+    fields(
+        listing_source_id = %new_removal.candidate.listing_source_id,
+        url = %new_removal.candidate.url
+    )
+)]
+async fn capture_new_removal(
+    ctx: &ScrapeDomainContext,
+    new_removal: NewRemoval,
+) -> ScrapeCandidateOutcome {
+    let NewRemoval {
+        candidate,
+        removal,
+        input,
+        raw_input_sha256,
+    } = new_removal;
+    let candidate = &candidate;
     let provenance = match crawler_provenance(None, None) {
         Ok(provenance) => provenance,
         Err(error) => {
@@ -555,16 +628,35 @@ async fn handle_verified_removal(
         }
     }
 
+    log_verified_removal(candidate, &removal);
     ScrapeCandidateOutcome {
         capture: Some(removal_capture_request(
             candidate,
             input,
             provenance,
             raw_input_sha256,
-            removed_by_templates,
+            removal.removed_by_templates,
         )),
         ..Default::default()
     }
+}
+
+/// Logs a removal about to be captured with what showed it, so every listing the crawler
+/// withdraws can be traced to its evidence.
+fn log_verified_removal(candidate: &ScraperCandidate, removal: &ListingRemoval) {
+    let evidence = &removal.evidence;
+    info!(
+        event = "crawler.scraper.verified_removal",
+        listing_source_id = %candidate.listing_source_id,
+        listing_source_domain = %candidate.listing_source_domain,
+        url = %candidate.url,
+        evidence = evidence.kind.as_str(),
+        status = evidence.status,
+        final_url = evidence.final_url.as_ref().map(url::Url::as_str),
+        removed_page_templates = removal.removed_by_templates.len(),
+        details = %removal.details,
+        "Capturing a verified removal"
+    );
 }
 
 async fn refresh_repeated_removal(
@@ -654,14 +746,6 @@ fn removal_capture_request(
     }
 }
 
-#[cfg(test)]
-async fn scrape_candidate(
-    candidate: ScraperCandidate,
-    ctx: &ScrapeDomainContext,
-) -> ScrapeCandidateOutcome {
-    scrape_candidate_in_batch(candidate, ctx, &DomainBatchEvidence::default()).await
-}
-
 async fn scrape_candidate_in_batch(
     candidate: ScraperCandidate,
     ctx: &ScrapeDomainContext,
@@ -689,7 +773,7 @@ async fn scrape_candidate_in_batch(
         Ok(Some(scraped)) => handle_successful_scrape(&candidate, ctx, scraped).await,
         Ok(None) => skipped_outcome(),
         Err(ScraperError::ProductListingRemoved(removal)) => {
-            handle_verified_removal(&candidate, ctx, removal.removed_by_templates).await
+            handle_verified_removal(&candidate, ctx, *removal).await
         }
         Err(error) => {
             handle_scrape_error(
@@ -706,6 +790,7 @@ async fn scrape_candidate_in_batch(
     if matches!(outcome.domain_health, DomainFetchHealth::NotObserved) {
         outcome.domain_health = domain_health;
     }
+    outcome.scraped = true;
     outcome
 }
 
@@ -781,6 +866,27 @@ async fn run_candidate_scrape(
     outcome
 }
 
+/// The removal of a URL that redirects to `destination`, a page the crawler stores as no product
+/// URL of its ListingSource.
+fn redirect_to_stored_non_product_page(
+    candidate: &ScraperCandidate,
+    destination: &url::Url,
+) -> ListingRemoval {
+    ListingRemoval {
+        url: candidate.url.clone(),
+        details: format!(
+            "product URL redirected to a page stored as no product URL of its ListingSource: original={}, final={destination}",
+            candidate.url
+        ),
+        evidence: RemovalEvidence::page(
+            RemovalEvidenceKind::RedirectToStoredNonProductPage,
+            destination.clone(),
+            None,
+        ),
+        removed_by_templates: Vec::new(),
+    }
+}
+
 /// Retires a URL that redirects to a product URL its ListingSource already stores: the
 /// destination is the page's canonical URL and is scraped under its own row, so the URL is
 /// recorded `DUPLICATE` and never selected again instead of being fetched and skipped on every
@@ -852,9 +958,9 @@ async fn handle_successful_scrape(
         None
     };
     // A stored page outside the ListingSource's product URLs is a non-product page whatever the
-    // scrape extracted from it, as a redirect outside the product pattern is: its identity is
-    // not compared, so a category page that shows another product's identity still withdraws
-    // the listing.
+    // scrape extracted from it (`docs/crawler/networking.md#redirect-removal-evidence`): its
+    // identity is not compared, so a category page that shows another product's identity still
+    // withdraws the listing.
     if destination == Some(RedirectDestination::NotAProductOfListingSource) {
         info!(
             event = "crawler.product_url_redirected_to_page_outside_listing_source",
@@ -863,7 +969,12 @@ async fn handle_successful_scrape(
             new_url = %scraped.effective_url,
             "A product URL redirects to a page the crawler stores as no product URL of its ListingSource; capturing a removal"
         );
-        return handle_verified_removal(candidate, ctx, Vec::new()).await;
+        return handle_verified_removal(
+            candidate,
+            ctx,
+            redirect_to_stored_non_product_page(candidate, &scraped.effective_url),
+        )
+        .await;
     }
     if let Some(captured_identity) = candidate
         .last_source_listing_id
@@ -1698,6 +1809,10 @@ async fn scrape_domain_candidates(
         .unwrap_or_default();
     let candidate_count = candidates.len();
     let batch_deadline = tokio::time::Instant::now() + ctx.batch_time_budget;
+    // New removals wait for the batch's last URL, so the mass-removal guard judges the batch as
+    // a whole; rechecked removals are no live pages and do not count among the scraped URLs.
+    let mut new_removals = Vec::new();
+    let mut scraped_urls = 0;
     for (candidate_index, mut candidate) in candidates.into_iter().enumerate() {
         if ctx.stop.is_requested() {
             let remaining = candidate_count - candidate_index;
@@ -1726,29 +1841,21 @@ async fn scrape_domain_candidates(
         candidate.domain_health = domain_health.clone();
         let candidate_outcome = scrape_candidate_in_batch(candidate, &ctx, &evidence).await;
         metrics.observe(&candidate_outcome);
+        if candidate_outcome.scraped
+            && !matches!(candidate_outcome.removal, Some(CandidateRemoval::Rechecked))
+        {
+            scraped_urls += 1;
+        }
 
         if candidate_outcome.errored {
             outcome.failed += 1;
         } else if candidate_outcome.awaits_schema_review {
             outcome.awaiting_schema_review += 1;
+        } else if let Some(CandidateRemoval::New(removal)) = candidate_outcome.removal {
+            new_removals.push(*removal);
         } else if let Some(pair) = candidate_outcome.capture {
-            match enqueue_raw_capture(&ctx.command_tx, &metrics.listing_source_domain, pair).await {
-                Ok(queue_wait) => {
-                    outcome.succeeded += 1;
-
-                    if queue_wait >= Duration::from_millis(10) {
-                        warn!(
-                            event = "crawler.raw_capture.enqueue_wait",
-                            queue_wait_ms = queue_wait.as_millis(),
-                            "Raw ProductListing capture queue applied backpressure"
-                        );
-                    }
-                }
-                Err(_) => {
-                    error!("Command channel closed while scraper worker is running");
-                    outcome.failed += 1;
-                }
-            }
+            enqueue_candidate_capture(&ctx, &metrics.listing_source_domain, pair, &mut outcome)
+                .await;
         } else if candidate_outcome.deferred {
             outcome.deferred_urls += 1;
         } else if candidate_outcome.skipped {
@@ -1829,8 +1936,138 @@ async fn scrape_domain_candidates(
         }
     }
 
+    settle_new_removals(
+        new_removals,
+        scraped_urls,
+        &ctx,
+        &metrics.listing_source_domain,
+        &mut outcome,
+    )
+    .await;
     metrics.emit(&outcome);
     outcome
+}
+
+/// Captures a domain batch's new removals, or holds every one back when they are a mass removal
+/// of the URLs the batch scraped and no operator confirmed one for the domain
+/// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`).
+async fn settle_new_removals(
+    removals: Vec<NewRemoval>,
+    scraped_urls: usize,
+    ctx: &ScrapeDomainContext,
+    listing_source_domain: &str,
+    outcome: &mut ScrapeDomainOutcome,
+) {
+    if let Some(mass_removal) = MassRemoval::of(removals.len(), scraped_urls) {
+        if !ctx
+            .mass_removal_confirmed_domains
+            .contains(&canonical_crawler_domain(listing_source_domain))
+        {
+            hold_mass_removal(removals, mass_removal, ctx, listing_source_domain, outcome).await;
+            return;
+        }
+        info!(
+            event = "crawler.scraper.mass_removal_confirmed",
+            domain_id = %ctx.domain_id,
+            listing_source_domain,
+            removals = mass_removal.removals(),
+            scraped_urls = mass_removal.scraped_urls(),
+            share = mass_removal.share(),
+            "Capturing a mass removal an operator confirmed for the domain"
+        );
+    }
+    for removal in removals {
+        let capture = capture_new_removal(ctx, removal).await;
+        if capture.errored {
+            outcome.failed += 1;
+        } else if let Some(request) = capture.capture {
+            enqueue_candidate_capture(ctx, listing_source_domain, request, outcome).await;
+        } else {
+            outcome.skipped += 1;
+        }
+    }
+}
+
+/// Records each removal of a mass removal as scraped without a capture, so its listing stays and
+/// the URL returns at its normal scrape interval, and warns once for the batch.
+async fn hold_mass_removal(
+    removals: Vec<NewRemoval>,
+    mass_removal: MassRemoval,
+    ctx: &ScrapeDomainContext,
+    listing_source_domain: &str,
+    outcome: &mut ScrapeDomainOutcome,
+) {
+    let mut evidence_kinds = BTreeMap::<&str, usize>::new();
+    for removal in &removals {
+        *evidence_kinds
+            .entry(removal.removal.evidence.kind.as_str())
+            .or_default() += 1;
+    }
+    let evidence_kinds = evidence_kinds
+        .iter()
+        .map(|(kind, count)| format!("{kind}={count}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sample_urls = removals
+        .iter()
+        .take(3)
+        .map(|removal| removal.candidate.url.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    warn!(
+        event = "crawler.scraper.mass_removal_held",
+        domain_id = %ctx.domain_id,
+        listing_source_id = %removals[0].candidate.listing_source_id,
+        listing_source_domain,
+        removals = mass_removal.removals(),
+        scraped_urls = mass_removal.scraped_urls(),
+        share = mass_removal.share(),
+        evidence_kinds = %evidence_kinds,
+        sample_urls = %sample_urls,
+        "Holding back every removal of a scraper batch that would remove most of the URLs it scraped"
+    );
+    let message = format!(
+        "removal held by the mass-removal guard: {} of the {} URLs the batch scraped would have been removed",
+        mass_removal.removals(),
+        mass_removal.scraped_urls()
+    );
+    for removal in removals {
+        persist_scraped_without_capture(
+            &removal.candidate,
+            ctx,
+            MASS_REMOVAL_HELD_OUTCOME_KIND,
+            &message,
+        )
+        .await;
+        outcome.skipped += 1;
+    }
+}
+
+/// Queues a candidate's capture and counts the candidate as succeeded, or as failed when the
+/// collector is gone.
+async fn enqueue_candidate_capture(
+    ctx: &ScrapeDomainContext,
+    listing_source_domain: &str,
+    request: RawCaptureRequest,
+    outcome: &mut ScrapeDomainOutcome,
+) {
+    match enqueue_raw_capture(&ctx.command_tx, listing_source_domain, request).await {
+        Ok(queue_wait) => {
+            outcome.succeeded += 1;
+
+            if queue_wait >= Duration::from_millis(10) {
+                warn!(
+                    event = "crawler.raw_capture.enqueue_wait",
+                    queue_wait_ms = queue_wait.as_millis(),
+                    "Raw ProductListing capture queue applied backpressure"
+                );
+            }
+        }
+        Err(_) => {
+            error!("Command channel closed while scraper worker is running");
+            outcome.failed += 1;
+        }
+    }
 }
 
 async fn run_raw_capture_collector(
@@ -1934,6 +2171,8 @@ impl CrawlerCronJob {
             mpsc::channel::<QueuedRawCapture>(self.config.effective_push_queue_capacity());
 
         let budget_exhausted_listing_sources = Arc::new(Mutex::new(HashSet::new()));
+        let mass_removal_confirmed_domains =
+            Arc::new(self.config.mass_removal_confirmed_domains.clone());
 
         let mut unique_listing_source_ids = HashSet::new();
         let mut total = 0usize;
@@ -1971,6 +2210,8 @@ impl CrawlerCronJob {
                         Arc::clone(&budget_exhausted_listing_sources);
                     let batch_time_budget = self.config.scraper_domain_batch_time_budget;
                     let stop = self.stop.clone();
+                    let mass_removal_confirmed_domains =
+                        Arc::clone(&mass_removal_confirmed_domains);
                     let span = tracing::info_span!("scrape_domain", domain_id = %domain);
                     active_domains.insert(domain);
                     total += candidates.len();
@@ -1986,6 +2227,7 @@ impl CrawlerCronJob {
                                 domain_id: domain,
                                 batch_time_budget,
                                 stop,
+                                mass_removal_confirmed_domains,
                             };
 
                             ScheduledScrapeDomainOutcome {
@@ -2691,6 +2933,40 @@ mod tests {
         )
     }
 
+    /// `outcome` with its new removal captured at once, as a batch whose mass-removal guard
+    /// admits it does.
+    async fn capture_new_removal_now(
+        outcome: ScrapeCandidateOutcome,
+        ctx: &ScrapeDomainContext,
+    ) -> ScrapeCandidateOutcome {
+        match outcome.removal {
+            Some(CandidateRemoval::New(removal)) => capture_new_removal(ctx, *removal).await,
+            _ => outcome,
+        }
+    }
+
+    /// Scrapes `candidate` alone and captures a new removal at once.
+    async fn scrape_candidate(
+        candidate: ScraperCandidate,
+        ctx: &ScrapeDomainContext,
+    ) -> ScrapeCandidateOutcome {
+        capture_new_removal_now(
+            scrape_candidate_in_batch(candidate, ctx, &DomainBatchEvidence::default()).await,
+            ctx,
+        )
+        .await
+    }
+
+    /// The removal of `candidate` a 404 answer showed.
+    fn gone(candidate: &ScraperCandidate) -> ListingRemoval {
+        ListingRemoval {
+            url: candidate.url.clone(),
+            details: "HTTP status 404".to_owned(),
+            evidence: RemovalEvidence::gone_status(404),
+            removed_by_templates: Vec::new(),
+        }
+    }
+
     fn scrape_candidate_context(
         scraper_candidates: MockScraperCandidateService,
         scraper_service: MockScraperService,
@@ -2706,6 +2982,7 @@ mod tests {
             domain_id: crate::CrawlerDomainId::new(),
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             stop: CronStop::default(),
+            mass_removal_confirmed_domains: Arc::default(),
         }
     }
 
@@ -2731,6 +3008,7 @@ mod tests {
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             stop: CronStop::default(),
+            mass_removal_confirmed_domains: Arc::default(),
         };
 
         let deferred = scrape_domain_candidates(vec![candidate], first_context).await;
@@ -2757,6 +3035,7 @@ mod tests {
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             stop: CronStop::default(),
+            mass_removal_confirmed_domains: Arc::default(),
         };
 
         let mut retry_candidate = scraper_candidate(
@@ -2810,6 +3089,7 @@ mod tests {
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             stop: CronStop::default(),
+            mass_removal_confirmed_domains: Arc::default(),
         };
 
         let outcome = scrape_domain_candidates(vec![candidate], context).await;
@@ -2850,6 +3130,7 @@ mod tests {
             domain_id,
             batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
             stop: CronStop::default(),
+            mass_removal_confirmed_domains: Arc::default(),
         };
 
         let outcome = scrape_domain_candidates(vec![candidate], context).await;
@@ -3213,7 +3494,11 @@ mod tests {
             .once()
             .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(forgetting, MockScraperService::new());
-        let outcome = handle_verified_removal(&candidate, &ctx, Vec::new()).await;
+        let outcome = capture_new_removal_now(
+            handle_verified_removal(&candidate, &ctx, gone(&candidate)).await,
+            &ctx,
+        )
+        .await;
         let request = outcome.capture.expect("removal must be queued for capture");
 
         let mut raw_capture = MockProductListingRawCaptureService::new();
@@ -3461,10 +3746,14 @@ mod tests {
             .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(scraper_candidates, MockScraperService::new());
 
-        let outcome = handle_successful_scrape(
-            &candidate,
+        let outcome = capture_new_removal_now(
+            handle_successful_scrape(
+                &candidate,
+                &ctx,
+                redirected_product(time::OffsetDateTime::now_utc(), &effective_url),
+            )
+            .await,
             &ctx,
-            redirected_product(time::OffsetDateTime::now_utc(), &effective_url),
         )
         .await;
 
@@ -3506,10 +3795,14 @@ mod tests {
             .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(scraper_candidates, MockScraperService::new());
 
-        let outcome = handle_successful_scrape(
-            &candidate,
+        let outcome = capture_new_removal_now(
+            handle_successful_scrape(
+                &candidate,
+                &ctx,
+                redirected_product(time::OffsetDateTime::now_utc(), &effective_url),
+            )
+            .await,
             &ctx,
-            redirected_product(time::OffsetDateTime::now_utc(), &effective_url),
         )
         .await;
 
@@ -3608,7 +3901,11 @@ mod tests {
             .withf(|_, _, expected| *expected == Some(&[5_u8; 32][..]))
             .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         let ctx = scrape_candidate_context(forgetting, MockScraperService::new());
-        let outcome = handle_verified_removal(&candidate, &ctx, Vec::new()).await;
+        let outcome = capture_new_removal_now(
+            handle_verified_removal(&candidate, &ctx, gone(&candidate)).await,
+            &ctx,
+        )
+        .await;
         let request = outcome.capture.expect("removal must be queued for capture");
 
         let mut raw_capture = MockProductListingRawCaptureService::new();
@@ -3667,6 +3964,7 @@ mod tests {
                     scrape_outcome(Err(ScraperError::product_listing_removed(
                         url::Url::parse(URL).unwrap(),
                         "HTTP 404".to_owned(),
+                        RemovalEvidence::gone_status(404),
                         Vec::new(),
                     )))
                 })
@@ -4086,6 +4384,7 @@ mod tests {
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
                 stop: CronStop::default(),
+                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4427,6 +4726,7 @@ mod tests {
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
                 stop: CronStop::default(),
+                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4489,6 +4789,7 @@ mod tests {
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
                 stop: CronStop::default(),
+                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4564,6 +4865,7 @@ mod tests {
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
                 stop: CronStop::default(),
+                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4616,6 +4918,7 @@ mod tests {
                 domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
                 stop: CronStop::default(),
+                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4653,6 +4956,7 @@ mod tests {
             domain_id,
             batch_time_budget,
             stop: CronStop::default(),
+            mass_removal_confirmed_domains: Arc::default(),
         }
     }
 
@@ -4925,6 +5229,185 @@ mod tests {
         );
 
         job.run_scraper_once().await;
+    }
+
+    mod mass_removal_guard {
+        use super::*;
+
+        const HOST: &str = "removals.example";
+
+        fn removal_sha256(url: &url::Url) -> Vec<u8> {
+            crawler_verified_removal_input(url)
+                .and_then(|input| input.hash())
+                .map(|hash| hash.as_bytes().to_vec())
+                .unwrap_or_else(|error| panic!("test removal hash: {error}"))
+        }
+
+        /// A shop that answers the first `removed` product URLs of the batch with 404 and serves
+        /// the rest unchanged.
+        fn shop_removing_the_first(removed: usize) -> MockScraperService {
+            let mut scraper_service = MockScraperService::new();
+            scraper_service.expect_scrape().returning(move |request| {
+                let index: usize = request
+                    .url
+                    .path()
+                    .rsplit('/')
+                    .next()
+                    .and_then(|index| index.parse().ok())
+                    .unwrap_or_else(|| panic!("test URL {}", request.url));
+                let result = if index <= removed {
+                    Err(ScraperError::product_listing_removed(
+                        request.url,
+                        "HTTP status 404",
+                        RemovalEvidence::gone_status(404),
+                        Vec::new(),
+                    ))
+                } else {
+                    Ok(None)
+                };
+                Box::pin(async move { scrape_outcome(result) })
+            });
+            scraper_service
+        }
+
+        /// A batch context whose operator confirmed the mass removals of `confirmed_domains`, as
+        /// `CRAWLER_MASS_REMOVAL_CONFIRMED_DOMAINS` lists them.
+        fn batch_context(
+            scraper_candidates: MockScraperCandidateService,
+            scraper_service: MockScraperService,
+            domain_id: crate::CrawlerDomainId,
+            confirmed_domains: &str,
+        ) -> (ScrapeDomainContext, mpsc::Receiver<QueuedRawCapture>) {
+            let (command_tx, command_rx) = mpsc::channel(64);
+            let ctx = ScrapeDomainContext {
+                command_tx,
+                mass_removal_confirmed_domains: Arc::new(
+                    crate::service::cron::mass_removal_confirmed_domains(Some(confirmed_domains))
+                        .unwrap_or_else(|error| panic!("confirmed domains: {error}")),
+                ),
+                ..domain_context(
+                    scraper_candidates,
+                    scraper_service,
+                    domain_id,
+                    CrawlerCronConfig::default().scraper_domain_batch_time_budget,
+                )
+            };
+            (ctx, command_rx)
+        }
+
+        fn forgetting(times: usize) -> MockScraperCandidateService {
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_forget_capture_before_removal()
+                .times(times)
+                .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            scraper_candidates
+                .expect_mark_scraped_without_capture()
+                .never();
+            scraper_candidates
+        }
+
+        fn queued_removals(command_rx: &mut mpsc::Receiver<QueuedRawCapture>) -> usize {
+            std::iter::from_fn(|| command_rx.try_recv().ok())
+                .filter(|queued| {
+                    matches!(
+                        queued.request.on_success,
+                        RawCaptureSuccessAction::MarkRemoved { .. }
+                    )
+                })
+                .count()
+        }
+
+        /// A fault that makes every page of a shop look removed must not withdraw its catalogue:
+        /// the batch keeps every listing and records each URL as scraped without a capture.
+        #[tokio::test]
+        async fn should_hold_every_new_removal_when_a_batch_would_remove_most_of_its_urls() {
+            let (candidates, domain_id) = domain_batch(HOST, 12);
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_forget_capture_before_removal()
+                .never();
+            scraper_candidates
+                .expect_mark_scraped_without_capture()
+                .times(12)
+                .withf(|_, _, kind, message, _| {
+                    kind == MASS_REMOVAL_HELD_OUTCOME_KIND && message.contains("12 of the 12")
+                })
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let (ctx, mut command_rx) = batch_context(
+                scraper_candidates,
+                shop_removing_the_first(12),
+                domain_id,
+                "",
+            );
+
+            let outcome = scrape_domain_candidates(candidates, ctx).await;
+
+            assert_eq!(queued_removals(&mut command_rx), 0);
+            assert_eq!((outcome.succeeded, outcome.skipped), (0, 12));
+            assert_eq!(outcome.failed, 0);
+        }
+
+        #[tokio::test]
+        async fn should_capture_the_removals_of_a_batch_that_keeps_half_of_its_urls() {
+            let (candidates, domain_id) = domain_batch(HOST, 20);
+            let (ctx, mut command_rx) =
+                batch_context(forgetting(10), shop_removing_the_first(10), domain_id, "");
+
+            let outcome = scrape_domain_candidates(candidates, ctx).await;
+
+            assert_eq!(queued_removals(&mut command_rx), 10);
+            assert_eq!((outcome.succeeded, outcome.skipped), (10, 10));
+        }
+
+        #[tokio::test]
+        async fn should_capture_a_mass_removal_an_operator_confirmed_for_the_domain() {
+            let (candidates, domain_id) = domain_batch(HOST, 12);
+            let (ctx, mut command_rx) = batch_context(
+                forgetting(12),
+                shop_removing_the_first(12),
+                domain_id,
+                &format!("WWW.{HOST}"),
+            );
+
+            let outcome = scrape_domain_candidates(candidates, ctx).await;
+
+            assert_eq!(queued_removals(&mut command_rx), 12);
+            assert_eq!(outcome.succeeded, 12);
+        }
+
+        /// A shop accumulates pages whose removal is already captured; their rechecks are no live
+        /// pages, so they do not dilute a batch whose remaining pages would all be removed.
+        #[tokio::test]
+        async fn should_not_count_rechecked_removals_among_the_urls_a_batch_scraped() {
+            let (mut candidates, domain_id) = domain_batch(HOST, 30);
+            for candidate in candidates.iter_mut().skip(10) {
+                candidate.last_captured_raw_input_sha256 = Some(removal_sha256(&candidate.url));
+            }
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_removed()
+                .times(20)
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            scraper_candidates
+                .expect_forget_capture_before_removal()
+                .never();
+            scraper_candidates
+                .expect_mark_scraped_without_capture()
+                .times(10)
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let (ctx, mut command_rx) = batch_context(
+                scraper_candidates,
+                shop_removing_the_first(30),
+                domain_id,
+                "",
+            );
+
+            let outcome = scrape_domain_candidates(candidates, ctx).await;
+
+            assert_eq!(queued_removals(&mut command_rx), 0);
+            assert_eq!((outcome.succeeded, outcome.skipped), (20, 10));
+        }
     }
 
     mod schema_review_wait_backoff {
@@ -5762,6 +6245,7 @@ mod tests {
                 domain_id: candidate.domain_id,
                 batch_time_budget: CrawlerCronConfig::default().scraper_domain_batch_time_budget,
                 stop: CronStop::default(),
+                mass_removal_confirmed_domains: Arc::default(),
             }
         }
 

@@ -15,6 +15,7 @@ use crawler::spider::classification::url_pattern_service::{
     MANUAL_URL_PATTERN_REASON, UrlPatternAuthoring, UrlPatternServiceImpl,
 };
 use crawler::spider::crawl_frontier_repository::CrawlFrontierRepositoryImpl;
+use crawler::spider::crawled_root::CrawledRoot;
 use crawler::spider::discovery::frontier::{CrawlDiscovery, CrawlKind};
 use crawler::spider::discovery::website_spider::{
     CrawlCompletion, CrawlDiagnostics, CrawlPace, CrawledPage, MockSpider, SpiderCrawl,
@@ -208,7 +209,7 @@ impl ManualCrawlFixture {
     async fn record_review_wait(&self, review_id: CrawlerReviewId) -> UrlPatternReviewWaitWrite {
         SpiderCandidateServiceImpl::new(self.pool.clone())
             .mark_crawl_awaiting_url_pattern_review(
-                &self.domain_id,
+                &CrawledRoot::new(self.domain_id, DOMAIN),
                 &review_id,
                 None,
                 OffsetDateTime::now_utc() + SPIDER_RECRAWL_INTERVAL,

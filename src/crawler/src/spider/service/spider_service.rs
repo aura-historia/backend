@@ -14,6 +14,7 @@ use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
 use crate::spider::crawl_frontier_repository::{CrawlFrontierRepository, KnownUrls};
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds};
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
@@ -49,8 +50,9 @@ pub struct SpiderRunResult {
     pub known_product_urls_skipped: usize,
 }
 
-/// What the spider reported about a crawl once it ended.
+/// A crawl that ended: the root it crawled and what the spider reported about it.
 struct EndedCrawl {
+    root: CrawledRoot,
     kind: CrawlKind,
     diagnostics: CrawlDiagnostics,
     /// `None` when the crawl could not tell what it left unvisited.
@@ -107,6 +109,8 @@ pub enum SpiderServiceError {
         diagnostics: Box<CrawlDiagnostics>,
     },
 
+    /// The crawl delivered pages, but too few to classify their URL pattern; `diagnostics`
+    /// carries what the crawl reported once it ended.
     #[error(
         "Cannot classify product URL pattern for crawl-root URL '{crawl_root_url}' at stage '{stage}' because the inference sample has {sample_size} URL(s), minimum is {min_sample_size}"
     )]
@@ -115,6 +119,7 @@ pub enum SpiderServiceError {
         stage: &'static str,
         sample_size: usize,
         min_sample_size: usize,
+        diagnostics: Box<CrawlDiagnostics>,
     },
 
     /// The crawl delivered pages, but the domain's product URL pattern
@@ -150,6 +155,20 @@ pub enum SpiderServiceError {
         total_links: usize,
         completion: CrawlCompletion,
     },
+
+    /// The run found no product URL ([`Self::found_no_product_urls`]), but bot challenges were
+    /// most of the pages its crawl received: the shop's bot protection, not a missing catalogue,
+    /// kept the product pages from the crawl, so the run fails as bot protection
+    /// (`docs/crawler/networking.md#bot-challenges`). `failure` is the failure it replaces.
+    #[error(
+        "spider run found no product URL after {bot_challenge_pages} of the {pages_received} page(s) its crawl received were bot challenges"
+    )]
+    BotChallengedCrawl {
+        bot_challenge_pages: usize,
+        pages_received: usize,
+        #[source]
+        failure: Box<SpiderServiceError>,
+    },
 }
 
 impl SpiderServiceError {
@@ -167,6 +186,27 @@ impl SpiderServiceError {
         match self {
             SpiderServiceError::RateLimitedCrawl { rate_limit, .. } => Some(*rate_limit),
             _ => None,
+        }
+    }
+
+    /// The failure with the diagnostics its crawl reported once it ended, also when bot
+    /// challenges took the blame for it ([`Self::BotChallengedCrawl`]). A classification stage
+    /// refuses a too small inference sample before it knows them: at the threshold, the crawl
+    /// is still running.
+    fn with_crawl_diagnostics(mut self, crawl_diagnostics: &CrawlDiagnostics) -> Self {
+        self.attach_crawl_diagnostics(crawl_diagnostics);
+        self
+    }
+
+    fn attach_crawl_diagnostics(&mut self, crawl_diagnostics: &CrawlDiagnostics) {
+        match self {
+            SpiderServiceError::InsufficientInferenceSample { diagnostics, .. } => {
+                **diagnostics = crawl_diagnostics.clone();
+            }
+            SpiderServiceError::BotChallengedCrawl { failure, .. } => {
+                failure.attach_crawl_diagnostics(crawl_diagnostics);
+            }
+            _ => {}
         }
     }
 
@@ -255,23 +295,29 @@ impl SpiderServiceImpl {
         })
     }
 
-    /// Keeps what the crawl left unvisited for the domain's next crawl. A failed write leaves
-    /// the previous frontier, which the next crawl revisits at worst.
+    /// Keeps what the crawl of `root` left unvisited for the domain's next crawl. A failed
+    /// write leaves the previous frontier, which the next crawl revisits at worst; a domain that
+    /// moved to another root keeps the empty frontier the move left.
     async fn replace_frontier_best_effort(
         &self,
-        domain_id: &CrawlerDomainId,
+        root: &CrawledRoot,
         discovery: Option<&CrawlDiscovery>,
     ) {
         let Some(discovery) = discovery else {
             warn!("Spider crawl reported no frontier; keeping the previous one");
             return;
         };
-        if let Err(error) = self
+        match self
             .frontier_repository
-            .replace_frontier(domain_id, &discovery.frontier)
+            .replace_frontier(root, &discovery.frontier)
             .await
         {
-            warn!(error = ?error, "Failed to persist the crawl frontier");
+            Ok(CrawlOutcomeWrite::Recorded) => {}
+            Ok(CrawlOutcomeWrite::RootMoved) => debug!(
+                frontier_urls = discovery.frontier.len(),
+                "The domain moved to another crawl root during the crawl; its frontier is not kept"
+            ),
+            Err(error) => warn!(error = ?error, "Failed to persist the crawl frontier"),
         }
     }
 
@@ -423,6 +469,8 @@ impl SpiderServiceImpl {
                 stage,
                 sample_size: state.inference_sample.len(),
                 min_sample_size: self.config.min_inference_sample_urls,
+                // Known once the crawl has ended; the run attaches them (`with_crawl_diagnostics`).
+                diagnostics: Box::default(),
             });
         }
 
@@ -610,20 +658,23 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_mark_as_crawled_best_effort",
         skip(self),
-        fields(listing_source_id = %listing_source_id, crawl_root_url = %crawl_root_url)
+        fields(listing_source_id = %listing_source_id, crawl_root_host = %root.crawl_root_host)
     )]
     async fn mark_as_crawled_best_effort(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
-        crawl_root_url: &str,
+        root: &CrawledRoot,
     ) {
-        if let Err(error) = self
+        match self
             .pattern_service
-            .mark_as_crawled(listing_source_id, domain_id)
+            .mark_as_crawled(listing_source_id, root)
             .await
         {
-            warn!(error = ?error, "Failed to mark ListingSource as crawled");
+            Ok(CrawlOutcomeWrite::Recorded) => {}
+            Ok(CrawlOutcomeWrite::RootMoved) => debug!(
+                "The domain moved to another crawl root during the crawl; its full crawl is not recorded"
+            ),
+            Err(error) => warn!(error = ?error, "Failed to mark ListingSource as crawled"),
         }
     }
 
@@ -703,6 +754,15 @@ impl SpiderServiceImpl {
                 kind: CrawlFailureKind::InvalidUrl,
                 reason: "configured crawler domain URL is invalid",
                 source: None,
+                root_reroot: None,
+            })
+        })?;
+        let root = CrawledRoot::of_root_url(*domain_id, &configured_root).ok_or_else(|| {
+            SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::InvalidUrl,
+                reason: "configured crawler domain URL has no host",
+                source: None,
+                root_reroot: None,
             })
         })?;
         let seeds = self.crawl_seeds(domain_id, kind).await?;
@@ -739,6 +799,7 @@ impl SpiderServiceImpl {
                 ..CrawlDiagnostics::default()
             });
         let ended = EndedCrawl {
+            root,
             kind,
             discovery: crawl.discovery.await.ok(),
             diagnostics,
@@ -752,6 +813,7 @@ impl SpiderServiceImpl {
             crawl_root_url,
         )
         .await
+        .map_err(|error| error.with_crawl_diagnostics(&ended.diagnostics))
         .map_err(|error| match rate_limit {
             Some(rate_limit) => SpiderServiceError::RateLimitedCrawl {
                 rate_limit,
@@ -791,7 +853,10 @@ impl SpiderServiceImpl {
         // fetched still takes the stored product pages the crawl skipped.
         let judged_on_fetched_pages =
             skipped_known_products == 0 || !state.pattern_loaded_from_store;
-        if judged_on_fetched_pages {
+        // Pages that were mostly bot challenges are no evidence against a stored pattern either:
+        // the run fails as bot protection ([`blame_bot_challenges`]) instead of opening a
+        // URL-pattern review or running inference on challenges.
+        if judged_on_fetched_pages && !mostly_bot_challenges(diagnostics) {
             self.reclassify_if_persisted_pattern_failed(
                 &mut state,
                 listing_source_id,
@@ -819,7 +884,8 @@ impl SpiderServiceImpl {
     /// Judges what the ended crawl delivered and keeps what it left unvisited for the next
     /// crawl. A run that failed only because its pages yield no product URL
     /// ([`SpiderServiceError::found_no_product_urls`]) keeps it too, so the next crawl reaches
-    /// further; any other failed run keeps the previous frontier
+    /// further, and fails as bot protection when those pages were mostly bot challenges
+    /// ([`blame_bot_challenges`]); any other failed run keeps the previous frontier
     /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     async fn finish_crawl(
         &self,
@@ -830,6 +896,7 @@ impl SpiderServiceImpl {
         crawl_root_url: &str,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let EndedCrawl {
+            root,
             kind,
             discovery,
             diagnostics,
@@ -849,15 +916,14 @@ impl SpiderServiceImpl {
             Err(error) => error.found_no_product_urls(),
         };
         if keeps_its_frontier {
-            self.replace_frontier_best_effort(domain_id, discovery)
-                .await;
+            self.replace_frontier_best_effort(root, discovery).await;
         }
         if let Err(error) = &judged
             && keeps_its_frontier
         {
             log_failed_run_frontier(error, diagnostics, discovery);
         }
-        let state = judged?;
+        let state = judged.map_err(|failure| blame_bot_challenges(failure, diagnostics))?;
         let completion = diagnostics.completion;
 
         let product_pattern = state
@@ -871,7 +937,7 @@ impl SpiderServiceImpl {
         // classifies its stored URLs, so no second crawl from the root is due.
         // An incremental crawl skipped known product pages, so it is never one.
         if completion.is_full() && kind == CrawlKind::Full {
-            self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
+            self.mark_as_crawled_best_effort(listing_source_id, root)
                 .await;
         }
 
@@ -1036,6 +1102,8 @@ fn log_failed_run_frontier(
         seeds = diagnostics.seeds,
         frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
         root_reroot = ?diagnostics.root_reroot,
+        pages_received = diagnostics.pages_received,
+        bot_challenge_pages = diagnostics.bot_challenge_pages,
         "Spider run found no product URL among the pages it delivered"
     );
 }
@@ -1080,6 +1148,32 @@ fn crawl_outcome_message(
     }
 }
 
+/// A run that found no product URL ([`SpiderServiceError::found_no_product_urls`]) among pages
+/// that were mostly bot challenges met the shop's bot protection, not a shop without a catalogue,
+/// and fails as such; below that share it keeps its own failure
+/// (`docs/crawler/networking.md#bot-challenges`).
+fn blame_bot_challenges(
+    failure: SpiderServiceError,
+    diagnostics: &CrawlDiagnostics,
+) -> SpiderServiceError {
+    if !failure.found_no_product_urls() || !mostly_bot_challenges(diagnostics) {
+        return failure;
+    }
+    SpiderServiceError::BotChallengedCrawl {
+        bot_challenge_pages: diagnostics.bot_challenge_pages,
+        pages_received: diagnostics.pages_received,
+        failure: Box::new(failure),
+    }
+}
+
+/// Whether bot challenges were more than half of the pages the crawl received.
+fn mostly_bot_challenges(diagnostics: &CrawlDiagnostics) -> bool {
+    let other_pages = diagnostics
+        .pages_received
+        .saturating_sub(diagnostics.bot_challenge_pages);
+    diagnostics.bot_challenge_pages > other_pages
+}
+
 #[cfg(test)]
 mod tests {
     use crate::spider::classification::url_metadata::UrlClass;
@@ -1109,6 +1203,7 @@ mod service_tests {
         DecidedUrlPattern, MockUrlPatternService,
     };
     use crate::spider::crawl_frontier_repository::MockCrawlFrontierRepository;
+    use crate::spider::discovery::page_status::StatusCounts;
     use crate::spider::discovery::website_spider::{
         CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
@@ -1139,7 +1234,7 @@ mod service_tests {
             .returning(|_| Box::pin(async { Ok(KnownUrls::default()) }));
         repository
             .expect_replace_frontier()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         Arc::new(repository)
     }
 
@@ -1184,7 +1279,7 @@ mod service_tests {
         mock.expect_mark_as_crawled()
             .with(mockall::predicate::always(), mockall::predicate::always())
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
     }
 
     fn setup_mock_crawl<I, S>(mock: &mut MockSpider, crawl_root_url: &'static str, paths: I)
@@ -1312,7 +1407,7 @@ mod service_tests {
                     .expect_replace_frontier()
                     .withf(move |_, frontier| frontier == expected.as_slice())
                     .times(1)
-                    .returning(|_, _| Box::pin(async { Ok(()) }));
+                    .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
             }
             None => {
                 repository.expect_replace_frontier().times(0);
@@ -1755,6 +1850,139 @@ mod service_tests {
         );
     }
 
+    /// A run whose pages were mostly bot challenges met the shop's bot protection: it fails as
+    /// such instead of with the no-product-URL failure it would have recorded, which stays its
+    /// source, and still keeps its frontier, the challenged pages among it.
+    #[tokio::test]
+    async fn should_fail_as_bot_protection_and_replace_the_frontier_when_most_pages_were_bot_challenges()
+     {
+        let mostly_challenges = || CrawlDiagnostics {
+            pages_received: 20,
+            bot_challenge_pages: 11,
+            ..CrawlDiagnostics::default()
+        };
+        let runs = [
+            (
+                item_pages(),
+                classifying_pattern_service(Some(Ok(Some(Regex::new(r"/product/").unwrap())))),
+                url_repository_storing(1),
+            ),
+            (
+                item_pages(),
+                classifying_pattern_service(Some(Ok(None))),
+                url_repository_storing(1),
+            ),
+            (
+                vec!["/".to_string(), "/category/1".to_string()],
+                classifying_pattern_service(None),
+                url_repository_storing(0),
+            ),
+        ];
+        for (paths, pattern_service, url_repository) in runs {
+            let error = run_failing_crawl_with_frontier(
+                paths,
+                mostly_challenges(),
+                pattern_service,
+                url_repository,
+                true,
+            )
+            .await;
+
+            let SpiderServiceError::BotChallengedCrawl {
+                bot_challenge_pages: 11,
+                pages_received: 20,
+                failure,
+            } = &error
+            else {
+                panic!("{error:?}");
+            };
+            assert!(failure.found_no_product_urls(), "{failure:?}");
+        }
+    }
+
+    /// A stored pattern that matched none of the pages of a run that were mostly bot challenges
+    /// is not classified again: the challenges are no evidence against it, so the run opens no
+    /// URL-pattern review, runs no inference, stores its pages under the stored pattern and fails
+    /// as bot protection.
+    #[tokio::test]
+    async fn should_not_classify_a_stored_pattern_again_when_most_pages_were_bot_challenges() {
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        pattern_service.expect_classify_and_save().times(0);
+        pattern_service.expect_mark_as_crawled().times(0);
+
+        let error = run_failing_crawl_with_frontier(
+            item_pages(),
+            received(20, 11),
+            pattern_service,
+            url_repository_storing(1),
+            true,
+        )
+        .await;
+
+        let SpiderServiceError::BotChallengedCrawl { failure, .. } = &error else {
+            panic!("{error:?}");
+        };
+        assert!(
+            matches!(**failure, SpiderServiceError::NoProductUrls { .. }),
+            "{failure:?}"
+        );
+    }
+
+    fn no_product_urls_failure() -> SpiderServiceError {
+        SpiderServiceError::NoProductUrls {
+            crawl_root_url: "https://example.com".to_string(),
+            total_links: 20,
+            product_pattern: "/product/".to_string(),
+            completion: CrawlCompletion::Completed,
+        }
+    }
+
+    fn received(pages_received: usize, bot_challenge_pages: usize) -> CrawlDiagnostics {
+        CrawlDiagnostics {
+            pages_received,
+            bot_challenge_pages,
+            ..CrawlDiagnostics::default()
+        }
+    }
+
+    /// Bot challenges explain a run without product URLs only when they were more than half of
+    /// its pages; below that share, and for any other failure, the run keeps its own.
+    #[test]
+    fn should_blame_bot_challenges_only_when_they_were_most_pages_of_a_run_without_product_urls() {
+        let blamed = blame_bot_challenges(no_product_urls_failure(), &received(20, 11));
+        assert!(
+            matches!(blamed, SpiderServiceError::BotChallengedCrawl { .. }),
+            "{blamed:?}"
+        );
+
+        for diagnostics in [received(20, 10), received(20, 0), received(0, 0)] {
+            let kept = blame_bot_challenges(no_product_urls_failure(), &diagnostics);
+            assert!(
+                matches!(kept, SpiderServiceError::NoProductUrls { .. }),
+                "{diagnostics:?}: {kept:?}"
+            );
+        }
+        let challenged_root = blame_bot_challenges(
+            SpiderServiceError::CrawlFailed {
+                crawl_root_url: "https://example.com".to_string(),
+                kind: CrawlFailureKind::BotProtection,
+                total_links: 1,
+                diagnostics: Box::new(received(1, 1)),
+            },
+            &received(1, 1),
+        );
+        assert!(
+            matches!(
+                challenged_root,
+                SpiderServiceError::CrawlFailed {
+                    kind: CrawlFailureKind::BotProtection,
+                    ..
+                }
+            ),
+            "{challenged_root:?}"
+        );
+    }
+
     /// A run that delivered no usable page (a challenged root, a rate limit before any page, an
     /// empty crawl) leaves the previous frontier in place, whatever its failure kind.
     #[tokio::test]
@@ -1819,6 +2047,7 @@ mod service_tests {
                     kind: CrawlFailureKind::ConnectError,
                     reason: "crawl root unreachable",
                     source: None,
+                    root_reroot: None,
                 })
             })
         });
@@ -2225,7 +2454,7 @@ mod service_tests {
             });
         mock_pattern_service
             .expect_mark_as_crawled()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         let stored: StoredBatches = Arc::default();
         let recorded = Arc::clone(&stored);
         mock_url_repo.expect_upsert_links_batch().returning(
@@ -3233,6 +3462,7 @@ mod service_tests {
                 stage: "end_of_crawl",
                 sample_size: 2,
                 min_sample_size: 20,
+                ..
             }) if url == crawl_root_url
         ));
     }
@@ -3519,8 +3749,170 @@ mod service_tests {
                 stage: "refresh",
                 sample_size: 2,
                 min_sample_size: 20,
+                ..
             }) if url == crawl_root_url
         ));
+    }
+
+    /// The diagnostics of a crawl that a shop slowed with `Crawl-delay: 10` and whose links
+    /// mostly left the crawl's host.
+    fn slowed_crawl_leaving_its_host() -> CrawlDiagnostics {
+        CrawlDiagnostics {
+            completion: CrawlCompletion::HardTimeoutTruncated,
+            pages_received: 9,
+            accepted: 2,
+            rejected_host: 7,
+            status_counts: StatusCounts {
+                success: 8,
+                client_error: 1,
+                ..StatusCounts::default()
+            },
+            robots_crawl_delay_ms: Some(10_000),
+            request_delay_ms: 10_000,
+            ..CrawlDiagnostics::default()
+        }
+    }
+
+    /// The failure of a run on a domain whose stored pattern is `stored_pattern`, whose crawl
+    /// delivers two item pages and ends as `ended`.
+    async fn run_failing_on_a_small_sample(
+        stored_pattern: Option<&'static str>,
+        classify_threshold: usize,
+        ended: CrawlDiagnostics,
+    ) -> SpiderServiceError {
+        let crawl_root_url = "https://example.com";
+        let mut spider = MockSpider::new();
+        setup_mock_seeded_crawl_with_diagnostics(
+            &mut spider,
+            first_full_crawl(crawl_root_url),
+            vec!["/item/1".to_string(), "/item/2".to_string()],
+            CrawlDiscovery::default(),
+            ended,
+        );
+        let mut pattern_service = MockUrlPatternService::new();
+        pattern_service
+            .expect_load_pattern_for_domain()
+            .return_once(move |_, _| {
+                Box::pin(
+                    async move { Ok(stored_pattern.map(|pattern| Regex::new(pattern).unwrap())) },
+                )
+            });
+        pattern_service.expect_classify_and_save().times(0);
+        pattern_service.expect_mark_as_crawled().times(0);
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(spider),
+            Box::new(pattern_service),
+            Arc::new(url_repository_storing(0)),
+            no_frontier(),
+        );
+
+        service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                crawl_root_url,
+                classify_threshold,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await
+            .expect_err("the run fails")
+    }
+
+    /// A sample too small to classify fails the run with what its crawl reported once it ended,
+    /// whichever stage refused the sample: the threshold refuses it while the crawl still runs.
+    /// A rate-limit answer that stopped the crawl wraps a failure that still carries them.
+    #[tokio::test]
+    async fn should_carry_the_ended_crawls_diagnostics_when_the_inference_sample_is_too_small() {
+        let rate_limit = RateLimitSignal {
+            status: 429,
+            retry_after: Some(std::time::Duration::from_secs(600)),
+        };
+        let rate_limited = CrawlDiagnostics {
+            completion: CrawlCompletion::RateLimited(rate_limit),
+            rate_limit: Some(rate_limit),
+            ..slowed_crawl_leaving_its_host()
+        };
+        for (stored_pattern, classify_threshold, expected, expected_stage) in [
+            (None, 1, slowed_crawl_leaving_its_host(), "threshold"),
+            (None, 25, slowed_crawl_leaving_its_host(), "end_of_crawl"),
+            (
+                Some(r"/product/"),
+                25,
+                slowed_crawl_leaving_its_host(),
+                "refresh",
+            ),
+            (None, 25, rate_limited, "end_of_crawl"),
+        ] {
+            let failure =
+                run_failing_on_a_small_sample(stored_pattern, classify_threshold, expected.clone())
+                    .await;
+
+            let SpiderServiceError::InsufficientInferenceSample {
+                stage, diagnostics, ..
+            } = failure.cause()
+            else {
+                panic!("{expected_stage}: expected a too small sample, got {failure:?}");
+            };
+            assert_eq!(*stage, expected_stage);
+            assert_eq!(
+                failure.rate_limit(),
+                expected.rate_limit,
+                "{expected_stage}"
+            );
+            assert_eq!(
+                (
+                    diagnostics.completion,
+                    diagnostics.pages_received,
+                    diagnostics.rejected_host,
+                    diagnostics.status_counts,
+                    diagnostics.robots_crawl_delay_ms,
+                ),
+                (
+                    expected.completion,
+                    expected.pages_received,
+                    expected.rejected_host,
+                    expected.status_counts,
+                    expected.robots_crawl_delay_ms,
+                ),
+                "{expected_stage}"
+            );
+        }
+    }
+
+    /// A sample too small to classify among pages that were mostly bot challenges fails as bot
+    /// protection, and the sample failure it replaces still carries what the crawl reported.
+    #[tokio::test]
+    async fn should_carry_the_ended_crawls_diagnostics_when_bot_challenges_take_the_blame() {
+        let challenged = CrawlDiagnostics {
+            bot_challenge_pages: 7,
+            ..slowed_crawl_leaving_its_host()
+        };
+
+        let failure = run_failing_on_a_small_sample(None, 1, challenged).await;
+
+        let SpiderServiceError::BotChallengedCrawl {
+            bot_challenge_pages: 7,
+            pages_received: 9,
+            failure: replaced,
+        } = &failure
+        else {
+            panic!("expected a bot-challenged crawl, got {failure:?}");
+        };
+        let SpiderServiceError::InsufficientInferenceSample { diagnostics, .. } = &**replaced
+        else {
+            panic!("expected a too small sample, got {replaced:?}");
+        };
+        assert_eq!(
+            (
+                diagnostics.pages_received,
+                diagnostics.bot_challenge_pages,
+                diagnostics.rejected_host,
+                diagnostics.robots_crawl_delay_ms,
+            ),
+            (9, 7, 7, Some(10_000))
+        );
     }
 
     /// Pages of a shop whose paths the keywords read as a category, an imprint and an info page,
@@ -3562,7 +3954,7 @@ mod service_tests {
         setup_mock_review_still_pending(&mut mock_pattern_service);
         mock_pattern_service
             .expect_mark_as_crawled()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         let stored = Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = Arc::clone(&stored);
         mock_url_repo.expect_upsert_links_batch().returning(

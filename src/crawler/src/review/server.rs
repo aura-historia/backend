@@ -13,6 +13,7 @@ use crate::review::model::{
     CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
+use crate::review::readers::{ListingSourceOverviewReader, ReviewQueueReader};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
@@ -59,6 +60,8 @@ use source_pages::{EvaluationPayload, parse_review_evaluation_id};
 #[derive(Clone)]
 pub struct ReviewServer {
     repository: CrawlerReviewRepository,
+    review_queue: ReviewQueueReader,
+    listing_sources: ListingSourceOverviewReader,
     domain_administration: Arc<dyn CrawlerDomainAdministration>,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
@@ -80,6 +83,8 @@ impl ReviewServer {
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
         Self {
+            review_queue: ReviewQueueReader::of(&repository),
+            listing_sources: ListingSourceOverviewReader::new(repository.pool().clone()),
             repository,
             domain_administration,
             live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
@@ -204,7 +209,7 @@ impl ReviewServer {
             ("POST", "/api/session") => self.access.create_session(),
             ("POST", "/api/session/logout") => self.access.clear_session(&parsed),
             ("GET", "/api/listing_sources") => {
-                match self.repository.list_listing_sources(200).await {
+                match self.listing_sources.list_listing_sources(200).await {
                     Ok(listing_sources) => HttpResponse::json(200, &listing_sources),
                     Err(err) => internal_error(err),
                 }
@@ -215,7 +220,7 @@ impl ReviewServer {
             ("GET", AGENT_LIMITS_ROUTE) => {
                 HttpResponse::json(200, self.repository.agent_decisions().limits())
             }
-            ("GET", "/api/reviews") => match self.repository.list_reviews(200).await {
+            ("GET", "/api/reviews") => match self.review_queue.list_reviews(200).await {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
                 Err(err) => internal_error(err),
             },

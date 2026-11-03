@@ -5,7 +5,9 @@ mod scraper;
 mod spider;
 mod stop;
 
-pub use config::CrawlerCronConfig;
+pub use config::{
+    CrawlerCronConfig, MASS_REMOVAL_CONFIRMED_DOMAINS_ENV, mass_removal_confirmed_domains,
+};
 pub use job::CrawlerCronJob;
 pub use stop::CronStop;
 

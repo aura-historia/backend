@@ -51,8 +51,13 @@ pub struct RateLimitSignal {
 }
 
 /// Headers whose value `0` says the client's request quota is spent: the
-/// IETF draft's `RateLimit-Remaining` and its common `X-` predecessor.
+/// IETF draft's earlier `RateLimit-Remaining` and its common `X-` predecessor.
 const QUOTA_REMAINING_HEADERS: [&str; 2] = ["ratelimit-remaining", "x-ratelimit-remaining"];
+
+/// The IETF draft's structured `RateLimit` field: a list of the client's quota
+/// policies, each with the quota units it has left as its `r` parameter, such
+/// as `"default";r=0;t=30`.
+const QUOTA_POLICIES_HEADER: &str = "ratelimit";
 
 impl RateLimitSignal {
     /// The rate-limit answer a page with `status` and the response `headers`
@@ -74,13 +79,82 @@ impl RateLimitSignal {
     }
 }
 
+/// Whether `headers` say a quota of the client is spent, in either header
+/// style. A malformed field or a value that does not parse says nothing.
 fn quota_spent(headers: &HeaderMap) -> bool {
-    QUOTA_REMAINING_HEADERS.iter().any(|name| {
+    let remaining_spent = QUOTA_REMAINING_HEADERS.iter().any(|name| {
         headers
             .get(*name)
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.trim() == "0")
-    })
+    });
+    remaining_spent || policies_field(headers).is_some_and(|field| names_a_spent_policy(&field))
+}
+
+/// The `RateLimit` field value with its field lines combined, as a
+/// structured-field List is parsed; none when a line is not text.
+fn policies_field(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get_all(QUOTA_POLICIES_HEADER)
+        .iter()
+        .map(|line| line.to_str().ok())
+        .collect::<Option<Vec<_>>>()
+        .map(|lines| lines.join(","))
+}
+
+/// Whether a `RateLimit` field value lists a policy with no quota left: a
+/// member whose `r` parameter, after its policy name, is `0`. A value with an
+/// unterminated string or an empty member is malformed, and the draft has a
+/// malformed field ignored.
+fn names_a_spent_policy(field: &str) -> bool {
+    let Some(members) = split_outside_strings(field, b',') else {
+        return false;
+    };
+    members.iter().all(|member| !member.trim().is_empty())
+        && members
+            .into_iter()
+            .any(|member| remaining_quota(member) == Some(0))
+}
+
+/// The `r` parameter of a `RateLimit` member, when it is a non-negative
+/// integer: its last occurrence, since a repeated structured-field parameter
+/// overwrites the earlier ones.
+fn remaining_quota(member: &str) -> Option<u64> {
+    let (_, value) = split_outside_strings(member, b';')?
+        .into_iter()
+        .skip(1)
+        .map(|parameter| {
+            let parameter = parameter.trim();
+            parameter.split_once('=').unwrap_or((parameter, ""))
+        })
+        .rfind(|(key, _)| *key == "r")?;
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| value.parse().ok())
+        .flatten()
+}
+
+/// `value` split at each ASCII `separator` outside a structured-field string,
+/// which may quote either separator in a policy name or a parameter; none when
+/// a string is left unterminated.
+fn split_outside_strings(value: &str, separator: u8) -> Option<Vec<&str>> {
+    let mut parts = Vec::new();
+    let (mut start, mut quoted, mut escaped) = (0, false, false);
+    for (index, byte) in value.bytes().enumerate() {
+        match byte {
+            _ if escaped => escaped = false,
+            b'\\' if quoted => escaped = true,
+            b'"' => quoted = !quoted,
+            _ if byte == separator && !quoted => {
+                parts.push(&value[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&value[start..]);
+    (!quoted).then_some(parts)
 }
 
 #[cfg(test)]
@@ -118,6 +192,15 @@ mod tests {
         let mut headers = HeaderMap::new();
         for (name, value) in pairs {
             headers.insert(*name, HeaderValue::from_static(value));
+        }
+        headers
+    }
+
+    /// Headers with one `RateLimit` field line per entry of `lines`.
+    fn ratelimit_field(lines: &[&'static str]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for line in lines {
+            headers.append("ratelimit", HeaderValue::from_static(line));
         }
         headers
     }
@@ -164,6 +247,42 @@ mod tests {
 
         let quota_left = headers(&[("x-ratelimit-remaining", "12")]);
         assert_eq!(RateLimitSignal::from_page(503, Some(&quota_left)), None);
+
+        for field_lines in [
+            &[r#""default";r=12;t=30"#][..],
+            &[r#""burst";q=0;r=5;t=1"#],
+            &[r#""r=0";r=3"#],
+            &[r#""default";r=3;note="x;r=0;y""#],
+            &[r#""default";r=5;note="a, b;r=0;c""#],
+            &["r=0"],
+            &[r#""default";t=0, "daily";r=1"#],
+            &[r#""default";r=0;r=5"#],
+            &[r#""default";r=zero"#],
+            &[r#""default";r=+0"#],
+        ] {
+            assert_eq!(
+                RateLimitSignal::from_page(503, Some(&ratelimit_field(field_lines))),
+                None,
+                "{field_lines:?}"
+            );
+        }
+    }
+
+    /// The draft has a malformed `RateLimit` field ignored, a spent policy
+    /// in it included.
+    #[test]
+    fn should_not_signal_a_503_whose_ratelimit_field_is_malformed() {
+        for field_lines in [
+            &[r#""default";r=0, "daily"#][..],
+            &[r#""default";r=0,"#],
+            &[r#""default";r=0"#, r#""daily"#],
+        ] {
+            assert_eq!(
+                RateLimitSignal::from_page(503, Some(&ratelimit_field(field_lines))),
+                None,
+                "{field_lines:?}"
+            );
+        }
     }
 
     #[test]
@@ -180,6 +299,31 @@ mod tests {
                 RateLimitSignal::from_page(503, Some(&spent)),
                 signal(503, None),
                 "{name}"
+            );
+        }
+    }
+
+    /// The IETF draft's structured field lists every quota policy; one spent
+    /// policy is enough, whichever field line or member carries it.
+    #[test]
+    fn should_signal_a_503_whose_ratelimit_field_lists_a_spent_policy() {
+        for field_lines in [
+            &[r#""default";r=0;t=30"#][..],
+            &["default;r=0"],
+            &[r#""per-minute";r=42;t=10, "daily, all";r=0;t=3600"#],
+            &[r#""a\";b";r=0"#],
+            &[r#""default";r=5;r=0"#],
+            &[r#""default";r=12;t=30"#, r#""daily";r=0"#],
+        ] {
+            let mut spent = ratelimit_field(field_lines);
+            spent.insert(
+                "ratelimit-policy",
+                HeaderValue::from_static(r#""default";q=100;w=60"#),
+            );
+            assert_eq!(
+                RateLimitSignal::from_page(503, Some(&spent)),
+                signal(503, None),
+                "{field_lines:?}"
             );
         }
     }

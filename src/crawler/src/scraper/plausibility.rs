@@ -31,7 +31,7 @@ const MAX_LABEL_CHARS: usize = 100;
 const MIN_WORD_LIST_WORDS: usize = 3;
 
 /// A raw extracted field, named as in the product schema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlausibilityField {
     SourceListingId,
@@ -42,10 +42,15 @@ pub enum PlausibilityField {
     PriceEstimateMax,
     State,
     Images,
+    /// A raw attribute, named by its key as the schema matrix names its rule, such as
+    /// `rawMaterial`. Registered keys are camelCase `raw` names, so a stored finding never
+    /// reads back as one of the snake_case fields above.
+    #[serde(untagged)]
+    RawAttribute(String),
 }
 
 impl PlausibilityField {
-    pub const fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::SourceListingId => "source_listing_id",
             Self::Title => "title",
@@ -55,6 +60,7 @@ impl PlausibilityField {
             Self::PriceEstimateMax => "price_estimate_max",
             Self::State => "state",
             Self::Images => "images",
+            Self::RawAttribute(key) => key,
         }
     }
 }
@@ -63,8 +69,9 @@ impl PlausibilityField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PlausibilityCheck {
-    /// Present but empty after trimming. For `source_listing_id` the capture falls back
-    /// to the URL hash, so the identity changes once a later extraction succeeds.
+    /// Present but empty after trimming; for a `description` or raw attribute, each of its
+    /// values. For `source_listing_id` the capture falls back to the URL hash, so the
+    /// identity changes once a later extraction succeeds.
     Blank,
     /// Longer than a label.
     TooLong,
@@ -119,7 +126,7 @@ pub enum PlausibilityImpact {
 }
 
 /// One failed check on one field of a page's raw extraction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlausibilityFinding {
     pub field: PlausibilityField,
     pub check: PlausibilityCheck,
@@ -130,20 +137,20 @@ impl PlausibilityFinding {
         Self { field, check }
     }
 
-    pub const fn impact(self) -> PlausibilityImpact {
+    pub fn impact(&self) -> PlausibilityImpact {
         use PlausibilityCheck::{InvalidIdentifier, MarkupTokens};
         use PlausibilityField::{
-            Description, Images, Price, PriceEstimateMax, PriceEstimateMin, SourceListingId, State,
-            Title,
+            Description, Images, Price, PriceEstimateMax, PriceEstimateMin, RawAttribute,
+            SourceListingId, State, Title,
         };
-        match (self.field, self.check) {
+        match (&self.field, self.check) {
             (_, MarkupTokens) | (Title | State, _) | (SourceListingId, InvalidIdentifier) => {
                 PlausibilityImpact::RejectsCandidate
             }
             (Price | PriceEstimateMin | PriceEstimateMax | Images, _) => {
                 PlausibilityImpact::LowersRank
             }
-            (SourceListingId | Description, _) => PlausibilityImpact::ReportOnly,
+            (SourceListingId | Description | RawAttribute(_), _) => PlausibilityImpact::ReportOnly,
         }
     }
 
@@ -151,9 +158,9 @@ impl PlausibilityFinding {
     /// A repeated image does not: capture keeps each image URL once, so a gallery that repeats
     /// its featured photo loses nothing, and no selector can tell that repeat from a gallery
     /// image. It still lowers the candidate's rank and shows in the schema matrix.
-    pub const fn blocks_approval(self) -> bool {
+    pub fn blocks_approval(&self) -> bool {
         !matches!(
-            (self.field, self.check),
+            (&self.field, self.check),
             (
                 PlausibilityField::Images,
                 PlausibilityCheck::DuplicateValues
@@ -162,9 +169,9 @@ impl PlausibilityFinding {
     }
 
     /// A blank `title` or `state`: the page leaves a required value empty.
-    const fn is_missing_required_value(self) -> bool {
+    fn is_missing_required_value(&self) -> bool {
         matches!(
-            (self.field, self.check),
+            (&self.field, self.check),
             (
                 PlausibilityField::Title | PlausibilityField::State,
                 PlausibilityCheck::Blank
@@ -193,11 +200,11 @@ impl PlausibilityFindings {
     /// Checks every field of `raw` on its own, without comparing it to other pages.
     pub fn of(raw: &RawExtractedProduct) -> Self {
         let mut findings = Vec::new();
-        let mut report = |field, checks: Vec<PlausibilityCheck>| {
+        let mut report = |field: PlausibilityField, checks: Vec<PlausibilityCheck>| {
             findings.extend(
                 checks
                     .into_iter()
-                    .map(|check| PlausibilityFinding::new(field, check)),
+                    .map(|check| PlausibilityFinding::new(field.clone(), check)),
             );
         };
         report(
@@ -221,6 +228,12 @@ impl PlausibilityFindings {
         }
         report(PlausibilityField::State, state_checks(&raw.state));
         report(PlausibilityField::Images, image_checks(&raw.images));
+        for (key, values) in &raw.raw_attributes {
+            report(
+                PlausibilityField::RawAttribute(key.clone()),
+                raw_attribute_checks(values),
+            );
+        }
         Self(findings)
     }
 
@@ -265,7 +278,7 @@ impl PlausibilityFindings {
     pub(crate) fn missing_required_values(&self) -> Option<Self> {
         let rejecting = self
             .with_impact(PlausibilityImpact::RejectsCandidate)
-            .copied()
+            .cloned()
             .collect::<Vec<_>>();
         (!rejecting.is_empty()
             && rejecting
@@ -353,11 +366,29 @@ fn title_checks(title: &str) -> Vec<PlausibilityCheck> {
 }
 
 fn description_checks(fragments: &[String]) -> Vec<PlausibilityCheck> {
+    if is_blank_list(fragments) {
+        return vec![PlausibilityCheck::Blank];
+    }
     fragments
         .iter()
         .find_map(|fragment| markup_check(fragment))
         .into_iter()
         .collect()
+}
+
+fn raw_attribute_checks(values: &[String]) -> Vec<PlausibilityCheck> {
+    if is_blank_list(values) {
+        vec![PlausibilityCheck::Blank]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Whether a list field is present and each of its values blank, as a `first` attribute
+/// rule yields it when every element it matched is blank. Extraction drops a blank item of
+/// an `all` rule, so a list never mixes blank and other values.
+fn is_blank_list(values: &[String]) -> bool {
+    !values.is_empty() && values.iter().all(|value| value.trim().is_empty())
 }
 
 fn price_checks(price: &str) -> Vec<PlausibilityCheck> {
@@ -496,9 +527,10 @@ mod tests {
         AllZeroDigits, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens, TooLong, WordList,
     };
     use super::PlausibilityField::{
-        Description, Images, Price, PriceEstimateMax, SourceListingId, State, Title,
+        Description, Images, Price, PriceEstimateMax, RawAttribute, SourceListingId, State, Title,
     };
     use super::*;
+    use crate::scraper::css_selector::raw_attribute_registry::registered_definitions;
     use crate::scraper::css_selector::rule::IMAGE_CANDIDATE_SEPARATOR;
 
     fn plausible() -> RawExtractedProduct {
@@ -906,6 +938,45 @@ mod tests {
             assert!(!findings.rejects_candidate());
             assert_eq!(findings.rank_penalty(), 0);
         }
+
+        /// A `first` attribute rule whose every match is blank yields its blank, which the
+        /// check reports for these optional fields without affecting selection.
+        #[test]
+        fn should_report_a_blank_description_and_raw_attribute() {
+            let mut raw = plausible();
+            raw.description = vec!["\u{a0}".to_owned()];
+            raw.raw_attributes = [
+                ("rawMaterial".to_owned(), vec!["Oak".to_owned()]),
+                ("rawYear".to_owned(), vec![String::new()]),
+            ]
+            .into();
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(
+                findings.as_slice(),
+                [
+                    finding(Description, Blank),
+                    finding(RawAttribute("rawYear".to_owned()), Blank)
+                ]
+            );
+            assert!(!findings.rejects_candidate());
+            assert_eq!(findings.rank_penalty(), 0);
+            assert!(findings.blocks_approval());
+            assert_eq!(
+                findings.to_string(),
+                "`description` is blank; `rawYear` is blank"
+            );
+        }
+
+        #[test]
+        fn should_report_nothing_for_a_description_and_raw_attributes_left_empty() {
+            let mut raw = plausible();
+            raw.description = Vec::new();
+            raw.raw_attributes = [("rawMaterial".to_owned(), vec!["Oak".to_owned()])].into();
+
+            assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
     }
 
     mod approval {
@@ -953,6 +1024,41 @@ mod tests {
                     { "field": "price_estimate_min", "check": "ALL_ZERO_DIGITS" }
                 ])
             );
+        }
+
+        /// The schema matrix, stored with its review, names a raw attribute's finding by the
+        /// key its rule has in the matrix, so the review console shows it next to that rule.
+        /// Every registered key reads back as that raw attribute, not as a core field.
+        #[test]
+        fn should_name_a_raw_attribute_by_its_key_and_read_every_field_back() {
+            let core_fields = [
+                SourceListingId,
+                Title,
+                Description,
+                Price,
+                PlausibilityField::PriceEstimateMin,
+                PriceEstimateMax,
+                State,
+                Images,
+            ];
+            let raw_attributes = registered_definitions()
+                .map(|(_, definition)| RawAttribute(definition.key.to_owned()));
+
+            for field in core_fields.into_iter().chain(raw_attributes) {
+                let finding = finding(field.clone(), Blank);
+                let stored = serde_json::to_value(&finding)
+                    .unwrap_or_else(|error| panic!("{field:?} must serialize: {error}"));
+
+                assert_eq!(
+                    stored,
+                    serde_json::json!({ "field": field.as_str(), "check": "BLANK" })
+                );
+                assert_eq!(
+                    serde_json::from_value::<PlausibilityFinding>(stored)
+                        .unwrap_or_else(|error| panic!("{field:?} must deserialize: {error}")),
+                    finding
+                );
+            }
         }
     }
 }

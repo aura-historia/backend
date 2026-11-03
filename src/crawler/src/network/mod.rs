@@ -1,3 +1,5 @@
+use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
+
 pub mod bot_challenge;
 pub mod policy;
 pub mod robots;
@@ -18,3 +20,15 @@ pub const CRAWLER_USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (+https://aura-historia.com)"
 );
+
+/// The media types every crawler request accepts.
+pub const CRAWLER_ACCEPT: &str = "*/*";
+
+/// The headers every crawler request sends besides [`CRAWLER_USER_AGENT`]: spider pages and
+/// robots.txt, scraper HTML fetches and robots.txt, image probes, and review live inspection
+/// through the scraper's fetcher. Spider and scraper send the same set, so the scraper fetches
+/// the site the spider learned the URL patterns from. Only the transfer encodings differ, since
+/// each client advertises the ones it decodes (`docs/crawler/networking.md#request-headers`).
+pub fn crawler_request_headers() -> HeaderMap {
+    HeaderMap::from_iter([(ACCEPT, HeaderValue::from_static(CRAWLER_ACCEPT))])
+}

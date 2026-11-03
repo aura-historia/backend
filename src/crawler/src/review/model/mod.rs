@@ -8,6 +8,7 @@ pub mod review;
 pub mod review_detail;
 pub mod review_event;
 pub mod review_page;
+pub mod review_queue_entry;
 pub mod review_url;
 pub mod sample_labels;
 pub mod schema_candidate_evaluation;
@@ -30,6 +31,7 @@ pub use review::{CrawlerReview, RepairRequest};
 pub use review_detail::ReviewDetail;
 pub use review_event::{CrawlerReviewEvent, ReviewActor, ReviewEventAction, ReviewEventSummary};
 pub use review_page::CrawlerReviewPage;
+pub use review_queue_entry::{AutoSchemaEvaluationOutcome, ReviewQueueEntry};
 pub use review_url::CrawlerReviewUrl;
 pub use sample_labels::{
     LabelledSampleUrl, SampleLabelCounts, SampleLabelInput, SampleLabels, SampleUrlLabel,

@@ -2,6 +2,7 @@ use crawler::CrawlerDomainId;
 use crawler::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl, UrlPatternState,
 };
+use crawler::spider::crawled_root::CrawledRoot;
 use listing_source_core::ListingSourceId;
 use test_api::*;
 
@@ -155,7 +156,10 @@ async fn should_store_patterns_independently_for_domains_of_one_listing_source()
     assert!(pattern_b.last_crawled.is_none());
 
     repository
-        .mark_as_crawled(&listing_source_id, &domain_a)
+        .mark_as_crawled(
+            &listing_source_id,
+            &CrawledRoot::new(domain_a, "a.example.com"),
+        )
         .await
         .unwrap();
     let crawled_a = repository
@@ -207,7 +211,9 @@ async fn should_reject_crawl_mark_for_domain_owned_by_another_listing_source() {
     insert_source(&pool, other).await;
     let domain_id = insert_domain(&pool, owner, "marked.example.com").await;
 
-    let result = repository.mark_as_crawled(&other, &domain_id).await;
+    let result = repository
+        .mark_as_crawled(&other, &CrawledRoot::new(domain_id, "marked.example.com"))
+        .await;
     assert!(matches!(result, Err(sqlx::Error::RowNotFound)));
     let crawled: Option<time::OffsetDateTime> =
         sqlx::query_scalar("SELECT last_crawled FROM listing_source_domains WHERE domain_id = $1")

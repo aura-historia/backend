@@ -1,6 +1,7 @@
 //! Repository for crawler-domain URL patterns and crawl scheduling state.
 
 use crate::CrawlerDomainId;
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use async_trait::async_trait;
 use listing_source_core::{Domain, ListingSourceId};
 use sqlx::{FromRow, PgPool, Row};
@@ -91,11 +92,12 @@ pub trait ListingSourceUrlPatternRepository: Send + Sync {
         domain_id: &CrawlerDomainId,
     ) -> Result<(), sqlx::Error>;
 
+    /// Records a full crawl of `root` now, while the domain still has that crawl root.
     async fn mark_as_crawled(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
-    ) -> Result<(), sqlx::Error>;
+        root: &CrawledRoot,
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
 
     async fn increment_listing_source_llm_calls(
         &self,
@@ -179,21 +181,35 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     async fn mark_as_crawled(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
-    ) -> Result<(), sqlx::Error> {
+        root: &CrawledRoot,
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE listing_source_domains \
              SET last_crawled = NOW() \
-             WHERE listing_source_id = $1 AND domain_id = $2",
+             WHERE listing_source_id = $1 AND domain_id = $2 AND crawl_root_host = $3",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
+        .bind(root.domain_id.as_uuid())
+        .bind(&root.crawl_root_host)
         .execute(&self.pool)
         .await?;
-        if result.rows_affected() == 0 {
-            return Err(sqlx::Error::RowNotFound);
+        if result.rows_affected() > 0 {
+            return Ok(CrawlOutcomeWrite::Recorded);
         }
-        Ok(())
+        let domain_is_owned = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS ( \
+                 SELECT 1 FROM listing_source_domains \
+                 WHERE listing_source_id = $1 AND domain_id = $2 \
+             )",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(root.domain_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await?;
+        match domain_is_owned {
+            true => Ok(CrawlOutcomeWrite::RootMoved),
+            false => Err(sqlx::Error::RowNotFound),
+        }
     }
 
     async fn increment_listing_source_llm_calls(

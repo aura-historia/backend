@@ -19,7 +19,7 @@ mod tests;
 // ---------------------------------------------------------------------------
 
 pub use auto_throttle::{DomainLatencyStats, ScraperAutoThrottle, ScraperAutoThrottleConfig};
-pub use domain::errors::ScraperError;
+pub use domain::errors::{RemovalEvidence, RemovalEvidenceKind, ScraperError};
 pub use domain::product::{
     DomainFetchHealth, FetchFailureContext, FetchFailureSource, MockScraperService, ScrapeMode,
     ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperService,

@@ -10,6 +10,7 @@ use crate::spider::classification::url_classification_service::{
 use crate::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, UrlPatternState,
 };
+use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 
 use crate::review::model::{ReviewActor, UrlPatternDecision};
 use regex::Regex;
@@ -103,12 +104,12 @@ pub trait UrlPatternService: Send + Sync {
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError>;
 
-    /// Marks one configured crawler domain as crawled now.
+    /// Records a full crawl of `root` now, while the domain still has that crawl root.
     async fn mark_as_crawled(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
-    ) -> Result<(), UrlPatternServiceError>;
+        root: &CrawledRoot,
+    ) -> Result<CrawlOutcomeWrite, UrlPatternServiceError>;
 }
 
 /// Where a domain's product URL pattern comes from.
@@ -375,16 +376,16 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(pattern)
     }
 
-    #[tracing::instrument(skip(self), fields(listing_source_id = %listing_source_id, domain_id = %domain_id))]
+    #[tracing::instrument(skip(self), fields(listing_source_id = %listing_source_id, domain_id = %root.domain_id))]
     async fn mark_as_crawled(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
-    ) -> Result<(), UrlPatternServiceError> {
-        self.repository
-            .mark_as_crawled(listing_source_id, domain_id)
-            .await?;
-        Ok(())
+        root: &CrawledRoot,
+    ) -> Result<CrawlOutcomeWrite, UrlPatternServiceError> {
+        Ok(self
+            .repository
+            .mark_as_crawled(listing_source_id, root)
+            .await?)
     }
 }
 

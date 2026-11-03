@@ -23,19 +23,23 @@ pub(super) enum KnownPage {
 
 /// The pages an incremental crawl knows, under every spelling Spider may meet them by: a page
 /// linked with and without its trailing slash is one page
-/// (`docs/crawler/networking.md#stored-urls`). Never the crawl root, which stays crawlable.
+/// (`docs/crawler/networking.md#stored-urls`). Never the crawl root under any spelling that
+/// names it ([`root_page`]), so the root stays crawlable.
 #[derive(Debug, Default)]
 pub(super) struct KnownPages {
+    /// The crawl root's page, as [`root_page`] spells it.
+    root: CaseInsensitiveString,
     spellings: HashMap<CaseInsensitiveString, KnownPage>,
 }
 
 impl KnownPages {
-    /// The known product pages and retired pages of `seeds`, without `root`. A page both stored
-    /// as a product and retired counts as a product.
+    /// The known product pages and retired pages of `seeds`, without the pages that name
+    /// `root`. A page both stored as a product and retired counts as a product.
     pub(super) fn new(root: &Url, seeds: &CrawlSeeds) -> Self {
-        let root = CaseInsensitiveString::from(root.as_str());
+        let root = root_page(root);
         let spellings_of = |urls: &[Url], page: KnownPage| {
             urls.iter()
+                .filter(|url| root_page(url) != root)
                 .flat_map(|url| CrawledUrl::new(url.clone()).page_spellings())
                 .map(|url| (CaseInsensitiveString::from(url.as_str()), page))
                 .collect::<Vec<_>>()
@@ -43,9 +47,8 @@ impl KnownPages {
         let spellings = spellings_of(&seeds.retired, KnownPage::Retired)
             .into_iter()
             .chain(spellings_of(&seeds.known, KnownPage::Product))
-            .filter(|(spelling, _)| *spelling != root)
             .collect();
-        Self { spellings }
+        Self { root, spellings }
     }
 
     /// Every spelling of every known page, as Spider compares links.
@@ -64,6 +67,9 @@ impl KnownPages {
     /// `/products/<handle>` and a link of Shopify's collection shape to the same handle are
     /// evidence enough to leave the link to the next full crawl.
     pub(super) fn page_of(&self, url: &Url) -> Option<(Url, KnownPage)> {
+        if root_page(url) == self.root {
+            return None;
+        }
         let stored = CrawledUrl::new(url.clone());
         self.stored_page(&stored).or_else(|| {
             ShopPlatform::ALL
@@ -77,6 +83,37 @@ impl KnownPages {
             .get(&CaseInsensitiveString::from(url.as_url().as_str()))
             .map(|page| (url.page_spelling(), *page))
     }
+}
+
+/// The page `url` names, spelled so that every spelling of the crawl root gives the root's: the
+/// [stored spelling](CrawledUrl::new) without a trailing slash ([`CrawledUrl::page_spelling`])
+/// and without a directory index file, compared ignoring ASCII case as Spider compares links.
+/// So `/`, `/index.php`, `/INDEX.HTML` and `/?utm_source=x` name one page, and `/en/` names the
+/// page `/en` and `/en/default.aspx` do.
+fn root_page(url: &Url) -> CaseInsensitiveString {
+    let mut page = CrawledUrl::new(url.clone()).page_spelling();
+    let index_directory = page
+        .path()
+        .rsplit_once('/')
+        .filter(|(_, file)| is_directory_index(file))
+        .map(|(directory, _)| format!("{directory}/"));
+    if let Some(directory) = index_directory {
+        page.set_path(&directory);
+        page = CrawledUrl::new(page).page_spelling();
+    }
+    CaseInsensitiveString::from(page.as_str())
+}
+
+/// Whether `file` is a name web servers and shop systems serve their directory's page under.
+fn is_directory_index(file: &str) -> bool {
+    const STEMS: [&str; 2] = ["index", "default"];
+    const EXTENSIONS: [&str; 7] = ["html", "htm", "shtml", "php", "asp", "aspx", "jsp"];
+    file.split_once('.').is_some_and(|(stem, extension)| {
+        STEMS.iter().any(|known| stem.eq_ignore_ascii_case(known))
+            && EXTENSIONS
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+    })
 }
 
 /// Answers Spider's request for a link whose page the crawl already knows without a request
@@ -189,6 +226,83 @@ mod tests {
         );
         assert_eq!(known.page_of(&url("/")), None);
         assert_eq!(known.page_of(&url("/product/2")), None);
+    }
+
+    /// Spider requests the root under the spelling it was given and meets it linked under any
+    /// other, so no spelling of the root may be answered locally or marked visited.
+    #[test]
+    fn should_know_no_spelling_of_the_crawl_root() {
+        let root_spellings = [
+            "/",
+            "/index.php",
+            "/INDEX.HTML",
+            "/Default.aspx",
+            "/?utm_source=newsletter",
+            "/index.php?sessionid=abc#top",
+        ];
+        let known = known(&root_spellings, &root_spellings);
+
+        for spelling in root_spellings {
+            assert_eq!(known.page_of(&url(spelling)), None, "{spelling}");
+        }
+        assert!(known.is_empty());
+    }
+
+    /// A root that redirected below `/` is the page of its directory, whatever its trailing
+    /// slash, while the other pages of the shop, `/` and product pages served through an index
+    /// file among them, stay known.
+    #[test]
+    fn should_know_no_spelling_of_a_crawl_root_below_the_site_root() {
+        let products = ["/", "/en/products/1", "/index.php?id_product=12"];
+        let root_spellings = ["/en", "/EN/", "/en/index.html", "/en/?PHPSESSID=abc"];
+        let known = KnownPages::new(
+            &url("/en/"),
+            &CrawlSeeds {
+                known: products
+                    .iter()
+                    .chain(&root_spellings)
+                    .map(|path| url(path))
+                    .collect(),
+                retired: vec![url("/en/default.asp")],
+                ..CrawlSeeds::default()
+            },
+        );
+
+        for spelling in root_spellings.iter().chain(&["/en/", "/en/default.asp"]) {
+            assert_eq!(known.page_of(&url(spelling)), None, "{spelling}");
+        }
+        let marked_visited = known
+            .spellings()
+            .map(ToString::to_string)
+            .collect::<HashSet<_>>();
+        let product_spellings = products
+            .iter()
+            .flat_map(|path| CrawledUrl::new(url(path)).page_spellings())
+            .map(String::from)
+            .collect::<HashSet<_>>();
+        assert_eq!(marked_visited, product_spellings);
+    }
+
+    /// A root that redirected onto a product's collection URL is still the root, though a shop
+    /// system serves it as the stored product.
+    #[test]
+    fn should_not_take_a_crawl_root_for_the_stored_product_a_shop_system_serves_it_as() {
+        let known = KnownPages::new(
+            &url("/collections/sale/products/oak-chair"),
+            &CrawlSeeds {
+                known: vec![url("/products/oak-chair")],
+                ..CrawlSeeds::default()
+            },
+        );
+
+        assert_eq!(
+            known.page_of(&url("/collections/sale/products/oak-chair/")),
+            None
+        );
+        assert_eq!(
+            known.page_of(&url("/collections/chairs/products/oak-chair")),
+            Some((url("/products/oak-chair"), KnownPage::Product))
+        );
     }
 
     #[test]

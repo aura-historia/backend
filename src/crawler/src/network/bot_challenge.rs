@@ -117,9 +117,28 @@ const HARD_BLOCK_STATUS: u16 = 403;
 /// The exact title of Cloudflare's block page, normalised as `CHALLENGE_TITLES` writes titles.
 const CLOUDFLARE_BLOCK_TITLE: &str = "attention required! | cloudflare";
 
-/// Lowercase markup that, all together, marks Cloudflare's block page under any title.
-const CLOUDFLARE_BLOCK_MARKERS: [&str; 2] =
-    ["id=\"cf-error-details\"", "sorry, you have been blocked"];
+/// Lowercase markup that, all together, marks one of Cloudflare's block pages under any title,
+/// and the evidence it is.
+const CLOUDFLARE_BLOCK_PAGES: &[(&[&str], &str)] = &[
+    (
+        &["id=\"cf-error-details\"", "sorry, you have been blocked"],
+        "cloudflare_block_page",
+    ),
+    // Error 1020 "Access denied", the answer to a request a firewall rule denies, in Cloudflare's
+    // classic error template and in its current one. Its other errors share both templates and
+    // the "Access denied" title, rate limiting (1015) among them, so only the code proves a block.
+    (
+        &["id=\"cf-error-details\"", CLOUDFLARE_ACCESS_DENIED_CODE],
+        "cloudflare_error_1020",
+    ),
+    (
+        &["class=\"cf-error-title\"", CLOUDFLARE_ACCESS_DENIED_CODE],
+        "cloudflare_error_1020",
+    ),
+];
+
+/// The error code Cloudflare's error templates show for a request a firewall rule denied.
+const CLOUDFLARE_ACCESS_DENIED_CODE: &str = "<span>1020</span>";
 
 /// Whether a response with `status` can be a challenge: shops serve them as a success or as 403,
 /// and AWS WAF its captcha as 405. Other statuses keep their own meaning, such as 429 and 503
@@ -151,20 +170,21 @@ pub fn detect_hard_block(status: u16, body: &[u8]) -> Option<HardBlock> {
     if challenge_from_text(&text).is_some() {
         return None;
     }
-    let evidence = if normalized_title(&text).as_deref() == Some(CLOUDFLARE_BLOCK_TITLE) {
-        "cloudflare_block_title"
-    } else if CLOUDFLARE_BLOCK_MARKERS
-        .iter()
-        .all(|marker| text.contains(marker))
-    {
-        "cloudflare_block_page"
-    } else {
-        return None;
-    };
-    Some(HardBlock {
+    cloudflare_block_evidence(&text).map(|evidence| HardBlock {
         vendor: ChallengeVendor::Cloudflare,
         evidence,
     })
+}
+
+/// The evidence that lowercase page `text` is one of Cloudflare's block pages.
+fn cloudflare_block_evidence(text: &str) -> Option<&'static str> {
+    if normalized_title(text).as_deref() == Some(CLOUDFLARE_BLOCK_TITLE) {
+        return Some("cloudflare_block_title");
+    }
+    CLOUDFLARE_BLOCK_PAGES
+        .iter()
+        .find(|(markers, _)| markers.iter().all(|marker| text.contains(marker)))
+        .map(|(_, evidence)| *evidence)
 }
 
 fn challenge_from_headers(headers: &HeaderMap) -> Option<BotChallenge> {
@@ -267,7 +287,7 @@ window.gokuProps = {"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AE",
 <script>AwsWafCaptcha.renderCaptcha(document.getElementById("captcha-container"), {apiKey: window.gokuProps.key});</script>
 </body></html>"#;
 
-    /// Cloudflare's block page for a request a firewall rule refused (error 1020).
+    /// Cloudflare's "Sorry, you have been blocked" page for a request its firewall refused.
     const CLOUDFLARE_BLOCK: &str = r#"<!DOCTYPE html><html class="no-js" lang="en-US"><head>
 <title>Attention Required! | Cloudflare</title><meta charset="UTF-8" />
 <link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/cf.errors.css" /></head>
@@ -276,6 +296,83 @@ window.gokuProps = {"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AE",
 <h2 class="cf-subheadline"><span data-translate="unable_to_access">You are unable to access</span> shop.example</h2>
 <p>This website is using a security service to protect itself from online attacks.</p>
 <span class="cf-footer-item">Cloudflare Ray ID: <strong>8f0a1b2c3d4e5f60</strong></span></div></div></body></html>"#;
+
+    /// Cloudflare's error 1020 page in its current template, for a request a firewall rule
+    /// denied. It shows the client's IP.
+    const CLOUDFLARE_ERROR_1020: &str = r#"<!DOCTYPE html>
+<html lang="en-US">
+<head>
+	<title>Access denied | shop.example | Cloudflare</title>
+	<meta http-equiv="X-UA-Compatible" content="IE=Edge">
+	<meta name="robots" content="noindex, nofollow">
+	<link rel="stylesheet" href="/cdn-cgi/styles/errors.css" media="screen">
+	<script>a = {event: "feedback clicked", properties: {errorCode: 1020}, helpful: a, version: 1};</script>
+	<script defer="" src="https://performance.radar.cloudflare.com/beacon.js"></script>
+</head>
+<body>
+	<div class="cf-main-wrapper" role="main">
+		<div class="cf-header cf-section">
+			<div class="cf-error-title">
+				<h1>Access denied</h1>
+				<span class="cf-code-label">Error code <span>1020</span></span>
+			</div>
+			<div class="cf-error-description">
+				<p>You do not have access to shop.example.</p>
+				<p>The site owner may have set restrictions that prevent you from accessing the site.</p>
+			</div>
+		</div>
+	</div>
+	<div class="cf-details-wrapper">
+		<div class="cf-error-wrapper" id="error-details">
+			<p class="cf-error-details-endpoint">I got an error when visiting shop.example/.</p>
+			<p>Error code: 1020</p>
+			<p>Ray ID: 8f0a1b2c3d4e5f60</p>
+			<p>IP: 203.0.113.7</p>
+		</div>
+		<p>Performance &amp; security by <a rel="noopener noreferrer" href="https://www.cloudflare.com?utm_source=1020_error" target="_blank">Cloudflare</a></p>
+	</div>
+</body>
+</html>"#;
+
+    /// Cloudflare's error 1020 page in its classic template, which its other errors share.
+    const CLOUDFLARE_CLASSIC_ERROR_1020: &str = r#"<!DOCTYPE html>
+<html class="no-js" lang="en-US"> <!--<![endif]-->
+<head>
+<title>Access denied | shop.example used Cloudflare to restrict access</title>
+<meta charset="UTF-8" />
+<meta name="robots" content="noindex, nofollow" />
+<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/main.css" />
+</head>
+<body>
+<div id="cf-wrapper">
+    <div id="cf-error-details" class="p-0">
+        <header class="mx-auto pt-10 lg:pt-6 lg:px-8 w-240 lg:w-full mb-15 antialiased">
+            <h1 class="inline-block md:block mr-2 md:mb-2 font-light text-60 md:text-3xl text-black-dark leading-tight">
+              <span data-translate="error">Error</span>
+              <span>1020</span>
+            </h1>
+            <span class="inline-block md:block heading-ray-id font-mono text-15 lg:text-sm lg:leading-relaxed">Ray ID: 8f0a1b2c3d4e5f60 &bull;</span>
+            <h2 class="text-gray-600 leading-1.3 text-3xl lg:text-2xl font-light">Access denied</h2>
+        </header>
+        <section class="w-240 lg:w-full mx-auto mb-8 lg:px-8">
+            <div id="what-happened-section" class="w-1/2 md:w-full">
+                <h2 class="text-3xl leading-tight font-normal mb-4 text-black-dark antialiased" data-translate="what_happened">What happened?</h2>
+                <p>This website is using a security service to protect itself from online attacks.</p>
+            </div>
+        </section>
+        <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold">8f0a1b2c3d4e5f60</strong></span>
+        <span class="hidden" id="cf-footer-ip">203.0.113.7</span>
+    </div>
+</div>
+</body>
+</html>"#;
+
+    /// The headers Cloudflare serves its error pages with, which name no challenge.
+    const CLOUDFLARE_ERROR_HEADERS: [(&str, &str); 3] = [
+        ("server", "cloudflare"),
+        ("cf-ray", "8f0a1b2c3d4e5f60-FRA"),
+        ("content-type", "text/html; charset=UTF-8"),
+    ];
 
     fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -482,15 +579,54 @@ window.gokuProps = {"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AE",
             );
         }
 
+        /// A firewall rule's denial is no challenge either, although Spider reads the vendor in
+        /// front of it as one.
+        #[test]
+        fn should_recognise_a_cloudflare_error_1020_page_as_a_hard_block_not_a_challenge() {
+            for page in [CLOUDFLARE_ERROR_1020, CLOUDFLARE_CLASSIC_ERROR_1020] {
+                assert_eq!(
+                    detect_hard_block(403, page.as_bytes()),
+                    Some(HardBlock {
+                        vendor: ChallengeVendor::Cloudflare,
+                        evidence: "cloudflare_error_1020",
+                    }),
+                    "{page}"
+                );
+                assert_eq!(detect(403, &CLOUDFLARE_ERROR_HEADERS, page), None, "{page}");
+            }
+        }
+
+        /// Cloudflare's other errors share the 1020 page's templates and title; rate limiting
+        /// (1015) asks the client to wait, which a hard block must not hide.
+        #[test]
+        fn should_not_take_another_cloudflare_error_for_a_hard_block() {
+            let rate_limited = CLOUDFLARE_CLASSIC_ERROR_1020
+                .replace("<span>1020</span>", "<span>1015</span>")
+                .replace(">Access denied</h2>", ">You are being rate limited</h2>");
+            let current_template =
+                CLOUDFLARE_ERROR_1020.replace("<span>1020</span>", "<span>1015</span>");
+            for page in [rate_limited, current_template] {
+                assert_eq!(detect_hard_block(403, page.as_bytes()), None, "{page}");
+                assert_eq!(detect_hard_block(429, page.as_bytes()), None, "{page}");
+            }
+        }
+
         #[test]
         fn should_keep_a_passable_cloudflare_challenge_a_challenge() {
             let captcha = CLOUDFLARE_CHALLENGE
                 .replace("Just a moment...", "Attention Required! | Cloudflare");
-            assert_eq!(detect_hard_block(403, captcha.as_bytes()), None);
-            assert_eq!(
-                detect(403, &[], &captcha).map(|challenge| challenge.vendor),
-                Some(ChallengeVendor::Cloudflare)
+            let denial_with_challenge = CLOUDFLARE_ERROR_1020.replace(
+                "</head>",
+                "<script>window._cf_chl_opt={cvId: '3'};</script></head>",
             );
+            for page in [captcha.as_str(), denial_with_challenge.as_str()] {
+                assert_eq!(detect_hard_block(403, page.as_bytes()), None, "{page}");
+                assert_eq!(
+                    detect(403, &[], page).map(|challenge| challenge.vendor),
+                    Some(ChallengeVendor::Cloudflare),
+                    "{page}"
+                );
+            }
             assert_eq!(
                 detect_hard_block(403, CLOUDFLARE_CHALLENGE.as_bytes()),
                 None
@@ -500,15 +636,16 @@ window.gokuProps = {"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AE",
         #[test]
         fn should_not_take_other_answers_for_a_hard_block() {
             for status in [200, 405, 429, 503] {
-                assert_eq!(
-                    detect_hard_block(status, CLOUDFLARE_BLOCK.as_bytes()),
-                    None,
-                    "{status}"
-                );
+                for page in [CLOUDFLARE_BLOCK, CLOUDFLARE_ERROR_1020] {
+                    assert_eq!(detect_hard_block(status, page.as_bytes()), None, "{status}");
+                }
             }
             let forbidden = "<html><head><title>403 Forbidden</title></head>\
 <body><h1>Forbidden</h1><p>Sorry, you have been blocked from this area.</p></body></html>";
             assert_eq!(detect_hard_block(403, forbidden.as_bytes()), None);
+            let shop_denial = "<html><head><title>Access denied | shop.example</title></head>\
+<body><h1>Access denied</h1><p>Error code <span>1020</span>: your account is locked.</p></body></html>";
+            assert_eq!(detect_hard_block(403, shop_denial.as_bytes()), None);
             let large = format!(
                 "{CLOUDFLARE_BLOCK}{}",
                 "<p>catalogue</p>".repeat(MAX_CHALLENGE_BODY_BYTES / 16 + 1)

@@ -166,8 +166,9 @@ impl FetchError {
 // ReqwestHtmlFetcher
 // ---------------------------------------------------------------------------
 
+/// Fetches HTML with the crawler's [request headers](crate::network::crawler_request_headers),
+/// which its clients carry; it adds none of its own, so it sees the site the spider sees.
 pub struct ReqwestHtmlFetcher {
-    default_headers: reqwest::header::HeaderMap,
     retry_policy: RetryPolicy,
     attempt_timeout: Duration,
     attempt_timeout_max: Duration,
@@ -286,28 +287,7 @@ impl ReqwestHtmlFetcher {
         retry_policy: RetryPolicy,
         auto_throttle_config: ScraperAutoThrottleConfig,
     ) -> Self {
-        let mut default_headers = reqwest::header::HeaderMap::new();
-        default_headers.insert(
-            reqwest::header::ACCEPT,
-            reqwest::header::HeaderValue::from_static(
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            ),
-        );
-        default_headers.insert(
-            reqwest::header::ACCEPT_LANGUAGE,
-            reqwest::header::HeaderValue::from_static("de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"),
-        );
-        default_headers.insert(
-            reqwest::header::CACHE_CONTROL,
-            reqwest::header::HeaderValue::from_static("no-cache"),
-        );
-        default_headers.insert(
-            reqwest::header::PRAGMA,
-            reqwest::header::HeaderValue::from_static("no-cache"),
-        );
-
         Self {
-            default_headers,
             retry_policy,
             attempt_timeout: HTML_FETCH_ATTEMPT_TIMEOUT,
             attempt_timeout_max: HTML_FETCH_ATTEMPT_TIMEOUT_MAX,
@@ -447,7 +427,6 @@ impl ReqwestHtmlFetcher {
         let client = self.http_client_for(url, attempt_timeout).await?;
         let response = client
             .get(url.clone())
-            .headers(self.default_headers.clone())
             .send()
             .await
             .map_err(reqwest_fetch_error)?;
@@ -781,7 +760,9 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
 mod tests {
     use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher, client_fetch_error};
     use crate::network::policy::{CrawlerClientError, NetworkErrorKind, RetryPolicy};
+    use crate::network::{CRAWLER_ACCEPT, CRAWLER_USER_AGENT};
     use crate::scraper::scraper_service::ScraperAutoThrottleConfig;
+    use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
@@ -807,7 +788,8 @@ mod tests {
     /// and every other request with the next of `pages`, after `page_delay`.
     struct TestShop {
         url: Url,
-        page_requests: Arc<Mutex<Vec<(Instant, String)>>>,
+        /// When each page request arrived, its path and its request head.
+        page_requests: Arc<Mutex<Vec<(Instant, String, String)>>>,
         robots_requests: Arc<AtomicUsize>,
     }
 
@@ -817,7 +799,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|(at, _)| *at)
+                .map(|(at, ..)| *at)
                 .collect()
         }
 
@@ -826,7 +808,24 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|(_, path)| path.clone())
+                .map(|(_, path, _)| path.clone())
+                .collect()
+        }
+
+        /// The headers of each page request, by lowercase name.
+        fn page_request_headers(&self) -> Vec<BTreeMap<String, String>> {
+            self.page_requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(.., head)| {
+                    head.lines()
+                        .skip(1)
+                        .take_while(|line| !line.is_empty())
+                        .filter_map(|line| line.split_once(':'))
+                        .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
+                        .collect()
+                })
                 .collect()
         }
 
@@ -863,12 +862,16 @@ mod tests {
                     let _ = socket.write_all(robots.as_bytes()).await;
                     continue;
                 }
-                let path = String::from_utf8_lossy(&buffer[..read])
+                let head = String::from_utf8_lossy(&buffer[..read]).into_owned();
+                let path = head
                     .split_whitespace()
                     .nth(1)
                     .unwrap_or_default()
                     .to_owned();
-                page_requests.lock().unwrap().push((Instant::now(), path));
+                page_requests
+                    .lock()
+                    .unwrap()
+                    .push((Instant::now(), path, head));
                 let Some(page) = pages.next() else {
                     return;
                 };
@@ -1252,6 +1255,35 @@ mod tests {
             zero_delay_retry_policy(1),
             throttle_config(Duration::ZERO),
         )
+    }
+
+    /// The fetcher adds nothing to the crawler's identity and request headers: a language
+    /// preference makes Shopify Markets convert every price to the egress country's currency,
+    /// and a browser-style `Accept` makes some shops redirect to a locale-prefixed copy.
+    #[tokio::test]
+    async fn should_send_only_the_crawler_identity_and_request_headers() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        unthrottled_fetcher().fetch(&shop.url).await.unwrap();
+
+        let host = format!(
+            "{}:{}",
+            shop.url.host_str().unwrap(),
+            shop.url.port().unwrap()
+        );
+        assert_eq!(
+            shop.page_request_headers(),
+            vec![BTreeMap::from([
+                ("accept".to_owned(), CRAWLER_ACCEPT.to_owned()),
+                ("host".to_owned(), host),
+                ("user-agent".to_owned(), CRAWLER_USER_AGENT.to_owned()),
+            ])]
+        );
     }
 
     #[tokio::test]

@@ -130,22 +130,93 @@ impl ScraperError {
 pub struct ListingRemoval {
     pub url: Url,
     pub details: String,
+    /// What showed the removal, which the capture of the removal logs.
+    pub evidence: RemovalEvidence,
     /// The stored removed-page templates whose match withdrew the page; empty for a removal the
     /// shop's response showed. A template retired or narrowed later re-arms the page.
     pub removed_by_templates: Vec<RemovedPageSchema>,
 }
 
 impl ScraperError {
-    /// A removal of the listing at `url`, which `removed_by_templates` withdrew when any.
+    /// A removal of the listing at `url` that `evidence` showed, which `removed_by_templates`
+    /// withdrew when any.
     pub fn product_listing_removed(
         url: Url,
         details: impl Into<String>,
+        evidence: RemovalEvidence,
         removed_by_templates: Vec<RemovedPageSchema>,
     ) -> Self {
         Self::ProductListingRemoved(Box::new(ListingRemoval {
             url,
             details: details.into(),
+            evidence,
             removed_by_templates,
         }))
+    }
+}
+
+/// What showed that a listing is removed: the shop's answer, or the page a redirect led to or a
+/// removed-page template matched (`docs/crawler/networking.md#redirect-removal-evidence` names
+/// what a redirect must show).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovalEvidence {
+    pub kind: RemovalEvidenceKind,
+    /// The status the shop answered: 404 or 410, or the success status of the page the evidence
+    /// was read from. `None` when that page was not fetched or its status is not known here.
+    pub status: Option<u16>,
+    /// The page the evidence was read from; `None` for a 404 or 410 answer.
+    pub final_url: Option<Url>,
+}
+
+impl RemovalEvidence {
+    /// The shop answered the product URL with `status`, 404 or 410.
+    pub fn gone_status(status: u16) -> Self {
+        Self {
+            kind: RemovalEvidenceKind::GoneStatus,
+            status: Some(status),
+            final_url: None,
+        }
+    }
+
+    /// `kind` read from the page at `final_url`, answered with `status` when known.
+    pub fn page(kind: RemovalEvidenceKind, final_url: Url, status: Option<u16>) -> Self {
+        Self {
+            kind,
+            status,
+            final_url: Some(final_url),
+        }
+    }
+}
+
+/// The kinds of [`RemovalEvidence`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemovalEvidenceKind {
+    /// The shop answered the product URL with 404 or 410.
+    GoneStatus,
+    /// The product URL redirected to the shop's homepage.
+    RedirectToHomepage,
+    /// The product URL redirected outside its product URL pattern to a page every cached schema
+    /// fails on.
+    RedirectToNonProductPage,
+    /// The product URL redirected to a page the crawler stores as no product page of its
+    /// ListingSource.
+    RedirectToStoredNonProductPage,
+    /// A stored removed-page template matched the page.
+    RemovedPageTemplate,
+    /// Fresh schema generation classified the page as removed.
+    RemovedPageClassification,
+}
+
+impl RemovalEvidenceKind {
+    /// The kind's name in log lines.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GoneStatus => "GONE_STATUS",
+            Self::RedirectToHomepage => "REDIRECT_TO_HOMEPAGE",
+            Self::RedirectToNonProductPage => "REDIRECT_TO_NON_PRODUCT_PAGE",
+            Self::RedirectToStoredNonProductPage => "REDIRECT_TO_STORED_NON_PRODUCT_PAGE",
+            Self::RemovedPageTemplate => "REMOVED_PAGE_TEMPLATE",
+            Self::RemovedPageClassification => "REMOVED_PAGE_CLASSIFICATION",
+        }
     }
 }

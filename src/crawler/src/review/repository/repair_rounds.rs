@@ -42,7 +42,7 @@ pub(super) fn agent_round_binds() -> ([&'static str; 2], &'static str, &'static 
 
 /// The agents' needs-repair rounds of each of `review_ids`, as [`agent_rounds_of_review`] counts
 /// them.
-pub(super) async fn agent_repair_rounds<'e>(
+pub(crate) async fn agent_repair_rounds<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     review_ids: &[CrawlerReviewId],
 ) -> Result<HashMap<CrawlerReviewId, u32>, sqlx::Error> {
