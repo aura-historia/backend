@@ -13,7 +13,9 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
-use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
+use crate::scraper::scraper_service::pipeline::scrape_product::{
+    Redirect, is_redirect_to_non_product_page,
+};
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
@@ -825,7 +827,9 @@ impl CrawlerReviewRepository {
     /// Stores a page the reviewer chose, fetched from `requested_url` and served from
     /// `fetched_url`, as a `REVIEWER_ADDED` review page and drops the cached schema matrix, which
     /// does not cover the new page yet. A redirect to a page that is not a product page, such as
-    /// a sold listing the shop sends to its homepage, is refused.
+    /// a sold listing the shop sends to its homepage, is refused. The page is stored under the
+    /// spelling the crawler stores it under ([`Redirect::of`]), so a language-only redirect does
+    /// not store the prefixed URL.
     pub async fn add_reviewer_page(
         &self,
         review_id: CrawlerReviewId,
@@ -834,20 +838,40 @@ impl CrawlerReviewRepository {
         fetched_url: &Url,
         raw_html: &str,
     ) -> Result<CrawlerReviewPage, ReviewRepositoryError> {
-        let url = reviewer_page_url(fetched_url);
+        let fetched_url = reviewer_page_url(fetched_url);
         let mut transaction = self.pool.begin().await?;
         let product_url_pattern = lock_reviewer_page_target(
             &mut transaction,
             review_id,
             actor,
             &self.agent_decisions,
-            &url,
+            &fetched_url,
         )
         .await?;
-        if is_redirect_to_non_product_page(requested_url, &url, product_url_pattern.as_deref()) {
+        if is_redirect_to_non_product_page(
+            requested_url,
+            &fetched_url,
+            product_url_pattern.as_deref(),
+        ) {
             return Err(ReviewRepositoryError::RedirectedToNonProductPage(
-                url.to_string(),
+                fetched_url.to_string(),
             ));
+        }
+        // The page is stored under the URL the crawler stores it under: the requested one when
+        // the redirect only changed the language segment or the trailing slash, and the target
+        // without its language segment when the pattern takes that spelling.
+        let url = reviewer_page_url(
+            &Redirect::of(requested_url, &fetched_url, product_url_pattern.as_deref()).url,
+        );
+        if url != fetched_url {
+            lock_reviewer_page_target(
+                &mut transaction,
+                review_id,
+                actor,
+                &self.agent_decisions,
+                &url,
+            )
+            .await?;
         }
         let page = sqlx::query(
             "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \

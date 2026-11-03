@@ -1,5 +1,6 @@
 use crate::network::policy::NetworkErrorKind;
 
+use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
@@ -53,7 +54,18 @@ pub(crate) enum RedirectTarget {
     OutsideProductPattern,
 }
 
-impl RedirectTarget {
+/// Where a product URL's redirect led and the URL the row is stored under afterwards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Redirect {
+    pub(crate) target: RedirectTarget,
+    /// The requested URL for a redirect to the same page; otherwise the redirect target in its
+    /// stored spelling. A target that adds a language segment to a row stored without one is
+    /// stored without it when the product URL pattern takes that spelling, so the row stays a
+    /// product URL of the domain (`docs/crawler/networking.md#stored-urls`).
+    pub(crate) url: Url,
+}
+
+impl Redirect {
     /// Where `original_url`, fetched as `final_url`, led under `product_url_pattern`.
     pub(crate) fn of(
         original_url: &Url,
@@ -63,20 +75,50 @@ impl RedirectTarget {
         let original = CrawledUrl::new(original_url.clone());
         let target = CrawledUrl::new(final_url.clone());
         if original.is_same_page(&target) || differ_only_in_language_segment(&original, &target) {
-            return Self::SamePage;
+            return Self {
+                target: RedirectTarget::SamePage,
+                url: original_url.clone(),
+            };
         }
+        let stored = |target: CrawledUrl, kind| Self {
+            target: kind,
+            url: target.as_url().clone(),
+        };
         if is_homepage(&target) {
-            return Self::Homepage;
+            return stored(target, RedirectTarget::Homepage);
         }
-        match product_url_pattern.and_then(|raw| Regex::new(raw).ok()) {
-            Some(pattern) if !target.matches_pattern(&pattern) => Self::OutsideProductPattern,
-            _ => Self::ProductPage,
+        let Some(pattern) = product_url_pattern.and_then(|raw| Regex::new(raw).ok()) else {
+            return stored(target, RedirectTarget::ProductPage);
+        };
+        // The recognized language segments are a guess about the path (`/art/12`), so the
+        // unprefixed spelling is stored only where the pattern takes it.
+        let unprefixed = without_language_segment(&original)
+            .is_none()
+            .then(|| without_language_segment(&target))
+            .flatten()
+            .map(CrawledUrl::new)
+            .filter(|unprefixed| unprefixed.matches_pattern(&pattern));
+        match unprefixed {
+            Some(unprefixed) => stored(unprefixed, RedirectTarget::ProductPage),
+            None if target.matches_pattern(&pattern) => stored(target, RedirectTarget::ProductPage),
+            None => stored(target, RedirectTarget::OutsideProductPattern),
         }
+    }
+}
+
+impl RedirectTarget {
+    /// Where `original_url`, fetched as `final_url`, led under `product_url_pattern`.
+    pub(crate) fn of(
+        original_url: &Url,
+        final_url: &Url,
+        product_url_pattern: Option<&str>,
+    ) -> Self {
+        Redirect::of(original_url, final_url, product_url_pattern).target
     }
 
     /// Whether the target is a product page: the requested page or another one the product URL
     /// pattern takes.
-    fn is_product_page(self) -> bool {
+    pub(crate) fn is_product_page(self) -> bool {
         matches!(self, Self::SamePage | Self::ProductPage)
     }
 }
@@ -108,7 +150,7 @@ fn differ_only_in_language_segment(left: &CrawledUrl, right: &CrawledUrl) -> boo
     left.path() == right.path() && left.query() == right.query()
 }
 
-fn is_same_logical_host(left: &Url, right: &Url) -> bool {
+pub(crate) fn is_same_logical_host(left: &Url, right: &Url) -> bool {
     normalize_host(left) == normalize_host(right)
 }
 
@@ -342,7 +384,10 @@ impl FetchedProductPage {
             });
         }
         let status = fetched.status.as_u16();
-        let redirect = RedirectTarget::of(url, &fetched.final_url, product_url_pattern);
+        let Redirect {
+            target: redirect,
+            url: effective_url,
+        } = Redirect::of(url, &fetched.final_url, product_url_pattern);
         if redirect == RedirectTarget::Homepage {
             return Err(ScraperError::product_listing_removed(
                 url.clone(),
@@ -358,11 +403,6 @@ impl FetchedProductPage {
                 Vec::new(),
             ));
         }
-        let effective_url = if redirect == RedirectTarget::SamePage {
-            url.clone()
-        } else {
-            CrawledUrl::new(fetched.final_url.clone()).as_url().clone()
-        };
         Ok(Self {
             acquired_at,
             html: fetched.html,
@@ -560,6 +600,10 @@ impl ScraperServiceImpl {
             time::OffsetDateTime::now_utc(),
         )?;
 
+        // Where the redirect led is known from the fetch, so a page the crawler stores settles
+        // the URL before anything is extracted from it.
+        self.settle_redirect_destination(request, &page).await?;
+
         let removed_page_schemas = self.removed_page_schemas_for(listing_source_id).await?;
         // One schema-cache read and one parse serve the removal guard, the page hash and cached
         // schema selection.
@@ -583,7 +627,8 @@ impl ScraperServiceImpl {
         )?;
 
         // Ahead of the schemas and the unchanged-page skip, so a page rejected as no product page
-        // is never captured, whichever schema extracts it.
+        // is never captured, whichever schema extracts it, and ahead of the unverified-target
+        // check, so a redirect onto it is a removal even before any schema is cached.
         self.skip_rejected_page(
             listing_source_id,
             url,
@@ -591,6 +636,18 @@ impl ScraperServiceImpl {
             expected_last_captured_raw_input_sha256,
         )
         .await?;
+
+        // A redirect outside the pattern that no cached schema can judge is no page to capture or
+        // to open a schema review on.
+        if page.redirect == RedirectTarget::OutsideProductPattern
+            && cached_extraction
+                .as_ref()
+                .is_none_or(|extracted| extracted.product_schemas().is_empty())
+        {
+            return Err(ScraperError::RedirectTargetUnverified {
+                destination: page.effective_url.clone(),
+            });
+        }
 
         let fetched_page = FetchedPage {
             listing_source_id,
@@ -645,6 +702,55 @@ impl ScraperServiceImpl {
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
         debug!(domain, "Scraping complete");
         Ok(Some(scraped))
+    }
+
+    /// Settles a URL that redirected by the rows the crawler stores at its target
+    /// (`docs/crawler/networking.md#duplicate-targets`): a target that is no product page of the
+    /// ListingSource is a removal whatever the page shows, a product URL it stores under its own
+    /// row retires the URL, and rows that disagree leave it unsettled. `Ok` for a target no row
+    /// stores, which the scrape judges by what it extracts.
+    #[allow(clippy::result_large_err)]
+    async fn settle_redirect_destination(
+        &self,
+        request: &ScrapeRequest,
+        page: &FetchedProductPage,
+    ) -> Result<(), ScraperError> {
+        let (Some(domain_id), true) = (request.domain_id.as_ref(), page.url_moved()) else {
+            return Ok(());
+        };
+        let destination = self
+            .candidate_service
+            .redirect_destination(&request.listing_source_id, domain_id, &page.effective_url)
+            .await
+            .map_err(ScraperError::RedirectDestinationLookup)?;
+        let url = request.url.clone();
+        let destination_url = page.effective_url.clone();
+        match destination {
+            RedirectDestination::Unknown => Ok(()),
+            RedirectDestination::ProductOfListingSource => {
+                Err(ScraperError::RedirectToKnownProduct {
+                    destination: destination_url,
+                })
+            }
+            RedirectDestination::Unsettled => Err(ScraperError::RedirectDestinationUnsettled {
+                destination: destination_url,
+            }),
+            RedirectDestination::NotAProductOfListingSource => {
+                Err(ScraperError::product_listing_removed(
+                    url.clone(),
+                    format!(
+                        "product URL redirected to a page stored as no product URL of its ListingSource: original={url}, final={}",
+                        page.final_url
+                    ),
+                    RemovalEvidence::page(
+                        RemovalEvidenceKind::RedirectToStoredNonProductPage,
+                        page.final_url.clone(),
+                        Some(page.status),
+                    ),
+                    Vec::new(),
+                ))
+            }
+        }
     }
 
     /// Selects the best-ranked plausible cached schema for the page in `page` from what `extracted`
@@ -795,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn should_judge_another_page_behind_a_language_segment_by_the_pattern() {
+    fn should_judge_another_page_behind_a_language_segment_by_the_pattern_with_or_without_it() {
         assert_eq!(
             target(
                 "https://shop.example/item/1",
@@ -818,7 +924,7 @@ mod tests {
                 "https://shop.example/en/item/1?id=3",
                 Some(r"^https://shop\.example/item/")
             ),
-            RedirectTarget::OutsideProductPattern
+            RedirectTarget::ProductPage
         );
     }
 
