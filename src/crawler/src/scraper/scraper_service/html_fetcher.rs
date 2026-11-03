@@ -1257,9 +1257,10 @@ mod tests {
         )
     }
 
-    /// The fetcher adds nothing to the crawler's identity and request headers: a language
-    /// preference makes Shopify Markets convert every price to the egress country's currency,
-    /// and a browser-style `Accept` makes some shops redirect to a locale-prefixed copy.
+    /// The fetcher adds nothing to the crawler's identity and request headers but the transfer
+    /// encodings it decodes: a language preference makes Shopify Markets convert every price to
+    /// the egress country's currency, and a browser-style `Accept` makes some shops redirect to a
+    /// locale-prefixed copy.
     #[tokio::test]
     async fn should_send_only_the_crawler_identity_and_request_headers() {
         let shop = spawn_shop(
@@ -1280,10 +1281,70 @@ mod tests {
             shop.page_request_headers(),
             vec![BTreeMap::from([
                 ("accept".to_owned(), CRAWLER_ACCEPT.to_owned()),
+                ("accept-encoding".to_owned(), "gzip,br".to_owned()),
                 ("host".to_owned(), host),
                 ("user-agent".to_owned(), CRAWLER_USER_AGENT.to_owned()),
             ])]
         );
+    }
+
+    const COMPRESSED_PAGE_HTML: &str =
+        "<html><title>Compressed chair</title><body>Price £28,000</body></html>";
+    const GZIP_PAGE_BODY: &[u8] = &[
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb3, 0xc9, 0x28, 0xc9, 0xcd,
+        0xb1, 0xb3, 0x29, 0xc9, 0x2c, 0xc9, 0x49, 0xb5, 0x73, 0xce, 0xcf, 0x2d, 0x28, 0x4a, 0x2d,
+        0x2e, 0x4e, 0x4d, 0x51, 0x48, 0xce, 0x48, 0xcc, 0x2c, 0xb2, 0xd1, 0x87, 0x88, 0xdb, 0x24,
+        0xe5, 0xa7, 0x54, 0xda, 0x05, 0x14, 0x65, 0x26, 0xa7, 0x2a, 0x1c, 0x5a, 0x6c, 0x64, 0xa1,
+        0x63, 0x60, 0x60, 0x60, 0xa3, 0x0f, 0x16, 0xb4, 0xd1, 0x07, 0x1b, 0x00, 0x00, 0x57, 0x23,
+        0xa1, 0x8d, 0x47, 0x00, 0x00, 0x00,
+    ];
+    /// The same page compressed by a Brotli encoder at quality 11.
+    const BROTLI_PAGE_BODY: &[u8] = &[
+        0x1b, 0x46, 0x00, 0xa0, 0x1c, 0xa7, 0xc7, 0x9a, 0x9f, 0x35, 0xaa, 0x5f, 0x64, 0x46, 0x85,
+        0x15, 0xce, 0x50, 0xf2, 0xb4, 0xbd, 0xc1, 0x06, 0x1c, 0x38, 0xf4, 0x60, 0xeb, 0x32, 0xe1,
+        0xe0, 0x21, 0x2b, 0xf9, 0xcd, 0x28, 0x14, 0x7e, 0xa1, 0x31, 0xe8, 0x6b, 0x53, 0x24, 0x34,
+        0xc0, 0x8a, 0x15, 0x73, 0xc3, 0x4e, 0x16, 0x1e, 0x29,
+    ];
+
+    /// A shop that serves `body` with `content_encoding` for the page and no robots.txt.
+    async fn spawn_compressed_shop(content_encoding: &'static str, body: &'static [u8]) -> Url {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buffer = [0_u8; 1024];
+                let read = socket.read(&mut buffer).await.unwrap_or_default();
+                let response = if buffer[..read].starts_with(b"GET /robots.txt ") {
+                    robots_status("404 Not Found").into_bytes()
+                } else {
+                    let mut response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Encoding: {content_encoding}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .into_bytes();
+                    response.extend_from_slice(body);
+                    response
+                };
+                let _ = socket.write_all(&response).await;
+            }
+        });
+        Url::parse(&format!("http://{addr}/product")).unwrap()
+    }
+
+    /// The captured HTML is the decoded body, whichever transfer encoding the shop picked from
+    /// the ones the fetcher named.
+    #[tokio::test]
+    async fn should_decode_a_gzip_or_brotli_response() {
+        for (encoding, body) in [("gzip", GZIP_PAGE_BODY), ("br", BROTLI_PAGE_BODY)] {
+            let url = spawn_compressed_shop(encoding, body).await;
+
+            let fetched = unthrottled_fetcher().fetch(&url).await.unwrap();
+
+            assert_eq!(fetched.html, COMPRESSED_PAGE_HTML, "{encoding}");
+        }
     }
 
     #[tokio::test]

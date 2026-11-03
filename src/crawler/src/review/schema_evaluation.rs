@@ -1,8 +1,8 @@
 use crate::CrawlerReviewId;
 use crate::review::model::{
-    CrawlerReviewPage, MatchedRemovedPageTemplate, RemovedPageTemplateMatch,
-    RemovedPageTemplateOutcome, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
-    SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
+    CrawlerReviewPage, ForeignPriceCurrencyFinding, MatchedRemovedPageTemplate,
+    RemovedPageTemplateMatch, RemovedPageTemplateOutcome, SchemaCandidateEvaluation, SchemaMatrix,
+    SchemaPageEvaluation, SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
@@ -15,7 +15,9 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::plausibility::{
     CrossPageFindings, IdentityAgreementFindings, PageExtraction, PlausibilityFindings,
 };
+use crate::scraper::raw_input::foreign_price_currency;
 use crate::scraper::scraper_service::image_validation::filter_image_urls_offline;
+use money::Currency;
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 use url::Url;
@@ -133,6 +135,26 @@ fn evaluate_matrix(
     };
     evaluate_cross_page_findings(&mut matrix);
     matrix
+}
+
+/// Reports, on every extracted page of `matrix`, the price that names another currency than the
+/// ListingSource's `fallback_currency`, by the check the scraper's capture logs
+/// ([`foreign_price_currency`]). The finding does not reject a page or block approval.
+pub(crate) fn add_foreign_price_currency_findings(
+    matrix: &mut SchemaMatrix,
+    fallback_currency: Option<Currency>,
+) {
+    for page in matrix
+        .candidates
+        .iter_mut()
+        .flat_map(|candidate| candidate.pages.iter_mut())
+    {
+        page.foreign_price_currency = page
+            .extracted
+            .as_ref()
+            .and_then(|raw| foreign_price_currency(raw, fallback_currency))
+            .map(ForeignPriceCurrencyFinding::from);
+    }
 }
 
 /// The schema matrix a review's `validation_summary` stores, with the cross-page findings of
@@ -497,6 +519,8 @@ fn evaluate_schema_page(
         // Filled once every candidate has evaluated the page, for the same reason.
         identity_agreement_findings: IdentityAgreementFindings::default(),
         unmapped_state_label,
+        // Needs the ListingSource's fallback currency; see `add_foreign_price_currency_findings`.
+        foreign_price_currency: None,
         fields,
     }
 }
@@ -998,6 +1022,61 @@ mod tests {
 
             assert!(matches.is_empty());
         }
+    }
+
+    #[test]
+    fn should_report_a_foreign_price_currency_without_failing_the_page() {
+        let pages = [
+            page_with_price("SEED", "h1", Some("$38,284.00")),
+            page_with_price("SAMPLE", "h1", Some("£28,000")),
+            page_with_price("OTHER", "h1", None),
+        ];
+        let mut matrix = evaluate_schema_matrix_for_inputs(&[schema_with_price("h1")], &pages);
+        let verdicts = |matrix: &SchemaMatrix| {
+            (
+                matrix.candidates[0]
+                    .pages
+                    .iter()
+                    .map(|page| (page.apply_ok, page.blocks_approval()))
+                    .collect::<Vec<_>>(),
+                schema_matrix_deterministic_approval_ok(matrix),
+            )
+        };
+        let before = verdicts(&matrix);
+
+        add_foreign_price_currency_findings(&mut matrix, Some(Currency::Gbp));
+
+        assert_eq!(
+            matrix.candidates[0]
+                .pages
+                .iter()
+                .map(|page| page.foreign_price_currency.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Some(ForeignPriceCurrencyFinding {
+                    field: PlausibilityField::Price,
+                    currency: "USD".to_owned(),
+                    fallback_currency: "GBP".to_owned(),
+                }),
+                None,
+                None,
+            ]
+        );
+        assert_eq!(
+            verdicts(&matrix),
+            before,
+            "a foreign currency is information, not a rejection"
+        );
+    }
+
+    #[test]
+    fn should_report_no_foreign_price_currency_without_a_fallback_currency() {
+        let pages = [page_with_price("SEED", "h1", Some("$38,284.00"))];
+        let mut matrix = evaluate_schema_matrix_for_inputs(&[schema_with_price("h1")], &pages);
+
+        add_foreign_price_currency_findings(&mut matrix, None);
+
+        assert_eq!(matrix.candidates[0].pages[0].foreign_price_currency, None);
     }
 
     #[test]

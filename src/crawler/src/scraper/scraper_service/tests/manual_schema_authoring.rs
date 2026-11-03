@@ -15,7 +15,7 @@ use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SC
 use crate::scraper::scraper_service::util::hash::{
     EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
 };
-use crate::scraper::scraper_service::{ScrapedProduct, ScraperError};
+use crate::scraper::scraper_service::{RemovalEvidenceKind, ScrapedProduct, ScraperError};
 use serde_json::json;
 use sqlx::PgPool;
 use test_api::IntegrationTestService as _;
@@ -310,17 +310,23 @@ async fn assert_rejected_triggering_page_is_not_captured(
     let extracting = cached_schemas(id, vec![minimal_schema()]);
     let request = rescrape(&id, &requested_url, &extracting);
     let mut candidates = MockScraperCandidateService::new();
-    let expected_url = requested_url.clone();
-    let capture_guard = request.expected_last_captured_raw_input_sha256.clone();
-    candidates
-        .expect_set_class()
-        .once()
-        .withf(move |_, received_url, url_class, received_guard| {
-            received_url == &expected_url
-                && *url_class == crate::spider::classification::url_metadata::UrlClass::Other
-                && *received_guard == capture_guard.as_deref()
-        })
-        .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    let redirected = requested_url != url;
+    if redirected {
+        // The requested product is gone behind the rejection: a removal, no classification.
+        candidates.expect_set_class().never();
+    } else {
+        let expected_url = requested_url.clone();
+        let capture_guard = request.expected_last_captured_raw_input_sha256.clone();
+        candidates
+            .expect_set_class()
+            .once()
+            .withf(move |_, received_url, url_class, received_guard| {
+                received_url == &expected_url
+                    && *url_class == crate::spider::classification::url_metadata::UrlClass::Other
+                    && *received_guard == capture_guard.as_deref()
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    }
     let rescraping = scraper_with_review_gate(
         fetcher_returning_sample_page_at(&url, 1),
         schema_service_without_generation(Some(extracting)),
@@ -331,10 +337,22 @@ async fn assert_rejected_triggering_page_is_not_captured(
 
     let result = rescraping.scrape(request).await.result;
 
-    assert!(
-        matches!(&result, Err(ScraperError::NotProductPage { url, .. }) if *url == requested_url),
-        "{result:?}"
-    );
+    if redirected {
+        let Err(ScraperError::ProductListingRemoved(removal)) = &result else {
+            panic!("a redirect onto a rejected page is a removal: {result:?}");
+        };
+        assert_eq!(removal.url, requested_url);
+        assert_eq!(
+            removal.evidence.kind,
+            RemovalEvidenceKind::RedirectToRejectedPage
+        );
+        assert_eq!(removal.evidence.final_url.as_ref(), Some(&url));
+    } else {
+        assert!(
+            matches!(&result, Err(ScraperError::NotProductPage { url, .. }) if *url == requested_url),
+            "{result:?}"
+        );
+    }
     assert_eq!(
         repository
             .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
@@ -376,10 +394,11 @@ async fn should_classify_rejected_triggering_page_as_other_when_authoring_is_aut
     .await;
 }
 
-/// A crawler URL that redirects onto a rejected page is the row classified, under its own capture
-/// guard, so it is not requested again every pass.
+/// A crawler URL that redirects onto a rejected page is a verified removal: the operator's verdict
+/// is that the page is no product, so the product the URL named is gone
+/// (`docs/crawler/networking.md#duplicate-targets`). The URL stays a candidate, unclassified.
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-async fn should_classify_requested_url_as_other_when_it_redirects_onto_a_rejected_page() {
+async fn should_remove_the_product_when_its_url_redirects_onto_a_rejected_page() {
     assert_rejected_triggering_page_is_not_captured(
         CrawlerAuthoringMode::Manual,
         Url::parse("https://example.com/old-products/123").unwrap(),
@@ -389,6 +408,62 @@ async fn should_classify_requested_url_as_other_when_it_redirects_onto_a_rejecte
         },
     )
     .await;
+}
+
+/// A rejection is the operator's verdict on the page, so a URL that redirects onto a rejected page
+/// outside the product URL pattern is a removal even before any schema is cached, rather than a
+/// target no schema can judge.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_remove_the_product_when_its_url_redirects_outside_the_pattern_onto_a_rejected_page_before_any_schema_is_cached()
+ {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let rejected_page = Url::parse("https://example.com/collections/chairs").unwrap();
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let opening = scraper_with_review_gate(
+        fetcher_returning_sample_page_at(&rejected_page, 1),
+        schema_service_without_generation(Some(cached_schemas(id, vec![stale_schema()]))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+    let rejected = pending_review_id(
+        opening
+            .scrape(primary_only_request(&id, &rejected_page))
+            .await
+            .result,
+    );
+    repository
+        .reject_review(rejected, ReviewActor::Human, Some("not a product page"))
+        .await
+        .unwrap_or_else(|error| panic!("reject manual review: {error}"));
+    let requested_url = Url::parse("https://example.com/products/sold-chair").unwrap();
+    let rescraping = scraper_with_review_gate(
+        fetcher_returning_sample_page_at(&rejected_page, 1),
+        schema_service_without_generation(None),
+        repository,
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Manual,
+    );
+
+    let result = rescraping
+        .scrape(primary_only_request_with_pattern(
+            &id,
+            &requested_url,
+            r"/products/",
+        ))
+        .await
+        .result;
+
+    let Err(ScraperError::ProductListingRemoved(removal)) = &result else {
+        panic!("a redirect onto a rejected page is a removal: {result:?}");
+    };
+    assert_eq!(removal.url, requested_url);
+    assert_eq!(
+        removal.evidence.kind,
+        RemovalEvidenceKind::RedirectToRejectedPage
+    );
+    assert_eq!(removal.evidence.final_url.as_ref(), Some(&rejected_page));
 }
 
 /// A rejected page captured before, such as by a cached schema before the rejection took effect,
@@ -1658,4 +1733,73 @@ async fn should_seed_the_next_manual_review_with_pages_that_waited_on_the_first(
         "the first review has its page and three seeds"
     );
     assert_eq!(next_pages, released);
+}
+
+/// The live matrix reports the price that names another currency than the ListingSource's
+/// fallback currency, read from the ListingSource, on every sampled page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_report_a_foreign_price_currency_in_the_live_matrix() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    sqlx::query(
+        "UPDATE listing_sources SET fallback_currency = 'GBP' WHERE listing_source_id = $1",
+    )
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("set the fallback currency: {error}"));
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let mut schema = minimal_schema();
+    schema.price = Some(ExtractionRule {
+        selector: CssSelector::from("#price"),
+        additional_selectors: vec![],
+        extract: ExtractionKind::Text,
+        cardinality: ExtractionCardinality::First,
+    });
+    let review_id = repository
+        .create_schema_review(
+            &id,
+            MANUAL_SCHEMA_REASON,
+            &[schema],
+            vec![SchemaReviewPageInput {
+                url: product_url().to_string(),
+                role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_owned(),
+                raw_html: sample_html(),
+            }],
+            json!({ "schema_matrix": {} }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("open the review: {error}"));
+    let converted_page = sample_html().replace(
+        "<h1>Biedermeier Chair</h1>",
+        r#"<h1>Biedermeier Chair</h1><span id="price">$38,284.00</span>"#,
+    );
+    let pages = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read the review pages: {error}"))
+        .into_iter()
+        .map(|page| (page, converted_page.clone()))
+        .collect();
+
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, pages, time::OffsetDateTime::now_utc())
+        .await
+        .unwrap_or_else(|error| panic!("evaluate the matrix: {error}"));
+
+    let findings: Vec<_> = evaluated
+        .matrix
+        .candidates
+        .iter()
+        .flat_map(|candidate| &candidate.pages)
+        .map(|page| page.foreign_price_currency.clone())
+        .collect();
+    assert_eq!(
+        findings,
+        vec![Some(crate::review::model::ForeignPriceCurrencyFinding {
+            field: crate::scraper::plausibility::PlausibilityField::Price,
+            currency: "USD".to_owned(),
+            fallback_currency: "GBP".to_owned(),
+        })]
+    );
 }

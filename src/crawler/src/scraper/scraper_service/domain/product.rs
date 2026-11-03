@@ -291,6 +291,10 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
         },
         ScraperError::ProductListingRemoved(_)
         | ScraperError::NotProductPage { .. }
+        | ScraperError::RedirectToKnownProduct { .. }
+        | ScraperError::RedirectDestinationLookup(_)
+        | ScraperError::RedirectDestinationUnsettled { .. }
+        | ScraperError::RedirectTargetUnverified { .. }
         | ScraperError::SchemaClassificationRejected { .. }
         | ScraperError::SchemaServiceError(_)
         | ScraperError::RemovedPageSchemaDatabaseError(_)

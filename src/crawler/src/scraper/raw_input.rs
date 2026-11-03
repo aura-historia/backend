@@ -2,14 +2,14 @@
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::plausibility::PlausibilityField;
-use money::Currency;
+use money::{Currency, Price};
 use product_listing_core::source_listing_id::{InvalidSourceListingId, SourceListingId};
 use product_listing_normalization::{
     NormalizationContext, NormalizationError, NormalizationInputError,
     ProductListingNormalizationInput, ProductListingRawValuesPatch,
     ProductListingRawValuesPriceFormat, RawProductListingOperation, RawProductListingPayloadFormat,
     RawProductListingProvenance, RawProductListingValues, SourcePayload, normalize_price,
-    normalize_source_listing_id_with_url_sha_fallback,
+    normalize_product_listing_price, normalize_source_listing_id_with_url_sha_fallback,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -99,7 +99,9 @@ pub(crate) struct ForeignPriceCurrency {
 }
 
 /// The first price of `raw`, in schema field order, whose currency, as the ProductListing
-/// normalization worker reads it, is not `fallback_currency`. A storefront that converted its
+/// normalization worker reads it, is not `fallback_currency`. The main price goes through the
+/// worker's own `normalize_product_listing_price`, the estimates through its `normalize_price`,
+/// so the check cannot drift from what the worker persists. A storefront that converted its
 /// prices for the crawler's egress country shows here and nowhere else, since the converted
 /// price passes every plausibility check (`docs/crawler/networking.md#request-headers`). The
 /// capture keeps the value as extracted either way.
@@ -108,20 +110,36 @@ pub(crate) fn foreign_price_currency(
     fallback_currency: Option<Currency>,
 ) -> Option<ForeignPriceCurrency> {
     let fallback_currency = fallback_currency?;
+    let main_price = normalize_product_listing_price(raw.price.as_deref(), Some(fallback_currency))
+        .ok()
+        .flatten()
+        .and_then(|price| price.monetary());
     [
-        (PlausibilityField::Price, &raw.price),
-        (PlausibilityField::PriceEstimateMin, &raw.price_estimate_min),
-        (PlausibilityField::PriceEstimateMax, &raw.price_estimate_max),
+        (PlausibilityField::Price, main_price),
+        (
+            PlausibilityField::PriceEstimateMin,
+            estimate_price(raw.price_estimate_min.as_deref(), fallback_currency),
+        ),
+        (
+            PlausibilityField::PriceEstimateMax,
+            estimate_price(raw.price_estimate_max.as_deref(), fallback_currency),
+        ),
     ]
     .into_iter()
-    .find_map(|(field, value)| {
-        let price = normalize_price(value.as_deref(), Some(fallback_currency)).ok()??;
-        (price.currency != fallback_currency).then_some(ForeignPriceCurrency {
+    .find_map(|(field, price)| {
+        let price = price.filter(|price| price.currency != fallback_currency)?;
+        Some(ForeignPriceCurrency {
             field,
             currency: price.currency,
             fallback_currency,
         })
     })
+}
+
+fn estimate_price(value: Option<&str>, fallback_currency: Currency) -> Option<Price> {
+    normalize_price(value, Some(fallback_currency))
+        .ok()
+        .flatten()
 }
 
 /// Builds durable evidence for a crawler-verified removal without retaining HTML or response data.
@@ -209,6 +227,29 @@ mod tests {
                     currency: Currency::Usd,
                     fallback_currency: Currency::Gbp,
                 })
+            );
+        }
+
+        #[test]
+        fn should_read_the_currency_a_json_ld_offer_price_carries() {
+            // A `json_ld_offer` price is captured with its offer's `priceCurrency`.
+            assert_eq!(
+                foreign_price_currency(
+                    &priced(Some("1850.00 USD"), None, None),
+                    Some(Currency::Gbp)
+                ),
+                Some(ForeignPriceCurrency {
+                    field: PlausibilityField::Price,
+                    currency: Currency::Usd,
+                    fallback_currency: Currency::Gbp,
+                })
+            );
+            assert_eq!(
+                foreign_price_currency(
+                    &priced(Some("1850.00 GBP"), None, None),
+                    Some(Currency::Gbp)
+                ),
+                None
             );
         }
 
