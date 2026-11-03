@@ -804,6 +804,14 @@ fn emit_crawl_metrics(
     }
 }
 
+fn crawl_root_url(host: &str) -> String {
+    if host.starts_with("http") {
+        host.to_string()
+    } else {
+        format!("https://{host}")
+    }
+}
+
 fn spawn_spider_candidate(
     join_set: &mut JoinSet<SpiderSlotOutcome>,
     candidate: SpiderCandidate,
@@ -812,11 +820,7 @@ fn spawn_spider_candidate(
     lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
     threshold: usize,
 ) {
-    let crawl_root_url = if candidate.listing_source_domain.starts_with("http") {
-        candidate.listing_source_domain.clone()
-    } else {
-        format!("https://{}", candidate.listing_source_domain)
-    };
+    let crawl_root_url = crawl_root_url(&candidate.listing_source_domain);
     let domain_id = candidate.domain_id;
     let pace = crawl_pace(&candidate);
     let span = tracing::info_span!(
