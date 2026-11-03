@@ -4374,6 +4374,135 @@ async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
     assert_eq!(closed, CrawlerUrlWriteOutcome::Applied);
 }
 
+/// `scrape_failing_since` dates the current same-kind streak: opening from a closed circuit
+/// sets it, a further failure of the same kind keeps it, another kind restarts it and closing the
+/// circuit clears it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_domain_circuit_dates_the_current_failure_streak() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let domain_id =
+        insert_listing_source_with_domain(&pool, listing_source_id, "failing-since.example.com")
+            .await;
+    let url = "https://failing-since.example.com/p/1";
+    insert_product_url(&pool, listing_source_id, domain_id, url).await;
+
+    async fn failing_since(
+        pool: &sqlx::PgPool,
+        domain_id: CrawlerDomainId,
+    ) -> Option<time::OffsetDateTime> {
+        sqlx::query_scalar(
+            "SELECT scrape_failing_since FROM listing_source_domains WHERE domain_id = $1",
+        )
+        .bind(domain_id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+    async fn open(
+        service: &ScraperCandidateServiceImpl,
+        listing_source_id: ListingSourceId,
+        domain_id: CrawlerDomainId,
+        url: &str,
+        health: DomainHealthSnapshot,
+        kind: DomainFailureKind,
+    ) -> DomainHealthSnapshot {
+        let next_scrape_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(30);
+        let outcome = service
+            .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+                fetch_failure_request(
+                    listing_source_id,
+                    url::Url::parse(url).unwrap(),
+                    "Failure",
+                    "failed",
+                    None,
+                    time::OffsetDateTime::now_utc() + time::Duration::minutes(5),
+                    None,
+                ),
+                domain_id,
+                health,
+                kind,
+                None,
+                next_scrape_at,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+        DomainHealthSnapshot {
+            scrape_failure_streak: i32::try_from(outcome.persisted_failure_streak.unwrap())
+                .unwrap(),
+            last_scrape_error_kind: Some(kind.as_str().to_owned()),
+            next_scrape_at: Some(next_scrape_at),
+        }
+    }
+
+    assert_eq!(failing_since(&pool, domain_id).await, None);
+
+    let health = open(
+        &service,
+        listing_source_id,
+        domain_id,
+        url,
+        DomainHealthSnapshot::default(),
+        DomainFailureKind::Timeout,
+    )
+    .await;
+    let began = failing_since(&pool, domain_id)
+        .await
+        .expect("opening from streak 0 dates the streak");
+    assert!(time::OffsetDateTime::now_utc() - began < time::Duration::minutes(1));
+
+    sqlx::query("UPDATE listing_source_domains SET scrape_failing_since = $2 WHERE domain_id = $1")
+        .bind(domain_id.as_uuid())
+        .bind(time::OffsetDateTime::now_utc() - time::Duration::hours(3))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let backdated = failing_since(&pool, domain_id).await.unwrap();
+
+    let health = open(
+        &service,
+        listing_source_id,
+        domain_id,
+        url,
+        health,
+        DomainFailureKind::Timeout,
+    )
+    .await;
+    assert_eq!(health.scrape_failure_streak, 2);
+    assert_eq!(
+        failing_since(&pool, domain_id).await,
+        Some(backdated),
+        "a further failure of the same kind keeps the date"
+    );
+
+    let health = open(
+        &service,
+        listing_source_id,
+        domain_id,
+        url,
+        health,
+        DomainFailureKind::Http429,
+    )
+    .await;
+    assert_eq!(health.scrape_failure_streak, 1);
+    let restarted = failing_since(&pool, domain_id).await.unwrap();
+    assert!(
+        restarted > backdated,
+        "another kind restarts the streak and its date"
+    );
+
+    assert_eq!(
+        service
+            .close_domain_circuit(&domain_id, &health)
+            .await
+            .unwrap(),
+        CrawlerUrlWriteOutcome::Applied
+    );
+    assert_eq!(failing_since(&pool, domain_id).await, None);
+}
+
 // ---------------------------------------------------------------------------
 // get_random_product_urls_for_schema_seed — limit is respected
 // ---------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+// `sources` (the landing view) or `reviews`; the URL fragment decides, see `selectionFromUrl`.
+let currentView = 'sources';
 let selectedId = null;
 let selectedDetail = null;
 let selectedMatrix = null;
@@ -27,6 +29,8 @@ let selectedReviewRefreshReason = '';
 let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') === 'true';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
+// A status the header shows until it is replaced: `Signed out`, or why the queue refresh failed.
+let transientStatus = null;
 // Shop groups start collapsed; the reviewer's expanded ones are remembered per browser.
 const EXPANDED_GROUPS_KEY = 'crawlerReviewExpandedListingSourceGroups';
 let expandedListingSourceGroups = new Set(readStoredList(EXPANDED_GROUPS_KEY));
@@ -63,6 +67,7 @@ const rawAttributeHighlightColor = '#64748b';
 const RAW_ATTRIBUTE_FIELD_PREFIX = 'raw_attributes.';
 // Pages a reviewer may remove from a review: the ones they added and the ones waiting on it.
 const REMOVABLE_PAGE_ROLES = new Set(['REVIEWER_ADDED', 'WAITING_PAGE']);
+const PAGE_ROLE_LABELS = {PRIMARY: 'Primary', SEED: 'Seed', REVIEWER_ADDED: 'Added', WAITING_PAGE: 'Waiting'};
 
 applyTheme(theme);
 
@@ -78,9 +83,10 @@ function applyTheme(nextTheme) {
     localStorage.setItem('crawlerReviewTheme', theme);
     const toggle = document.getElementById('themeToggle');
     if (toggle) {
-        toggle.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
-        toggle.setAttribute('aria-pressed', String(theme === 'dark'));
-        toggle.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        const label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        toggle.innerHTML = theme === 'dark' ? sunIcon() : moonIcon();
+        toggle.setAttribute('aria-label', label);
+        toggle.title = label;
     }
 }
 
@@ -92,6 +98,7 @@ function setReviewAuthToken(token) {
     reviewAuthToken = token || '';
     reviewSessionEstablished = false;
     if (reviewAuthToken) {
+        if (transientStatus?.text === 'Signed out') transientStatus = null;
         sessionStorage.setItem('crawlerReviewAuthToken', reviewAuthToken);
     } else {
         sessionStorage.removeItem('crawlerReviewAuthToken');
@@ -115,7 +122,8 @@ async function clearReviewAuthToken() {
         }).catch(() => {});
     }
     setReviewAuthToken('');
-    document.getElementById('reloadState').textContent = 'Signed out';
+    transientStatus = {text: 'Signed out', className: 'system-status'};
+    updateReloadState();
 }
 
 // A request the browser could not send, or whose answer never arrived, carries no HTTP status;
@@ -200,8 +208,6 @@ function changedCandidateVersion(error) {
 // starts, cannot show the older queue or report a stale status change of the selected review.
 let queueLoadSequence = 0;
 
-// The health view and the queue load independently: each shows as soon as it answers, and the
-// failure of one leaves the other as it is. A failing queue rejects, so the caller reports it.
 async function loadReviews() {
     const sequence = ++queueLoadSequence;
     const overviewLoaded = api('/api/listing_sources').then(
@@ -211,7 +217,7 @@ async function loadReviews() {
         if (sequence !== queueLoadSequence) return;
         latestListingSources = listingSources;
         showQueueList();
-        showSourceHealth();
+        showIdleDetail();
     });
     let reviews;
     try {
@@ -220,37 +226,47 @@ async function loadReviews() {
         if (sequence === queueLoadSequence) {
             queueLoadFailed = true;
             showQueueList();
+            showIdleDetail();
         }
         throw error;
     }
     if (sequence === queueLoadSequence) {
         queueLoadFailed = false;
+        if (transientStatus?.className === 'system-status stale') transientStatus = null;
         latestQueue = reviews;
         showQueueList();
+        showIdleDetail();
         updateSelectedReviewFreshness(reviews);
     }
     await overviewLoaded;
     return reviews;
 }
 
+// The sidebar is the review queue and shows only in the Reviews view; the header's counts follow
+// every poll in both views.
 function showQueueList() {
-    showQueue(renderSourceHealthEntry(latestListingSources)
-        + renderDomainsNeedingOperator(latestListingSources)
-        + renderMissingValueSources(latestListingSources)
-        + (queueLoadFailed && !latestQueue.length
-            ? '<div class="error-panel"><strong>The review queue is unavailable.</strong> The next refresh tries again.</div>'
-            : renderReviewGroups(latestQueue)));
+    updateViewSwitch();
+    if (currentView !== 'reviews') return;
+    showQueue(queueLoadFailed && !latestQueue.length
+        ? '<div class="empty">The review queue is unavailable. It is retried every 15 seconds.</div>'
+        : renderReviewGroups(latestQueue));
 }
 
-// The ListingSource health view fills the detail pane while no review is selected: one row per
-// ListingSource with its scrape failure streak and that failure's kind, its last successful
-// scrape and its pending reviews. It shows the overview and queue of the last poll, so it stays
-// as current as the queue. `undefined` until the first poll answers, `null` when the overview
-// could not be read.
+// The detail pane shows the Sources page, or the empty Reviews state while no review is selected.
+function showIdleDetail() {
+    if (selectedId) return;
+    if (currentView === 'sources') {
+        showSourceHealth();
+    } else {
+        showReviewsEmpty();
+    }
+}
+
+// `undefined` until the first poll answers, `null` when the overview could not be read.
 let latestListingSources;
 let latestQueue = [];
 let queueLoadFailed = false;
-let shownSourceHealthHtml = '';
+let shownDetailHtml = '';
 
 // A ListingSource is blocked while URLs of a crawl-enabled one wait on a pending review: a
 // pending review nothing waits on, or one of a disabled ListingSource, holds back nothing.
@@ -269,146 +285,262 @@ function scrapeFailureStreak(domain) {
     return Number(domain?.scrape_failure_streak) || 0;
 }
 
+// A domain recorded `NEEDS_OPERATOR` is crawled no more until an operator fixes its configuration.
+function needsOperatorDomains(source) {
+    return (source.domains || []).filter(domain => domain.last_crawl_outcome === 'NEEDS_OPERATOR');
+}
+
 function listingSourceName(source) {
     return String(source.listing_source_name || source.listing_source_id);
 }
 
-// Crawl-enabled ListingSources first; among them the blocked ones, then the longest failure
-// streaks, then by name.
+// What needs an operator: a crawl-enabled ListingSource that has a domain waiting for one, URLs
+// blocked on a review, a scrape failure streak or held removals.
+function needsAttention(source) {
+    return Boolean(source.crawl_enabled) && (needsOperatorDomains(source).length > 0
+        || Number(source.blocked_urls) > 0
+        || scrapeFailureStreak(failingScrapeDomain(source)) > 0
+        || Number(source.held_removal_urls) > 0);
+}
+
+// Needs-operator ListingSources first; then the blocked ones, the longest failure streaks, the
+// held removals and finally by name.
 function compareSourceHealth(a, b) {
-    return Number(Boolean(b.crawl_enabled)) - Number(Boolean(a.crawl_enabled))
+    return Number(needsOperatorDomains(b).length > 0) - Number(needsOperatorDomains(a).length > 0)
         || Number(blockedByReview(b)) - Number(blockedByReview(a))
         || scrapeFailureStreak(failingScrapeDomain(b)) - scrapeFailureStreak(failingScrapeDomain(a))
         || Number(Number(b.held_removal_urls) > 0) - Number(Number(a.held_removal_urls) > 0)
         || listingSourceName(a).localeCompare(listingSourceName(b));
 }
 
-// The queue's first entry opens the health view; it links to the fragment without a review, so
-// leaving a review for it asks before discarding unsaved edits, like opening another review.
-function renderSourceHealthEntry(listingSources) {
-    const sources = listingSources || [];
-    const blocked = sources.filter(blockedByReview).length;
-    const failing = sources.filter(source => source.crawl_enabled && failingScrapeDomain(source)).length;
-    const active = !selectedId;
-    return `<div class="listing-source-group source-health-entry">
-      <a class="item ${active ? 'active' : ''}" href="#" ${active ? 'aria-current="page"' : ''}>
-        <span class="queue-row">
-          <span class="queue-title">ListingSource health</span>
-          <span class="queue-badges">${blocked ? badge(`${blocked} blocked`, 'pending') : ''}${failing ? badge(`${failing} failing`, 'rejected') : ''}</span>
-        </span>
-        <span class="queue-meta">Blocked URLs, scrape failures, held removals, last scrapes</span>
-      </a>
-    </div>`;
+function pendingReviewCount() {
+    return latestQueue.filter(review =>
+        review.status === 'PENDING_REVIEW' && review.listing_source_crawl_enabled !== false).length;
+}
+
+function sourcesNeedingAttention() {
+    return Array.isArray(latestListingSources) ? latestListingSources.filter(needsAttention).length : 0;
+}
+
+// The header's two views, with the one number an operator wants from each: the sources that need
+// them and the reviews waiting for a verdict. Both are amber and omitted at 0.
+function updateViewSwitch() {
+    const tabs = [
+        ['viewTabSources', 'sources', 'Sources', sourcesNeedingAttention()],
+        ['viewTabReviews', 'reviews', 'Reviews', pendingReviewCount()]
+    ];
+    for (const [id, view, label, count] of tabs) {
+        const tab = document.getElementById(id);
+        if (!tab) continue;
+        const active = currentView === view;
+        tab.classList.toggle('active', active);
+        if (active) tab.setAttribute('aria-current', 'page');
+        else tab.removeAttribute('aria-current');
+        const html = `${label}${count ? ` ${badge(String(count), 'warn')}` : ''}`;
+        if (tab.innerHTML !== html) tab.innerHTML = html;
+    }
+}
+
+// The view is a function of the URL fragment. The Reviews view shows the queue sidebar; the
+// Sources view takes the full width.
+function setView(view) {
+    currentView = view === 'reviews' ? 'reviews' : 'sources';
+    document.getElementById('appShell')?.classList.toggle('view-sources', currentView === 'sources');
+    document.getElementById('detail')?.classList.toggle('sources', currentView === 'sources' && !selectedId);
+    updateViewSwitch();
+    showQueueList();
 }
 
 // A render that changes nothing leaves the view alone, and one that does, such as a poll that
 // only moves an elapsed time, keeps the reviewer's keyboard focus on the link they were on.
+function showIdleHtml(html) {
+    const detail = document.getElementById('detail');
+    detail.classList.toggle('sources', currentView === 'sources');
+    if (html === shownDetailHtml && detail.childElementCount) return;
+    replaceKeepingFocus(detail, html);
+    shownDetailHtml = html;
+}
+
 function showSourceHealth() {
     if (selectedId) return;
-    const detail = document.getElementById('detail');
-    const html = renderSourceHealth();
-    if (html === shownSourceHealthHtml && detail.querySelector('.source-health-page')) return;
-    replaceKeepingFocus(detail, html);
-    shownSourceHealthHtml = html;
+    showIdleHtml(renderSourceHealth());
+}
+
+function showReviewsEmpty() {
+    if (selectedId) return;
+    const pending = pendingReviewCount();
+    const needing = sourcesNeedingAttention();
+    const detail = latestQueue.length || !queueLoadFailed
+        ? `Pick a review in the queue. ${pending ? `${pending} review${pending === 1 ? '' : 's'} pending` : 'Nothing is pending'}${needing ? `; ${needing} source${needing === 1 ? '' : 's'} need${needing === 1 ? 's' : ''} you` : ''}.`
+        : 'The review queue is unavailable. It is retried every 15 seconds.';
+    showIdleHtml(`<div class="empty-detail">
+      <strong>No review selected</strong>
+      <span>${escapeHtml(detail)}</span>
+      <span class="actions"><a class="view-tab" href="#sources">See what needs you</a></span>
+    </div>`);
 }
 
 function renderSourceHealth() {
-    if (latestListingSources === undefined) {
-        return '<div class="review-page source-health-page"><div class="muted">Loading ListingSource health…</div></div>';
-    }
+    if (latestListingSources === undefined) return '<div class="empty">Loading sources…</div>';
     if (latestListingSources === null) {
-        return `<div class="review-page source-health-page"><div class="error-panel"><strong>ListingSource health is unavailable.</strong> The ListingSource overview could not be read; the next queue refresh tries again.</div></div>`;
+        return `<div class="page"><h1>Sources</h1><div class="notice notice-bad" role="alert"><span class="notice-kind">Sources unavailable</span><span>The source overview could not be read; it is retried with the next queue refresh.</span></div></div>`;
     }
     const sources = latestListingSources.slice().sort(compareSourceHealth);
-    const blocked = sources.filter(blockedByReview).length;
-    return `<div class="review-page source-health-page">
-      <div class="review-topbar">
-        <div>
-          <div class="review-title">
-            <strong>ListingSource health</strong>
-            ${blocked ? badge(`${blocked} blocked by a pending review`, 'pending') : ''}
-          </div>
-          <div class="review-meta">
-            <span>A highlighted ListingSource is blocked: URLs wait on its pending review until it is decided. Select a review in the queue to work on it.</span>
-          </div>
-        </div>
-      </div>
-      ${sources.length ? `<div class="data-grid-wrap">
-        <table class="source-health-table">
+    const needing = sources.filter(needsAttention);
+    const meta = `${sources.length} source${sources.length === 1 ? '' : 's'} · ${needing.length ? `${needing.length} need${needing.length === 1 ? 's' : ''} you` : 'nothing needs you'}`;
+    const groups = [
+        ['Needs attention', needing, false],
+        ['Healthy', sources.filter(source => source.crawl_enabled && !needsAttention(source)), false],
+        ['Crawling disabled', sources.filter(source => !source.crawl_enabled), true]
+    ];
+    return `<div class="page">
+      <div class="page-head"><div>
+        <h1>Sources</h1>
+        <div class="page-meta"><span>${escapeHtml(meta)}</span></div>
+      </div></div>
+      ${sources.length ? `${renderSourceStats(sources)}
+      <div class="card table-card">
+        <table>
           <thead><tr>
-            <th scope="col">ListingSource</th>
-            <th scope="col">Blocked URLs</th>
-            <th scope="col">Pending reviews</th>
-            <th scope="col">Scrape failure streak</th>
-            <th scope="col">Last error kind</th>
-            <th scope="col">URL error kinds</th>
-            <th scope="col">Held removals</th>
-            <th scope="col">Last successful scrape</th>
+            <th scope="col">Source</th>
+            <th scope="col">Status</th>
+            <th scope="col">Reviews</th>
+            <th scope="col">Recent errors</th>
+            <th scope="col">Last scrape</th>
+            <th scope="col">Next crawl</th>
           </tr></thead>
-          <tbody>${sources.map(renderSourceHealthRow).join('')}</tbody>
+          <tbody>${groups.filter(([, members]) => members.length).map(([title, members, disabled]) =>
+              `<tr class="group-row"><td colspan="6">${escapeHtml(title)}</td></tr>${members.map(source => renderSourceRow(source, disabled)).join('')}`).join('')}</tbody>
         </table>
-      </div>` : '<div class="hint-card">No ListingSource is registered.</div>'}
+      </div>` : '<div class="empty">No source is registered.</div>'}
     </div>`;
 }
 
-function renderSourceHealthRow(source) {
-    const blocked = blockedByReview(source);
-    const failing = failingScrapeDomain(source);
-    const classes = [blocked ? 'source-health-blocked' : '', source.crawl_enabled ? '' : 'source-health-disabled']
-        .filter(Boolean).join(' ');
-    const severalDomains = (source.domains || []).length > 1;
-    return `<tr${classes ? ` class="${classes}"` : ''}>
-      <td><span class="source-health-name">
-        <strong>${escapeHtml(listingSourceName(source))}</strong>
-        ${blocked ? badge('Blocked by review', 'pending') : ''}
-        ${source.crawl_enabled ? '' : badge('Crawling disabled')}
-      </span></td>
-      <td>${renderBlockedUrlsCell(source)}</td>
+// The numbers behind "what needs me", each shown only while it is not 0.
+function renderSourceStats(sources) {
+    const enabled = sources.filter(source => source.crawl_enabled);
+    const sum = (list, field) => list.reduce((total, source) => total + (Number(source[field]) || 0), 0);
+    const operator = enabled.filter(source => needsOperatorDomains(source).length > 0).length;
+    const failing = enabled.filter(source => scrapeFailureStreak(failingScrapeDomain(source)) > 0).length;
+    const tiles = [
+        [sum(enabled, 'blocked_urls'), 'URLs blocked by a review', 'URLs blocked by a review', 'warn'],
+        [operator, 'Domain needs an operator', 'Domains need an operator', 'bad'],
+        [failing, 'Source failing to scrape', 'Sources failing to scrape', 'bad'],
+        [sum(sources, 'held_removal_urls'), 'Removal held', 'Removals held', 'warn'],
+        [sum(enabled, 'missing_value_urls'), 'Page missing a value', 'Pages missing a value', '']
+    ].filter(([count]) => count > 0);
+    if (!tiles.length) {
+        return '<div class="notice notice-ok"><span class="notice-kind">All clear</span><span>No source needs you. Every crawl-enabled source is scraping.</span></div>';
+    }
+    return `<div class="stats">${tiles.map(([count, one, many, tone]) =>
+        `<div class="stat"><strong>${escapeHtml(String(count))}</strong><span><span class="dot${tone ? ` dot-${tone}` : ''}"></span>${escapeHtml(count === 1 ? one : many)}</span></div>`).join('')}</div>`;
+}
+
+function renderSourceRow(source, disabled) {
+    const id = source.listing_source_id;
+    const domains = (source.domains || []).map(domain => domain.domain).join(', ');
+    const urls = Number(source.product_urls) || 0;
+    const pages = expandedMissingValueSources.get(id);
+    return `<tr${disabled ? ' class="disabled"' : ''}>
+      <td><div class="cell-main" title="${escapeHtmlAttr(listingSourceName(source))}">${escapeHtml(listingSourceName(source))}</div>
+        <div class="cell-sub" title="${escapeHtmlAttr(domains)}">${escapeHtml([domains, `${urls} URL${urls === 1 ? '' : 's'}`].filter(Boolean).join(' · '))}</div></td>
+      <td>${renderSourceStatus(source)}</td>
       <td>${renderPendingReviewsCell(source)}</td>
-      <td>${failing
-        ? `${badge(scrapeFailureStreakText(scrapeFailureStreak(failing)), 'rejected')}${severalDomains ? ` <span class="muted">${escapeHtml(failing.domain)}</span>` : ''}`
-        : '<span class="muted">None</span>'}</td>
-      <td>${failing?.last_scrape_error_kind ? `<code>${escapeHtml(failing.last_scrape_error_kind)}</code>` : '<span class="muted">None</span>'}</td>
-      <td>${renderUrlErrorKindsCell(source)}</td>
-      <td>${renderHeldRemovalsCell(source)}</td>
+      <td>${renderRecentErrors(source)}</td>
       <td>${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
-    </tr>`;
+      <td>${renderNextCrawl(source)}</td>
+    </tr>${pages ? `<tr class="subrow"><td></td><td colspan="5">${renderMissingValuePages(id, pages)}</td></tr>` : ''}`;
 }
 
-// The blocked URLs and how long the oldest pending review they wait on has been pending.
-function renderBlockedUrlsCell(source) {
-    const blocked = Number(source.blocked_urls) || 0;
-    if (!blocked) return '<span class="muted">None</span>';
-    return `${escapeHtml(String(blocked))} ${source.blocked_since ? timeBadge(source.blocked_since, 'Blocked since') : ''}`;
+function issueLine(tone, headline, detail) {
+    return `<div class="issue"><span class="dot${tone ? ` dot-${tone}` : ''}"></span><div>${headline}${detail ? `<div class="muted">${detail}</div>` : ''}</div></div>`;
 }
 
-// The last error kinds of the ListingSource's product URLs with their URL counts.
-function renderUrlErrorKindsCell(source) {
-    const kinds = source.url_error_kinds || [];
-    if (!kinds.length) return '<span class="muted">None</span>';
-    return kinds.map(entry => `<span class="source-health-kind"><code>${escapeHtml(entry.kind)}</code> ${escapeHtml(String(entry.count))}</span>`).join(' ');
+// The worded status of a source, one line per issue, in the order of severity.
+function renderSourceStatus(source) {
+    const lines = [];
+    if (source.crawl_enabled) {
+        for (const domain of needsOperatorDomains(source)) {
+            lines.push(issueLine('bad', 'Domain needs an operator',
+                `${escapeHtml(domain.domain)} · ${escapeHtml(errorKindLabel(domain.last_crawl_error_kind))} · ${escapeHtml(String(domain.crawl_failure_count))} failed crawls — fix the crawl root, re-register the domain or disable crawling`));
+        }
+        const blocked = Number(source.blocked_urls) || 0;
+        if (blocked > 0) {
+            const total = Number(source.product_urls) || 0;
+            const headline = source.blocking_review_id && REVIEW_ID_PATTERN.test(source.blocking_review_id)
+                ? `<a href="#${new URLSearchParams({review: source.blocking_review_id})}">Blocked by a review</a>`
+                : 'Blocked by a review';
+            lines.push(issueLine('warn', headline,
+                `${blocked === total ? `All ${blocked} URLs wait on it` : `${blocked} of ${total} URLs wait on it`}${source.blocked_since ? ` · since ${timeBadge(source.blocked_since, 'Blocked since', true)}` : ''}`));
+        }
+        const failing = failingScrapeDomain(source);
+        if (failing) {
+            const paused = failing.scrape_paused_until
+                ? ` · retries ${Date.parse(failing.scrape_paused_until) <= Date.now() ? 'now' : untilText(failing.scrape_paused_until)}`
+                : '';
+            lines.push(issueLine('bad', 'Failing to scrape',
+                `${scrapeFailureStreak(failing)} in a row · ${escapeHtml(errorKindLabel(failing.last_scrape_error_kind))}${failing.scrape_failing_since ? ` · since ${timeBadge(failing.scrape_failing_since, 'Failing since', true)}` : ''}${paused}${(source.domains || []).length > 1 ? ` · ${escapeHtml(failing.domain)}` : ''}`));
+        }
+        const held = Number(source.held_removal_urls) || 0;
+        if (held > 0) {
+            lines.push(issueLine('warn', `${held} removal${held === 1 ? '' : 's'} held`,
+                `Kept by the mass-removal guard${source.held_since ? ` · held ${timeBadge(source.held_since, 'Last held')}` : ''}`));
+        }
+    }
+    const missing = Number(source.missing_value_urls) || 0;
+    if (source.crawl_enabled && missing > 0) {
+        const id = escapeHtmlAttr(source.listing_source_id);
+        lines.push(issueLine('', `<button class="toggle-link" aria-expanded="${expandedMissingValueSources.has(source.listing_source_id)}" onclick="toggleMissingValuePages('${id}')" type="button">${missing} page${missing === 1 ? '' : 's'} missing a required value</button>`, ''));
+    }
+    if (!lines.length) {
+        lines.push(!source.crawl_enabled ? issueLine('', 'Crawling disabled', '')
+            : source.last_successful_scrape ? issueLine('ok', 'Scraping', '') : issueLine('', 'Not scraped yet', ''));
+    }
+    return `<div class="issues">${lines.join('')}</div>`;
 }
 
-// URLs whose removal the mass-removal guard held back keep their listing; it is the shop's
-// pages that need a look, not the review queue.
-function renderHeldRemovalsCell(source) {
-    const held = Number(source.held_removal_urls) || 0;
-    return held
-        ? badge(`${held} held`, 'pending')
-        : '<span class="muted">None</span>';
+// The last error kinds of the ListingSource's product URLs that no status line shows already.
+const STATUS_ERROR_KINDS = new Set(['PendingSchemaReview', 'MassRemovalHeld', 'MissingRequiredValue']);
+
+function renderRecentErrors(source) {
+    const kinds = (source.url_error_kinds || []).filter(entry => !STATUS_ERROR_KINDS.has(entry.kind));
+    if (!kinds.length) return '<span class="muted">—</span>';
+    return `<span class="muted">${kinds.map(entry => `${escapeHtml(String(entry.count))} ${escapeHtml(errorKindLabel(entry.kind))}`).join(' · ')}</span>`;
 }
 
-function scrapeFailureStreakText(streak) {
-    return streak === 1 ? '1 failure' : `${streak} failures in a row`;
+function errorKindLabel(kind) {
+    const text = String(kind || '');
+    const known = {
+        HttpError: 'HTTP error',
+        RawCaptureFailed: 'capture failed',
+        Timeout: 'timeout',
+        BotProtection: 'bot protection',
+        SourceListingIdConflict: 'identity conflict'
+    };
+    if (known[text]) return known[text];
+    if (/^HTTP_/i.test(text)) return text.replace(/_/g, ' ');
+    return text ? displayName(text).toLowerCase() : 'unknown failure';
 }
 
-// The count links to the ListingSource's first pending review in the queue.
+// The earliest next crawl of the ListingSource's domains.
+function renderNextCrawl(source) {
+    const next = (source.domains || []).map(domain => domain.next_crawl_at).filter(Boolean)
+        .sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+    if (!next) return '<span class="muted">—</span>';
+    const text = Date.parse(next) <= Date.now() ? 'due' : untilText(next);
+    return `<span class="time" title="${escapeHtmlAttr(`Next crawl: ${formatDate(next)}`)}">${escapeHtml(text)}</span>`;
+}
+
+// The count links to the review the source is blocked on, else to its first pending review in
+// the queue.
 function renderPendingReviewsCell(source) {
     const pending = Number(source.pending_reviews) || 0;
-    if (!pending) return '<span class="muted">None</span>';
+    if (!pending) return '<span class="muted">—</span>';
     const text = `${pending} pending`;
+    const blocking = REVIEW_ID_PATTERN.test(source.blocking_review_id || '') ? source.blocking_review_id : null;
     const review = latestQueue.find(r => r.listing_source_id === source.listing_source_id && r.status === 'PENDING_REVIEW');
-    return review ? `<a href="#${new URLSearchParams({review: review.review_id})}">${escapeHtml(text)}</a>` : escapeHtml(text);
+    const target = blocking || review?.review_id;
+    return target ? `<a href="#${new URLSearchParams({review: target})}">${escapeHtml(text)}</a>` : escapeHtml(text);
 }
 
 // A refresh that changes nothing leaves the queue's elements alone, and one that does keeps the
@@ -465,7 +597,9 @@ function renderReviewGroups(reviews) {
     }
 
     if (!groups.length) {
-        return `<div class="empty-list">No reviews match the current search.</div>`;
+        return query
+            ? `<div class="empty">No reviews match “${escapeHtml(reviewSearchTerm.trim())}”.</div>`
+            : '<div class="empty">No review yet.</div>';
     }
 
     return groups.map(group => {
@@ -478,18 +612,18 @@ function renderReviewGroups(reviews) {
         }
         const collapsed = !expandedListingSourceGroups.has(group.listingSourceId);
         const listId = `queueGroup-${escapeHtmlAttr(group.listingSourceId)}`;
-        return `<div class="listing-source-group">
-          <button type="button" class="listing-source-group-head" aria-expanded="${!collapsed}" aria-controls="${listId}" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
-            <span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span>
+        return `<div class="group">
+          <button type="button" class="group-head" aria-expanded="${!collapsed}" aria-controls="${listId}" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
+            <span class="chev" aria-hidden="true">${chevronIcon()}</span>
             <span class="group-text">
-              <span class="group-title-row">
-                <span class="queue-title" title="${escapeHtmlAttr(group.listingSourceName)}">${escapeHtml(group.listingSourceName)}</span>
-                ${pendingCount ? badge(`${pendingCount} pending`, 'pending') : '<span class="queue-meta">Reviewed</span>'}
+              <span class="nav-row">
+                <span class="nav-title" title="${escapeHtmlAttr(group.listingSourceName)}">${escapeHtml(group.listingSourceName)}</span>
+                ${pendingCount ? badge(`${pendingCount} pending`, 'warn') : '<span class="nav-meta">Reviewed</span>'}
               </span>
-              <span class="queue-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}${group.crawlEnabled ? '' : ' · crawling disabled'}</span>
+              <span class="nav-meta">${escapeHtml(reviewCountsByArtifactType(group.reviews))}${group.crawlEnabled ? '' : ' · crawling disabled'}</span>
             </span>
           </button>
-          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}" id="${listId}">
+          <div class="group-list ${collapsed ? 'collapsed' : ''}" id="${listId}">
             ${group.reviews.map(renderReviewQueueItem).join('')}
           </div>
         </div>`;
@@ -514,88 +648,31 @@ function reviewCountsByArtifactType(reviews) {
     }).join(' · ');
 }
 
-// A domain whose deterministic crawl failures kept repeating opens no review, so the queue
-// lists it here until an operator fixes its configuration or disables crawling.
-function renderDomainsNeedingOperator(listingSources) {
-    if (listingSources === undefined) return '';
-    if (listingSources === null) {
-        return `<div class="empty-list">Domain crawl state is unavailable.</div>`;
-    }
-    const query = reviewSearchTerm.trim().toLowerCase();
-    const domains = listingSources
-        .filter(source => source.crawl_enabled)
-        .flatMap(source => (source.domains || [])
-            .filter(domain => domain.last_crawl_outcome === 'NEEDS_OPERATOR')
-            .map(domain => ({...domain, listingSourceName: source.listing_source_name || source.listing_source_id})))
-        .filter(domain => !query || [domain.domain, domain.listingSourceName, domain.last_crawl_error_kind]
-            .some(value => String(value || '').toLowerCase().includes(query)));
-    if (!domains.length) return '';
-    return `<div class="listing-source-group">
-      <div class="listing-source-group-head">
-        <div>
-          <div class="queue-title">Domains waiting for an operator</div>
-          <div class="queue-meta">Not crawled again until re-registered or disabled</div>
-        </div>
-        <div class="listing-source-group-actions">${badge(`${domains.length} failed`, 'rejected')}</div>
-      </div>
-      <div class="listing-source-review-list">
-        ${domains.map(domain => `<div class="item">
-          <div class="queue-row">
-            <span class="queue-artifact">${escapeHtml(domain.domain)}</span>
-            ${badge('Needs operator')}
-          </div>
-          <div class="queue-meta">${escapeHtml(domain.listingSourceName)}</div>
-          <div class="queue-meta">${escapeHtml(domain.last_crawl_error_kind || 'Unknown failure')} / ${escapeHtml(domain.crawl_failure_count)} consecutive failures</div>
-        </div>`).join('')}
-      </div>
-    </div>`;
-}
-
 // A page whose last scrape left a required value empty opens and joins no review, such as a
-// removal page that keeps an empty title element. The queue lists the ListingSources with such
-// pages, so a reviewer adds one to the product-schema review (opened for it when none is
-// pending) and declares a removed-page template for it there.
+// removal page that keeps an empty title element. A source's status line lists such pages, so a
+// reviewer adds one to the product-schema review (opened for it when none is pending) and
+// declares a removed-page template for it there.
 const expandedMissingValueSources = new Map();
 
-function renderMissingValueSources(listingSources) {
-    if (!listingSources) return '';
-    const query = reviewSearchTerm.trim().toLowerCase();
-    const sources = listingSources
-        .filter(source => source.crawl_enabled && source.missing_value_urls > 0)
-        .filter(source => !query || String(source.listing_source_name || source.listing_source_id).toLowerCase().includes(query));
-    if (!sources.length) return '';
-    return `<div class="listing-source-group">
-      <div class="listing-source-group-head">
-        <div>
-          <div class="queue-title">Pages missing a required value</div>
-          <div class="queue-meta">Open no review on their own; add one to a review to declare a removed-page template</div>
-        </div>
-      </div>
-      <div class="listing-source-review-list">
-        ${sources.map(source => {
-            const id = escapeHtmlAttr(source.listing_source_id);
-            const pages = expandedMissingValueSources.get(source.listing_source_id);
-            return `<div class="item" onclick="toggleMissingValuePages('${id}')">
-              <div class="queue-row">
-                <span class="queue-artifact">${escapeHtml(source.listing_source_name || source.listing_source_id)}</span>
-                ${badge(`${source.missing_value_urls} missing`, 'missing')}
-              </div>
-              ${pages ? renderMissingValuePages(source.listing_source_id, pages) : ''}
-            </div>`;
-        }).join('')}
-      </div>
-    </div>`;
+// The scrape's outcome message names the blank values in backticks, such as "`title` is blank";
+// a message that names none is shown as it is.
+function missingValuesText(message) {
+    const fields = [...String(message || '').matchAll(/`([^`]+)`/g)].map(match => displayName(match[1]));
+    if (!fields.length) return String(message || '').trim();
+    return `${fields.join(' and ')} ${fields.length === 1 ? 'is' : 'are'} empty`;
 }
 
 // The handler names a page by its position in the listed pages, never by its URL: a shop's URL
 // may hold a quote, which the browser decodes from an HTML entity before the handler runs, so a
 // URL in the handler's source would let the shop run script in the console.
 function renderMissingValuePages(listingSourceId, pages) {
-    if (pages.error) return `<div class="queue-meta">${escapeHtml(pages.error)}</div>`;
-    return pages.map((page, index) => `<div class="queue-meta missing-value-page" onclick="event.stopPropagation()">
-        ${productPageLink(page.url)} ${escapeHtml(page.missing || '')}
-        <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', ${index})">Add to review</button>
-      </div>`).join('');
+    if (pages.error) return `<div class="subpages"><div class="subpage muted">${escapeHtml(pages.error)}</div></div>`;
+    return `<div class="subpages">${pages.map((page, index) => {
+        const label = missingValuesText(page.missing);
+        return `<div class="subpage">${pageUrlLink(page.url)}${label ? ` <span class="muted">${escapeHtml(label)}</span>` : ''}
+        <button onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', ${index})" type="button">Add to review</button>
+      </div>`;
+    }).join('')}</div>`;
 }
 
 async function toggleMissingValuePages(listingSourceId) {
@@ -609,7 +686,7 @@ async function toggleMissingValuePages(listingSourceId) {
             expandedMissingValueSources.set(listingSourceId, {error: apiErrorMessage(error)});
         }
     }
-    loadReviews().catch(reportQueueFailure);
+    showSourceHealth();
 }
 
 async function reviewMissingValuePage(listingSourceId, index) {
@@ -675,30 +752,29 @@ function toggleListingSourceGroup(listingSourceId) {
 }
 
 // A queue row is a summary without the candidate and validation summary, which only the selected
-// review's detail carries; it names the LLM evaluation's outcome as `auto_schema_evaluation`.
+// review's detail carries.
 function renderReviewQueueItem(r) {
-    const evaluation = r.auto_schema_evaluation;
     const active = r.review_id === selectedId;
     // A link to the review's fragment: following it goes through the same hashchange path as
     // browser back, so it asks before discarding unsaved edits, and it opens in a new tab too.
-    return `<a class="item ${active ? 'active' : ''}" href="#${new URLSearchParams({review: r.review_id})}" ${active ? 'aria-current="true"' : ''}>
-      <span class="queue-row">
-        <span class="queue-artifact">${escapeHtml(displayName(r.artifact_type))}</span>
-        <span class="queue-badges">${statusBadge(r.status)}${repairBadge(r)}</span>
+    return `<a class="nav-item ${active ? 'active' : ''}" href="#${new URLSearchParams({review: r.review_id})}" ${active ? 'aria-current="true"' : ''}>
+      <span class="nav-row">
+        <span class="nav-title">${escapeHtml(displayName(r.artifact_type))}</span>
+        <span class="nav-badges">${repairBadge(r) || statusBadge(r.status)}</span>
       </span>
-      <span class="queue-meta">${escapeHtml(displayName(r.reason))} · ${timeBadge(r.created, 'Created')}</span>
-      ${evaluation ? `<span class="queue-meta">${autoSchemaOutcomeBadge(evaluation, 'LLM evaluation: ')}</span>` : ''}
+      <span class="nav-meta">${escapeHtml(displayName(r.reason))} · ${timeBadge(r.created, 'Created')}</span>
     </a>`;
 }
 
 // `requested` names the page and schema a URL fragment asks for; without it the review opens on
 // its first page and schema.
 async function selectReview(id, requested = null) {
+    setView('reviews');
     selectedId = id;
     requestedSelection = requested;
     pickedSelector = '';
     pickedSample = '';
-    if (selectionFromUrl().reviewId !== id) recordSelectionInUrl();
+    recordSelectionInUrl();
     dirty = false;
     sampleLabelDraft = null;
     editNotice = null;
@@ -709,7 +785,8 @@ async function selectReview(id, requested = null) {
 }
 
 function reportQueueFailure(error) {
-    document.getElementById('reloadState').textContent = `Queue refresh failed: ${apiErrorMessage(error)}`;
+    transientStatus = {text: `Queue refresh failed: ${apiErrorMessage(error)}`, className: 'system-status stale'};
+    updateReloadState();
 }
 
 const MATRIX_POLL_INTERVAL_MS = 3000;
@@ -808,39 +885,50 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     renderDetail(detail, matrix);
 }
 
+// The one component for everything that is said next to the work: a tone (`bad`, `warn`, `ok`,
+// `neutral`), a one- or two-word kind, the body as HTML its caller has escaped, and optionally
+// actions or a dismiss button.
+function notice(tone, kind, body, {role = '', actions = '', dismiss = ''} = {}) {
+    return `<div class="notice notice-${tone}"${role ? ` role="${role}"` : ''}><span class="notice-kind">${escapeHtml(kind)}</span><span>${body}</span>${
+        actions ? `<span class="actions">${actions}</span>` : ''}${
+        dismiss ? `<button class="icon quiet dismiss" onclick="${dismiss}" title="Dismiss" aria-label="Dismiss" type="button">${closeIcon()}</button>` : ''}</div>`;
+}
+
 function renderDetail(detail, matrix) {
     const review = detail.review;
     const urls = detail.urls || [];
     const frameKept = writeDetail(`
-    <div class="review-page">
-      <div id="reviewRefreshBanner" class="refresh-banner" hidden></div>
-      <div class="review-topbar">
+    <div class="page">
+      <div class="page-head">
         <div>
-          <div class="review-title">
-            <strong>${escapeHtml(review.listing_source_name || review.listing_source_id)}</strong>
+          <div class="page-title">
+            <h1>${escapeHtml(review.listing_source_name || review.listing_source_id)}</h1>
             ${statusBadge(review.status)}
             ${repairBadge(review)}
             ${statusBadge(review.artifact_type)}
-            ${review.listing_source_crawl_enabled === false ? statusBadge('Source disabled') : ''}
+            ${review.listing_source_crawl_enabled === false ? badge('Source disabled') : ''}
           </div>
-          <div class="review-meta">
-            <span>${escapeHtml(displayName(review.reason))}</span>
-            ${timeBadge(review.updated, 'Updated')}
+          <div class="page-meta">
+            <span>${escapeHtml(displayName(review.reason))}</span><span>·</span>
+            <span>opened ${timeBadge(review.created, 'Opened')}</span><span>·</span>
+            <span>edited ${timeBadge(review.updated, 'Edited')}</span>
           </div>
         </div>
-        ${renderApprovalPanel(detail)}
+        <div class="page-actions">${renderApprovalPanel(detail)}</div>
       </div>
+      <div id="reviewRefreshBanner" hidden></div>
       <div id="actionPanel">${renderActionPanel()}</div>
       <div id="editMessages">${renderEditMessages()}</div>
       ${renderCandidateError(detail)}
       ${renderHumanRequired(review)}
       ${renderRepairRequest(review)}
-      ${renderReviewEvents(detail)}
       ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
+      ${renderReviewEvents(detail)}
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`);
     if (matrix) highlightPreview(frameKept);
+    syncPageActions();
     recordSelectionInUrl();
     updateRefreshBanner();
     updateReloadState();
@@ -915,36 +1003,32 @@ function copyAttributes(from, to) {
 // reviewer can repair it, and approval stays refused until then.
 function renderCandidateError(detail) {
     if (!detail.candidate_error) return '';
-    return `<div class="hint-card finding-hint" role="alert">
-      <span>The candidate fails validation and cannot be approved until it is repaired: ${escapeHtml(detail.candidate_error)}</span>
-    </div>`;
+    return notice('bad', 'Cannot approve', `The candidate fails validation: ${escapeHtml(detail.candidate_error)}. Repair it before approving.`, {role: 'alert'});
 }
 
 function renderApprovalPanel(detail) {
     const review = detail.review;
     if (review.status !== 'PENDING_REVIEW') {
         if (rejectionRevocable(detail)) {
-            return '<div class="approval-actions"><button onclick="revokeRejection()" title="Lift this rejection\'s non-product verdict, so the crawler scrapes its seed and triggering pages again">Revoke rejection</button></div>';
+            return '<button onclick="revokeRejection()" title="Lift this rejection\'s non-product verdict, so the crawler scrapes its seed and triggering pages again" type="button">Revoke rejection</button>';
         }
         if (rejectionRevoked(detail)) {
-            return '<div class="approval-actions"><span class="badge" title="The review stays rejected, but its rejection no longer classifies its seed and triggering pages as non-product pages">Rejection revoked</span></div>';
+            return '<span class="badge" title="The review stays rejected, but its rejection no longer classifies its seed and triggering pages as non-product pages">Rejection revoked</span>';
         }
         if (review.status !== 'APPROVED') return '';
         const live = review.artifact_type === 'PRODUCT_SCHEMA'
             ? (detail.candidate_is_live
-                ? statusBadge('Live schema editable')
-                : '<span class="badge" title="The live schemas changed since this review was approved">Read-only: not the live schemas</span>')
+                ? badge('Live schemas — editable', 'ok')
+                : '<span class="badge" title="The live schemas changed since this review was approved">Read-only — not the live schemas</span>')
             : '';
         const restore = approvalRestorable(detail)
-            ? '<button onclick="restoreApproval()" title="Bring back the live configuration this approval replaced">Restore previous</button>'
+            ? '<button onclick="restoreApproval()" title="Bring back the live configuration this approval replaced" type="button">Restore previous</button>'
             : '';
-        return live || restore ? `<div class="approval-actions">${live}${restore}</div>` : '';
+        return `${live}${restore}`;
     }
-    return `<div class="approval-actions">
-      <button class="primary" onclick="approveReview()">Approve</button>
-      <button class="danger" onclick="rejectReview()">Reject</button>
-      <button onclick="needsRepair()">Needs repair</button>
-    </div>`;
+    return `<button onclick="needsRepair()" type="button">Needs repair</button>
+      <button class="danger" onclick="rejectReview()" type="button">Reject</button>
+      <button class="primary" onclick="approveReview()" type="button">Approve</button>`;
 }
 
 // Edits go to a pending review's candidate, or to the live schema list through the one approved
@@ -956,15 +1040,16 @@ function candidateEditable(detail) {
     return review.status === 'APPROVED' && review.artifact_type === 'PRODUCT_SCHEMA' && Boolean(detail.candidate_is_live);
 }
 
+// A candidate that cannot be edited says so at the top of the tab that would edit it.
 function renderCandidateEditHint(detail) {
     const review = detail.review;
     if (review.status === 'PENDING_REVIEW') return '';
     if (review.status !== 'APPROVED') {
-        return '<div class="hint-card">This review is closed; its candidate is read-only.</div>';
+        return notice('neutral', 'Read-only', 'This review is closed; its candidate is read-only.');
     }
     return detail.candidate_is_live
-        ? '<div class="hint-card">This approved review holds the live schema list: saving a field or the schema list changes the live schemas at once.</div>'
-        : '<div class="hint-card">The live schemas changed since this review was approved, so it is read-only. Edit the review whose candidate is live.</div>';
+        ? notice('neutral', 'Live schemas', 'This approved review holds the live schema list: saving a field or the schema list changes the live schemas at once.')
+        : notice('neutral', 'Read-only', 'The live schemas changed since this review was approved. Edit the review whose candidate is live.');
 }
 
 // The server takes reviewer pages on pending and approved product-schema reviews.
@@ -976,12 +1061,12 @@ function pageRemovable(page) {
     return Boolean(page) && REMOVABLE_PAGE_ROLES.has(page.role) && reviewPagesEditable(selectedDetail?.review);
 }
 
+function pageRoleLabel(role) {
+    return PAGE_ROLE_LABELS[role] || displayName(role);
+}
+
 function reviewPageLabel(page) {
-    let path = page.url;
-    try {
-        path = new URL(page.url).pathname;
-    } catch (_) {}
-    return `${displayName(page.role)}: ${path}`;
+    return `${pageRoleLabel(page.role)} · ${urlPath(page.url)}`;
 }
 
 function isWaitingForRepair(review) {
@@ -991,36 +1076,21 @@ function isWaitingForRepair(review) {
 // A review whose agent needs-repair rounds reached the cap waits for a human, which outranks
 // waiting for the repair the agents asked each other for.
 function repairBadge(review) {
-    if (review?.human_required) return badge('Needs a human', 'human');
-    return isWaitingForRepair(review) ? badge('Waiting for repair', 'repair') : '';
+    if (review?.human_required) return badge('Needs a human', 'bad');
+    return isWaitingForRepair(review) ? badge('Waiting for repair', 'warn') : '';
 }
 
 function renderHumanRequired(review) {
     if (!review?.human_required) return '';
     const rounds = Number(review.agent_rounds) || 0;
-    return `<div class="review-card human-required-card">
-      <div class="panel-head">
-        <div class="panel-title">
-          <strong>Needs a human</strong>
-          <span class="muted">The review agents gave ${escapeHtml(rounds)} needs-repair verdict${rounds === 1 ? '' : 's'} since a human last changed or judged this review and stopped working it. Edit it, change its pages or labels, or give needs-repair with what to do to hand it back to them; or approve or reject it.</span>
-        </div>
-      </div>
-    </div>`;
+    return notice('bad', 'Needs a human', `The review agents gave ${escapeHtml(rounds)} needs-repair verdict${rounds === 1 ? '' : 's'} since a human last touched this review and stopped. Edit it, change its pages or labels, or give needs-repair with instructions to hand it back; or approve or reject it.`);
 }
 
 function renderRepairRequest(review) {
     const request = review?.repair_request;
     if (!request) return '';
-    const title = isWaitingForRepair(review) ? 'Waiting for repair' : 'Repair requested';
-    return `<div class="review-card repair-request-card">
-      <div class="panel-head">
-        <div class="panel-title">
-          <strong>${title}</strong>
-          <span class="muted">${escapeHtml(request.note)}</span>
-        </div>
-        ${timeBadge(request.requested, 'Repair requested')}
-      </div>
-    </div>`;
+    return notice('warn', isWaitingForRepair(review) ? 'Waiting for repair' : 'Repair requested',
+        `${escapeHtml(request.note)} ${timeBadge(request.requested, 'Repair requested')}`);
 }
 
 const REVIEW_EVENT_LABELS = {
@@ -1074,20 +1144,22 @@ function renderReviewEvents(detail) {
     const events = detail?.events || [];
     if (!events.length) return '';
     const open = reviewEventsOpenReviewId === detail.review.review_id;
-    return `<details class="review-card review-events-card" ${open ? 'open' : ''} ontoggle="reviewEventsToggled(this.open)">
-      <summary><span class="disclosure-icon" aria-hidden="true">${chevronIcon()}</span><strong>History</strong><span class="muted">${events.length} event${events.length === 1 ? '' : 's'}, latest ${escapeHtml(REVIEW_EVENT_LABELS[events[events.length - 1].action] || displayName(events[events.length - 1].action)).toLowerCase()} ${timeBadge(events[events.length - 1].created, 'Latest change')}</span></summary>
-      <ol class="review-events">${events.slice().reverse().map(renderReviewEvent).join('')}</ol>
+    const latest = events[events.length - 1];
+    const latestLabel = REVIEW_EVENT_LABELS[latest.action] || displayName(latest.action);
+    return `<details class="card history" ${open ? 'open' : ''} ontoggle="reviewEventsToggled(this.open)">
+      <summary><span class="chev" aria-hidden="true">${chevronIcon()}</span><strong>History</strong><span>${events.length} event${events.length === 1 ? '' : 's'} · latest: ${escapeHtml(latestLabel.toLowerCase())} ${timeBadge(latest.created, 'Latest change')} by ${escapeHtml(actorWord(latest.actor))}</span></summary>
+      <ol class="events">${events.slice().reverse().map(renderReviewEvent).join('')}</ol>
     </details>`;
 }
 
 function renderReviewEvent(event) {
     const summary = reviewEventSummary(event);
-    return `<li class="review-event">
+    return `<li class="event">
       ${actorBadge(event.actor)}
       <strong>${escapeHtml(REVIEW_EVENT_LABELS[event.action] || displayName(event.action))}</strong>
       ${summary ? `<span class="muted">${escapeHtml(summary)}</span>` : ''}
-      ${event.notes ? `<span class="review-event-notes">${escapeHtml(event.notes)}</span>` : ''}
-      <span class="muted">version ${escapeHtml(event.candidate_version)}</span>
+      ${event.notes ? `<span class="notes">${escapeHtml(event.notes)}</span>` : ''}
+      <span class="muted">v${escapeHtml(event.candidate_version)}</span>
       ${timeBadge(event.created, REVIEW_EVENT_LABELS[event.action] || displayName(event.action))}
     </li>`;
 }
@@ -1122,9 +1194,14 @@ function reviewEventSummary(event) {
     }
 }
 
+const ACTOR_WORDS = {HUMAN: 'a human', AGENT_AUTHOR: 'the author agent', AGENT_REVIEWER: 'the reviewer agent', SYSTEM: 'the system'};
+
+function actorWord(actor) {
+    return ACTOR_WORDS[actor] || displayName(actor).toLowerCase();
+}
+
 function actorBadge(actor) {
-    const kind = {AGENT_AUTHOR: 'agent', AGENT_REVIEWER: 'agent', SYSTEM: 'system'}[actor] || 'human';
-    return `<span class="badge badge-actor-${kind}">${escapeHtml(displayName(actor))}</span>`;
+    return badge(displayName(actor), actor === 'HUMAN' ? 'accent' : undefined);
 }
 
 // The LLM evaluation of the selected review, from its validation summary.
@@ -1138,16 +1215,9 @@ function autoSchemaEvaluation(review) {
 // to a human. The model's own decision and confidence and the gate's result are shown apart from
 // it, labelled, so they never read as a second outcome.
 function autoSchemaOutcome(evaluation) {
-    if (evaluation.approved_by_llm) return {text: 'Auto-approved', tone: 'approved'};
-    if (evaluation.decision === 'REJECT') return {text: 'Rejected by the model', tone: 'rejected'};
-    return {text: 'Needs human review', tone: 'pending'};
-}
-
-// The queue item labels the outcome as the LLM evaluation's, so a closed review's status badge
-// beside it never reads as a second outcome of the review.
-function autoSchemaOutcomeBadge(evaluation, prefix = '') {
-    const outcome = autoSchemaOutcome(evaluation);
-    return badge(`${prefix}${outcome.text}`, outcome.tone);
+    if (evaluation.approved_by_llm) return {text: 'Auto-approved', tone: 'ok'};
+    if (evaluation.decision === 'REJECT') return {text: 'Rejected by the model', tone: 'bad'};
+    return {text: 'Needs human review', tone: 'warn'};
 }
 
 function deterministicGateText(review) {
@@ -1161,48 +1231,22 @@ function renderAutoSchemaEvaluation(review) {
     const evaluation = autoSchemaEvaluation(review);
     if (!evaluation) return '';
     const risks = Array.isArray(evaluation.risks) ? evaluation.risks.filter(Boolean) : [];
-    return `<div class="review-card llm-evaluation-card">
-      <div class="panel-head">
-        <div class="panel-title">
-          <strong>LLM Schema Evaluation</strong>
-          <span class="muted">${escapeHtml(evaluation.summary || 'No summary provided.')}</span>
-          <span class="llm-evaluation-inputs">
-            <span>Model decision: ${escapeHtml(displayName(evaluation.decision || 'unknown'))}</span>
-            <span>Model confidence: ${escapeHtml(displayName(evaluation.confidence || 'unknown'))}</span>
-            <span>Deterministic gate: ${escapeHtml(deterministicGateText(review))}</span>
-          </span>
-        </div>
-        <div class="llm-evaluation-badges">${autoSchemaOutcomeBadge(evaluation)}</div>
-      </div>
-      ${risks.length ? `<div class="llm-risks">${risks.map(risk => `<span>${escapeHtml(risk)}</span>`).join('')}</div>` : ''}
-    </div>`;
+    const outcome = autoSchemaOutcome(evaluation);
+    return `<div class="card"><div class="card-body stack">
+      <div class="section-head"><h3>LLM evaluation</h3>${badge(outcome.text, outcome.tone)}</div>
+      <div class="small">${escapeHtml(evaluation.summary || 'No summary provided.')}</div>
+      <div class="small muted">Model: ${escapeHtml(displayName(evaluation.decision || 'unknown').toLowerCase())} · confidence ${escapeHtml(String(evaluation.confidence || 'unknown').toLowerCase())} · deterministic gate ${escapeHtml(deterministicGateText(review))}</div>
+      ${risks.length ? notice('warn', 'Risks', risks.map(risk => escapeHtml(risk)).join('<br>')) : ''}
+    </div></div>`;
 }
 
-// The review whose raw payload the reviewer opened, so a re-render, such as the one a refused
-// full-JSON save or a sample label change makes, keeps it open.
-let rawPayloadOpenReviewId = null;
-
-function rawPayloadToggled(open) {
-    rawPayloadOpenReviewId = open ? selectedId : null;
-}
-
+// A URL-pattern review: the decision, the sample URLs and the sample labels. They cover every
+// edit the API accepts for this artifact.
 function renderNonSchemaReview(review, urls) {
-    const urlPattern = review.artifact_type === 'URL_PATTERN';
-    const open = !urlPattern || rawPayloadOpenReviewId === review.review_id;
-    return `<div class="review-card">
-      <div class="tab-panel">
-        ${urlPattern || urls.length ? renderUrlPatternReview(review, urls) : ''}
-        ${renderSampleLabels(review)}
-        <details class="raw-payload" ${open ? 'open' : ''} ontoggle="rawPayloadToggled(this.open)">
-          <summary>Raw payload</summary>
-          <h3>Candidate payload</h3>
-          <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(review.candidate_payload, null, 2))}</textarea>
-          <div class="actions"><button onclick="saveCandidate()">Save full JSON</button></div>
-          <h3>Validation</h3>
-          <pre>${escapeHtml(JSON.stringify(review.validation_summary, null, 2))}</pre>
-        </details>
-      </div>
-    </div>`;
+    return `<div class="card"><div class="tab-panel">
+      ${renderUrlPatternReview(review, urls)}
+      ${renderSampleLabels(review)}
+    </div></div>`;
 }
 
 function urlPatternDecision(review) {
@@ -1256,20 +1300,21 @@ const URL_FILTER_KINDS = [
     ['changed', 'Changed']
 ];
 
-// The summary, the decision and the sample URLs of a URL-pattern review. The summary and the table
-// follow the pattern input while the reviewer types, as a browser preview, and show the server's
+// The decision and the sample URLs of a URL-pattern review. The counts and the table follow the
+// pattern input while the reviewer types, as a browser preview, and show the server's
 // classification of the saved candidate otherwise.
 function renderUrlPatternReview(review, urls) {
     if (urlFilter.reviewId !== review.review_id) urlFilter = {reviewId: review.review_id, kind: 'all', text: ''};
     const view = urlPatternView(review, urls, urlPatternInputValue(review).trim());
-    return `<div id="urlPatternSummary">${renderUrlPatternSummary(review, view)}</div>
-      ${renderUrlPatternEditor(review)}
-      ${urls.length ? `<h3>Sample URLs</h3>
+    return `${renderUrlPatternDecisionSection(review, view)}
+      ${urls.length ? `<div class="section">
+        <div class="section-head"><h3>Sample URLs</h3><span class="small muted" id="urlPatternStats">${escapeHtml(urlPatternStatsText(view.counts))}</span></div>
         <div class="url-filter-bar">
-          <div class="url-filter-chips" id="urlFilterChips">${renderUrlFilterChips(view)}</div>
-          <input id="urlFilterText" type="search" value="${escapeHtmlAttr(urlFilter.text)}" placeholder="Filter paths" oninput="setUrlFilterText(this.value)">
+          <div class="chips" id="urlFilterChips">${renderUrlFilterChips(view)}</div>
+          <input id="urlFilterText" type="search" value="${escapeHtmlAttr(urlFilter.text)}" placeholder="Filter paths" aria-label="Filter paths" oninput="setUrlFilterText(this.value)">
         </div>
-        <div id="urlPatternTable">${renderUrls(review, view)}</div>` : ''}`;
+        <div id="urlPatternTable">${renderUrls(review, view)}</div>
+      </div>` : ''}`;
 }
 
 // How each sample URL classifies under the domain's current pattern and under the candidate: the
@@ -1354,61 +1399,43 @@ function relativeToOrigin(url, origin) {
     return url.slice(origin.length);
 }
 
-function renderUrlPatternSummary(review, view) {
-    const {counts, preview} = view;
+function urlPatternStatsText(counts) {
+    return `${counts.all} sample · ${counts.current_product} product now · ${counts.product} product with candidate · ${counts.changed} changed`;
+}
+
+function renderUrlPatternDecisionSection(review, view) {
+    const decision = urlPatternEditOf(review).stored;
     const currentPattern = review.candidate_payload?.current_pattern;
-    const candidateLabel = preview.active ? 'Product URLs (preview)' : 'Product URLs (candidate)';
-    return `<div class="url-pattern-summary">
-      <div class="url-pattern-decision">
-        <span class="muted">Decision</span>
-        ${renderUrlPatternDecision(urlPatternEditOf(review).stored)}
-        <span class="muted">Current pattern</span>
-        ${currentPattern ? `<code>${escapeHtml(currentPattern)}</code>` : '<span class="muted">none</span>'}
-      </div>
-      <div class="url-pattern-stats">
-        ${urlPatternStat('Sample URLs', counts.all)}
-        ${urlPatternStat('Product URLs (current)', counts.current_product)}
-        ${urlPatternStat(candidateLabel, counts.product)}
-        ${urlPatternStat('Changed URLs', counts.changed)}
-      </div>
-      <div class="muted" id="urlPatternPreview">${escapeHtml(urlPatternPreviewText(preview))}</div>
+    const editable = urlPatternEditable(review);
+    return `<div class="section">
+      <div class="section-head"><h3>Decision</h3>${renderUrlPatternDecision(decision)}</div>
+      <div class="small muted">${currentPattern ? `Current pattern: <code>${escapeHtml(currentPattern)}</code>` : 'Current pattern: none'}</div>
+      ${editable ? `<label class="field">Product URL regex
+          <input id="urlPatternInput" class="mono" value="${escapeHtmlAttr(urlPatternInputValue(review))}" placeholder="e.g. /product/" oninput="markDirty(); previewUrlPattern()">
+        </label>
+        <div class="actions">
+          <button class="primary-outline" onclick="saveUrlPattern()" type="button">Save pattern</button>
+          <button onclick="saveNoUrlPattern()" type="button">Save as no pattern</button>
+          <span class="small muted" id="urlPatternPreview">${escapeHtml(urlPatternPreviewText(view.preview))}</span>
+        </div>
+        ${decision.type === 'UNDECIDED' ? notice('warn', 'Undecided', 'Enter a product URL regex or save no pattern before approving.') : ''}` : ''}
     </div>`;
 }
 
-function urlPatternStat(label, value) {
-    return `<div class="url-pattern-stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
-}
-
-// One element, so the badge and the pattern share the summary grid's cell.
 function renderUrlPatternDecision(decision) {
-    if (decision.type === 'PATTERN') return `<span>${badge('Pattern')} <code>${escapeHtml(decision.value)}</code></span>`;
+    if (decision.type === 'PATTERN') return `<span>${badge('Pattern', 'ok')} <code>${escapeHtml(decision.value)}</code></span>`;
     if (decision.type === 'NO_PATTERN') return badge('No pattern');
-    return badge(displayName(decision.type), 'pending');
+    return badge('Undecided', 'warn');
 }
 
 function urlPatternPreviewText(preview) {
     if (preview.error) return `Invalid pattern: ${preview.error}. The counts and the table show the saved candidate.`;
-    if (!preview.active) return 'Server classification of the saved candidate.';
+    if (!preview.active) return 'Showing the saved decision.';
     return 'Browser preview of the unsaved pattern; the server validates and classifies it on save.';
 }
 
-function renderUrlPatternEditor(review) {
-    if (!urlPatternEditable(review)) return '';
-    const decision = urlPatternEditOf(review).stored;
-    return `<div class="url-pattern-editor">
-      <div class="hint-card">${decision.type === 'UNDECIDED'
-        ? 'Enter a product URL regex or save NO_PATTERN before approving.'
-        : 'Save a new decision to change it.'}</div>
-      <input id="urlPatternInput" value="${escapeHtmlAttr(urlPatternInputValue(review))}" placeholder="Product URL regex, e.g. /product/" oninput="markDirty(); previewUrlPattern()">
-      <div class="actions">
-        <button onclick="saveUrlPattern()">Save pattern</button>
-        <button onclick="saveNoUrlPattern()">Save NO_PATTERN</button>
-      </div>
-    </div>`;
-}
-
 function renderUrlFilterChips(view) {
-    return URL_FILTER_KINDS.map(([kind, label]) => `<button class="schema-chip ${urlFilter.kind === kind ? 'active' : ''}" onclick="setUrlFilterKind('${kind}')">${escapeHtml(label)} ${view.counts[kind]}</button>`).join('');
+    return URL_FILTER_KINDS.map(([kind, label]) => `<button class="chip ${urlFilter.kind === kind ? 'active' : ''}" aria-pressed="${urlFilter.kind === kind}" onclick="setUrlFilterKind('${kind}')" type="button">${escapeHtml(label)} ${view.counts[kind]}</button>`).join('');
 }
 
 function urlRowShown(row) {
@@ -1461,14 +1488,15 @@ function setUrlFilterText(text) {
     rerenderUrlPatternView();
 }
 
-// Renders the summary, the filter counts, the table and the sample labels' "Decision takes it"
+// Renders the counts, the filter chips, the table and the sample labels' "Decision takes it"
 // cells again, leaving the inputs alone so they keep their focus and what was typed into them.
 function rerenderUrlPatternView() {
     if (!selectedDetail) return;
     const review = selectedDetail.review;
     const view = urlPatternView(review, selectedDetail.urls || [], urlPatternInputValue(review).trim());
     const parts = {
-        urlPatternSummary: () => renderUrlPatternSummary(review, view),
+        urlPatternStats: () => escapeHtml(urlPatternStatsText(view.counts)),
+        urlPatternPreview: () => escapeHtml(urlPatternPreviewText(view.preview)),
         urlFilterChips: () => renderUrlFilterChips(view),
         urlPatternTable: () => renderUrls(review, view)
     };
@@ -1505,12 +1533,12 @@ function renderUrls(review, view) {
     // The class comes from the crawler's classifier, which the browser cannot run, so a preview
     // leaves it as the server classified the saved candidate.
     const [candidateHead, classHead] = view.preview.active ? ['Candidate (preview)', 'Class (saved)'] : ['Candidate', 'Class'];
-    return `<div class="data-grid-wrap"><table class="url-table"><thead><tr><th>Path</th><th>Current</th><th>${candidateHead}</th><th>${classHead}</th><th>Label</th></tr></thead><tbody>${
+    return `<div class="data-grid-wrap"><table class="url-table"><thead><tr><th>Path</th><th>Now</th><th>${candidateHead}</th><th>${classHead}</th><th>Label</th></tr></thead><tbody>${
         rows.map(row => {
             const label = labels.find(l => l.url === row.url)?.label || '';
             const cell = editable
                 ? renderSampleLabelSelect(label, `setSampleLabelOfSampleUrl(${row.index}, this.value)`, true)
-                : (label ? statusBadge(label) : '');
+                : (label ? badge(displayName(label)) : '');
             const path = isHttpUrl(row.url)
                 ? `<a class="product-url" href="${escapeHtmlAttr(row.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(row.url)}">${escapeHtml(row.path)}</a>`
                 : escapeHtml(row.path);
@@ -1518,7 +1546,7 @@ function renderUrls(review, view) {
               <td>${path}</td>
               <td>${patternMatchIcon(row.currentMatch)}</td>
               <td>${patternMatchIcon(row.candidateMatch)}</td>
-              <td>${row.candidateClass ? badge(displayName(row.candidateClass), row.candidateClass === 'product' ? 'approved' : undefined) : ''}</td>
+              <td>${row.candidateClass ? badge(displayName(row.candidateClass)) : ''}</td>
               <td>${cell}</td>
             </tr>`;
         }).join('') || '<tr><td colspan="5" class="muted">No sample URL matches the filter.</td></tr>'
@@ -1555,13 +1583,13 @@ function labelCounts(labels) {
 }
 
 function sampleLabelCountsText(counts) {
-    return `${counts?.product ?? 0} PRODUCT, ${counts?.not_product ?? 0} NOT_PRODUCT`;
+    return `${counts?.product ?? 0} product, ${counts?.not_product ?? 0} not product`;
 }
 
 function renderSampleLabelSelect(selected, onchange, allowNone) {
     const options = (allowNone ? [''] : []).concat(SAMPLE_URL_LABELS);
     return `<select onchange="${onchange}">${options.map(value =>
-        `<option value="${escapeHtmlAttr(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value || '-')}</option>`
+        `<option value="${escapeHtmlAttr(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value ? displayName(value) : '—')}</option>`
     ).join('')}</select>`;
 }
 
@@ -1585,9 +1613,9 @@ function decisionPreviewTakes(url) {
 // its label.
 function renderSampleLabelTakes(label) {
     const takes = decisionPreviewTakes(label.url);
-    const takesText = takes === null ? '' : (takes ? 'yes' : 'no');
+    const takesText = takes === null ? '' : (takes ? 'Yes' : 'No');
     const consistent = takes === null || takes === (label.label === 'PRODUCT');
-    return consistent ? escapeHtml(takesText) : badge(displayName(`${takesText}: inconsistent`));
+    return consistent ? escapeHtml(takesText) : badge(`${takesText} — inconsistent`, 'bad');
 }
 
 // The author agent's or a human's labels of URLs of the review's domain, its sample's among
@@ -1604,24 +1632,27 @@ function renderSampleLabels(review) {
         : (stored ? `set ${timeBadge(stored.labelled_at, 'Labelled')}` : 'no labels yet');
     const rows = labels.map((label, index) => `<tr>
           <td>${linkifyText(label.url)}</td>
-          <td>${editable ? renderSampleLabelSelect(label.label, `setSampleLabelKind(${index}, this.value)`, false) : statusBadge(label.label)}</td>
+          <td>${editable ? renderSampleLabelSelect(label.label, `setSampleLabelKind(${index}, this.value)`, false) : badge(displayName(label.label))}</td>
           <td>${editable
-            ? `<input value="${escapeHtmlAttr(label.reason || '')}" placeholder="Why" oninput="setSampleLabelReason(${index}, this.value)">`
+            ? `<input value="${escapeHtmlAttr(label.reason || '')}" placeholder="Why" aria-label="Reason" oninput="setSampleLabelReason(${index}, this.value)">`
             : escapeHtml(label.reason || '')}</td>
           <td id="sampleLabelTakes${index}">${renderSampleLabelTakes(label)}</td>
-          <td>${editable ? `<button onclick="removeSampleLabel(${index})">Remove</button>` : ''}</td>
+          <td>${editable ? `<button class="quiet danger" onclick="removeSampleLabel(${index})" type="button">Remove</button>` : ''}</td>
         </tr>`).join('');
     const adder = editable ? `<div class="actions">
-        <input id="sampleLabelUrl" placeholder="Another URL of the review's domain">
-        ${renderSampleLabelSelect('PRODUCT', '', false).replace('<select', '<select id="sampleLabelKind"')}
-        <input id="sampleLabelReason" placeholder="Why">
-        <button onclick="addSampleLabel()">Add label</button>
-      </div>
-      <div class="actions"><button class="primary" onclick="saveSampleLabels()">Save labels</button></div>` : '';
-    return `<h3>Sample labels</h3>
-      <div class="hint-card">${escapeHtml(sampleLabelCountsText(counts))} (${status}). The reviewer agent's approval needs enough labels of each and a decision that takes every PRODUCT URL and no NOT_PRODUCT URL; schema.org Product markup decides nothing.</div>
+        <input id="sampleLabelUrl" placeholder="Another URL of the review's domain" aria-label="URL to label">
+        ${renderSampleLabelSelect('PRODUCT', '', false).replace('<select', '<select id="sampleLabelKind" aria-label="Label"')}
+        <input id="sampleLabelReason" placeholder="Why" aria-label="Reason">
+        <button onclick="addSampleLabel()" type="button">Add label</button>
+        <span class="spacer"></span>
+        <button class="primary-outline" onclick="saveSampleLabels()" type="button">Save labels</button>
+      </div>` : '';
+    return `<div class="section">
+      <div class="section-head"><h3>Sample labels</h3></div>
+      <div class="small muted">${escapeHtml(sampleLabelCountsText(counts))} (${status}). An agent approval needs enough labels of each and a decision that takes every product URL and no not-product URL.</div>
       ${labels.length ? `<div class="data-grid-wrap"><table><thead><tr><th>URL</th><th>Label</th><th>Reason</th><th>Decision takes it</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
-      ${adder}`;
+      ${adder}
+    </div>`;
 }
 
 function editSampleLabels(edit) {
@@ -1693,7 +1724,7 @@ async function saveSampleLabels() {
         });
         recordSavedCandidateVersion(saved);
         sampleLabelDraft = null;
-    }, 'Sample labels saved.', async () => {
+    }, 'Sample labels saved', async () => {
         await loadSelectedReview(false);
         await loadReviews();
     });
@@ -1705,37 +1736,33 @@ function renderSchemaWorkbench(detail, matrix) {
     const page = pages.find(p => p.review_page_id === selectedPageId) || pages[0];
     if (page && !selectedPageId) selectedPageId = page.review_page_id;
     const previewUrl = previewUrlOverride || (page ? page.url : '');
+    const templates = currentRemovedPageTemplates().length;
     return `
-    <div class="schema-workbench">
-      <div class="preview-panel">
-        <div class="panel-head preview-head">
-          <div class="preview-head-row">
-            <strong>Product View</strong>
-            <div class="preview-page-picker">
-              <select aria-label="Review page" onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
-                ${pages.map(p => `<option value="${escapeHtmlAttr(p.review_page_id)}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
-              </select>
-              <button ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay">Remove page</button>
-            </div>
+    <div class="workbench">
+      <div class="card preview">
+        <div class="preview-bar">
+          <div class="preview-row">
+            <label for="reviewPageSelect">Page</label>
+            <select id="reviewPageSelect" aria-label="Review page" onchange="selectedPageId=this.value; previewUrlOverride=''; rerenderWorkbench()">
+              ${pages.map(p => `<option value="${escapeHtmlAttr(p.review_page_id)}" ${p.review_page_id === selectedPageId ? 'selected' : ''} title="${escapeHtmlAttr(p.url)}">${escapeHtml(reviewPageLabel(p))}</option>`).join('')}
+            </select>
+            <button class="quiet danger" ${pageRemovable(page) ? '' : 'disabled'} onclick="removeReviewPage()" title="Removes a page a reviewer added or a page waiting on the review; seed pages stay" type="button">Remove page</button>
           </div>
-          <div class="preview-url-row muted">${previewUrl
-            ? `${productPageLink(previewUrl)}<span class="preview-url-kind">${previewUrlOverride ? 'Custom URL' : `${escapeHtml(displayName(page.role))} page`} · live HTML</span>`
-            : 'No live page available'}</div>
-        </div>
-        <div class="live-url-bar">
-          <input id="livePreviewUrl" value="${escapeHtmlAttr(previewUrl)}" placeholder="https://example.com/product" onkeydown="if(event.key==='Enter') loadPreviewUrl()">
-          <button onclick="loadPreviewUrl()">Open URL</button>
-          <button ${page ? '' : 'disabled'} onclick="resetPreviewUrl()">Use review URL</button>
-          <button ${reviewPagesEditable(detail.review) ? '' : 'disabled'} onclick="addReviewPage()" title="Fetches this URL of the ListingSource and adds it to the review pages, so the matrix evaluates every schema on it">Add to review pages</button>
+          <div class="preview-row">
+            <input id="livePreviewUrl" class="mono" value="${escapeHtmlAttr(previewUrl)}" placeholder="https://shop.example/product" aria-label="Preview URL" onkeydown="if(event.key==='Enter') loadPreviewUrl()">
+            <button class="icon" onclick="openPreviewUrl()" title="Open in a new tab" aria-label="Open in a new tab" type="button">${externalIcon()}</button>
+            ${previewUrlOverride ? '<button class="quiet" onclick="resetPreviewUrl()" type="button">Back to review page</button>' : ''}
+            <button ${reviewPagesEditable(detail.review) ? '' : 'disabled'} onclick="addReviewPage()" title="Fetches this URL of the source and adds it to the review pages" type="button">Add to review</button>
+          </div>
         </div>
         ${renderPreviewFrame(page, previewUrl)}
       </div>
-      <div class="right-panel">
-        <div class="tabs">
+      <div class="card inspector">
+        <div class="tabs" role="tablist">
           ${workbenchTab('selector', 'Selector')}
           ${workbenchTab('data', 'Data')}
-          ${workbenchTab('diff', 'Schema diff')}
-          ${workbenchTab('removed', `Removed page${currentRemovedPageTemplates().length ? ` (${currentRemovedPageTemplates().length})` : ''}`)}
+          ${workbenchTab('diff', 'Diff')}
+          ${workbenchTab('removed', `Removed pages${templates ? `<span class="count">${templates}</span>` : ''}`)}
           ${workbenchTab('json', 'JSON')}
         </div>
         ${renderWorkbenchPanel(detail, matrix, schemas)}
@@ -1753,13 +1780,25 @@ function previewFrameSrc(page, previewUrl) {
     return `/api/live-inspect?url=${encodeURIComponent(previewUrl)}`;
 }
 
-// The reviewer asks for the preview with these buttons, so they load it again even when it
+// The reviewer asks for the preview with these controls, so they load it again even when it
 // already shows that URL, for example after the shop refused the first fetch.
 function loadPreviewUrl() {
     const input = document.getElementById('livePreviewUrl');
     previewUrlOverride = (input && input.value || '').trim();
     previewReloadRequested = true;
     rerenderWorkbench();
+}
+
+// Loads the typed URL into the preview and opens it in a new tab, when it is an http(s) URL.
+function openPreviewUrl() {
+    const url = (document.getElementById('livePreviewUrl')?.value || '').trim();
+    loadPreviewUrl();
+    if (!isHttpUrl(url)) return;
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.click();
 }
 
 function resetPreviewUrl() {
@@ -1769,7 +1808,8 @@ function resetPreviewUrl() {
 }
 
 function workbenchTab(key, label) {
-    return `<button class="tab ${activeWorkbenchPanel === key ? 'active' : ''}" onclick="setWorkbenchPanel('${key}')">${label}</button>`;
+    const active = activeWorkbenchPanel === key;
+    return `<button class="tab ${active ? 'active' : ''}" role="tab" aria-selected="${active}" onclick="setWorkbenchPanel('${key}')" type="button">${label}</button>`;
 }
 
 function renderWorkbenchPanel(detail, matrix, schemas) {
@@ -1782,42 +1822,77 @@ function renderWorkbenchPanel(detail, matrix, schemas) {
 
 function renderSelectorPanel(schemas, matrix) {
     const rule = currentRule();
+    const effectiveRule = rule || defaultRuleFor(selectedField);
     const matrixPage = currentMatrixPage(matrix);
     const disabled = candidateEditable(selectedDetail) ? '' : 'disabled';
+    const cardinality = effectiveRule.cardinality || 'first';
+    const type = effectiveRule.type || 'text';
+    const additional = Array.isArray(effectiveRule.additional_selectors) ? effectiveRule.additional_selectors : [];
+    const findings = fieldFindings(matrixPage, selectedField);
+    const notes = pageNotices(matrixPage).filter(note => note.field === fieldKey(selectedField));
     return `<div class="tab-panel">
       ${renderCandidateEditHint(selectedDetail)}
-      ${renderSchemaOrderControls(schemas, disabled)}
-      <section class="panel-section">
-        <h3>Field</h3>
-        <select id="selectedFieldSelect" aria-label="Field" onchange="selectedField=this.value; rerenderWorkbench()">
-          ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldFindings(matrixPage, field).length ? ' (failed check)' : ''}</option>`).join('')}
-        </select>
-        <label>Selector
-          <span class="selector-box">
-            <input id="selectedSelector" value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
-            <button class="primary" ${disabled} onclick="saveCurrentField()">Save field</button>
-            <button class="danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()">Delete rule</button>
+      ${renderSchemaChips(schemas, disabled)}
+      <div class="section">
+        <div class="section-head"><h3>Rule</h3></div>
+        <label class="field">Field
+          <select id="selectedFieldSelect" onchange="selectedField=this.value; rerenderWorkbench()">
+            ${schemaFields(currentSchema()).map(field => `<option value="${escapeHtmlAttr(field)}" ${field === selectedField ? 'selected' : ''}>${escapeHtml(fieldLabel(field))}${fieldStateSuffix(matrixPage, field)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="field">Selector
+          <span class="selector-row">
+            <input id="selectedSelector" class="mono" ${disabled} value="${escapeHtmlAttr(currentSelector())}" oninput="setCurrentSelector(this.value); postHighlight(this.value)">
+            <button class="icon" onclick="postHighlight(currentSelector())" title="Highlight in the preview" aria-label="Highlight in the preview" type="button">${eyeIcon()}</button>
           </span>
         </label>
-        ${renderSelectedFieldFindings(matrixPage)}
+        ${findings.length ? notice('bad', 'Failed check', `${findings.map(finding => escapeHtml(findingDescription(finding))).join('; ')} on this page.`) : ''}
+        ${notes.length ? notice('warn', 'Note', `${notes.map(note => escapeHtml(note.text)).join('; ')} on this page. This blocks no approval.`) : ''}
+        <div class="rule-grid">
+          <label class="field">Matches
+            <select ${disabled} onchange="setCurrentRuleCardinality(this.value)">
+              <option value="first" ${cardinality === 'first' ? 'selected' : ''}>First match</option>
+              <option value="all" ${cardinality === 'all' ? 'selected' : ''}>All matches</option>
+            </select>
+          </label>
+          <label class="field">Read
+            <select ${disabled} onchange="setCurrentRuleType(this.value)">
+              <option value="text" ${type === 'text' ? 'selected' : ''}>Text</option>
+              <option value="attribute" ${type === 'attribute' ? 'selected' : ''}>Attribute</option>
+              <option value="image_url" ${type === 'image_url' ? 'selected' : ''} title="The best full-size image URL candidate of each matched element">Image URL</option>
+              <option value="attribute_or_text" ${type === 'attribute_or_text' ? 'selected' : ''} title="The attribute when it is not blank, the element's text otherwise">Attribute or text</option>
+              <option value="json_ld_offer" ${type === 'json_ld_offer' ? 'selected' : ''} title="availability or price from the offers in the matched ld+json script">JSON-LD offer</option>
+            </select>
+          </label>
+          ${ruleTypeTakesAttributeName(type) ? `<label class="field">Attribute name
+            <input ${disabled} value="${escapeHtmlAttr(effectiveRule.name || '')}" oninput="setCurrentRuleAttributeName(this.value)">
+          </label>` : ''}
+          ${type === 'json_ld_offer' ? `<label class="field">Offer property
+            <select ${disabled} onchange="setCurrentRuleOfferProperty(this.value)">
+              <option value="availability" ${effectiveRule.property === 'availability' ? 'selected' : ''}>Availability</option>
+              <option value="price" ${effectiveRule.property === 'price' ? 'selected' : ''}>Price</option>
+            </select>
+          </label>` : ''}
+        </div>
+        ${renderFallbackSelectors(additional, disabled)}
         <div class="actions">
-          <button onclick="applyPickedSelector()">Use clicked element</button>
-          <button onclick="postHighlight(currentSelector())">Highlight field</button>
+          <button class="primary-outline" ${disabled} onclick="saveCurrentField()" type="button">Save field</button>
+          <button class="quiet danger" ${disabled || (fieldDeletable(selectedField) ? '' : 'disabled')} onclick="deleteCurrentRule()" type="button">Delete rule</button>
+          <span class="spacer"></span>
+          ${dirty ? '<button class="quiet" onclick="discardEdits()" type="button">Discard edits</button>' : ''}
         </div>
-        ${renderPickedElement()}
-        ${renderRuleOptions(rule)}
-        ${renderAdditionalSelectors(rule)}
-        ${renderRawAttributeAdder(disabled)}
-        <div class="actions edit-actions">
-          <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages">Re-evaluate</button>
-          <button onclick="discardEdits()">Discard edits</button>
-        </div>
-      </section>
-      <section class="panel-section">
-        <h3>Highlight legend</h3>
-        ${renderSchemaLegend(currentSchema())}
-      </section>
+        <div id="pickedElement">${renderPickedElement(true)}</div>
+      </div>
+      ${renderRawAttributeAdder(disabled)}
     </div>`;
+}
+
+// " · failed check", " · note" or " · empty" after the field the selected page has something to say about.
+function fieldStateSuffix(page, field) {
+    if (fieldFindings(page, field).length) return ' · failed check';
+    if (pageNotices(page).some(note => note.field === fieldKey(field))) return ' · note';
+    if (optionalFieldMisses(page).some(miss => miss.field === fieldKey(field))) return ' · empty';
+    return '';
 }
 
 // Raw attribute keys come from the crawler's registry: an edit may add only those, while a key
@@ -1827,16 +1902,16 @@ function renderRawAttributeAdder(disabled) {
     const available = (rawAttributeKeys || []).filter(entry => !configured.has(entry.key));
     if (!available.length) return '';
     const groups = [...new Set(available.map(entry => entry.group))];
-    return `<div class="raw-attribute-card">
-      <h4 title="A registry key the schema does not configure yet; adding it selects it as the field to edit">Raw attributes</h4>
-      <div class="raw-attribute-adder">
+    return `<div class="section">
+      <div class="section-head"><h3 title="A registry key the schema does not configure yet; adding it selects it as the field to edit">Raw attributes</h3></div>
+      <div class="selector-row">
         <select id="newRawAttributeKey" aria-label="Raw attribute key" ${disabled}>
           ${groups.map(group => `<optgroup label="${escapeHtmlAttr(displayName(group))}">${
             available.filter(entry => entry.group === group).map(entry =>
                 `<option value="${escapeHtmlAttr(entry.key)}" title="${escapeHtmlAttr(entry.description)}">${escapeHtml(entry.key)}</option>`
             ).join('')}</optgroup>`).join('')}
         </select>
-        <button ${disabled} onclick="addRawAttribute()" title="Starts from the clicked element when one is picked; save the field to store it">Add raw attribute</button>
+        <button ${disabled} onclick="addRawAttribute()" title="Starts from the picked element when one is picked; save the field to store it" type="button">Add</button>
       </div>
     </div>`;
 }
@@ -1851,106 +1926,79 @@ function addRawAttribute() {
     rerenderWorkbench();
 }
 
-// The element last clicked in the preview, kept across side-panel renders.
-function renderPickedElement() {
-    return `<div class="picked" id="pickedElement">${pickedSelector
-        ? `<code>${escapeHtml(pickedSelector)}</code>${pickedSample ? `<span class="muted">${escapeHtml(pickedSample)}</span>` : ''}`
-        : '<span class="muted">Click an element in the preview to pick it.</span>'}</div>`;
-}
-
-function renderRuleOptions(rule) {
-    const effectiveRule = rule || defaultRuleFor(selectedField);
-    const cardinality = effectiveRule.cardinality || 'first';
-    const type = effectiveRule.type || 'text';
-    return `<div class="rule-options-card" title="Applies to the primary and additional selectors for this field">
-      <div class="field-grid">
-        <label>Cardinality
-          <select onchange="setCurrentRuleCardinality(this.value)">
-            <option value="first" ${cardinality === 'first' ? 'selected' : ''}>First match</option>
-            <option value="all" ${cardinality === 'all' ? 'selected' : ''}>All matches</option>
-          </select>
-        </label>
-        <label>Extract
-          <select onchange="setCurrentRuleType(this.value)">
-            <option value="text" ${type === 'text' ? 'selected' : ''}>Text</option>
-            <option value="attribute" ${type === 'attribute' ? 'selected' : ''}>Attribute</option>
-            <option value="image_url" ${type === 'image_url' ? 'selected' : ''} title="The best full-size image URL candidate of each matched element">Image URL</option>
-            <option value="attribute_or_text" ${type === 'attribute_or_text' ? 'selected' : ''} title="The attribute when it is not blank, the element's text otherwise">Attribute or text</option>
-            <option value="json_ld_offer" ${type === 'json_ld_offer' ? 'selected' : ''} title="A property of the offers in the matched application/ld+json script">JSON-LD offer</option>
-          </select>
-        </label>
-      </div>
-      ${ruleTypeTakesAttributeName(type) ? `<label>Attribute name
-        <input value="${escapeHtmlAttr(effectiveRule.name || '')}" oninput="setCurrentRuleAttributeName(this.value)">
-      </label>` : ''}
-      ${type === 'json_ld_offer' ? `<label>Offer property
-        <select onchange="setCurrentRuleOfferProperty(this.value)">
-          <option value="availability" ${effectiveRule.property === 'availability' ? 'selected' : ''}>Availability</option>
-          <option value="price" ${effectiveRule.property === 'price' ? 'selected' : ''}>Price</option>
-        </select>
-      </label>` : ''}
+// The element last clicked in the preview, kept across side-panel renders; the Selector tab
+// offers it as the selector or a fallback, the Removed pages tab has its own buttons per template.
+function renderPickedElement(withActions) {
+    if (!pickedSelector) return '';
+    return `<div class="picked">
+      <div class="picked-head">Picked in the preview</div>
+      <code>${escapeHtml(pickedSelector)}</code>
+      ${pickedSample ? `<span class="sample">${escapeHtml(pickedSample)}</span>` : ''}
+      ${withActions ? `<div class="actions">
+        <button onclick="applyPickedSelector()" type="button">Use as selector</button>
+        <button onclick="addPickedAdditionalSelector()" type="button">Add as fallback</button>
+      </div>` : ''}
     </div>`;
 }
 
-function renderSchemaOrderControls(schemas, disabled) {
-    if (!schemas.length) return '<div class="hint-card">No schemas available for ordering.</div>';
-    return `<section class="panel-section schema-order-card">
-      <h3 title="Approval writes schemas in this order for the ListingSource">Schemas</h3>
-      <div class="schema-order-list">
-        ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
+// The schemas as chips, in the order approval writes them; the toolbar acts on the selected one.
+function renderSchemaChips(schemas, disabled) {
+    if (!schemas.length) return notice('neutral', 'No schemas', 'The candidate holds no schema.');
+    const last = selectedSchemaIndex >= schemas.length - 1;
+    return `<div class="section">
+      <div class="section-head"><h3>Schemas</h3><span class="small muted">applied in this order</span></div>
+      <div class="chips">
+        ${schemas.map((_, i) => `<button class="chip ${i === selectedSchemaIndex ? 'active' : ''}" aria-pressed="${i === selectedSchemaIndex}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()" type="button">${schemaLabel(i)}</button>`).join('')}
+        <button class="chip add" ${disabled} onclick="addNewSchema()" title="Adds a copy of the selected schema to rewrite for another template" type="button">+ Add schema</button>
       </div>
-      <div class="schema-order-actions">
-        ${schemas.length > 1 ? `<button ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)">Move up</button>
-        <button ${disabled || (selectedSchemaIndex >= schemas.length - 1 ? 'disabled' : '')} onclick="moveCurrentSchema(1)">Move down</button>` : ''}
-        <button ${disabled} onclick="addNewSchema()" title="Adds a copy of the selected schema to rewrite for another template">Add schema</button>
-        ${schemas.length > 1 ? `<button class="danger" ${disabled} onclick="deleteCurrentSchema()">Delete schema</button>` : ''}
-        <button onclick="postHighlightSchema()">Highlight schema</button>
+      <div class="toolbar">
+        <button class="quiet" ${disabled || (selectedSchemaIndex === 0 ? 'disabled' : '')} onclick="moveCurrentSchema(-1)" type="button">Move up</button>
+        <button class="quiet" ${disabled || (last ? 'disabled' : '')} onclick="moveCurrentSchema(1)" type="button">Move down</button>
+        <button class="quiet danger" ${disabled || (schemas.length > 1 ? '' : 'disabled')} onclick="deleteCurrentSchema()" type="button">Delete</button>
+        <span class="spacer"></span>
+        <button class="quiet" onclick="postHighlightSchema()" title="Highlights every rule of the selected schema in the preview" type="button">Highlight all</button>
       </div>
-    </section>`;
+    </div>`;
 }
 
 // The handlers let postHighlight name the selected field: a raw attribute key comes from the
 // candidate, and HTML escaping does not make it safe inside an inline handler's JS string.
-function renderAdditionalSelectors(rule) {
-    const additional = (rule && Array.isArray(rule.additional_selectors)) ? rule.additional_selectors : [];
-    return `<div class="additional-selector-card">
-      <h4 title="Fallback or extra selectors for the selected field">Additional selectors</h4>
-      <div class="additional-selector-list">
-        ${additional.length ? additional.map((selector, index) => `
-          <div class="additional-selector-row">
-            <input value="${escapeHtmlAttr(selector)}" oninput="setAdditionalSelector(${index}, this.value); postHighlight(this.value)">
-            <button onclick="usePickedForAdditionalSelector(${index})">Use clicked</button>
-            <button onclick="postHighlight(additionalSelectorAt(${index}))">Highlight</button>
-            <button class="danger" onclick="removeAdditionalSelector(${index})">Delete</button>
-          </div>`).join('') : ''}
-      </div>
-      <div class="actions">
-        <button onclick="addAdditionalSelector()">Add additional selector</button>
-        <button onclick="addPickedAdditionalSelector()">Add clicked selector</button>
-      </div>
+// The fallback selectors of the selected rule. The handlers name a fallback by its index, never
+// by a value the candidate holds.
+function renderFallbackSelectors(additional, disabled) {
+    return `<div class="fallbacks">
+      <h4 title="Fallback or extra selectors for the selected field">Fallback selectors</h4>
+      ${additional.map((selector, index) => `<div class="fallback">
+        <input class="mono" ${disabled} value="${escapeHtmlAttr(selector)}" aria-label="Fallback selector ${index + 1}" oninput="setAdditionalSelector(${index}, this.value); postHighlight(this.value)">
+        <button class="icon" onclick="postHighlight(additionalSelectorAt(${index}))" title="Highlight in the preview" aria-label="Highlight in the preview" type="button">${eyeIcon()}</button>
+        <button class="icon" ${disabled} onclick="removeAdditionalSelector(${index})" title="Remove this fallback" aria-label="Remove this fallback" type="button">${closeIcon()}</button>
+      </div>`).join('')}
+      <div class="actions"><button class="quiet" ${disabled} onclick="addAdditionalSelector()" type="button">+ Add fallback</button></div>
     </div>`;
 }
 
 function renderDataPanel(matrix) {
     return `<div class="tab-panel">
-      ${renderCoverageSummary(matrix)}
-      ${renderCurrentExtractedData(matrix)}
+      ${renderCoverageSection(matrix)}
+      ${renderFailedChecksSection(matrix)}
+      ${renderNotesSection(matrix)}
+      ${renderExtractedSection(matrix)}
     </div>`;
 }
 
 function renderDiffPanel(schemas) {
     if (schemas.length < 2) {
-        return `<div class="tab-panel"><div class="diff-empty">No second schema to compare.</div></div>`;
+        return `<div class="tab-panel"><div class="empty">Add a second schema to compare.</div></div>`;
     }
     normalizeSchemaSelection();
     return `<div class="tab-panel">
-      <div class="field-grid">
-        <label>Current schema
+      <div class="rule-grid">
+        <label class="field">Schema
           <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
             ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>${schemaLabel(i)}</option>`).join('')}
           </select>
         </label>
-        <label>Compare with
+        <label class="field">Compare with
           <select onchange="compareSchemaIndex=Number(this.value); rerenderWorkbench()">
             ${schemas.map((_, i) => `<option value="${i}" ${i === compareSchemaIndex ? 'selected' : ''} ${i === selectedSchemaIndex ? 'disabled' : ''}>${schemaLabel(i)}</option>`).join('')}
           </select>
@@ -1976,47 +2024,54 @@ function renderRemovedPagePanel(detail, matrix) {
     const disabled = editable ? '' : 'disabled';
     const templates = currentRemovedPageTemplates();
     return `<div class="tab-panel">
-      <div class="panel-title">
-        <strong>Removed-page templates</strong>
-        <span class="muted">${editable
-            ? 'Declare a page removed: a selector bound to the removal notice, with text it contains or a regex. A regex that matches any text is rejected. The list starts from the stored templates; approval replaces them with it, so removing a template here retires it.'
+      <div class="section">
+        <div class="section-head"><h3>Removed-page templates</h3><span class="small muted">${templates.length} template${templates.length === 1 ? '' : 's'}</span></div>
+        <div class="small muted">${editable
+            ? 'A template declares a page removed: a selector bound to the notice, with text it contains or a regex. The list starts from the stored templates; approval replaces them, so removing one here retires it.'
             : detail.review.status === 'APPROVED'
-                ? 'Stored when the review was approved; edit or retire templates on a pending review.'
-                : 'This review is closed without approval; it did not change the stored templates.'}</span>
+                ? 'Stored when the review was approved; edit on a pending review.'
+                : 'Closed without approval; the stored templates are unchanged.'}</div>
+        ${templates.map((template, index) => renderRemovedPageTemplate(template, index, disabled)).join('')
+          || '<div class="small muted">No removed-page template.</div>'}
+        <div class="actions">
+          <button ${disabled} onclick="addRemovedPageTemplate()" title="Starts from the picked element when one is picked" type="button">+ Add template</button>
+          <button class="primary-outline" ${disabled} onclick="saveRemovedPageTemplates()" type="button">Save templates</button>
+          <span class="spacer"></span>
+          ${dirty && editable ? '<button class="quiet" onclick="discardEdits()" type="button">Discard edits</button>' : ''}
+        </div>
+        <div id="pickedElement">${renderPickedElement(false)}</div>
       </div>
-      ${templates.map((template, index) => renderRemovedPageTemplate(template, index, disabled)).join('')
-        || '<div class="muted">No removed-page template.</div>'}
-      <div class="actions">
-        <button ${disabled} onclick="addRemovedPageTemplate()" title="Starts from the clicked element when one is picked">Add template</button>
-        <button ${disabled} onclick="saveRemovedPageTemplates()">Save templates</button>
-        <button ${disabled} onclick="discardEdits()">Discard edits</button>
+      <div class="section">
+        <div class="section-head"><h3>Matched review pages</h3></div>
+        ${renderRemovedPageMatches(matrix, templates)}
       </div>
-      ${renderPickedElement()}
-      <h3>Matched review pages</h3>
-      ${renderRemovedPageMatches(matrix, templates)}
     </div>`;
 }
 
 function renderRemovedPageTemplate(template, index, disabled) {
     const mode = template.regex !== undefined && template.regex !== null ? 'regex' : 'text';
     const value = mode === 'regex' ? template.regex : (template.text || '');
-    return `<div class="field-grid removed-page-template">
-      <label>Template ${index + 1} selector
-        <input ${disabled} value="${escapeHtmlAttr(template.selector || '')}" oninput="setRemovedPageTemplate(${index}, {selector: this.value})">
+    return `<div class="template">
+      <label class="field">Template ${index + 1} selector
+        <span class="selector-row">
+          <input class="mono" ${disabled} value="${escapeHtmlAttr(template.selector || '')}" oninput="setRemovedPageTemplate(${index}, {selector: this.value})">
+          <button class="icon" onclick="postHighlight(currentRemovedPageTemplates()[${index}].selector, 'Removed notice', '#dc2626')" title="Highlight in the preview" aria-label="Highlight in the preview" type="button">${eyeIcon()}</button>
+        </span>
       </label>
-      <label>Match
-        <select ${disabled} onchange="setRemovedPageTemplateMode(${index}, this.value)">
-          <option value="text" ${mode === 'text' ? 'selected' : ''}>Text</option>
-          <option value="regex" ${mode === 'regex' ? 'selected' : ''}>Regex</option>
-        </select>
-      </label>
-      <label>${mode === 'regex' ? 'Regex' : 'Notice text'}
-        <input ${disabled} value="${escapeHtmlAttr(value)}" oninput="setRemovedPageTemplateValue(${index}, this.value)">
-      </label>
+      <div class="rule-grid">
+        <label class="field">Match
+          <select ${disabled} onchange="setRemovedPageTemplateMode(${index}, this.value)">
+            <option value="text" ${mode === 'text' ? 'selected' : ''}>Text</option>
+            <option value="regex" ${mode === 'regex' ? 'selected' : ''}>Regex</option>
+          </select>
+        </label>
+        <label class="field">${mode === 'regex' ? 'Notice regex' : 'Notice text'}
+          <input ${disabled} value="${escapeHtmlAttr(value)}" oninput="setRemovedPageTemplateValue(${index}, this.value)">
+        </label>
+      </div>
       <div class="actions">
-        <button onclick="postHighlight(currentRemovedPageTemplates()[${index}].selector, 'Removed notice', '#dc2626')">Highlight</button>
-        <button ${disabled} onclick="usePickedForRemovedPageTemplate(${index})">Use clicked element</button>
-        <button ${disabled} onclick="removeRemovedPageTemplate(${index})">Remove</button>
+        <button class="quiet" ${disabled} onclick="usePickedForRemovedPageTemplate(${index})" type="button">Use picked element</button>
+        <button class="quiet danger" ${disabled} onclick="removeRemovedPageTemplate(${index})" type="button">Remove</button>
       </div>
     </div>`;
 }
@@ -2027,21 +2082,19 @@ function renderRemovedPageTemplate(template, index, disabled) {
 // title for its notice asks for a breadth check: it would withdraw that page, which is right only
 // when the page is a removal notice that keeps the product template.
 function renderRemovedPageMatches(matrix, templates) {
-    if (!templates.length) return '<div class="muted">Declare a template to see the pages it matches.</div>';
-    if (dirty) return '<div class="muted">Save the templates to evaluate them on the review pages.</div>';
+    if (!templates.length) return '<div class="small muted">Declare a template to see the pages it matches.</div>';
+    if (dirty) return '<div class="small muted">Save the templates to evaluate them on the review pages.</div>';
     const matches = (matrix && matrix.removed_page_matches) || [];
-    if (!matches.length) return '<div class="muted">No review page matches the templates.</div>';
+    if (!matches.length) return '<div class="small muted">No review page matches the templates.</div>';
     return `<div class="data-grid-wrap"><table>
-      <thead><tr><th>Page</th><th>Role</th><th>Outcome</th><th>Matched notices</th></tr></thead>
+      <thead><tr><th>Page</th><th>Role</th><th>Outcome</th><th>Templates</th></tr></thead>
       <tbody>${matches.map(match => `<tr>
-        <td>${productPageLink(match.url)}</td>
-        <td>${escapeHtml(displayName(match.role))}</td>
-        <td>${match.outcome === 'REMOVED'
-            ? statusBadge('Captured as removed')
-            : statusBadge('Scraped as a product: a candidate schema extracts it')}</td>
-        <td>${(match.templates || []).map(t => `Template ${t.template_index + 1}: ${escapeHtml((t.notices || []).join(' | '))}${t.product_title
-            ? `<br>${statusBadge('Check breadth')} takes the title “${escapeHtml(t.product_title)}” a candidate schema extracts for its notice: too broad unless this page is a removal notice`
-            : ''}`).join('<br>')}</td>
+        <td>${pageUrlLink(match.url)}</td>
+        <td>${escapeHtml(pageRoleLabel(match.role))}</td>
+        <td>${match.outcome === 'REMOVED' ? badge('Removed', 'ok') : badge('Still a product', 'warn')}</td>
+        <td>${(match.templates || []).map(t => `<div>Template ${t.template_index + 1}: ${escapeHtml((t.notices || []).join(' | '))}${t.product_title
+            ? notice('warn', 'Check breadth', `takes the title “${escapeHtml(t.product_title)}” a candidate schema extracts for its notice: too broad unless this page is a removal notice`)
+            : ''}</div>`).join('')}</td>
       </tr>`).join('')}</tbody>
     </table></div>`;
 }
@@ -2163,14 +2216,11 @@ async function reloadDiscardingEdits(reload) {
     return loaded;
 }
 
-// The selected review could not be loaded, so no detail of it is shown to keep the message with.
 function renderReviewLoadFailure() {
     selectedDetail = null;
     selectedMatrix = null;
-    document.getElementById('detail').innerHTML = `<div class="hint-card finding-hint" role="alert">
-      <span>The review could not be loaded: ${escapeHtml(editRefusal?.message || '')}</span>
-      <button onclick="selectReview(selectedId)">Retry</button>
-    </div>`;
+    document.getElementById('detail').innerHTML = notice('bad', 'Not loaded', `The review could not be loaded: ${escapeHtml(editRefusal?.message || '')}`,
+        {role: 'alert', actions: '<button onclick="selectReview(selectedId)" type="button">Retry</button>'});
 }
 
 // Every candidate edit names the candidate version it was based on, so the server refuses it
@@ -2190,39 +2240,27 @@ function recordSavedCandidateVersion(saved) {
 
 function renderMatrixNotice(detail, matrix) {
     if (selectedMatrixMissing) {
-        return `<div class="hint-card">
-          <span>No schema matrix yet: the current candidate has not been evaluated on the live review pages. Evaluating fetches every review page from the shop at its crawl delay.</span>
-          <button onclick="reevaluateMatrix()">Evaluate on live pages</button>
-        </div>`;
+        return notice('neutral', 'Not evaluated', 'The candidate has not been evaluated on the live review pages. Evaluating fetches every review page from the shop at its crawl delay.',
+            {actions: '<button onclick="reevaluateMatrix()" type="button">Evaluate on live pages</button>'});
     }
     if (selectedMatrixFailure) {
-        return `<div class="hint-card finding-hint">
-          <span>No schema matrix: ${escapeHtml(selectedMatrixFailure)}</span>
-          <button onclick="reevaluateMatrix()">Re-evaluate</button>
-        </div>`;
+        return notice('bad', 'Evaluation failed', escapeHtml(selectedMatrixFailure),
+            {actions: '<button onclick="reevaluateMatrix()" type="button">Evaluate again</button>'});
     }
     const unevaluated = unevaluatedReviewPages(detail, matrix);
     if (!unevaluated.length) return '';
-    return `<div class="hint-card">
-      <span>Not evaluated: ${unevaluated.length === 1 ? 'a page was' : `${unevaluated.length} pages were`} added to the review while this matrix was evaluated (${unevaluated.map(page => escapeHtml(reviewPageLabel(page))).join(', ')}).</span>
-      <button onclick="reevaluateMatrix()">Re-evaluate</button>
-    </div>`;
+    return notice('warn', 'Not evaluated', `${unevaluated.length} page${unevaluated.length === 1 ? '' : 's'} joined the review after the last evaluation (${unevaluated.map(page => escapeHtml(reviewPageLabel(page))).join(', ')}). Evaluate again before approving.`,
+        {actions: '<button onclick="reevaluateMatrix()" type="button">Evaluate on live pages</button>'});
 }
 
 function renderEditMessages() {
     const refusal = editRefusal && editRefusal.reviewId === selectedId
-        ? `<div class="hint-card finding-hint edit-message" role="alert">
-            <span>${escapeHtml(editRefusal.message)}</span>
-            <button class="message-dismiss" onclick="dismissEditMessage('refusal')" title="Dismiss" aria-label="Dismiss">&times;</button>
-          </div>`
+        ? notice('bad', 'Refused', escapeHtml(editRefusal.message), {role: 'alert', dismiss: "dismissEditMessage('refusal')"})
         : '';
-    const notice = editNotice && editNotice.reviewId === selectedId
-        ? `<div class="hint-card success-hint edit-message" role="status">
-            <span>${escapeHtml(editNotice.message)}</span>
-            <button class="message-dismiss" onclick="dismissEditMessage('notice')" title="Dismiss" aria-label="Dismiss">&times;</button>
-          </div>`
+    const saved = editNotice && editNotice.reviewId === selectedId
+        ? notice('ok', 'Saved', escapeHtml(editNotice.message), {role: 'status', dismiss: "dismissEditMessage('notice')"})
         : '';
-    return refusal + notice;
+    return refusal + saved;
 }
 
 // Updates the messages alone, so unsaved edits in the workbench's inputs stay as typed.
@@ -2257,17 +2295,19 @@ function apiErrorMessage(error) {
 
 function renderJsonPanel(detail) {
     return `<div class="tab-panel">
-      <div class="panel-title">
-        <strong>Full candidate JSON</strong>
-        <span class="muted">Use field controls for normal edits; this is the raw payload.</span>
+      <div class="section">
+        <div class="section-head"><h3>Candidate JSON</h3></div>
+        <div class="small muted">Use the Selector tab for normal edits; this is the raw candidate.</div>
+        <textarea id="candidatePayload" aria-label="Candidate JSON" oninput="markDirty()">${escapeHtml(JSON.stringify(detail.review.candidate_payload, null, 2))}</textarea>
+        <div class="actions">
+          <button class="primary-outline" ${candidateEditable(detail) ? '' : 'disabled'} onclick="saveCandidate()" type="button">Save JSON</button>
+          ${dirty ? '<button class="quiet" onclick="discardEdits()" type="button">Discard edits</button>' : ''}
+        </div>
       </div>
-      <textarea id="candidatePayload" oninput="markDirty()">${escapeHtml(JSON.stringify(detail.review.candidate_payload, null, 2))}</textarea>
-      <div class="actions">
-        <button ${candidateEditable(detail) ? '' : 'disabled'} onclick="saveCandidate()">Save full JSON</button>
-        <button onclick="discardEdits()">Discard edits</button>
+      <div class="section">
+        <div class="section-head"><h3>Validation summary</h3></div>
+        <pre>${escapeHtml(JSON.stringify(detail.review.validation_summary, null, 2))}</pre>
       </div>
-      <h3>Validation</h3>
-      <pre>${escapeHtml(JSON.stringify(detail.review.validation_summary, null, 2))}</pre>
     </div>`;
 }
 
@@ -2339,22 +2379,42 @@ function refusedCoverage(error) {
     }
 }
 
-function renderCoverageSummary(matrix) {
+function renderCoverageSection(matrix) {
     if (!matrix || !matrix.candidates || !matrix.candidates.length) {
-        return '<div class="muted">No schema coverage data available.</div>';
+        return '<div class="section"><div class="section-head"><h3>Coverage</h3></div><div class="small muted">No schema coverage data available.</div></div>';
     }
     const coverage = reviewPageCoverage(selectedDetail, matrix);
-    const scope = coverage.notEvaluated ? 'evaluated' : 'live';
-    const failures = currentCandidateFailures(matrix);
-    return `<div class="hint-card">
-      <strong>Coverage</strong>
-      <div>${coverageText(coverage)}.</div>
-      ${failures.length ? `<div class="muted">Selected schema failed on ${failures.length} page${failures.length === 1 ? '' : 's'}: ${failures.map(page => escapeHtml(displayName(page.role))).join(', ')}</div>` : `<div class="muted">Selected schema applied to every ${scope} page.</div>`}
-      ${renderSchemasApplyingToNoPage(matrix, scope)}
-      ${renderOptionalMissSummary(currentCandidatePagesWithOptionalMisses(matrix))}
-      ${renderSkippedElementSummary(currentCandidatePagesWithSkippedElements(matrix))}
-      ${renderPlausibilitySummary(matrix)}
+    const tone = coverageComplete(coverage) ? 'ok' : (coverage.covered === 0 ? 'bad' : 'warn');
+    const evaluated = matrix.live_evaluation?.fetched_at;
+    return `<div class="section">
+      <div class="section-head"><h3>Coverage</h3>${badge(`${coverage.covered} of ${coverage.total} page${coverage.total === 1 ? '' : 's'}${coverage.notEvaluated ? ` · ${coverage.notEvaluated} not evaluated` : ''}`, tone)}</div>
+      <div class="small muted">${escapeHtml(coverageSentences(matrix, coverage))}</div>
+      <div class="actions">
+        <button onclick="reevaluateMatrix()" title="Evaluate the saved candidate on the live review pages" type="button">Evaluate on live pages</button>
+        ${matrix.live_evaluation ? `<span class="small muted">evaluated ${evaluated ? timeBadge(evaluated, 'Evaluated') : 'never'}</span>` : ''}
+      </div>
     </div>`;
+}
+
+// Whether every live page is covered, how the selected schema fares and which schemas apply to
+// no page at all.
+function coverageSentences(matrix, coverage) {
+    const parts = [coverageComplete(coverage)
+        ? 'Every live page is covered by at least one schema.'
+        : `${coverage.covered} of ${coverage.total} pages are covered${coverage.notEvaluated ? `; ${coverage.notEvaluated} not evaluated` : ''}.`];
+    const candidate = selectedCandidate(matrix);
+    const pages = candidate?.pages || [];
+    if (pages.length) {
+        const failures = pages.filter(page => !page.apply_ok);
+        const label = schemaLabel(selectedSchemaIndex);
+        parts.push(failures.length
+            ? `${label} applies to ${pages.length - failures.length} of ${pages.length}; it fails on ${failures.map(page => pageRoleLabel(page.role)).join(', ')}.`
+            : `${label} applies to all ${pages.length}.`);
+    }
+    for (const unused of matrix.candidates.filter(c => (c.pages || []).length && c.pages.every(page => !page.apply_ok))) {
+        parts.push(`${schemaLabel(unused.schema_index)} applies to none — add a page of its template or delete it.`);
+    }
+    return parts.join(' ');
 }
 
 // Check codes of `plausibility_findings`, `cross_page_findings` and
@@ -2391,19 +2451,174 @@ function findingDescription(finding) {
     return `${displayName(finding.field)} ${plausibilityCheckDescriptions[finding.check] || finding.check}`;
 }
 
-function renderFindingBadges(findings) {
-    return findings.map(finding =>
-        `<span class="badge badge-rejected finding-badge" title="${escapeHtmlAttr(findingDescription(finding))}">${escapeHtml(finding.check)}</span>`
-    ).join(' ');
+// The short words of the checks and notes, for the badge next to a field.
+const CHECK_LABELS = {
+    BLANK: 'Blank',
+    TOO_LONG: 'Too long',
+    ALL_ZERO_DIGITS: 'Zero price',
+    MARKUP_TOKENS: 'Markup',
+    DUPLICATE_VALUES: 'Duplicate',
+    INVALID_IDENTIFIER: 'Invalid ID',
+    WORD_LIST: 'Word list',
+    REPEATED_ACROSS_PAGES: 'Repeated across pages',
+    NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
+    DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
+    DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity',
+    FOREIGN_PRICE_CURRENCY: 'Foreign currency'
+};
+
+function checkLabel(check) {
+    return CHECK_LABELS[check] || displayName(check);
 }
 
+function findingBadge(finding) {
+    return `<span class="badge badge-bad" title="${escapeHtmlAttr(findingDescription(finding))}">${escapeHtml(checkLabel(finding.check))}</span>`;
+}
+
+function noticeBadge(note) {
+    return `<span class="badge badge-warn" title="${escapeHtmlAttr(note.text)}">${escapeHtml(checkLabel(note.check))}</span>`;
+}
+
+// The selected schema's pages that failed a check, by the check's description, in page order.
+function groupFindingsByDescription(candidate) {
+    const groups = new Map();
+    for (const page of candidate?.pages || []) {
+        for (const description of new Set(pageFindings(page).map(findingDescription))) {
+            groups.set(description, [...(groups.get(description) || []), page]);
+        }
+    }
+    return groups;
+}
+
+// The selected schema's pages that carry a note, by the note's text.
+function groupNoticesByText(candidate) {
+    const groups = new Map();
+    for (const page of candidate?.pages || []) {
+        for (const text of new Set(pageNotices(page).map(note => note.text))) {
+            groups.set(text, [...(groups.get(text) || []), page]);
+        }
+    }
+    return groups;
+}
+
+// A page named by its role and path, with its full URL as the tooltip.
+function pageTag(page) {
+    const url = matrixPageUrl(page);
+    return `<span class="page-tag"><span class="role">${escapeHtml(pageRoleLabel(page.role))}</span>${url ? `<code title="${escapeHtmlAttr(url)}">${escapeHtml(urlPath(url))}</code>` : ''}</span>`;
+}
+
+function checkEntry(tone, description, detail, pages) {
+    return `<div class="check">
+      <div class="check-head ${tone}"><strong>${escapeHtml(description)}</strong><span class="small muted">${escapeHtml(detail)}</span></div>
+      <div class="check-pages">${pages.map(pageTag).join('')}</div>
+    </div>`;
+}
+
+function renderFailedChecksSection(matrix) {
+    const candidate = selectedCandidate(matrix);
+    const groups = groupFindingsByDescription(candidate);
+    if (!groups.size) return '';
+    const total = (candidate.pages || []).length;
+    const failing = (candidate.pages || []).filter(page => pageFindings(page).length > 0).length;
+    return `<div class="section">
+      <div class="section-head"><h3><span class="dot dot-bad"></span>Failed checks</h3>${badge(`${groups.size} check${groups.size === 1 ? '' : 's'} · ${failing} page${failing === 1 ? '' : 's'}`, 'bad')}</div>
+      <div class="small muted">A failed check keeps a generated schema out of auto-approval; a human approves it knowingly.</div>
+      <div class="check-list">${[...groups].map(([description, pages]) =>
+          checkEntry('bad', description, `${schemaLabel(selectedSchemaIndex)} · ${pages.length} of ${total} page${total === 1 ? '' : 's'}`, pages)).join('')}</div>
+    </div>`;
+}
+
+// The optional fields a page left empty and no failed check names: a field that failed a check on
+// the page is listed under Failed checks already.
+function notedOptionalMisses(page) {
+    return optionalFieldMisses(page).filter(field => fieldFindings(page, field.field).length === 0);
+}
+
+// Optional rules that left their field empty and rules that skipped matched elements, grouped by
+// field and kind: informational lines next to the notes, none of which blocks an approval.
+function optionalMissLines(candidate) {
+    const lines = new Map();
+    const add = (key, text, page) => {
+        const entry = lines.get(key) || {text, pages: []};
+        entry.pages.push(page);
+        lines.set(key, entry);
+    };
+    for (const page of candidate?.pages || []) {
+        for (const field of notedOptionalMisses(page)) {
+            add(`${field.field}:${matchedOnlyEmptyElements(field)}`, {field: displayName(field.field), empty: matchedOnlyEmptyElements(field)}, page);
+        }
+    }
+    return [...lines.values()].map(({text, pages}) => {
+        const roles = [...new Set(pages.map(page => pageRoleLabel(page.role)))].join(', ');
+        const count = `${pages.length} page${pages.length === 1 ? '' : 's'}`;
+        return text.empty
+            ? `${text.field} left empty on ${count} (matched only empty elements): ${roles}. The page still applies.`
+            : `${text.field} matched nothing on ${count}: ${roles}. The page still applies.`;
+    });
+}
+
+function skippedElementLines(candidate) {
+    const lines = new Map();
+    for (const page of candidate?.pages || []) {
+        for (const field of fieldsWithSkippedElements(page)) {
+            const gallery = field.skipped_element_count === matchedElementCount(field);
+            const key = `${field.field}:${gallery}`;
+            const entry = lines.get(key) || {field: displayName(field.field), gallery, skipped: 0, matched: 0, pages: 0};
+            entry.skipped += field.skipped_element_count;
+            entry.matched += matchedElementCount(field);
+            entry.pages += 1;
+            lines.set(key, entry);
+        }
+    }
+    return [...lines.values()].map(entry =>
+        `${entry.field} skipped ${entry.skipped} of ${entry.matched} matched elements without an image URL on ${entry.pages} page${entry.pages === 1 ? '' : 's'}${entry.gallery ? ' — an empty gallery' : ' (loose selector)'}`);
+}
+
+function renderNotesSection(matrix) {
+    const candidate = selectedCandidate(matrix);
+    const groups = groupNoticesByText(candidate);
+    const lines = [...optionalMissLines(candidate), ...skippedElementLines(candidate)];
+    if (!groups.size && !lines.length) return '';
+    const total = (candidate.pages || []).length;
+    const pageCount = (candidate.pages || []).filter(page =>
+        pageNotices(page).length || notedOptionalMisses(page).length || fieldsWithSkippedElements(page).length).length;
+    const notes = groups.size + lines.length;
+    return `<div class="section">
+      <div class="section-head"><h3><span class="dot dot-warn"></span>Notes</h3>${badge(`${notes} note${notes === 1 ? '' : 's'} · ${pageCount} page${pageCount === 1 ? '' : 's'}`, 'warn')}</div>
+      <div class="small muted">Information next to its field; notes block no approval.</div>
+      <div class="check-list">
+        ${[...groups].map(([text, pages]) => checkEntry('warn', text, `${schemaLabel(selectedSchemaIndex)} · ${pages.length} of ${total} page${total === 1 ? '' : 's'}`, pages)).join('')}
+        ${lines.map(line => `<div class="small muted">${escapeHtml(line)}</div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function renderExtractedSection(matrix) {
+    const candidate = selectedCandidate(matrix);
+    if (!candidate) return '<div class="section"><div class="small muted">No extracted data for this schema.</div></div>';
+    const page = selectedMatrixPage(candidate);
+    if (!page) return '<div class="section"><div class="small muted">No extracted data for the selected page.</div></div>';
+    const findings = pageFindings(page);
+    const status = page.apply_ok
+        ? badge('Applied', 'ok')
+        : (findings.length ? badge(`Failed · ${findings.length} check${findings.length === 1 ? '' : 's'}`, 'bad') : badge('Did not apply', 'bad'));
+    const url = matrixPageUrl(page);
+    // A rejecting plausibility finding fails the page but keeps its extraction, so the
+    // reviewer sees the failing check next to the field it concerns.
+    return `<div class="section">
+      <div class="section-head"><h3>Extracted from this page</h3>${status}</div>
+      <div class="small muted">${escapeHtml(schemaLabel(selectedSchemaIndex))} · ${escapeHtml(pageRoleLabel(page.role))}${url ? ` · <code title="${escapeHtmlAttr(url)}">${escapeHtml(urlPath(url))}</code>` : ''}</div>
+      ${page.apply_ok ? '' : `<div class="small bad-text">${expandableValue(page.error || 'Schema did not apply.')}</div>`}
+      ${page.extracted ? rawDataCell(page.extracted, page) : '<div class="small muted">No extracted data.</div>'}
+    </div>`;
+}
 // Cross-page findings name the values another product page repeats; for a list such as
 // the images they point out the default share image among the product photos, which lists
 // like the field's own images, by its resolved first candidate.
 function renderSharedValues(findings, key) {
     const values = findings.flatMap(finding => finding.values || []);
     if (!values.length) return '';
-    return `<div class="muted">Also extracted from another product page: ${key === 'images'
+    return `<div class="small muted">Also extracted from another product page: ${key === 'images'
         ? renderImageCandidateGroups(values)
         : values.map(value => expandableValue(value)).join(', ')}</div>`;
 }
@@ -2417,7 +2632,7 @@ function renderContradictingIdentities(findings) {
             `${finding.check === 'DIFFERS_FROM_CAPTURED_IDENTITY' ? 'captured' : 'other schema'}: ${expandableValue(value)}`
         ));
     if (!values.length) return '';
-    return `<div class="muted">Contradicting identities: ${values.join(', ')}</div>`;
+    return `<div class="small muted">Contradicting identities: ${values.join(', ')}</div>`;
 }
 
 // Informational findings of a matrix page: a `foreign_price_currency`. It neither
@@ -2435,70 +2650,6 @@ function pageNotices(page) {
     return notices;
 }
 
-function renderNoticeBadges(notices) {
-    return notices.map(notice =>
-        `<span class="badge badge-changed finding-badge" title="${escapeHtmlAttr(notice.text)}">${escapeHtml(notice.check)}</span>`
-    ).join(' ');
-}
-
-function renderNoticeSummary(matrix) {
-    const pages = (selectedCandidate(matrix)?.pages || []).filter(page => pageNotices(page).length > 0);
-    if (!pages.length) return '';
-    const perPage = pages.map(page => `<li><strong>${escapeHtml(displayName(page.role))}</strong>${matrixPagePath(page) ? `<code>${escapeHtml(matrixPagePath(page))}</code> ` : ''}<span>${
-        pageNotices(page).map(notice => escapeHtml(notice.text)).join('; ')
-    }</span></li>`).join('');
-    return `<div class="muted">Selected schema notes, which block no approval:</div><ul class="plausibility-pages">${perPage}</ul>`;
-}
-
-function renderPlausibilitySummary(matrix) {
-    const failingSchemas = matrix.candidates.filter(candidate =>
-        (candidate.pages || []).some(page => pageFindings(page).length > 0)
-    );
-    if (!failingSchemas.length) {
-        return `<div class="muted">Every schema passed the plausibility checks on every live page.</div>${renderNoticeSummary(matrix)}`;
-    }
-    const candidate = selectedCandidate(matrix);
-    const failingPages = (candidate?.pages || []).filter(page => pageFindings(page).length > 0);
-    const perPage = failingPages.map(page => `<li><strong>${escapeHtml(displayName(page.role))}</strong>${matrixPagePath(page) ? `<code>${escapeHtml(matrixPagePath(page))}</code> ` : ''}<span>${
-        pageFindings(page).map(finding => escapeHtml(findingDescription(finding))).join('; ')
-    }</span></li>`).join('');
-    const pagePlural = failingPages.length === 1 ? '' : 's';
-    return `<div class="plausibility-summary">
-      <strong>Plausibility</strong>
-      <div>${failingSchemas.map(c => escapeHtml(schemaLabel(c.schema_index))).join(', ')} failed plausibility checks, which keeps a generated schema out of auto-approval.</div>
-      ${failingPages.length
-        ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}:</div><ul class="plausibility-pages">${perPage}</ul>`
-        : '<div class="muted">Selected schema passed them on every live page.</div>'}
-      ${renderNoticeSummary(matrix)}
-    </div>`;
-}
-
-function renderSelectedFieldFindings(page) {
-    const findings = fieldFindings(page, selectedField);
-    const notices = pageNotices(page).filter(notice => notice.field === fieldKey(selectedField));
-    if (!findings.length && !notices.length) return '';
-    const texts = [
-        ...findings.map(finding => escapeHtml(findingDescription(finding))),
-        ...notices.map(notice => escapeHtml(notice.text))
-    ];
-    return `<div class="hint-card finding-hint">
-      ${renderFindingBadges(findings)} ${renderNoticeBadges(notices)}
-      <span>${texts.join('; ')} on the selected page.</span>
-    </div>`;
-}
-
-function renderOptionalMissSummary(pagesWithMisses) {
-    if (!pagesWithMisses.length) return '';
-    const pageWord = pagesWithMisses.length === 1 ? 'page' : 'pages';
-    const perPage = pagesWithMisses.map(page => {
-        const fields = optionalFieldMisses(page).map(field =>
-            `${escapeHtml(displayName(field.field))}${matchedOnlyEmptyElements(field) ? ' (empty element)' : ''}`
-        ).join(', ');
-        return `${escapeHtml(displayName(page.role))} (${fields})`;
-    }).join('; ');
-    return `<div class="muted">Optional rules yielded no value (field left empty, page still applied) on ${pagesWithMisses.length} ${pageWord}: ${perPage}</div>`;
-}
-
 // Mirrors `optional_field_misses` in the persisted schema matrix summary: a soft
 // rule (not required, no selector error, not `images`, whose empty-container case is
 // decided by the page-level apply result) whose primary and additional selectors all
@@ -2514,12 +2665,6 @@ function optionalFieldMisses(page) {
     );
 }
 
-function currentCandidatePagesWithOptionalMisses(matrix) {
-    const candidate = selectedCandidate(matrix);
-    if (!candidate) return [];
-    return (candidate.pages || []).filter(page => optionalFieldMisses(page).length > 0);
-}
-
 // Fields whose rule skipped matched elements without an image URL (no image URL candidate, or
 // no attribute of an attribute rule) on the page (`skipped_element_count`, set for the `images`
 // rule only). Next to extracted images, skips show a loose selector.
@@ -2527,49 +2672,9 @@ function fieldsWithSkippedElements(page) {
     return (page?.fields || []).filter(field => field.skipped_element_count > 0);
 }
 
-function skippedElementCount(page) {
-    return fieldsWithSkippedElements(page).reduce((sum, field) => sum + field.skipped_element_count, 0);
-}
-
 function matchedElementCount(field) {
     return [field.selector_match_count || 0, ...(field.additional_selector_match_counts || [])]
         .reduce((sum, count) => sum + count, 0);
-}
-
-function currentCandidatePagesWithSkippedElements(matrix) {
-    const candidate = selectedCandidate(matrix);
-    if (!candidate) return [];
-    return (candidate.pages || []).filter(page => skippedElementCount(page) > 0);
-}
-
-// A rule that skipped every element it matched yields no image: the page shows an empty
-// gallery of placeholders, which is no sign of a loose selector.
-function isEmptyGallery(page) {
-    return fieldsWithSkippedElements(page).every(field => field.skipped_element_count === matchedElementCount(field));
-}
-
-function renderSkippedElementSummary(pagesWithSkips) {
-    const summary = (pages, description) => {
-        if (!pages.length) return '';
-        const perPage = pages.map(page =>
-            `${escapeHtml(displayName(page.role))} (${skippedElementCount(page)})`
-        ).join('; ');
-        return `<div class="muted">${description} on ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}: ${perPage}</div>`;
-    };
-    return summary(
-        pagesWithSkips.filter(page => !isEmptyGallery(page)),
-        'Selected schema skipped matched elements without an image URL next to extracted images, a sign of a loose selector,'
-    ) + summary(
-        pagesWithSkips.filter(isEmptyGallery),
-        'Selected schema matched only elements without an image URL, an empty gallery,'
-    );
-}
-
-function renderSkippedElements(fields) {
-    if (!fields.length) return '';
-    return `<div class="muted">Matched elements without an image URL were skipped: ${
-        fields.map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code> skipped ${field.skipped_element_count} of ${matchedElementCount(field)}`).join(', ')
-    }</div>`;
 }
 
 function pageReferenceKey(reference) {
@@ -2592,53 +2697,6 @@ function pageCovered(matrix, pageReference) {
     );
 }
 
-// Schemas that apply to no live review page. The reviewer retires a schema whose template the
-// shop no longer uses by deleting it from the candidate; another page of its template, added to
-// the review, shows whether it is still needed.
-function renderSchemasApplyingToNoPage(matrix, scope) {
-    const unused = matrix.candidates
-        .filter(candidate => (candidate.pages || []).length && candidate.pages.every(page => !page.apply_ok))
-        .map(candidate => escapeHtml(schemaLabel(candidate.schema_index)));
-    if (!unused.length) return '';
-    return `<div class="muted">Applies to no ${scope} page: ${unused.join(', ')}. Add a page of its template, or delete the schema once the shop no longer uses that template.</div>`;
-}
-
-function currentCandidateFailures(matrix) {
-    const candidate = selectedCandidate(matrix);
-    if (!candidate) return [];
-    return (candidate.pages || []).filter(page => !page.apply_ok);
-}
-
-function renderCurrentExtractedData(matrix) {
-    const candidate = selectedCandidate(matrix);
-    if (!candidate) return '<div class="muted">No extracted data for this schema.</div>';
-    const page = selectedMatrixPage(candidate);
-    if (!page) return '<div class="muted">No extracted data for the selected page.</div>';
-    const misses = optionalFieldMisses(page);
-    const skips = fieldsWithSkippedElements(page);
-    // A rejecting plausibility finding fails the page but keeps its extraction, so the
-    // reviewer sees the failing check next to the field it concerns.
-    return `<section class="extracted-page ${page.apply_ok ? '' : 'failed'}">
-      <div class="extracted-page-head">
-        <strong>${escapeHtml(displayName(page.role))}</strong>
-        <span class="extracted-page-status">${renderPageStatusBadges(page, misses, skips)}</span>
-      </div>
-      ${page.apply_ok ? '' : `<div class="page-error">${expandableValue(page.error || 'Schema did not apply.')}</div>`}
-      ${page.extracted ? rawDataCell(page.extracted, page) : ''}
-      ${page.apply_ok ? renderOptionalFieldMisses(misses) : ''}
-      ${renderSkippedElements(skips)}
-    </section>`;
-}
-
-function renderPageStatusBadges(page, misses, skips) {
-    const findings = pageFindings(page);
-    const checkPlural = findings.length === 1 ? '' : 's';
-    return `<span class="${page.apply_ok ? 'status-ok badge' : 'status-failed badge'}">${page.apply_ok ? 'OK' : 'Failed'}</span>`
-        + (misses.length ? ` <span class="badge badge-missing">${misses.length} empty</span>` : '')
-        + (skips.length ? ` <span class="badge badge-pending" title="Matched elements without an image URL">${skippedElementCount(page)} skipped</span>` : '')
-        + (findings.length ? ` <span class="badge badge-rejected">${findings.length} failed check${checkPlural}</span>` : '');
-}
-
 function currentMatrixPage(matrix) {
     const candidate = matrix && selectedCandidate(matrix);
     return candidate ? selectedMatrixPage(candidate) : null;
@@ -2648,16 +2706,6 @@ function currentMatrixPage(matrix) {
 // the field empty where the rule expects it, rather than the rule not fitting the page.
 function matchedOnlyEmptyElements(field) {
     return field.empty_element_count > 0;
-}
-
-function renderOptionalFieldMisses(misses) {
-    const fieldList = fields => fields
-        .map(field => `${escapeHtml(displayName(field.field))} <code>${escapeHtml(field.selector)}</code>`)
-        .join(', ');
-    const unmatched = misses.filter(field => !matchedOnlyEmptyElements(field));
-    const empty = misses.filter(matchedOnlyEmptyElements);
-    return (unmatched.length ? `<div class="muted">Rule matched nothing, field left empty: ${fieldList(unmatched)}</div>` : '')
-        + (empty.length ? `<div class="muted">Rule matched only empty elements, field left empty: ${fieldList(empty)}</div>` : '');
 }
 
 // A live matrix names the review pages it evaluated and leaves out a page that joined while it
@@ -2686,47 +2734,48 @@ function selectedCandidate(matrix) {
 
 // A field with a failed plausibility check stays listed even when it is blank.
 function rawDataCell(raw, page) {
-    if (!raw) return '<span class="muted">No extracted data.</span>';
+    if (!raw) return '<div class="small muted">No extracted data.</div>';
     const fields = Object.entries(raw).filter(([key, value]) =>
         hasRawValue(value) || fieldFindings(page, key).length > 0
     );
-    if (!fields.length) return '<span class="muted">No extracted data.</span>';
-    return `<dl class="raw-data">${
+    if (!fields.length) return '<div class="small muted">No extracted data.</div>';
+    return `<dl class="kv">${
         fields.map(([key, value]) => {
             const findings = fieldFindings(page, key);
-            return `
-      <div class="${findings.length ? 'implausible-field' : ''}">
-        <dt>${escapeHtml(displayName(key))}</dt>
-        <dd>${findings.length ? `<div class="finding-badges">${renderFindingBadges(findings)}</div>` : ''}${hasRawValue(value) ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value)) : '<span class="muted">blank</span>'}${Array.isArray(value) ? renderSharedValues(findings, key) : renderContradictingIdentities(findings)}</dd>
-      </div>`;
+            const notes = pageNotices(page).filter(note => note.field === key);
+            const badges = findings.map(findingBadge).join('') + notes.map(noticeBadge).join('');
+            const shown = hasRawValue(value)
+                ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value))
+                : '<span class="blank">blank</span>';
+            return `<dt${findings.length ? ' class="bad"' : ''}>${escapeHtml(displayName(key))}</dt>
+        <dd>${shown}${badges ? ` ${badges}` : ''}${Array.isArray(value) ? renderSharedValues(findings, key) : renderContradictingIdentities(findings)}</dd>`;
         }).join('')
     }</dl>`;
 }
 
-function renderSchemaLegend(schema) {
-    const rules = schemaHighlightRules(schema);
-    if (!rules.length) return '<div class="hint-card">No configured selectors for this schema.</div>';
-    return `<div class="schema-legend">${
-        rules.map(rule => `<div class="legend-item"><span class="legend-swatch" style="background:${escapeHtmlAttr(rule.color)}"></span>${escapeHtml(displayName(rule.field))}</div>`).join('')
-    }</div>`;
+// How the diff words each field status; `same` is plain muted text, not a badge.
+function diffBadge(status) {
+    if (status === 'changed') return badge('Changed', 'accent');
+    if (status === 'missing current') return badge('Only in compare');
+    if (status === 'missing compare') return badge('Only in selected');
+    return '<span class="small muted">same</span>';
 }
 
 function renderSchemaDiff(current, compare) {
     const rawAttributeFields = Array.from(new Set(Object.keys(current?.raw_attributes || {}).concat(Object.keys(compare?.raw_attributes || {}))))
         .map(field => `raw_attributes.${field}`);
     const fields = [...selectorFields, ...rawAttributeFields];
-    return `<div class="schema-diff">${
+    return `<div class="diff">${
         fields.map(field => {
             const left = normalizeRuleValue(schemaFieldValue(current, field));
             const right = normalizeRuleValue(schemaFieldValue(compare, field));
             const status = diffStatus(left, right);
             return `<div class="diff-row">
-              <div class="diff-field">${escapeHtml(fieldLabel(field))}</div>
-              ${statusBadge(status)}
-              <div class="diff-values">
-                <div class="diff-value"><span class="diff-label">Selected</span>${expandableValue(left || 'not configured')}</div>
-                <div class="diff-value"><span class="diff-label">Compare</span>${expandableValue(right || 'not configured')}</div>
-              </div>
+              <div class="diff-head"><span>${escapeHtml(fieldLabel(field))}</span>${diffBadge(status)}</div>
+              ${status === 'same' && !left ? '' : `<div class="diff-values">
+                <div class="diff-value"><span class="diff-label">Selected</span><code>${expandableValue(left || 'not configured')}</code></div>
+                <div class="diff-value"><span class="diff-label">Compare</span><code>${expandableValue(right || 'not configured')}</code></div>
+              </div>`}
             </div>`;
         }).join('')
     }</div>`;
@@ -2776,7 +2825,7 @@ function renderImageCandidateGroups(groups) {
     const shown = rows.slice(0, IMAGES_SHOWN_BEFORE_COLLAPSE).join('');
     const rest = rows.slice(IMAGES_SHOWN_BEFORE_COLLAPSE);
     return `<ol class="image-list">${shown}</ol>${rest.length
-        ? `<details class="expandable-text"><summary>${rest.length} more image${rest.length === 1 ? '' : 's'}</summary><ol class="image-list" start="${IMAGES_SHOWN_BEFORE_COLLAPSE + 1}">${rest.join('')}</ol></details>`
+        ? `<details class="expandable"><summary>${rest.length} more image${rest.length === 1 ? '' : 's'}</summary><ol class="image-list" start="${IMAGES_SHOWN_BEFORE_COLLAPSE + 1}">${rest.join('')}</ol></details>`
         : ''}`;
 }
 
@@ -2787,33 +2836,28 @@ function renderImageCandidateGroup(group) {
     const fallbacks = candidates.length - 1;
     const tooltip = escapeHtmlAttr(candidates.map(resolvedPageAddress).join('\n'));
     const label = escapeHtml(shortImageAddress(address));
-    return `<li title="${tooltip}"><div>${/^https?:\/\//i.test(address)
+    return `<li title="${tooltip}">${/^https?:\/\//i.test(address)
         ? `<a href="${escapeHtmlAttr(address)}" target="_blank" rel="noopener noreferrer">${label}</a>`
-        : `<span>${label}</span>`}${fallbacks > 0 ? `<span class="image-fallbacks">+${fallbacks} fallback${fallbacks === 1 ? '' : 's'}</span>` : ''}</div></li>`;
+        : `<span>${label}</span>`}${fallbacks > 0 ? ` <span class="xs muted">+${fallbacks} fallback${fallbacks === 1 ? '' : 's'}</span>` : ''}</li>`;
 }
 
-// Image addresses of one shop share their whole prefix, so the list shows host and file name,
-// which tell them apart; the tooltip and the link keep the full address.
+// Image addresses of one shop share their whole prefix, so the list shows the file name, which
+// tells them apart; the tooltip and the link keep the full address.
 function shortImageAddress(address) {
     try {
-        const url = new URL(address);
-        const file = url.pathname.split('/').filter(Boolean).pop() || '';
-        return file ? `${url.host}/…/${decodeURIComponent(file)}` : address;
+        const file = new URL(address).pathname.split('/').filter(Boolean).pop() || '';
+        return file ? `…/${decodeURIComponent(file)}` : address;
     } catch (_) {
         return address;
     }
 }
 
-// The path of the review page a matrix page was evaluated on, which tells pages of one role apart.
-function matrixPagePath(page) {
+// The review page a matrix page was evaluated on; a generated matrix names its pages by URL.
+function matrixPageUrl(page) {
     const reference = page.page_reference;
-    if (reference?.kind !== 'persisted') return '';
+    if (reference?.kind !== 'persisted') return page.url || '';
     const reviewPage = (selectedDetail?.pages || []).find(candidate => candidate.review_page_id === reference.review_page_id);
-    try {
-        return reviewPage ? new URL(reviewPage.url).pathname : '';
-    } catch (_) {
-        return '';
-    }
+    return reviewPage ? reviewPage.url : '';
 }
 
 function imageCandidates(group) {
@@ -2849,7 +2893,7 @@ function rawValue(value) {
 function expandableValue(value) {
     const text = String(value ?? '');
     if (text.length <= 140) return linkifyText(text);
-    return `<details class="expandable-text">
+    return `<details class="expandable">
     <summary>${linkifyText(text.slice(0, 140))}<span class="ellipsis">...</span></summary>
     <pre class="full-values">${linkifyText(text)}</pre>
   </details>`;
@@ -2875,10 +2919,21 @@ function trimUrlPunctuation(url) {
     return url.replace(/[),.;\]]+$/, '');
 }
 
-// Only an http(s) URL becomes a link, so a stored or extracted URL cannot run script.
-function productPageLink(url) {
-    if (!isHttpUrl(url)) return `<span class="product-url">${escapeHtml(url)}</span>`;
-    return `<a class="product-url" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(url)}">${escapeHtml(url)}</a>`;
+// The path of `url`, which tells the pages of one shop apart; a value that is no URL stays as it is.
+function urlPath(url) {
+    try {
+        const parsed = new URL(url);
+        return `${parsed.pathname}${parsed.search}`;
+    } catch (_) {
+        return String(url ?? '');
+    }
+}
+
+// A page URL shown as its path, with the full URL as the tooltip and, for an http(s) URL, the link.
+function pageUrlLink(url) {
+    const label = escapeHtml(urlPath(url));
+    if (!isHttpUrl(url)) return `<span class="url mono" title="${escapeHtmlAttr(url)}">${label}</span>`;
+    return `<a class="url mono" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(url)}">${label}</a>`;
 }
 
 function setWorkbenchPanel(panel) {
@@ -3097,13 +3152,6 @@ function removeAdditionalSelector(index) {
     rerenderWorkbench();
 }
 
-function usePickedForAdditionalSelector(index) {
-    if (!pickedSelector) return;
-    setAdditionalSelector(index, pickedSelector);
-    rerenderWorkbench();
-    postHighlight(pickedSelector);
-}
-
 async function saveCurrentField() {
     const rule = schemaFieldValue(schemasPayload().schemas[selectedSchemaIndex], selectedField) || null;
     await saveSchemaField(rule);
@@ -3126,7 +3174,7 @@ async function saveSchemaField(rule) {
             })
         });
         recordSavedCandidateVersion(saved);
-    }, rule ? 'Field saved.' : 'Rule deleted.', reloadSavedCandidate);
+    }, rule ? 'Field saved' : 'Rule deleted', reloadSavedCandidate);
 }
 
 const DISCARDS_EDITS = 'reloads the review and discards its unsaved edits.';
@@ -3153,21 +3201,21 @@ async function addReviewPage() {
         const page = await api(`/api/reviews/${selectedId}/pages`, {method: 'POST', body: JSON.stringify({url})});
         selectedPageId = page.review_page_id;
         previewUrlOverride = '';
-    }, 'Page added to the review.', reloadMatrix));
+    }, 'Page added', reloadMatrix));
 }
 
 function removeReviewPage() {
     const page = (selectedDetail.pages || []).find(p => p.review_page_id === selectedPageId);
     if (!pageRemovable(page)) return;
     openActionPanel({
-        title: 'Remove review page',
+        title: 'Remove review page?',
         message: `Remove ${page.url} from the review pages?${dirty ? ` Removing it ${DISCARDS_EDITS}` : ''}`,
         confirmLabel: 'Remove page',
         danger: true,
         run: () => submitMutation(async () => {
             await api(`/api/review-pages/${page.review_page_id}`, {method: 'DELETE'});
             selectedPageId = null;
-        }, 'Page removed from the review.', reloadMatrix)
+        }, 'Page removed', reloadMatrix)
     });
 }
 
@@ -3222,12 +3270,6 @@ function highlightPreview(frameKept) {
     }
 }
 
-// The review an action panel acts on, as the reviewer finds it in the queue.
-function selectedReviewName() {
-    const review = selectedDetail?.review || {};
-    return `${review.listing_source_name || review.listing_source_id || 'review'}, ${displayName(review.artifact_type)}`;
-}
-
 // Approve takes the stored candidate, so unsaved edits are saved or discarded first; it never
 // approves past them.
 function approveReview() {
@@ -3246,7 +3288,7 @@ function approveReview() {
     // them or once the review's coverage differs from them.
     const shownCoverage = incompleteApprovalCoverage();
     openActionPanel({
-        title: `Approve ${selectedReviewName()}`,
+        title: 'Approve?',
         message: shownCoverage
             ? `Coverage is incomplete: ${coverageText(shownCoverage)}. Approving confirms these counts.`
             : '',
@@ -3263,7 +3305,7 @@ function approveReview() {
             }
             const verdict = {notes, expected_candidate_version: expectedCandidateVersion()};
             if (coverage) verdict.acknowledged_coverage = acknowledgedCoverage(coverage);
-            return submitVerdict('approve', verdict, 'Approved.');
+            return submitVerdict('approve', verdict, 'Approved');
         }
     });
 }
@@ -3281,44 +3323,44 @@ function restoreApproval() {
         ? 'the URL pattern'
         : 'the schema list and removed-page templates';
     openActionPanel({
-        title: `Restore previous: ${selectedReviewName()}`,
+        title: 'Restore previous configuration?',
         message: `Restore ${what} this approval replaced? Pages waiting on a review are retried with it.`,
         notes: 'optional',
         notesLabel: 'Why restore? (optional)',
         confirmLabel: 'Restore previous',
-        run: notes => submitVerdict('restore', {notes}, 'Previous configuration restored.')
+        run: notes => submitVerdict('restore', {notes}, 'Previous configuration restored')
     });
 }
 
 // Lets the crawler scrape this review's seed and triggering pages again.
 function revokeRejection() {
     openActionPanel({
-        title: `Revoke rejection: ${selectedReviewName()}`,
+        title: 'Revoke rejection?',
         message: 'Revoke this rejection? Its seed and triggering pages are classified again by their URL pattern and scraped again; a page no cached schema extracts opens a new review.',
         notes: 'optional',
         notesLabel: 'Why revoke? (optional)',
         confirmLabel: 'Revoke rejection',
-        run: notes => submitVerdict('revoke-rejection', {notes}, 'Rejection revoked.')
+        run: notes => submitVerdict('revoke-rejection', {notes}, 'Rejection revoked')
     });
 }
 
 function rejectReview() {
     openActionPanel({
-        title: `Reject ${selectedReviewName()}`,
+        title: 'Reject?',
         notes: 'optional',
         confirmLabel: 'Reject',
         danger: true,
-        run: notes => submitVerdict('reject', {notes}, 'Rejected.')
+        run: notes => submitVerdict('reject', {notes}, 'Rejected')
     });
 }
 
 function needsRepair() {
     openActionPanel({
-        title: `Needs repair: ${selectedReviewName()}`,
+        title: 'Needs repair',
         notes: 'required',
         notesLabel: 'What needs repair?',
         confirmLabel: 'Request repair',
-        run: notes => submitVerdict('needs-repair', {notes}, 'Repair requested.')
+        run: notes => submitVerdict('needs-repair', {notes}, 'Repair requested')
     });
 }
 
@@ -3354,15 +3396,17 @@ function renderActionPanel() {
     if (!action || action.reviewId !== selectedId) return '';
     const busy = action.busy ? 'disabled' : '';
     const blocked = action.notes === 'required' && !action.notesText.trim() ? 'disabled' : '';
-    return `<div class="action-panel ${action.danger ? 'action-panel-danger' : ''}" role="dialog" aria-label="${escapeHtmlAttr(action.title)}" onkeydown="actionPanelKeydown(event)">
-      <strong>${escapeHtml(action.title)}</strong>
-      ${action.message ? `<div class="action-panel-message">${escapeHtml(action.message)}</div>` : ''}
-      ${action.notes ? `<label>${escapeHtml(action.notesLabel)}
-        <textarea id="actionPanelNotes" rows="3" ${busy} oninput="setActionPanelNotes(this.value)">${escapeHtml(action.notesText)}</textarea>
-      </label>` : ''}
-      <div class="actions">
-        <button id="actionPanelConfirm" class="${action.danger ? 'danger' : 'primary'}" ${busy || blocked} onclick="confirmActionPanel()">${escapeHtml(action.busy ? 'Sending…' : action.confirmLabel)}</button>
-        <button ${busy} onclick="cancelActionPanel()">Cancel</button>
+    return `<div class="card action-panel ${action.danger ? 'action-panel-danger' : ''}" role="dialog" aria-label="${escapeHtmlAttr(action.title)}" onkeydown="actionPanelKeydown(event)">
+      <div class="card-body">
+        <h3>${escapeHtml(action.title)}</h3>
+        ${action.message ? `<p class="small">${escapeHtml(action.message)}</p>` : ''}
+        ${action.notes ? `<label class="field">${escapeHtml(action.notesLabel)}
+          <textarea id="actionPanelNotes" rows="3" ${busy} oninput="setActionPanelNotes(this.value)">${escapeHtml(action.notesText)}</textarea>
+        </label>` : ''}
+        <div class="actions">
+          <button id="actionPanelConfirm" class="${action.danger ? 'danger' : 'primary'}" ${busy || blocked} onclick="confirmActionPanel()" type="button">${escapeHtml(action.busy ? 'Sending…' : action.confirmLabel)}</button>
+          <button class="quiet" ${busy} onclick="cancelActionPanel()" type="button">Cancel</button>
+        </div>
       </div>
     </div>`;
 }
@@ -3371,6 +3415,16 @@ function renderActionPanel() {
 function updateActionPanel() {
     const panel = document.getElementById('actionPanel');
     if (panel) panel.innerHTML = renderActionPanel();
+    syncPageActions();
+}
+
+// While the action panel waits for its answer, its confirm button is the only action: the
+// verdict buttons in the header stay visible but off, so no second primary competes with it.
+function syncPageActions() {
+    const waiting = Boolean(pendingAction && pendingAction.reviewId === selectedId);
+    document.querySelectorAll('.page-actions button').forEach(button => {
+        button.disabled = waiting;
+    });
 }
 
 // Typing keeps the textarea focused, so it changes the notes without rendering the panel again.
@@ -3438,7 +3492,7 @@ async function saveCandidatePayload(payload) {
             body: JSON.stringify({...payload, expected_candidate_version: expectedCandidateVersion()})
         });
         recordSavedCandidateVersion(saved);
-    }, 'Candidate saved.', reloadSavedCandidate);
+    }, 'Candidate saved', reloadSavedCandidate);
 }
 
 // A saved candidate drops the stored matrix, so the review is evaluated again on its pages.
@@ -3511,15 +3565,18 @@ function markDirty() {
     updateReloadState();
 }
 
-// The state is a live region that every render updates, so it changes its text only when the
-// state changes: rewriting the same text would have a screen reader announce it again.
+// The status is a live region that every render updates, so it changes its text only when the
+// state changes: rewriting the same text would have a screen reader announce it again. It is
+// empty while nothing needs saying.
 function updateReloadState() {
     const state = document.getElementById('reloadState');
     const [text, className] = dirty
-        ? ['Review has local edits', 'system-status dirty']
+        ? ['Unsaved edits', 'system-status dirty']
         : selectedReviewNeedsRefresh
-            ? ['Selected review changed elsewhere – refresh to update', 'system-status stale']
-            : ['Queue auto refresh active', 'system-status'];
+            ? ['Changed elsewhere — refresh', 'system-status stale']
+            : transientStatus
+                ? [transientStatus.text, transientStatus.className]
+                : ['', 'system-status'];
     if (state.textContent !== text) state.textContent = text;
     state.className = className;
 }
@@ -3536,8 +3593,8 @@ function setSidebarCollapsed(collapsed) {
     if (shell) shell.classList.toggle('sidebar-collapsed', collapsed);
     if (toggle) {
         toggle.setAttribute('aria-expanded', String(!collapsed));
-        toggle.setAttribute('aria-label', collapsed ? 'Expand reviews' : 'Collapse reviews');
-        toggle.setAttribute('title', collapsed ? 'Expand reviews' : 'Collapse reviews');
+        toggle.setAttribute('aria-label', collapsed ? 'Expand the queue' : 'Collapse the queue');
+        toggle.setAttribute('title', collapsed ? 'Expand the queue' : 'Collapse the queue');
     }
 }
 
@@ -3577,10 +3634,8 @@ function updateRefreshBanner() {
         return;
     }
     banner.hidden = false;
-    banner.innerHTML = `
-    <span>${escapeHtml(selectedReviewRefreshReason || 'Selected review changed elsewhere.')}</span>
-    <button onclick="refreshSelectedReview()">Refresh review</button>
-  `;
+    banner.innerHTML = notice('warn', 'Changed elsewhere', escapeHtml(selectedReviewRefreshReason || 'Selected review changed elsewhere.'),
+        {actions: '<button onclick="refreshSelectedReview()" type="button">Refresh review</button>'});
 }
 
 function normalizeSchemaSelection() {
@@ -3608,24 +3663,21 @@ function isNewerTimestamp(candidate, baseline) {
     return Number.isFinite(candidateTime) && Number.isFinite(baselineTime) && candidateTime > baselineTime;
 }
 
-// The tone of each status the console knows by its exact value: review statuses and the schema
-// diff's field statuses. Any other text renders neutral unless its caller names a tone, so a
+// The tone of each review status the console knows by its exact value. Any other text renders neutral unless its caller names a tone, so a
 // negative text such as "Not approved" can never take the approved style by a substring.
 const STATUS_TONES = {
-    PENDING_REVIEW: 'pending',
-    APPROVED: 'approved',
-    REJECTED: 'rejected',
-    SUPERSEDED: 'superseded',
-    'same': 'approved',
-    'changed': 'changed',
-    'missing current': 'missing',
-    'missing compare': 'missing'
+    PENDING_REVIEW: 'warn',
+    APPROVED: 'ok',
+    REJECTED: 'bad'
 };
 
-const BADGE_TONES = new Set(['pending', 'approved', 'rejected', 'changed', 'missing', 'human', 'repair', 'superseded']);
+// Status values shown in other words than their persisted name.
+const STATUS_LABELS = {PENDING_REVIEW: 'Pending'};
+
+const BADGE_TONES = new Set(['warn', 'ok', 'bad', 'accent']);
 
 function statusBadge(status) {
-    return badge(displayName(status), STATUS_TONES[status]);
+    return badge(STATUS_LABELS[status] || displayName(status), STATUS_TONES[status]);
 }
 
 // A badge with the text `text` in the tone `tone`, one of `BADGE_TONES`; neutral without one.
@@ -3658,15 +3710,60 @@ function formatDate(value) {
     return date.toLocaleString();
 }
 
-function timeBadge(value, label) {
+// The elapsed time of `value` with the full date as its tooltip; `bare` drops the "ago" for a
+// sentence that says "since" itself.
+function timeBadge(value, label, bare = false) {
     if (!value) return '';
-    return `<span class="time-badge" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${escapeHtml(elapsedTime(value))}</span>`;
+    const text = bare ? elapsedTime(value).replace(/ ago$/, '') : elapsedTime(value);
+    return `<span class="time" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${escapeHtml(text)}</span>`;
 }
 
-// The one disclosure glyph of the console: it points down while its section is open and right
-// while it is closed (the CSS turns it); the sidebar turns it to point where the sidebar moves.
+// The inline icons of the console, 16 px strokes in the current colour; the chevron points down
+// and the CSS turns it while its section is closed.
+function icon(paths, size = 16) {
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+}
+
 function chevronIcon() {
-    return '<svg viewBox="0 0 16 16" width="16" height="16" focusable="false"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    return '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function moonIcon() {
+    return icon('<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>', 18);
+}
+
+function sunIcon() {
+    return icon('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>', 18);
+}
+
+function externalIcon() {
+    return icon('<path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>');
+}
+
+function eyeIcon() {
+    return icon('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>');
+}
+
+function closeIcon() {
+    return icon('<path d="M6 6l12 12M18 6L6 18"/>');
+}
+
+// The time until a future `value`, in the units of `elapsedTime`, or "now" once it has passed.
+function untilText(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    const seconds = Math.floor((date.getTime() - Date.now()) / 1000);
+    if (seconds <= 0) return 'now';
+    if (seconds < 60) return `in ${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `in ${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `in ${hours}h`;
+    const days = Math.floor(hours / 24);
+    if (days < 60) return `in ${days}d`;
+    const months = Math.floor(days / 30);
+    if (months < 24) return `in ${months}mo`;
+    return `in ${Math.floor(days / 365)}y`;
 }
 
 function elapsedTime(value) {
@@ -3709,29 +3806,33 @@ window.addEventListener('message', event => {
     // already names the tag.
     pickedSample = data.text ? `“${data.text}”` : `${data.tag || ''} ${data.src || data.href || ''}`.trim();
     const picked = document.getElementById('pickedElement');
-    if (picked) picked.outerHTML = renderPickedElement();
+    if (picked) picked.innerHTML = renderPickedElement(activeWorkbenchPanel === 'selector');
 });
 
 // The URL fragment names the selected review and, for a schema review, its page and schema, so
 // reload, browser back and a shared link restore them: `#review=<id>&page=<id>&schema=<index>`,
-// with the 0-based schema index that `schemaLabel` shows from 1.
+// with the 0-based schema index that `schemaLabel` shows from 1. `#sources` and `#reviews` open
+// the console's two views without a review, and no fragment opens Sources.
 // A link is untrusted and the review id becomes part of API paths, so only an id of the review
 // id's characters is taken; anything else, such as `/` or `?`, selects no review.
 const REVIEW_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function selectionFromUrl() {
-    const params = new URLSearchParams(location.hash.slice(1));
+    const hash = location.hash.slice(1);
+    const params = new URLSearchParams(hash);
     const review = params.get('review');
     const schema = params.get('schema');
+    const reviewId = REVIEW_ID_PATTERN.test(review || '') ? review : null;
     return {
-        reviewId: REVIEW_ID_PATTERN.test(review || '') ? review : null,
+        view: reviewId || hash === 'reviews' ? 'reviews' : 'sources',
+        reviewId,
         pageId: params.get('page') || null,
         schemaIndex: /^\d+$/.test(schema || '') ? Number(schema) : null
     };
 }
 
 function selectionUrlHash() {
-    if (!selectedId) return '';
+    if (!selectedId) return currentView === 'reviews' ? '#reviews' : '#sources';
     const params = new URLSearchParams({review: selectedId});
     if (selectedMatrix && selectedDetail?.review.review_id === selectedId) {
         if (selectedPageId) params.set('page', selectedPageId);
@@ -3740,11 +3841,12 @@ function selectionUrlHash() {
     return `#${params}`;
 }
 
-// Selecting another review adds a history entry, so browser back returns to the previous one;
-// a page or schema change within the review only updates the current entry.
+// Selecting another review or view adds a history entry, so browser back returns to the previous
+// one; a page or schema change within the review only updates the current entry.
 function recordSelectionInUrl() {
     if (selectionUrlHash() === location.hash) return;
-    if (selectionFromUrl().reviewId === selectedId) {
+    const shown = selectionFromUrl();
+    if (shown.reviewId === selectedId && shown.view === currentView) {
         replaceSelectionInUrl();
     } else {
         history.pushState(null, '', selectionUrl());
@@ -3759,18 +3861,18 @@ function selectionUrl() {
     return selectionUrlHash() || `${location.pathname}${location.search}`;
 }
 
-// Following the URL to another review discards unsaved edits, so it asks first; meanwhile the
-// URL keeps naming the review on screen. Confirming puts the requested URL back into the
-// history entry the browser moved to, so it adds no entry and back and forward keep their order.
 function applySelectionFromUrl() {
     const requested = selectionFromUrl();
-    if (requested.reviewId === selectedId) {
-        applyRequestedPageAndSchema(requested);
+    if (requested.reviewId === selectedId && requested.view === currentView) {
+        if (selectedId) applyRequestedPageAndSchema(requested);
         return;
     }
-    const follow = () => requested.reviewId
-        ? selectReview(requested.reviewId, requested)
-        : clearSelectedReview();
+    const follow = () => {
+        setView(requested.view);
+        return requested.reviewId
+            ? selectReview(requested.reviewId, requested)
+            : clearSelectedReview();
+    };
     if (!dirty) return follow();
     const requestedUrl = location.href;
     replaceSelectionInUrl();
@@ -3804,7 +3906,11 @@ function clearSelectedReview() {
     dirty = false;
     editNotice = null;
     pendingAction = null;
-    showSourceHealth();
+    selectedReviewNeedsRefresh = false;
+    selectedReviewRefreshReason = '';
+    shownDetailHtml = '';
+    setView(currentView);
+    showIdleDetail();
     updateReloadState();
     return loadReviews().catch(reportQueueFailure);
 }
@@ -3843,9 +3949,9 @@ document.addEventListener('visibilitychange', () => {
 
 scheduleQueueRefresh();
 
-loadReviews().catch(reportQueueFailure);
 setSidebarCollapsed(sidebarCollapsed);
 updateSignOutButton();
-localStorage.removeItem('crawlerReviewCollapsedListingSourceGroups');
-localStorage.removeItem('crawlerReviewCollapsedShopGroups');
+setView(selectionFromUrl().view);
+showIdleDetail();
+loadReviews().catch(reportQueueFailure);
 if (selectionFromUrl().reviewId) applySelectionFromUrl();

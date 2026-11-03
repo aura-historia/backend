@@ -2,7 +2,9 @@
 //! `docs/crawler/operations.md` (review service).
 
 use crate::review::model::{DomainCrawlOverview, ListingSourceOverview, UrlErrorKindCount};
-use crate::review::repository::{crawler_domain_id_from_uuid, listing_source_id_from_uuid};
+use crate::review::repository::{
+    crawler_domain_id_from_uuid, crawler_review_id_from_uuid, listing_source_id_from_uuid,
+};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
 use sqlx::{PgPool, Row};
@@ -27,7 +29,34 @@ impl ListingSourceOverviewReader {
         limit: i64,
     ) -> Result<Vec<ListingSourceOverview>, sqlx::Error> {
         let rows = sqlx::query(
-            "WITH overview AS (
+            "WITH blocking AS (
+                -- The oldest pending review a ListingSource's blocked URLs wait on: a review a
+                -- URL recorded as its wait, or the first product-schema review of a ListingSource
+                -- without a product schema.
+                SELECT DISTINCT ON (listing_source_id) listing_source_id, review_id
+                FROM (
+                    SELECT su.listing_source_id, cr.review_id, cr.created
+                    FROM listing_source_urls su
+                    JOIN crawler_reviews cr ON cr.review_id = su.schema_review_waited_on
+                                           AND cr.status = 'PENDING_REVIEW'
+                                           AND su.last_error_kind = 'PendingSchemaReview'
+                    WHERE su.url_class = 'product'
+                      AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+                    UNION ALL
+                    SELECT pr.listing_source_id, pr.review_id, pr.created
+                    FROM crawler_reviews pr
+                    WHERE pr.artifact_type = 'PRODUCT_SCHEMA'
+                      AND pr.status = 'PENDING_REVIEW'
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM listing_source_product_schemas ps
+                          WHERE ps.listing_source_id = pr.listing_source_id
+                            AND (jsonb_typeof(ps.product_schema) <> 'array'
+                                 OR jsonb_array_length(ps.product_schema) > 0)
+                      )
+                ) waited_on
+                ORDER BY listing_source_id, created, review_id
+            ), overview AS (
                 SELECT
                     s.listing_source_id,
                     s.listing_source_name,
@@ -41,7 +70,9 @@ impl ListingSourceOverviewReader {
                     COALESCE(u.product_urls, 0) AS product_urls,
                     COALESCE(b.blocked_urls, 0) AS blocked_urls,
                     b.blocked_since,
+                    CASE WHEN b.blocked_urls IS NOT NULL THEN bl.review_id END AS blocking_review_id,
                     COALESCE(u.held_removal_urls, 0) AS held_removal_urls,
+                    u.held_since,
                     COALESCE(u.missing_value_urls, 0) AS missing_value_urls,
                     COALESCE(d.needs_operator_domains, 0) AS needs_operator_domains,
                     COALESCE(d.max_scrape_failure_streak, 0) AS max_scrape_failure_streak
@@ -66,7 +97,9 @@ impl ListingSourceOverviewReader {
                            COUNT(*) FILTER (WHERE url_class = 'product'
                                               AND last_error_kind = 'MissingRequiredValue') AS missing_value_urls,
                            MAX(last_scraped) FILTER (WHERE url_class = 'product'
-                                                       AND last_error_kind IS DISTINCT FROM $3) AS last_successful_scrape
+                                                       AND last_error_kind IS DISTINCT FROM $3) AS last_successful_scrape,
+                           MIN(last_scraped) FILTER (WHERE url_class = 'product'
+                                                       AND last_error_kind = $3) AS held_since
                     FROM listing_source_urls
                     WHERE crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
                     GROUP BY listing_source_id
@@ -99,6 +132,7 @@ impl ListingSourceOverviewReader {
                       AND (cr.review_id IS NOT NULL OR fs.listing_source_id IS NOT NULL)
                     GROUP BY su.listing_source_id
                 ) b ON b.listing_source_id = s.listing_source_id
+                LEFT JOIN blocking bl ON bl.listing_source_id = s.listing_source_id
             ), ranked AS (
                 SELECT overview.*,
                        crawl_enabled AND (needs_operator_domains > 0 OR blocked_urls > 0
@@ -140,7 +174,12 @@ impl ListingSourceOverviewReader {
                 product_urls: row.try_get("product_urls")?,
                 blocked_urls: row.try_get("blocked_urls")?,
                 blocked_since: row.try_get("blocked_since")?,
+                blocking_review_id: row
+                    .try_get::<Option<uuid::Uuid>, _>("blocking_review_id")?
+                    .map(crawler_review_id_from_uuid)
+                    .transpose()?,
                 held_removal_urls: row.try_get("held_removal_urls")?,
+                held_since: row.try_get("held_since")?,
                 url_error_kinds: Vec::new(),
                 missing_value_urls: row.try_get("missing_value_urls")?,
                 domains: Vec::new(),
@@ -203,7 +242,8 @@ impl ListingSourceOverviewReader {
         let rows = sqlx::query(
             "SELECT listing_source_id, domain_id, listing_source_domain, last_crawled,
                     last_crawl_outcome, last_crawl_error_kind, crawl_failure_count, next_crawl_at,
-                    scrape_failure_streak, last_scrape_error_kind
+                    scrape_failure_streak, last_scrape_error_kind, scrape_failing_since,
+                    next_scrape_at AS scrape_paused_until
              FROM listing_source_domains
              WHERE listing_source_id = ANY($1)
              ORDER BY listing_source_domain",
@@ -226,6 +266,8 @@ impl ListingSourceOverviewReader {
                     next_crawl_at: row.try_get("next_crawl_at")?,
                     scrape_failure_streak: row.try_get("scrape_failure_streak")?,
                     last_scrape_error_kind: row.try_get("last_scrape_error_kind")?,
+                    scrape_failing_since: row.try_get("scrape_failing_since")?,
+                    scrape_paused_until: row.try_get("scrape_paused_until")?,
                 });
         }
         Ok(by_listing_source)
