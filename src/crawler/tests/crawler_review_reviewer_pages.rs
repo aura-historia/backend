@@ -33,6 +33,7 @@ fn rule(selector: &str) -> ExtractionRule {
 
 fn schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
+        state_labels: None,
         source_listing_id: Some(rule("span.id")),
         title: rule("h1"),
         description: None,

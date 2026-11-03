@@ -192,6 +192,7 @@ mod tests {
 
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(rule("#product-id", ExtractionKind::Text)),
             title: rule(title_selector, ExtractionKind::Text),
             description: None,

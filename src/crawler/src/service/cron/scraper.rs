@@ -6156,6 +6156,7 @@ mod tests {
 
         fn schema(identity: ExtractionRule, state_selector: &str) -> ProductCssSelectorSchema {
             ProductCssSelectorSchema {
+                state_labels: None,
                 source_listing_id: Some(identity),
                 title: rule("h1", ExtractionKind::Text),
                 description: None,
