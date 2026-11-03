@@ -1734,3 +1734,72 @@ async fn should_seed_the_next_manual_review_with_pages_that_waited_on_the_first(
     );
     assert_eq!(next_pages, released);
 }
+
+/// The live matrix reports the price that names another currency than the ListingSource's
+/// fallback currency, read from the ListingSource, on every sampled page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_report_a_foreign_price_currency_in_the_live_matrix() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    sqlx::query(
+        "UPDATE listing_sources SET fallback_currency = 'GBP' WHERE listing_source_id = $1",
+    )
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("set the fallback currency: {error}"));
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let mut schema = minimal_schema();
+    schema.price = Some(ExtractionRule {
+        selector: CssSelector::from("#price"),
+        additional_selectors: vec![],
+        extract: ExtractionKind::Text,
+        cardinality: ExtractionCardinality::First,
+    });
+    let review_id = repository
+        .create_schema_review(
+            &id,
+            MANUAL_SCHEMA_REASON,
+            &[schema],
+            vec![SchemaReviewPageInput {
+                url: product_url().to_string(),
+                role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_owned(),
+                raw_html: sample_html(),
+            }],
+            json!({ "schema_matrix": {} }),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("open the review: {error}"));
+    let converted_page = sample_html().replace(
+        "<h1>Biedermeier Chair</h1>",
+        r#"<h1>Biedermeier Chair</h1><span id="price">$38,284.00</span>"#,
+    );
+    let pages = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read the review pages: {error}"))
+        .into_iter()
+        .map(|page| (page, converted_page.clone()))
+        .collect();
+
+    let evaluated = repository
+        .evaluate_schema_matrix_for_live_pages(review_id, pages, time::OffsetDateTime::now_utc())
+        .await
+        .unwrap_or_else(|error| panic!("evaluate the matrix: {error}"));
+
+    let findings: Vec<_> = evaluated
+        .matrix
+        .candidates
+        .iter()
+        .flat_map(|candidate| &candidate.pages)
+        .map(|page| page.foreign_price_currency.clone())
+        .collect();
+    assert_eq!(
+        findings,
+        vec![Some(crate::review::model::ForeignPriceCurrencyFinding {
+            field: crate::scraper::plausibility::PlausibilityField::Price,
+            currency: "USD".to_owned(),
+            fallback_currency: "GBP".to_owned(),
+        })]
+    );
+}
