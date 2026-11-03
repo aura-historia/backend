@@ -1388,7 +1388,8 @@ mod tests {
                 .apply(&html)
                 .unwrap();
 
-            assert_eq!(result.source_listing_id, "");
+            // As written, like the blank a `first` rule yields; the blank check reports it.
+            assert_eq!(result.source_listing_id, " ");
         }
     }
 
