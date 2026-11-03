@@ -111,11 +111,19 @@ const NO_PRODUCT_URL_ERROR_KINDS: [&str; 3] = [
     "NoUrlPattern",
 ];
 
+/// Whether `error_kind` belongs to the one shared streak: the kinds that found no product URL
+/// and `BotProtection`. A shop that challenges its crawls keeps its product pages away as a
+/// missing catalogue does, so a run alternating between the two escalates like either alone.
+fn in_shared_failure_streak(error_kind: &str) -> bool {
+    NO_PRODUCT_URL_ERROR_KINDS.contains(&error_kind)
+        || error_kind == CrawlFailureKind::BotProtection.as_str()
+}
+
 /// Whether a failure of `error_kind` continues the streak of the domain's last failure.
 fn continues_failure_streak(last_error_kind: Option<&str>, error_kind: &str) -> bool {
-    let found_no_product_urls = |kind: &str| NO_PRODUCT_URL_ERROR_KINDS.contains(&kind);
     last_error_kind.is_some_and(|last| {
-        last == error_kind || (found_no_product_urls(last) && found_no_product_urls(error_kind))
+        last == error_kind
+            || (in_shared_failure_streak(last) && in_shared_failure_streak(error_kind))
     })
 }
 
@@ -148,17 +156,20 @@ fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownPro
 }
 
 /// Consecutive failures of one streak ([`continues_failure_streak`]) after
-/// which a domain stops retrying and waits for an operator. Only failures
-/// that need a site or configuration change (the recoverable profile)
-/// escalate: with two short retries and then the long cooldown, the fifth
-/// failure comes about a week after the first. Transient failures keep
-/// retrying because the site may recover, durable blocks already cool for a
-/// month.
+/// which a domain stops retrying and waits for an operator. Failures that
+/// need a site or configuration change (the recoverable profile) escalate:
+/// with two short retries and then the long cooldown, the fifth failure comes
+/// about a week after the first. So does `BotProtection`, which keeps its
+/// transient cooldown until then: only a person can resolve a shop's block,
+/// and each retry spends a crawl budget on challenge pages. Other transient
+/// failures keep retrying because the site may recover, durable blocks
+/// already cool for a month.
 const NEEDS_OPERATOR_FAILURE_COUNT: i32 = 5;
 
 fn needs_operator(error: &SpiderServiceError, failure_count: i32) -> bool {
-    crawl_cooldown_profile(error) == Some(CrawlCooldownProfile::Recoverable)
-        && failure_count >= NEEDS_OPERATOR_FAILURE_COUNT
+    let escalates = crawl_cooldown_profile(error) == Some(CrawlCooldownProfile::Recoverable)
+        || crawl_failure_kind(error) == Some(CrawlFailureKind::BotProtection);
+    escalates && failure_count >= NEEDS_OPERATOR_FAILURE_COUNT
 }
 
 /// Cooldown for the catch-all `spider_run_error` case (internal or config
@@ -1082,6 +1093,42 @@ mod tests {
         }
     }
 
+    #[test]
+    fn continues_failure_streak_should_share_one_streak_between_bot_protection_and_no_product_kinds()
+     {
+        for no_product in NO_PRODUCT_URL_ERROR_KINDS {
+            assert!(continues_failure_streak(Some(no_product), "BotProtection"));
+            assert!(continues_failure_streak(Some("BotProtection"), no_product));
+        }
+        assert!(continues_failure_streak(
+            Some("BotProtection"),
+            "BotProtection"
+        ));
+        for other in ["TinyCrawl", "CloudflareChallenge", "RateLimited"] {
+            assert!(!continues_failure_streak(Some(other), "BotProtection"));
+            assert!(!continues_failure_streak(Some("BotProtection"), other));
+        }
+        assert!(!continues_failure_streak(None, "BotProtection"));
+    }
+
+    #[test]
+    fn next_failure_count_should_count_an_alternating_run_of_bot_protection_and_no_product_kinds() {
+        let mut candidate = spider_candidate(CrawlerDomainId::new());
+        let mut count = 0;
+        for kind in [
+            "BotProtection",
+            "NoProductUrls",
+            "BotProtection",
+            "NoUrlPattern",
+            "BotProtection",
+        ] {
+            count = next_failure_count(&candidate, kind);
+            candidate.crawl_failure_count = count;
+            candidate.last_crawl_error_kind = Some(kind.to_string());
+        }
+        assert_eq!(count, NEEDS_OPERATOR_FAILURE_COUNT);
+    }
+
     /// The streak's kind list is the persisted spelling of exactly the failures that found no
     /// product URL.
     #[test]
@@ -1307,8 +1354,8 @@ mod tests {
     }
 
     /// A run that found no product URL among pages that were mostly bot challenges, whatever
-    /// stopped its crawl, is a bot-protection failure: its own kind and streak, the transient
-    /// cooldown, no step towards an operator and no product count for the pattern alarm.
+    /// stopped its crawl, is a bot-protection failure: its own kind, the transient cooldown
+    /// until it escalates with the shared streak, and no product count for the pattern alarm.
     #[test]
     fn should_record_a_crawl_of_mostly_bot_challenges_as_bot_protection() {
         let bot_challenged = |failure| SpiderServiceError::BotChallengedCrawl {
@@ -1333,7 +1380,8 @@ mod tests {
                 cooldown_for_spider_failure(&error, LONG_COOLDOWN_FAILURE_COUNT),
                 TRANSIENT_CRAWL_LONG_COOLDOWN
             );
-            assert!(!needs_operator(&error, i32::MAX));
+            assert!(!needs_operator(&error, NEEDS_OPERATOR_FAILURE_COUNT - 1));
+            assert!(needs_operator(&error, NEEDS_OPERATOR_FAILURE_COUNT));
             assert_eq!(classified_crawl(&Err(error)), None);
         }
     }
@@ -1342,7 +1390,10 @@ mod tests {
     fn needs_operator_should_keep_retrying_transient_blocked_and_unclassified_failures() {
         for error in ALL_KINDS
             .into_iter()
-            .filter(|kind| kind.cooldown_profile() != CrawlCooldownProfile::Recoverable)
+            .filter(|kind| {
+                kind.cooldown_profile() != CrawlCooldownProfile::Recoverable
+                    && *kind != CrawlFailureKind::BotProtection
+            })
             .map(crawl_failed)
             .chain(unclassified_errors())
         {
@@ -2940,6 +2991,74 @@ mod tests {
         spider_job(
             spider_candidates,
             spider_service_failing_with(no_url_pattern),
+            1,
+        )
+        .run_spider_once()
+        .await;
+    }
+
+    fn bot_challenged_crawl() -> SpiderServiceError {
+        SpiderServiceError::BotChallengedCrawl {
+            bot_challenge_pages: 30,
+            pages_received: 31,
+            failure: Box::new(no_product_urls()),
+        }
+    }
+
+    /// Alternating `BotProtection` and no-product runs reach the operator at the shared count,
+    /// and a bot-protected run below it keeps retrying on the transient cooldown.
+    #[tokio::test]
+    async fn should_stop_domain_for_operator_when_bot_protection_continues_a_no_product_streak() {
+        let expected_domain_id = CrawlerDomainId::new();
+        let mut spider_candidates = failing_candidate_service(
+            expected_domain_id,
+            NEEDS_OPERATOR_FAILURE_COUNT - 1,
+            "NoProductUrls",
+        );
+        spider_candidates
+            .expect_mark_crawl_needs_operator()
+            .times(1)
+            .withf(move |root, error_kind, failure_count| {
+                root.domain_id == expected_domain_id
+                    && error_kind == "BotProtection"
+                    && *failure_count == NEEDS_OPERATOR_FAILURE_COUNT
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+        spider_candidates.expect_mark_crawl_failure().times(0);
+
+        spider_job(
+            spider_candidates,
+            spider_service_failing_with(bot_challenged_crawl),
+            1,
+        )
+        .run_spider_once()
+        .await;
+    }
+
+    #[tokio::test]
+    async fn should_keep_retrying_bot_protection_below_the_escalation_count() {
+        let expected_domain_id = CrawlerDomainId::new();
+        let mut spider_candidates = failing_candidate_service(
+            expected_domain_id,
+            NEEDS_OPERATOR_FAILURE_COUNT - 2,
+            "BotProtection",
+        );
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .times(1)
+            .withf(move |root, error_kind, failure_count, _, _| {
+                root.domain_id == expected_domain_id
+                    && error_kind == "BotProtection"
+                    && *failure_count == NEEDS_OPERATOR_FAILURE_COUNT - 1
+            })
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+        spider_candidates
+            .expect_mark_crawl_needs_operator()
+            .times(0);
+
+        spider_job(
+            spider_candidates,
+            spider_service_failing_with(bot_challenged_crawl),
             1,
         )
         .run_spider_once()
