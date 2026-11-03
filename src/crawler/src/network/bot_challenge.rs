@@ -22,6 +22,8 @@ const MAX_CHALLENGE_BODY_BYTES: usize = 128 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChallengeVendor {
     Cloudflare,
+    /// Only ever the author of a [`HardBlock`], never of a challenge.
+    Akamai,
     AwsWaf,
     DataDome,
     SiteGround,
@@ -119,26 +121,39 @@ const CLOUDFLARE_BLOCK_TITLE: &str = "attention required! | cloudflare";
 
 /// Lowercase markup that, all together, marks one of Cloudflare's block pages under any title,
 /// and the evidence it is.
-const CLOUDFLARE_BLOCK_PAGES: &[(&[&str], &str)] = &[
-    (
-        &["id=\"cf-error-details\"", "sorry, you have been blocked"],
-        "cloudflare_block_page",
-    ),
-    // Error 1020 "Access denied", the answer to a request a firewall rule denies, in Cloudflare's
-    // classic error template and in its current one. Its other errors share both templates and
-    // the "Access denied" title, rate limiting (1015) among them, so only the code proves a block.
-    (
-        &["id=\"cf-error-details\"", CLOUDFLARE_ACCESS_DENIED_CODE],
-        "cloudflare_error_1020",
-    ),
-    (
-        &["class=\"cf-error-title\"", CLOUDFLARE_ACCESS_DENIED_CODE],
-        "cloudflare_error_1020",
-    ),
+const CLOUDFLARE_BLOCK_PAGES: &[(&[&str], &str)] = &[(
+    &["id=\"cf-error-details\"", "sorry, you have been blocked"],
+    "cloudflare_block_page",
+)];
+
+/// Cloudflare's error codes for a request its firewall refuses outright, as the marker the error
+/// templates show them with and the evidence they are: 1005 (ASN), 1006 to 1008 (IP address), 1009
+/// (country or region), 1010 (browser signature), 1012 and 1020 (firewall rule). Each is the
+/// owner's or Cloudflare's decision about the client, which no challenge passes. Cloudflare's other
+/// errors share both templates and the "Access denied" title, rate limiting (1015) among them, so
+/// only a listed code proves a block.
+const CLOUDFLARE_ACCESS_DENIED_CODES: &[(&str, &str)] = &[
+    ("<span>1005</span>", "cloudflare_error_1005"),
+    ("<span>1006</span>", "cloudflare_error_1006"),
+    ("<span>1007</span>", "cloudflare_error_1007"),
+    ("<span>1008</span>", "cloudflare_error_1008"),
+    ("<span>1009</span>", "cloudflare_error_1009"),
+    ("<span>1010</span>", "cloudflare_error_1010"),
+    ("<span>1012</span>", "cloudflare_error_1012"),
+    ("<span>1020</span>", "cloudflare_error_1020"),
 ];
 
-/// The error code Cloudflare's error templates show for a request a firewall rule denied.
-const CLOUDFLARE_ACCESS_DENIED_CODE: &str = "<span>1020</span>";
+/// The two error-template markers an access-denied code is only read beside: the classic
+/// template's details block and the current template's title block.
+const CLOUDFLARE_ERROR_TEMPLATES: [&str; 2] =
+    ["id=\"cf-error-details\"", "class=\"cf-error-title\""];
+
+/// Lowercase markup of Akamai's "Access Denied" page, all of it together: its title, its
+/// permission sentence and the reference link to Akamai's error host, the link written as the page
+/// writes it, with its dots as numeric character references, or plain.
+const AKAMAI_ACCESS_DENIED_TITLE: &str = "access denied";
+const AKAMAI_ACCESS_DENIED_SENTENCE: &str = "you don't have permission to access";
+const AKAMAI_ERROR_HOSTS: [&str; 2] = ["errors&#46;edgesuite&#46;net", "errors.edgesuite.net"];
 
 /// Whether a response with `status` can be a challenge: shops serve them as a success or as 403,
 /// and AWS WAF its captcha as 405. Other statuses keep their own meaning, such as 429 and 503
@@ -170,10 +185,26 @@ pub fn detect_hard_block(status: u16, body: &[u8]) -> Option<HardBlock> {
     if challenge_from_text(&text).is_some() {
         return None;
     }
-    cloudflare_block_evidence(&text).map(|evidence| HardBlock {
-        vendor: ChallengeVendor::Cloudflare,
-        evidence,
-    })
+    cloudflare_block_evidence(&text)
+        .map(|evidence| HardBlock {
+            vendor: ChallengeVendor::Cloudflare,
+            evidence,
+        })
+        .or_else(|| {
+            akamai_access_denied(&text).then_some(HardBlock {
+                vendor: ChallengeVendor::Akamai,
+                evidence: "akamai_access_denied",
+            })
+        })
+}
+
+/// Whether lowercase page `text` is Akamai's "Access Denied" page. Akamai answers every refusal of
+/// its edge (a bot rule, an IP or geography rule, a signature) with this page, and no client
+/// passes it: it carries no script, form or challenge, so it is a block, not a challenge.
+fn akamai_access_denied(text: &str) -> bool {
+    normalized_title(text).as_deref() == Some(AKAMAI_ACCESS_DENIED_TITLE)
+        && text.contains(AKAMAI_ACCESS_DENIED_SENTENCE)
+        && AKAMAI_ERROR_HOSTS.iter().any(|host| text.contains(host))
 }
 
 /// The evidence that lowercase page `text` is one of Cloudflare's block pages.
@@ -184,6 +215,22 @@ fn cloudflare_block_evidence(text: &str) -> Option<&'static str> {
     CLOUDFLARE_BLOCK_PAGES
         .iter()
         .find(|(markers, _)| markers.iter().all(|marker| text.contains(marker)))
+        .map(|(_, evidence)| *evidence)
+        .or_else(|| cloudflare_access_denied_evidence(text))
+}
+
+/// The evidence that lowercase page `text` shows a listed Cloudflare access-denied code in one of
+/// Cloudflare's error templates.
+fn cloudflare_access_denied_evidence(text: &str) -> Option<&'static str> {
+    if !CLOUDFLARE_ERROR_TEMPLATES
+        .iter()
+        .any(|template| text.contains(template))
+    {
+        return None;
+    }
+    CLOUDFLARE_ACCESS_DENIED_CODES
+        .iter()
+        .find(|(code, _)| text.contains(code))
         .map(|(_, evidence)| *evidence)
 }
 
@@ -366,6 +413,10 @@ window.gokuProps = {"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AE",
 </div>
 </body>
 </html>"#;
+
+    /// Akamai's "Access Denied" page as catawiki.com's edge answers a datacenter client, with its
+    /// reference trimmed.
+    const AKAMAI_ACCESS_DENIED: &str = "<HTML><HEAD>\n<TITLE>Access Denied</TITLE>\n</HEAD><BODY>\n<H1>Access Denied</H1>\n \nYou don't have permission to access \"http&#58;&#47;&#47;www&#46;shop&#46;example&#47;\" on this server.<P>\nReference&#32;&#35;18&#46;841c2117&#46;1793704838&#46;68f420f4\n<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;841c2117&#46;1793704838&#46;68f420f4</P>\n</BODY>\n</HTML>";
 
     /// The headers Cloudflare serves its error pages with, which name no challenge.
     const CLOUDFLARE_ERROR_HEADERS: [(&str, &str); 3] = [
@@ -596,6 +647,80 @@ window.gokuProps = {"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AE",
             }
         }
 
+        /// Each access-denied code Cloudflare answers a client no challenge passes is a hard
+        /// block in both templates, named by its code.
+        #[test]
+        fn should_recognise_each_cloudflare_access_denied_code_as_a_hard_block() {
+            for code in [
+                "1005", "1006", "1007", "1008", "1009", "1010", "1012", "1020",
+            ] {
+                for template in [CLOUDFLARE_ERROR_1020, CLOUDFLARE_CLASSIC_ERROR_1020] {
+                    let page =
+                        template.replace("<span>1020</span>", &format!("<span>{code}</span>"));
+                    assert_eq!(
+                        detect_hard_block(403, page.as_bytes())
+                            .map(|block| (block.vendor, block.evidence.to_string())),
+                        Some((
+                            ChallengeVendor::Cloudflare,
+                            format!("cloudflare_error_{code}")
+                        )),
+                        "{code}"
+                    );
+                }
+            }
+        }
+
+        /// Errors that are no refusal of the client keep their `403`: rate limiting (1015) and
+        /// Cloudflare's other errors share the templates and the title.
+        #[test]
+        fn should_not_take_an_unlisted_cloudflare_error_for_a_hard_block() {
+            for code in [
+                "1001", "1003", "1011", "1013", "1015", "1016", "1033", "1106",
+            ] {
+                for template in [CLOUDFLARE_ERROR_1020, CLOUDFLARE_CLASSIC_ERROR_1020] {
+                    let page =
+                        template.replace("<span>1020</span>", &format!("<span>{code}</span>"));
+                    assert_eq!(detect_hard_block(403, page.as_bytes()), None, "{code}");
+                }
+            }
+        }
+
+        /// Akamai refuses its edge's denials with one page that has no script or form, so no
+        /// client passes it: a hard block, at the root only like every block.
+        #[test]
+        fn should_recognise_an_akamai_access_denied_page_as_a_hard_block() {
+            assert_eq!(
+                detect_hard_block(403, AKAMAI_ACCESS_DENIED.as_bytes()),
+                Some(HardBlock {
+                    vendor: ChallengeVendor::Akamai,
+                    evidence: "akamai_access_denied",
+                })
+            );
+            assert_eq!(
+                detect_bot_challenge(403, &HeaderMap::new(), AKAMAI_ACCESS_DENIED.as_bytes()),
+                None
+            );
+            let plain = AKAMAI_ACCESS_DENIED.replace("&#46;", ".");
+            assert!(detect_hard_block(403, plain.as_bytes()).is_some());
+        }
+
+        #[test]
+        fn should_not_take_another_access_denied_page_for_an_akamai_block() {
+            let shop_page = "<html><head><title>Access Denied</title></head><body><h1>Access Denied</h1>\
+<p>You don't have permission to access this auction. Log in first.</p></body></html>";
+            assert_eq!(detect_hard_block(403, shop_page.as_bytes()), None);
+            let other_title =
+                AKAMAI_ACCESS_DENIED.replace("Access Denied</TITLE>", "Forbidden</TITLE>");
+            assert_eq!(detect_hard_block(403, other_title.as_bytes()), None);
+            for status in [200, 401, 429, 503] {
+                assert_eq!(
+                    detect_hard_block(status, AKAMAI_ACCESS_DENIED.as_bytes()),
+                    None,
+                    "{status}"
+                );
+            }
+        }
+
         /// Cloudflare's other errors share the 1020 page's templates and title; rate limiting
         /// (1015) asks the client to wait, which a hard block must not hide.
         #[test]
@@ -619,7 +744,13 @@ window.gokuProps = {"key":"AQIDAHjcYu/GjX+QlghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AE",
                 "</head>",
                 "<script>window._cf_chl_opt={cvId: '3'};</script></head>",
             );
-            for page in [captcha.as_str(), denial_with_challenge.as_str()] {
+            let denied_1010_with_challenge =
+                denial_with_challenge.replace("<span>1020</span>", "<span>1010</span>");
+            for page in [
+                captcha.as_str(),
+                denial_with_challenge.as_str(),
+                denied_1010_with_challenge.as_str(),
+            ] {
                 assert_eq!(detect_hard_block(403, page.as_bytes()), None, "{page}");
                 assert_eq!(
                     detect(403, &[], page).map(|challenge| challenge.vendor),

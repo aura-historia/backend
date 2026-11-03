@@ -20,7 +20,7 @@ pub mod status;
 pub mod url_pattern_candidate;
 
 pub use artifact::*;
-pub use listing_source_overview::{DomainCrawlOverview, ListingSourceOverview};
+pub use listing_source_overview::{DomainCrawlOverview, ListingSourceOverview, UrlErrorKindCount};
 pub use page_role::*;
 pub use pending_review::{PendingReviewPage, PendingReviewSummary, PendingReviewTotals};
 pub use raw_attribute_key::RawAttributeKey;

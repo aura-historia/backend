@@ -237,7 +237,7 @@ impl ExtractionRule {
     ///
     /// When no selector yields a non-blank value, a text rule with cardinality `first`,
     /// or a rule with cardinality `all`, that matched only empty elements returns
-    /// `Err(EmptyValue)`, while an attribute rule with cardinality `first` returns the
+    /// `Err(EmptyValue)`, while an attribute rule with either cardinality returns the
     /// first blank value it matched, so the blank plausibility check reports it; a rule
     /// that matched no element returns `Err(NoElementMatched)`.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
@@ -338,6 +338,7 @@ impl ExtractionRule {
         let mut extracted = ExtractedElements::new();
         let mut first_non_placeholder_error = None;
         let mut first_selector_with_empty_elements = None;
+        let mut first_blank_attribute = None;
 
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
@@ -349,9 +350,15 @@ impl ExtractionRule {
                 if extracted.contains_any(overlapping_elements) {
                     continue;
                 }
-                let value = extract_from_element(&element, &self.extract, css_selector, layout)
-                    .and_then(|value| non_empty(value, css_selector));
-                match value {
+                let value = extract_from_element(&element, &self.extract, css_selector, layout);
+                if let Ok(blank) = &value
+                    && is_blank(blank)
+                    && without_value == ElementWithoutValue::Fails
+                    && matches!(self.extract, ExtractionKind::Attribute { .. })
+                {
+                    first_blank_attribute.get_or_insert_with(|| blank.clone());
+                }
+                match value.and_then(|value| non_empty(value, css_selector)) {
                     Ok(value) => {
                         extracted.insert(element.id());
                         extraction.values.push(value);
@@ -375,10 +382,14 @@ impl ExtractionRule {
         }
 
         if extraction.values.is_empty() {
-            return match first_non_placeholder_error {
-                Some(error) => Err(error),
-                None if extraction.skipped_elements > 0 => Ok(extraction),
-                None => Err(match first_selector_with_empty_elements {
+            // An attribute rule whose matches are all blank yields its first blank, as a
+            // `first` rule does, so the blank plausibility check reports the field instead
+            // of it reading as unmatched.
+            return match (first_non_placeholder_error, first_blank_attribute) {
+                (Some(error), _) => Err(error),
+                (None, _) if extraction.skipped_elements > 0 => Ok(extraction),
+                (None, Some(blank)) => Ok(single_value(blank)),
+                (None, None) => Err(match first_selector_with_empty_elements {
                     Some(selector) => empty_value(selector),
                     None => self.no_element_matched(),
                 }),
@@ -1568,6 +1579,25 @@ mod tests {
         }
 
         #[test]
+        fn should_yield_the_first_blank_when_every_attribute_match_of_an_all_rule_is_blank() {
+            let doc = html("<meta content=\"  \"><meta content=\"\">");
+            let r = rule("meta", attr_kind("content"), ExtractionCardinality::All);
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+        }
+
+        #[test]
+        fn should_still_fail_an_all_text_rule_whose_matches_are_all_empty() {
+            let doc = html("<p> </p><p></p>");
+            let r = rule("p", text_kind(), ExtractionCardinality::All);
+
+            assert!(matches!(
+                r.apply(&doc),
+                Err(ExtractionError::EmptyValue { .. })
+            ));
+        }
+
+        #[test]
         fn should_drop_blank_attribute_values_for_all_cardinality() {
             let doc = html("<meta content=\"  \"><meta content=\"Oak\"><meta content=\"\">");
             let r = rule("meta", attr_kind("content"), ExtractionCardinality::All);
@@ -1627,16 +1657,14 @@ mod tests {
         }
 
         #[test]
-        fn should_report_empty_elements_when_every_identity_item_of_an_all_rule_is_blank() {
+        fn should_yield_the_first_blank_when_every_identity_item_of_an_all_attribute_rule_is_blank()
+        {
             let doc = html(
                 "<span class=\"sku\" data-sku=\" \"></span><span class=\"sku\" data-sku=\"\"></span>",
             );
             let r = rule(".sku", attr_kind("data-sku"), ExtractionCardinality::All);
 
-            assert!(matches!(
-                r.apply_as_identity(&doc),
-                Err(ExtractionError::EmptyValue { selector }) if selector == ".sku"
-            ));
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec![" "]);
         }
 
         #[test]
@@ -2511,6 +2539,27 @@ mod tests {
         );
         assert!(matches!(
             rule.apply(&page).unwrap_err(),
+            ExtractionError::EmptyValue { .. }
+        ));
+    }
+
+    #[rstest]
+    #[case::attribute_or_text(
+        attribute_or_text("value"),
+        r#"<button class="v" value=" "></button>"#
+    )]
+    #[case::json_ld(
+        json_ld(JsonLdOfferProperty::Price),
+        r#"<script class="v" type="application/ld+json">{"offers":{"price":"0.00"}}</script>"#
+    )]
+    fn should_report_an_all_rule_of_a_text_like_kind_without_values_as_empty(
+        #[case] kind: ExtractionKind,
+        #[case] markup: &str,
+    ) {
+        // Like a text rule, and unlike an attribute rule, which yields its first blank.
+        let rule = rule(".v", kind, ExtractionCardinality::All);
+        assert!(matches!(
+            rule.apply(&html(markup)).unwrap_err(),
             ExtractionError::EmptyValue { .. }
         ));
     }

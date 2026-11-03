@@ -1889,7 +1889,8 @@ fn bot_challenge_signal(challenge: BotChallenge) -> DiagnosticSignal {
             CrawlFailureKind::CloudflareChallenge,
             "bot_challenge_root_page",
         ),
-        ChallengeVendor::AwsWaf
+        ChallengeVendor::Akamai
+        | ChallengeVendor::AwsWaf
         | ChallengeVendor::DataDome
         | ChallengeVendor::SiteGround
         | ChallengeVendor::Unattributed => {
