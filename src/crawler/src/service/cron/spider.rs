@@ -804,12 +804,11 @@ fn emit_crawl_metrics(
     }
 }
 
+/// The crawl root is always `https://{host}`: the stored host is a bare host, never a URL, and
+/// there is no plain-HTTP fallback. A host that merely starts with `http` (`httpbin.org`) is
+/// still a host.
 fn crawl_root_url(host: &str) -> String {
-    if host.starts_with("http") {
-        host.to_string()
-    } else {
-        format!("https://{host}")
-    }
+    format!("https://{host}")
 }
 
 fn spawn_spider_candidate(
@@ -1028,6 +1027,18 @@ mod tests {
     use crate::spider::service::MockSpiderService;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::Notify;
+
+    #[test]
+    fn crawl_root_url_is_always_https_host() {
+        for (host, expected) in [
+            ("example.com", "https://example.com"),
+            ("httpbin.org", "https://httpbin.org"),
+            ("httpbin.org:8443", "https://httpbin.org:8443"),
+            ("https-shop.example", "https://https-shop.example"),
+        ] {
+            assert_eq!(crawl_root_url(host), expected);
+        }
+    }
 
     fn spider_candidate(domain_id: CrawlerDomainId) -> SpiderCandidate {
         SpiderCandidate {
