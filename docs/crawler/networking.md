@@ -84,7 +84,7 @@ A row stored under the duplicate URL or one of its [earlier spellings](#stored-u
 
 ### Duplicate targets
 
-A retirement is terminal and captures nothing, so only a page that is certainly scraped as the same product under its own row may retire another URL: a product URL of the same ListingSource and domain that is not itself retired, in every trailing-slash spelling that has a row. For the spider, a stored canonical URL qualifies when its row will be such a product URL after the write that stores the page. Anything else fails closed:
+A retirement is terminal and captures nothing, so only a page that is certainly scraped as the same product under its own row may retire another URL: a product URL of the same ListingSource and domain that is not itself retired, in every trailing-slash spelling that has a row. For the spider, a stored canonical URL qualifies when its row will be such a product URL after the write that stores the page; anything else fails closed.
 
 The scrape reads what the crawler stores at the target right after the fetch, before it extracts anything from the page, so a duplicate costs no extraction and a conflict between identities is never compared for it:
 
