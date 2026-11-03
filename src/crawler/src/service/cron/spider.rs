@@ -3511,4 +3511,186 @@ mod tests {
             );
         }
     }
+
+    /// A shop whose crawls are challenged, alternating with crawls that find no product URL,
+    /// driven through the scheduler and the crawler's PostgreSQL candidate service: it escalates
+    /// at the shared streak's count, leaves the schedule, and an operator's re-arm restarts the
+    /// streak (`docs/crawler/scheduling-and-retries.md#spider-failure-escalation`).
+    mod bot_protection_escalation {
+        use super::*;
+        use crate::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
+        use crate::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
+        use crate::spider::candidate_service::SpiderCandidateServiceImpl;
+        use listing_source_core::Domain;
+        use sqlx::PgPool;
+        use std::collections::VecDeque;
+        use std::sync::Mutex;
+        use test_api::IntegrationTestService as _;
+
+        const ROOT: &str = "challenged-shop.example.com";
+        const MOVED_ROOT: &str = "www.challenged-shop.example.com";
+
+        /// How one spider run fails.
+        type RunFailure = fn() -> SpiderServiceError;
+
+        /// A spider service whose runs fail with `failures`, in order, one per run.
+        fn spider_service_failing_in_turn(failures: Vec<RunFailure>) -> MockSpiderService {
+            let failures = Arc::new(Mutex::new(VecDeque::from(failures)));
+            let mut spider_service = MockSpiderService::new();
+            let runs = failures.lock().unwrap().len();
+            spider_service
+                .expect_run()
+                .times(runs)
+                .returning(move |_, _, _, _, _, _| {
+                    let failure = failures.lock().unwrap().pop_front().unwrap();
+                    Box::pin(async move { Err(failure()) })
+                });
+            spider_service
+        }
+
+        fn scheduler(pool: &PgPool, spider_service: MockSpiderService) -> CrawlerCronJob {
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_get_candidates()
+                .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
+            CrawlerCronJob::new(
+                CrawlerCronConfig {
+                    spider_concurrency: 1,
+                    ..CrawlerCronConfig::default()
+                },
+                Arc::new(LocalLockManager::new()),
+                Box::new(SpiderCandidateServiceImpl::new(pool.clone())),
+                Box::new(spider_service),
+                Box::new(scraper_candidates),
+                Box::new(MockScraperService::new()),
+                noop_listing_source_registration(),
+                noop_raw_capture(),
+            )
+        }
+
+        /// The domain's failure count, last error kind and outcome, and whether a cooldown holds it.
+        async fn failure_state(
+            pool: &PgPool,
+            domain_id: CrawlerDomainId,
+        ) -> (i32, Option<String>, Option<String>, bool) {
+            sqlx::query_as(
+                "SELECT crawl_failure_count, last_crawl_error_kind, last_crawl_outcome, \
+                        next_crawl_at IS NOT NULL \
+                 FROM listing_source_domains WHERE domain_id = $1",
+            )
+            .bind(domain_id.as_uuid())
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        }
+
+        /// Lets the next spider cycle select the domain as if its cooldown had passed.
+        async fn expire_cooldown(pool: &PgPool, domain_id: CrawlerDomainId) {
+            sqlx::query(
+                "UPDATE listing_source_domains SET next_crawl_at = NULL WHERE domain_id = $1",
+            )
+            .bind(domain_id.as_uuid())
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+
+        async fn is_candidate(pool: &PgPool) -> bool {
+            !SpiderCandidateServiceImpl::new(pool.clone())
+                .get_candidates(10, &[])
+                .await
+                .unwrap()
+                .is_empty()
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_stop_an_alternating_challenged_shop_for_an_operator_and_restart_on_rearm() {
+            let pool = test_api::get_postgres_client().await;
+            let listing_source_id = ListingSourceId::new();
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                 (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled) \
+                 VALUES ($1, 'Challenged shop', 'challenged-shop', TRUE)",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap();
+            let domains = CrawlerDomainConfigurationRepositoryImpl::new(pool.clone());
+            let domain_id = domains
+                .register(listing_source_id, Domain::try_from(ROOT).unwrap())
+                .await
+                .unwrap()
+                .domain_id;
+            let runs: [(RunFailure, &str); 5] = [
+                (bot_challenged_crawl, "BotProtection"),
+                (no_product_urls, "NoProductUrls"),
+                (bot_challenged_crawl, "BotProtection"),
+                (no_url_pattern, "NoUrlPattern"),
+                (bot_challenged_crawl, "BotProtection"),
+            ];
+            let job = scheduler(
+                &pool,
+                spider_service_failing_in_turn(
+                    runs.iter()
+                        .map(|(failure, _)| *failure)
+                        .chain([bot_challenged_crawl as RunFailure])
+                        .collect(),
+                ),
+            );
+
+            for (run, (_, error_kind)) in runs.iter().enumerate() {
+                let failure_count = i32::try_from(run).unwrap() + 1;
+                assert!(
+                    is_candidate(&pool).await,
+                    "run {failure_count} is scheduled"
+                );
+                job.run_spider_once().await;
+                let escalated = failure_count == NEEDS_OPERATOR_FAILURE_COUNT;
+                assert_eq!(
+                    failure_state(&pool, domain_id).await,
+                    (
+                        failure_count,
+                        Some((*error_kind).to_owned()),
+                        Some(
+                            if escalated {
+                                NEEDS_OPERATOR_CRAWL_OUTCOME
+                            } else {
+                                FAILED_CRAWL_OUTCOME
+                            }
+                            .to_owned()
+                        ),
+                        !escalated,
+                    ),
+                    "run {failure_count} continues the shared streak"
+                );
+                expire_cooldown(&pool, domain_id).await;
+            }
+            assert!(
+                !is_candidate(&pool).await,
+                "a domain waiting for an operator is not crawled again"
+            );
+
+            domains
+                .register(listing_source_id, Domain::try_from(MOVED_ROOT).unwrap())
+                .await
+                .unwrap();
+            assert!(
+                is_candidate(&pool).await,
+                "the re-armed domain is scheduled"
+            );
+            job.run_spider_once().await;
+
+            assert_eq!(
+                failure_state(&pool, domain_id).await,
+                (
+                    1,
+                    Some("BotProtection".to_owned()),
+                    Some(FAILED_CRAWL_OUTCOME.to_owned()),
+                    true,
+                ),
+                "the re-arm restarts the streak"
+            );
+        }
+    }
 }
