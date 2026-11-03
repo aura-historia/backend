@@ -279,6 +279,7 @@ function compareSourceHealth(a, b) {
     return Number(Boolean(b.crawl_enabled)) - Number(Boolean(a.crawl_enabled))
         || Number(blockedByReview(b)) - Number(blockedByReview(a))
         || scrapeFailureStreak(failingScrapeDomain(b)) - scrapeFailureStreak(failingScrapeDomain(a))
+        || Number(Number(b.held_removal_urls) > 0) - Number(Number(a.held_removal_urls) > 0)
         || listingSourceName(a).localeCompare(listingSourceName(b));
 }
 
@@ -608,7 +609,7 @@ async function toggleMissingValuePages(listingSourceId) {
             expandedMissingValueSources.set(listingSourceId, {error: apiErrorMessage(error)});
         }
     }
-    loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
+    loadReviews().catch(reportQueueFailure);
 }
 
 async function reviewMissingValuePage(listingSourceId, index) {
@@ -642,7 +643,7 @@ function reviewMatchesSearch(review, query) {
 
 function setReviewSearch(value) {
     reviewSearchTerm = value || '';
-    loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
+    loadReviews().catch(reportQueueFailure);
 }
 
 function readStoredList(key) {
@@ -670,7 +671,7 @@ function toggleListingSourceGroup(listingSourceId) {
         expandedListingSourceGroups.add(listingSourceId);
     }
     storeExpandedGroups();
-    loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
+    loadReviews().catch(reportQueueFailure);
 }
 
 // A queue row is a summary without the candidate and validation summary, which only the selected
@@ -3780,7 +3781,7 @@ document.addEventListener('visibilitychange', () => {
 
 scheduleQueueRefresh();
 
-loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
+loadReviews().catch(reportQueueFailure);
 setSidebarCollapsed(sidebarCollapsed);
 updateSignOutButton();
 localStorage.removeItem('crawlerReviewCollapsedListingSourceGroups');
