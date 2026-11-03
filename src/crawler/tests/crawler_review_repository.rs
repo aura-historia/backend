@@ -3363,6 +3363,7 @@ async fn should_count_every_product_url_of_a_source_waiting_on_its_first_schema_
 
     let source = &overview[0];
     assert_eq!(source.blocked_urls, 3, "every product URL, counted once");
+    assert_eq!(source.blocking_review_id, Some(review));
     let since = source
         .blocked_since
         .expect("a blocked source has a blocked time");
@@ -3426,6 +3427,17 @@ async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
     let source = &overview[0];
     assert_eq!(source.held_removal_urls, 2);
     assert_eq!(
+        source.held_since,
+        Some(
+            OffsetDateTime::parse(
+                "2026-10-31T08:00:00Z",
+                &time::format_description::well_known::Rfc3339
+            )
+            .unwrap()
+        ),
+        "the earliest `last_scraped` of the held URLs"
+    );
+    assert_eq!(
         source
             .url_error_kinds
             .iter()
@@ -3443,6 +3455,130 @@ async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
             .unwrap()
         )
     );
+}
+
+/// The blocking review is the oldest pending one the blocked URLs wait on, the review
+/// `blocked_since` dates; an unblocked source has none.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_name_the_oldest_blocking_review_of_a_blocked_listing_source() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let blocked = ListingSourceId::new();
+    insert_listing_source(&pool, blocked).await;
+    store_live_product_schema(&pool, blocked).await;
+    let blocked_domain = insert_domain(&pool, blocked, "blocked-oldest.example.com").await;
+    let newer = pending_schema_review(&repository, &blocked).await;
+    let older = pending_schema_review(&repository, &blocked).await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET created = NOW() - INTERVAL '5 hours' WHERE review_id = $1",
+    )
+    .bind(older.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE crawler_reviews SET created = NOW() - INTERVAL '1 hour' WHERE review_id = $1",
+    )
+    .bind(newer.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    for (url, review) in [
+        ("https://blocked-oldest.example.com/item/1", newer),
+        ("https://blocked-oldest.example.com/item/2", older),
+    ] {
+        insert_scraped_url(
+            &pool,
+            blocked,
+            blocked_domain,
+            url,
+            "product",
+            "ACTIVE",
+            None,
+        )
+        .await;
+        set_url_error_kind(&pool, url, "PendingSchemaReview", Some(review)).await;
+    }
+    let unblocked = ListingSourceId::new();
+    insert_listing_source(&pool, unblocked).await;
+    store_live_product_schema(&pool, unblocked).await;
+    pending_schema_review(&repository, &unblocked).await;
+
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(10)
+        .await
+        .unwrap();
+
+    let blocked_row = overview
+        .iter()
+        .find(|source| source.listing_source_id == blocked)
+        .unwrap();
+    assert_eq!(blocked_row.blocking_review_id, Some(older));
+    let created: OffsetDateTime =
+        sqlx::query_scalar("SELECT created FROM crawler_reviews WHERE review_id = $1")
+            .bind(older.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(blocked_row.blocked_since, Some(created));
+    let unblocked_row = overview
+        .iter()
+        .find(|source| source.listing_source_id == unblocked)
+        .unwrap();
+    assert_eq!(unblocked_row.blocked_urls, 0);
+    assert_eq!(unblocked_row.blocking_review_id, None);
+    assert_eq!(unblocked_row.held_since, None);
+}
+
+/// The cooldown end and the start of the failure streak are listed per domain, and absent on a
+/// domain whose circuit is closed.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_report_the_scrape_cooldown_end_and_failing_since_per_domain() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let failing = insert_domain(&pool, listing_source_id, "cooldown.example.com").await;
+    insert_domain(&pool, listing_source_id, "closed.example.com").await;
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET scrape_failure_streak = 5, last_scrape_error_kind = 'HTTP_503', \
+             next_scrape_at = '2026-11-01T12:00:00Z', \
+             scrape_failing_since = '2026-11-01T10:00:00Z' \
+         WHERE domain_id = $1",
+    )
+    .bind(failing.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(10)
+        .await
+        .unwrap();
+
+    let rfc3339 = |value: &str| {
+        OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).unwrap()
+    };
+    let domains = &overview[0].domains;
+    let failing_row = domains
+        .iter()
+        .find(|domain| domain.domain == "cooldown.example.com")
+        .unwrap();
+    assert_eq!(
+        failing_row.scrape_paused_until,
+        Some(rfc3339("2026-11-01T12:00:00Z"))
+    );
+    assert_eq!(
+        failing_row.scrape_failing_since,
+        Some(rfc3339("2026-11-01T10:00:00Z"))
+    );
+    let closed_row = domains
+        .iter()
+        .find(|domain| domain.domain == "closed.example.com")
+        .unwrap();
+    assert_eq!(closed_row.scrape_failure_streak, 0);
+    assert_eq!(closed_row.scrape_paused_until, None);
+    assert_eq!(closed_row.scrape_failing_since, None);
 }
 
 /// The limit only bounds the sources that need no attention: every failing, blocked or held

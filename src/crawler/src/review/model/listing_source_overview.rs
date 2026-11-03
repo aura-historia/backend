@@ -1,4 +1,4 @@
-use crate::CrawlerDomainId;
+use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use serde::Serialize;
 
@@ -27,8 +27,16 @@ pub struct ListingSourceOverview {
     /// a blocked URL waits on. `None` while `blocked_urls` is 0.
     #[serde(with = "time::serde::rfc3339::option")]
     pub blocked_since: Option<time::OffsetDateTime>,
+    /// The pending product-schema review the blocked URLs wait on: the oldest one, the review
+    /// whose creation is `blocked_since`. `None` while `blocked_urls` is 0.
+    pub blocking_review_id: Option<CrawlerReviewId>,
     /// Product URLs whose removal the mass-removal guard held back, which keep their listing.
     pub held_removal_urls: i64,
+    /// The earliest time a currently held URL was held: the guard records a held URL as scraped
+    /// without a capture, so this is the earliest `last_scraped` among them. `None` while
+    /// `held_removal_urls` is 0.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub held_since: Option<time::OffsetDateTime>,
     /// The last error kind of the product URLs that carry one, with the number of URLs per kind,
     /// the most frequent first.
     pub url_error_kinds: Vec<UrlErrorKindCount>,
@@ -64,6 +72,15 @@ pub struct DomainCrawlOverview {
     pub scrape_failure_streak: i32,
     /// The kind of those failures, such as `TIMEOUT` or `HTTP_503`; `None` without a streak.
     pub last_scrape_error_kind: Option<String>,
+    /// When the current same-kind scrape failure streak began; `None` while
+    /// `scrape_failure_streak` is 0.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub scrape_failing_since: Option<time::OffsetDateTime>,
+    /// The end of the scraper circuit's cooldown, after which one probe URL is fetched: the
+    /// stored `next_scrape_at`. `None` while the circuit is closed or the streak is recorded
+    /// evidence without a cooldown.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub scrape_paused_until: Option<time::OffsetDateTime>,
 }
 
 #[cfg(test)]
@@ -85,7 +102,9 @@ mod tests {
             product_urls: 0,
             blocked_urls: 0,
             blocked_since: None,
+            blocking_review_id: None,
             held_removal_urls: 0,
+            held_since: None,
             url_error_kinds: Vec::new(),
             missing_value_urls: 0,
             domains: vec![DomainCrawlOverview {
@@ -98,6 +117,8 @@ mod tests {
                 next_crawl_at: None,
                 scrape_failure_streak: 3,
                 last_scrape_error_kind: Some("HTTP_503".to_owned()),
+                scrape_failing_since: None,
+                scrape_paused_until: None,
             }],
         }
     }
@@ -155,5 +176,38 @@ mod tests {
 
         assert_eq!(json["domains"][0]["scrape_failure_streak"], 3);
         assert_eq!(json["domains"][0]["last_scrape_error_kind"], "HTTP_503");
+    }
+
+    #[test]
+    fn blocking_review_held_since_and_domain_times_serialize() {
+        let mut source = overview(None);
+        let review_id = CrawlerReviewId::new();
+        source.blocking_review_id = Some(review_id);
+        source.held_since = Some(datetime!(2026-10-31 08:00:00 UTC));
+        source.domains[0].scrape_failing_since = Some(datetime!(2026-11-01 10:00:00 UTC));
+        source.domains[0].scrape_paused_until = Some(datetime!(2026-11-01 12:00:00 UTC));
+
+        let json = serde_json::to_value(source).unwrap();
+
+        assert_eq!(json["blocking_review_id"], review_id.to_string());
+        assert_eq!(json["held_since"], "2026-10-31T08:00:00Z");
+        assert_eq!(
+            json["domains"][0]["scrape_failing_since"],
+            "2026-11-01T10:00:00Z"
+        );
+        assert_eq!(
+            json["domains"][0]["scrape_paused_until"],
+            "2026-11-01T12:00:00Z"
+        );
+    }
+
+    #[test]
+    fn absent_blocking_review_held_since_and_domain_times_serialize_as_null() {
+        let json = serde_json::to_value(overview(None)).unwrap();
+
+        assert!(json["blocking_review_id"].is_null());
+        assert!(json["held_since"].is_null());
+        assert!(json["domains"][0]["scrape_failing_since"].is_null());
+        assert!(json["domains"][0]["scrape_paused_until"].is_null());
     }
 }
