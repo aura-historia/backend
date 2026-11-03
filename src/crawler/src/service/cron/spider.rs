@@ -1040,6 +1040,42 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn should_crawl_a_host_starting_with_http_from_its_https_root() {
+        let domain_id = CrawlerDomainId::new();
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, _| {
+                Box::pin(async move {
+                    Ok(vec![SpiderCandidate {
+                        listing_source_domain: "httpbin.org".to_string(),
+                        ..spider_candidate(domain_id)
+                    }])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .withf(|_, _, crawl_root_url, _, _, _| crawl_root_url == "https://httpbin.org")
+            .returning(|_, _, _, _, _, _| {
+                Box::pin(async {
+                    Err(crate::spider::service::SpiderServiceError::Database(
+                        sqlx::Error::RowNotFound,
+                    ))
+                })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
     fn spider_candidate(domain_id: CrawlerDomainId) -> SpiderCandidate {
         SpiderCandidate {
             listing_source_id: ListingSourceId::new(),
