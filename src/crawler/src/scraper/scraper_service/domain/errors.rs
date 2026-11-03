@@ -46,6 +46,30 @@ pub enum ScraperError {
     #[error("URL is not a product page while scraping '{url}': {details}")]
     NotProductPage { url: Url, details: String },
 
+    /// The product URL redirects to a product URL its ListingSource stores under its own row, so
+    /// the URL is that page's duplicate (`docs/crawler/networking.md#duplicate-targets`).
+    #[error("redirects to '{destination}', a product URL of its ListingSource")]
+    RedirectToKnownProduct { destination: Url },
+
+    /// The rows stored at the redirect target do not settle whether the URL is a duplicate, so it
+    /// is neither retired nor removed.
+    #[error(
+        "redirects to '{destination}', whose stored rows do not settle whether it is a duplicate"
+    )]
+    RedirectDestinationUnsettled { destination: Url },
+
+    /// The rows stored at a redirect target could not be read.
+    #[error("Redirect destination lookup failed: {0}")]
+    RedirectDestinationLookup(#[source] sqlx::Error),
+
+    /// The product URL redirects outside its product URL pattern and no cached schema can show
+    /// whether the target is a product page, so it is neither removed nor taken as a schema
+    /// review's page.
+    #[error(
+        "redirects outside its product URL pattern to '{destination}' and no cached schema judges that page"
+    )]
+    RedirectTargetUnverified { destination: Url },
+
     #[error("Rejected low-confidence page classification for '{url}': {details}")]
     SchemaClassificationRejected { url: Url, details: String },
 
@@ -201,6 +225,11 @@ pub enum RemovalEvidenceKind {
     /// The product URL redirected to a page the crawler stores as no product page of its
     /// ListingSource.
     RedirectToStoredNonProductPage,
+    /// The product URL redirected to a page an operator rejected as no product page.
+    RedirectToRejectedPage,
+    /// The product URL redirected outside its product URL pattern to a page robots.txt disallows,
+    /// which is judged by its URL alone.
+    RedirectToDisallowedPage,
     /// A stored removed-page template matched the page.
     RemovedPageTemplate,
     /// Fresh schema generation classified the page as removed.
@@ -215,6 +244,8 @@ impl RemovalEvidenceKind {
             Self::RedirectToHomepage => "REDIRECT_TO_HOMEPAGE",
             Self::RedirectToNonProductPage => "REDIRECT_TO_NON_PRODUCT_PAGE",
             Self::RedirectToStoredNonProductPage => "REDIRECT_TO_STORED_NON_PRODUCT_PAGE",
+            Self::RedirectToRejectedPage => "REDIRECT_TO_REJECTED_PAGE",
+            Self::RedirectToDisallowedPage => "REDIRECT_TO_DISALLOWED_PAGE",
             Self::RemovedPageTemplate => "REMOVED_PAGE_TEMPLATE",
             Self::RemovedPageClassification => "REMOVED_PAGE_CLASSIFICATION",
         }

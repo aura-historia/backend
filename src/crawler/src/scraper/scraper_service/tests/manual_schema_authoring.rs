@@ -15,7 +15,7 @@ use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SC
 use crate::scraper::scraper_service::util::hash::{
     EXTRACTOR_VERSION, fingerprint_scraper_context, hash_page,
 };
-use crate::scraper::scraper_service::{ScrapedProduct, ScraperError};
+use crate::scraper::scraper_service::{RemovalEvidenceKind, ScrapedProduct, ScraperError};
 use serde_json::json;
 use sqlx::PgPool;
 use test_api::IntegrationTestService as _;
@@ -310,17 +310,23 @@ async fn assert_rejected_triggering_page_is_not_captured(
     let extracting = cached_schemas(id, vec![minimal_schema()]);
     let request = rescrape(&id, &requested_url, &extracting);
     let mut candidates = MockScraperCandidateService::new();
-    let expected_url = requested_url.clone();
-    let capture_guard = request.expected_last_captured_raw_input_sha256.clone();
-    candidates
-        .expect_set_class()
-        .once()
-        .withf(move |_, received_url, url_class, received_guard| {
-            received_url == &expected_url
-                && *url_class == crate::spider::classification::url_metadata::UrlClass::Other
-                && *received_guard == capture_guard.as_deref()
-        })
-        .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    let redirected = requested_url != url;
+    if redirected {
+        // The requested product is gone behind the rejection: a removal, no classification.
+        candidates.expect_set_class().never();
+    } else {
+        let expected_url = requested_url.clone();
+        let capture_guard = request.expected_last_captured_raw_input_sha256.clone();
+        candidates
+            .expect_set_class()
+            .once()
+            .withf(move |_, received_url, url_class, received_guard| {
+                received_url == &expected_url
+                    && *url_class == crate::spider::classification::url_metadata::UrlClass::Other
+                    && *received_guard == capture_guard.as_deref()
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+    }
     let rescraping = scraper_with_review_gate(
         fetcher_returning_sample_page_at(&url, 1),
         schema_service_without_generation(Some(extracting)),
@@ -331,10 +337,22 @@ async fn assert_rejected_triggering_page_is_not_captured(
 
     let result = rescraping.scrape(request).await.result;
 
-    assert!(
-        matches!(&result, Err(ScraperError::NotProductPage { url, .. }) if *url == requested_url),
-        "{result:?}"
-    );
+    if redirected {
+        let Err(ScraperError::ProductListingRemoved(removal)) = &result else {
+            panic!("a redirect onto a rejected page is a removal: {result:?}");
+        };
+        assert_eq!(removal.url, requested_url);
+        assert_eq!(
+            removal.evidence.kind,
+            RemovalEvidenceKind::RedirectToRejectedPage
+        );
+        assert_eq!(removal.evidence.final_url.as_ref(), Some(&url));
+    } else {
+        assert!(
+            matches!(&result, Err(ScraperError::NotProductPage { url, .. }) if *url == requested_url),
+            "{result:?}"
+        );
+    }
     assert_eq!(
         repository
             .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
@@ -376,10 +394,11 @@ async fn should_classify_rejected_triggering_page_as_other_when_authoring_is_aut
     .await;
 }
 
-/// A crawler URL that redirects onto a rejected page is the row classified, under its own capture
-/// guard, so it is not requested again every pass.
+/// A crawler URL that redirects onto a rejected page is a verified removal: the operator's verdict
+/// is that the page is no product, so the product the URL named is gone
+/// (`docs/crawler/networking.md#duplicate-targets`). The URL stays a candidate, unclassified.
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-async fn should_classify_requested_url_as_other_when_it_redirects_onto_a_rejected_page() {
+async fn should_remove_the_product_when_its_url_redirects_onto_a_rejected_page() {
     assert_rejected_triggering_page_is_not_captured(
         CrawlerAuthoringMode::Manual,
         Url::parse("https://example.com/old-products/123").unwrap(),
