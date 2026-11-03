@@ -257,6 +257,7 @@ mod tests {
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
                     identity_agreement_findings: Default::default(),
+                    unmapped_state_label: None,
                     foreign_price_currency: None,
                     fields: vec![SelectorFieldEvaluation {
                         field: "title".to_string(),
@@ -481,6 +482,7 @@ mod tests {
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
                     identity_agreement_findings: Default::default(),
+                    unmapped_state_label: None,
                     foreign_price_currency: None,
                     fields: vec![SelectorFieldEvaluation {
                         field: "description".to_string(),
@@ -526,6 +528,7 @@ mod tests {
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
                     identity_agreement_findings: Default::default(),
+                    unmapped_state_label: None,
                     foreign_price_currency: None,
                     fields: vec![SelectorFieldEvaluation {
                         field: "images".to_string(),

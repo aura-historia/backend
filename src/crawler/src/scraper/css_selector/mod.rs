@@ -6,3 +6,4 @@ pub mod removed_page_schema;
 pub mod removed_page_schema_repository;
 pub mod rule;
 pub(crate) mod srcset;
+pub mod state_labels;

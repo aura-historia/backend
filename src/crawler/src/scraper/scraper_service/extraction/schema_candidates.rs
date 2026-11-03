@@ -479,6 +479,7 @@ mod tests {
             cardinality: crate::scraper::css_selector::rule::ExtractionCardinality::First,
         };
         ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: None,
             title: rule(
                 "h1",

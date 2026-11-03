@@ -4,6 +4,7 @@ use crate::scraper::css_selector::rule::{
 };
 
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
+use crate::scraper::css_selector::state_labels::StateLabels;
 use listing_source_core::ListingSourceId;
 use schemars::JsonSchema;
 use scraper::Html;
@@ -87,6 +88,12 @@ pub struct ProductCssSelectorSchema {
         description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc. Prioritize state sources in this order: (1) clear explicit state text such as 'available', 'sold', or 'out of stock'; (2) visible text from a product-specific add-to-cart or buy button; (3) visible text from other product-specific buttons that clearly indicate availability such as preorder, reserve, or sold-out actions. Prefer dedicated availability labels or visible button text over generic class names or whole script blobs. IMPORTANT: Never use price elements, image galleries, or generic layout wrappers as the state selector. Select only the availability/cart action element; exclude price text and avoid containers that combine action text with price."
     )]
     pub state: ExtractionRule,
+
+    #[schemars(
+        description = "Optional mapping from this source's call-to-action labels to availabilities, for a state rule that captures labels such as 'Secure this piece' or 'ITEM HAS BEEN SOLD'. A captured label the mapping knows becomes the availability; any other value stays as extracted and shows as unmapped in the schema matrix. Leave null when the state rule captures explicit availability text or JSON-LD availability."
+    )]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub state_labels: Option<StateLabels>,
 
     #[schemars(
         description = "ProductListing media URLs. May be fragmented across multiple gallery nodes. Prefer ImageUrl extraction for image/gallery nodes so the scraper can validate ordered full-size candidates. Candidate order is data-large_image, data-full, data-original, data-zoom-image, data-src, data-lazy-src, content, current href, parent href, largest picture/srcset candidate, then src. Avoid logos, icons, placeholders, sprites, unrelated thumbnails from navigation or recommendations, and thumbnail-only attributes such as 100x100 or 150x150 src values."
@@ -401,6 +408,14 @@ impl ProductCssSelectorSchema {
         };
 
         let state = required_value(self.state.apply(html)).map_err(ApplySchemaError::State)?;
+        let unmapped_state_label = self
+            .state_labels
+            .as_ref()
+            .and_then(|labels| labels.unmapped_label(&state));
+        let state = match &self.state_labels {
+            Some(labels) => labels.map_state(state),
+            None => state,
+        };
 
         let images = self
             .apply_image_url_candidate_groups(html)
@@ -434,6 +449,7 @@ impl ProductCssSelectorSchema {
                 raw_attributes,
             },
             skipped_image_elements: images.skipped_elements,
+            unmapped_state_label,
         })
     }
 }
@@ -635,6 +651,9 @@ pub(crate) struct SchemaExtraction {
     /// Matched `images` elements without a value (see
     /// [`RuleExtraction::skipped_elements`]).
     pub(crate) skipped_image_elements: usize,
+    /// The captured `state` label that the schema's [`StateLabels`] do not know. `None`
+    /// without a mapping, for a blank state and for a mapped label.
+    pub(crate) unmapped_state_label: Option<String>,
 }
 
 /// What [`ProductCssSelectorSchema::extract_keeping_misses`] made of a page: the extraction
@@ -719,6 +738,7 @@ mod tests {
     fn minimal_schema(html: &str) -> (Html, ProductCssSelectorSchema) {
         let parsed = Html::parse_document(html);
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -754,6 +774,7 @@ mod tests {
 
     fn full_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
@@ -878,6 +899,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -953,6 +975,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -987,6 +1010,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1052,6 +1076,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1077,6 +1102,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1155,6 +1181,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1185,6 +1212,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
@@ -1287,6 +1315,7 @@ mod tests {
             cardinality: ExtractionCardinality::All,
         };
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1405,6 +1434,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1430,6 +1460,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1455,6 +1486,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1601,6 +1633,7 @@ mod tests {
     /// exactly the optional rule it exercises.
     fn required_only_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1815,6 +1848,7 @@ mod tests {
 
         let schema = match field {
             "source_listing_id" => ProductCssSelectorSchema {
+                state_labels: None,
                 source_listing_id: Some(bad),
                 title: good_h1,
                 description: None,
@@ -1826,6 +1860,7 @@ mod tests {
                 raw_attributes: Default::default(),
             },
             "title" => ProductCssSelectorSchema {
+                state_labels: None,
                 source_listing_id: Some(good_id),
                 title: bad,
                 description: None,
@@ -1837,6 +1872,7 @@ mod tests {
                 raw_attributes: Default::default(),
             },
             "state" => ProductCssSelectorSchema {
+                state_labels: None,
                 source_listing_id: Some(good_id),
                 title: good_h1,
                 description: None,
@@ -1848,6 +1884,7 @@ mod tests {
                 raw_attributes: Default::default(),
             },
             "images" => ProductCssSelectorSchema {
+                state_labels: None,
                 source_listing_id: Some(good_id),
                 title: good_h1,
                 description: None,
@@ -1877,6 +1914,7 @@ mod tests {
     fn should_include_field_name_in_error_message_for_source_listing_id() {
         let html = Html::parse_document(product_html());
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("!!! invalid !!!")),
             title: text_rule("h1"),
             description: None,
@@ -1896,6 +1934,7 @@ mod tests {
     fn should_include_field_name_in_error_message_for_price() {
         let html = page_without_optional_elements();
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1925,6 +1964,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1951,6 +1991,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -1985,6 +2026,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -2010,6 +2052,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -2106,6 +2149,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
@@ -2422,5 +2466,129 @@ mod tests {
             schema.unregistered_raw_attribute_keys().collect::<Vec<_>>(),
             vec!["rawFoo", "rawZed"]
         );
+    }
+
+    // ─── state labels and JSON-LD offers ──────────────────────────────
+
+    fn labelled_schema(labels: &str) -> ProductCssSelectorSchema {
+        let (_, mut schema) = minimal_schema("");
+        schema.state_labels = Some(serde_json::from_str(labels).unwrap());
+        schema
+    }
+
+    const LABEL_PAGE: &str = r#"<html><body><span id="product-id">1</span><h1>Chair</h1>
+        <input id="state" type="submit" value="Secure this piece"><img src="/a.jpg"></body></html>"#;
+
+    #[test]
+    fn should_capture_the_availability_of_a_mapped_label() {
+        let mut schema = labelled_schema(r#"{"secure this piece": "IN_STOCK"}"#);
+        schema.state.extract = ExtractionKind::AttributeOrText {
+            name: "value".into(),
+        };
+        let extraction = schema.extract(&Html::parse_document(LABEL_PAGE)).unwrap();
+        assert_eq!(extraction.raw.state, "https://schema.org/InStock");
+        assert_eq!(extraction.unmapped_state_label, None);
+    }
+
+    #[test]
+    fn should_keep_and_report_an_unmapped_label() {
+        let mut schema = labelled_schema(r#"{"Reserve": "RESERVED"}"#);
+        schema.state.extract = ExtractionKind::AttributeOrText {
+            name: "value".into(),
+        };
+        let extraction = schema.extract(&Html::parse_document(LABEL_PAGE)).unwrap();
+        assert_eq!(extraction.raw.state, "Secure this piece");
+        assert_eq!(
+            extraction.unmapped_state_label.as_deref(),
+            Some("Secure this piece")
+        );
+    }
+
+    #[test]
+    fn should_report_no_unmapped_label_without_a_mapping() {
+        let (_, mut schema) = minimal_schema("");
+        schema.state.extract = ExtractionKind::AttributeOrText {
+            name: "value".into(),
+        };
+        let extraction = schema.extract(&Html::parse_document(LABEL_PAGE)).unwrap();
+        assert_eq!(extraction.raw.state, "Secure this piece");
+        assert_eq!(extraction.unmapped_state_label, None);
+    }
+
+    fn json_ld_schema() -> ProductCssSelectorSchema {
+        use crate::scraper::css_selector::rule::JsonLdOfferProperty;
+        let (_, mut schema) = minimal_schema("");
+        let script = r#"script[type="application/ld+json"]"#;
+        schema.state.selector = script.into();
+        schema.state.extract = ExtractionKind::JsonLdOffer {
+            property: JsonLdOfferProperty::Availability,
+        };
+        let mut price = schema.title.clone();
+        price.selector = script.into();
+        price.extract = ExtractionKind::JsonLdOffer {
+            property: JsonLdOfferProperty::Price,
+        };
+        schema.price = Some(price);
+        schema
+    }
+
+    fn json_ld_page(offer: &str) -> Html {
+        Html::parse_document(&format!(
+            r#"<html><head><script type="application/ld+json">{{"@type":"Product","offers":{offer}}}</script></head>
+            <body><span id="product-id">1</span><h1>Chair</h1><img src="/a.jpg"></body></html>"#
+        ))
+    }
+
+    #[test]
+    fn should_take_state_and_price_with_its_currency_from_json_ld() {
+        let page = json_ld_page(
+            r#"{"price":"1850.00","priceCurrency":"USD","availability":"https://schema.org/InStock"}"#,
+        );
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
+        assert_eq!(raw.state, "https://schema.org/InStock");
+        assert_eq!(raw.price.as_deref(), Some("1850.00 USD"));
+        assert!(PlausibilityFindings::of(&raw).as_slice().is_empty());
+    }
+
+    #[test]
+    fn should_capture_no_price_for_a_zero_json_ld_offer_price() {
+        // Shopify publishes `0.00` for a price-on-request item; the page shows no price.
+        let page = json_ld_page(
+            r#"{"price":"0.00","priceCurrency":"GBP","availability":"https://schema.org/InStock"}"#,
+        );
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
+        assert_eq!(raw.state, "https://schema.org/InStock");
+        assert_eq!(raw.price, None);
+    }
+
+    #[test]
+    fn should_check_a_json_ld_value_like_any_other() {
+        let page = json_ld_page(r#"{"price":"1850.00","availability":" "}"#);
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
+        assert!(
+            PlausibilityFindings::of(&raw)
+                .as_slice()
+                .contains(&PlausibilityFinding {
+                    field: PlausibilityField::State,
+                    check: PlausibilityCheck::Blank,
+                })
+        );
+    }
+
+    #[test]
+    fn should_read_a_stored_schema_without_state_labels_and_omit_them_when_unset() {
+        let (_, schema) = minimal_schema("");
+        let json = serde_json::to_value(&schema).unwrap();
+        assert!(json.get("state_labels").is_none());
+        let back: ProductCssSelectorSchema = serde_json::from_value(json).unwrap();
+        assert_eq!(back.state_labels, None);
+    }
+
+    #[test]
+    fn should_refuse_a_stored_schema_with_equivalent_state_labels() {
+        let (_, schema) = minimal_schema("");
+        let mut json = serde_json::to_value(&schema).unwrap();
+        json["state_labels"] = serde_json::json!({"Sold": "SOLD_OUT", " sold": "IN_STOCK"});
+        assert!(serde_json::from_value::<ProductCssSelectorSchema>(json).is_err());
     }
 }

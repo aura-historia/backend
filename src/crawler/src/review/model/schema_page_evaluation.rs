@@ -35,6 +35,12 @@ pub struct SchemaPageEvaluation {
     /// schemas' and the captured one. A cached matrix without them predates the check and
     /// is refreshed from the live pages.
     pub identity_agreement_findings: IdentityAgreementFindings,
+    /// The `state` label the schema's label mapping does not know, shown next to the
+    /// field in the matrix. It never rejects the extraction or blocks approval: the worker
+    /// reports a state it cannot resolve, and the reviewer adds the label to the mapping.
+    /// A cached matrix without it predates the finding and reads as having none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unmapped_state_label: Option<String>,
     /// The price of this extraction that names another currency than the ListingSource's
     /// fallback currency, for the reviewer to see before approving. It is information, not a
     /// check: the capture keeps the value as extracted, so it neither fails the page nor blocks

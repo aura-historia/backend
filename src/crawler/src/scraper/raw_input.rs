@@ -231,6 +231,29 @@ mod tests {
         }
 
         #[test]
+        fn should_read_the_currency_a_json_ld_offer_price_carries() {
+            // A `json_ld_offer` price is captured with its offer's `priceCurrency`.
+            assert_eq!(
+                foreign_price_currency(
+                    &priced(Some("1850.00 USD"), None, None),
+                    Some(Currency::Gbp)
+                ),
+                Some(ForeignPriceCurrency {
+                    field: PlausibilityField::Price,
+                    currency: Currency::Usd,
+                    fallback_currency: Currency::Gbp,
+                })
+            );
+            assert_eq!(
+                foreign_price_currency(
+                    &priced(Some("1850.00 GBP"), None, None),
+                    Some(Currency::Gbp)
+                ),
+                None
+            );
+        }
+
+        #[test]
         fn should_report_the_first_estimate_in_another_currency_when_the_price_agrees() {
             let estimates = priced(Some("£1,000"), Some("£800"), Some("€1.200"));
 

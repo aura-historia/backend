@@ -430,6 +430,7 @@ mod tests {
 
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule(title_selector),
             description: None,

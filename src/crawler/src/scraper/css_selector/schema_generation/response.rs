@@ -435,7 +435,7 @@ mod tests {
         let variants = rule["oneOf"]
             .as_array()
             .unwrap_or_else(|| panic!("flattened extraction kind should be represented by oneOf"));
-        assert_eq!(variants.len(), 3);
+        assert_eq!(variants.len(), 5);
         assert!(
             variants
                 .iter()
@@ -450,7 +450,16 @@ mod tests {
             .iter()
             .filter_map(|variant| variant["properties"]["type"]["const"].as_str())
             .collect::<Vec<_>>();
-        assert_eq!(types, vec!["text", "attribute", "image_url"]);
+        assert_eq!(
+            types,
+            vec![
+                "text",
+                "attribute",
+                "attribute_or_text",
+                "json_ld_offer",
+                "image_url"
+            ]
+        );
     }
 
     fn complete_rule(selector: &str, extraction_type: &str) -> serde_json::Value {

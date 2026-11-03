@@ -412,6 +412,7 @@ mod tests {
     /// Applies to [`PAGE`], and misses its optional description.
     fn applying_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: None,
             title: rule("h1", ExtractionKind::Text),
             description: Some(rule("#description", ExtractionKind::Text)),

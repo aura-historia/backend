@@ -479,17 +479,29 @@ fn evaluate_schema_page(
     // A page counts as applied only when runtime selection would accept the
     // extraction, so a rejecting plausibility finding fails the page like an
     // apply error; every finding stays listed for the reviewer.
-    let (apply_ok, extracted, error, plausibility_findings) = match extraction {
-        Ok(SchemaExtraction { raw: extracted, .. }) => {
+    let (apply_ok, extracted, error, plausibility_findings, unmapped_state_label) = match extraction
+    {
+        Ok(SchemaExtraction {
+            raw: extracted,
+            unmapped_state_label,
+            ..
+        }) => {
             let findings = PlausibilityFindings::of(&extracted);
             let rejection = findings.rejection_reason();
-            (rejection.is_none(), Some(extracted), rejection, findings)
+            (
+                rejection.is_none(),
+                Some(extracted),
+                rejection,
+                findings,
+                unmapped_state_label,
+            )
         }
         Err(err) => (
             false,
             None,
             Some(err.to_string()),
             PlausibilityFindings::default(),
+            None,
         ),
     };
 
@@ -506,6 +518,7 @@ fn evaluate_schema_page(
         cross_page_findings: CrossPageFindings::default(),
         // Filled once every candidate has evaluated the page, for the same reason.
         identity_agreement_findings: IdentityAgreementFindings::default(),
+        unmapped_state_label,
         // Needs the ListingSource's fallback currency; see `add_foreign_price_currency_findings`.
         foreign_price_currency: None,
         fields,
@@ -665,6 +678,7 @@ mod tests {
 
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
+            state_labels: None,
             source_listing_id: Some(text_rule("#product-id")),
             title: text_rule(title_selector),
             description: None,
@@ -1619,6 +1633,38 @@ mod tests {
             "findings that only lower the rank keep the page covered"
         );
         assert!(schema_matrix_has_required_coverage(&matrix));
+    }
+
+    #[test]
+    fn should_list_a_state_label_the_mapping_does_not_know_without_rejecting_the_page() {
+        let mapped = |labels: &str| ProductCssSelectorSchema {
+            state_labels: Some(serde_json::from_str(labels).expect("labels should load")),
+            ..schema("h1")
+        };
+        let schemas = vec![
+            mapped(r#"{"available": "IN_STOCK"}"#),
+            mapped(r#"{"reserved": "RESERVED"}"#),
+            schema("h1"),
+        ];
+        let pages = vec![page(PAGE_ROLE_PRIMARY, "h1")];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let unmapped = |candidate: usize| {
+            let page = &matrix.candidates[candidate].pages[0];
+            assert!(page.apply_ok && !page.blocks_approval());
+            page.unmapped_state_label.clone()
+        };
+
+        assert_eq!(unmapped(0), None);
+        assert_eq!(unmapped(1), Some("Available".to_owned()));
+        assert_eq!(unmapped(2), None);
+        assert_eq!(
+            matrix.candidates[0].pages[0]
+                .extracted
+                .as_ref()
+                .map(|raw| raw.state.as_str()),
+            Some("https://schema.org/InStock")
+        );
     }
 
     #[test]
