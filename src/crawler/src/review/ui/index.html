@@ -14,37 +14,38 @@
     <link href="/assets/styles.css" rel="stylesheet">
 </head>
 <body>
-<header>
+<header class="app-header">
     <h1>Crawler review</h1>
+    <nav aria-label="View" class="view-switch">
+        <a class="view-tab" href="#sources" id="viewTabSources">Sources</a>
+        <a class="view-tab" href="#reviews" id="viewTabReviews">Reviews</a>
+    </nav>
     <div class="header-actions">
-        <span class="system-status" id="reloadState" role="status">Queue auto refresh active</span>
-        <button class="ghost" hidden id="signOutButton" onclick="clearReviewAuthToken()" title="End the browser session and forget the review token" type="button">Sign out</button>
-        <button class="ghost" id="themeToggle" onclick="toggleTheme()" type="button">Dark mode</button>
+        <span class="system-status" id="reloadState" role="status"></span>
+        <button class="quiet" hidden id="signOutButton" onclick="clearReviewAuthToken()" title="End the browser session and forget the review token" type="button">Sign out</button>
+        <button aria-label="Switch to dark mode" class="icon quiet" id="themeToggle" onclick="toggleTheme()" title="Switch to dark mode" type="button"></button>
     </div>
 </header>
-<main id="appShell">
+<main class="app view-sources" id="appShell">
     <section class="sidebar" id="reviewSidebar">
-        <h2>
-            <span>Reviews</span>
-            <button aria-controls="reviewSidebarBody" aria-expanded="true" aria-label="Collapse reviews"
-                    class="icon-button sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()"
-                    title="Collapse reviews" type="button">
+        <div class="sidebar-head">
+            <input aria-label="Search reviews" id="reviewSearch" oninput="setReviewSearch(this.value)"
+                   placeholder="Search reviews" type="search">
+            <button aria-controls="reviewSidebarBody" aria-expanded="true" aria-label="Collapse the queue"
+                    class="icon quiet" id="sidebarToggle" onclick="toggleSidebar()"
+                    title="Collapse the queue" type="button">
                 <svg aria-hidden="true" focusable="false" height="16" viewBox="0 0 16 16" width="16">
                     <path d="M10 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-linecap="round"
                           stroke-linejoin="round" stroke-width="1.6"/>
                 </svg>
             </button>
-        </h2>
+        </div>
         <div id="reviewSidebarBody">
-            <div class="sidebar-search">
-                <input aria-label="Search reviews" id="reviewSearch" oninput="setReviewSearch(this.value)"
-                       placeholder="Search reviews" type="search">
-            </div>
-            <div class="list" id="reviewList"></div>
+            <div class="queue" id="reviewList"></div>
         </div>
     </section>
     <section class="detail-shell">
-        <div class="detail muted" id="detail">Select a review.</div>
+        <div class="detail sources" id="detail"></div>
     </section>
 </main>
 <script src="/assets/app.js"></script>
