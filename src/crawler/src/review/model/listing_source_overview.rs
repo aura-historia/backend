@@ -32,9 +32,10 @@ pub struct ListingSourceOverview {
     pub blocking_review_id: Option<CrawlerReviewId>,
     /// Product URLs whose removal the mass-removal guard held back, which keep their listing.
     pub held_removal_urls: i64,
-    /// The earliest time a currently held URL was held: the guard records a held URL as scraped
-    /// without a capture, so this is the earliest `last_scraped` among them. `None` while
-    /// `held_removal_urls` is 0.
+    /// The earliest time a currently held URL was last held: the guard records a held URL as
+    /// scraped without a capture, so this is the earliest `last_scraped` among them. A scrape that
+    /// holds a URL again moves it, so a hold that repeats is dated by its latest pass, not by its
+    /// start. `None` while `held_removal_urls` is 0.
     #[serde(with = "time::serde::rfc3339::option")]
     pub held_since: Option<time::OffsetDateTime>,
     /// The last error kind of the product URLs that carry one, with the number of URLs per kind,

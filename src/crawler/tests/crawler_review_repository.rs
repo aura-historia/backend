@@ -3503,12 +3503,34 @@ async fn should_name_the_oldest_blocking_review_of_a_blocked_listing_source() {
     insert_listing_source(&pool, unblocked).await;
     store_live_product_schema(&pool, unblocked).await;
     pending_schema_review(&repository, &unblocked).await;
+    // Without a product schema, the pending first review blocks every product URL although
+    // none of them recorded the wait.
+    let first = ListingSourceId::new();
+    insert_listing_source(&pool, first).await;
+    let first_domain = insert_domain(&pool, first, "blocked-first.example.com").await;
+    let first_review = pending_schema_review(&repository, &first).await;
+    insert_scraped_url(
+        &pool,
+        first,
+        first_domain,
+        "https://blocked-first.example.com/item/1",
+        "product",
+        "ACTIVE",
+        None,
+    )
+    .await;
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
         .list_listing_sources(10)
         .await
         .unwrap();
 
+    let first_row = overview
+        .iter()
+        .find(|source| source.listing_source_id == first)
+        .unwrap();
+    assert_eq!(first_row.blocked_urls, 1);
+    assert_eq!(first_row.blocking_review_id, Some(first_review));
     let blocked_row = overview
         .iter()
         .find(|source| source.listing_source_id == blocked)

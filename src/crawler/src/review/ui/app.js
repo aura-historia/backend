@@ -484,7 +484,7 @@ function renderSourceStatus(source) {
         const held = Number(source.held_removal_urls) || 0;
         if (held > 0) {
             lines.push(issueLine('warn', `${held} removal${held === 1 ? '' : 's'} held`,
-                `Kept by the mass-removal guard${source.held_since ? ` · since ${timeBadge(source.held_since, 'Held since', true)}` : ''}`));
+                `Kept by the mass-removal guard${source.held_since ? ` · held ${timeBadge(source.held_since, 'Last held')}` : ''}`));
         }
     }
     const missing = Number(source.missing_value_urls) || 0;
