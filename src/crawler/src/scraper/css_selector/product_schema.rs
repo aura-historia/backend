@@ -2503,31 +2503,64 @@ mod tests {
         assert_eq!(extraction.unmapped_state_label, None);
     }
 
-    #[test]
-    fn should_take_state_and_price_from_json_ld_and_check_them_like_other_values() {
-        let page = Html::parse_document(
-            r#"<html><head><script type="application/ld+json">{"@type":"Product","offers":{"price":"0","availability":"https://schema.org/InStock"}}</script></head>
-            <body><span id="product-id">1</span><h1>Chair</h1><img src="/a.jpg"></body></html>"#,
-        );
+    fn json_ld_schema() -> ProductCssSelectorSchema {
+        use crate::scraper::css_selector::rule::JsonLdOfferProperty;
         let (_, mut schema) = minimal_schema("");
         let script = r#"script[type="application/ld+json"]"#;
         schema.state.selector = script.into();
         schema.state.extract = ExtractionKind::JsonLdOffer {
-            property: crate::scraper::css_selector::rule::JsonLdOfferProperty::Availability,
+            property: JsonLdOfferProperty::Availability,
         };
         let mut price = schema.title.clone();
         price.selector = script.into();
         price.extract = ExtractionKind::JsonLdOffer {
-            property: crate::scraper::css_selector::rule::JsonLdOfferProperty::Price,
+            property: JsonLdOfferProperty::Price,
         };
         schema.price = Some(price);
+        schema
+    }
 
-        let raw = schema.extract(&page).unwrap().raw;
+    fn json_ld_page(offer: &str) -> Html {
+        Html::parse_document(&format!(
+            r#"<html><head><script type="application/ld+json">{{"@type":"Product","offers":{offer}}}</script></head>
+            <body><span id="product-id">1</span><h1>Chair</h1><img src="/a.jpg"></body></html>"#
+        ))
+    }
+
+    #[test]
+    fn should_take_state_and_price_with_its_currency_from_json_ld() {
+        let page = json_ld_page(
+            r#"{"price":"1850.00","priceCurrency":"USD","availability":"https://schema.org/InStock"}"#,
+        );
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
         assert_eq!(raw.state, "https://schema.org/InStock");
-        assert_eq!(raw.price.as_deref(), Some("0"));
-        // The plausibility checks see the JSON-LD price like a text price.
-        let findings = crate::scraper::plausibility::PlausibilityFindings::of(&raw);
-        assert!(!findings.as_slice().is_empty());
+        assert_eq!(raw.price.as_deref(), Some("1850.00 USD"));
+        assert!(PlausibilityFindings::of(&raw).as_slice().is_empty());
+    }
+
+    #[test]
+    fn should_capture_no_price_for_a_zero_json_ld_offer_price() {
+        // Shopify publishes `0.00` for a price-on-request item; the page shows no price.
+        let page = json_ld_page(
+            r#"{"price":"0.00","priceCurrency":"GBP","availability":"https://schema.org/InStock"}"#,
+        );
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
+        assert_eq!(raw.state, "https://schema.org/InStock");
+        assert_eq!(raw.price, None);
+    }
+
+    #[test]
+    fn should_check_a_json_ld_value_like_any_other() {
+        let page = json_ld_page(r#"{"price":"1850.00","availability":" "}"#);
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
+        assert!(
+            PlausibilityFindings::of(&raw)
+                .as_slice()
+                .contains(&PlausibilityFinding {
+                    field: PlausibilityField::State,
+                    check: PlausibilityCheck::Blank,
+                })
+        );
     }
 
     #[test]
