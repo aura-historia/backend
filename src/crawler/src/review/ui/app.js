@@ -2420,17 +2420,10 @@ function renderContradictingIdentities(findings) {
     return `<div class="muted">Contradicting identities: ${values.join(', ')}</div>`;
 }
 
-// Informational findings of a matrix page: an `unmapped_state_label` and a
-// `foreign_price_currency`. Neither fails the page nor blocks approval.
+// Informational findings of a matrix page: a `foreign_price_currency`. It neither
+// fails the page nor blocks approval.
 function pageNotices(page) {
     const notices = [];
-    if (page?.unmapped_state_label) {
-        notices.push({
-            field: 'state',
-            check: 'UNMAPPED_STATE_LABEL',
-            text: `State label "${page.unmapped_state_label}" is not in the schema's state labels`
-        });
-    }
     const foreign = page?.foreign_price_currency;
     if (foreign) {
         notices.push({

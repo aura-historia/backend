@@ -173,7 +173,6 @@ mod tests {
 
     fn schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            state_labels: None,
             source_listing_id: None,
             title: rule("h1", ExtractionKind::Text),
             description: None,

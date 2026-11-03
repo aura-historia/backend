@@ -74,9 +74,8 @@ pub struct SchemaPageView {
 pub struct NoticeView {
     /// The field the notice is about, named as in `fields`.
     pub field: String,
-    /// `UNMAPPED_STATE_LABEL`: the schema's `state_labels` do not know the extracted state
-    /// label. `FOREIGN_PRICE_CURRENCY`: the price names another currency than the
-    /// ListingSource's fallback currency.
+    /// `FOREIGN_PRICE_CURRENCY`: the price names another currency than the ListingSource's
+    /// fallback currency.
     pub notice: String,
     pub message: String,
 }
@@ -246,19 +245,7 @@ impl SchemaPageView {
 }
 
 fn page_notices(page: &SchemaPageEvaluation) -> Vec<NoticeView> {
-    let unmapped = page
-        .unmapped_state_label
-        .as_deref()
-        .map(|label| NoticeView {
-            field: "state".to_owned(),
-            notice: "UNMAPPED_STATE_LABEL".to_owned(),
-            message: format!(
-                "the state label `{}` is not in the schema's state_labels",
-                value(label)
-            ),
-        });
-    let foreign = page
-        .foreign_price_currency
+    page.foreign_price_currency
         .as_ref()
         .map(|foreign| NoticeView {
             field: foreign.field.as_str().to_owned(),
@@ -269,8 +256,9 @@ fn page_notices(page: &SchemaPageEvaluation) -> Vec<NoticeView> {
                 foreign.currency,
                 foreign.fallback_currency
             ),
-        });
-    unmapped.into_iter().chain(foreign).collect()
+        })
+        .into_iter()
+        .collect()
 }
 
 fn page_findings(page: &SchemaPageEvaluation) -> Vec<FindingView> {
@@ -419,7 +407,6 @@ mod tests {
                     "plausibility_findings": [{ "field": "title", "check": "BLANK" }],
                     "cross_page_findings": [{ "field": "price", "check": "REPEATED_ACROSS_PAGES", "values": ["£120"] }],
                     "identity_agreement_findings": [],
-                    "unmapped_state_label": "In stock",
                     "foreign_price_currency": { "field": "price", "currency": "USD", "fallback_currency": "GBP" },
                     "fields": [
                         { "field": "title", "selector": "h1", "selector_match_count": 1, "additional_selector_match_counts": [], "error": null, "required": true, "empty_element_count": 1 },
@@ -483,7 +470,6 @@ mod tests {
         assert_eq!(
             page["notices"],
             json!([
-                { "field": "state", "notice": "UNMAPPED_STATE_LABEL", "message": "the state label `In stock` is not in the schema's state_labels" },
                 { "field": "price", "notice": "FOREIGN_PRICE_CURRENCY", "message": "`price` names USD, not the fallback currency GBP" },
             ])
         );

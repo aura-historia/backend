@@ -153,7 +153,6 @@ impl ScraperServiceImpl {
 /// A valid placeholder the operator replaces: generic selectors that rarely fit a shop as-is.
 fn starter_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        state_labels: None,
         source_listing_id: None,
         title: rule("h1", ExtractionKind::Text, ExtractionCardinality::First),
         description: None,
