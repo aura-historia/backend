@@ -2420,8 +2420,8 @@ function renderContradictingIdentities(findings) {
     return `<div class="muted">Contradicting identities: ${values.join(', ')}</div>`;
 }
 
-// Informational findings of a matrix page: a
-// `foreign_price_currency`. It neither fails the page nor blocks approval.
+// Informational findings of a matrix page: a `foreign_price_currency`. It neither
+// fails the page nor blocks approval.
 function pageNotices(page) {
     const notices = [];
     const foreign = page?.foreign_price_currency;
