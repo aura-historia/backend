@@ -33,7 +33,7 @@ Every crawler request (spider pages and robots.txt, scraper HTML fetches, image 
 
 ## Request headers
 
-Every crawler request sends one header set besides its [user agent](#crawler-identity), defined once in the crawler's network module: `Accept: */*`, and no `Accept-Language`, cache directive or other preference. Spider pages and robots.txt, scraper HTML fetches and robots.txt, image probes, and review live inspection, which shares the scraper's fetcher, all send it. So the scraper fetches the site the spider learned the URL patterns from, and the review console shows what the scraper captures. Only `Accept-Encoding` differs, because each client names the transfer encodings it decodes: the spider `gzip, br, deflate`, the scraper's clients none, so they receive uncompressed bodies.
+Every crawler request sends one header set besides its [user agent](#crawler-identity), defined once in the crawler's network module: `Accept: */*`, and no `Accept-Language`, cache directive or other preference. Spider pages and robots.txt, scraper HTML fetches and robots.txt, image probes, and review live inspection, which shares the scraper's fetcher, all send it. So the scraper fetches the site the spider learned the URL patterns from, and the review console shows what the scraper captures. Only `Accept-Encoding` differs, because each client names the transfer encodings it decodes: the spider `gzip, br, deflate`, the scraper's clients `gzip,br`. Each decodes what it names before it reads a body, so a body size limit counts decoded bytes.
 
 The set states no preference on purpose, so a shop answers with the storefront it serves a visitor who states none, in its own language and currency:
 

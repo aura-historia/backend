@@ -517,7 +517,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// Every crawler request identifies the crawler and sends the crawler
-    /// request headers, nothing else; the scraper, image probes and review
+    /// request headers and the transfer encodings the client decodes, nothing else; the scraper, image probes and review
     /// inspection all build their clients from this base.
     #[tokio::test]
     async fn crawler_client_builder_should_send_the_crawler_identity_and_request_headers() {
@@ -558,6 +558,7 @@ mod tests {
             headers,
             std::collections::BTreeMap::from([
                 ("accept".to_owned(), crate::network::CRAWLER_ACCEPT),
+                ("accept-encoding".to_owned(), "gzip,br"),
                 ("user-agent".to_owned(), crate::network::CRAWLER_USER_AGENT),
             ])
         );
