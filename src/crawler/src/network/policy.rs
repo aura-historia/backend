@@ -301,12 +301,14 @@ pub fn network_error_kind_for_public_target_error(error: PublicTargetError) -> N
     }
 }
 
+/// Longest wait a shop's request for less traffic is honoured for, whichever header carries it.
+pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+
 pub fn parse_retry_after(value: &HeaderValue) -> Option<Duration> {
     parse_retry_after_at(value, SystemTime::now())
 }
 
 pub fn parse_retry_after_at(value: &HeaderValue, now: SystemTime) -> Option<Duration> {
-    const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
     let value = value.to_str().ok()?.trim();
 
     if let Ok(seconds) = value.parse::<u64>() {
