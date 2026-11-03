@@ -292,7 +292,6 @@ iframe { display: block; width: 100%; height: calc(100vh - 260px); min-height: 5
 
 .selector-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-2); }
 .rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
-.rule-grid .wide { grid-column: 1 / -1; }
 .fallbacks { display: grid; gap: var(--s-2); }
 .fallback { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--s-2); }
 .picked { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); border: 1px dashed var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-sm); }
