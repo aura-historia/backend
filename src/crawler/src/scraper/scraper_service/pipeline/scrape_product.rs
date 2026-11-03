@@ -900,7 +900,7 @@ mod tests {
     }
 
     #[test]
-    fn should_judge_another_page_behind_a_language_segment_by_the_pattern() {
+    fn should_judge_another_page_behind_a_language_segment_by_the_pattern_with_or_without_it() {
         assert_eq!(
             target(
                 "https://shop.example/item/1",
@@ -923,7 +923,7 @@ mod tests {
                 "https://shop.example/en/item/1?id=3",
                 Some(r"^https://shop\.example/item/")
             ),
-            RedirectTarget::OutsideProductPattern
+            RedirectTarget::ProductPage
         );
     }
 
