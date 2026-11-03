@@ -82,8 +82,9 @@ fn page_key(url: &CrawledUrl) -> String {
 /// Where the crawl should run from instead of `root`, judged by the links of the root page `html`:
 /// on its twin host when they name at least [`MIN_TWIN_LINKS`] distinct pages there, and more
 /// than on the root's own host. A page counts once however often the root page links it, in
-/// whichever of its spellings ([`CrawledUrl::page_spelling`]) and under either scheme or letter case, so one product in a slider, the
-/// menu and the footer does not tip the balance. A link counts where Spider resolves it: against
+/// whichever of its spellings ([`CrawledUrl::page_spelling`]) and under either scheme or letter
+/// case ([`page_key`]), so one product in a slider, the menu and the footer does not tip the
+/// balance. A link counts where Spider resolves it: against
 /// the page's first absolute `<base href>` when it has one, as shops that link `www.` through a
 /// `<base>` element and relative links do. Links the crawler never follows
 /// ([blacklisted](CrawledUrl::is_blacklisted) ones such as the cart or the account) and links to

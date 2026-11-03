@@ -603,10 +603,14 @@ impl SpiderServiceImpl {
                 return Err(SpiderServiceError::InsufficientInferenceSample {
                     crawl_root_url: crawl_root_url.to_string(),
                     stage: "end_of_crawl",
+                    // Nothing is flushed before the first classification, so the buffer
+                    // still holds every page of the sample, in sample order.
                     sample_size: state
-                        .total_crawled
-                        .saturating_sub(state.challenged_pages)
-                        .min(state.inference_sample.len()),
+                        .page_buffer
+                        .iter()
+                        .take(state.inference_sample.len())
+                        .filter(|page| !page.bot_challenge)
+                        .count(),
                     min_sample_size: self.config.min_inference_sample_urls,
                     diagnostics: Box::default(),
                 });
@@ -1966,9 +1970,20 @@ mod service_tests {
             .await
             .expect_err("the run fails");
 
+        let SpiderServiceError::BotChallengedCrawl { failure, .. } = &error else {
+            panic!("{error:?}");
+        };
+        // The skipped classification counts only the pages that were not challenges.
         assert!(
-            matches!(error, SpiderServiceError::BotChallengedCrawl { .. }),
-            "{error:?}"
+            matches!(
+                &**failure,
+                SpiderServiceError::InsufficientInferenceSample {
+                    stage: "end_of_crawl",
+                    sample_size: 2,
+                    ..
+                }
+            ),
+            "{failure:?}"
         );
     }
 
