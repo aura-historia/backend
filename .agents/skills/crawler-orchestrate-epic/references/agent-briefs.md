@@ -1,27 +1,37 @@
 # Agent briefs
 
-Fill in the `<placeholders>` and send each brief as the complete prompt to a fresh sub-agent.
-Each agent starts with none of your context, so the brief has to stand alone: give it the issue
-numbers, branch, worktree path and the epic's purpose in one or two sentences of your own.
+Fill in the `<placeholders>` and send each brief as the complete `prompt` of a new independent
+session (`create_session`, see SKILL.md, Independent sessions). Each agent starts with none of
+your context and shares no files with you, so the brief has to stand alone: give it the issue
+numbers, the branch, the epic's purpose in one or two sentences of your own, the child's scope,
+its share of the epic's file ownership, and the product-owner decisions that apply to it. In the
+local-worktree fallback, replace the checkout line with the worktree path.
 
 Every brief ends with the same rule: when the agent hits something from the "When to stop and
 ask" list in SKILL.md, it stops and reports the question instead of guessing.
 
-Add an environment paragraph to every brief with what SKILL.md's environment checks found: how
-to read GitHub (REST if GraphQL is blocked), how to open the PR, whether Docker runs, how to run
-crawler dev verification (manual mode, swapped demo shops, the agent's own copy database and
-review-console port), host-specific test failures to
-ignore, and the commit trailers the session requires. Tell agents not to put model identifiers
+Add an environment paragraph to every brief with SKILL.md's environment notes: how to read
+GitHub (REST if GraphQL is blocked), how to open the PR, how to start Docker, how to run crawler
+dev verification (manual mode, an empty `crawler_demo`, shops registered temporarily in
+`dev.rs`), host-specific test failures to ignore, and the commit trailers the session requires. Tell agents not to put model identifiers
 anywhere but the trailers. Tell them to stop every background process they start (dev
 binaries, watch loops) before reporting; a wait loop on `pgrep -f` matches its own command line
 and never ends.
+
+Every brief also says how to deliver the report: with the claude-code-remote `send_message` tool
+(loaded with ToolSearch if deferred) to the orchestrator's session id, starting with
+`[#<child> implementer]` or `[#<child> reviewer]`, and again in the agent's final reply.
 
 ## Implementer
 
 ```text
 You are implementing GitHub issue #<child> in aura-historia/backend as part of epic #<epic>
-("<epic title>": <one-sentence purpose>). Work only in the worktree <worktree path>, on branch
-<branch>, which starts at the tip of the epic branch <epic-branch>.
+("<epic title>": <one-sentence purpose>). Your branch is <branch> (quote it in shells). Check
+it out from the epic tip first: `git fetch origin "<epic-branch>" && git checkout -B "<branch>" "origin/<epic-branch>"`.
+
+<scope: what the ticket must deliver, the functions and files this child owns and which siblings
+change the neighbouring code in parallel, the product-owner decisions, the shops for dev
+verification>
 
 1. Read the issue (`gh issue view <child> --comments`), the epic (`gh issue view <epic>`) and the
    PRs already merged into the epic branch that this issue builds on: <merged sibling PRs or "none">.
@@ -32,20 +42,25 @@ You are implementing GitHub issue #<child> in aura-historia/backend as part of e
    unchanged raw extraction (image validation, schema selection) and therefore needs an
    `EXTRACTOR_VERSION` raise under the rule in docs/crawler/extraction-and-review.md (extraction
    contract), and say in the report which way you decided.
-4. Run the focused validation for the crates you changed (fmt, check, clippy with -D warnings,
-   tests, all with --locked) and fix what fails.
+4. Run the focused validation for the crates you changed (fmt, the test-layout check, clippy
+   with -D warnings, tests, all with --locked) and fix what fails. For crawler runtime changes,
+   verify with the dev binary per crawler-dev-verify.
 5. Commit with subjects `<type>(#<child>): <summary>`, keeping structural and behavioural changes
-   in separate commits. Do not push and do not open a PR.
+   in separate commits. Push the branch (`git push -u origin "<branch>"`) so the reviewer session
+   can take it over. Do not open a PR. (Local-worktree fallback: do not push.)
 
 Stop and report instead of guessing when the issue is ambiguous, contradicts the code or the
 epic, or needs a public-contract, persisted-format or cross-crate change it does not mention.
 
 Report in at most 25 lines:
 - STATUS: done | blocked
+- BRANCH: name and pushed head sha
 - COMMITS: <sha> <subject>, one per line
 - CHANGES: what you changed and why, in 3-6 bullets
 - VALIDATION: each command and its result
-- CONTRACTS: swagger/CHANGELOG/runbook/migration changes, or "none"
+- DEV VERIFICATION: shops, what was visible, what could not be reproduced
+- EXTRACTOR_VERSION: raised or not, and why
+- CONTRACTS: swagger/CHANGELOG/runbook/migration/console API/log event changes, or "none"
 - FOLLOW-UPS: findings outside scope, with path:line
 - QUESTIONS: what needs the user, or "none"
 ```
@@ -55,8 +70,9 @@ Report in at most 25 lines:
 ```text
 You are the independent reviewer for GitHub issue #<child> in aura-historia/backend, part of epic
 #<epic> ("<epic title>"). Another agent implemented it; you did not see that work and owe it no
-deference. Work in <worktree path> on branch <branch>. The change under review is
-`git diff origin/<epic-branch>...HEAD`.
+deference. Check out the pushed branch:
+`git fetch origin "<branch>" "<epic-branch>" && git checkout -B "<branch>" "origin/<branch>"`.
+The change under review is `git diff origin/<epic-branch>...HEAD`.
 
 Implementer's report:
 <paste the implementer's report>
@@ -73,8 +89,9 @@ Implementer's report:
 2. Apply the fixes you judge sensible as your own commits `<type>(#<child>): <summary>`. Leave
    matters of taste alone. Do not rewrite the approach unless it is wrong.
 3. Run the focused validation again (--locked) and, for crawler runtime changes, crawler-dev-verify.
-4. Push the branch (`git push -u origin "<branch>"`) and open a PR into the epic branch:
-   gh pr create --base "<epic-branch>" --head "<branch>" --title "<type>(#<child>): <summary>"
+4. Push the branch (`git push -u origin "<branch>"`, never force) and open a PR into the epic
+   branch with the GitHub MCP `create_pull_request` tool (or
+   `gh pr create --base "<epic-branch>" --head "<branch>" --title "<type>(#<child>): <summary>"`).
    Body: "Part of #<epic>; implements #<child> against the epic integration branch." Then a
    summary, an "Independent review and validation" section saying an independent review agent reviewed it, what review
    changed and the validation results, and follow-up findings. Do not write "Closes #<child>":
@@ -83,7 +100,9 @@ Implementer's report:
    soon as the PR is open. Otherwise wait for CI with one blocking `gh pr checks <pr> --watch`
    run in the background, fix failures your change caused, push and wait again; for a failure
    unrelated to the change, rerun the failed jobs once (`gh run rerun <run-id> --failed`), and
-   if it fails again, stop and report it. Do not merge. The orchestrator merges.
+   if it fails again, stop and report it. Do not merge. The orchestrator merges. Stay available:
+   the orchestrator may send you CI failures, bot findings or merge conflicts on this PR to fix
+   on the same branch.
 
 Never skip tests, disable checks, use --no-verify or force-push. Stop and report instead of
 guessing on design disagreements the docs do not settle.
@@ -103,7 +122,7 @@ Report in at most 25 lines:
 PR #<pr> (branch <branch>, issue #<child>, epic #<epic>) cannot merge into <epic-branch>:
 <"it is behind/conflicting after #<sibling PRs> merged" | "CI fails: <summary and links>" |
 "a review bot reports findings this PR introduced: <rule, path:line, message>">.
-Work in <worktree path>.
+Work on <branch> (your session's checkout, or <worktree path> in the local-worktree fallback).
 
 1. `git fetch origin` and merge origin/<epic-branch> into the branch (no rebase, no force-push).
 2. Resolve conflicts so both sides' behaviour is kept. If a resolution would change what either
@@ -120,9 +139,9 @@ validation, CI state, questions.
 
 ```text
 You are the final reviewer of epic #<epic> ("<epic title>") in aura-historia/backend. All child
-issues are integrated into <epic-branch>: <child -> PR list>. Work in the primary checkout
-<checkout path>, which is on <epic-branch> itself, so you push fixes directly to it. Leave its
-untracked files alone.
+issues are integrated into <epic-branch>: <child -> PR list>. Work on <epic-branch> itself (a
+fresh session's checkout of it, or the primary checkout <checkout path>), so you push fixes
+directly to it. Leave untracked files alone.
 
 1. `git fetch origin` and merge origin/develop into the epic branch (merge, no rebase). Resolve
    conflicts, keeping both sides' behaviour. Stop and report a conflict that would change either.
