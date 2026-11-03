@@ -257,6 +257,7 @@ mod tests {
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
                     identity_agreement_findings: Default::default(),
+                    foreign_price_currency: None,
                     fields: vec![SelectorFieldEvaluation {
                         field: "title".to_string(),
                         selector: "h1.product".to_string(),
@@ -480,6 +481,7 @@ mod tests {
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
                     identity_agreement_findings: Default::default(),
+                    foreign_price_currency: None,
                     fields: vec![SelectorFieldEvaluation {
                         field: "description".to_string(),
                         selector: "div.titre + p".to_string(),
@@ -524,6 +526,7 @@ mod tests {
                     plausibility_findings: Default::default(),
                     cross_page_findings: Default::default(),
                     identity_agreement_findings: Default::default(),
+                    foreign_price_currency: None,
                     fields: vec![SelectorFieldEvaluation {
                         field: "images".to_string(),
                         selector: "#gallery img".to_string(),
