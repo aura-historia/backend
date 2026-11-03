@@ -1,23 +1,23 @@
 {
   "environment": "https://api.aura-historia.com",
   "environmentCounts": {
-    "parties": 1982,
-    "listingSources": 2006
+    "parties": 1986,
+    "listingSources": 2010
   },
-  "run": "2026-11-03-nl-493",
-  "verifiedAt": "2026-11-03T09:11:09.647778Z",
+  "run": "2026-11-03-nl-495",
+  "verifiedAt": "2026-11-03T09:16:31.990465Z",
   "scope": "INCREMENTAL",
   "fullVerifiedAt": "2026-11-03T06:16:28.916910Z",
-  "dealersCheckedThisRun": 4,
-  "dealersReused": 480,
+  "dealersCheckedThisRun": 5,
+  "dealersReused": 481,
   "counts": {
-    "parties": 470,
-    "listingSources": 484,
-    "locations": 509,
-    "logos": 343,
-    "identifiedPlatforms": 412,
+    "parties": 472,
+    "listingSources": 486,
+    "locations": 512,
+    "logos": 344,
+    "identifiedPlatforms": 413,
     "deliveryProfiles": 369,
-    "emptyIngestionMethods": 484,
+    "emptyIngestionMethods": 486,
     "excluded": 43,
     "deferred": 252
   },
@@ -36,7 +36,7 @@
       "ledger": "data/dealer-discovery/countries/NL/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/NL/verification-root.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-03T09:11:09.647778Z",
+      "verifiedAt": "2026-11-03T09:16:31.990465Z",
       "fullVerifiedAt": "2026-11-03T06:16:28.916910Z"
     },
     {
@@ -8705,6 +8705,42 @@
       "observationDigest": "fb8179a7cc2b8ba96ac33c8c500104f2edf6e02f2d3e0a5c7f5be16f75c40e57",
       "ledgerPath": "data/dealer-discovery/countries/NL/dealers.jsonl",
       "catalogueUrl": "https://gallery-lemaire.com/collection/",
+      "sourceScope": {
+        "kind": "DEALER_DOMAIN"
+      }
+    },
+    {
+      "domain": "vanpruissen.art",
+      "listingSourceId": "ls_01m6gazbjheq89xregt1dg8ymk",
+      "partyId": "pty_01m6gazbj2e1wtkygfnw3jrgb4",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T09:13:56.315557Z",
+      "observationDigest": "052ad927d9ed69523ed8bd814e97f9320a20ad602ef396595052c80b56af8108",
+      "ledgerPath": "data/dealer-discovery/countries/NL/dealers.jsonl",
+      "catalogueUrl": "https://vanpruissen.art/",
+      "sourceScope": {
+        "kind": "DEALER_DOMAIN"
+      }
+    },
+    {
+      "domain": "vintagekroonjuweeltjes.nl",
+      "listingSourceId": "ls_01m6gb42v4eznbc8txhnw7zyb0",
+      "partyId": "pty_01m6gb42tjep0vb22w3jvjkn72",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T09:16:31.989202Z",
+      "observationDigest": "4182c65138676034774296175793ec0dbfdab0b55eef850f0928fb3143e00c0a",
+      "ledgerPath": "data/dealer-discovery/countries/NL/dealers.jsonl",
+      "catalogueUrl": "https://www.vintagekroonjuweeltjes.nl/",
       "sourceScope": {
         "kind": "DEALER_DOMAIN"
       }

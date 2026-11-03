@@ -1,25 +1,25 @@
 {
-  "run": "2026-11-03-nl-494",
-  "verifiedAt": "2026-11-03T09:13:56.318163Z",
+  "run": "2026-11-03-nl-495",
+  "verifiedAt": "2026-11-03T09:16:31.990465Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
   "fullVerifiedAt": "2026-11-03T06:16:28.916910Z",
   "dealersCheckedThisRun": 1,
-  "dealersReused": 480,
+  "dealersReused": 481,
   "counts": {
-    "parties": 468,
-    "listingSources": 481,
-    "locations": 507,
-    "logos": 341,
-    "identifiedPlatforms": 408,
+    "parties": 469,
+    "listingSources": 482,
+    "locations": 509,
+    "logos": 342,
+    "identifiedPlatforms": 409,
     "deliveryProfiles": 365,
-    "emptyIngestionMethods": 481,
+    "emptyIngestionMethods": 482,
     "excluded": 43,
     "deferred": 252
   },
   "environmentCounts": {
-    "parties": 1985,
-    "listingSources": 2009
+    "parties": 1986,
+    "listingSources": 2010
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
@@ -8637,6 +8637,19 @@
       "verified": true,
       "verifiedAt": "2026-11-03T09:13:56.315557Z",
       "observationDigest": "052ad927d9ed69523ed8bd814e97f9320a20ad602ef396595052c80b56af8108"
+    },
+    {
+      "domain": "vintagekroonjuweeltjes.nl",
+      "listingSourceId": "ls_01m6gb42v4eznbc8txhnw7zyb0",
+      "partyId": "pty_01m6gb42tjep0vb22w3jvjkn72",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T09:16:31.989202Z",
+      "observationDigest": "4182c65138676034774296175793ec0dbfdab0b55eef850f0928fb3143e00c0a"
     }
   ]
 }

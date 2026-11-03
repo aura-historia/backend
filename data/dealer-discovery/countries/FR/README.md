@@ -4,7 +4,7 @@ Owned scope: France (`FR`). Read root and all country ledgers for duplicates; wr
 
 Ongoing goal: continue free research and verified API onboarding until the user stops. Credentials stay in `/tmp/aura-dealer-credential` (owner-only); raw pages/assets and API snapshots are cached outside the repository under `/tmp/aura-dealer-discovery/FR/`.
 
-Checkpoint `2026-11-03-fr-168`: **288 Parties, 291 sources, 369 unique locations (372 source-location associations), 244 original logos, 256 identified platforms, 216 delivery profiles/defaults**. All ingestion lists are empty. **17 excluded, 150 deferred**. Paid-tool spend **$0**. FULL165 completed; next due FULL170.
+Checkpoint `FULL170`: **289 Parties, 292 sources, 370 unique locations (372 source-location associations), 244 original logos, 257 identified platforms, 216 delivery profiles/defaults**. All ingestion lists are empty. **17 excluded, 150 deferred**. Paid-tool spend **$0**. FULL170 completed; next due FULL175.
 
 Use explicit country `--ledger` and verifier `--output` paths. Journal reviewed facts before mutation; reconcile uncertain writes by recorded IDs before retrying. Full verification every fifth batch; incremental checks otherwise.
 
@@ -53,3 +53,6 @@ Run 167 added Danke Galerie (WooCommerce; registered BAST (DANKE GALERIE) entity
 
 
 Run 168 added Galerie Saint Martin Antiquités Paris (WooCommerce; active GALERIE SAINT MARTIN ANTIQUITES; three stated gallery locations in Paris and Bretenoux). Current priced, cart-enabled antique stock and explicit worldwide delivery within 15 days were verified. Rates and dispatch origin are unknown. A PHP warning and unrelated Divi demo filler remain on the site; only the consistent gallery contact and official matching identity were used. Its original PNG candidate rendered as a uniform slate image and was rejected. Ingestion remains empty.
+
+
+Run 170 completed the scheduled full readback across 292 sources and all managed Parties, locations, defaults and shipping profiles. Hirsch Antiquités was added (Wix catalogue; active HIRSCH ANTIQUITES registration; Paris Village Suisse gallery). Its current unique antique listings are priced and cart-enabled. CGV describe post, Chronopost and carrier delivery by item/recipient agreement, but no geographic coverage or general rate, so no API shipping profile was created. No original logo could be identified and verified. Ingestion remains empty. A legal-domain inconsistency found on the already managed Le Grenier d’Adèle source is queued for review; no existing resources were changed.

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-107",
+  "observedAt": "2026-11-03T09:14:05.485886Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 4,
+  "rawJournalFiles": 39,
+  "rawJournalRecordsScanned": 33871,
+  "ownedItalyRootsAndAliases": 289,
+  "freshGlobalApiSnapshot": "PASSED; prewrite snapshot contained 1983 Parties and 2007 sources with no Libreria Docet domain/name/contact/VAT match. Postwrite snapshot contained 1985 Parties and 2009 sources. Incremental verification checked all 183 managed Party/source identities and empty ingestion lists; new Docet Party/source/location/default/logo/platform readbacks passed.",
+  "crossLedgerOwnership": "PASSED; scanned 39 raw JSONL journals (33871 records); identity terms matched the current Italy Docet row/frontier only, with no root legacy or other-country dealer ledger matches.",
+  "newDealer": "Libreria Docet ADDED with source ls_01m6gazdf7ek6rc0spfv9zbs25, Party pty_01m6gazdevena9nk675xe1s32b, Bologna business-premises location ploc_01m6gazdv4eg591z0jbaby63w9 and location default revision 2. Duda technology and original native 488×90 JPEG logo read back; no shipping profile; ingestion empty. VIES exact legal name/VAT; separate tax address not assigned a location role.",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherCountryDealerMutations": true,
+  "explicitCountryPaths": "Onboarding, verification and index outputs targeted the Italy country ledger and files. Root and other-country ledgers were read-only identity deduplication inputs."
+}
