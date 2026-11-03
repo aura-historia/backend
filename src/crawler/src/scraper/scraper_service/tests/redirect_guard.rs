@@ -6,6 +6,7 @@ use crate::scraper::scraper_service::domain::errors::{
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, RedirectTarget, is_redirect_to_non_product_page,
 };
+use test_api::IntegrationTestService as _;
 
 #[test]
 fn should_detect_same_host_product_redirect_to_homepage() {
@@ -829,4 +830,131 @@ fn should_store_the_target_spelling_the_pattern_takes_for_a_redirect_that_adds_a
     );
     assert_eq!(unjudged.target, RedirectTarget::ProductPage);
     assert_eq!(unjudged.url.as_str(), "https://shop.example/en-us/item/2");
+}
+
+/// Stores a crawler URL row of `class` and `disposition` on `domain_id`.
+async fn store_crawler_url(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    domain_id: crate::CrawlerDomainId,
+    url: &Url,
+    class: crate::spider::classification::url_metadata::UrlClass,
+    last_source_listing_id: Option<&str>,
+) {
+    sqlx::query(
+        "INSERT INTO listing_source_urls \
+             (listing_source_id, domain_id, url, raw_source_record_key, url_class, \
+              crawler_disposition, last_source_listing_id, created, updated) \
+         VALUES ($1, $2, $3, $3, $4, $5, $6, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(domain_id.as_uuid())
+    .bind(url.as_str())
+    .bind(class.as_str())
+    .bind(CrawlerDisposition::Active.as_str())
+    .bind(last_source_listing_id)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("insert crawler URL: {error}"));
+}
+
+/// The rows the crawler stores settle a redirected URL before its page is extracted: the schema
+/// cache is never read. A URL captured as `LADLE-7` that the shop redirects to another stored
+/// product of the ListingSource is retired as that page's duplicate instead of failing every pass
+/// as an identity conflict, and one redirected to a page stored as a non-product page is removed.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_settle_a_redirect_by_the_stored_rows_at_its_target_before_extracting_it() {
+    use crate::spider::classification::url_metadata::UrlClass;
+    let pool = test_api::get_postgres_client().await;
+    let id = listing_source_id();
+    let domain_id = crate::CrawlerDomainId::new();
+    sqlx::query(
+        "INSERT INTO listing_sources \
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+         VALUES ($1, 'Redirect source', 'redirect-source', TRUE, NOW(), NOW())",
+    )
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("insert listing source: {error}"));
+    sqlx::query(
+        "INSERT INTO listing_source_domains \
+         (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
+         VALUES ($1, $2, 'example.com', 'example.com')",
+    )
+    .bind(domain_id.as_uuid())
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("insert domain: {error}"));
+    let url = Url::parse("https://example.com/products/ladle").unwrap();
+    let product = Url::parse("https://example.com/products/spoon").unwrap();
+    let category = Url::parse("https://example.com/products/ladles").unwrap();
+    store_crawler_url(
+        &pool,
+        id,
+        domain_id,
+        &url,
+        UrlClass::ProductListing,
+        Some("LADLE-7"),
+    )
+    .await;
+    store_crawler_url(
+        &pool,
+        id,
+        domain_id,
+        &product,
+        UrlClass::ProductListing,
+        Some("SPOON-3"),
+    )
+    .await;
+    store_crawler_url(&pool, id, domain_id, &category, UrlClass::Category, None).await;
+    let scraper_redirecting_to = |served: Url| {
+        let mut fetcher = MockHtmlFetcher::new();
+        fetcher.expect_fetch().once().returning(move |_| {
+            let served = served.clone();
+            Box::pin(async move { Ok(fetch_result_for(sample_html(), served)) })
+        });
+        let mut schema_svc = MockProductListingSchemaService::new();
+        schema_svc.expect_find_product_schema().never();
+        schema_svc.expect_create_product_schemas().never();
+        ScraperServiceImpl::new_with_schema_seed_pages(
+            Box::new(fetcher),
+            Box::new(schema_svc),
+            Arc::new(
+                crate::scraper::candidate_service::ScraperCandidateServiceImpl::new(pool.clone()),
+            ),
+            1,
+            DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+        )
+    };
+    let request = ScrapeRequest {
+        domain_id: Some(domain_id),
+        ..request_captured_as_another_identity(&id, &url)
+    };
+
+    let duplicate = scraper_redirecting_to(product.clone())
+        .scrape(request.clone())
+        .await
+        .result
+        .unwrap_err();
+    let removal = removal_of(
+        scraper_redirecting_to(category.clone())
+            .scrape(request)
+            .await
+            .result
+            .unwrap_err(),
+    );
+
+    assert!(
+        matches!(&duplicate, ScraperError::RedirectToKnownProduct { destination }
+            if *destination == product),
+        "{duplicate:?}"
+    );
+    assert_eq!(removal.url, url);
+    assert_eq!(
+        removal.evidence.kind,
+        RemovalEvidenceKind::RedirectToStoredNonProductPage
+    );
+    assert_eq!(removal.evidence.final_url, Some(category));
 }
