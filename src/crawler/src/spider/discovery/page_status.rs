@@ -99,8 +99,8 @@ fn quota_spent(headers: &HeaderMap) -> bool {
 }
 
 /// The wait until the client's quota resets, when the shop gave no usable `Retry-After`: the `t`
-/// parameter of the `RateLimit` field's policies, the longest of the spent ones' (`r=0`) or, when
-/// none is spent, of all, else the delta seconds of the draft's earlier `RateLimit-Reset`.
+/// parameter of the `RateLimit` field's policies, the longest of the spent ones' (`r=0`), none when
+/// a spent one has no `t`, or, when none is spent, the longest of all; else the delta seconds of the draft's earlier `RateLimit-Reset`.
 /// `X-RateLimit-Reset` is not read: shops send it as an epoch or as seconds. A malformed field
 /// says nothing. The wait is capped at [`MAX_RETRY_AFTER`].
 fn quota_reset(headers: &HeaderMap) -> Option<Duration> {
@@ -119,15 +119,30 @@ fn policies_reset_seconds(field: &str) -> Option<u64> {
     if members.iter().any(|member| member.trim().is_empty()) {
         return None;
     }
-    let resets: Vec<(Option<u64>, u64)> = members
+    let policies: Vec<(bool, Option<u64>)> = members
         .into_iter()
-        .filter_map(|member| Some((remaining_quota(member), parameter_seconds(member, "t")?)))
+        .map(|member| {
+            (
+                remaining_quota(member) == Some(0),
+                parameter_seconds(member, "t"),
+            )
+        })
         .collect();
-    let spent = resets.iter().filter(|(remaining, _)| *remaining == Some(0));
-    spent
-        .map(|(_, t)| *t)
-        .max()
-        .or_else(|| resets.iter().map(|(_, t)| *t).max())
+    // Another policy's reset says nothing about when a spent quota resets, so a spent policy
+    // without `t` leaves the wait unknown.
+    let spent: Vec<Option<u64>> = policies
+        .iter()
+        .filter(|(spent, _)| *spent)
+        .map(|(_, reset)| *reset)
+        .collect();
+    match spent.is_empty() {
+        true => policies.iter().filter_map(|(_, reset)| *reset).max(),
+        false => spent
+            .into_iter()
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .max(),
+    }
 }
 
 /// The last occurrence of parameter `name` of a `RateLimit` member, when it is a non-negative
@@ -362,7 +377,7 @@ mod tests {
             ),
             (&[r#""a\";b";r=0"#], None),
             (&[r#""default";r=5;r=0"#], None),
-            (&[r#""default";r=12;t=30"#, r#""daily";r=0"#], wait(30)),
+            (&[r#""default";r=12;t=30"#, r#""daily";r=0"#], None),
         ] {
             let mut spent = ratelimit_field(field_lines);
             spent.insert(
@@ -439,6 +454,7 @@ mod tests {
             &[r#""default";r=0"#],
             &[r#""default";r=0;t=30, "#],
             &[r#""default";r=0;t=30, "daily"#],
+            &[r#""per-minute";r=42;t=10, "daily";r=0"#],
         ] {
             let signal = RateLimitSignal::from_page(429, Some(&ratelimit_field(field_lines)));
             assert_eq!(signal.and_then(|s| s.retry_after), None, "{field_lines:?}");
