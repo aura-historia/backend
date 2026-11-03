@@ -200,23 +200,46 @@ function changedCandidateVersion(error) {
 // starts, cannot show the older queue or report a stale status change of the selected review.
 let queueLoadSequence = 0;
 
+// The health view and the queue load independently: each shows as soon as it answers, and the
+// failure of one leaves the other as it is. A failing queue rejects, so the caller reports it.
 async function loadReviews() {
     const sequence = ++queueLoadSequence;
-    // The crawl state only adds to the queue, so its failure must not hide the reviews.
-    const [reviews, listingSources] = await Promise.all([
-        api('/api/reviews'),
-        api('/api/listing_sources').catch(() => null)
-    ]);
-    if (sequence !== queueLoadSequence) return reviews;
-    latestQueue = reviews;
-    latestListingSources = listingSources;
-    showQueue(renderSourceHealthEntry(listingSources)
-        + renderDomainsNeedingOperator(listingSources)
-        + renderMissingValueSources(listingSources)
-        + renderReviewGroups(reviews));
-    showSourceHealth();
-    updateSelectedReviewFreshness(reviews);
+    const overviewLoaded = api('/api/listing_sources').then(
+        listingSources => listingSources,
+        () => null
+    ).then(listingSources => {
+        if (sequence !== queueLoadSequence) return;
+        latestListingSources = listingSources;
+        showQueueList();
+        showSourceHealth();
+    });
+    let reviews;
+    try {
+        reviews = await api('/api/reviews');
+    } catch (error) {
+        if (sequence === queueLoadSequence) {
+            queueLoadFailed = true;
+            showQueueList();
+        }
+        throw error;
+    }
+    if (sequence === queueLoadSequence) {
+        queueLoadFailed = false;
+        latestQueue = reviews;
+        showQueueList();
+        updateSelectedReviewFreshness(reviews);
+    }
+    await overviewLoaded;
     return reviews;
+}
+
+function showQueueList() {
+    showQueue(renderSourceHealthEntry(latestListingSources)
+        + renderDomainsNeedingOperator(latestListingSources)
+        + renderMissingValueSources(latestListingSources)
+        + (queueLoadFailed && !latestQueue.length
+            ? '<div class="error-panel"><strong>The review queue is unavailable.</strong> The next refresh tries again.</div>'
+            : renderReviewGroups(latestQueue)));
 }
 
 // The ListingSource health view fills the detail pane while no review is selected: one row per
@@ -226,12 +249,13 @@ async function loadReviews() {
 // could not be read.
 let latestListingSources;
 let latestQueue = [];
+let queueLoadFailed = false;
 let shownSourceHealthHtml = '';
 
-// A pending review of a crawl-enabled ListingSource holds back the work waiting on it until it is
-// decided; one of a disabled ListingSource holds back nothing.
+// A ListingSource is blocked while URLs of a crawl-enabled one wait on a pending review: a
+// pending review nothing waits on, or one of a disabled ListingSource, holds back nothing.
 function blockedByReview(source) {
-    return Boolean(source.crawl_enabled) && Number(source.pending_reviews) > 0;
+    return Boolean(source.crawl_enabled) && Number(source.blocked_urls) > 0;
 }
 
 // The scraper circuit keeps a failure streak per domain; a ListingSource shows its longest, or
@@ -271,7 +295,7 @@ function renderSourceHealthEntry(listingSources) {
           <span class="queue-title">ListingSource health</span>
           <span class="queue-badges">${blocked ? badge(`${blocked} blocked`, 'pending') : ''}${failing ? badge(`${failing} failing`, 'rejected') : ''}</span>
         </span>
-        <span class="queue-meta">Scrape failures, last scrapes, pending reviews</span>
+        <span class="queue-meta">Blocked URLs, scrape failures, held removals, last scrapes</span>
       </a>
     </div>`;
 }
@@ -304,7 +328,7 @@ function renderSourceHealth() {
             ${blocked ? badge(`${blocked} blocked by a pending review`, 'pending') : ''}
           </div>
           <div class="review-meta">
-            <span>A highlighted ListingSource is blocked: its pending review holds back the work waiting on it until it is decided. Select a review in the queue to work on it.</span>
+            <span>A highlighted ListingSource is blocked: URLs wait on its pending review until it is decided. Select a review in the queue to work on it.</span>
           </div>
         </div>
       </div>
@@ -312,9 +336,12 @@ function renderSourceHealth() {
         <table class="source-health-table">
           <thead><tr>
             <th scope="col">ListingSource</th>
+            <th scope="col">Blocked URLs</th>
             <th scope="col">Pending reviews</th>
             <th scope="col">Scrape failure streak</th>
             <th scope="col">Last error kind</th>
+            <th scope="col">URL error kinds</th>
+            <th scope="col">Held removals</th>
             <th scope="col">Last successful scrape</th>
           </tr></thead>
           <tbody>${sources.map(renderSourceHealthRow).join('')}</tbody>
@@ -335,13 +362,39 @@ function renderSourceHealthRow(source) {
         ${blocked ? badge('Blocked by review', 'pending') : ''}
         ${source.crawl_enabled ? '' : badge('Crawling disabled')}
       </span></td>
+      <td>${renderBlockedUrlsCell(source)}</td>
       <td>${renderPendingReviewsCell(source)}</td>
       <td>${failing
         ? `${badge(scrapeFailureStreakText(scrapeFailureStreak(failing)), 'rejected')}${severalDomains ? ` <span class="muted">${escapeHtml(failing.domain)}</span>` : ''}`
         : '<span class="muted">None</span>'}</td>
       <td>${failing?.last_scrape_error_kind ? `<code>${escapeHtml(failing.last_scrape_error_kind)}</code>` : '<span class="muted">None</span>'}</td>
+      <td>${renderUrlErrorKindsCell(source)}</td>
+      <td>${renderHeldRemovalsCell(source)}</td>
       <td>${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
     </tr>`;
+}
+
+// The blocked URLs and how long the oldest pending review they wait on has been pending.
+function renderBlockedUrlsCell(source) {
+    const blocked = Number(source.blocked_urls) || 0;
+    if (!blocked) return '<span class="muted">None</span>';
+    return `${escapeHtml(String(blocked))} ${source.blocked_since ? timeBadge(source.blocked_since, 'Blocked since') : ''}`;
+}
+
+// The last error kinds of the ListingSource's product URLs with their URL counts.
+function renderUrlErrorKindsCell(source) {
+    const kinds = source.url_error_kinds || [];
+    if (!kinds.length) return '<span class="muted">None</span>';
+    return kinds.map(entry => `<span class="source-health-kind"><code>${escapeHtml(entry.kind)}</code> ${escapeHtml(String(entry.count))}</span>`).join(' ');
+}
+
+// URLs whose removal the mass-removal guard held back keep their listing; it is the shop's
+// pages that need a look, not the review queue.
+function renderHeldRemovalsCell(source) {
+    const held = Number(source.held_removal_urls) || 0;
+    return held
+        ? badge(`${held} held`, 'pending')
+        : '<span class="muted">None</span>';
 }
 
 function scrapeFailureStreakText(streak) {
@@ -463,6 +516,7 @@ function reviewCountsByArtifactType(reviews) {
 // A domain whose deterministic crawl failures kept repeating opens no review, so the queue
 // lists it here until an operator fixes its configuration or disables crawling.
 function renderDomainsNeedingOperator(listingSources) {
+    if (listingSources === undefined) return '';
     if (listingSources === null) {
         return `<div class="empty-list">Domain crawl state is unavailable.</div>`;
     }

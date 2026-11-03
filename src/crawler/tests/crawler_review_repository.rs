@@ -3162,6 +3162,288 @@ async fn should_list_each_domains_scrape_failure_streak_and_the_last_successful_
     );
 }
 
+/// Marks a stored product URL with its last error kind, and with the pending review it waits on.
+async fn set_url_error_kind(
+    pool: &PgPool,
+    url: &str,
+    error_kind: &str,
+    waited_on: Option<CrawlerReviewId>,
+) {
+    sqlx::query(
+        "UPDATE listing_source_urls \
+         SET last_error_kind = $2, schema_review_waited_on = $3, \
+             schema_review_wait_streak = CASE WHEN $3::uuid IS NULL THEN 0 ELSE 1 END \
+         WHERE url = $1",
+    )
+    .bind(url)
+    .bind(error_kind)
+    .bind(waited_on.map(|review_id| *review_id.as_uuid()))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Blocked means URLs actually waiting on a pending review: a pending review nothing waits on, or
+/// a wait on a review that was decided since, blocks nothing. The blocked time is the age of the
+/// oldest pending review a URL waits on.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let blocked = ListingSourceId::new();
+    insert_listing_source(&pool, blocked).await;
+    let blocked_domain = insert_domain(&pool, blocked, "blocked.example.com").await;
+    let pending = pending_schema_review(&repository, &blocked).await;
+    let decided = repository
+        .create_schema_review_with_status(SchemaReviewWithStatusInput {
+            listing_source_id: &blocked,
+            reason: "initial_schema_generation",
+            schemas: &[schema("h1")],
+            pages: review_pages(),
+            validation_summary: json!({}),
+            status: STATUS_APPROVED,
+            notes: None,
+        })
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE crawler_reviews SET created = NOW() - INTERVAL '3 hours' WHERE review_id = $1",
+    )
+    .bind(pending.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let idle = ListingSourceId::new();
+    insert_listing_source(&pool, idle).await;
+    let idle_domain = insert_domain(&pool, idle, "idle.example.com").await;
+    pending_schema_review(&repository, &idle).await;
+    for (domain_id, url) in [
+        (blocked_domain, "https://blocked.example.com/item/1"),
+        (blocked_domain, "https://blocked.example.com/item/2"),
+        (blocked_domain, "https://blocked.example.com/item/3"),
+        (idle_domain, "https://idle.example.com/item/1"),
+    ] {
+        insert_scraped_url(
+            &pool,
+            if url.contains("idle") { idle } else { blocked },
+            domain_id,
+            url,
+            "product",
+            "ACTIVE",
+            None,
+        )
+        .await;
+    }
+    set_url_error_kind(
+        &pool,
+        "https://blocked.example.com/item/1",
+        "PendingSchemaReview",
+        Some(pending),
+    )
+    .await;
+    set_url_error_kind(
+        &pool,
+        "https://blocked.example.com/item/2",
+        "PendingSchemaReview",
+        Some(pending),
+    )
+    .await;
+    set_url_error_kind(
+        &pool,
+        "https://blocked.example.com/item/3",
+        "PendingSchemaReview",
+        Some(decided),
+    )
+    .await;
+
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(10)
+        .await
+        .unwrap();
+
+    let blocked_row = overview
+        .iter()
+        .find(|source| source.listing_source_id == blocked)
+        .unwrap();
+    assert_eq!(blocked_row.blocked_urls, 2);
+    let since = blocked_row
+        .blocked_since
+        .expect("a blocked source has a blocked time");
+    assert!(
+        OffsetDateTime::now_utc() - since > time::Duration::hours(2),
+        "blocked since the oldest pending review"
+    );
+    assert_eq!(blocked_row.pending_reviews, 1);
+    assert_eq!(
+        blocked_row
+            .url_error_kinds
+            .iter()
+            .map(|entry| (entry.kind.as_str(), entry.count))
+            .collect::<Vec<_>>(),
+        vec![("PendingSchemaReview", 3)]
+    );
+    let idle_row = overview
+        .iter()
+        .find(|source| source.listing_source_id == idle)
+        .unwrap();
+    assert_eq!(idle_row.pending_reviews, 1);
+    assert_eq!(
+        idle_row.blocked_urls, 0,
+        "a pending review nothing waits on blocks nothing"
+    );
+    assert_eq!(idle_row.blocked_since, None);
+    assert_eq!(
+        overview[0].listing_source_id, blocked,
+        "a blocked source comes first"
+    );
+}
+
+/// A URL the mass-removal guard held is listed per source and does not move the last successful
+/// scrape, although the scraper records its attempt as `last_scraped`.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "held.example.com").await;
+    for (url, last_scraped) in [
+        ("https://held.example.com/item/1", "2026-10-30T08:00:00Z"),
+        ("https://held.example.com/item/2", "2026-10-31T08:00:00Z"),
+        ("https://held.example.com/item/3", "2026-10-31T09:00:00Z"),
+    ] {
+        insert_scraped_url(
+            &pool,
+            listing_source_id,
+            domain_id,
+            url,
+            "product",
+            "ACTIVE",
+            Some(last_scraped),
+        )
+        .await;
+    }
+    set_url_error_kind(
+        &pool,
+        "https://held.example.com/item/2",
+        "MassRemovalHeld",
+        None,
+    )
+    .await;
+    set_url_error_kind(
+        &pool,
+        "https://held.example.com/item/3",
+        "MassRemovalHeld",
+        None,
+    )
+    .await;
+
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(10)
+        .await
+        .unwrap();
+
+    let source = &overview[0];
+    assert_eq!(source.held_removal_urls, 2);
+    assert_eq!(
+        source
+            .url_error_kinds
+            .iter()
+            .map(|entry| (entry.kind.as_str(), entry.count))
+            .collect::<Vec<_>>(),
+        vec![("MassRemovalHeld", 2)]
+    );
+    assert_eq!(
+        source.last_successful_scrape,
+        Some(
+            OffsetDateTime::parse(
+                "2026-10-30T08:00:00Z",
+                &time::format_description::well_known::Rfc3339
+            )
+            .unwrap()
+        )
+    );
+}
+
+/// The limit only bounds the sources that need no attention: every failing, blocked or held
+/// ListingSource of an enabled one is listed, however many healthy ones come first by name.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_never_drop_a_failing_or_blocked_listing_source_for_the_row_limit() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let mut healthy = Vec::new();
+    for index in 0..5 {
+        let source = ListingSourceId::new();
+        insert_listing_source(&pool, source).await;
+        insert_domain(&pool, source, &format!("healthy{index}.example.com")).await;
+        healthy.push(source);
+    }
+    let failing = ListingSourceId::new();
+    insert_listing_source(&pool, failing).await;
+    let failing_domain = insert_domain(&pool, failing, "failing.example.com").await;
+    sqlx::query("UPDATE listing_source_domains SET scrape_failure_streak = 2, last_scrape_error_kind = 'TIMEOUT' WHERE domain_id = $1")
+        .bind(failing_domain.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let blocked = ListingSourceId::new();
+    insert_listing_source(&pool, blocked).await;
+    let blocked_domain = insert_domain(&pool, blocked, "blocked.example.com").await;
+    let review = pending_schema_review(&repository, &blocked).await;
+    insert_scraped_url(
+        &pool,
+        blocked,
+        blocked_domain,
+        "https://blocked.example.com/item/1",
+        "product",
+        "ACTIVE",
+        None,
+    )
+    .await;
+    set_url_error_kind(
+        &pool,
+        "https://blocked.example.com/item/1",
+        "PendingSchemaReview",
+        Some(review),
+    )
+    .await;
+    let held = ListingSourceId::new();
+    insert_listing_source(&pool, held).await;
+    let held_domain = insert_domain(&pool, held, "held.example.com").await;
+    insert_scraped_url(
+        &pool,
+        held,
+        held_domain,
+        "https://held.example.com/item/1",
+        "product",
+        "ACTIVE",
+        None,
+    )
+    .await;
+    set_url_error_kind(
+        &pool,
+        "https://held.example.com/item/1",
+        "MassRemovalHeld",
+        None,
+    )
+    .await;
+
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(2)
+        .await
+        .unwrap();
+
+    let listed = overview
+        .iter()
+        .map(|source| source.listing_source_id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        listed,
+        vec![blocked, failing, held],
+        "the three that need attention exceed the limit of 2 and the healthy ones are cut"
+    );
+    assert!(healthy.iter().all(|source| !listed.contains(source)));
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_list_pending_reviews_of_disabled_listing_sources_after_those_of_enabled_ones() {
     let pool = get_postgres_client().await;
