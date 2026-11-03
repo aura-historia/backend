@@ -10,6 +10,8 @@ use crate::spider::utils::url::canonical::ShopPlatform;
 
 pub struct CrawlRunState {
     pub total_crawled: usize,
+    /// How many of the crawled pages were bot challenges the shop answered instead of the page.
+    pub challenged_pages: usize,
     /// The [page spelling](CrawledUrl::page_spelling) of each crawled page the product pattern
     /// matched, so a page the shop links with and without its trailing slash counts once.
     pub pattern_matched_pages: HashSet<url::Url>,
@@ -39,6 +41,11 @@ pub struct UrlPatternReviewWait {
 }
 
 impl CrawlRunState {
+    /// Whether bot challenges are more than half of the pages crawled so far.
+    pub fn mostly_bot_challenges(&self) -> bool {
+        self.challenged_pages > self.total_crawled.saturating_sub(self.challenged_pages)
+    }
+
     pub fn new(pattern: Option<Regex>) -> Self {
         let pattern = pattern
             .map(ProductListingPattern::from)
@@ -48,6 +55,7 @@ impl CrawlRunState {
 
         Self {
             total_crawled: 0,
+            challenged_pages: 0,
             pattern_matched_pages: HashSet::new(),
             stored_product_pages: HashSet::new(),
             pattern,
