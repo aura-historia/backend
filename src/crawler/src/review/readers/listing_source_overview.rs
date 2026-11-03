@@ -75,13 +75,31 @@ impl ListingSourceOverviewReader {
                     GROUP BY listing_source_id
                 ) u ON u.listing_source_id = s.listing_source_id
                 LEFT JOIN (
-                    SELECT su.listing_source_id, COUNT(*) AS blocked_urls, MIN(cr.created) AS blocked_since
+                    SELECT su.listing_source_id, COUNT(*) AS blocked_urls,
+                           LEAST(MIN(cr.created), MIN(fs.created)) AS blocked_since
                     FROM listing_source_urls su
-                    JOIN crawler_reviews cr ON cr.review_id = su.schema_review_waited_on
-                                           AND cr.status = 'PENDING_REVIEW'
+                    LEFT JOIN crawler_reviews cr ON cr.review_id = su.schema_review_waited_on
+                                                AND cr.status = 'PENDING_REVIEW'
+                                                AND su.last_error_kind = 'PendingSchemaReview'
+                    LEFT JOIN (
+                        -- A ListingSource without a product schema scrapes none of its URLs while
+                        -- its first product-schema review is pending.
+                        SELECT pr.listing_source_id, MIN(pr.created) AS created
+                        FROM crawler_reviews pr
+                        WHERE pr.artifact_type = 'PRODUCT_SCHEMA'
+                          AND pr.status = 'PENDING_REVIEW'
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM listing_source_product_schemas ps
+                              WHERE ps.listing_source_id = pr.listing_source_id
+                                AND (jsonb_typeof(ps.product_schema) <> 'array'
+                                     OR jsonb_array_length(ps.product_schema) > 0)
+                          )
+                        GROUP BY pr.listing_source_id
+                    ) fs ON fs.listing_source_id = su.listing_source_id
                     WHERE su.url_class = 'product'
                       AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-                      AND su.last_error_kind = 'PendingSchemaReview'
+                      AND (cr.review_id IS NOT NULL OR fs.listing_source_id IS NOT NULL)
                     GROUP BY su.listing_source_id
                 ) b ON b.listing_source_id = s.listing_source_id
             ), ranked AS (

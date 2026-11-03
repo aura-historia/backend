@@ -3183,6 +3183,19 @@ async fn set_url_error_kind(
     .unwrap();
 }
 
+/// Stores a live product schema, so the ListingSource no longer waits on its first one.
+async fn store_live_product_schema(pool: &PgPool, listing_source_id: ListingSourceId) {
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas \
+         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(serde_json::to_value(vec![schema("h1")]).unwrap())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 /// Blocked means URLs actually waiting on a pending review: a pending review nothing waits on, or
 /// a wait on a review that was decided since, blocks nothing. The blocked time is the age of the
 /// oldest pending review a URL waits on.
@@ -3192,6 +3205,7 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let blocked = ListingSourceId::new();
     insert_listing_source(&pool, blocked).await;
+    store_live_product_schema(&pool, blocked).await;
     let blocked_domain = insert_domain(&pool, blocked, "blocked.example.com").await;
     let pending = pending_schema_review(&repository, &blocked).await;
     let decided = repository
@@ -3215,6 +3229,7 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     .unwrap();
     let idle = ListingSourceId::new();
     insert_listing_source(&pool, idle).await;
+    store_live_product_schema(&pool, idle).await;
     let idle_domain = insert_domain(&pool, idle, "idle.example.com").await;
     pending_schema_review(&repository, &idle).await;
     for (domain_id, url) in [
@@ -3295,6 +3310,72 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     assert_eq!(
         overview[0].listing_source_id, blocked,
         "a blocked source comes first"
+    );
+}
+
+/// A ListingSource without a product schema scrapes none of its URLs while its first
+/// product-schema review is pending, although only the page that opened the review recorded the
+/// wait: every product URL of it is blocked, since that review was created.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_every_product_url_of_a_source_waiting_on_its_first_schema_as_blocked() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "first.example.com").await;
+    let review = pending_schema_review(&repository, &listing_source_id).await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET created = NOW() - INTERVAL '3 hours' WHERE review_id = $1",
+    )
+    .bind(review.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    for (url, url_class) in [
+        ("https://first.example.com/item/1", "product"),
+        ("https://first.example.com/item/2", "product"),
+        ("https://first.example.com/item/3", "product"),
+        ("https://first.example.com/category", "category"),
+    ] {
+        insert_scraped_url(
+            &pool,
+            listing_source_id,
+            domain_id,
+            url,
+            url_class,
+            "ACTIVE",
+            None,
+        )
+        .await;
+    }
+    set_url_error_kind(
+        &pool,
+        "https://first.example.com/item/1",
+        "PendingSchemaReview",
+        Some(review),
+    )
+    .await;
+
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(10)
+        .await
+        .unwrap();
+
+    let source = &overview[0];
+    assert_eq!(source.blocked_urls, 3, "every product URL, counted once");
+    let since = source
+        .blocked_since
+        .expect("a blocked source has a blocked time");
+    assert!(OffsetDateTime::now_utc() - since > time::Duration::hours(2));
+
+    store_live_product_schema(&pool, listing_source_id).await;
+    let overview = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(10)
+        .await
+        .unwrap();
+    assert_eq!(
+        overview[0].blocked_urls, 1,
+        "with a schema stored, only the page that recorded the wait is blocked"
     );
 }
 

@@ -20,7 +20,8 @@ pub struct ListingSourceOverview {
     pub pending_reviews: i64,
     pub product_urls: i64,
     /// Product URLs waiting on a product-schema review that is still pending, and so not
-    /// scraped until it is decided.
+    /// scraped until it is decided: those whose scrape recorded the wait, and every product URL
+    /// of a ListingSource whose first product-schema review is pending.
     pub blocked_urls: i64,
     /// Since when the ListingSource has been blocked: the creation of the oldest pending review
     /// a blocked URL waits on. `None` while `blocked_urls` is 0.
