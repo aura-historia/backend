@@ -1,9 +1,9 @@
 {
-  "run": "tw-2026-11-03-060",
-  "verifiedAt": "2026-11-03T19:51:52.666972Z",
-  "scope": "FULL",
+  "run": "tw-2026-11-03-072",
+  "verifiedAt": "2026-11-03T21:15:31.813349Z",
+  "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T19:51:52.666972Z",
+  "fullVerifiedAt": "2026-11-03T21:04:53.258759Z",
   "dealersCheckedThisRun": 0,
   "dealersReused": 0,
   "counts": {
@@ -14,20 +14,22 @@
     "identifiedPlatforms": 0,
     "deliveryProfiles": 0,
     "emptyIngestionMethods": 0,
+    "preservedExternalIngestionMethods": 0,
     "excluded": 0,
     "deferred": 1
   },
   "environmentCounts": {
-    "parties": 3464,
-    "listingSources": 3499
+    "parties": 3655,
+    "listingSources": 3691
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
-    "Live managed Party contacts and ownership match reviewed evidence",
-    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-    "Managed ingestion lists empty; platform metadata independent",
-    "Profile terms and active defaults match reviewed observations",
-    "Inventory inheritance requires explicit separate evidence"
+    "Live managed Party contacts, source presentation/platform/image and ownership match reviewed evidence.",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks.",
+    "New and unexcepted managed ingestion lists are empty. Exact external configurations explicitly preserved by user are checked against source-ID/method-set observations. Discovery has issued no enabling request.",
+    "Profile terms and active defaults match reviewed observations.",
+    "Inventory inheritance requires explicit separate evidence."
   ],
+  "externalIngestionAuthorization": "external-ingestion-observations.json",
   "dealers": []
 }

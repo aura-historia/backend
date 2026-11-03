@@ -1,0 +1,447 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-11-03T20:42:53.427317Z",
+  "authorization": "User explicitly answered: Preserve existing crawler settings; continue discovery.",
+  "scope": "Preserve the 47 externally configured USA-owned sources observed at batch080; create all new sources with empty ingestion. No ingestion mutation is authorized or performed by this discovery process.",
+  "existingOwner": "countries/US/dealers.jsonl",
+  "exceptions": [
+    {
+      "domain": "swaen.com",
+      "listingSourceId": "ls_01m6ge58hqe4hvwdgn4vfp19gk",
+      "partyId": "pty_01m6ge58hbex3r1frbx8yseafr",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:19.66Z"
+    },
+    {
+      "domain": "raremaps.com",
+      "listingSourceId": "ls_01m6gf7s74ekm8wkkk0w46ktd9",
+      "partyId": "pty_01m6gf7s6hesvs03xmn2w4jtwy",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:30.09Z"
+    },
+    {
+      "domain": "gasolinealleyantiques.com",
+      "listingSourceId": "ls_01m6ggbx4veaztd0sn6m3eheya",
+      "partyId": "pty_01m6ggbx46eeys1mjzsf17nvff",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:24.451Z"
+    },
+    {
+      "domain": "danielsteinantiques.com",
+      "listingSourceId": "ls_01m6gh2bkver4849dfjvgqm12a",
+      "partyId": "pty_01m6gh2bkfehjb4a23m67szg1f",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:01.408Z"
+    },
+    {
+      "domain": "adobegallery.com",
+      "listingSourceId": "ls_01m6gjgvwnev1rsew3wm7wqdq8",
+      "partyId": "pty_01m6gjgvw7ethrdnhsbzmh8av6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:30:55.161Z"
+    },
+    {
+      "domain": "barnon26.com",
+      "listingSourceId": "ls_01m6gnst86e618zqdxmcfwzk71",
+      "partyId": "pty_01m6gnst7qem4arqvf0zbatk8y",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:44Z"
+    },
+    {
+      "domain": "alaskafurexchange.com",
+      "listingSourceId": "ls_01m6gpcb21e398328tm2qcgqpg",
+      "partyId": "pty_01m6gpcb1ceq58zgzd645v9hm4",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:30:57.062Z"
+    },
+    {
+      "domain": "momsjoyroom.net",
+      "listingSourceId": "ls_01m6gpnjhnemr96sxxswgj0rzw",
+      "partyId": "pty_01m6gpnjhbe1wt8yr4ezq67bk1",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:08.483Z"
+    },
+    {
+      "domain": "kcartifact.com",
+      "listingSourceId": "ls_01m6grc8v7esjtjz3b320859p9",
+      "partyId": "pty_01m6grc8ttecy8rq12j8y4x0v0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:40.189Z"
+    },
+    {
+      "domain": "antiquearchitectural.com",
+      "listingSourceId": "ls_01m6gs50grewd9q6qqffkgj8e7",
+      "partyId": "pty_01m6gs50g7em1t65vgwg77zd38",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:31:36.67Z"
+    },
+    {
+      "domain": "greenwaldantiques.com",
+      "listingSourceId": "ls_01m6gt1x3tev98ba7p2qz4brz6",
+      "partyId": "pty_01m6gt1x3der0a9shy98ath4xq",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:27.542Z"
+    },
+    {
+      "domain": "judyfrankelantiques.com",
+      "listingSourceId": "ls_01m6gt1ysvevasy6yqdnzcceem",
+      "partyId": "pty_01m6gt1yseewgtzty7qn49q64d",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:39.033Z"
+    },
+    {
+      "domain": "kahlerpayne.net",
+      "listingSourceId": "ls_01m6gt22yves38wvbgzqtf401v",
+      "partyId": "pty_01m6gt22yee5sb75ag585x49fm",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:39.79Z"
+    },
+    {
+      "domain": "baumanrarebooks.com",
+      "listingSourceId": "ls_01m6gvjtehetd8x3x5dpndbk49",
+      "partyId": "pty_01m6gvjtdze7kbefx390ffdjhj",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:31:41.776Z"
+    },
+    {
+      "domain": "jamescumminsbookseller.com",
+      "listingSourceId": "ls_01m6gvjxhgebqs6nrexgzarveh",
+      "partyId": "pty_01m6gvjxgqe3s88whcwt5dfq9m",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:35.434Z"
+    },
+    {
+      "domain": "lopezbooks.com",
+      "listingSourceId": "ls_01m6gx6cypeyqr293efe2jk1gv",
+      "partyId": "pty_01m6gx6cy2esdb3wjr4ch7hcxs",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:40.524Z"
+    },
+    {
+      "domain": "salmonrarebooks.com",
+      "listingSourceId": "ls_01m6gx6f76e739gh5x94yv3bzw",
+      "partyId": "pty_01m6gx6f6nevkr1e31cj7zk74p",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:20.769Z"
+    },
+    {
+      "domain": "oakknoll.com",
+      "listingSourceId": "ls_01m6gx6hcqet7a3mj23ecv41my",
+      "partyId": "pty_01m6gx6hc5eyctbmk7dzfb15vm",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:15.531Z"
+    },
+    {
+      "domain": "bernettrarebooks.com",
+      "listingSourceId": "ls_01m6gx6kesejj85yrs0hbrkzcd",
+      "partyId": "pty_01m6gx6keaephbjwncgxf6vrk7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:31:43.373Z"
+    },
+    {
+      "domain": "hyperkitten.com",
+      "listingSourceId": "ls_01m6h111j2ec7r0tc7rv03q1am",
+      "partyId": "pty_01m6h111hpevfr2x6aj3qn3vn2",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:33.669Z"
+    },
+    {
+      "domain": "oldtools.com",
+      "listingSourceId": "ls_01m6h113jvep2tx8p4mc9nj4w2",
+      "partyId": "pty_01m6h113jfe1bsr5jbj43a59cv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:11.622Z"
+    },
+    {
+      "domain": "thebestthings.com",
+      "listingSourceId": "ls_01m6h115pkeprrdrz3xak0rmsm",
+      "partyId": "pty_01m6h115p7e0tbpt8jvtbnh4tv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:44.027Z"
+    },
+    {
+      "domain": "larkstreetmusic.com",
+      "listingSourceId": "ls_01m6h1qqweej0a86kqb209z400",
+      "partyId": "pty_01m6h1qqvve11sc0khbx1tndy9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:48.766Z"
+    },
+    {
+      "domain": "billsclockworks.com",
+      "listingSourceId": "ls_01m6h293hvecza4ns4d7q4wc3c",
+      "partyId": "pty_01m6h293hbezmafg4nzph1s2dk",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:31:44.462Z"
+    },
+    {
+      "domain": "clockgallery.net",
+      "listingSourceId": "ls_01m6h295vqe638jpgxshj1k3kh",
+      "partyId": "pty_01m6h295v0ek8b6xzf8bevp915",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:44.527Z"
+    },
+    {
+      "domain": "lostcityarts.com",
+      "listingSourceId": "ls_01m6h3nqave7bamts553y4kk1f",
+      "partyId": "pty_01m6h3nqaeesabsbqjwpndp9f0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:58.751Z"
+    },
+    {
+      "domain": "amsterdammodern.com",
+      "listingSourceId": "ls_01m6h43a15e66b7xc42zh00b7r",
+      "partyId": "pty_01m6h43a0rejpsfmdymx3t8ne4",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:30:59.831Z"
+    },
+    {
+      "domain": "antiquesamplers.com",
+      "listingSourceId": "ls_01m6h5zdqdethach9d90h5r3ty",
+      "partyId": "pty_01m6h5zdpze1d9vkr1zgxj4e5v",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:39.285Z"
+    },
+    {
+      "domain": "oldprintshop.com",
+      "listingSourceId": "ls_01m6h7xwtse098nwydrdkswtpn",
+      "partyId": "pty_01m6h7xwtced28gv5t0y6nvkb8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:44.9Z"
+    },
+    {
+      "domain": "preservationco.com",
+      "listingSourceId": "ls_01m6h8nkn3ek5r737p6s9zazy0",
+      "partyId": "pty_01m6h8nkmvemj94pvkbrwxc387",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:22.55Z"
+    },
+    {
+      "domain": "jewett-berdan.com",
+      "listingSourceId": "ls_01m6h8nnqsepnsp482c36f5p81",
+      "partyId": "pty_01m6h8nnq7e8vrewa09gh6fs4q",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:36.074Z"
+    },
+    {
+      "domain": "shiprocksantafe.com",
+      "listingSourceId": "ls_01m6h9sdeaee3b5b70e1mmaew4",
+      "partyId": "pty_01m6h9sde0evgbwwqwpr42wzpy",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:36.897Z"
+    },
+    {
+      "domain": "robertmorrissey.com",
+      "listingSourceId": "ls_01m6haeb5te78td6zpecjcskan",
+      "partyId": "pty_01m6haeb58efj8c99vfvb5cwxh",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:28.354Z"
+    },
+    {
+      "domain": "lilliannassau.com",
+      "listingSourceId": "ls_01m6hcj6b5ebzrnfwdcy2vdkay",
+      "partyId": "pty_01m6hcj6asekcbhphpe1tma7jq",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:57.521Z"
+    },
+    {
+      "domain": "maisongerard.com",
+      "listingSourceId": "ls_01m6hcj7xse16877e16qrd1g89",
+      "partyId": "pty_01m6hcj7x9ema8062p5spxhf4z",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:00.435Z"
+    },
+    {
+      "domain": "berndgoeckler.com",
+      "listingSourceId": "ls_01m6hct17rehz8y0zws46wtrpt",
+      "partyId": "pty_01m6hct17ae30b1e2zs16b7sbq",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:31:43.016Z"
+    },
+    {
+      "domain": "debraforce.com",
+      "listingSourceId": "ls_01m6hd1t3secka4frpd3nby3df",
+      "partyId": "pty_01m6hd1t3jercbr76898ncjpx5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:02.296Z"
+    },
+    {
+      "domain": "eecummingsart.com",
+      "listingSourceId": "ls_01m6hd1vhmesb8csm2zswg9ych",
+      "partyId": "pty_01m6gx6cy2esdb3wjr4ch7hcxs",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:08.529Z"
+    },
+    {
+      "domain": "godelfineart.com",
+      "listingSourceId": "ls_01m6hdbf2zeneah9dbgsjwb5p7",
+      "partyId": "pty_01m6hdbf2he21sak1mmnz2c07v",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:26.357Z"
+    },
+    {
+      "domain": "obsoleteinc.com",
+      "listingSourceId": "ls_01m6hf6nvyek9aarrxmgtkh9e4",
+      "partyId": "pty_01m6hf6nvaen08n8p9d8jtn1j6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:15.955Z"
+    },
+    {
+      "domain": "thomsengallery.com",
+      "listingSourceId": "ls_01m6hfyyzmech9t5awqgcw96y0",
+      "partyId": "pty_01m6hfyyz5ea891az65e9mjnm7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:46.261Z"
+    },
+    {
+      "domain": "mirviss.com",
+      "listingSourceId": "ls_01m6hfz1e7ev4bacqb9gj52d9z",
+      "partyId": "pty_01m6hfz1dhe299tb2rsvhd5hbb",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:36.953Z"
+    },
+    {
+      "domain": "daiichiarts.com",
+      "listingSourceId": "ls_01m6hg5aqfehg8f69xj7pg6e34",
+      "partyId": "pty_01m6hg5aq0e5e8dvzmh8nnnbdm",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:00.553Z"
+    },
+    {
+      "domain": "shrubsole.com",
+      "listingSourceId": "ls_01m6hgk6p7e3n9fmtesg6bxjwg",
+      "partyId": "pty_01m6hgk6nrem69zvsazebys66p",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:37.56Z"
+    },
+    {
+      "domain": "michelebeiny.com",
+      "listingSourceId": "ls_01m6hgzf15eyws5bzte35wamb1",
+      "partyId": "pty_01m6hgzf0peq7ryejmqpf7a5mv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:33:06.452Z"
+    },
+    {
+      "domain": "vandekar.com",
+      "listingSourceId": "ls_01m6hgzhnyem2r9j1b1brpr1e1",
+      "partyId": "pty_01m6hgzhnbe1qba1mtjay3zxcv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:07.742Z"
+    },
+    {
+      "domain": "finnegangallery.com",
+      "listingSourceId": "ls_01m6hhf291ee0thr6v8n2js2y7",
+      "partyId": "pty_01m6hhf285eqhaprxhbdkk9g1h",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:32:13.775Z"
+    }
+  ],
+  "rawEvidencePath": "/tmp/aura-dealer-discovery/US/080-ingestion-audit.json",
+  "additionalExternalChanges": [
+    {
+      "domain": "averygalleries.com",
+      "listingSourceId": "ls_01m6hhsf23ecy9bjkrxvh0ayja",
+      "partyId": "pty_01m6hhsf1meegajsmchgvqht9b",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "externalUpdatedAt": "2026-11-03T20:36:11.194Z",
+      "observedAt": "2026-11-03T20:44:14.855574Z",
+      "creationVerifiedAt": "2026-11-03T20:32:13.969491Z",
+      "basis": "External WEB_CRAWL appeared after independently verified empty-ingestion creation. User instructed preservation of existing crawler settings and continued discovery. No ingestion mutation performed."
+    }
+  ]
+}

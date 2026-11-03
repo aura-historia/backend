@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-174",
+  "country": "IT",
+  "observedAt": "2026-11-03T20:49:32.650017Z",
+  "result": "PASSED",
+  "rawJournalFiles": 150,
+  "rawJournalRecordsScanned": 48835,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "collezionismoa360gradi.it",
+      "IT:ANTICOANTICO:2178"
+    ],
+    "excluded": [],
+    "deferred": [
+      "mondoanticomessina.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot174-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T20:47:40.051373Z",
+    "fullVerifiedAt": "2026-11-03T20:38:08.548711Z",
+    "counts": {
+      "parties": 278,
+      "listingSources": 278,
+      "locations": 326,
+      "logos": 230,
+      "identifiedPlatforms": 217,
+      "deliveryProfiles": 151,
+      "emptyIngestionMethods": 278,
+      "excluded": 25,
+      "deferred": 90
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Two additions rest on concrete directly relevant antique stock: actual1093x1280original1894Palermo printed edict offered by nativeTomaselloValeria business, and actual1136x1487Madonna painting exactSantagati2178. Modern banknotes/stickers/stationery/watch are not qualification basis. Both nativeVATs positively identify full operators; no family/expert/provider Parties. Collezionismo original290x194logo retained, WooCommerce verified; native Etnea504 lacks postal, omitted; taxLanza3 distinct. Homepageworldwide versus aboutItaly-without-only preserves PARTIALANYWHERE/OFFERED and unknownfulfillmentdetails. Santagati brokenstandalone404 notclosure; only exacthosted2178, originalCDNimage200 without bypass. Native963contact roles[] separate governmentunit detail; no logo/email/shipping guessed. MondoAntico actualCharlesXconsole inspected, directantique relevance clear but full legal form only secondary; nativebrand/VAT and negativeVIES insufficient for full operator, deferred3Dec withoutAPI. No correction of published postal codes, tax/stock/dispatch/pickup assumptions or ingestion. Thirteen journals passed; no additional ingestion drift or restoration required174. LegacySantagati/IlLeone native frontier entries explicitly closed without confusing hosted entity keys. No pendingwrites, $0.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

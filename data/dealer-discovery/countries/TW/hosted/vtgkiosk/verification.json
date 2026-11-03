@@ -1,9 +1,9 @@
 {
-  "run": "tw-2026-11-03-059",
-  "verifiedAt": "2026-11-03T19:50:25.179323Z",
+  "run": "tw-2026-11-03-072",
+  "verifiedAt": "2026-11-03T21:15:38.801182Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T19:22:32.327750Z",
+  "fullVerifiedAt": "2026-11-03T21:05:07.210449Z",
   "dealersCheckedThisRun": 0,
   "dealersReused": 1,
   "counts": {
@@ -13,22 +13,24 @@
     "logos": 1,
     "identifiedPlatforms": 1,
     "deliveryProfiles": 0,
-    "emptyIngestionMethods": 1,
+    "emptyIngestionMethods": 0,
+    "preservedExternalIngestionMethods": 1,
     "excluded": 0,
     "deferred": 0
   },
   "environmentCounts": {
-    "parties": 3459,
-    "listingSources": 3494
+    "parties": 3655,
+    "listingSources": 3691
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
-    "Live managed Party contacts and ownership match reviewed evidence",
-    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-    "Managed ingestion lists empty; platform metadata independent",
-    "Profile terms and active defaults match reviewed observations",
-    "Inventory inheritance requires explicit separate evidence"
+    "Live managed Party contacts, source presentation/platform/image and ownership match reviewed evidence.",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks.",
+    "New and unexcepted managed ingestion lists are empty. Exact external configurations explicitly preserved by user are checked against source-ID/method-set observations. Discovery has issued no enabling request.",
+    "Profile terms and active defaults match reviewed observations.",
+    "Inventory inheritance requires explicit separate evidence."
   ],
+  "externalIngestionAuthorization": "external-ingestion-observations.json",
   "dealers": [
     {
       "domain": "pinkoi.com",
@@ -38,10 +40,13 @@
       "logo": true,
       "platform": "PINKOI",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:22:32.327190Z",
-      "observationDigest": "fab895f7f52b3c29b1e738f02c530442a00e0a5b03d7ef653aef8ba3a2d5517a"
+      "verifiedAt": "2026-11-03T21:05:07.210040Z",
+      "observationDigest": "fab895f7f52b3c29b1e738f02c530442a00e0a5b03d7ef653aef8ba3a2d5517a",
+      "externalIngestionConfigurationPreserved": true
     }
   ]
 }

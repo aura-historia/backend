@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-172",
+  "country": "IT",
+  "observedAt": "2026-11-03T20:30:39.144794Z",
+  "result": "PASSED",
+  "rawJournalFiles": 149,
+  "rawJournalRecordsScanned": 47245,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "antichitagoglia.com",
+      "IT:ANTICOANTICO:779"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot172-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T20:30:08.104535Z",
+    "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+    "counts": {
+      "parties": 275,
+      "listingSources": 275,
+      "locations": 323,
+      "logos": 228,
+      "identifiedPlatforms": 215,
+      "deliveryProfiles": 149,
+      "emptyIngestionMethods": 275,
+      "excluded": 25,
+      "deferred": 89
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Added Goglia legalbusinessRosanoDomenica verified by nativeVAT/positiveofficial, current actual1000x1000RomanLuigiXVarmchairpair and original1080x141logo inspected. NativeAversaEuropa287HQ roles[] distinctCorcioni28tax/Carinarooldfair, no family/representative/agencyParty. Two currentdifferentcategoryoffers repeat trackedworldwide delivery privatelyagreed: PARTIALANYWHERE/TRACKING/SUBJECT_TO_CONFIRMATION, no rate/insurance/time/pickup guess. IlLeone exactseller779currentlegalfooter fullsoletraderGiampieroMaglia/nativeVATpositiveofficial; currentAntico458954 andProantic1802336 sameSanGiuseppe45cmsculpture. Actual freelyaccessibleProanticoriginal582x1200photograph inspected, currentmatchingownoffers andcontact corroboration only. Antico legal/catalogue200 without bypass; initialwrongantiquario.asp404 notclosure, oldstandaloneDNSfail notcreatedas source/alias. BolognaStradaMaggiore16Acontactroles[] distincttaxPalazzetti32int5SanLazzaro, no oldFarini/movedate/extralocation/stockdispatch. No IlLeoneshipping/logo/email guessed or marketplacewideParty/source/alias; currentexactProantic is corroborationonly. Twelvejournals verified, no pendingwrites, ingestionempty, $0. Local hostedcorroboration metadata row initially lacked requiredsourceURL; exactoriginalURL restored retaining metadata/allmutationevents/IDs. Initial elevenverifiers passed; explicitIlLeonefullverify then passed. No APIretry/mutation during repair; recoveryrecord externalverification-172-recovery.json.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

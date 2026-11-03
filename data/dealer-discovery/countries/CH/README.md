@@ -18,10 +18,12 @@ Hosted catalogues have separate ledgers and readbacks under `hosted/`, with owne
 
 ## Current checkpoint
 
-ch-2026-11-03-091, 2026-11-03T19:51:58.217996Z. Country totals: 155 ADDED, 141 DEFERRED, 38 EXCLUDED. All root and hosted verification checks passed; see `country-verification.json`. Paid-data spend USD 0. No global blocker; all cantons remain open.
+ch-2026-11-03-108, 2026-11-03T21:13:59.617491Z. Country totals: 177 ADDED, 159 DEFERRED, 43 EXCLUDED. Paid-data spend USD 0. Country remains open.
 
-Added Galerie des Annonciades with a specific current Polper painting, declared Swiss contracting seller, VirtueMart, advertised partial delivery coverage and explicit arranged gallery collection. Read back the retained source/location IDs and delivery profile after confirming the initial HTTP400 profile rejection created no resource and correcting required nullable zone applicability. Excluded Klaus Zurfluh for restoration/new custom work only; deferred Maurus Nann and Antikmarkt Opfertshofen. No uncertain writes remain; ingestion stays empty.
+Added Swiss Rarity Clocks under active Swiss Uhrenwerkstatt and Curta-Service M. Schneider, specifically from available circa1820 Sumiswald antique pendule. Inspected original logo, Jimdo and current145-label shipping table:141 canonical ISO areas plus4 unresolved historical/ambiguous labels, with foreign bulky-clock restrictions and independent workshop collection preserved. Reconciled rejected profile before retry: empty profile/default readback, retained all source/Party/location IDs and creation key, partitioned same-rate88-area zone into64/24 with no semantic change. All created resources/profile/defaults read back; ingestion empty. Existing external ingestion differences preserved. USD0, country open.
+
+Strict root and hosted verification failed: 70 sources now have externally configured ingestion. All sources were created with empty ingestion; this workflow preserves external changes. See `country-verification.json` for current observations and actual last successful verification. New resource/default creation readbacks passed. This limits country-wide verification, not independent research. Latest full resource integrity readback: `resource-verification.json` (its own dates/counts apply).
 
 ## Continuation
 
-Resume queued leads and dated follow-ups in `frontier.jsonl`. Root and every hosted ledger require explicit audit, index and verification paths after each batch; every fifth batch receives full readbacks. Hosted duplicate checks compare the exact merchant namespace plus Party identity, never claim the provider host. Country-local orchestration is under `/tmp/aura-dealer-discovery/CH/`; raw evidence and credentials remain external.
+Continue queued leads and dated follow-ups in `frontier.jsonl`; check all country ownership before mutation. Run explicit country-ledger audits, indexes and verification after each batch. Preserve external ingestion changes and report strict failures honestly; never enable ingestion during onboarding. Raw evidence and temporary orchestration remain under `/tmp/aura-dealer-discovery/CH/`.

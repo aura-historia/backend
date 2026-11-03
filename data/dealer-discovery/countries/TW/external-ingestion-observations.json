@@ -1,0 +1,719 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-11-03T21:06:35.847488Z",
+  "status": "ACCEPTED_EXTERNAL_CONFIGURATION",
+  "authorization": {
+    "source": "Explicit user reply",
+    "decision": "Preserve external configurations",
+    "acceptedAt": "2026-11-03T20:44:09.574431Z"
+  },
+  "scope": "Exact current source IDs/method sets recorded from qualified and retained held/excluded Taiwan sources. User explicitly instructed preserving external configurations. New creation remains empty; discovery has issued no enabling request. Qualifying dealers and held resources are verified separately.",
+  "sources": [
+    {
+      "domain": "apothecary1969.com",
+      "url": "https://www.apothecary1969.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gpxs12eq3vtayjva8f7hbt",
+      "partyId": "pty_01m6gpxs07ektr87jg520q7f8b",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.090042+00:00"
+    },
+    {
+      "domain": "retrostudio-shop.com",
+      "url": "https://www.retrostudio-shop.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gqcstcem1tcqyetk1hszva",
+      "partyId": "pty_01m6gqcssxe1dsss6nymargxqa",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.179763+00:00"
+    },
+    {
+      "domain": "naturalnvintage.com",
+      "url": "https://naturalnvintage.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gr5cp2e7stggxkwp9y25s0",
+      "partyId": "pty_01m6gr5cnkepgsgfjd9zbrhk24",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.318150+00:00"
+    },
+    {
+      "domain": "jandtliving.com.tw",
+      "url": "https://www.jandtliving.com.tw/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gt1m2ce5z9g3eana75v8yd",
+      "partyId": "pty_01m6gt1m1teg89mgs3gk3t2esj",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.433172+00:00"
+    },
+    {
+      "domain": "mark-antiques.com",
+      "url": "https://mark-antiques.com/Home",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gt1p6vez3bvgwk34pncmtc",
+      "partyId": "pty_01m6gt1p6feyntz7pw86zk89ka",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.513036+00:00"
+    },
+    {
+      "domain": "twbeyou.com",
+      "url": "https://www.twbeyou.com/collections/%E7%BE%A9%E5%A4%A7%E5%88%A9vintage%E5%AE%B6%E5%85%B7",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gth3w2esjaj668t5j306cq",
+      "partyId": "pty_01m6gth3vbercvghr6ec95p9sz",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.602049+00:00"
+    },
+    {
+      "domain": "chimeiloveearth.pixnet.net",
+      "url": "https://chimeiloveearth.pixnet.net/blog",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gtfcbged8rj82ttbr8wxhn",
+      "partyId": "pty_01m6gtfcaxeq0rn9rr8ha7ycfd",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.682791+00:00"
+    },
+    {
+      "domain": "crossroads-antiques.com",
+      "url": "https://www.crossroads-antiques.com/product-list.php?series=52",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gw2fxfesp8jwwewz50qpbk",
+      "partyId": "pty_01m6gw2fwyevntjhfjcmcbhcx3",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.769154+00:00"
+    },
+    {
+      "domain": "55mobler.com",
+      "url": "https://www.55mobler.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gwck5wecptyazatfpmy54k",
+      "partyId": "pty_01m6gwck5gen9ranp08z7nw4b6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.873007+00:00"
+    },
+    {
+      "domain": "xuexue-oldgoods.pages.dev",
+      "url": "https://xuexue-oldgoods.pages.dev/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6h17dyce6stvrh6g7d4y61j",
+      "partyId": "pty_01m6h17dy0eb8b6bqh14easpm5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:11.958462+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/reborn-antique",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6h3kkg0e65rsw7fb5nq1t66",
+      "partyId": "pty_01m6h3kkfce8htdv4wvy6hm36c",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:12.059486+00:00"
+    },
+    {
+      "domain": "bokehoptical.com",
+      "url": "https://www.bokehoptical.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6h8z015evtskmzvttysr7bm",
+      "partyId": "pty_01m6h8z00rewzt0fa79dx004a8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:12.327816+00:00"
+    },
+    {
+      "domain": "oldbox.vrworld.com.tw",
+      "url": "https://www.oldbox.vrworld.com.tw/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6h9fzb4ey495ygqwkcprytd",
+      "partyId": "pty_01m6h9fzasehnvqtw3pg8ef6fa",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:12.413240+00:00"
+    },
+    {
+      "domain": "vvgsomething.com",
+      "url": "https://www.vvgsomething.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6h9g1c6e8v8n83bxz31drah",
+      "partyId": "pty_01m6h9g1bwekwb6kv7dywe2yd4",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:12.530638+00:00"
+    },
+    {
+      "domain": "aglaeaantique.com",
+      "url": "https://www.aglaeaantique.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6has6zde7zbkx69crs07hxn",
+      "partyId": "pty_01m6has6z0ej4bq4qw82knc67q",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:12.757810+00:00"
+    },
+    {
+      "domain": "wuchen-art.com",
+      "url": "https://www.wuchen-art.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6hbdptaeegvg5q2c2b04ghh",
+      "partyId": "pty_01m6hbdprce3zrjgk0bjvr5wsq",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:12.887291+00:00"
+    },
+    {
+      "domain": "dajungallery.com",
+      "url": "https://dajungallery.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6hbs8v7estrntpejstjm9xs",
+      "partyId": "pty_01m6hbs8tqed6sfq6qdkvx3t62",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:12.974698+00:00"
+    },
+    {
+      "domain": "rodin.cyberbiz.co",
+      "url": "https://rodin.cyberbiz.co/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6hdjw8wem6sw6rdj01w5cxn",
+      "partyId": "pty_01m6hdjw8cezrt99jkgvah18zv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.055811+00:00"
+    },
+    {
+      "domain": "lightoarts.com",
+      "url": "https://www.lightoarts.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6hdjy4gegta5fqbv07kvjhg",
+      "partyId": "pty_01m6hdjy48ez39zh8t05p88akm",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.140720+00:00"
+    },
+    {
+      "domain": "2025wei147.shopstore.tw",
+      "url": "https://2025wei147.shopstore.tw/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6hdy2yeemps69y8edf6jpqn",
+      "partyId": "pty_01m6hdy2xze6v8aj74f7vcmzzc",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.265247+00:00"
+    },
+    {
+      "domain": "ararattw.com",
+      "url": "https://www.ararattw.com/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6hew37qefcs1zc7vc9qp3df",
+      "partyId": "pty_01m6hew37bemkbsk3vzq7hgw3z",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.378677+00:00"
+    },
+    {
+      "domain": "smagtw.org",
+      "url": "https://www.smagtw.org/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6hf4bv8eazrbbfqj2hd7g8h",
+      "partyId": "pty_01m6hf4btmeg0vs2fs9aj45nzy",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.459371+00:00"
+    },
+    {
+      "domain": "yiriarts.com.tw",
+      "url": "https://yiriarts.com.tw/artworks/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6hggk8be5z9axf0t4gk9b78",
+      "partyId": "pty_01m6hggk7se48sgbg3y5s7spve",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.550519+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/1j-studio",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/1j/dealers.jsonl",
+      "listingSourceId": "ls_01m6h8grmde10bqvxs4zktbrjt",
+      "partyId": "pty_01m6h8grm5e2drhmr11m1ttdmy",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.718405+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/9514vintagestore",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/9514/dealers.jsonl",
+      "listingSourceId": "ls_01m6gxfsa4edsb3c99p4ahf408",
+      "partyId": "pty_01m6gxfs9kewp97ws4mbfkwbdr",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.796180+00:00"
+    },
+    {
+      "domain": "tw.bid.yahoo.com",
+      "url": "https://tw.bid.yahoo.com/booth/Y1247261075",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/ada/dealers.jsonl",
+      "listingSourceId": "ls_01m6h4z8kyeyk87bfxnv7qw3fr",
+      "partyId": "pty_01m6h4z8kaet98hged242fas08",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:13.892114+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/antiqueanglia",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/anglia/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7w81derjry8npd4z2267y",
+      "partyId": "pty_01m6h7w80mem98jzsjhyfz39h1",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.055998+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/antiqueaunt",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/antiqueaunt/dealers.jsonl",
+      "listingSourceId": "ls_01m6gw2mw1e9ya26m427xwy4ge",
+      "partyId": "pty_01m6gw2mvkej5s0c9jn5f03492",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.179130+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/ct-antique",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/ct-antique/dealers.jsonl",
+      "listingSourceId": "ls_01m6h0tnq6ekktydgf2e6thx4f",
+      "partyId": "pty_01m6h0tnpse75b7s8ng3rc936f",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.273617+00:00"
+    },
+    {
+      "domain": "ruten.com.tw",
+      "url": "https://www.ruten.com.tw/store/kk51812000",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/dairui/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7c1ypeg5b55fze12hp9qm",
+      "partyId": "pty_01m6h7c1y9edrbnc0j63ggwbw9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.351968+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/damngoodvintage",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/damngoodvintage/dealers.jsonl",
+      "listingSourceId": "ls_01m6h0w2a6e8qaqakkgkrqf6sa",
+      "partyId": "pty_01m6h0w29seh3sn64hbsj1vh17",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.434354+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/everdayvintage",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/everday/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7e478e7kr942wqctzy5jc",
+      "partyId": "pty_01m6h7e46se2x9w224j7ahyb4s",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.515960+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/gdlittlething",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/gdlittlething/dealers.jsonl",
+      "listingSourceId": "ls_01m6gyb12hey7bddt09smycadq",
+      "partyId": "pty_01m6gyb121e3wrbmvj0221svnv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.619394+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/ggdesign-vintage",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/ggdesign/dealers.jsonl",
+      "listingSourceId": "ls_01m6gz5xefer3tz0hn6w3er6t6",
+      "partyId": "pty_01m6gz5xdxe82v2smpd13ckz39",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.703250+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/goodsensevintage",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/goodsense/dealers.jsonl",
+      "listingSourceId": "ls_01m6h4crp8ehh8fyxv2980nhjs",
+      "partyId": "pty_01m6h4crnsedfbxj6ry4xa10c4",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.788257+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/hale-6411",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/hale/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7vrb6e37v32becr324x69",
+      "partyId": "pty_01m6h7vrafeqzsj2xkqjs82hq5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.892799+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/jsvs-antique",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/jsvs/dealers.jsonl",
+      "listingSourceId": "ls_01m6gy5r5je1j8s5b596s1653n",
+      "partyId": "pty_01m6gy5r56e5r9fkgpwmryx65q",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:14.970482+00:00"
+    },
+    {
+      "domain": "tw.bid.yahoo.com",
+      "url": "https://tw.bid.yahoo.com/booth/Y6636859054",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/kuku/dealers.jsonl",
+      "listingSourceId": "ls_01m6h3zf11efq9nmyntdfm29sv",
+      "partyId": "pty_01m6h3zf0me78vk9e5vysrcb65",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.078286+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/lbsy-2026",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/lbsy/dealers.jsonl",
+      "listingSourceId": "ls_01m6h4at9tefmv8pk10d01zqvr",
+      "partyId": "pty_01m6h4at98ep1s6zwrvf98gd5v",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.172716+00:00"
+    },
+    {
+      "domain": "shop2000.com.tw",
+      "url": "https://www.shop2000.com.tw/%E7%95%99%E7%94%B0%E7%AA%AF%E7%93%B7%E5%9D%8A",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/liutian/dealers.jsonl",
+      "listingSourceId": "ls_01m6ha0rtze9z9zw8tpn8nw07p",
+      "partyId": "pty_01m6ha0rthedebbhrn0cpkwkmf",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.256229+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/monatvintage",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/monat/dealers.jsonl",
+      "listingSourceId": "ls_01m6h8fz04e3ybtmxae5ycehxv",
+      "partyId": "pty_01m6h8fyzeep7a56ar81ch8scd",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.344621+00:00"
+    },
+    {
+      "domain": "shop2000.com.tw",
+      "url": "https://www.shop2000.com.tw/%E5%8D%97%E5%B1%AF%E9%99%B6%E7%95%AB%E9%A4%A8",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/nantun/dealers.jsonl",
+      "listingSourceId": "ls_01m6ha0jqpeswvxnqtjkw5nfz4",
+      "partyId": "pty_01m6ha0jq5es59mphcypszw39c",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.449802+00:00"
+    },
+    {
+      "domain": "tw.bid.yahoo.com",
+      "url": "https://tw.bid.yahoo.com/booth/Y0572919426",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/no55/dealers.jsonl",
+      "listingSourceId": "ls_01m6gxg4nyenq8exh4tv1y7j91",
+      "partyId": "pty_01m6gxg4nce2bssx7875822qsj",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.538278+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/noahark",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/noahark/dealers.jsonl",
+      "listingSourceId": "ls_01m6h0k91xewtaqqywj6vgv4tn",
+      "partyId": "pty_01m6h0k91aenv8409s9afmymc0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.645703+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/old-light-selection",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/oldlight/dealers.jsonl",
+      "listingSourceId": "ls_01m6gxya8aegbr4bd6vpdd0k7r",
+      "partyId": "pty_01m6gxya7xegrvrtb554w5q94f",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.751607+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/old-time-corner",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/oldtime/dealers.jsonl",
+      "listingSourceId": "ls_01m6h0csqbewvra7wxd1kd583a",
+      "partyId": "pty_01m6h0csppeh5sjwyxdvkbydnb",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.840666+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/oldtime-vintage1016",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/oldtime-vintage/dealers.jsonl",
+      "listingSourceId": "ls_01m6h1hgffe24bvebjzcs0k9xz",
+      "partyId": "pty_01m6h1hgf3ercvh5c62msexrts",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:15.936624+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/pickers",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/pickers/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7ddrees382kd7cbk710r1",
+      "partyId": "pty_01m6h7ddr0e9bsamxttymvp8ys",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.024540+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/renranvtg",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/renran/dealers.jsonl",
+      "listingSourceId": "ls_01m6h6h6sfegqvthnm25t6krgh",
+      "partyId": "pty_01m6h6h6rne0d9xpeyfqypf3vv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.145542+00:00"
+    },
+    {
+      "domain": "tw.bid.yahoo.com",
+      "url": "https://tw.bid.yahoo.com/booth/Y3621196678",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/ruminant/dealers.jsonl",
+      "listingSourceId": "ls_01m6h2rawbeny87m0x4qj7nw02",
+      "partyId": "pty_01m6h2ravve4trdrzdrxjhj2y1",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.233554+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/sagw",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/sagw/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7vyc9er1s669zfjnjaqwr",
+      "partyId": "pty_01m6h7vybrerxb7rnm6a5g35af",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.321480+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/art-shimmering",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/shimmering/dealers.jsonl",
+      "listingSourceId": "ls_01m6hgjthye4atyr36fy78sa94",
+      "partyId": "pty_01m6hgjthhepb95qbzcmwc9qg0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.416180+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/softroom",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/softroom/dealers.jsonl",
+      "listingSourceId": "ls_01m6gxxvw0e7r8j08p9w6rhdbt",
+      "partyId": "pty_01m6gxxvvkeh9t691cbdqapj0c",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.669027+00:00"
+    },
+    {
+      "domain": "ruten.com.tw",
+      "url": "https://www.ruten.com.tw/store/aprilsgoodie00/",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/tangqing/dealers.jsonl",
+      "listingSourceId": "ls_01m6gxrge6ea2st7y8kew6mstw",
+      "partyId": "pty_01m6gxrgdnetfrqcpmejmdfsd8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.758038+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/time-vintage",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/time-vintage/dealers.jsonl",
+      "listingSourceId": "ls_01m6h3j42pejk8z9b4xcxm7x9r",
+      "partyId": "pty_01m6h3j41veac8w9n2yqf41rfa",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.838784+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/tsubaki-hsieh",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/tsubaki/dealers.jsonl",
+      "listingSourceId": "ls_01m6hfzm98eqmbgqrtw0mf1w7x",
+      "partyId": "pty_01m6hfzm8he5ms1wa8w8z8yx46",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:16.946882+00:00"
+    },
+    {
+      "domain": "tw.bid.yahoo.com",
+      "url": "https://tw.bid.yahoo.com/booth/Y4775135556",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/underobject/dealers.jsonl",
+      "listingSourceId": "ls_01m6h40cyxexbajjzqgy6vpe5p",
+      "partyId": "pty_01m6h40cyeev99hymyavdwy4bt",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:17.032172+00:00"
+    },
+    {
+      "domain": "tba.tw",
+      "url": "https://www.tba.tw/artists/2195",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/verachen/dealers.jsonl",
+      "listingSourceId": "ls_01m6hf6a9aev2t7jt54f0c4qk3",
+      "partyId": "pty_01m6hf6a8jerjrs4xv1k275tqe",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:17.127812+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/vtgkiosk",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/vtgkiosk/dealers.jsonl",
+      "listingSourceId": "ls_01m6gxqsmpecx83fvb8dm3dqnk",
+      "partyId": "pty_01m6gxqsm9eqsat6w9pb57xskv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:17.210158+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/wareway",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/wareway/dealers.jsonl",
+      "listingSourceId": "ls_01m6gyqadpez4rsf3y12nhqzps",
+      "partyId": "pty_01m6gyqad5eva8mtmatc8gcd0y",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:17.343622+00:00"
+    },
+    {
+      "domain": "shop2000.com.tw",
+      "url": "https://www.shop2000.com.tw/%E6%B8%85%E6%B0%B4%E9%9B%86%E9%83%B5%E7%A4%BE",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/water888/dealers.jsonl",
+      "listingSourceId": "ls_01m6ha0d5je7xadfmmp68j4trz",
+      "partyId": "pty_01m6ha0d58eqhr0dtvyzm0zfm5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:17.425663+00:00"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/yesterdaynicethings",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/yesterday/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7w3bve41ts2ey74w1sr6h",
+      "partyId": "pty_01m6h7w3b6ejaaf058fy99t7g5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T20:46:17.526245+00:00"
+    },
+    {
+      "domain": "ccs-europe.com.tw",
+      "url": "https://www.ccs-europe.com.tw/",
+      "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
+      "listingSourceId": "ls_01m6gqcw5ae8ks2zs8vt9hkhcy",
+      "partyId": "pty_01m6gqcw4xeb0b8afm8nxj5x9p",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:06:07.956577+00:00",
+      "qualificationScope": "RETAINED_EXCLUDED_OR_HELD"
+    },
+    {
+      "domain": "pinkoi.com",
+      "url": "https://www.pinkoi.com/store/a8903523",
+      "ledger": "data/dealer-discovery/countries/TW/hosted/lovewood/dealers.jsonl",
+      "listingSourceId": "ls_01m6h3jphae9ntsm2qd9y98fra",
+      "partyId": "pty_01m6h3jpgte10swbnez9tkqv7d",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:06:08.072291+00:00",
+      "qualificationScope": "RETAINED_EXCLUDED_OR_HELD"
+    }
+  ]
+}

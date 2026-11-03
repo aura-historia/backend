@@ -13,7 +13,9 @@ Qualify current dealer-owned art or antiques from first-party evidence.
 [index.tsv](index.tsv) is the compact domain lookup; [dealers.jsonl](dealers.jsonl) is
 the evidence and checkpoint history. [frontier.jsonl](frontier.jsonl) tracks queued and in-review
 search leads and processed decisions, not qualified dealers. None of these files contains API credentials.
-The latest [live verification](verification.json) records resource counts and checks.
+The last strict all-pass [verification](verification.json) is retained. The latest
+[current readback and discrepancies](verification-current.json) records live counts,
+individual resource-check dates and any divergence from discovery observations.
 The frontier also journals directory refreshes as `REFERENCE_CRAWL`, including visited
 member-profile URLs and the next review date. Check these before repeating a directory
 crawl. Association lists can include auctions, provider links and foreign businesses;
@@ -21,14 +23,18 @@ each dealer still requires its own qualification.
 [searches.jsonl](searches.jsonl) records recent queries and duplicate-filter results.
 Check it before repeating regional searches; search results remain leads, not import evidence.
 
-Current production checkpoint `2026-11-03-de-195`: **615 Parties and 618 listing sources**,
-**698 locations**, **381 original logo URLs**, **396 advertised-delivery profiles/defaults**,
-and **545 identified platforms**. All 618 ingestion lists are empty. A Party
+Current production checkpoint `2026-11-03-de-210`: **639 Parties and 642 listing sources**,
+**727 locations**, **399 original logo URLs**, **412 advertised-delivery profiles/defaults**,
+and **567 identified platforms**. Discovery created every ingestion list empty.
+The latest live read finds **355 empty** and **287 nonempty** lists; older records now
+contain `WEB_CRAWL`. Standard country verification therefore fails its all-empty
+assertion, while identity, presentation and dated location/profile/default readbacks
+match. Discovery has not changed those live ingestion settings. A Party
 represents the business/operator; the API has no additional organization-create resource.
 This workflow has not submitted product listings. Paid search, Places, lead verification
 and treg spend: **$0**.
 
-The ledger currently records **116 excluded** and **330 deferred** domains. Use the compact
+The ledger currently records **120 excluded** and **334 deferred** domains. Use the compact
 index for names, IDs, platforms and decision codes, and the ledger for evidence, omissions
 and revisit dates. Research deferrals are not fraud findings. Primary closure notices
 exclude inactive businesses; a closed historic branch or showroom does not by itself
@@ -40,8 +46,8 @@ or an actual blocking condition, preserving enough evidence and IDs to resume.
 
 ## Practical lessons and remaining enrichment
 
-- Check the live legal notice after a business takeover: indexed search results can still
-  name the former proprietor. A temporary renovation or maintenance notice establishes
+- Check the live legal notice and contracting terms after a business takeover: indexed
+  search results and founder biographies can still name the former proprietor. A temporary renovation or maintenance notice establishes
   neither permanent closure nor inspectable current stock.
 - Native product availability and enabled purchase controls can resolve hidden universal
   “sold out” template text. Inspect the actual offer, while keeping sold archives and

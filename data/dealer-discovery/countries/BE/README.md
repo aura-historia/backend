@@ -10,9 +10,9 @@ Import only current first-party facts assessed strictly above 95% confidence. Ex
 
 ## Current checkpoint
 
-be-2026-11-03-055, 2026-11-03T19:50:39.423492Z. No new Belgian API resources in this routing batch. Completed initial triage of all 109 Antica Namur 2026 profiles, preserving open identity, stock and country follow-ups. Verified eight foreign legal homes and queued them to Germany, Italy or France; existing French and Swiss ownership retained. Full verification passed across all four Belgian ledgers: 111 sources, 151 locations and 50 shipping profiles, all ingestion empty. Paid-data spend USD 0; no country blocker. Country coverage remains open. Next full check060.
+be-2026-11-03-068, 2026-11-03T21:10:09.626391Z. No additions. Excluded Loeckx, Het Pand, Élysée and DVC for current first-party auction operation, and Bigs Brocante for multi-dealer market scope. Deferred inaccessible Broc-Events, retaining historical marketplace references as leads without claiming closure or alias. All five ledgers audited, indexes regenerated and incrementally verified:128 Parties,129 sources,176 locations,62 shipping profiles, all ingestion empty. No paid data, pending writes or country blocker. Continue final unreviewed national art-directory websites, then remaining BAS2026 frontier; next periodic full verification070.
 
-Verified country totals: {"parties": 111, "listingSources": 111, "locations": 151, "logos": 71, "identifiedPlatforms": 79, "deliveryProfiles": 50, "emptyIngestionMethods": 111, "excluded": 10, "deferred": 131}. All ingestion empty. Paid-data spend USD 0. No country blocker; coverage remains open.
+Verified country totals: {"parties": 128, "listingSources": 129, "locations": 176, "logos": 81, "identifiedPlatforms": 92, "deliveryProfiles": 62, "emptyIngestionMethods": 129, "excluded": 22, "deferred": 178}. All ingestion empty. Paid-data spend USD 0. No country blocker; coverage remains open.
 
 ## Continuation
 
@@ -29,3 +29,7 @@ All 109 profiles in the 2026 Antica Namur roster now have dated `EVENT_EXHIBITOR
 [Antiquaire A. Verelst](hosted/a-verelst/README.md) is also managed through its exact Proantic merchant catalogue. The Proantic platform exclusion in France remains separately owned and unchanged; this ledger never claims the platform or other accounts. Include this nested ledger in every subsequent verification and aggregation.
 
 [Bergmans Scott Fine Arts](hosted/bergmans-scott/README.md) is managed only through its exact Proantic merchant account. Include this nested ledger in all subsequent country verification and aggregation. Other merchants and the platform-root exclusion remain separately owned.
+
+[ANTIQVES PROVE](hosted/antiqves-prove/README.md) is managed only through its exact Proantic merchant catalogue under verified Belgian Wim Prové. Include this fourth hosted ledger in all subsequent audits, verification and aggregation: five BE ledgers in total. Unavailable wimprove.be has no separate resources.
+
+The 2026 Brussels Art Square roster supplies 62 further participant profiles. Sixteen were initially resolved to existing ledger owners; the first ten remaining profiles were fetched and their merchant channels queued. Event location is not business home, and the association VAT belongs to the event organizer. Continue `/tmp/aura-dealer-discovery/BE/bas2026-unreviewed-profiles.json` and dated country frontier resolutions. Existing foreign ownership stays unchanged.

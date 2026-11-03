@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-169",
+  "country": "IT",
+  "observedAt": "2026-11-03T19:53:44.483744Z",
+  "result": "PASSED",
+  "rawJournalFiles": 146,
+  "rawJournalRecordsScanned": 45879,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "galleriabosi.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot169-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T19:52:28.578762Z",
+    "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+    "counts": {
+      "parties": 270,
+      "listingSources": 270,
+      "locations": 318,
+      "logos": 224,
+      "identifiedPlatforms": 211,
+      "deliveryProfiles": 145,
+      "emptyIngestionMethods": 270,
+      "excluded": 25,
+      "deferred": 89
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "GalleriaBosi nativecurrentfooterABConsultingSrl/VAT16166161006 positiveofficial matches, no foundingperson/familyparties. Actual1021x571historicalinkwell and original600x254redB/blackwordmark inspected; PNGalpha correct viaHTMLpreview, originalasset retained. Current nativeViaComo2 distinctgov2/4taxrange, no expandedcivic/extra registered/warehouse/inventory/dispatch. WordPressdirect, no activecommerceengine verified. Generalpostpurchase assembly/transport/damagerepair help not shippingcoverage/rates/service; noneimported. Modernhomedecor and historicalartistauctionbiography are not qualificationbasis/ownedauctionoperation. Secondaryhostedseller471/oldSRLname only unadoptedlead, no sourcecopy/alias/renameguess. Current exactnative/API/rawidentities clear:146journals atprewrite, all elevenowned verified,270emptyingestion,nopending,$0. DeBleslead deferredunassigned; BEdebleshitpainteronly,BEuntouched. No globalblocker.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

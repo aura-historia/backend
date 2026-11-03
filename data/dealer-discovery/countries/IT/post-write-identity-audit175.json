@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-175",
+  "country": "IT",
+  "observedAt": "2026-11-03T21:09:59.991916Z",
+  "result": "PASSED",
+  "rawJournalFiles": 162,
+  "rawJournalRecordsScanned": 49579,
+  "apiWriteAttemptsThisRun": 13,
+  "decisions": {
+    "added": [
+      "galleria-ammendolea.com",
+      "antiquariein.com",
+      "IT:ANTICOANTICO:1067"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot175-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T21:07:12.591881Z",
+    "fullVerifiedAt": "2026-11-03T20:38:08.548711Z",
+    "counts": {
+      "parties": 281,
+      "listingSources": 281,
+      "locations": 328,
+      "logos": 231,
+      "identifiedPlatforms": 220,
+      "deliveryProfiles": 154,
+      "emptyIngestionMethods": 281,
+      "excluded": 25,
+      "deferred": 90
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Three additions have exact current native VATs positively matched to official operators and inspected own antiques. Ammendolea current chest41 original1080x1080 and original180x250headeremblem; native addressesDogali35, legalDogali2 and embeddedRisorgimento22 unresolved, no structuredlocations/defaultassignment. OfficialtaxConsolare193 not anothergallery. Native standard35EUR conflicts currentFAQquote requirement, retain unknown structuredrate/geography/times with PARTIALUNRESOLVED/OFFERED; optionalinsured onlynotes. Current mobile adopted, malformedemail/oldlandlines omitted. NativeAntiquariein legal/privacy explicitly YlfeSNC, not sole trader; current2025cupboard original720x609, acknowledged replacements not all-original claim. One businesscontactModenese1104C roles[], no guessedwarehouse/inventory/dispatch/pickupsite. Generalcontract IT+SM buyer-address-only qualification encoded eligibilitynull; item worldwidepacking kept separate. Independent purchasedcollection OFFERED with unknownsite/arrangement; qualified10businessday/30day statements not universalbounds, ratesunknown. Anna exact1067 legalAnnaDelmonte/currentImperia177exhibition positiveofficial; original884x1920putto inspected, validpublicemaildecoded, JimdoTLSfailure notclosure. PARTIALANYWHERE with eligibilitynull for art/item coverage, no universalfeatures. Current primary402744 confirms ZTL/difficult-access cost variation, nearby personaldelivery conditional, someinsurancebyrequest; these are not geographic prohibitions/universal insurance. TaxVicoCastello4int12 distinct. Fourteenjournals passed,281emptyingestion,no pending,$0. One concurrent same-ledger dryrun met the lock before any API work; retried sequentially after reader exit. All actual writes sequential, no uncertain API writes. No additional ingestion restoration needed.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

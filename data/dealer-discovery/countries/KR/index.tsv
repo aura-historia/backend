@@ -20,7 +20,11 @@ antiqueshabby.com	ADDED	CAFE24	ls_01m6gwh7pke5nrekc2nk1w7qgb	pty_01m6gwh7nte1hax
 antt.co.kr	ADDED	CAFE24	ls_01m6gqds0re9yajfcnb6axytdy	pty_01m6gqds07em9aaff9a33k2qps	2026-11-03T18:39:15.114171Z		
 apartmentfull.kr	EXCLUDED				2026-11-03T12:51:10.167647Z	MARKETPLACE	
 arriettyshop.kr	ADDED	SIXSHOP	ls_01m6gqx1zgedzrfv6mzk769xm1	pty_01m6gqx1z4ef7a3sk5pej5d8j3	2026-11-03T18:39:15.114171Z		
-artjin.net	ADDED	CAFE24	ls_01m6h2aedhebztdjerehpd2m33	pty_01m6h2aec6e9yb5qactm1zmmks	2026-11-03T18:39:15.114171Z		
+art-market.kr	EXCLUDED				2026-11-03T20:12:48.902494Z		
+artjin.net	ADDED	CAFE24	ls_01m6h2aedhebztdjerehpd2m33	pty_01m6h2aec6e9yb5qactm1zmmks	2026-11-03T20:26:44.464507Z		
+artkk.kr	ADDED		ls_01m6hhhbz4em786ah6g0ps7772	pty_01m6hhhbypeye940xm0g3g90qs	2026-11-03T20:27:48.362384Z		
+artmusee.com	EXCLUDED				2026-11-03T20:12:48.902462Z		www.artmusee.com
+artwiki.co.kr	EXCLUDED				2026-11-03T20:11:14.460573Z		
 atelier-terra.kr	DEFERRED				2026-11-03T12:59:26.417790Z	FIRST_PARTY_ACCESS	
 be-antique.com	ADDED	CAFE24	ls_01m6gs9fmwem8tp3byv0bhmfyv	pty_01m6gs9fmcet5sh6me20he9adm	2026-11-03T18:39:15.114171Z		m.be-antique.com
 bg2744.com	DEFERRED				2026-11-03T18:11:04.251230Z		
@@ -29,6 +33,8 @@ bluebluedaisy.co.kr	ADDED	CAFE24	ls_01m6h3sbpvegm87cfvqn7rfkyp	pty_01m6h3sbpcet2
 bolle.kr	DEFERRED				2026-11-03T13:41:48.005620Z		
 brandgoyo.cafe24api.com	DEFERRED				2026-11-03T13:30:01.006798Z	IDENTITY_AND_COLLECTIBLE_SCOPE	
 brownantique.com	ADDED	CAFE24	ls_01m6gqx6k0eb1a4zaf1b89723z	pty_01m6gqx6jgeb0aj07vhg5xxzyb	2026-11-03T18:39:15.114171Z		
+busandepart.alltheway.kr	DEFERRED				2026-11-03T20:37:33.001577Z		
+busangallery.oopy.io	DEFERRED				2026-11-03T20:37:33.001584Z		
 chamore.co.kr	DEFERRED				2026-11-03T14:48:48.675734Z		
 cigye.kr	DEFERRED				2026-11-03T18:11:04.251222Z		
 cjw888.cafe24.com	ADDED	CAFE24	ls_01m6gtn14de6a9dtvqyrarrnfe	pty_01m6gtn140ecgs68h7tmcefaf5	2026-11-03T18:39:15.114171Z		orangeantique.com;www.orangeantique.com
@@ -39,24 +45,31 @@ daboseong.com	EXCLUDED				2026-11-03T18:57:51.556939Z
 daebanggallery.co.kr	DEFERRED				2026-11-03T17:53:58.112467Z		
 daehangallery.com	DEFERRED				2026-11-03T18:57:51.556950Z		
 daesanart.co.kr	DEFERRED				2026-11-03T14:05:57.052145Z		
+daesungart.itrocks.kr	DEFERRED				2026-11-03T21:08:33.314895Z		
 dailycomein.com	EXCLUDED				2026-11-03T14:05:57.052151Z		
 dalmall.co.kr	DEFERRED				2026-11-03T15:20:39.793857Z		
 dasakorea.co.kr	ADDED	CAFE24	ls_01m6h8c0bnem393j66ghzrq5az	pty_01m6h8c0bce6hshdktjmq9gz8v	2026-11-03T18:39:15.114171Z		m.dasakorea.com
 davooang.com	ADDED	WISA	ls_01m6h72y7aegxacpphdh6ptzm7	pty_01m6h72y6veyhajks24edvng3q	2026-11-03T18:39:15.114171Z		www.davooang.com;m.davooang.com
 dh894.com	ADDED	GODOMALL	ls_01m6h1n770e7na8ym78c58jwd7	pty_01m6h1n76een4t9xw0twvjt0n0	2026-11-03T18:39:15.114171Z		www.dh894.com
+dm8272.co.kr	DEFERRED				2026-11-03T20:34:08.556435Z		
 dongmyo.kr	DEFERRED				2026-11-03T18:22:26.476525Z		
 donmoa.kr	ADDED	GODOMALL	ls_01m6h2ajqgez79x7k07hzgpd2b	pty_01m6h2ajq2evtsxdc53pjd8f77	2026-11-03T18:39:15.114171Z		www.donmoa.kr
 dreamartworld.com	EXCLUDED				2026-11-03T13:30:01.006798Z	AUCTION_OPERATOR	
 dsnantique.com	EXCLUDED				2026-11-03T12:59:26.417760Z	DIRECTORY_PLATFORM	
 dungji-antique.com	ADDED		ls_01m6hbqcssew2vgvxgt454pw0z	pty_01m6hbqcsaehpry00qbdp8m192	2026-11-03T18:46:13.864418Z		
+dusongallery.com	DEFERRED	CAFE24			2026-11-03T20:54:25.202041Z		
 elinquilt.co.kr	ADDED	MAKESHOP	ls_01m6h732cke94tf30r6yw4aw3a	pty_01m6h732cae07tapz7gqrrjzcw	2026-11-03T18:39:15.114171Z		www.elinquilt.co.kr
 elizb.co.kr	DEFERRED				2026-11-03T14:24:52.309796Z		
 emmamarket.co.kr	ADDED	CAFE24	ls_01m6gqx8vce0jbf7zpyvcbwxxz	pty_01m6gqx8tye58b2fxdd09hpcma	2026-11-03T18:39:15.114171Z		emmatearoom.com;www.emmatearoom.com
 enterpr.co.kr	DEFERRED				2026-11-03T15:49:08.715576Z		
+etoiledefrance.com	DEFERRED				2026-11-03T20:42:08.501055Z		
 etq.kr	DEFERRED				2026-11-03T12:51:10.167735Z	FIRST_PARTY_ACCESS	
 eunchon.com	DEFERRED				2026-11-03T12:59:26.417801Z	FIRST_PARTY_ACCESS	
 euroantique.co.kr	ADDED	GODOMALL	ls_01m6h8rd34e3zamr8enkc622b0	pty_01m6h8rd2wephag0bx9eh6qd65	2026-11-03T18:55:17.173756Z		m.euroantique.co.kr;www.euroantique.co.kr
 firsttime.co.kr	DEFERRED	FIRSTMALL			2026-11-03T18:02:08.851365Z		
+frommay.com	DEFERRED				2026-11-03T20:11:14.460592Z		
+galleryiam.com	DEFERRED				2026-11-03T20:21:35.453737Z		
+galleryjhak.com	DEFERRED				2026-11-03T20:21:35.453743Z		
 gallerykart.co.kr	DEFERRED				2026-11-03T12:59:26.417825Z	SALE_STOCK_UNCONFIRMED	
 gdcollection.co.kr	ADDED	CAFE24	ls_01m6h2agnyeq4a8sf8sqcg0zgp	pty_01m6h2agnke95argf0rhqsrgyy	2026-11-03T18:39:15.114171Z		
 geochangsa.com	ADDED	MAKESHOP	ls_01m6gv19b7estr3tfz5a3zt1t4	pty_01m6gv19ajejsa4k5tercxdmtb	2026-11-03T18:39:15.114171Z		www.geochangsa.com
@@ -82,12 +95,14 @@ japanpost.co.kr	EXCLUDED				2026-11-03T17:37:37.037403Z
 jjcollection.kr	ADDED	CAFE24	ls_01m6gv1dfzek7rcek4tw9fdf5f	pty_01m6gv1dffefe8n517ryry46ga	2026-11-03T18:39:15.114171Z		
 joshop.co.kr	DEFERRED				2026-11-03T12:59:26.417834Z	ANTIQUE_SCOPE_UNCONFIRMED	
 journeedemarcelle.com	DEFERRED				2026-11-03T18:45:48.917824Z		
+jpleart.com	ADDED	CAFE24	ls_01m6hh790zey0b431ar6yf7m6c	pty_01m6hh790dej3rqv2j2h18xcvp	2026-11-03T20:22:18.971036Z		
 juncamera.co.kr	ADDED	CAFE24	ls_01m6h0wbw9ehvveahprxrzwesh	pty_01m6h0wbvwe1t8hpg958edtdkg	2026-11-03T18:39:15.114171Z		
 junggolife.co.kr	ADDED	CAFE24	ls_01m6hacxssexbre8vhz6z9h4v9	pty_01m6hacxsget6b75h5rtjyrgzz	2026-11-03T18:39:15.114171Z		www.junggolife.co.kr
 juvin.co.kr	DEFERRED				2026-11-03T14:00:34.486882Z		
 kangcamera.com	ADDED	CAFE24	ls_01m6grc9dee4mvsd1gsjcmh903	pty_01m6grc9d0e3cvwjmhx9dqzxyt	2026-11-03T18:39:15.114171Z		m.kangcamera.com
 kantique.cafe24.com	ADDED	CAFE24	ls_01m6gt1mdwejm9awjbjnx7dsc2	pty_01m6gt1mdfe6hafk9kn6chw51q	2026-11-03T18:39:15.114171Z		kantique.com;www.kantique.com
 kasancamera.co.kr	ADDED	GODOMALL	ls_01m6grcdsme5br5wvhvf9cgk5d	pty_01m6grcds6ew3b5qnqzhnyev58	2026-11-03T18:39:15.114171Z		
+kdgallery.co.kr	DEFERRED				2026-11-03T20:26:42.813938Z		
 kienho.cafe24.com	ADDED	CAFE24	ls_01m6gs00mzeexreqtxeggn1hm1	pty_01m6gs00m6e3mvdtks0ptg432y	2026-11-03T18:39:15.114171Z		
 kissmyhaus.com	ADDED	CAFE24	ls_01m6h179c2ebjbbx1c65bvwr0j	pty_01m6h179bne63sgqan2p1manw4	2026-11-03T18:39:15.114171Z		kissmyhaus.cafe24.com
 kobawooshop.com	DEFERRED				2026-11-03T15:32:31.928559Z		
@@ -116,6 +131,7 @@ maisonfragile.co.kr	DEFERRED				2026-11-03T18:11:04.251227Z
 mariantique.com	DEFERRED				2026-11-03T14:05:57.052118Z		
 metavox.co.kr	DEFERRED				2026-11-03T15:11:53.769621Z		
 miraldeco.store	DEFERRED				2026-11-03T14:02:29.471268Z		
+misoolpoom.co.kr	DEFERRED				2026-11-03T20:18:33.519317Z		www.misoolpoom.co.kr
 missmone.com	DEFERRED				2026-11-03T16:08:32.812966Z		
 mistygem.co.kr	ADDED	MAKESHOP	ls_01m6h72w1fegnaqasepps79dy6	pty_01m6h72w0vejwrrv24bwyc7h3a	2026-11-03T18:39:15.114171Z		
 monimoz.com	ADDED	CAFE24	ls_01m6h7z1cved8tgpdqj04fn9xq	pty_01m6h7z1caevq85r9d5nacccs4	2026-11-03T18:39:15.114171Z		www.monimoz.com
@@ -125,6 +141,7 @@ mulmok.com	DEFERRED				2026-11-03T17:37:37.037398Z
 musicbay.co.kr	ADDED		ls_01m6h0ncgbep89613jyvnnack0	pty_01m6h0ncg4e10atp73h8kb68mp	2026-11-03T18:39:15.114171Z		
 myantiq.com	DEFERRED				2026-11-03T14:02:29.471237Z		
 myvintage.co.kr	DEFERRED				2026-11-03T17:40:10.092527Z		
+narrativeobject.co.kr	DEFERRED				2026-11-03T20:54:25.202077Z		
 natureplace.kr	DEFERRED				2026-11-03T14:05:57.052138Z		
 newhousing1.com	DEFERRED				2026-11-03T16:08:32.812962Z		
 nordicpark.co.kr	ADDED	MAKESHOP	ls_01m6grc78ge9r8g4kq0p5n8a55	pty_01m6grc782egkvaqvm6qdqj3y9	2026-11-03T18:39:15.114171Z		
@@ -146,6 +163,7 @@ pelicancamera.com	ADDED	CAFE24	ls_01m6h05sbsenw89c2hwh0abvwf	pty_01m6h05sbee48ap
 planbgagu.com	DEFERRED				2026-11-03T13:07:46.006632Z	COLLECTIBLE_DESIGN_SCOPE_UNCONFIRMED	
 princesshome.co.kr	ADDED	CAFE24	ls_01m6gxdtm9er3bmk5c10emwbfn	pty_01m6gxdtkmexsbcqp7x2x4c34x	2026-11-03T18:39:15.114171Z		princesshome.cafe24.com;www.princesshome.co.kr
 putrivintage.com	ADDED	CAFE24	ls_01m6h8raywevyr14691ffpn0tn	pty_01m6h8rayfexyartz25xv6sbgt	2026-11-03T18:39:15.114171Z		
+qrart.kr	EXCLUDED				2026-11-03T20:11:14.460522Z		
 queens-marketplace.com	DEFERRED				2026-11-03T13:41:48.005655Z		
 radiostyle.co.kr	DEFERRED				2026-11-03T14:52:32.358323Z		
 reknit009.godomall.com	EXCLUDED				2026-11-03T18:22:26.476532Z		
@@ -156,6 +174,7 @@ rogiwatch.com	ADDED	CAFE24	ls_01m6gt1pk6eags74qm5h3ydrm1	pty_01m6gt1pjte3wvyw8bs
 roomtripjp.co.kr	EXCLUDED				2026-11-03T15:49:08.715588Z		
 royalcottage.co.kr	DEFERRED				2026-11-03T14:32:26.960161Z		
 rudiastory1.cafe24.com	DEFERRED				2026-11-03T14:18:12.115119Z		
+samed.kr	DEFERRED				2026-11-03T20:42:08.501062Z		
 sangbo.kr	DEFERRED				2026-11-03T12:51:10.167704Z	STOCK_NOT_INSPECTABLE	
 saybooks.net	ADDED		ls_01m6h8c4c0e0ys1qqr5y5xkdwf	pty_01m6h8c4bre288zkf5ks28z9jk	2026-11-03T18:39:15.114171Z		www.saybooks.net
 sc2020.co.kr	ADDED	CAFE24	ls_01m6gtmys5ercspsb3fd4qdge9	pty_01m6gtmyrqeg1tkrjk0rffsj4c	2026-11-03T18:39:15.114171Z		
@@ -167,13 +186,14 @@ shabbygarden.co.kr	DEFERRED				2026-11-03T18:11:04.251210Z
 shabbypetit.com	DEFERRED				2026-11-03T16:26:02.781420Z		
 shart83.com	DEFERRED				2026-11-03T18:02:08.851393Z		
 sinagawa70.cafe24.com	ADDED	CAFE24	ls_01m6gzfakcezc8dv53p3afgsek	pty_01m6gzfajxe44svm242g4r6hfp	2026-11-03T18:39:15.114171Z		arifleamarket.com;m.arifleamarket.com
-singoro.com	ADDED		ls_01m6grzyhse94vzgszzmck9sba	pty_01m6grzyh4eafa0t5n5awzr8g7	2026-11-03T18:39:15.114171Z		
+singoro.com	ADDED		ls_01m6grzyhse94vzgszzmck9sba	pty_01m6grzyh4eafa0t5n5awzr8g7	2026-11-03T20:37:33.001214Z		
 sohoantique.com	ADDED		ls_01m6h9qyxref8tns6qmwr262ca	pty_01m6h9qyxfe3nvzwxm33pdxfpc	2026-11-03T18:39:15.114171Z		www.sohoantique.com
 sonkie.com	ADDED	CAFE24	ls_01m6h4y1vke5b9j82kd7sp9nx4	pty_01m6h4y1v3ev5bba1sww90n6de	2026-11-03T18:39:15.114171Z		m.sonkie.com
 stamplove.co.kr	ADDED		ls_01m6gv1beeesmt8rb4t9gyzv0t	pty_01m6gv1bdpep59afjz7vn4trnq	2026-11-03T18:39:15.114171Z		www.stamplove.co.kr
+starmulmul.com	EXCLUDED				2026-11-03T20:42:08.501067Z		
 stayantique.com	ADDED	GODOMALL	ls_01m6h3sdtwe1mrk0x97pfqxab9	pty_01m6h3sdt5e2095v0z7244rwhx	2026-11-03T18:39:15.114171Z		www.stayantique.com
 stillinparis.com	EXCLUDED				2026-11-03T17:47:07.440825Z		
-sung0121.cafe24.com	ADDED	CAFE24	ls_01m6h8rhbgetpsekap2ykg6eyw	pty_01m6h8rhb1ey5vvys05qekbher	2026-11-03T18:39:15.114171Z		
+sung0121.cafe24.com	ADDED	CAFE24	ls_01m6h8rhbgetpsekap2ykg6eyw	pty_01m6h8rhb1ey5vvys05qekbher	2026-11-03T20:11:14.460065Z		
 suzipmoney.com	ADDED	YOUNGCART	ls_01m6gvcjypefy80fwwc5gpdvfk	pty_01m6gvcjy7e7tvvxayeazwpmw1	2026-11-03T18:39:15.114171Z		www.suzipmoney.com
 tablegarden.kr	DEFERRED				2026-11-03T14:02:29.471265Z		
 tesoro.kr	ADDED	CAFE24	ls_01m6gy2azkeaxsbt691fbhdp13	pty_01m6gy2az6evb80ea42ma1kmjj	2026-11-03T18:39:15.114171Z		
@@ -182,12 +202,14 @@ themac.co.kr	EXCLUDED				2026-11-03T18:26:18.707618Z
 thestable.co.kr	ADDED	SIXSHOP	ls_01m6gqdx8beskb6qqk4byfa0md	pty_01m6gqdx7pefjryq3aqftcfp5f	2026-11-03T18:39:15.114171Z		
 thiqueroom.pe.kr	DEFERRED				2026-11-03T17:40:10.092505Z		
 tonginstore.com	DEFERRED				2026-11-03T13:41:48.005657Z		
+tonginstore.net	DEFERRED				2026-11-03T20:42:08.501037Z		
 uhwarang.com	ADDED	CAFE24	ls_01m6gvcg8eewnay11z4gf9fghx	pty_01m6gvcg7yee8bp741p6k3v883	2026-11-03T18:39:15.114171Z		uhwarang.cafe24.com
 unco.co.kr	DEFERRED				2026-11-03T17:37:37.037372Z		
 vaya-pivon.com	ADDED	CAFE24	ls_01m6h8c2d7etm8cq2095amegdj	pty_01m6h8c2cyeb4aew3n3jaysef7	2026-11-03T18:39:15.114171Z		www.vaya-pivon.com
 veronicashop.co.kr	ADDED	CAFE24	ls_01m6gy28w2emfrxs5pm7nf7w8y	pty_01m6gy28vneb88debt8mycc2nn	2026-11-03T18:39:15.114171Z		
 vintagedaracbang.com	ADDED	CAFE24	ls_01m6h2acb7epht5cp8vemdsd3m	pty_01m6h2acarefjae6xxn62hwzk0	2026-11-03T18:39:15.114171Z		
 vintageyoyo.com	ADDED	MAKESHOP	ls_01m6gvk7vcec29e8ftsg8szhry	pty_01m6gvk7tyen08j57v2jn97smm	2026-11-03T18:39:15.114171Z		
+washop.com	EXCLUDED				2026-11-03T20:11:14.460584Z		
 watchbon.com	ADDED	CAFE24	ls_01m6h97dv1ejtr301c9dzp7cf4	pty_01m6h97dtmed7vehwjkktddf30	2026-11-03T18:39:15.114171Z		
 weseb.com	DEFERRED				2026-11-03T17:40:10.092522Z		
 what-time.kr	DEFERRED				2026-11-03T18:02:08.851378Z		
@@ -198,6 +220,15 @@ wowvintage.co.kr	DEFERRED				2026-11-03T18:02:08.851375Z
 wowwatch.co.kr	ADDED	CAFE24	ls_01m6h97g3xe2vvm6e24g9gje9z	pty_01m6h97g3fegzr6tbppw2q19sg	2026-11-03T18:39:15.114171Z		
 xn--299au8v5zfpkf55dx1s.com	DEFERRED				2026-11-03T15:49:08.715572Z		
 xn--bb0br5kvmf0xp2kp.net	DEFERRED				2026-11-03T15:49:08.715557Z		
+xn--bb0br5kvmfcpd32r4xak25d.kr	DEFERRED				2026-11-03T20:26:42.813948Z		
 xn--bb0bz3en9cp4e.com	DEFERRED				2026-11-03T15:49:08.715567Z		
+xn--le5b2bt9g46o87c.com	ADDED		ls_01m6hhvt12ezhv2rgn1z5vx163	pty_01m6hhvt0je0xbp7gsdz7bxf7w	2026-11-03T20:33:30.764329Z		
+xn--v42bo0rhzk8wb.com	EXCLUDED				2026-11-03T20:12:48.902504Z		www.xn--v42bo0rhzk8wb.com
+xn--v42bo2m1nd90sz3a.com	DEFERRED				2026-11-03T20:21:35.453750Z		www.xn--v42bo2m1nd90sz3a.com
+xn--v42bv2zi7hba.com	DEFERRED				2026-11-03T20:37:33.001546Z		
+xn--zb0b76igtai3un1alex50bhph.com	DEFERRED				2026-11-03T20:54:25.202096Z		
 yedang77.com	ADDED		ls_01m6h2amx2eanr7g4sy9kz1w7p	pty_01m6h2amwkeect2be6bn212e0j	2026-11-03T18:39:15.114171Z		www.yedang77.com
+yemut.com	ADDED	CAFE24	ls_01m6hh1wqcen69tqbwap8p48kw	pty_01m6hh1wq2e10vzakbabkn65my	2026-11-03T20:19:21.537960Z		www.yemut.com
+yetmaru.co.kr	DEFERRED				2026-11-03T20:32:37.857833Z		
+yskgallery.kr	DEFERRED	CAFE24			2026-11-03T21:08:33.314852Z		www.yskgallery.kr
 zoomcamera.co.kr	ADDED	GODOMALL	ls_01m6h05ngvew4bh4cyskpcrx9f	pty_01m6h05ngketabd2c6cp47vmg6	2026-11-03T18:39:15.114171Z		www.zoomcamera.co.kr

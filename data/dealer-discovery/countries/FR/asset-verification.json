@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-03-fr-240",
-  "observedAt": "2026-11-03T19:52:06.814324Z",
+  "run": "2026-11-03-fr-259",
+  "observedAt": "2026-11-03T21:15:06.856123Z",
   "scope": "CACHED_ORIGINAL_ASSET_METADATA",
   "notes": [
     "Checks the already downloaded and visually reviewed original files against current owned-ledger metadata; this is not a fresh network/logo-availability claim.",
     "Raster pixels, SVG viewBox/rounded extents, binary media format and exact cached bytes are checked. API source URLs and original image URLs are unchanged."
   ],
-  "verifiedCount": 319,
+  "verifiedCount": 335,
   "mismatches": [],
   "resources": [
     {
@@ -4043,6 +4043,216 @@
         "kind": "RASTER_PIXELS",
         "width": 1442,
         "height": 723
+      }
+    },
+    {
+      "domain": "galeriedefrancony.com",
+      "listingSourceId": "ls_01m6hft2q3ejgsgfej8s7cnesm",
+      "url": "https://galeriedefrancony.com/img/cms/logo-galerie-de-francony-1715.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 7793,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 487,
+        "height": 52
+      }
+    },
+    {
+      "domain": "bouillondart.com",
+      "listingSourceId": "ls_01m6hfzx7seb3aattspvkyp6qy",
+      "url": "https://www.bouillondart.com/img/bouillon-d-art-logo-1514465079.jpg",
+      "mediaType": "image/png",
+      "bytes": 22549,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 184,
+        "height": 100
+      }
+    },
+    {
+      "domain": "paulazzopardi.com",
+      "listingSourceId": "ls_01m6hggwqjeygtnm21skr1rzhp",
+      "url": "https://www.paulazzopardi.com/wp-content/uploads/2026/08/logo-blason.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 22947,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 709,
+        "height": 300
+      }
+    },
+    {
+      "domain": "brocantetendance.com",
+      "listingSourceId": "ls_01m6hgwr7heahr3fffqq5z1hdb",
+      "url": "https://brocantetendance.com/cdn/shop/files/Transparent_0e219283-8503-41fc-95c1-e3e7dc39929b.png?v=1675192170",
+      "mediaType": "image/png",
+      "bytes": 303397,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 4096,
+        "height": 2365
+      }
+    },
+    {
+      "domain": "annejoubert.com",
+      "listingSourceId": "ls_01m6hh2c1tedtazmxjdkgc737g",
+      "url": "https://de.cdn-website.com/38a1aad991ad467ab8280da2bd2e3c5d/dms3rep/multi/logo-anne-jouvert.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 5441,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 168,
+        "height": 150
+      }
+    },
+    {
+      "domain": "debongout-paris.com",
+      "listingSourceId": "ls_01m6hh2e2ce4jv7cwr204rnx53",
+      "url": "https://debongout-paris.com/cdn/shop/files/Logo_Debongout-paris_SVG_f88b9764-948d-4851-8c12-3e78a0dc1afa.svg?v=1688547571",
+      "mediaType": "image/svg+xml",
+      "bytes": 2245,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          183,
+          37
+        ],
+        "recordedDimensions": [
+          183,
+          37
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "lescoupsdecoeur.com",
+      "listingSourceId": "ls_01m6hhaxy1edkraqvrgg2334qc",
+      "url": "https://lescoupsdecoeur.com/wp-content/uploads/2019/11/LOGO-LES-COUPS-DE-COEUR.png",
+      "mediaType": "image/png",
+      "bytes": 6330,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 500
+      }
+    },
+    {
+      "domain": "galerie-prisme.com",
+      "listingSourceId": "ls_01m6hhb1a1ee7v95mf2rj06yrz",
+      "url": "https://www.galerie-prisme.com/wp-content/uploads/2020/04/LOGO_PRISME_noir-vecto.png",
+      "mediaType": "image/png",
+      "bytes": 14588,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 334,
+        "height": 334
+      }
+    },
+    {
+      "domain": "martinez-fleurot.com",
+      "listingSourceId": "ls_01m6hj9y62e5c9r6a0jvsv319d",
+      "url": "https://martinez-fleurot.com/img/estampes-martinez-fleurot-logo-1519396548.jpg",
+      "mediaType": "image/png",
+      "bytes": 20052,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 200,
+        "height": 107
+      }
+    },
+    {
+      "domain": "maisondelagravure.com",
+      "listingSourceId": "ls_01m6hjh3mge8cb5t654c4cdfx2",
+      "url": "https://www.maisondelagravure.com/img/maison-de-la-gravure-logo-1569154575.jpg",
+      "mediaType": "image/png",
+      "bytes": 13933,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 300,
+        "height": 111
+      }
+    },
+    {
+      "domain": "art.paris",
+      "listingSourceId": "ls_01m6hk01kae6r90xfced5fa69w",
+      "url": "https://art.paris/cdn/shop/files/Image4_ab918b44-7c82-4114-833b-d3d8c7e0d5a7.gif?v=1729967410",
+      "mediaType": "image/gif",
+      "bytes": 31115,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 2500,
+        "height": 800
+      }
+    },
+    {
+      "domain": "galerieconsonance.com",
+      "listingSourceId": "ls_01m6hk03s7ef3s0n8j50dfkv4g",
+      "url": "https://galerieconsonance.com/wp-content/uploads/2025/10/galerie-consonance-logo-noir.png",
+      "mediaType": "image/png",
+      "bytes": 49027,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1230,
+        "height": 350
+      }
+    },
+    {
+      "domain": "galerie.pozor.com",
+      "listingSourceId": "ls_01m6hk063reed87ya1ndf0yh34",
+      "url": "https://galerie.pozor.com/images/entete-gal-pozor-2025-l.png",
+      "mediaType": "image/png",
+      "bytes": 7880,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 192,
+        "height": 50
+      }
+    },
+    {
+      "domain": "galeriepaulproute.fr",
+      "listingSourceId": "ls_01m6hkckjrez0rk6fs6a0vzytr",
+      "url": "https://galeriepaulproute.fr/wordpress/wp-content/themes/tt5/assets/img/logo.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 749,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0,
+          0,
+          91,
+          85
+        ],
+        "recordedDimensions": [
+          91,
+          85
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "le-cadre-noir.fr",
+      "listingSourceId": "ls_01m6hkt5fmekmb934y6fmdmhjs",
+      "url": "https://le-cadre-noir.fr/wp-content/uploads/2024/01/LOGO-LCD-4-OR.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 12559,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 600,
+        "height": 600
+      }
+    },
+    {
+      "domain": "galerie-marguerite.fr",
+      "listingSourceId": "ls_01m6hkt798efr8yg418td6rd5r",
+      "url": "https://galerie-marguerite.fr/wp-content/uploads/2022/05/Logo-Galerie-marguerite-blanc.png",
+      "mediaType": "image/png",
+      "bytes": 28092,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 840,
+        "height": 250
       }
     }
   ]

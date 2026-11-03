@@ -1,0 +1,980 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-03-fr-260",
+  "observedAt": "2026-11-03T21:16:48.245200Z",
+  "status": "METADATA_MATCHES_EXCEPT_RECORDED_INGESTION",
+  "strictCountryVerification": "FAILED",
+  "lastPassedRun": "2026-11-03-fr-251",
+  "lastPassedAt": "2026-11-03T20:29:26.470209Z",
+  "lastFullVerifiedAt": "2026-11-03T20:27:25.152450Z",
+  "counts": {
+    "parties": 398,
+    "listingSources": 402,
+    "locations": 495,
+    "logos": 335,
+    "identifiedPlatforms": 346,
+    "deliveryProfiles": 294,
+    "emptyIngestionMethods": 297,
+    "nonemptyIngestionMethods": 105,
+    "excluded": 28,
+    "deferred": 296
+  },
+  "checked": "All managed Party names/contacts, source operator, URL, name, image and platform compared against fresh live snapshots. Actual ingestion changes are listed, never masked. Location/profile checks were not reached by strict verifier; retain individual prior creation/readback dates. This is not a passing country verification.",
+  "ingestionDrift": [
+    {
+      "domain": "lecabinetdesantiques.com",
+      "listingSourceId": "ls_01m6cbtse6ewsvmrpwph5t4aae",
+      "partyId": "pty_01m6cbtsdzejras74wea6sck1m",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:49.468Z"
+    },
+    {
+      "domain": "antiquites-var.fr",
+      "listingSourceId": "ls_01m6ccjmkdenb95q02r3zeswjt",
+      "partyId": "pty_01m6ccjmjwenwaw2e0bd1mjrer",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:05.551Z"
+    },
+    {
+      "domain": "lechineurdupassesimple.fr",
+      "listingSourceId": "ls_01m6cctcq0ee7ac5kcx7g8h09k",
+      "partyId": "pty_01m6cctcpkegybkh6tzgcw721z",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:49.478Z"
+    },
+    {
+      "domain": "marchanddoublis.com",
+      "listingSourceId": "ls_01m6cdzxgze0vt62cw7dqacw70",
+      "partyId": "pty_01m6cdzxghetnbtptg97bh34n6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:50.68Z"
+    },
+    {
+      "domain": "retrostory.fr",
+      "listingSourceId": "ls_01m6cdzzt5ermsy33b0njzxrf2",
+      "partyId": "pty_01m6cdzzsqe44beyck7n4hrecg",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:26.893Z"
+    },
+    {
+      "domain": "labrocanteenligne.com",
+      "listingSourceId": "ls_01m6ce6zhse1gakmk58660966m",
+      "partyId": "pty_01m6ce6zhbex49gyf0etgsvsm5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:46.935Z"
+    },
+    {
+      "domain": "comptoirantiquedebourgogne.com",
+      "listingSourceId": "ls_01m6cevgf5ez2rqz5bbqf28yct",
+      "partyId": "pty_01m6cevgeqespryss6d5dqcdvk",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:58.449Z"
+    },
+    {
+      "domain": "vintaliciousnormandy.fr",
+      "listingSourceId": "ls_01m6cf8aegenksnber6tpbrec1",
+      "partyId": "pty_01m6cf8adzeqhbx6v5khkcb189",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:55.399Z"
+    },
+    {
+      "domain": "bureaudescapucins.com",
+      "listingSourceId": "ls_01m6ch0xgne7xtkwcq9wyfkkr1",
+      "partyId": "pty_01m6ch0xg1ezhaqwwrq856m0b5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:51.111Z"
+    },
+    {
+      "domain": "lacocotteenpapier.fr",
+      "listingSourceId": "ls_01m6cj74sze6jrkbsd99q79mja",
+      "partyId": "pty_01m6cj74s6eaqscgn6dqbh1q7q",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:47.182Z"
+    },
+    {
+      "domain": "livresoccasionetancien.kingeshop.com",
+      "listingSourceId": "ls_01m6cjy6fre0h81d7rxg7vdx3z",
+      "partyId": "pty_01m6cjy6f5e0ha7hpj5pevdzp7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:47.877Z"
+    },
+    {
+      "domain": "babaettchoupinet.fr",
+      "listingSourceId": "ls_01m6ckqa69e6yt6bejrps1cd5h",
+      "partyId": "pty_01m6ckqa5re1vtwn33f2njk4hy",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:40.9Z"
+    },
+    {
+      "domain": "chinons.eu",
+      "listingSourceId": "ls_01m6cm8qfbey8sdp4gkabfkhc7",
+      "partyId": "pty_01m6cm8qeqer1aj75a3zzhxeen",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:56.9Z"
+    },
+    {
+      "domain": "decouvertesdumonde.fr",
+      "listingSourceId": "ls_01m6cmgq0ee0rag896dy9wc45c",
+      "partyId": "pty_01m6cmgpzyetcbq3y156xx52d3",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:02.776Z"
+    },
+    {
+      "domain": "galerie-dessein.com",
+      "listingSourceId": "ls_01m6cmgwh5en3adnmk8ays0kvt",
+      "partyId": "pty_01m6cmgwgnesybtvg38tcf5p3a",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:18.672Z"
+    },
+    {
+      "domain": "boutique.cimiezantiquites.fr",
+      "listingSourceId": "ls_01m6cn323me758p0bbh35yrtsb",
+      "partyId": "pty_01m6cn3236e4rbq33zfy6gsac2",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:57.18Z"
+    },
+    {
+      "domain": "rajaabroc.fr",
+      "listingSourceId": "ls_01m6cnd5wcecdaxd35wcbsw7zg",
+      "partyId": "pty_01m6cnd5w0e02896ythvcye4xt",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:24.685Z"
+    },
+    {
+      "domain": "henrietteetginette.bigcartel.com",
+      "listingSourceId": "ls_01m6cnd7yke79rf0w6tx3bq4p2",
+      "partyId": "pty_01m6cnd7y6ex5r7zpwy06fb3q9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:30.766Z"
+    },
+    {
+      "domain": "art-antiquites.com",
+      "listingSourceId": "ls_01m6cqjfsyebg9m9s5mgcry9qp",
+      "partyId": "pty_01m6cqjfsbeqaaadwv4das31v8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:37.106Z"
+    },
+    {
+      "domain": "latelierdecarlita.fr",
+      "listingSourceId": "ls_01m6ctbdw2emntbxjkwjwmcx4x",
+      "partyId": "pty_01m6ctbdvjecf93nc1wv7xmmpp",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:48.776Z"
+    },
+    {
+      "domain": "blanchetti.com",
+      "listingSourceId": "ls_01m6cw3754ewfvcg8t9dag7vaq",
+      "partyId": "pty_01m6cw374ne9m9wwp2f6jr05q0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:18.228Z"
+    },
+    {
+      "domain": "antiquites-nancy.fr",
+      "listingSourceId": "ls_01m6cypeqzeg49hkm8d4z5082r",
+      "partyId": "pty_01m6cypeqge5ptc0hfa1g5e6vs",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:04.526Z"
+    },
+    {
+      "domain": "labrocantedesfontaines.fr",
+      "listingSourceId": "ls_01m6d1c1hqe21a07r7yfd3rvgy",
+      "partyId": "pty_01m6d1c1h8edaaqrnfxkh54aj4",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:46.76Z"
+    },
+    {
+      "domain": "duhautoyantique.fr",
+      "listingSourceId": "ls_01m6d2actwem58bzadx97xf3hy",
+      "partyId": "pty_01m6d2actdefka7cw64cpxh26z",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:07.292Z"
+    },
+    {
+      "domain": "antiquites-dijon.fr",
+      "listingSourceId": "ls_01m6d3x3v5ew6v43h56g53qr9x",
+      "partyId": "pty_01m6d3x3tqe4ssdc1z4a5g1wx7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:11.745Z"
+    },
+    {
+      "domain": "brocante-ardeche.com",
+      "listingSourceId": "ls_01m6d5rqaze5za6wrjv9mgvwb1",
+      "partyId": "pty_01m6d5rqajeadsr26tv2fj0y6f",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:48.332Z"
+    },
+    {
+      "domain": "antiquites-brocante-aubenas.fr",
+      "listingSourceId": "ls_01m6d5rtx5eq6825m0g9nyyjb5",
+      "partyId": "pty_01m6d5rtwve8n80ny3cqzz31e5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:35.305Z"
+    },
+    {
+      "domain": "brocante-plantier.fr",
+      "listingSourceId": "ls_01m6d634m9epxvxgsfkq8mrw42",
+      "partyId": "pty_01m6d634kweb4agbsma4wg4267",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:49.426Z"
+    },
+    {
+      "domain": "brocantique.fr",
+      "listingSourceId": "ls_01m6d6vz40emstt35pwj9kzsyj",
+      "partyId": "pty_01m6d6vz3ee25techctajsfk7b",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:30:54.094Z"
+    },
+    {
+      "domain": "gslr-antiques.com",
+      "listingSourceId": "ls_01m6d7fkk5ev0tchrwvjkjkpf9",
+      "partyId": "pty_01m6d7fkjtepxbtw2vx5sg7bp8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:27.969Z"
+    },
+    {
+      "domain": "antiquaire-clermont-ferrand.fr",
+      "listingSourceId": "ls_01m6d98dkheqqbkeyvawt2bps8",
+      "partyId": "pty_01m6d98dk5eehajvyzcgnrqnw9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:40.093Z"
+    },
+    {
+      "domain": "gustave-leonie.fr",
+      "listingSourceId": "ls_01m6d9fw89eqzbe4j3vabqjerz",
+      "partyId": "pty_01m6d9fw7fe2er614f8yk1kf9v",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:28.384Z"
+    },
+    {
+      "domain": "dreamsartculture.fr",
+      "listingSourceId": "ls_01m6d9n22jepqbkeqzsp2dafmt",
+      "partyId": "pty_01m6d9n222ev8vvg1vtctpzym4",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:06.873Z"
+    },
+    {
+      "domain": "max-tetelin.com",
+      "listingSourceId": "ls_01m6dfd0f3e5esz20465mmgdmj",
+      "partyId": "pty_01m6dfd0epek7bdbnhg0g1qphj",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:04.451Z"
+    },
+    {
+      "domain": "antiquites-brest.com",
+      "listingSourceId": "ls_01m6dfxqzqepv90b98w6dyg8mt",
+      "partyId": "pty_01m6dfxqz4eyk9hrks6yxz8rp6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:33.482Z"
+    },
+    {
+      "domain": "abraxas-libris.fr",
+      "listingSourceId": "ls_01m6dm7j6qej5b0vjajxxv1kh9",
+      "partyId": "pty_01m6dm7j66erja2ey759tngh8c",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:30:53.84Z"
+    },
+    {
+      "domain": "livres-au-choix.com",
+      "listingSourceId": "ls_01m6dm7mk2epgta31bx3zbrfge",
+      "partyId": "pty_01m6dm7mjhezws0gzjjwd4t34z",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:58.363Z"
+    },
+    {
+      "domain": "librairie-curiosa.com",
+      "listingSourceId": "ls_01m6dmt6tqe599v5nzf3zxnmcr",
+      "partyId": "pty_01m6djgbe0ech99p98cnd3qxh1",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:52.331Z"
+    },
+    {
+      "domain": "archivesdunord.com",
+      "listingSourceId": "ls_01m6dn4a5kek1ts2sr1wpee4xq",
+      "partyId": "pty_01m6dn4a53eyrr4atxx0c147cn",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:36.715Z"
+    },
+    {
+      "domain": "livresetmanuscrits.com",
+      "listingSourceId": "ls_01m6dnej8zeb49t1b66jmt8w1e",
+      "partyId": "pty_01m6dnej8cezxaazqw8addfhvm",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:52.157Z"
+    },
+    {
+      "domain": "ameliesourget.net",
+      "listingSourceId": "ls_01m6dnsjysexwv9zm5vxqcajnt",
+      "partyId": "pty_01m6dnsjy9egva3eyf5bkgwqra",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:51.744Z"
+    },
+    {
+      "domain": "antiquelittlethings.bigcartel.com",
+      "listingSourceId": "ls_01m6dpe3q9ev6vzbkt1fbj46tc",
+      "partyId": "pty_01m6dpe3pxew6tt6bv5v20cjnq",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:27.843Z"
+    },
+    {
+      "domain": "expertantiquite.fr",
+      "listingSourceId": "ls_01m6dqg9gzepsadkqjk5mv9jn8",
+      "partyId": "pty_01m6dqg9gderntcfp7v0r09trf",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:33.298Z"
+    },
+    {
+      "domain": "violinemarine.com",
+      "listingSourceId": "ls_01m6dsz56he7ytnr57yvvcsxzt",
+      "partyId": "pty_01m6dsz564er5v21ccgz19pdjh",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:55.56Z"
+    },
+    {
+      "domain": "commeundimanche.bigcartel.com",
+      "listingSourceId": "ls_01m6dsz7deebn9nm680sp4h97e",
+      "partyId": "pty_01m6dsz7cwej1a63xrefqpxb7n",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:58.219Z"
+    },
+    {
+      "domain": "captainbrocante.fr",
+      "listingSourceId": "ls_01m6dttt61ed9t4xestaz6rewb",
+      "partyId": "pty_01m6dttt5hepqt24ntjb2p1kay",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:53.541Z"
+    },
+    {
+      "domain": "antiquites-normandie.com",
+      "listingSourceId": "ls_01m6dvc0c8e4rbmwg7z4nnzsbe",
+      "partyId": "pty_01m6dvc0bve21tehak7z0kxwsp",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:34.615Z"
+    },
+    {
+      "domain": "charpentier-achat-antiquites.fr",
+      "listingSourceId": "ls_01m6dw570jef7vt9axetc17mt2",
+      "partyId": "pty_01m6dw5706eckt34d69szjpv3t",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:33.567Z"
+    },
+    {
+      "domain": "achat-antiquites-larochelle.com",
+      "listingSourceId": "ls_01m6dw58kweqcar62wrjt2xrg4",
+      "partyId": "pty_01m6dw58kmez2bwdpgeyxen1ze",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:47.626Z"
+    },
+    {
+      "domain": "urrea-bijouxoccasion.fr",
+      "listingSourceId": "ls_01m6dx5sege0z9mxa03jc9nfh8",
+      "partyId": "pty_01m6dx5se4ed7bj21cjpw9fatm",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:50.015Z"
+    },
+    {
+      "domain": "daelgrau.com",
+      "listingSourceId": "ls_01m6dx5vqfeq2awh1j0cfkghe3",
+      "partyId": "pty_01m6dx5vq2e6ht5rrynvfd7ns1",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:00.371Z"
+    },
+    {
+      "domain": "joaillerieguerin.com",
+      "listingSourceId": "ls_01m6dxjsmrebqrnpwb41ky3jqr",
+      "partyId": "pty_01m6dxjsm8es9s9h017scvq6jt",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:36.636Z"
+    },
+    {
+      "domain": "collin-estampes.fr",
+      "listingSourceId": "ls_01m6dyxy56ek0tt1rk7tyv8mdm",
+      "partyId": "pty_01m6dyxy4ee7p9vrjz5xqbw8s2",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:18.502Z"
+    },
+    {
+      "domain": "alainbrieux.com",
+      "listingSourceId": "ls_01m6dyy0ewehcvy017732ks84v",
+      "partyId": "pty_01m6dyy0edefcbkj1vjzhew4a0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:51.743Z"
+    },
+    {
+      "domain": "librairie-amateur.com",
+      "listingSourceId": "ls_01m6dzmd4gesnbmmgxps2zbp38",
+      "partyId": "pty_01m6dzmd3yebx8pwmxenm75wt6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:52.185Z"
+    },
+    {
+      "domain": "librairie-richard.com",
+      "listingSourceId": "ls_01m6e23q07ez79jvtjt8h0m2vw",
+      "partyId": "pty_01m6e23pzqeaxbtc1qcdcd8y10",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:51.907Z"
+    },
+    {
+      "domain": "antiquites-maurin.com",
+      "listingSourceId": "ls_01m6e3fmvwe09vh8c47csgs5mg",
+      "partyId": "pty_01m6e3fmvaea5bvt406ej2d7m4",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:34.863Z"
+    },
+    {
+      "domain": "librairielanuitdesrois.com",
+      "listingSourceId": "ls_01m6e5vcfwet9v6v38cdevb8th",
+      "partyId": "pty_01m6e5vcffesv9j96h44e5hmpx",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:52.626Z"
+    },
+    {
+      "domain": "librairie-phlucas.com",
+      "listingSourceId": "ls_01m6e73zb7efns9chj6mxp54rb",
+      "partyId": "pty_01m6e73zanexkr6zxk0s2ew3pc",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:52.769Z"
+    },
+    {
+      "domain": "secret-antiques.com",
+      "listingSourceId": "ls_01m6e83cqwet0t7q7vtef5q8q2",
+      "partyId": "pty_01m6e83cqfemd8rn5yhjcw4vp0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:34.925Z"
+    },
+    {
+      "domain": "french-lagom.com",
+      "listingSourceId": "ls_01m6e9b233edgr1x74q267hnre",
+      "partyId": "pty_01m6e9b22kerwrr35x6rbbqms8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:15.835Z"
+    },
+    {
+      "domain": "toovintage.com",
+      "listingSourceId": "ls_01m6eanry3egnse0jx7nyr893z",
+      "partyId": "pty_01m6eanrxhe5hakvav47vth1p7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:47.946Z"
+    },
+    {
+      "domain": "brikbroc.fr",
+      "listingSourceId": "ls_01m6eanvv4e9w8wm72g6bbneb7",
+      "partyId": "pty_01m6eanvtmexmvsjkdt381s2km",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:47.619Z"
+    },
+    {
+      "domain": "eshop.brocantesque.fr",
+      "listingSourceId": "ls_01m6eany7tee0tatmggnkrj6sj",
+      "partyId": "pty_01m6eany78epp8qjw3xecm9km0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:49.331Z"
+    },
+    {
+      "domain": "limage-et-le-livre.com",
+      "listingSourceId": "ls_01m6edz720ekq8aee2g03nb7k1",
+      "partyId": "pty_01m6edz71pee7vbz9t8b11xvgq",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:57.565Z"
+    },
+    {
+      "domain": "mywiny.fr",
+      "listingSourceId": "ls_01m6eek1gveedb7pz17wr5nzsw",
+      "partyId": "pty_01m6eek1geexktcswk3g0m2d72",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:12.298Z"
+    },
+    {
+      "domain": "manubroc.fr",
+      "listingSourceId": "ls_01m6efej22enfarny47wf09k7y",
+      "partyId": "pty_01m6efej1fe1k905cd4pp9ytv2",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:01.213Z"
+    },
+    {
+      "domain": "caffard-antiquites.com",
+      "listingSourceId": "ls_01m6g51e7dewgtxbe497ppkkw1",
+      "partyId": "pty_01m6g51e6weda8mzh4zyya5931",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:34.209Z"
+    },
+    {
+      "domain": "echodestemps.fr",
+      "listingSourceId": "ls_01m6g6b8bbemqs8zf25744m74y",
+      "partyId": "pty_01m6g6b8ane2rbv7j24wbwqy0n",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:49.511Z"
+    },
+    {
+      "domain": "10armandcolin.fr",
+      "listingSourceId": "ls_01m6g6v9cvenxv8h9sf6jsj1dz",
+      "partyId": "pty_01m6g6v9c6egsatgf5dfx6nkd1",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:30:50.94Z"
+    },
+    {
+      "domain": "selennia.fr",
+      "listingSourceId": "ls_01m6g7fmhmesqtvdye8hdnmjht",
+      "partyId": "pty_01m6g7fmh8ep1svgw6m9y564bz",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:35.323Z"
+    },
+    {
+      "domain": "librairie-pierre-brunet.fr",
+      "listingSourceId": "ls_01m6g8eywpee5bsxfn3dxcxd6w",
+      "partyId": "pty_01m6g8eyw6eh6ryhv4ympdzf41",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:52.962Z"
+    },
+    {
+      "domain": "aufildeslivres.fr",
+      "listingSourceId": "ls_01m6g8f09seq1vsnhr9fhdng27",
+      "partyId": "pty_01m6g8f09aejebh43hjrc32zzx",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:39.464Z"
+    },
+    {
+      "domain": "stockenbulle.com",
+      "listingSourceId": "ls_01m6gqh7d4ehtahkxd7q5myfvj",
+      "partyId": "pty_01m6gqh7cnegs9nn319bvyv7j7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:40.567Z"
+    },
+    {
+      "domain": "galeriepentcheff.fr",
+      "listingSourceId": "ls_01m6gsv0mneyd8evr0g8yv11mj",
+      "partyId": "pty_01m6gsv0m4ep7shsy58vw0rhg0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:17.416Z"
+    },
+    {
+      "domain": "nord-antique.com",
+      "listingSourceId": "ls_01m6gtsaxce71aqfamnxrz6vjz",
+      "partyId": "pty_01m6gtsawzebt82ep9e5yecyj9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:13.654Z"
+    },
+    {
+      "domain": "rosycabroc.art",
+      "listingSourceId": "ls_01m6gtsd6vehwb3241rfd8atg0",
+      "partyId": "pty_01m6gtsd6defcbcm1z62mnf9c9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:29.509Z"
+    },
+    {
+      "domain": "objetschinois.com",
+      "listingSourceId": "ls_01m6gwqxvbe89vv60pzr28deea",
+      "partyId": "pty_01m6gwqxttewg9qnxahw3e92zw",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:15.942Z"
+    },
+    {
+      "domain": "temps-dantan.fr",
+      "listingSourceId": "ls_01m6gy4pzte3qsnkaen4hqr1bx",
+      "partyId": "pty_01m6gy4pzbev99ar3mrhc79pjr",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:43.268Z"
+    },
+    {
+      "domain": "guillaume-duchemin.fr",
+      "listingSourceId": "ls_01m6gz6vp1ej6v8616mm2s640a",
+      "partyId": "pty_01m6gz6vnkek18awybyjxqsrgq",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:27.981Z"
+    },
+    {
+      "domain": "bijouxbaume.com",
+      "listingSourceId": "ls_01m6gzh3ace9wt663x97de52ze",
+      "partyId": "pty_01m6gzh39zegjt2k89nvkh9t9p",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:59.868Z"
+    },
+    {
+      "domain": "vanrijn-tours.com",
+      "listingSourceId": "ls_01m6h0dxyhe9fahc7xrj8ar4en",
+      "partyId": "pty_01m6h0dxxvep6b8fz6trxsa6d1",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:51.621Z"
+    },
+    {
+      "domain": "paulfoulon.com",
+      "listingSourceId": "ls_01m6h0vdzpejk9tbzb96c8gft4",
+      "partyId": "pty_01m6h0vdz9eny88n5g2d0gjydx",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:19.595Z"
+    },
+    {
+      "domain": "galerie-goudard-87.com",
+      "listingSourceId": "ls_01m6h1f0b4eb0ascf77ze73cfc",
+      "partyId": "pty_01m6h1f0aremy804qxgw1b769e",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:20.413Z"
+    },
+    {
+      "domain": "we-art-together.fr",
+      "listingSourceId": "ls_01m6h2zg61ew1vp8zc3khk04d1",
+      "partyId": "pty_01m6h2zg5hejhrz3b5ctv0pz1f",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:56.659Z"
+    },
+    {
+      "domain": "artecollection.fr",
+      "listingSourceId": "ls_01m6h2zj82exhvy502ymy81f9d",
+      "partyId": "pty_01m6h2zj7jevjt3k1rzcvxbjf2",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:37.543Z"
+    },
+    {
+      "domain": "antiquite-philippe-fustemberg.fr",
+      "listingSourceId": "ls_01m6h37re3er8s1xb33sbebtt4",
+      "partyId": "pty_01m6h37rd8ek19wt3hc7jrtxcv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:33.705Z"
+    },
+    {
+      "domain": "123numismatique.com",
+      "listingSourceId": "ls_01m6h448pyeyprcq44dj6wy27s",
+      "partyId": "pty_01m6h448pje79rykm2vf8am5a3",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:30:50.959Z"
+    },
+    {
+      "domain": "buschcollectibles.com",
+      "listingSourceId": "ls_01m6h4v0evetyvg95j0hpgbjst",
+      "partyId": "pty_01m6h4v0ededj8vkqsrp99avb3",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:51.627Z"
+    },
+    {
+      "domain": "bibliographique.com",
+      "listingSourceId": "ls_01m6h6m59kefx9ys14zq2xygna",
+      "partyId": "pty_01m6h6m597ent9kqwtjkgkmdyh",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:56.782Z"
+    },
+    {
+      "domain": "lapetitelibrairiedesjardins.fr",
+      "listingSourceId": "ls_01m6h6m9deegjb16xepgg2xv6z",
+      "partyId": "pty_01m6h6m9d4en2rr6ke8s8jvf06",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:48.317Z"
+    },
+    {
+      "domain": "librairie-oeilcacodylate.com",
+      "listingSourceId": "ls_01m6h6snz6e6kt9cxacvaj7ze1",
+      "partyId": "pty_01m6h6snyqeqgaf7erxmyzq8fp",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:52.614Z"
+    },
+    {
+      "domain": "brocante-debarras-vendee.fr",
+      "listingSourceId": "ls_01m6h75g6mefma8ehkjcxq9d9a",
+      "partyId": "pty_01m6h75g66e6cbyhdva1hqaa9w",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:46.059Z"
+    },
+    {
+      "domain": "latelierdeladorure.com",
+      "listingSourceId": "ls_01m6h75htmer1s1eqf638r8y92",
+      "partyId": "pty_01m6h75ht6ezeayr4t8xm5qkn9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:49.062Z"
+    },
+    {
+      "domain": "monnaies-et-collections.fr",
+      "listingSourceId": "ls_01m6h7s54hes990n9hc706k2kk",
+      "partyId": "pty_01m6h7s541e6fsjq82cdgc44z8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:08.473Z"
+    },
+    {
+      "domain": "philatelie72.com",
+      "listingSourceId": "ls_01m6h7zmxjen5r3m5xj6fs4gc5",
+      "partyId": "pty_01m6h7zmx9ejrtz8p3bpfdb0jg",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:20.706Z"
+    },
+    {
+      "domain": "antiquites-brocante-landes.com",
+      "listingSourceId": "ls_01m6h88aj2edarrxnbr2h5da29",
+      "partyId": "pty_01m6h88ahheewbj4jtrnckrtc9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:00.562Z"
+    },
+    {
+      "domain": "printimeuble.com",
+      "listingSourceId": "ls_01m6h8qj5ne8ht0rz3yqa71sfp",
+      "partyId": "pty_01m6h8qj5de0w964e9wn42yjcd",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:23.198Z"
+    },
+    {
+      "domain": "cordier-ebeniste.fr",
+      "listingSourceId": "ls_01m6ha45w3e5brv4v61sp0tw2p",
+      "partyId": "pty_01m6ha45vse5fsqkd3z188sdfd",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:39.09Z"
+    },
+    {
+      "domain": "antiquites-edelweiss.jimdoweb.com",
+      "listingSourceId": "ls_01m6ha47d0e3ztbs3rqvg641pr",
+      "partyId": "pty_01m6ha47cke4h869ym219kz37p",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:33.911Z"
+    },
+    {
+      "domain": "napoli-antic.fr",
+      "listingSourceId": "ls_01m6hb8amte90s38yw72safrtw",
+      "partyId": "pty_01m6hb8am9ev79c27w76cjcnsr",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:12.325Z"
+    },
+    {
+      "domain": "legrenierdesaintlie.fr",
+      "listingSourceId": "ls_01m6hc04e0emhrjtkp2syp9mhq",
+      "partyId": "pty_01m6hc04dhevksf9q8yw84ky87",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:32:50.215Z"
+    },
+    {
+      "domain": "brocante-oplus.fr",
+      "listingSourceId": "ls_01m6het1n3e63amrgf2q1xb276",
+      "partyId": "pty_01m6het1mjewy9dd9grnxyv2az",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:48.987Z"
+    },
+    {
+      "domain": "antiquitesmaisongossot.fr",
+      "listingSourceId": "ls_01m6hf8w88e4wbyqtea17v92vy",
+      "partyId": "pty_01m6hf8w7wesyb99dmcx3er4d8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:31:34.496Z"
+    },
+    {
+      "domain": "ruedeparisbrocante.fr",
+      "listingSourceId": "ls_01m6hfpb2xeg58ase08x4kznth",
+      "partyId": "pty_01m6hfpb2eecq8sn3e5f4pdmv6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "updated": "2026-11-03T20:33:30.683Z"
+    }
+  ],
+  "otherMetadataDrift": [],
+  "paidDataSpendUsd": 0,
+  "latestCompleteResourceReview": {
+    "run": "2026-11-03-fr-260",
+    "observedAt": "2026-11-03T21:16:21.758910Z",
+    "scope": "FULL_MANAGED_LOCATION_PROFILE_DEFAULT_REVIEW",
+    "status": "RESOURCE_FIELDS_MATCH",
+    "managedSources": 402,
+    "strictCountryVerification": "NOT_A_PASSING_COUNTRY_VERIFICATION"
+  }
+}

@@ -1,6 +1,6 @@
 {
-  "run": "cn-2026-11-03-085",
-  "verifiedAt": "2026-11-03T19:52:49.643794Z",
+  "run": "cn-2026-11-03-102",
+  "observedAt": "2026-11-03T21:14:55.194481+00:00",
   "counts": {
     "parties": 17,
     "listingSources": 17,
@@ -8,12 +8,17 @@
     "logos": 14,
     "identifiedPlatforms": 7,
     "deliveryProfiles": 3,
-    "emptyIngestionMethods": 17,
-    "excluded": 36,
-    "deferred": 177
+    "emptyIngestionMethods": 1,
+    "excluded": 41,
+    "deferred": 206
   },
+  "verificationStatus": "FAILED_INGESTION_DRIFT",
+  "lastPassingVerificationRun": "cn-2026-11-03-093",
+  "lastPassingFullVerificationRun": "cn-2026-11-03-090",
+  "supplementalFullReadbackRun": "cn-2026-11-03-100",
   "countryCoverage": "OPEN",
   "paidDataSpendUsd": 0,
   "blockers": [],
-  "next": "Batch86: investigate remaining native antique/art dealers, including Shanghaiantiquegallery leads; nextfull90. CountryOPEN, no globalblocker."
+  "verificationException": "External WEB_CRAWL activation on16sources; user direction pending.",
+  "next": "Continue eastern original-art dealers and direct legal-seller/invoice evidence; next scheduled full verification attempt batch105."
 }

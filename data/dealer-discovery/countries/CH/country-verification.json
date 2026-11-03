@@ -1,54 +1,793 @@
 {
-  "run": "ch-2026-11-03-091",
-  "verifiedAt": "2026-11-03T19:51:58.217996Z",
+  "run": "ch-2026-11-03-108",
+  "checkedAt": "2026-11-03T21:13:59.617491Z",
+  "verified": false,
+  "status": "VERIFICATION_FAILED",
   "scope": "ROOT_AND_HOSTED_COUNTRY",
-  "fullVerifiedAt": "2026-11-03T19:45:42.966190Z",
-  "counts": {
-    "parties": 152,
-    "listingSources": 155,
-    "locations": 184,
-    "logos": 114,
-    "identifiedPlatforms": 119,
-    "deliveryProfiles": 81,
-    "emptyIngestionMethods": 155,
-    "excluded": 38,
-    "deferred": 141
+  "lastSuccessfulVerification": {
+    "run": "ch-2026-11-03-100",
+    "verifiedAt": "2026-11-03T20:28:52.487186Z",
+    "fullVerifiedAt": "2026-11-03T20:28:20.390803Z",
+    "counts": {
+      "parties": 164,
+      "listingSources": 167,
+      "locations": 196,
+      "logos": 119,
+      "identifiedPlatforms": 127,
+      "deliveryProfiles": 89,
+      "emptyIngestionMethods": 167,
+      "excluded": 42,
+      "deferred": 151
+    }
   },
-  "paidDataSpendUsd": 0,
-  "countryComplete": false,
-  "blockers": [],
-  "ledgers": [
+  "ledgerCounts": {
+    "parties": 174,
+    "listingSources": 177,
+    "locations": 206,
+    "logos": 127,
+    "identifiedPlatforms": 135,
+    "deliveryProfiles": 94,
+    "excluded": 43,
+    "deferred": 159
+  },
+  "liveIngestionCounts": {
+    "checked": 177,
+    "empty": 107,
+    "externallyConfigured": 70
+  },
+  "strictVerificationAttempts": [
     {
       "ledger": "data/dealer-discovery/countries/CH/dealers.jsonl",
-      "verificationFile": "data/dealer-discovery/countries/CH/verification.json",
-      "scope": "INCREMENTAL",
-      "fullVerifiedAt": "2026-11-03T19:45:42.966190Z",
-      "verifiedAt": "2026-11-03T19:51:35.160957Z",
-      "listingSources": 152
+      "output": "data/dealer-discovery/countries/CH/verification.json",
+      "run": "ch-2026-11-03-108",
+      "passed": false,
+      "failure": "INGESTION_METHODS_NOT_EMPTY",
+      "observedAt": "2026-11-03T21:13:31.483068Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/CH/hosted/blinks/dealers.jsonl",
-      "verificationFile": "data/dealer-discovery/countries/CH/hosted/blinks/verification.json",
-      "scope": "INCREMENTAL",
-      "fullVerifiedAt": "2026-11-03T19:45:50.321964Z",
-      "verifiedAt": "2026-11-03T19:51:42.907761Z",
-      "listingSources": 1
+      "output": "data/dealer-discovery/countries/CH/hosted/blinks/verification.json",
+      "run": "ch-2026-11-03-108",
+      "passed": false,
+      "failure": "INGESTION_METHODS_NOT_EMPTY",
+      "observedAt": "2026-11-03T21:13:38.968724Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/CH/hosted/castellino/dealers.jsonl",
-      "verificationFile": "data/dealer-discovery/countries/CH/hosted/castellino/verification.json",
-      "scope": "INCREMENTAL",
-      "fullVerifiedAt": "2026-11-03T19:45:58.004148Z",
-      "verifiedAt": "2026-11-03T19:51:50.521481Z",
-      "listingSources": 1
+      "output": "data/dealer-discovery/countries/CH/hosted/castellino/verification.json",
+      "run": "ch-2026-11-03-108",
+      "passed": false,
+      "failure": "INGESTION_METHODS_NOT_EMPTY",
+      "observedAt": "2026-11-03T21:13:47.106257Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/CH/hosted/degussa-swiss/dealers.jsonl",
-      "verificationFile": "data/dealer-discovery/countries/CH/hosted/degussa-swiss/verification.json",
-      "scope": "INCREMENTAL",
-      "fullVerifiedAt": "2026-11-03T19:46:06.073022Z",
-      "verifiedAt": "2026-11-03T19:51:58.174645Z",
-      "listingSources": 1
+      "output": "data/dealer-discovery/countries/CH/hosted/degussa-swiss/verification.json",
+      "run": "ch-2026-11-03-108",
+      "passed": false,
+      "failure": "INGESTION_METHODS_NOT_EMPTY",
+      "observedAt": "2026-11-03T21:13:54.887502Z"
     }
-  ]
+  ],
+  "externalConfigurationObservations": [
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquitespugin.ch",
+      "url": "https://antiquitespugin.ch/catalogue/",
+      "listingSourceId": "ls_01m6ge4eqqexc8df9pyqqeyva7",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.001042Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "brocanthaus-basel.com",
+      "url": "https://www.brocanthaus-basel.com/shop",
+      "listingSourceId": "ls_01m6ge4jxbexnbs04b9tnmvqrj",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.073148Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "martinkiener.ch",
+      "url": "https://www.martinkiener.ch/site/galerie.php?seite=3",
+      "listingSourceId": "ls_01m6gedbpyeb49v7jj24baeh8s",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.178967Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerie-buettiker.ch",
+      "url": "https://www.galerie-buettiker.ch/de/Bildergalerie",
+      "listingSourceId": "ls_01m6gerf72eyq8vqphwz69kbqy",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.324845Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "storica.ch",
+      "url": "https://storica.ch/",
+      "listingSourceId": "ls_01m6gex0mwecdshsa3h254xm4k",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.346768Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "plektronfinearts.com",
+      "url": "https://www.plektronfinearts.com/artworks",
+      "listingSourceId": "ls_01m6gf4316eet9qzfjw2hnp55m",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.416877Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "sycomore-ancient-art.com",
+      "url": "https://www.sycomore-ancient-art.com/",
+      "listingSourceId": "ls_01m6gf4508ekk96zgx19hyv2zk",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.438312Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "aupechedumobilier.ch",
+      "url": "https://www.aupechedumobilier.ch/vente-de-mobilier-apdm1.html",
+      "listingSourceId": "ls_01m6gfae6becgrseg4pvvvxb6r",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.487183Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "harteveld.ch",
+      "url": "https://www.harteveld.ch/",
+      "listingSourceId": "ls_01m6gfe797e2v95hbgagr3tgz7",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.567049Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "buechereule.ch",
+      "url": "https://www.buechereule.ch/",
+      "listingSourceId": "ls_01m6gfmafqes7tneaws57pdtcb",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.581562Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "zaehringer-zuerich.com",
+      "url": "https://www.zaehringer-zuerich.com/news.html",
+      "listingSourceId": "ls_01m6gfy5w8ekcv8dq7mw9m6re0",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.649378Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "amrein-antiquitaten-kunst.webnode.page",
+      "url": "https://amrein-antiquitaten-kunst.webnode.page/unser-angebot/",
+      "listingSourceId": "ls_01m6ggcmdeeh8r5e2ygen6802q",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.721811Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "rudolf-bosch.com",
+      "url": "https://rudolf-bosch.com/",
+      "listingSourceId": "ls_01m6ghsn83e0bt0yxq9xe3xq7g",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:55.959440Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "richardreddingantiques.com",
+      "url": "https://www.richardreddingantiques.com/",
+      "listingSourceId": "ls_01m6gj24g5etxsr5xfw1f1hgzd",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.022822Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "severinkinkelin.ch",
+      "url": "http://www.severinkinkelin.ch/?details=5",
+      "listingSourceId": "ls_01m6gj26vveknbxy154q7q4ve3",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.035166Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquariat-eichenberger.ch",
+      "url": "https://www.antiquariat-eichenberger.ch/",
+      "listingSourceId": "ls_01m6gjcamze399svjqb5g5hvhn",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.065317Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antikschreinerei-hubert-gisler.ch",
+      "url": "https://www.antikschreinerei-hubert-gisler.ch/",
+      "listingSourceId": "ls_01m6gjm33vetp8mba9q1y988jq",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.175635Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galeriemauruscathomas.ch",
+      "url": "https://www.galeriemauruscathomas.ch/",
+      "listingSourceId": "ls_01m6gka5wwerx9tm99cmqrxp72",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.259652Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquacoins.ch",
+      "url": "https://www.antiquacoins.ch/",
+      "listingSourceId": "ls_01m6gky6k6ehm9c046a041nckx",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.392569Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "classiccoinsshop.ch",
+      "url": "https://www.classiccoinsshop.ch/shop",
+      "listingSourceId": "ls_01m6gma8bfef2re3nc7r4vx7zq",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.415132Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "muenzen-huber.ch",
+      "url": "https://muenzen-huber.ch/shop/",
+      "listingSourceId": "ls_01m6gmaavqec8rx5z8rwwpxx9s",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.455573Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "novamarketing.ch",
+      "url": "https://www.novamarketing.ch/",
+      "listingSourceId": "ls_01m6gmsewve0grsjepcdhs97x0",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.486236Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "schweizergeld.ch",
+      "url": "https://www.schweizergeld.ch/",
+      "listingSourceId": "ls_01m6gn3g24eqkbhv39db9aytz3",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.526918Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "vintage4wohndeko.ch",
+      "url": "https://www.vintage4wohndeko.ch/",
+      "listingSourceId": "ls_01m6gq4f8fej5r1zbv0jcm5jar",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.653566Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquites-nyon.ch",
+      "url": "https://www.antiquites-nyon.ch/",
+      "listingSourceId": "ls_01m6gqyp3ee5pa16gyjhvz4563",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.682560Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "finebooks.ch",
+      "url": "https://www.finebooks.ch/",
+      "listingSourceId": "ls_01m6gqyqq6ep38aynetxg2z9by",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.681711Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "thuriot-antiquaire.com",
+      "url": "https://www.thuriot-antiquaire.com/",
+      "listingSourceId": "ls_01m6gr91yce46rz0ka65dx0a6k",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.760836Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "georg-schneebeli.com",
+      "url": "https://www.georg-schneebeli.com/",
+      "listingSourceId": "ls_01m6grpxxcenp931y9sjwrnrn8",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.809490Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "abc-buch.ch",
+      "url": "https://www.abc-buch.ch/",
+      "listingSourceId": "ls_01m6grpzysekcrdbx5v0ax8hb9",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.840215Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "viarius.ch",
+      "url": "https://www.viarius.ch/",
+      "listingSourceId": "ls_01m6gs4w4ved7tx3bkhwr93g6k",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.835960Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "buch-antiquariat.ch",
+      "url": "https://www.buch-antiquariat.ch/",
+      "listingSourceId": "ls_01m6gs4ybye03brzbp8vcdtzca",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.907896Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "wieland-briefmarken.ch",
+      "url": "https://wieland-briefmarken.ch/",
+      "listingSourceId": "ls_01m6gs52mge0w9mqcn35ew5dxa",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.920471Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lautographe.com",
+      "url": "https://www.lautographe.com/",
+      "listingSourceId": "ls_01m6gssv6ye5xst6x62216nvq0",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:56.995218Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "kunstbroker.ch",
+      "url": "https://kunstbroker.ch/",
+      "listingSourceId": "ls_01m6gssxqneg7sffabp7fv8a95",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.084068Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "weberrarebooks.com",
+      "url": "https://www.weberrarebooks.com/",
+      "listingSourceId": "ls_01m6gtcmsse5ktkmqwbqpzqxr8",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.085377Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquariat-fatzer.ch",
+      "url": "https://www.antiquariat-fatzer.ch/",
+      "listingSourceId": "ls_01m6gtcpzse199az06yvx959wx",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.134418Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lagabriellefinearts.com",
+      "url": "https://www.lagabriellefinearts.com/",
+      "listingSourceId": "ls_01m6gtcs18e78td1r49gcrjd1e",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.187722Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "biblion.ch",
+      "url": "http://www.biblion.ch/",
+      "listingSourceId": "ls_01m6gv18kxehmrf25rkszsjv9p",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.158755Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galleria13.jimdofree.com",
+      "url": "https://galleria13.jimdofree.com/",
+      "listingSourceId": "ls_01m6gx6ykne6ds31efh1ewy3zs",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.262956Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "labonnepioche.ch",
+      "url": "https://labonnepioche.ch/",
+      "listingSourceId": "ls_01m6gxk7gpe00tr1jf8tnts4ty",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.330676Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "reichmuth-schreinerei.ch",
+      "url": "https://www.reichmuth-schreinerei.ch/schreinerei-_-innenausbau-allgemein/restaurationen-_-antiquitaeten/antiquitaeten/antiquitaeten-allgemein/",
+      "listingSourceId": "ls_01m6gxrsrzedqve42m998gx9mt",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.399399Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquites-jardins.ch",
+      "url": "https://www.antiquites-jardins.ch/",
+      "listingSourceId": "ls_01m6gyh7z8eezbmzw4jvh49vr3",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.466193Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antikmoebel-seibt.ch",
+      "url": "http://antikmoebel-seibt.ch/",
+      "listingSourceId": "ls_01m6gyzm9xepx96gc7emt0rn93",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.475838Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "beceren.ch",
+      "url": "https://www.beceren.ch/",
+      "listingSourceId": "ls_01m6gz8z04e5trrvw0qg72p6km",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.560582Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "flohmarkt-walensee.ch",
+      "url": "https://www.flohmarkt-walensee.ch/",
+      "listingSourceId": "ls_01m6h1adx9enwsbj5njmhy8yg8",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.698910Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "dachstockdesign.ch",
+      "url": "https://www.dachstockdesign.ch/",
+      "listingSourceId": "ls_01m6h1hdecefmbrv6q4nb518kq",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.773422Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "stilmoebel-rustico.ch",
+      "url": "http://www.stilmoebel-rustico.ch/",
+      "listingSourceId": "ls_01m6h2cb3ced6t0dqxy4qc8wzm",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.858676Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "schatzsuche.ch",
+      "url": "https://www.schatzsuche.ch/vintage/",
+      "listingSourceId": "ls_01m6h2pg07et8r5p4q2nmxpz3y",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:57.934642Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "gurtentischlerei.ch",
+      "url": "https://www.gurtentischlerei.ch/",
+      "listingSourceId": "ls_01m6h3j5y9e478db8t5s9e2w7q",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.007710Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "sticheschweiz.ch",
+      "url": "https://sticheschweiz.ch/",
+      "listingSourceId": "ls_01m6h3z23teyabyc91ym4xpf75",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.006946Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "1.august.ch",
+      "url": "https://www.1.august.ch/",
+      "listingSourceId": "ls_01m6h4921jexztdn3kdg92qqdn",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.076333Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "bogen33.ch",
+      "url": "https://www.bogen33.ch/",
+      "listingSourceId": "ls_01m6h71c7we6cs1qfhe5zn2h7t",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.340714Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "viadukt3.ch",
+      "url": "https://www.viadukt3.ch/",
+      "listingSourceId": "ls_01m6h7eg8aeqeat7ej13axebxp",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.404224Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lihaga.ch",
+      "url": "https://www.lihaga.ch/",
+      "listingSourceId": "ls_01m6h81xncea8b20q4f38xcqsc",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.476010Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "bumadesign.ch",
+      "url": "https://www.bumadesign.ch/",
+      "listingSourceId": "ls_01m6hbrxh4eb996zzf6an0bk9y",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.600240Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "baillygallery.com",
+      "url": "https://baillygallery.com/",
+      "listingSourceId": "ls_01m6hc11pcee1vdasq6ynbbebp",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.616303Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "koetsergallery.com",
+      "url": "https://www.koetsergallery.com/",
+      "listingSourceId": "ls_01m6hdq6g9e0tvzjfcx842d840",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.754497Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "thorens-gallery.com",
+      "url": "https://thorens-gallery.com/",
+      "listingSourceId": "ls_01m6hen836e9kbewyt5nrb3zwj",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.829760Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "indekor.ch",
+      "url": "https://www.indekor.ch/",
+      "listingSourceId": "ls_01m6hevwxke3qr8nvfcenj72wq",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.883271Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "amperebasel.ch",
+      "url": "https://www.amperebasel.ch/",
+      "listingSourceId": "ls_01m6hfjr2jemmv5nbhykzsm35t",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:58.955324Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "octave-moebelkultur.ch",
+      "url": "https://www.octave-moebelkultur.ch/",
+      "listingSourceId": "ls_01m6hg99rye76b7mev2tfb2ybc",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.021335Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antikgrafenort.ch",
+      "url": "https://www.antikgrafenort.ch/shop/",
+      "listingSourceId": "ls_01m6hghqnme32v1mnyxa22581m",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.115545Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerie123.com",
+      "url": "https://www.galerie123.com/fr/",
+      "listingSourceId": "ls_01m6hgxfv9esarkcafr5vs28ts",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.134900Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "shop1.samovar.ch",
+      "url": "https://shop1.samovar.ch/",
+      "listingSourceId": "ls_01m6hh65baecq8r4avx3trec9p",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.197623Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "kunsthandelschmeh.ch",
+      "url": "http://www.kunsthandelschmeh.ch/",
+      "listingSourceId": "ls_01m6hh68hkemb8n2hs97kcrp18",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.211560Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "schindlergallery.com",
+      "url": "https://www.schindlergallery.com/",
+      "listingSourceId": "ls_01m6hhbdezeqkr04mc2gfmmha8",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.213852Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antikgalerie.ch",
+      "url": "https://www.antikgalerie.ch/",
+      "listingSourceId": "ls_01m6hhfva2e0svschpb44ebn5r",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.279212Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/hosted/blinks/dealers.jsonl",
+      "domain": "proantic.com",
+      "url": "https://www.proantic.com/galerie/blinks/",
+      "listingSourceId": "ls_01m6hdytcvejha55fzhjz0415a",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.557820Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/hosted/castellino/dealers.jsonl",
+      "domain": "anticstore.com",
+      "url": "https://www.anticstore.com/antiquaire/castellino-fine-arts",
+      "listingSourceId": "ls_01m6h13vhpebjb87bksy4p3b97",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.585029Z"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/hosted/degussa-swiss/dealers.jsonl",
+      "domain": "degussa.com",
+      "url": "https://degussa.com/ch-de/",
+      "listingSourceId": "ls_01m6h4q0h7ez99rxjjf0zzegr6",
+      "methodTypes": [
+        "WEB_CRAWL"
+      ],
+      "observedAt": "2026-11-03T21:13:59.615991Z"
+    }
+  ],
+  "paidDataSpendUsd": 0,
+  "countryComplete": false,
+  "blockers": [],
+  "verificationLimitations": [
+    "Strict country verification failed because sources changed externally from empty ingestion to WEB_CRAWL after their creation/readback. External configuration preserved; this workflow never enabled ingestion. Prior verification files retain their actual last-success dates. New onboarded resources received independent creation/default readbacks. This is not a global research blocker."
+  ],
+  "lastResourceIntegrityReadback": {
+    "run": "ch-2026-11-03-105",
+    "checkedAt": "2026-11-03T20:55:22.791099Z",
+    "resourceIntegrityPassed": true,
+    "strictCountryVerificationPassed": false,
+    "counts": {
+      "sourcesRead": 174,
+      "resourceFailures": 0,
+      "emptyIngestion": 104,
+      "externallyConfiguredIngestion": 70
+    },
+    "file": "resource-verification.json"
+  }
 }

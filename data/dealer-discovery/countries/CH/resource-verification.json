@@ -1,0 +1,2802 @@
+{
+  "run": "ch-2026-11-03-105",
+  "checkedAt": "2026-11-03T20:55:22.791099Z",
+  "scope": "FULL_ROOT_AND_HOSTED_RESOURCE_INTEGRITY",
+  "strictCountryVerificationPassed": false,
+  "resourceIntegrityPassed": true,
+  "counts": {
+    "sourcesRead": 174,
+    "resourceFailures": 0,
+    "emptyIngestion": 104,
+    "externallyConfiguredIngestion": 70
+  },
+  "limitations": [
+    "This independent diagnostic checks live Party/source identity, contacts, image/platform, every location and both selected defaults, and all active shipping terms. It records actual nonempty ingestion separately. Standard verify.py remains strict and is still attempted with explicit ledger/output paths after every batch; its empty-ingestion failures are preserved. This file does not certify that all ingestion is empty."
+  ],
+  "dealers": [
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiques-international.ch",
+      "listingSourceId": "ls_01m6gdz68ze7za3dgtrswys403",
+      "partyId": "pty_01m6gdz689ef6agd5ntpr9t38j",
+      "checkedAt": "2026-11-03T20:54:53.225200Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gdz6s7eqzr36dqjcgf09ze"
+      ],
+      "shippingProfileId": "shp_01m6gdz7fhe0c87gg5dm3b5ccm",
+      "observationDigest": "65fbcd303cc291dfc2d3c7b0b721a1de7f0d0544e86a76f768aa327e0a1c5e42"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lesaugustines.ch",
+      "listingSourceId": "ls_01m6gdz8xve66s18vw87r959zh",
+      "partyId": "pty_01m6gdz8x8etsbthat0n1aj5r7",
+      "checkedAt": "2026-11-03T20:54:52.920286Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gdz9btehr9qjytz7s7fdyr"
+      ],
+      "shippingProfileId": "shp_01m6gdza1ce9as7yzr8ja31q66",
+      "observationDigest": "1b1d99ced1f6c332db746e8d610755b4ab3be96973953cd53718024656e5e818"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquitespugin.ch",
+      "listingSourceId": "ls_01m6ge4eqqexc8df9pyqqeyva7",
+      "partyId": "pty_01m6ge4eq6ewvt0m0z98hpqrks",
+      "checkedAt": "2026-11-03T20:54:52.810188Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ge4f3weq1sc92tqgn01sz8"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "0a29802b399bc8f96bbae5614e82dfe0b4cce1289a7433890e1d92f23fe8bfc8"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "kissthedesign.ch",
+      "listingSourceId": "ls_01m6ge4gjger3vah7a79xqzh5r",
+      "partyId": "pty_01m6ge4gj1eh297ee1ha15968g",
+      "checkedAt": "2026-11-03T20:54:53.350336Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ge4gywenxvzfvs9dwjrrkn"
+      ],
+      "shippingProfileId": "shp_01m6ge4hmme0xttrag1vdz62w6",
+      "observationDigest": "2b533c84095cb0712752bcc963cfc5f20360a0ef3480e70e7d1ea1e5d7cca403"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "brocanthaus-basel.com",
+      "listingSourceId": "ls_01m6ge4jxbexnbs04b9tnmvqrj",
+      "partyId": "pty_01m6ge4jwxeka9yv8thpq2ym2d",
+      "checkedAt": "2026-11-03T20:54:53.492606Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ge4k8jesst59dz0nvpkxmk"
+      ],
+      "shippingProfileId": "shp_01m6ge4kv7ew9rdbh0r51dx708",
+      "observationDigest": "3ee227ed94f23b8fc8c21a35c1d54739f1798fbad384eb7792f74fb921cb8cdb"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "ursettlin.ch",
+      "listingSourceId": "ls_01m6ge8h4fevwvp2j4c102fke8",
+      "partyId": "pty_01m6ge8h3ye7tatdd2y4pf39f9",
+      "checkedAt": "2026-11-03T20:54:53.717612Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ge8hh9ems9h8ekb851nsht"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "5d141812611c5effdb5830a83cafde1ea78040b962f0ecedd02593951e5240c0"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "maxhowald.ch",
+      "listingSourceId": "ls_01m6ge8jxbegjatk1y9c7h3q2q",
+      "partyId": "pty_01m6ge8jwyef2s5mybsz235t1b",
+      "checkedAt": "2026-11-03T20:54:53.838717Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ge8k9cesgbkz8y8a2csy2c"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "cd50fadd0303c7af4f832e5c4fcb2f12b673d4a60827cc39a51404e097ff3345"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "martinkiener.ch",
+      "listingSourceId": "ls_01m6gedbpyeb49v7jj24baeh8s",
+      "partyId": "pty_01m6gedbpgefetq8e1q8138z9c",
+      "checkedAt": "2026-11-03T20:54:53.954727Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gedc3kekmsyxdkrrn9s5ck"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "f0ccf5c7c707ce39e851a0a146431ba11fcf5d0adc9560bd2ae52cc8901ff1c1"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "maisonpapon.ch",
+      "listingSourceId": "ls_01m6gej6eje3yaw7cqq5wz20fz",
+      "partyId": "pty_01m6gej6e6eh1996wp5pf3xqff",
+      "checkedAt": "2026-11-03T20:54:54.272830Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gej6vcecfs1v815h2ney09",
+        "ploc_01m6gej723e5993sq3y6mhvm7w"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "9485055ea5dfab05e988eb852f5ef288fec5fa36b7471475122ec947ad803db7"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "gutknecht-gallery.com",
+      "listingSourceId": "ls_01m6gej8gfe2rskyr9bps8z2vt",
+      "partyId": "pty_01m6gej8g4e9bb884a43896w40",
+      "checkedAt": "2026-11-03T20:54:54.323953Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gej8w5e6v99afkdk8hcgf4"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "eca76e6cdc6d572d8e82f0a8c47200a390d560d0e5389d5d9d82e07245db1219"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "tribalart.ch",
+      "listingSourceId": "ls_01m6geja75eftvn9z505gcrmpa",
+      "partyId": "pty_01m6geja6tery9bvc5yq3b7a6h",
+      "checkedAt": "2026-11-03T20:54:54.431668Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gejaj6em4vajtdxenavf81"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6fe88343358a638112d312151a6854a9d1a8810c5ca4875034f02a105548f161"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "bigler-finearts.com",
+      "listingSourceId": "ls_01m6gerdebefcb27032hvvwap8",
+      "partyId": "pty_01m6gerddrezds6d8a1bvjzwwy",
+      "checkedAt": "2026-11-03T20:54:54.714598Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gerdv8ead899hyn6t88rj6"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6ee933db9cf0ad0bdc60e57a8a5df26c550c6ff4e554b68a28fa7e539fbaa18d"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerie-buettiker.ch",
+      "listingSourceId": "ls_01m6gerf72eyq8vqphwz69kbqy",
+      "partyId": "pty_01m6gerf6qeap8r80khsabgaqq",
+      "checkedAt": "2026-11-03T20:54:54.745392Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gerfm5eqwsrt0g4qhebfd0"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "0dca2f486077df687ba2ff4cb8143d5868c960ca723d8369f30011694bc2e896"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "augustlaube.ch",
+      "listingSourceId": "ls_01m6gerhageemrdx8m6gy7zec5",
+      "partyId": "pty_01m6gerha3e0pa17kw09wnmrz3",
+      "checkedAt": "2026-11-03T20:54:54.989048Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gerhr7ev5vrenk2qzgd314"
+      ],
+      "shippingProfileId": "shp_01m6gerjcpezjtr6395cpbe4pz",
+      "observationDigest": "ed5a60033fae3d7af2fccb1a71762e79fdc77086cc19340a5bdc7f93d866ab5d"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "storica.ch",
+      "listingSourceId": "ls_01m6gex0mwecdshsa3h254xm4k",
+      "partyId": "pty_01m6gex0mjekz9z0df98q8krjg",
+      "checkedAt": "2026-11-03T20:54:55.159290Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gex11mekgr980jt3h3w2n0"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "414f5fa15da423526b56b4e7402a87a722fa8cda34ebc5712c29c0b278adaa3b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "brocante-antiquites.ch",
+      "listingSourceId": "ls_01m6gex289emvsn093p4hxve7z",
+      "partyId": "pty_01m6gex27wemkr9sb3z7v81sx1",
+      "checkedAt": "2026-11-03T20:54:55.220974Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gex2ktej0ap624s45q3das"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "ce5c947234d82b8d69cb6084df10cbc838ed3b94f5040505dfe865a1cbfa7e3e"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "plektronfinearts.com",
+      "listingSourceId": "ls_01m6gf4316eet9qzfjw2hnp55m",
+      "partyId": "pty_01m6gf430ee468enxc488gm1x1",
+      "checkedAt": "2026-11-03T20:54:55.414144Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gf43g3e88s464rn0v7fkhp"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "66ffaa6ccb5f715e15054a8cfedd91e37c04ba4d52166de6121722f8621e8560"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "sycomore-ancient-art.com",
+      "listingSourceId": "ls_01m6gf4508ekk96zgx19hyv2zk",
+      "partyId": "pty_01m6gf44znem79t4ggyk5txg9v",
+      "checkedAt": "2026-11-03T20:54:55.614109Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gf45ece17838b5j0spr3kx"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "947601d68b0ff2f1509eb4cceec114716c6784c0838478b3e4b42b0fd894b0fb"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "aupechedumobilier.ch",
+      "listingSourceId": "ls_01m6gfae6becgrseg4pvvvxb6r",
+      "partyId": "pty_01m6gfae5jewyvyh92fdefgmbg",
+      "checkedAt": "2026-11-03T20:54:55.697461Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gfaemxe5k8khr8e8xz5fs0"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "d54f52e333282cd0097fa423cd55a5fd1b631c015b023fb52df1c679dc4f4eb6"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "cerisenoire.ch",
+      "listingSourceId": "ls_01m6gfag4re4x8nh6cyym6gb83",
+      "partyId": "pty_01m6gfag40e2a9wvevfavjrqef",
+      "checkedAt": "2026-11-03T20:54:55.856895Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gfagj5eagrtgthfkjkqan8"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "1e40346d0dcd4e659736842a386472a2b39284af64bbec68571a0ac494782db2"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquarischekostbarkeiten.com",
+      "listingSourceId": "ls_01m6gfe4vtej9t16fhnx65v34j",
+      "partyId": "pty_01m6gfe4v7efpsvyhfvn4bzd2a",
+      "checkedAt": "2026-11-03T20:54:56.182787Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gfe59aeg9vhkhqgm5fhvwh"
+      ],
+      "shippingProfileId": "shp_01m6gfe5xfeydbcaaq13b1nxb7",
+      "observationDigest": "bf9366a116e96939a62a61581e1c9cb9c2534d3165c4028035cd8766b7739352"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "harteveld.ch",
+      "listingSourceId": "ls_01m6gfe797e2v95hbgagr3tgz7",
+      "partyId": "pty_01m6gfe78nev18zhwnrafqzt7t",
+      "checkedAt": "2026-11-03T20:54:56.370208Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gfe7r1e4kb7egghb6a3y56",
+        "ploc_01m6gfe809ekd9vtxzs30dve1k"
+      ],
+      "shippingProfileId": "shp_01m6gfe8meex6vq2t34py9khcc",
+      "observationDigest": "3ec1f87c01a8e61c0c5dad9e03030b76452131763e934f5b20f1a63bca5913c5"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "buechereule.ch",
+      "listingSourceId": "ls_01m6gfmafqes7tneaws57pdtcb",
+      "partyId": "pty_01m6gfmaf8ezd856dyjnaaywn8",
+      "checkedAt": "2026-11-03T20:54:56.482997Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gfmay0ekq9smd4ys8s8b1j",
+        "ploc_01m6gfmb5je0ctyat0zaymjchs"
+      ],
+      "shippingProfileId": "shp_01m6gfmbsbepkv7nmv9gsrvj2c",
+      "observationDigest": "3628d55bd8611de444b7ba7b57d9081c5971220a153b6a15bd53bd34557958df"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "erasmushaus.ch",
+      "listingSourceId": "ls_01m6gfmd5zey49d59tzwpgx8mv",
+      "partyId": "pty_01m6gfmd5jefjbpdtj86jhzzee",
+      "checkedAt": "2026-11-03T20:54:56.632040Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gfmdjze229cpvrrz83j03m"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "206bebe0b07dfe0a7e0f84869918ac444845c97a064b45e2b8c7d91dc4a1867e"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "schumann.ch",
+      "listingSourceId": "ls_01m6gfy392ecxr77yte1fce7me",
+      "partyId": "pty_01m6gfy38jewyvch1ajzf05bx7",
+      "checkedAt": "2026-11-03T20:54:56.919053Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gfy3pxea8vxnmw7dhm8hg3"
+      ],
+      "shippingProfileId": "shp_01m6gfy4g0e6vby047ejp0s8ra",
+      "observationDigest": "05887032d02683249ed53192bff24055531d1514146a80eba4f5e2b5f2fb8d3f"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "zaehringer-zuerich.com",
+      "listingSourceId": "ls_01m6gfy5w8ekcv8dq7mw9m6re0",
+      "partyId": "pty_01m6gfy5vne4ktmcxbsmkkq105",
+      "checkedAt": "2026-11-03T20:54:56.920399Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gfy68zekbr0gbg549h1cdc"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "c042891068ed08aed98bede5d4a0a0aed4c9a3329900cdb11f2c6ea42f959dcd"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "guenther-rarebooks.com",
+      "listingSourceId": "ls_01m6ggcjkqer2aj9ma9ds64c46",
+      "partyId": "pty_01m6ggcjkgecw9zb9z5zs2btec",
+      "checkedAt": "2026-11-03T20:54:57.156608Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ggcjzae1nrgbfgnfpnb1h4",
+        "ploc_01m6ggck4yeadaqk9gwhhq3x8p"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "89d9a42d326bc8d07355e1f1d22b484152ff934874a5d30508005175daab3953"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "amrein-antiquitaten-kunst.webnode.page",
+      "listingSourceId": "ls_01m6ggcmdeeh8r5e2ygen6802q",
+      "partyId": "pty_01m6ggcmd7ee1rxjns4jxq3jjw",
+      "checkedAt": "2026-11-03T20:54:57.476498Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ggcmrwepxbmkxp93c3y91c"
+      ],
+      "shippingProfileId": "shp_01m6ggcn95ec7sj39gy6a3z4a3",
+      "observationDigest": "f7a0daeb6210e9337e45d3b61c6c61b6cafa8b32516def365c1bae12ac726036"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "retrovare.ch",
+      "listingSourceId": "ls_01m6ggcpe1eaftjec4f5abhw9g",
+      "partyId": "pty_01m6ggcpdseffasnzd02ygzbq9",
+      "checkedAt": "2026-11-03T20:54:57.425416Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ggcpsged9tbcm2qs1wtdyz"
+      ],
+      "shippingProfileId": "shp_01m6ggcqawepg838asfhwmre45",
+      "observationDigest": "4526e31cb2192b14c2c310725ef2d3ea0053e6bcfc28f9d367a727f9ff461f73"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerie-latham.com",
+      "listingSourceId": "ls_01m6gh69ykey4bgykw9aea1nyf",
+      "partyId": "pty_01m6gh69xye1t83xz87zxhnzjr",
+      "checkedAt": "2026-11-03T20:54:57.592711Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gh6adgefw8cn50gdr9ev76"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "1f78f92c9c9c1823db146997bbe1c89c2cd1b4cb2a5f3e5431b8c93d962ff0a6"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "dierking.ch",
+      "listingSourceId": "ls_01m6gh6bxde79tq9pmv5sbtdwy",
+      "partyId": "pty_01m6gh6bwter19c9qa0fyjpenh",
+      "checkedAt": "2026-11-03T20:54:57.847621Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gh6cb8e8p8yygs61304f8c"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "c980d2d8b55eca28af443ebae83f740f918a55b4dac906e1da696a1b1a80ac0a"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "perlerofen.ch",
+      "listingSourceId": "ls_01m6ghc5t8egb9z2vnc5k6fgy9",
+      "partyId": "pty_01m6ghc5sre6gbf8djafm31pz4",
+      "checkedAt": "2026-11-03T20:54:57.891264Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ghc6e2eqa953gvv8d0hmj8"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "5e4a26d1d3c0ddad493c4a6143ba075c2435b2bddbb007bf602e46db9932dd00"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "ursvonunger.com",
+      "listingSourceId": "ls_01m6ghc7xre5arqve42jbe8495",
+      "partyId": "pty_01m6ghc7x7e94a05227m2xcg04",
+      "checkedAt": "2026-11-03T20:54:57.999739Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ghc8aheq4b6z4t7zxz7346"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6263579acd123783c9f3d73423457b3623ab3112369826c1be16f226a42f6a12"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "boeckli-antiquitaeten.ch",
+      "listingSourceId": "ls_01m6ghca03exb94tjbkmcsa8c2",
+      "partyId": "pty_01m6ghc9zjeg2r866mb2yjk1rx",
+      "checkedAt": "2026-11-03T20:54:58.303573Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ghcae2e2kawaw5pys90qr6"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "dc80d73b809cfdaddfe98f4f209cc2a61be9fbce5366b69725249e5b999be3e1"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "sf-antik.ch",
+      "listingSourceId": "ls_01m6ghjcgnec6t9yzyhxapngqc",
+      "partyId": "pty_01m6ghjcg2ej0b341jknp20mee",
+      "checkedAt": "2026-11-03T20:54:58.274297Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ghjczeeh399ay582n5qaqt"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "d7f9252c143f655decde49a8e4fa95d3253bbd284448277d192e61627657a527"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "pendulantic.com",
+      "listingSourceId": "ls_01m6ghjefdeq7adcexq0mwxch4",
+      "partyId": "pty_01m6ghjeewe61bkn9xvqpe24b3",
+      "checkedAt": "2026-11-03T20:54:58.407629Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ghjex9eanbhsszfvgkjph4"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "b2e642c698cf5120478bce45eca08099d6cb08c04bc2d47c2b24729ce774eba5"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "moinat.ch",
+      "listingSourceId": "ls_01m6ghshycetp85qs85pza1gca",
+      "partyId": "pty_01m6ghshxmeha8bc30bd2w9eh1",
+      "checkedAt": "2026-11-03T20:54:58.967343Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ghsjc8ea1sj6z94jjxg5cz",
+        "ploc_01m6ghsjn1e4avm902cyj2ggjf",
+        "ploc_01m6ghsjwpee0s5qgkq6ds67qe"
+      ],
+      "shippingProfileId": "shp_01m6ghskjhe05rezrjz71ma6w2",
+      "observationDigest": "5bbd94383352fcf53241383a45311dff250ff9fa1893583644605cd9528754e8"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "rudolf-bosch.com",
+      "listingSourceId": "ls_01m6ghsn83e0bt0yxq9xe3xq7g",
+      "partyId": "pty_01m6ghsn7mednrqwfqaj5m8ege",
+      "checkedAt": "2026-11-03T20:54:58.887555Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6ghsnpge5q971g96pcshq6h",
+        "ploc_01m6ghsnxje0avf5kqhen1c18e"
+      ],
+      "shippingProfileId": "shp_01m6ghsph7e59t2c0f43b6cs8w",
+      "observationDigest": "3b1c2843e255bf6973c5da2514c17a80b9ac7307e5397b1bf554d8c06bd934ec"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "faktorzeit.ch",
+      "listingSourceId": "ls_01m6gj22psegh80v3qg3dja3z0",
+      "partyId": "pty_01m6gj22p9e3dtqqm29tkm390m",
+      "checkedAt": "2026-11-03T20:54:58.836933Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gj233eeq3r0m77crz30x48"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "38e3c76b55b58a49107dc3a5df0d8e6ba5a03e9882a38df7a0e155b66518af86"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "richardreddingantiques.com",
+      "listingSourceId": "ls_01m6gj24g5etxsr5xfw1f1hgzd",
+      "partyId": "pty_01m6gj24fsebs8acppma42jq88",
+      "checkedAt": "2026-11-03T20:54:59.367866Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gj24w3et1r17yd419fystn"
+      ],
+      "shippingProfileId": "shp_01m6gj25jeece8vmeqamxq7590",
+      "observationDigest": "457c848171c0d896b7ad8ae45848ce153f5c4e8a20ec394dff15d1908f74dc05"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "severinkinkelin.ch",
+      "listingSourceId": "ls_01m6gj26vveknbxy154q7q4ve3",
+      "partyId": "pty_01m6gj26veem6aa6nw95rkn8dv",
+      "checkedAt": "2026-11-03T20:54:59.293755Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gj278rejas5qfqnex13vty"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "7d6abcb00d342c3e448554c96186051eb0ff33346de460ccd45e1c2d3f75d02b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquariat-eichenberger.ch",
+      "listingSourceId": "ls_01m6gjcamze399svjqb5g5hvhn",
+      "partyId": "pty_01m6gjcamhejcaj827m5eqvvwm",
+      "checkedAt": "2026-11-03T20:54:59.355068Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gjcb0xef896dsd0hvcdss6"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "f6d27ad4d87e959d1baa82fb9e996c9ede7877e1ae7ea23e5dd5f291b4cf3ec4"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "borner-moebel.ch",
+      "listingSourceId": "ls_01m6gjccgkev59k46cpn0r6599",
+      "partyId": "pty_01m6gjccg1e6fsrewmfjf6hytt",
+      "checkedAt": "2026-11-03T20:54:59.786041Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gjccxpe7r96jesp3ypnz0f",
+        "ploc_01m6gjcd55e8b8wzk3q7gaaaha"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "acca10662f0ab4e6316d0a3b0193c27e9bb0764e59759a14cb8543c62ade81cc"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "diezeitreise.com",
+      "listingSourceId": "ls_01m6gjcepme7jsmh9fa37v7466",
+      "partyId": "pty_01m6gjcep5e8svq78q6qp45pdv",
+      "checkedAt": "2026-11-03T20:54:59.840502Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gjcf3ge3fa20srhm7njtde"
+      ],
+      "shippingProfileId": "shp_01m6gjcfrmeaba26kdwf1e95nn",
+      "observationDigest": "25ff6d177047195dafc8163cdd84ba04e587ac425637a16d4b9ebb59951b9b34"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antik-blaser.ch",
+      "listingSourceId": "ls_01m6gjch4ze96b728k1favw5eh",
+      "partyId": "pty_01m6gjch4eedx92atmtk6tckg0",
+      "checkedAt": "2026-11-03T20:54:59.762957Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gjchhxe828z3nyfvtwjtkb"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "4100f62342fbb8a53d98e392550f2defa5810eb22f0f32acf20816cb130ebef9"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antikschreinerei-hubert-gisler.ch",
+      "listingSourceId": "ls_01m6gjm33vetp8mba9q1y988jq",
+      "partyId": "pty_01m6gjm33de8cs4n4sk9tfpjtj",
+      "checkedAt": "2026-11-03T20:55:00.331874Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gjm3jge1d9393we4x9p3kn"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "de19340fa9bf8085a445f4dd669b36dd07abd2eb5ec3268759650ab4d11805a5"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "regine-giroud.ch",
+      "listingSourceId": "ls_01m6gjypjke8psycjwn9es4pb4",
+      "partyId": "pty_01m6gjypj1efxvypcpxyqwrgxh",
+      "checkedAt": "2026-11-03T20:55:00.394576Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gjypzpeektr0zpymtdp37a"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "8a241bae3bfe6d4105ae58dec28e829718873793dcc2f63f9a27a5411bc4643f"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "michaelrothuhrenatelier.myshopify.com",
+      "listingSourceId": "ls_01m6gjyrfkey48bwzngsn01yvd",
+      "partyId": "pty_01m6gjyreye55st1pd0gshe1by",
+      "checkedAt": "2026-11-03T20:55:00.493399Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gjyrxke9zt4wvfhq772kc8"
+      ],
+      "shippingProfileId": "shp_01m6gjysjvepnbdp7e2nwz3yy4",
+      "observationDigest": "13490b0b68ce858dbc0aba4bb0e24f71d84afac5a8e9fe69fafe0223f603ae66"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lehmann-antiquitaeten.ch",
+      "listingSourceId": "ls_01m6gka41retasw2150sfmhk7c",
+      "partyId": "pty_01m6gka416e5rt0k0h42d20qve",
+      "checkedAt": "2026-11-03T20:55:00.789589Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gka4f4ey9sxqys94q7k26t"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "8b0bb9039127e6b756af63692559ae18c29e1b00b12fbf4d63c6189c7a337e91"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galeriemauruscathomas.ch",
+      "listingSourceId": "ls_01m6gka5wwerx9tm99cmqrxp72",
+      "partyId": "pty_01m6gka5wee0pt0cam93rc3tne",
+      "checkedAt": "2026-11-03T20:55:00.892390Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gka690em29zvn6m6y22ahy",
+        "ploc_01m6gka6g0e17rafhzecgcqr05"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "0036f46bff688638b69dfec68d11a2d28d9127a5a2688f24c56f5ce9e4d65e27"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "berkel-antik.ch",
+      "listingSourceId": "ls_01m6gksnr4emv982b6tabz0hz8",
+      "partyId": "pty_01m6gksnqre1ba0x6pgcrwms1y",
+      "checkedAt": "2026-11-03T20:55:00.932262Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gksp3pewwra1feh17c6wc6"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "0e946e39de3a5680233413fa5aff853c01615225b713f5fe6b16b77362a1bd40"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "herve-iseli.ch",
+      "listingSourceId": "ls_01m6gksqe7e5nv3c8ftq6gpgp5",
+      "partyId": "pty_01m6gksqdweq9ta6swa9kc8rnp",
+      "checkedAt": "2026-11-03T20:55:01.219328Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gksqtve2h83t2ehmfnzsf3"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "95e52f4bfd271b5de4338f58e89a2a69758ccce6bb8e87afcc994c645b2b8eb7"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "dco-mod.ch",
+      "listingSourceId": "ls_01m6gkssdmerrakb5fqm5r5mz5",
+      "partyId": "pty_01m6gkssd8ey6te07xwfm54fqs",
+      "checkedAt": "2026-11-03T20:55:01.470629Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gksss0evps55jskfvff0ba",
+        "ploc_01m6gkssz6e858nmq4n6856h2c"
+      ],
+      "shippingProfileId": "shp_01m6gkstgzervbprq5myr60rjp",
+      "observationDigest": "76fada44b32cf7f8a9bb87d2147218cc92a26c622065e1541b7c5519f2327915"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "le-bonheur-toujours.ch",
+      "listingSourceId": "ls_01m6gky4haeg3a6gjmz06fhkz8",
+      "partyId": "pty_01m6gky4gnecvts3kk0c2ry7xe",
+      "checkedAt": "2026-11-03T20:55:01.395783Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gky4yze7stqpxkqjzj6a4p"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "371fcf7686d5254b1b8b8962814425fe8c2814e68c2c23430fe9f99db10c188f"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquacoins.ch",
+      "listingSourceId": "ls_01m6gky6k6ehm9c046a041nckx",
+      "partyId": "pty_01m6gky6jnej2b8vnvcn3dqh62",
+      "checkedAt": "2026-11-03T20:55:01.744137Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gky75renqv5qb8rrxpdxt1"
+      ],
+      "shippingProfileId": "shp_01m6gky7ryeyyagk61a0k4b5vx",
+      "observationDigest": "c59ed61ec1419a31aa8cc8b2d208cb9e442f668ccfcf0e43d2d35c29b9e7a8db"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "classiccoinsshop.ch",
+      "listingSourceId": "ls_01m6gma8bfef2re3nc7r4vx7zq",
+      "partyId": "pty_01m6gma8awed1tgdx4tf7fam5t",
+      "checkedAt": "2026-11-03T20:55:01.922825Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gma8rse2w844s9j662nw1d"
+      ],
+      "shippingProfileId": "shp_01m6gma9f7ef3b4ndgf5z12fz1",
+      "observationDigest": "faa08b1a239ba623ac4b2df66d0b1d2c8383654c2bb273cd7671d9abe0a32cf0"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "muenzen-huber.ch",
+      "listingSourceId": "ls_01m6gmaavqec8rx5z8rwwpxx9s",
+      "partyId": "pty_01m6gmaav8e11vryvwsk30er3z",
+      "checkedAt": "2026-11-03T20:55:02.046066Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gmab84e9bvnp5gn1qt67yf"
+      ],
+      "shippingProfileId": "shp_01m6gmabw2e5xs89fm5gnt5m07",
+      "observationDigest": "dfd4945b96c33be705b1d78106526d4f546a64c9d23d281148305fd590a6e334"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "klein-coins.ch",
+      "listingSourceId": "ls_01m6gmad8pet5vzygkr050sv7w",
+      "partyId": "pty_01m6gmad88ewq8c6r32jeprjfm",
+      "checkedAt": "2026-11-03T20:55:02.480639Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gmadnme82t77gc9jvdbsa3"
+      ],
+      "shippingProfileId": "shp_01m6gmae99ed890wfpte64tnnq",
+      "observationDigest": "149e82629d7b4baa80709ca28be2ef65698f42f5d3f51523c257d0f619556ce4"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "novamarketing.ch",
+      "listingSourceId": "ls_01m6gmsewve0grsjepcdhs97x0",
+      "partyId": "pty_01m6gmsew9e38tkyg3bp8xtcx0",
+      "checkedAt": "2026-11-03T20:55:02.539617Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gmsf9we2gtpezxcd8zhna5"
+      ],
+      "shippingProfileId": "shp_01m6gmsfy5e6nad1rn88bb3mdx",
+      "observationDigest": "e43b1df636e345018ec70eca70e2d8f829cf6ad3764dc03371af5fa335ae2607"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "swisscoin.ch",
+      "listingSourceId": "ls_01m6gn3dtgew4bmqbjqeb3jfy5",
+      "partyId": "pty_01m6gn3dt6esrt77jvefq69w6a",
+      "checkedAt": "2026-11-03T20:55:02.538980Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gn3e69edktp89zpq05wf55"
+      ],
+      "shippingProfileId": "shp_01m6gn3eryem0r9qbagzjv1cn0",
+      "observationDigest": "0a22e35d986389471f54b321101c24b2403fbc1e1b8ddfa97c4c52514b73b7e1"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "schweizergeld.ch",
+      "listingSourceId": "ls_01m6gn3g24eqkbhv39db9aytz3",
+      "partyId": "pty_01m6gn3g1teqc9hvkdbvhjxaxq",
+      "checkedAt": "2026-11-03T20:55:03.145682Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gn3gf4esvv7d59dq4z1jkm",
+        "ploc_01m6gn3gnsex6vhvx9dywrfcvn"
+      ],
+      "shippingProfileId": "shp_01m6gn3h87ekr9g5mkj4tkgahv",
+      "observationDigest": "ba65d5a12d3c7c7db490fbbfd1ad16a5fc5444e7c562efab8b8ca5994edfba33"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "rutishauserantiquitaeten.ch",
+      "listingSourceId": "ls_01m6gpm15jed4a4x84a3xf0wgj",
+      "partyId": "pty_01m6gpm157ec2tnngy7hxcqra3",
+      "checkedAt": "2026-11-03T20:55:02.981918Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gpm1hteka9xyqvkecmtvbb"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "43979101106b1eb3cd3b56ff7f64b96cb20bf40d38d8beed135b7dfd1b555c64"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "okayart.com",
+      "listingSourceId": "ls_01m6gpm2tvedjv83vaaxg6cfds",
+      "partyId": "pty_01m6gpm2tgefg88np8fdckf8d5",
+      "checkedAt": "2026-11-03T20:55:03.101395Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gpm3c0efrr5j8f0b3g63zv"
+      ],
+      "shippingProfileId": "shp_01m6gpm40me45saarjb66k1cps",
+      "observationDigest": "000ef251e02e46eb322afec38d0ce84dfdf1e19915b37ed47d15dfd9ec57aab6"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "sella-studio.com",
+      "listingSourceId": "ls_01m6gpm5cee2v8qd74k35sd7q4",
+      "partyId": "pty_01m6gpm5c4ew7rhqqtbeyxdj4p",
+      "checkedAt": "2026-11-03T20:55:03.556591Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gpm5s7eer940gh54dv3erq"
+      ],
+      "shippingProfileId": "shp_01m6gpm6bfe14t95d37e37bftt",
+      "observationDigest": "23e10ea4282c25f26d21fded75ad0b3266d18951e3990f4b1f43f9f84647a176"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "vintage4wohndeko.ch",
+      "listingSourceId": "ls_01m6gq4f8fej5r1zbv0jcm5jar",
+      "partyId": "pty_01m6gq4f82eabsxneh24xvqdzj",
+      "checkedAt": "2026-11-03T20:55:03.665256Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gq4fktesttwbqd7gjbbq3h"
+      ],
+      "shippingProfileId": "shp_01m6gq4g7fe6etgqk1brwttgzb",
+      "observationDigest": "59a911212c9cc9987fc637ba192072ead76c01221c3b947f968f1b8d448fbaa7"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquites-nyon.ch",
+      "listingSourceId": "ls_01m6gqyp3ee5pa16gyjhvz4563",
+      "partyId": "pty_01m6gqyp32e24v6axsa4gkrv4x",
+      "checkedAt": "2026-11-03T20:55:03.606227Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gqypfsegz82c2yynjr4jkn"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "2bfe3bede65cbe60b76250b5e8fbf5b7db9ea161b3fdf9837f90f6cfe76744e0"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "finebooks.ch",
+      "listingSourceId": "ls_01m6gqyqq6ep38aynetxg2z9by",
+      "partyId": "pty_01m6gqyqprev4adk4rv5v1xdhy",
+      "checkedAt": "2026-11-03T20:55:04.060639Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gqyr2revda2q2d69waqsk2"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "cae47fe5634b404fb52af55ce4c738407670db62d53cda50268caace189e9d8b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "vsnc.ch",
+      "listingSourceId": "ls_01m6gr909xeknbdg6z983s5xpv",
+      "partyId": "pty_01m6gr908yemasete26yp9ypa0",
+      "checkedAt": "2026-11-03T20:55:04.324327Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gr90pae2ws2xb75t5q3zqj",
+        "ploc_01m6gr90xne19tj3zzfnyvtthj"
+      ],
+      "shippingProfileId": "shp_01m6grbxajej2bbcdb5rcp6b2f",
+      "observationDigest": "a33623b1e396df1a379b7ae2dd40f92dbbae0f3331b4ef2cb6faecd77451f5b2"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "thuriot-antiquaire.com",
+      "listingSourceId": "ls_01m6gr91yce46rz0ka65dx0a6k",
+      "partyId": "pty_01m6gr91xyen1r9gpdk0axtg9w",
+      "checkedAt": "2026-11-03T20:55:04.200960Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gr929se1f8a0ng04f338xd"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "724a4b59812815425981478168531861445939cfdb97ed8f3cce8c6f7842cad0"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquariat-uhlmann.ch",
+      "listingSourceId": "ls_01m6grpvrjeb48v1bdb3zt82be",
+      "partyId": "pty_01m6grpvrae73r1akrh1awg7yc",
+      "checkedAt": "2026-11-03T20:55:04.566488Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6grpw47e63v67szvk6wgn0c"
+      ],
+      "shippingProfileId": "shp_01m6grpwpzejwsy4jxm3bcp2gx",
+      "observationDigest": "64f4868bccc4ae8d3b5d196e2e37952d01262ae84497d46a092104fd1f2afe97"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "georg-schneebeli.com",
+      "listingSourceId": "ls_01m6grpxxcenp931y9sjwrnrn8",
+      "partyId": "pty_01m6grpxwwejj8thpcdpstrw8n",
+      "checkedAt": "2026-11-03T20:55:04.761458Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6grpy8qe9tr61n8vapgm9ka"
+      ],
+      "shippingProfileId": "shp_01m6grpysve7zvr8th1asppwyy",
+      "observationDigest": "59196c12770a2515576c985a07c1ee88867bb9fa5b7e7900a52b2b015ed01c3b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "abc-buch.ch",
+      "listingSourceId": "ls_01m6grpzysekcrdbx5v0ax8hb9",
+      "partyId": "pty_01m6grpzyjee2btty4fr3zzwtb",
+      "checkedAt": "2026-11-03T20:55:04.851445Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6grq09me97a558r745p74bj"
+      ],
+      "shippingProfileId": "shp_01m6grq0tge3avnvr0yhev6377",
+      "observationDigest": "8f8c197868b01866889257e8106c128c9127db37972cf65f817feaa8ffddfd58"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "viarius.ch",
+      "listingSourceId": "ls_01m6gs4w4ved7tx3bkhwr93g6k",
+      "partyId": "pty_01m6gs4w4be8zapnjpbmdcvkbj",
+      "checkedAt": "2026-11-03T20:55:05.110113Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gs4wgye34b88zwzx03w9r2"
+      ],
+      "shippingProfileId": "shp_01m6gs4x2he48svcvch82mg6qx",
+      "observationDigest": "58a5ade495f2182845ad2c2d6f7588497af8050e6d23018d577b1bee9610ff68"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "buch-antiquariat.ch",
+      "listingSourceId": "ls_01m6gs4ybye03brzbp8vcdtzca",
+      "partyId": "pty_01m6gs4ybfeb8t8h3f8azfn5j0",
+      "checkedAt": "2026-11-03T20:55:05.302483Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gs4yp9eyqr4gm3r6954yme"
+      ],
+      "shippingProfileId": "shp_01m6gs4z7gedh8gmqp6bt3g43r",
+      "observationDigest": "b191055e525cbac9c47033b8fb3529fdd8478b8ecac9711d94c6079814e8b657"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "eosbooks.ch",
+      "listingSourceId": "ls_01m6gs50fjezf8wte9j539bw4a",
+      "partyId": "pty_01m6gs50f3eazv76w40154xpk3",
+      "checkedAt": "2026-11-03T20:55:05.376655Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gs50wtej4syf5g9f8fg2mc"
+      ],
+      "shippingProfileId": "shp_01m6gs51gee7ht5jf7v6p56fm6",
+      "observationDigest": "699d6399a90413d96d744ded575b050c406483ec05a0a698e60e3cbdc4b58349"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "wieland-briefmarken.ch",
+      "listingSourceId": "ls_01m6gs52mge0w9mqcn35ew5dxa",
+      "partyId": "pty_01m6gs52m1enttdac1213sjzdx",
+      "checkedAt": "2026-11-03T20:55:05.646534Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gs530re3082aj85cn2j0dw"
+      ],
+      "shippingProfileId": "shp_01m6gs53jfeh1vr37t4p13ze5x",
+      "observationDigest": "403a2c3c670b93a34e4d6d8aed75f68bdb687e8995511a03bbecc7947c86817f"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "eosart.ch",
+      "listingSourceId": "ls_01m6gssp9kec7rdzzp5xdrga41",
+      "partyId": "pty_01m6gs50f3eazv76w40154xpk3",
+      "checkedAt": "2026-11-03T20:55:05.845167Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gs50wtej4syf5g9f8fg2mc"
+      ],
+      "shippingProfileId": "shp_01m6gssq7rejjbp85qey441dcx",
+      "observationDigest": "4464043180c6be4550d91fdfc9f2638724f5c5906bf5966e8913041618da4632"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "illibrairie.ch",
+      "listingSourceId": "ls_01m6gssrnsew1v96q3pv8n7jg0",
+      "partyId": "pty_01m6gssrn2e2aa9zhtgqd8h5pn",
+      "checkedAt": "2026-11-03T20:55:05.934240Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gsss3jevmtj35xj8a3c8k1"
+      ],
+      "shippingProfileId": "shp_01m6gssssfecw89kkjk9x3tbs4",
+      "observationDigest": "f13bed683ade347aaba343d0ec0f12f93ea0166d151a3927df515f3fb6e4b583"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lautographe.com",
+      "listingSourceId": "ls_01m6gssv6ye5xst6x62216nvq0",
+      "partyId": "pty_01m6gssv68e32tv2hvr3eydy9y",
+      "checkedAt": "2026-11-03T20:55:06.330968Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gssvkfezgtkhjp2kfxr5fg"
+      ],
+      "shippingProfileId": "shp_01m6gssw77ebmvg60cb9mxxyxx",
+      "observationDigest": "6101454052b5fcd5ae934eaace117c7faf839799ed24eecede2caccb3de9c10e"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "kunstbroker.ch",
+      "listingSourceId": "ls_01m6gssxqneg7sffabp7fv8a95",
+      "partyId": "pty_01m6gssxq1eevvwwdr2r2zn66y",
+      "checkedAt": "2026-11-03T20:55:06.541663Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gssy4fea8atcavkygpjcqa"
+      ],
+      "shippingProfileId": "shp_01m6gssyq4ed0t5ak6v86td5ny",
+      "observationDigest": "dbc07159fef26471bf7a000e66eb3427afbcb8d2c916a0b57229d8ad92a1fabb"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "weberrarebooks.com",
+      "listingSourceId": "ls_01m6gtcmsse5ktkmqwbqpzqxr8",
+      "partyId": "pty_01m6gtcmscepzsevgw19tda6a4",
+      "checkedAt": "2026-11-03T20:55:06.657064Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gtcn64eah8asb17a96c297"
+      ],
+      "shippingProfileId": "shp_01m6gtcnsme6trd46ag5rrsk36",
+      "observationDigest": "ec6cc06260150a62e47abc8fdfbfff2da382fa55b8b0d74094b4c2386ec0ffd6"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquariat-fatzer.ch",
+      "listingSourceId": "ls_01m6gtcpzse199az06yvx959wx",
+      "partyId": "pty_01m6gtcpzcedrvjsggdk7fsk27",
+      "checkedAt": "2026-11-03T20:55:06.893805Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gtcqbfex38hb74rh29m2cv"
+      ],
+      "shippingProfileId": "shp_01m6gtcqvyet0v24xk91wh4581",
+      "observationDigest": "25d6db3cb7f973f65e66af8c2e91dfa744ea5d71a4ec2e1a3976e1d4fcbf39b0"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lagabriellefinearts.com",
+      "listingSourceId": "ls_01m6gtcs18e78td1r49gcrjd1e",
+      "partyId": "pty_01m6gtcs0wex4tx3zws2cgt1ek",
+      "checkedAt": "2026-11-03T20:55:07.021781Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gtcsc7ezsv1866jt2n4en5"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "7f7da44bb5f9b86bc1bf124abb3abf69f26f4d1d130e495643761001555b391f"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "biblion.ch",
+      "listingSourceId": "ls_01m6gv18kxehmrf25rkszsjv9p",
+      "partyId": "pty_01m6gv18k3esr9xqqs6ratmwpb",
+      "checkedAt": "2026-11-03T20:55:07.230461Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gv190pe2ds3ekqh45fw07e"
+      ],
+      "shippingProfileId": "shp_01m6gv19jred9t2h7krgdkme84",
+      "observationDigest": "66d01584a3d230b26b1bb737bdf6ddb5a35ed970fd61a01ddf69a506c62443bd"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "20th.ch",
+      "listingSourceId": "ls_01m6gw90kve0jay7wjter1w4em",
+      "partyId": "pty_01m6gw90kfep0rc1010ywe2bca",
+      "checkedAt": "2026-11-03T20:55:07.481179Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gw9102epqskt17wpe9qh04"
+      ],
+      "shippingProfileId": "shp_01m6gw91jcedw8b659ycx81wdt",
+      "observationDigest": "ce6a268c282ce1669a67a5a3703386b19af54fd7a1596b4e36b70b6d84799bf3"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "swisswatches-andmore.com",
+      "listingSourceId": "ls_01m6gx6wkcefpb8gjfv43j9fk1",
+      "partyId": "pty_01m6gx6wk3e048prsyc98edqdj",
+      "checkedAt": "2026-11-03T20:55:07.588865Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gx6wywev3rcpa56h1zm67v"
+      ],
+      "shippingProfileId": "shp_01m6gx6xexe01b6qc2v739bw8n",
+      "observationDigest": "bdfe3da1fedb98c1fb9d5e0d06bd95bc8ef3999cef1fd2cd7f866d6c562c626d"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galleria13.jimdofree.com",
+      "listingSourceId": "ls_01m6gx6ykne6ds31efh1ewy3zs",
+      "partyId": "pty_01m6gx6yk6ebgrctz42j8c6zbp",
+      "checkedAt": "2026-11-03T20:55:07.851306Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gx6yzgedj8qby62mxe41w6",
+        "ploc_01m6gx6z5ge8et8n37djy7ss6r"
+      ],
+      "shippingProfileId": "shp_01m6gx6zp4e7xrz8qr3xnehmyj",
+      "observationDigest": "16e21bedfc58fd9bab5e6449b740de76a89e2238a5c2747f2f55a119b07f3481"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "berchtold-vintage.shop",
+      "listingSourceId": "ls_01m6gxd68fehqsk27kd61x9ggy",
+      "partyId": "pty_01m6gxd67xe1gbwpzqv8d70x2e",
+      "checkedAt": "2026-11-03T20:55:08.040595Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gxd6neetdstsv7pxd0bm4x"
+      ],
+      "shippingProfileId": "shp_01m6gxd795eyz9c0885msm43by",
+      "observationDigest": "f5719ce0e7e374ac552797874ed67f0c53aa429df3d4a2e9cfb704a7aec2ab1f"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "demosmobilia.ch",
+      "listingSourceId": "ls_01m6gxk4xme73r61jgf5awrsrb",
+      "partyId": "pty_01m6gxk4x6ewxs376k883fh82z",
+      "checkedAt": "2026-11-03T20:55:08.255920Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gxk5a0ettbrt1rayz6nvym",
+        "ploc_01m6gxk5gxesavc37513a4j1gw"
+      ],
+      "shippingProfileId": "shp_01m6gxk647e9xvf2tdvn4ct964",
+      "observationDigest": "e3c16f5e25481713f10e83d6692cc671b6ccfaa6855766a64f154ad204b24b41"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "labonnepioche.ch",
+      "listingSourceId": "ls_01m6gxk7gpe00tr1jf8tnts4ty",
+      "partyId": "pty_01m6gxk7g7eg18bs2kva2rh89m",
+      "checkedAt": "2026-11-03T20:55:08.355348Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gxk7x9ex6tfm624mp0va2e"
+      ],
+      "shippingProfileId": "shp_01m6gxk8g3eh0a0kpkxmt43z34",
+      "observationDigest": "46c67d7fe015fcaf1b30f503e16133e5a38d473d0fa3bf0a178285817f2816dd"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "naemis.ch",
+      "listingSourceId": "ls_01m6gxrq66e38ab0y885pbgfq1",
+      "partyId": "pty_01m6gxrq5tezkvj3tx3ft5c9j1",
+      "checkedAt": "2026-11-03T20:55:08.730941Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gxrqhfe5sv9cy6qerh48sa",
+        "ploc_01m6gxrqrfeekscqwx33y1gmf2"
+      ],
+      "shippingProfileId": "shp_01m6gxrrcve57t2qdjen7bmttf",
+      "observationDigest": "8fd8dcab449e7b4bc3fcb9f3d7f8a86c9ac9ae4338fbb28c08940c97144ef4ce"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "reichmuth-schreinerei.ch",
+      "listingSourceId": "ls_01m6gxrsrzedqve42m998gx9mt",
+      "partyId": "pty_01m6gxrsrkeektgfhaf7b63nhs",
+      "checkedAt": "2026-11-03T20:55:08.830531Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gxrt58e9ka768gqqcgpqav"
+      ],
+      "shippingProfileId": "shp_01m6gxrtr0e0hafz67qzh99a32",
+      "observationDigest": "68c7102c3998ac196d0910a67245acf0cb57ab498dfc397cf4de67c6c1c68b44"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antik-sammeln.ch",
+      "listingSourceId": "ls_01m6gy4hy0enx8n6hf6vv127pd",
+      "partyId": "pty_01m6gy4hxkeaxa9v84xtf994e2",
+      "checkedAt": "2026-11-03T20:55:08.782863Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gy4jb9ej4aa5vs89cf0mxj"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6e0579f57d550943d0afa98d6e027da840a997d69b857de94e0441ab15017023"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquites-jardins.ch",
+      "listingSourceId": "ls_01m6gyh7z8eezbmzw4jvh49vr3",
+      "partyId": "pty_01m6gyh7ywehmr4bp2p8brqzb1",
+      "checkedAt": "2026-11-03T20:55:09.178342Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gyh8b8eh9sfdw8mhhb56d5"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "ebbec288b812687217cdd7144e5b2e2df9c568e5cf2d577f821a89dd1bad2a4d"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "abeliam.com",
+      "listingSourceId": "ls_01m6gyh9ksejhtbvhpsqg5xtf1",
+      "partyId": "pty_01m6gyh9k5em8t1hk1tx4q8b14",
+      "checkedAt": "2026-11-03T20:55:09.316644Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gyh9z0evzay4h2s4b247gy",
+        "ploc_01m6gyha4wesgsayp9prwqw9qa"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "32949ca385a4a8400778b1dc6696fb992f789619731bd6e19e7d7b132fdebc63"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antikmoebel-seibt.ch",
+      "listingSourceId": "ls_01m6gyzm9xepx96gc7emt0rn93",
+      "partyId": "pty_01m6gyzm99er2tx9k5z1w5whhw",
+      "checkedAt": "2026-11-03T20:55:09.389144Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gyzmqzefs9tcyqaaaj3svr"
+      ],
+      "shippingProfileId": "shp_01m6gyznd4ezj8wa3cf75c5kkk",
+      "observationDigest": "cbfd58998e3e29613d21fea39245c8fd0ec993c4f60b6d3eaf0ccdd3ad9b7158"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "violondingres.ch",
+      "listingSourceId": "ls_01m6gyzpt7ej4r7jf2xg59z2hj",
+      "partyId": "pty_01m6gyzpsmexp9zepf0kb1admm",
+      "checkedAt": "2026-11-03T20:55:09.661875Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gyzq7kef2ae2c9hzpbsqtw",
+        "ploc_01m6gyzqfdemhtsh0czbfd92cr"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "b1d41e80305869f4fb78a87b1de2518b6c87be1587205e239ed0c08be478610b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "oddsandendsshop.mycommerce.shop",
+      "listingSourceId": "ls_01m6gyzs2qegtv1txxvkfgzd7x",
+      "partyId": "pty_01m6gyzs23e8cr17fd29d375jp",
+      "checkedAt": "2026-11-03T20:55:09.722778Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gyzsg8eg58asq9zzzms1nj"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "cc4b8d45eaf9cbd05cf8bd11ac72cd66873a13858173821f3e588bcf49d25e0e"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "beceren.ch",
+      "listingSourceId": "ls_01m6gz8z04e5trrvw0qg72p6km",
+      "partyId": "pty_01m6gz8yzte9jrskenjr98wwaj",
+      "checkedAt": "2026-11-03T20:55:09.886173Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gz8zbvesb99665zhrpyhtp"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6c7cd51cd3c91dab364c77e37d86694558e7f5099edf789d1232b3f6c0472fe6"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquarium.ch",
+      "listingSourceId": "ls_01m6h00t47e3w8rwy4y9m9e68n",
+      "partyId": "pty_01m6h00t3mes3va29tsd1car09",
+      "checkedAt": "2026-11-03T20:55:10.071103Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [],
+      "shippingProfileId": "shp_01m6h00tpred0sp03q0ybsm9zh",
+      "observationDigest": "d03e9e46934d9cd9533e6783079629185f555162bc57594d009c7dc16dd52761"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerie-tonon.com",
+      "listingSourceId": "ls_01m6h00w09efn9tp6b5wqjkxcb",
+      "partyId": "pty_01m6h00vzhe9r9r9sk4je8qrwa",
+      "checkedAt": "2026-11-03T20:55:10.168340Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h00wdsepqsf3nj18s4m4p5"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "5cf49cad6f82b916de52f23fe80dc18f701fc90cfd922d474300e73191bf7499"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "luxeforyou.ch",
+      "listingSourceId": "ls_01m6h1ab5yeck9dv1a0ph63e68",
+      "partyId": "pty_01m6h1ab5be1xt7v6859s6rek2",
+      "checkedAt": "2026-11-03T20:55:10.579112Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h1abjee08sjkaddjnsxe70",
+        "ploc_01m6h1absdeqp83ez971kgykx4",
+        "ploc_01m6h1ac07eyvs2q7n415mrmeh"
+      ],
+      "shippingProfileId": "shp_01m6h1achne3wb9246yecp17b1",
+      "observationDigest": "3032764e217c5fd059543252fcfe85f61fc50e6cef7a1bf18d1f284fba29e863"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "flohmarkt-walensee.ch",
+      "listingSourceId": "ls_01m6h1adx9enwsbj5njmhy8yg8",
+      "partyId": "pty_01m6h1adwpecraaj5det1sw565",
+      "checkedAt": "2026-11-03T20:55:10.559700Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h1ae9hern9n5cbv9x0bbcj"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "59974902d9c33ad2ca9b915c68ff6e6dd3da440a3c8e348e2679984af5e9d73e"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "bliss-shop.ch",
+      "listingSourceId": "ls_01m6h1h8qcecx9fsn33gspv5qc",
+      "partyId": "pty_01m6h1h8pse2ftp74cwwr5tj41",
+      "checkedAt": "2026-11-03T20:55:10.816437Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h1h95tep5ryt3bermypfky",
+        "ploc_01m6h1h9dte45atpt817hr1mcv"
+      ],
+      "shippingProfileId": "shp_01m6h1ha2be8tah50ex5x9082d",
+      "observationDigest": "ac9748037481d98cd50636dba01b96e68a33bb7d7703df34130fb6dde0dc125a"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "heydaymoebel.com",
+      "listingSourceId": "ls_01m6h1hbkaep4v4e6jv43pjhaq",
+      "partyId": "pty_01m6h1hbjqeqpsgsvad7sfbxh5",
+      "checkedAt": "2026-11-03T20:55:11.005884Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h1hc13eqa9bep4wkbhgvx9"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "ffad692bf5721f0a10e8d98016ab9b08c35d4db632b670aa10ff0ecfcb876221"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "dachstockdesign.ch",
+      "listingSourceId": "ls_01m6h1hdecefmbrv6q4nb518kq",
+      "partyId": "pty_01m6h1hddre44sq0bfbxectnzj",
+      "checkedAt": "2026-11-03T20:55:11.129656Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h1hdwcedmv3sm1drywp9as"
+      ],
+      "shippingProfileId": "shp_01m6h1heg3ecpabyhq6z006xgp",
+      "observationDigest": "ec9a0259154d0a49c9ec7c41f486630f099ed6e78247d5b32393b57fc05c12b3"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "modernera.ch",
+      "listingSourceId": "ls_01m6h1p2skepdvbxwdwqvkhn48",
+      "partyId": "pty_01m6h1p2s7ewqa8ammphfkdm7p",
+      "checkedAt": "2026-11-03T20:55:11.267353Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h1p371ejjsqfj9h70t8m9f"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "75ccea76562037b4475d3c60793d5d48f5ceafe6ac5bff265668e6a19dea3e93"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "chiccham.com",
+      "listingSourceId": "ls_01m6h1ywnhe2zbf73x0q980wpf",
+      "partyId": "pty_01m6h1ywmye9a87vmm7k0jxf4m",
+      "checkedAt": "2026-11-03T20:55:11.565225Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h1yx31e8n8j255kg5w5qv6"
+      ],
+      "shippingProfileId": "shp_01m6h1yxpxe3zb2pcahzqcsfmj",
+      "observationDigest": "ccb1f20cb2cad81307b381a26eb63e881a4fc111053616bdd7dfccfee2d6a3f0"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "individum.ch",
+      "listingSourceId": "ls_01m6h1yyxhezgv1k4359667qmz",
+      "partyId": "pty_01m6h1yyx1ecytxjvkrb7b0244",
+      "checkedAt": "2026-11-03T20:55:11.569381Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h1yzared6rxwmjv5484nqt"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "0622ecc34fd716c674c37b7756614c924a19a9c75a63f17b4b3013dee789651c"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "munooz.ch",
+      "listingSourceId": "ls_01m6h2c8sfeher6aapn6w0ytrw",
+      "partyId": "pty_01m6h2c8ryej4a9y9a9fztn8kh",
+      "checkedAt": "2026-11-03T20:55:11.776762Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h2c97de1av6rbx0s6mbj3g"
+      ],
+      "shippingProfileId": "shp_01m6h2c9tce33b165qvpy2b498",
+      "observationDigest": "255494dcfffad6ae4744a5f7ebb178e22f09c066a61d754d096c77f9198df04d"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "stilmoebel-rustico.ch",
+      "listingSourceId": "ls_01m6h2cb3ced6t0dqxy4qc8wzm",
+      "partyId": "pty_01m6h2cb2xeqnbwdmr2h1ejp66",
+      "checkedAt": "2026-11-03T20:55:12.074207Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h2cbfserrv1a3863rzyt8q"
+      ],
+      "shippingProfileId": "shp_01m6h2cc33esm9t799rrd86b1e",
+      "observationDigest": "2e2ee9d19b0f39b23968a209ff2936aad949680f025aadf77d496ddb6ec0c847"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "parisparadis-boutique.com",
+      "listingSourceId": "ls_01m6h2cdarefxb7tsnhwdg9nyc",
+      "partyId": "pty_01m6h2cda9ehrbq181jedz2wnd",
+      "checkedAt": "2026-11-03T20:55:12.219786Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h2cdq9ev1rcppb7pkqartq",
+        "ploc_01m6h2cdy3ee2b0qtmxv38s5te"
+      ],
+      "shippingProfileId": "shp_01m6h2cefyepxr0escmeng3hxd",
+      "observationDigest": "6f67ea68955ae6af4e16a0358f805b553a08a07f4e4dc942d886e0f452e430f9"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "archenoah-brocki.ch",
+      "listingSourceId": "ls_01m6h2cfvae4yt8qgjzd0js2df",
+      "partyId": "pty_01m6h2cftventvjpc34ym6qza0",
+      "checkedAt": "2026-11-03T20:55:12.350271Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h2cg8cets8tthbg3rdevtv"
+      ],
+      "shippingProfileId": "shp_01m6h2cgtpeqtaje1ewc8emn5t",
+      "observationDigest": "05234196d0a768bde01e8e46b410eba66b631c4255367364b8c2d0e9ca237b08"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "schatzsuche.ch",
+      "listingSourceId": "ls_01m6h2pg07et8r5p4q2nmxpz3y",
+      "partyId": "pty_01m6h2pfzze89rcxmzpb2zkxz8",
+      "checkedAt": "2026-11-03T20:55:12.622704Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h2pgbhek7td4tah1p28j5s"
+      ],
+      "shippingProfileId": "shp_01m6h2pgtze4g99an4ny4sc21b",
+      "observationDigest": "a6240e62b8c6480ab0c6001c00d62e6eeeccec8eba7d542f6855a23625032e13"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "bockantik.ch",
+      "listingSourceId": "ls_01m6h2phy6emhsghpbfec7vntb",
+      "partyId": "pty_01m6h2phxkew99gjzcrf9yrpgd",
+      "checkedAt": "2026-11-03T20:55:12.659005Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h2pjc3ef99qgveksaaewjz"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6e44f916ab89a9584721509ad75a59de04b73e3a1d5545e6518fbff0e7bcde2a"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "gurtentischlerei.ch",
+      "listingSourceId": "ls_01m6h3j5y9e478db8t5s9e2w7q",
+      "partyId": "pty_01m6h3j5xne1vt4r0y046bdhr8",
+      "checkedAt": "2026-11-03T20:55:12.809041Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h3j6bxe3r9vx0y86c35ghh"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "d3998b215ebb84fafbc7568583b4be645d65adb2227c3d2b2d1ea767f8a165cd"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "sticheschweiz.ch",
+      "listingSourceId": "ls_01m6h3z23teyabyc91ym4xpf75",
+      "partyId": "pty_01m6h3z239e4es6zrh58ywfk04",
+      "checkedAt": "2026-11-03T20:55:13.132467Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h3z2gnergvd431ahkwmhgf"
+      ],
+      "shippingProfileId": "shp_01m6h3z34ve5ybqfvgjyrv36s2",
+      "observationDigest": "00387f3661a55f1f82f5d50cae539c2f54fbe2c92e6457206ffe693c0045ab0f"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "1.august.ch",
+      "listingSourceId": "ls_01m6h4921jexztdn3kdg92qqdn",
+      "partyId": "pty_01m6gn3g1teqc9hvkdbvhjxaxq",
+      "checkedAt": "2026-11-03T20:55:13.188432Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6gn3gf4esvv7d59dq4z1jkm",
+        "ploc_01m6gn3gnsex6vhvx9dywrfcvn"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "730854bfc225f58cea5c39fcc47ebed5336899e6a0e0cd4bf3828b11ad7c8a3b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquiteslefoyer.ch",
+      "listingSourceId": "ls_01m6h5579medcvbv9z3pkjdhq3",
+      "partyId": "pty_01m6h55796exh93z65khh3p0qb",
+      "checkedAt": "2026-11-03T20:55:13.247632Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h557mde3as4f7ze194pg6z"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "74af399d742fcbe6fdc5b25031c71f153e9dfb3bd5cef776f11b85861cfdcf2a"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "enattendantleprintemps.ch",
+      "listingSourceId": "ls_01m6h558vres5t0jtjrbzb1mvf",
+      "partyId": "pty_01m6h558vaek6tm1wmx6ycg2mq",
+      "checkedAt": "2026-11-03T20:55:13.655283Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h5597qea3rt3dxbnycz0vz"
+      ],
+      "shippingProfileId": "shp_01m6h559s7ennr98svbbkf3j5c",
+      "observationDigest": "437d4bbddd78410ec4fb33279c7045d938d986f59b42b062032dd8c1e513089c"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "moebu.ch",
+      "listingSourceId": "ls_01m6h5hxjje03t0gvrcxgb3j3s",
+      "partyId": "pty_01m6h5hxj1ezjr4eksjs3xh90y",
+      "checkedAt": "2026-11-03T20:55:13.718214Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h5hxyqe25bje9jezm1g91d"
+      ],
+      "shippingProfileId": "shp_01m6h5hyfae0jaecv0j8h6cfer",
+      "observationDigest": "34d885dc807e96461a73d6f6cb02a5930dc18888ff6d4ae64d5a3092917b0562"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "numispassion.ch",
+      "listingSourceId": "ls_01m6h5qxdfevks06ddmjtcxqhp",
+      "partyId": "pty_01m6h5qxcweapbd16t6kg21dzs",
+      "checkedAt": "2026-11-03T20:55:13.775577Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h5qxsrezdaz5eyabw6y6xa"
+      ],
+      "shippingProfileId": "shp_01m6h5qybeexjrwwwqrepw53m2",
+      "observationDigest": "3dc73e005bbfa1c0804eddcb2bc9e3845e33c694f9e2028abe19ab5db60a1c75"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "ateliertilija.com",
+      "listingSourceId": "ls_01m6h60drfe6j9dvdyxrzb949t",
+      "partyId": "pty_01m6h60dr4e5nstbswyxnr7kq7",
+      "checkedAt": "2026-11-03T20:55:14.173422Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h60e37eqnskfe70cwnbrht"
+      ],
+      "shippingProfileId": "shp_01m6h60ekeeamvbd52qfp85b5e",
+      "observationDigest": "2c5ada1f718432c183d3386ed3e41c24d7cb39e99229f1a121416a8195f1ae86"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "nouchka-nougat.ch",
+      "listingSourceId": "ls_01m6h60ft5enabnc8ep06z8hkp",
+      "partyId": "pty_01m6h60fsse8nrfr5gpck2y52k",
+      "checkedAt": "2026-11-03T20:55:14.242116Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h60g4qe52atw4wy57jgdfz"
+      ],
+      "shippingProfileId": "shp_01m6h60gmee64tner0m21w7wnv",
+      "observationDigest": "37cbd1a8e9a3cfbe394546121dafe10c5840fa5f6a90e28e5e0bae67d9fc89ff"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "appleboutique.com",
+      "listingSourceId": "ls_01m6h6ag0dezaajb30mapgre00",
+      "partyId": "pty_01m6h6afzxemqrn61eht4522xk",
+      "checkedAt": "2026-11-03T20:55:14.284345Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h6agd5e5ss2ahjfekwz9ez"
+      ],
+      "shippingProfileId": "shp_01m6h6agzse11bqejnbryq31j6",
+      "observationDigest": "2fcde6796aab7de8be1e270c664b8c4606cd9fd2324f6ed109e7b94a4f1d3ae5"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "renov-atelierbrocante.ch",
+      "listingSourceId": "ls_01m6h6p09ne0kt3hde8e4msrba",
+      "partyId": "pty_01m6h6p097erqssmca7fjnnqyr",
+      "checkedAt": "2026-11-03T20:55:14.695407Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h6p0nceqq9zy93hjjc7h26"
+      ],
+      "shippingProfileId": "shp_01m6h6p17vehqsk5w8jnk3qeza",
+      "observationDigest": "d3eb56b884763d92803d052a38bfd29cbfac150807bd901c7270cb8279c42f2d"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "recyclage-market.ch",
+      "listingSourceId": "ls_01m6h6p2f8eehtxr54fgnh3yxv",
+      "partyId": "pty_01m6h6p2eze0589m49c2fxwq03",
+      "checkedAt": "2026-11-03T20:55:14.740994Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h6p2tye6qrx2fs94qpvy0d"
+      ],
+      "shippingProfileId": "shp_01m6h6p3bher899f86s52pffp7",
+      "observationDigest": "de58aea1fd537747919a76a7857bee7f2ffc814c5750d31c6e3828d2bfde7ed1"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "emmaus-ne.ch",
+      "listingSourceId": "ls_01m6h6p4j2e2vv281jze6fcwks",
+      "partyId": "pty_01m6h6p4hsesbbwtpm4nvbt2xq",
+      "checkedAt": "2026-11-03T20:55:14.971514Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h6p4xwe2er4c402msef5yf",
+        "ploc_01m6h6p54heg38k46h08kv5bmf",
+        "ploc_01m6h6p5akezf8vp1zsr18ndep"
+      ],
+      "shippingProfileId": "shp_01m6h6p5wje3pt82ea5q1cccwg",
+      "observationDigest": "19438f77c9002db62b23c4b4bb0e6b844983abb1b17268d222106c607b7f58a1"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "bogen33.ch",
+      "listingSourceId": "ls_01m6h71c7we6cs1qfhe5zn2h7t",
+      "partyId": "pty_01m6h71c7fece9t35hwa0zyzhm",
+      "checkedAt": "2026-11-03T20:55:15.408490Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h71cm0erm9w9f8zb33rdy1",
+        "ploc_01m6h71cttehkvqsd09mwk30wt",
+        "ploc_01m6h71d15exyv4xdm7wzn51y1"
+      ],
+      "shippingProfileId": "shp_01m6h71dkne3csb9hx99hnpybv",
+      "observationDigest": "4b209e7c2a982de1c07cad1a1510203aa7970b4b0c999931268acf1283265e94"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "usgsuechts.ch",
+      "listingSourceId": "ls_01m6h71ezhe81909d4sygcwsr3",
+      "partyId": "pty_01m6h71eyze6kacp9r8ddswnbj",
+      "checkedAt": "2026-11-03T20:55:15.320797Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h71fb7ee5rpdjz6fqkjn4s",
+        "ploc_01m6h71fhze4rs5xyggpx27jje"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6fbd390b3398ffe1d8cb8053f7765d09f78b30aeb347ebd217bf787752ccc3e7"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "viadukt3.ch",
+      "listingSourceId": "ls_01m6h7eg8aeqeat7ej13axebxp",
+      "partyId": "pty_01m6h71c7fece9t35hwa0zyzhm",
+      "checkedAt": "2026-11-03T20:55:15.592307Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h71cm0erm9w9f8zb33rdy1",
+        "ploc_01m6h71cttehkvqsd09mwk30wt",
+        "ploc_01m6h71d15exyv4xdm7wzn51y1"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "c93e5dba28d782f526a52f7a85a33c8b3ff043f650c6fdb7ac71fbd531313ce7"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "cmgleal.ch",
+      "listingSourceId": "ls_01m6h7mqyve34t2p2r2xzvvwa2",
+      "partyId": "pty_01m6h7mqycea19wz1fdde46gvf",
+      "checkedAt": "2026-11-03T20:55:15.836189Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h7mrabek7rw3efw0rkt93r",
+        "ploc_01m6h7mrh0e7jr8svqq914wj4v"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "c46d6a3a5ab65e8b66fd6ec1b2ad4b25bfb477c2716de64e412195f69de674b5"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antik-schreiner.com",
+      "listingSourceId": "ls_01m6h81vesedss97mgrvt507wv",
+      "partyId": "pty_01m6h81ve1efbszqvqweh0rfsa",
+      "checkedAt": "2026-11-03T20:55:15.869728Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h81vtwekqbqf4c8p63g3zw"
+      ],
+      "shippingProfileId": "shp_01m6h81wcqezcsr2esz23jnf9y",
+      "observationDigest": "2143ccf98f8215e7c9f055da209e97481e0e18af4a53bb70cecfbf2968350767"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lihaga.ch",
+      "listingSourceId": "ls_01m6h81xncea8b20q4f38xcqsc",
+      "partyId": "pty_01m6h81xmxed7rb1q8hn97mqj6",
+      "checkedAt": "2026-11-03T20:55:16.088826Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h81y16eqxsk5anexj044zk"
+      ],
+      "shippingProfileId": "shp_01m6h81yp5ezkrc9zrrd879y4n",
+      "observationDigest": "b287a6a58abf50180eb4e549d5d86626b412475d803b7cef5944b957bcc7614e"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "store105255519.mycommerce.shop",
+      "listingSourceId": "ls_01m6hb223xen7tf7c0yt08tend",
+      "partyId": "pty_01m6hb223he8e95v8pnwerzbrd",
+      "checkedAt": "2026-11-03T20:55:16.403600Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hb22g1en4r9qxzcw8qnvzx",
+        "ploc_01m6hb22qpemcsm4dnh6cftv3m"
+      ],
+      "shippingProfileId": "shp_01m6hb23bqey8vwexfzeakfseg",
+      "observationDigest": "074a49eeabce6a34add8f2fe1f468db8d5d082c691d8bcdf817641409cf0abb9"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "vintix.ch",
+      "listingSourceId": "ls_01m6hb98h1e2gbaksa0yzky0m6",
+      "partyId": "pty_01m6hb98gje3hvq0ac6hw1b11s",
+      "checkedAt": "2026-11-03T20:55:16.391144Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hb98wxefqbe8r9nx21cq7k"
+      ],
+      "shippingProfileId": "shp_01m6hb99f9en0v7t7391saky8r",
+      "observationDigest": "f43739f113293187464fea339c00fc2e88f953e037685e8b18a4a7176bb5e532"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "stuzh38.ch",
+      "listingSourceId": "ls_01m6hb9anseqysewzm9z8yjge4",
+      "partyId": "pty_01m6hb9an6esfa6jcc9apqr0d5",
+      "checkedAt": "2026-11-03T20:55:16.587420Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hb9b1nexwtd8mbtyb33m29"
+      ],
+      "shippingProfileId": "shp_01m6hb9bmceg8r6d6wr0nadz7f",
+      "observationDigest": "685c9355d21be97eb7137fb75bf8348f2eca6b08511ac6da20eeab6f1d383e41"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "hannibal.ch",
+      "listingSourceId": "ls_01m6hbrvx5eh5vmwrdpymmkqbr",
+      "partyId": "pty_01m6hbrvwqex9vs2kvkr01y2gq",
+      "checkedAt": "2026-11-03T20:55:16.780380Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hbrw91e5w8jg8aw1t8ymef"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6e621eb4455b7d724362dd1eac83385427827d6ba39a219b286ffa8d2dd25a06"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "bumadesign.ch",
+      "listingSourceId": "ls_01m6hbrxh4eb996zzf6an0bk9y",
+      "partyId": "pty_01m6hbrxgge1abq1jq81d4wj62",
+      "checkedAt": "2026-11-03T20:55:16.901370Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hbrxvsehvs3tex4j5wm3hd"
+      ],
+      "shippingProfileId": "shp_01m6hbryd6ex6b4b8ah16dpvx9",
+      "observationDigest": "d28ef0aec9108163050bb16e1daefbdd5c30c7eae2ba0172de94ff8f4e655bc7"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "baillygallery.com",
+      "listingSourceId": "ls_01m6hc11pcee1vdasq6ynbbebp",
+      "partyId": "pty_01m6hc11nwe09tfs8z050147qy",
+      "checkedAt": "2026-11-03T20:55:16.994855Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hc120tetvs9y1eyr0m4ebv"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "5d11d43efc5f62df06a7682d5120f594151e1498d82d54dccd85ce183ea90662"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerieditesheim.ch",
+      "listingSourceId": "ls_01m6hc1397eek8d4m9rc41sped",
+      "partyId": "pty_01m6hc138se3evr405vy0w5ckh",
+      "checkedAt": "2026-11-03T20:55:17.197352Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hc13mweckry2k2ajrk0qvn"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "de9104b8b24c199042f4a6247b8863080802929d36a4539d2448278916bb3d70"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "hehegalerie.ch",
+      "listingSourceId": "ls_01m6hcj80fe7h8hnkj85p8g4fw",
+      "partyId": "pty_01m6hcj7zhe2286e7kqy1pwph5",
+      "checkedAt": "2026-11-03T20:55:17.398635Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hcj8bnezgs1t2wz0qstr0r",
+        "ploc_01m6hcj8j9ee2akmwqm4max524"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "9b64a8974032d9ac66e727a82de44b40f7416c01352f0dd62b1bb7e7e0d10d8d"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "cuendetkunst.ch",
+      "listingSourceId": "ls_01m6hcyazseez9nqfv6w1r3z55",
+      "partyId": "pty_01m6hcyazcezss2cr63s3eb2vg",
+      "checkedAt": "2026-11-03T20:55:17.464229Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hcybbke4wbz9ke5nj0sse5"
+      ],
+      "shippingProfileId": "shp_01m6hcybz8ed4ba9naq23828be",
+      "observationDigest": "c96a9e2dd35d7ba3036800ed7f91dc22f0fc8d30fe678b411f012c72b763eb37"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galeriedartdenisbacher.ch",
+      "listingSourceId": "ls_01m6hcydbae69bjqyfyyqey0e2",
+      "partyId": "pty_01m6hcydaxevs8ct8f43en8na3",
+      "checkedAt": "2026-11-03T20:55:17.619995Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hcydrbeccr4m7sepnayy7a"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "93267ce7c3dedc47510c6c295828fe1eb1137a8d3f051428172869c76605d509"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "koetsergallery.com",
+      "listingSourceId": "ls_01m6hdq6g9e0tvzjfcx842d840",
+      "partyId": "pty_01m6hdq6fseepa3p2jyv5x6rmw",
+      "checkedAt": "2026-11-03T20:55:17.795604Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hdq6vfeb98mgfa9yt0h68g"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "d4ee03e582ed13cbf6581e9e7ea2fa8fdf61c1cabe9049cee2f8f478783c3268"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "gewoelbegalerie.ch",
+      "listingSourceId": "ls_01m6hedfpmecrr10sh78c8etwn",
+      "partyId": "pty_01m6hedfp2emg8yhj478mngj47",
+      "checkedAt": "2026-11-03T20:55:17.901709Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hedg59ede8jmrkbd3exv2g"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "f62b9d796977f6b62664ed530bbcf196fe6e41a84236f2c089e222348169c15f"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antico-dd.ch",
+      "listingSourceId": "ls_01m6hedhmvembbz5vth7ngp38a",
+      "partyId": "pty_01m6hedhmdemg8se3egmp0555p",
+      "checkedAt": "2026-11-03T20:55:18.071310Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hedj1eeccsgpjh4tnxvr7f"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "66b9b8c2f3a65087d981bb29a35a2b5abf6fb0b0a0dd97d8d9c89cc37c0cf8a6"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "thorens-gallery.com",
+      "listingSourceId": "ls_01m6hen836e9kbewyt5nrb3zwj",
+      "partyId": "pty_01m6hen82qerx9ph4cg0tm8zw7",
+      "checkedAt": "2026-11-03T20:55:18.261696Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hen8gceyqar3b02fwhz55a"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "91814fe56caa47bfd90c024952e02c0fc8204717b8ec18572478623546137d4b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerieheim.com",
+      "listingSourceId": "ls_01m6hevv5xednt0k0nh24vdf29",
+      "partyId": "pty_01m6hevv4pesrshch6msesca9g",
+      "checkedAt": "2026-11-03T20:55:18.340478Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hevvjme9jt89kg1hhnq2z2"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "cf5a59dd9c202cb5d722fc4a9511f09b689594c962450e930c2366ee0e5fdf64"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "indekor.ch",
+      "listingSourceId": "ls_01m6hevwxke3qr8nvfcenj72wq",
+      "partyId": "pty_01m6hevwwzem2sajzykhteydxj",
+      "checkedAt": "2026-11-03T20:55:18.559398Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hevxaxetxv5t580tv178yz",
+        "ploc_01m6hevxj8erwvztq4h5emf620"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "3a9ecc6149c2cf543e39293cd851e26904696463a68ba67ae74f26056ef62bae"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerie-wos.com",
+      "listingSourceId": "ls_01m6hf2rqbekpvgaa3astzvbh4",
+      "partyId": "pty_01m6hf2rpveh4rbnz30m9bnxqk",
+      "checkedAt": "2026-11-03T20:55:18.799387Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hf2s47eajrg21d8c9aw9tt",
+        "ploc_01m6hf2sb1ehjr4h9kap3asj4v"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "6c5df3633ac6c329441cca1a3b52f2af7481f5f79008f085e679d41548ad79bf"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galeriedesannonciades.ch",
+      "listingSourceId": "ls_01m6hfbqm3eyk98y8jk88a6zfe",
+      "partyId": "pty_01m6hfbqkkedtr23ycwfsnjx5p",
+      "checkedAt": "2026-11-03T20:55:18.831843Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hfbr1debgvs903w36anpy3"
+      ],
+      "shippingProfileId": "shp_01m6hfe7yse2j8gwrw09t5rsmc",
+      "observationDigest": "07868786a770ba5918190fb59fb7eba10852aa5a1b93ec2c5f67dac85e29da45"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "amperebasel.ch",
+      "listingSourceId": "ls_01m6hfjr2jemmv5nbhykzsm35t",
+      "partyId": "pty_01m6hfjr21egp9sathmwgnva51",
+      "checkedAt": "2026-11-03T20:55:19.057471Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hfjreeey99dg1b7btgww3r"
+      ],
+      "shippingProfileId": "shp_01m6hfjs0renks5e0ztchcxbgv",
+      "observationDigest": "414f4a7fcf12af6722f594dc52050ca1413b9e8ae40a6691a5e3b1019e5bcfeb"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antiquitesrigaldo.ch",
+      "listingSourceId": "ls_01m6hg2ymge2n8bt81z5ampdtj",
+      "partyId": "pty_01m6hg2ym1ez29ppenrsfq7r0w",
+      "checkedAt": "2026-11-03T20:55:19.371995Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hg2z51e2xr1vy8hx38p0a4",
+        "ploc_01m6hg2zcwe92rf97r5j89fv4e"
+      ],
+      "shippingProfileId": "shp_01m6hg3036e4x9355st08yskba",
+      "observationDigest": "7cf528ee0eb414288ab141023c3cb7b18f3c671352b9edd81c297747e9feeccf"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "octave-moebelkultur.ch",
+      "listingSourceId": "ls_01m6hg99rye76b7mev2tfb2ybc",
+      "partyId": "pty_01m6hg99r7e728tzxp3a3pafp6",
+      "checkedAt": "2026-11-03T20:55:19.258597Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hg9a5ye9wbgrve76xytvrc"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "3069e2b7e7ef2a3e9cab3935908722696ba596ad546079671d6cd5ab0f50df5a"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "artifiche.com",
+      "listingSourceId": "ls_01m6hghhpme9j9w9tffwprnvbp",
+      "partyId": "pty_01m6hghhp2e538rby0n2ty8dw2",
+      "checkedAt": "2026-11-03T20:55:19.599966Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hghj72efk9jers4hp2df4r"
+      ],
+      "shippingProfileId": "shp_01m6hgknwee2hak3d8qb7zttad",
+      "observationDigest": "8d055c4ba6b8a4f3206e128de6fd7357d7c3064161542a61675d9cbc045d5397"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "placart.ch",
+      "listingSourceId": "ls_01m6hghm2remns02t1wjrcrcvr",
+      "partyId": "pty_01m6hghm2aecvatfx600hf4qx9",
+      "checkedAt": "2026-11-03T20:55:19.780077Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hghmk2e3hbvpkrbncads3c"
+      ],
+      "shippingProfileId": "shp_01m6hghnfqeeatsm47tn16d7an",
+      "observationDigest": "aac92580fe8c6aa867c2456d138916aa99dccc89df556f9875f41571b16492fa"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antikgrafenort.ch",
+      "listingSourceId": "ls_01m6hghqnme32v1mnyxa22581m",
+      "partyId": "pty_01m6hghqn2e69vs8vv3dmxpn36",
+      "checkedAt": "2026-11-03T20:55:19.877988Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hghr8xej39xne9nmeth6z2"
+      ],
+      "shippingProfileId": "shp_01m6hgkqjne6hrtkd2xzr78jnx",
+      "observationDigest": "059a4e6f6eba112d61653b13e0792a9ac1de1e5998adec41de8e7e3bdd67ccef"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "art3000.ch",
+      "listingSourceId": "ls_01m6hgr415eyy9wp1njd7z2q0h",
+      "partyId": "pty_01m6hgr40pe3nv9mpyz72dnkve",
+      "checkedAt": "2026-11-03T20:55:20.121898Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hgr4f1ehpv00x4m2fb37fn"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "29d3b8ef5b3c51b0a4c106e2b7ba54fdc6c4270fab58fa226ef2edd4bb5be7c4"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerie123.com",
+      "listingSourceId": "ls_01m6hgxfv9esarkcafr5vs28ts",
+      "partyId": "pty_01m6hgxfttedv8rgh8pm1326ca",
+      "checkedAt": "2026-11-03T20:55:20.297743Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hgxgb0eq4b34mh1fdhv4dt"
+      ],
+      "shippingProfileId": "shp_01m6hgxh1nervb3c0adpqrcp76",
+      "observationDigest": "c21fb85acd86c18fa7b7d3becab0fc2a05cbe7026a50fa1c734141c86c1c5a68"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "shop1.samovar.ch",
+      "listingSourceId": "ls_01m6hh65baecq8r4avx3trec9p",
+      "partyId": "pty_01m6hh65akemhs748zzn9vsczx",
+      "checkedAt": "2026-11-03T20:55:20.469686Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hh65swe4dtbddbmjnnxe4a"
+      ],
+      "shippingProfileId": "shp_01m6hh66nhexq8qrak28fd5fqv",
+      "observationDigest": "f21ff7a809290bad6dcc2adfb0f947dd6ffe269dd80e9230e7bab6b80c299184"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "kunsthandelschmeh.ch",
+      "listingSourceId": "ls_01m6hh68hkemb8n2hs97kcrp18",
+      "partyId": "pty_01m6hh68h1e68tnknempwp8s9j",
+      "checkedAt": "2026-11-03T20:55:20.598531Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hh693beywahn7p13jwskf8"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "e3fc632f7287d85bac767bb859f3a3907b0df83724cc5878b78e3789f29b0dca"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "schindlergallery.com",
+      "listingSourceId": "ls_01m6hhbdezeqkr04mc2gfmmha8",
+      "partyId": "pty_01m6hhbdefe12sjm02p69q1s3t",
+      "checkedAt": "2026-11-03T20:55:20.805690Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hhbe2wep0atdt67c2kr5xe"
+      ],
+      "shippingProfileId": "shp_01m6hhbeybet2bbkvpydb6n8k4",
+      "observationDigest": "c49db4f0e69a1b27cc7765955df9b43b1f0ae42474763f67a8609a7beb33a071"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "antikgalerie.ch",
+      "listingSourceId": "ls_01m6hhfva2e0svschpb44ebn5r",
+      "partyId": "pty_01m6hhfv9ke5zbc5keqqcde1mw",
+      "checkedAt": "2026-11-03T20:55:20.797909Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [],
+      "shippingProfileId": null,
+      "observationDigest": "4295dc804caeadf216c41809ecdf0870bd9236bef2ea20ea4ca2da1478a68949"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "vintage-jewellery.ch",
+      "listingSourceId": "ls_01m6hhyen2extawe1h2kkpcn2d",
+      "partyId": "pty_01m6hhyemne0jtcmfrbkmkcc3j",
+      "checkedAt": "2026-11-03T20:55:21.052787Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hhyf15eev9kj8qhgmx3zwr"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "4dab9584dedefed0572f71b5bbe382b93c80abde906b4d9903a6fd0b64a5deb0"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "artrust.ch",
+      "listingSourceId": "ls_01m6hjbrmnejjt4821c1t1pdtj",
+      "partyId": "pty_01m6hjbrm4e9jrw2y9fqy3teay",
+      "checkedAt": "2026-11-03T20:55:21.292780Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hjbs2xe04a4rhn6fg1p52k"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "070e13f2996d928e8939e5e05a696c21a9d44a9139dee033d822b8860943b851"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galerieh.ch",
+      "listingSourceId": "ls_01m6hjh2w9ehp9127cy6ngmr03",
+      "partyId": "pty_01m6hjh2vtezj92wtn0p52pt90",
+      "checkedAt": "2026-11-03T20:55:21.329767Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hjh3byep4re9q8d9pesgp0"
+      ],
+      "shippingProfileId": "shp_01m6hjh40tezh9km9pzw97kh49",
+      "observationDigest": "eef7a7dcd3226453402e24fd40aa29830723fec435d716c5015a91157c90c399"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "kunstwarenhaus.ch",
+      "listingSourceId": "ls_01m6hjrv2ge168kezd98zg1tnj",
+      "partyId": "pty_01m6hjrv1zehrrsb3bewz75fwy",
+      "checkedAt": "2026-11-03T20:55:21.562715Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hjrvfher884hsv8kew25z6"
+      ],
+      "shippingProfileId": "shp_01m6hjrw2pewwvec18c4kyemv8",
+      "observationDigest": "0159e556368bf9a773981ae20b65d83ef250488f1bb148402e069ec84962d44b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "shop.kollygallery.ch",
+      "listingSourceId": "ls_01m6hjrxj5e51r1tece7dy316y",
+      "partyId": "pty_01m6hjrxhqes5t92m947e5z8vk",
+      "checkedAt": "2026-11-03T20:55:21.912773Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hjrxyte5h9gv9779va7g4h"
+      ],
+      "shippingProfileId": "shp_01m6hjryhke489gbdkjhwef6ar",
+      "observationDigest": "84830166d02b6638c8c21542144b532055508c77b5536d1b6021b2686073e34c"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "galeriehilt.ch",
+      "listingSourceId": "ls_01m6hk295pe93854z8rmnny1ea",
+      "partyId": "pty_01m6hk2957eq8tenectrxpnf7m",
+      "checkedAt": "2026-11-03T20:55:21.901411Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hk29jfejfr0q1amxsfph8v"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "7af042a0c34d4e2b52a173667d890986bb9dbe1ddd3b6fe9b65fa1df0c1073bb"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
+      "domain": "lalignebd.com",
+      "listingSourceId": "ls_01m6hk2b0setyvy0cp9yy964vd",
+      "partyId": "pty_01m6hk2b0cesh8ay6jk8vetg4t",
+      "checkedAt": "2026-11-03T20:55:22.060097Z",
+      "emptyIngestion": true,
+      "actualIngestionMethodTypes": [],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hk2bczebwa8jqsn1xz2asy"
+      ],
+      "shippingProfileId": "shp_01m6hk2c1bev194na0gzp9h7we",
+      "observationDigest": "4a331adeabc6127717fc7cf6cec428fac33b23c1367e153e94c6e8490e8a82d1"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/hosted/blinks/dealers.jsonl",
+      "domain": "proantic.com",
+      "listingSourceId": "ls_01m6hdytcvejha55fzhjz0415a",
+      "partyId": "pty_01m6hdytcfek0bhcb5g7prmh5s",
+      "checkedAt": "2026-11-03T20:55:22.357475Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6hdytrke5zt0vfx0h1f327c"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "879bdc4bb93ba2d7e8c88514d56b3b8eb47302b5f474ab357775422b7f19135b"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/hosted/castellino/dealers.jsonl",
+      "domain": "anticstore.com",
+      "listingSourceId": "ls_01m6h13vhpebjb87bksy4p3b97",
+      "partyId": "pty_01m6h13vh9eehag52zk5txghqy",
+      "checkedAt": "2026-11-03T20:55:22.329046Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h13vy7es4ttmavvzmfkd9f"
+      ],
+      "shippingProfileId": null,
+      "observationDigest": "1bd6d8f5ab8cf026275a0d3a25057119860de2b3e9827f21b06946aede749378"
+    },
+    {
+      "ownerLedger": "data/dealer-discovery/countries/CH/hosted/degussa-swiss/dealers.jsonl",
+      "domain": "degussa.com",
+      "listingSourceId": "ls_01m6h4q0h7ez99rxjjf0zzegr6",
+      "partyId": "pty_01m6h4q0gqep5sw9f6px4tzjdk",
+      "checkedAt": "2026-11-03T20:55:22.790749Z",
+      "emptyIngestion": false,
+      "actualIngestionMethodTypes": [
+        "WEB_CRAWL"
+      ],
+      "resourceIntegrityPassed": true,
+      "locationIds": [
+        "ploc_01m6h4q0xjey1a9f219y5drbd2",
+        "ploc_01m6h4q14dek1rdc3m9xb3bw8p",
+        "ploc_01m6h4q1bbe869eajxd4hzm68g"
+      ],
+      "shippingProfileId": "shp_01m6h4vjfsev29jrb3jf0mfr28",
+      "observationDigest": "0ff772592359dfe89d389d48199d7a7e43301472b14ef940d3fd795ebdfcc349"
+    }
+  ],
+  "paidDataSpendUsd": 0
+}

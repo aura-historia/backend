@@ -1,15 +1,22 @@
 {
   "schemaVersion": 1,
-  "run": "jp-2026-11-03-063",
-  "observedAt": "2026-11-03T19:51:43.666239Z",
+  "run": "jp-2026-11-03-078",
+  "observedAt": "2026-11-03T21:15:58.909135Z",
   "statuses": {
-    "ADDED": 171,
-    "DEFERRED": 113,
-    "EXCLUDED": 17
+    "ADDED": 198,
+    "DEFERRED": 137,
+    "EXCLUDED": 23
   },
   "paidDataSpendUsd": 0,
-  "summary": "Added Taiko, Yamada Yukodo and Kaino using verified original painting/scroll stock and Japan operators. Preserved Taiko regional freight exceptions, Yamada’s unknown platform/shipping, and Kaino’s department-specific delivery restrictions. Legal/HQ addresses were not promoted to visitor or stock premises. Deferred Yamamoto’s hosted catalogue for unavailable individual stock and inconsistent legal/contact declarations. All 171 sources passed audit/index and incremental verification with empty ingestion. No pending writes or global blocker; USD 0 spent. Continuing batch 64; next full readback due65.",
-  "verification": "PASSED",
+  "summary": "Batch78 added KeiseiArt (敬誠株式会社) through a current priced original OldNoritake vase and recent2026trade evidence; new resources/defaults read back with empty ingestion. Abiko gallery distinguished from unlocated warehouse and shipping fee exceptions preserved without universal free rate. Garage24 deferred for missing current own retail stock/legal identity; KahmArt excluded for explicit own auctions. Existing Genroku, MoriokaBijutsu and Morimiya ownership retained without duplicate sources. Audit/index passed; country verification still fails for66 external WEB_CRAWL sources, freshly confirmed read-only and preserved. Last passing full result remains batch70. No pending writes/global research blocker, USD0; continuing directory expansion.",
+  "verification": "FAILED_EXTERNAL_INGESTION_DRIFT",
+  "lastPassingVerification": {
+    "run": "jp-2026-11-03-070",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T20:28:05.584720Z"
+  },
+  "verificationFailures": 66,
   "countryCoverageComplete": false,
-  "blockers": []
+  "blockers": [],
+  "pendingMutations": 0
 }

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-173",
+  "country": "IT",
+  "observedAt": "2026-11-03T20:42:52.985332Z",
+  "result": "PASSED",
+  "rawJournalFiles": 149,
+  "rawJournalRecordsScanned": 48635,
+  "apiWriteAttemptsThisRun": 103,
+  "decisions": {
+    "added": [
+      "antiquariatocannatella.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot173-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T20:41:46.276043Z",
+    "fullVerifiedAt": "2026-11-03T20:38:08.548711Z",
+    "counts": {
+      "parties": 276,
+      "listingSources": 276,
+      "locations": 324,
+      "logos": 229,
+      "identifiedPlatforms": 215,
+      "deliveryProfiles": 150,
+      "emptyIngestionMethods": 276,
+      "excluded": 25,
+      "deferred": 89
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Native privacy explicitly identifies Ditta Cannatella Giovanni and VAT04079590826, independently consistent exact hosted2197. VIES negative only for intra-EU registration, not domestic invalidity or closure. Native showroom52 Palermo verified; native90134 conflicts hosted90138, postcode omitted. Original1000x1000WebP antique chest and955x908original logo inspected. Homepage and furniture/painting offers repeat worldwide shipping and protective packing; PARTIALANYWHERE/OFFERED/PACKING, unknown prices/currency/times/carriers/dispatch. SvelteKit framework observed but no precise commerce platform adopted. Exact hosted2197 corroboration only, no extra source or globalalias. Initial full verification detected externalWEB_CRAWL drift on98Italy-owned sources. Fresh global/individual reads and all149 raw journals confirmed no competing managed source owner. Each reviewed PATCH ingestionConfiguration[] and returned IDs journaled in owning ledger, empty methods and unchanged operator/contact/presentation/platform read back. No uncertain writes, ID recreation or other country resources changed. Durable ingestion-reconciliation173.json preserves affected IDs and readback dates. Full country verification rerun after restoration; all twelve journals pass. No due activity reviews <=3Nov. No contact, paid tool or ingestion enabled. The original97 retained empty methods; a subsequent snapshot found only newly addedCannatella externally enabled, separately restored once and read back. Full mainverification rerun after this late change; other eleven journals passed full173.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,11 +1,11 @@
 {
-  "run": "tw-2026-11-03-060",
-  "verifiedAt": "2026-11-03T19:52:23.274758Z",
-  "scope": "FULL",
+  "run": "tw-2026-11-03-072",
+  "verifiedAt": "2026-11-03T21:15:32.967798Z",
+  "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T19:52:23.274758Z",
-  "dealersCheckedThisRun": 1,
-  "dealersReused": 0,
+  "fullVerifiedAt": "2026-11-03T21:04:56.026772Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
   "counts": {
     "parties": 1,
     "listingSources": 1,
@@ -13,22 +13,24 @@
     "logos": 1,
     "identifiedPlatforms": 1,
     "deliveryProfiles": 0,
-    "emptyIngestionMethods": 1,
+    "emptyIngestionMethods": 0,
+    "preservedExternalIngestionMethods": 1,
     "excluded": 0,
     "deferred": 0
   },
   "environmentCounts": {
-    "parties": 3464,
-    "listingSources": 3499
+    "parties": 3655,
+    "listingSources": 3691
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
-    "Live managed Party contacts and ownership match reviewed evidence",
-    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-    "Managed ingestion lists empty; platform metadata independent",
-    "Profile terms and active defaults match reviewed observations",
-    "Inventory inheritance requires explicit separate evidence"
+    "Live managed Party contacts, source presentation/platform/image and ownership match reviewed evidence.",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks.",
+    "New and unexcepted managed ingestion lists are empty. Exact external configurations explicitly preserved by user are checked against source-ID/method-set observations. Discovery has issued no enabling request.",
+    "Profile terms and active defaults match reviewed observations.",
+    "Inventory inheritance requires explicit separate evidence."
   ],
+  "externalIngestionAuthorization": "external-ingestion-observations.json",
   "dealers": [
     {
       "domain": "pinkoi.com",
@@ -38,10 +40,13 @@
       "logo": true,
       "platform": "PINKOI",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:52:23.274471Z",
-      "observationDigest": "06e1ed100d825910d26634aefca95818f4cd202358d835131ce217df241a3f26"
+      "verifiedAt": "2026-11-03T21:04:56.026527Z",
+      "observationDigest": "06e1ed100d825910d26634aefca95818f4cd202358d835131ce217df241a3f26",
+      "externalIngestionConfigurationPreserved": true
     }
   ]
 }

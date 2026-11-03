@@ -1,34 +1,36 @@
 {
-  "run": "tw-2026-11-03-060",
-  "verifiedAt": "2026-11-03T19:51:21.957743Z",
-  "scope": "FULL",
+  "run": "tw-2026-11-03-072",
+  "verifiedAt": "2026-11-03T21:15:30.532173Z",
+  "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T19:51:21.957743Z",
-  "dealersCheckedThisRun": 57,
-  "dealersReused": 0,
+  "fullVerifiedAt": "2026-11-03T21:04:59.721189Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 59,
   "counts": {
-    "parties": 57,
-    "listingSources": 57,
-    "locations": 54,
-    "logos": 47,
-    "identifiedPlatforms": 46,
-    "deliveryProfiles": 36,
-    "emptyIngestionMethods": 57,
-    "excluded": 25,
-    "deferred": 68
+    "parties": 59,
+    "listingSources": 59,
+    "locations": 56,
+    "logos": 48,
+    "identifiedPlatforms": 48,
+    "deliveryProfiles": 37,
+    "emptyIngestionMethods": 36,
+    "preservedExternalIngestionMethods": 23,
+    "excluded": 27,
+    "deferred": 91
   },
   "environmentCounts": {
-    "parties": 3462,
-    "listingSources": 3497
+    "parties": 3655,
+    "listingSources": 3691
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
-    "Live managed Party contacts and ownership match reviewed evidence",
-    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-    "Managed ingestion lists empty; platform metadata independent",
-    "Profile terms and active defaults match reviewed observations",
-    "Inventory inheritance requires explicit separate evidence"
+    "Live managed Party contacts, source presentation/platform/image and ownership match reviewed evidence.",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks.",
+    "New and unexcepted managed ingestion lists are empty. Exact external configurations explicitly preserved by user are checked against source-ID/method-set observations. Discovery has issued no enabling request.",
+    "Profile terms and active defaults match reviewed observations.",
+    "Inventory inheritance requires explicit separate evidence."
   ],
+  "externalIngestionAuthorization": "external-ingestion-observations.json",
   "dealers": [
     {
       "domain": "apothecary1969.com",
@@ -38,10 +40,13 @@
       "logo": true,
       "platform": "QDM",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:12.755451Z",
-      "observationDigest": "bd94c218607ff062687479b1da5f332fde6c1b7c529ed20ac5c5cc310853906a"
+      "verifiedAt": "2026-11-03T21:04:50.853668Z",
+      "observationDigest": "bd94c218607ff062687479b1da5f332fde6c1b7c529ed20ac5c5cc310853906a",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "neodoxy.com.tw",
@@ -53,8 +58,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:12.865144Z",
-      "observationDigest": "2de2695316bd14e7e9212569d215d05f137fda83a5c9139fc18009e3585ca885"
+      "verifiedAt": "2026-11-03T21:04:50.954959Z",
+      "observationDigest": "2de2695316bd14e7e9212569d215d05f137fda83a5c9139fc18009e3585ca885",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "tcadeco.com",
@@ -66,8 +72,9 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:12.710875Z",
-      "observationDigest": "de873d192aebf7adf036fbac918a90ba5e2c4c3e575eff78706e7a119312edf9"
+      "verifiedAt": "2026-11-03T21:04:50.873308Z",
+      "observationDigest": "de873d192aebf7adf036fbac918a90ba5e2c4c3e575eff78706e7a119312edf9",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "annsons.com.tw",
@@ -79,8 +86,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:13.234352Z",
-      "observationDigest": "23fd0744e408bf05cb518d1badb900211157f1cba6766441fbd04a7f8e0824ec"
+      "verifiedAt": "2026-11-03T21:04:51.358949Z",
+      "observationDigest": "23fd0744e408bf05cb518d1badb900211157f1cba6766441fbd04a7f8e0824ec",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "asukaantique.co",
@@ -92,8 +100,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:13.295563Z",
-      "observationDigest": "f919624548b3157b4183641c36754880cdf3bae3cc76c1920a2ee9340233d5ea"
+      "verifiedAt": "2026-11-03T21:04:51.403230Z",
+      "observationDigest": "f919624548b3157b4183641c36754880cdf3bae3cc76c1920a2ee9340233d5ea",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "raimonjirushi.com",
@@ -105,8 +114,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:13.465555Z",
-      "observationDigest": "89c2dbf2ed915fe01a45753fe2b7b1dc372258927287a8fc561fa296c141ee7a"
+      "verifiedAt": "2026-11-03T21:04:51.530136Z",
+      "observationDigest": "89c2dbf2ed915fe01a45753fe2b7b1dc372258927287a8fc561fa296c141ee7a",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "retrostudio-shop.com",
@@ -116,10 +126,13 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:13.757232Z",
-      "observationDigest": "8720ea45438ff2d708e6cebfd3c8e07f4423c081e929ac1df8500493c34fc0f7"
+      "verifiedAt": "2026-11-03T21:04:51.907204Z",
+      "observationDigest": "8720ea45438ff2d708e6cebfd3c8e07f4423c081e929ac1df8500493c34fc0f7",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "baiwincollections.com",
@@ -131,8 +144,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:13.820385Z",
-      "observationDigest": "6c351f1e1719d2250f551c3d4becdc8e0059bfca564facc7d8c18b1226e9d23e"
+      "verifiedAt": "2026-11-03T21:04:51.913344Z",
+      "observationDigest": "6c351f1e1719d2250f551c3d4becdc8e0059bfca564facc7d8c18b1226e9d23e",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "danretro.com",
@@ -144,8 +158,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:13.968471Z",
-      "observationDigest": "7c0d81460eaee59d6a78d2c62b46168249d9fed66ee0e0269b6580ddeb186437"
+      "verifiedAt": "2026-11-03T21:04:52.059042Z",
+      "observationDigest": "7c0d81460eaee59d6a78d2c62b46168249d9fed66ee0e0269b6580ddeb186437",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "zzzoom.shop",
@@ -157,8 +172,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:14.150813Z",
-      "observationDigest": "d1ceb9348a3aa55cb9645d01cf2a8cd3795a017b26386780d2af0e9d03100fed"
+      "verifiedAt": "2026-11-03T21:04:52.326226Z",
+      "observationDigest": "d1ceb9348a3aa55cb9645d01cf2a8cd3795a017b26386780d2af0e9d03100fed",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "haveanindigoday.com",
@@ -170,8 +186,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:14.370776Z",
-      "observationDigest": "5786a428031432f1756478d48992385fdc1cd1faab45657c83714978fb0ef017"
+      "verifiedAt": "2026-11-03T21:04:52.444791Z",
+      "observationDigest": "5786a428031432f1756478d48992385fdc1cd1faab45657c83714978fb0ef017",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "naturalnvintage.com",
@@ -181,10 +198,13 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:14.472558Z",
-      "observationDigest": "136ede12e143c8244fca15b92177eb9de7e3bc042f79fe1c131c1f0df33b9559"
+      "verifiedAt": "2026-11-03T21:04:52.575961Z",
+      "observationDigest": "136ede12e143c8244fca15b92177eb9de7e3bc042f79fe1c131c1f0df33b9559",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "satsuma.com.tw",
@@ -196,8 +216,9 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:14.600221Z",
-      "observationDigest": "69be426aadc195b77fc1c1f9d02f9e7fb07f1f39177b995b73a5374f0f9da4fe"
+      "verifiedAt": "2026-11-03T21:04:52.734760Z",
+      "observationDigest": "69be426aadc195b77fc1c1f9d02f9e7fb07f1f39177b995b73a5374f0f9da4fe",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "ironmanartmarket.com",
@@ -209,8 +230,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:14.885931Z",
-      "observationDigest": "2c475a29a93a53a5b141086f20fee2696b44570eaa4f2db4d8ed87dc35ba3bf8"
+      "verifiedAt": "2026-11-03T21:04:52.937694Z",
+      "observationDigest": "2c475a29a93a53a5b141086f20fee2696b44570eaa4f2db4d8ed87dc35ba3bf8",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "fcamera.tw",
@@ -222,8 +244,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:15.081791Z",
-      "observationDigest": "6b75d2fb3b63e63c8c31892bdb9bb1f9fb46d5a159faa5a45695708ccf6d2156"
+      "verifiedAt": "2026-11-03T21:04:53.065232Z",
+      "observationDigest": "6b75d2fb3b63e63c8c31892bdb9bb1f9fb46d5a159faa5a45695708ccf6d2156",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "nikonhouse.com.tw",
@@ -235,8 +258,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:15.166786Z",
-      "observationDigest": "ec11c4ab31016270ccc5494dd3b8a8f5380b9d3b0b4cedb4486dbd3f3af045d3"
+      "verifiedAt": "2026-11-03T21:04:53.233315Z",
+      "observationDigest": "ec11c4ab31016270ccc5494dd3b8a8f5380b9d3b0b4cedb4486dbd3f3af045d3",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "journeyvintage.com",
@@ -248,8 +272,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:15.460627Z",
-      "observationDigest": "b8b6113cba9b103a9e2905aa91aa64305cac48bf4081b21d197ef75a6a3d3100"
+      "verifiedAt": "2026-11-03T21:04:53.424618Z",
+      "observationDigest": "b8b6113cba9b103a9e2905aa91aa64305cac48bf4081b21d197ef75a6a3d3100",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "kingbooks.com.tw",
@@ -261,8 +286,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:15.610659Z",
-      "observationDigest": "bc8c5a31486bff96166d864da460de7c93b9a013e852d70bdfaf6ee89e001526"
+      "verifiedAt": "2026-11-03T21:04:53.564856Z",
+      "observationDigest": "bc8c5a31486bff96166d864da460de7c93b9a013e852d70bdfaf6ee89e001526",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "shinnobi-re.com",
@@ -274,8 +300,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:15.696724Z",
-      "observationDigest": "43d9e2773f3203e2c2f2c2ea3f004090c1712412725938041c17131f73d5292b"
+      "verifiedAt": "2026-11-03T21:04:53.700020Z",
+      "observationDigest": "43d9e2773f3203e2c2f2c2ea3f004090c1712412725938041c17131f73d5292b",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "jandtliving.com.tw",
@@ -285,10 +312,13 @@
       "logo": true,
       "platform": "CYBERBIZ",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:15.967563Z",
-      "observationDigest": "39d1a095126aca67f48cf38a65470232fad32abb413e3e80f752b66824a3aadb"
+      "verifiedAt": "2026-11-03T21:04:53.922609Z",
+      "observationDigest": "39d1a095126aca67f48cf38a65470232fad32abb413e3e80f752b66824a3aadb",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "mark-antiques.com",
@@ -298,10 +328,13 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:15.945424Z",
-      "observationDigest": "dcc5c4fd465dba3b63360c834c49967b7159284d14a0f767d3eaf91fd39a268b"
+      "verifiedAt": "2026-11-03T21:04:53.893380Z",
+      "observationDigest": "dcc5c4fd465dba3b63360c834c49967b7159284d14a0f767d3eaf91fd39a268b",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "twbeyou.com",
@@ -311,10 +344,13 @@
       "logo": false,
       "platform": "EASYSTORE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:16.230843Z",
-      "observationDigest": "acb529a77e9ffec11b2ab3d836fa4ef2a7d0d2deede1c3097f8ccce79cbbd6a6"
+      "verifiedAt": "2026-11-03T21:04:54.188950Z",
+      "observationDigest": "acb529a77e9ffec11b2ab3d836fa4ef2a7d0d2deede1c3097f8ccce79cbbd6a6",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "chimeiloveearth.pixnet.net",
@@ -324,10 +360,13 @@
       "logo": false,
       "platform": "PIXNET",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:16.308700Z",
-      "observationDigest": "bce0cc01690481d9620729cab0c402a7623791ec043cf9432cd75b74e4690495"
+      "verifiedAt": "2026-11-03T21:04:54.228270Z",
+      "observationDigest": "bce0cc01690481d9620729cab0c402a7623791ec043cf9432cd75b74e4690495",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "mygifts.com.tw",
@@ -339,8 +378,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:16.505846Z",
-      "observationDigest": "24d087f4c6528daba3a5c9be2c53c3c82bfe685eba40ed40f177ffdcc030c717"
+      "verifiedAt": "2026-11-03T21:04:54.393407Z",
+      "observationDigest": "24d087f4c6528daba3a5c9be2c53c3c82bfe685eba40ed40f177ffdcc030c717",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "wonderwoodvintage.com",
@@ -352,8 +392,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:16.895477Z",
-      "observationDigest": "5bb99e1cab2839ae532bdcb2aa474fdfca569c54e70711179f6755dc227a8c2b"
+      "verifiedAt": "2026-11-03T21:04:54.780290Z",
+      "observationDigest": "5bb99e1cab2839ae532bdcb2aa474fdfca569c54e70711179f6755dc227a8c2b",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "dnhloft.com.tw",
@@ -365,8 +406,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:16.995705Z",
-      "observationDigest": "624933628e54e93b25a5deef5ec6f537b9a1d68169b22bce5fd88baf2f5006ef"
+      "verifiedAt": "2026-11-03T21:04:54.825251Z",
+      "observationDigest": "624933628e54e93b25a5deef5ec6f537b9a1d68169b22bce5fd88baf2f5006ef",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "amazing-house.com",
@@ -378,8 +420,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:17.051378Z",
-      "observationDigest": "6e99112aeb3fadd154ed48df55cfa7d2355ece7149fd8dda8902b61e19121091"
+      "verifiedAt": "2026-11-03T21:04:54.901908Z",
+      "observationDigest": "6e99112aeb3fadd154ed48df55cfa7d2355ece7149fd8dda8902b61e19121091",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "lecrinm.com",
@@ -391,8 +434,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:17.338311Z",
-      "observationDigest": "66507ef0c20fe8c4599537f1553a3877f2ba8ed08ebdee3e6be2fe0e75fbfaa2"
+      "verifiedAt": "2026-11-03T21:04:55.215861Z",
+      "observationDigest": "66507ef0c20fe8c4599537f1553a3877f2ba8ed08ebdee3e6be2fe0e75fbfaa2",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "bonbonmisha.com",
@@ -404,8 +448,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:17.525279Z",
-      "observationDigest": "f852bae1b30b6bfe33f3f2c9b1dcd4ae867f68c8954d838588e41c92d79dfeb5"
+      "verifiedAt": "2026-11-03T21:04:55.342266Z",
+      "observationDigest": "f852bae1b30b6bfe33f3f2c9b1dcd4ae867f68c8954d838588e41c92d79dfeb5",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "crossroads-antiques.com",
@@ -415,10 +460,13 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:17.469014Z",
-      "observationDigest": "4382b2664601c7dc32f88b0f93f224b2d0236be798fefca5d1203b519f112f12"
+      "verifiedAt": "2026-11-03T21:04:55.303745Z",
+      "observationDigest": "4382b2664601c7dc32f88b0f93f224b2d0236be798fefca5d1203b519f112f12",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "55mobler.com",
@@ -428,10 +476,13 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:17.765229Z",
-      "observationDigest": "a32e94f5836e53c60d20007f74682952cc3e7f623c287798abf1c03f8de18ae1"
+      "verifiedAt": "2026-11-03T21:04:55.619995Z",
+      "observationDigest": "a32e94f5836e53c60d20007f74682952cc3e7f623c287798abf1c03f8de18ae1",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "gsmwatch.com",
@@ -443,8 +494,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:17.973309Z",
-      "observationDigest": "cdebb985f92307db5372e05f34b9549395928e2df1a41e30f8c57f672f1e777b"
+      "verifiedAt": "2026-11-03T21:04:55.819651Z",
+      "observationDigest": "cdebb985f92307db5372e05f34b9549395928e2df1a41e30f8c57f672f1e777b",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "landrantiques.com",
@@ -456,8 +508,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:18.065728Z",
-      "observationDigest": "774532083a3ef4cdac6bf66f73da8216581876ac4ae26a7347cf6fd18168e8cf"
+      "verifiedAt": "2026-11-03T21:04:55.866820Z",
+      "observationDigest": "774532083a3ef4cdac6bf66f73da8216581876ac4ae26a7347cf6fd18168e8cf",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "vingtsix.shoplineapp.com",
@@ -469,8 +522,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:18.404197Z",
-      "observationDigest": "b84f84383bca0e7102ffd810356a2f0fa38a623f71b870ab4e16a8031dc132cb"
+      "verifiedAt": "2026-11-03T21:04:56.193398Z",
+      "observationDigest": "b84f84383bca0e7102ffd810356a2f0fa38a623f71b870ab4e16a8031dc132cb",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "xuexue-oldgoods.pages.dev",
@@ -480,10 +534,13 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:18.501453Z",
-      "observationDigest": "86076b3d39dcb91818fb76e5421ba4f23e1ad35edd79e130932fe885ba491136"
+      "verifiedAt": "2026-11-03T21:04:56.324995Z",
+      "observationDigest": "86076b3d39dcb91818fb76e5421ba4f23e1ad35edd79e130932fe885ba491136",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "d-warehouse.tw",
@@ -495,8 +552,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:18.557991Z",
-      "observationDigest": "8175f1be4910bd4d322320e4c8aa1c9c46798fb65167fdd3ebd5648a9c73f41b"
+      "verifiedAt": "2026-11-03T21:04:56.356003Z",
+      "observationDigest": "8175f1be4910bd4d322320e4c8aa1c9c46798fb65167fdd3ebd5648a9c73f41b",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "pinkoi.com",
@@ -506,10 +564,13 @@
       "logo": true,
       "platform": "PINKOI",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:18.738606Z",
-      "observationDigest": "a842e077db84892e6ebddf199f0540fe6781a61abc8016334b42cc18ee833bd5"
+      "verifiedAt": "2026-11-03T21:04:56.509827Z",
+      "observationDigest": "a842e077db84892e6ebddf199f0540fe6781a61abc8016334b42cc18ee833bd5",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "mate-select.com",
@@ -521,8 +582,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:19.017533Z",
-      "observationDigest": "18aeabf00950d0010fe2dad182b8ef935e7e6ea6769e4e1f1fe8c54ef15fa632"
+      "verifiedAt": "2026-11-03T21:04:56.804021Z",
+      "observationDigest": "18aeabf00950d0010fe2dad182b8ef935e7e6ea6769e4e1f1fe8c54ef15fa632",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "koyasanju.com",
@@ -534,8 +596,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:19.081403Z",
-      "observationDigest": "db50643a5f660328ad5b4d4f57ca918e6711c666c04a9dd8d93beacf9bb9370d"
+      "verifiedAt": "2026-11-03T21:04:56.872304Z",
+      "observationDigest": "db50643a5f660328ad5b4d4f57ca918e6711c666c04a9dd8d93beacf9bb9370d",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "ginnastore.com",
@@ -547,8 +610,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:19.164833Z",
-      "observationDigest": "66e433e8f94eaa34d9649a323b02a88236a821123eb657566a122954ef539aa2"
+      "verifiedAt": "2026-11-03T21:04:56.940186Z",
+      "observationDigest": "66e433e8f94eaa34d9649a323b02a88236a821123eb657566a122954ef539aa2",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "bokehoptical.com",
@@ -558,10 +622,13 @@
       "logo": false,
       "platform": "CYBERBIZ",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:19.443192Z",
-      "observationDigest": "3efedd2a0155d70a70f6b5f780d62d334e85528f0dda8045b4d92dbcb57bc70e"
+      "verifiedAt": "2026-11-03T21:04:57.224211Z",
+      "observationDigest": "3efedd2a0155d70a70f6b5f780d62d334e85528f0dda8045b4d92dbcb57bc70e",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "nophotonolife-store.com",
@@ -573,8 +640,9 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:19.541008Z",
-      "observationDigest": "9f7cfbed054585928d0b43ab0b26b945030a290c7106317cc4e07f4044467888"
+      "verifiedAt": "2026-11-03T21:04:57.349702Z",
+      "observationDigest": "9f7cfbed054585928d0b43ab0b26b945030a290c7106317cc4e07f4044467888",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "oldbox.vrworld.com.tw",
@@ -584,10 +652,13 @@
       "logo": true,
       "platform": "VR_WORLD",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:19.684920Z",
-      "observationDigest": "7704404d63763e08bbdc7a305f4796b0a527fee18f3ecac435570fee79fbcbc4"
+      "verifiedAt": "2026-11-03T21:04:57.463488Z",
+      "observationDigest": "7704404d63763e08bbdc7a305f4796b0a527fee18f3ecac435570fee79fbcbc4",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "vvgsomething.com",
@@ -597,10 +668,13 @@
       "logo": true,
       "platform": "EASYSTORE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:19.773508Z",
-      "observationDigest": "c0d3a4a08fbc01bb16cede649fa727c80ffe4e7650ab2fe83651c485e99c0095"
+      "verifiedAt": "2026-11-03T21:04:57.541494Z",
+      "observationDigest": "c0d3a4a08fbc01bb16cede649fa727c80ffe4e7650ab2fe83651c485e99c0095",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "bansecondhandgoods.com",
@@ -612,8 +686,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:20.074942Z",
-      "observationDigest": "11b50d22de53b9126b4b47130f9116cc86d01f06a29a9a0675ca46f6c22658e5"
+      "verifiedAt": "2026-11-03T21:04:57.862260Z",
+      "observationDigest": "11b50d22de53b9126b4b47130f9116cc86d01f06a29a9a0675ca46f6c22658e5",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "aglaeaantique.com",
@@ -623,10 +698,13 @@
       "logo": true,
       "platform": "EASYSTORE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:20.131829Z",
-      "observationDigest": "6808be0c1e7b56961aa39a23433ce41e957a6d1200edeeb948918d443f7c56ee"
+      "verifiedAt": "2026-11-03T21:04:57.882984Z",
+      "observationDigest": "6808be0c1e7b56961aa39a23433ce41e957a6d1200edeeb948918d443f7c56ee",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "wuchen-art.com",
@@ -636,10 +714,13 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:20.232224Z",
-      "observationDigest": "4d3a1c491b7e991cc26caaeb1632d3354403d20da829ddf6286dd7b61f38504d"
+      "verifiedAt": "2026-11-03T21:04:57.943255Z",
+      "observationDigest": "4d3a1c491b7e991cc26caaeb1632d3354403d20da829ddf6286dd7b61f38504d",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "dajungallery.com",
@@ -649,10 +730,13 @@
       "logo": false,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:20.628553Z",
-      "observationDigest": "ebac79e96ed25912ee38d2efe8e000f79bcce4264aa79e1dfd70c277a65d3c33"
+      "verifiedAt": "2026-11-03T21:04:58.363609Z",
+      "observationDigest": "ebac79e96ed25912ee38d2efe8e000f79bcce4264aa79e1dfd70c277a65d3c33",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "lilyhhartgallery.com",
@@ -664,8 +748,9 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:20.567744Z",
-      "observationDigest": "6b6b21afb623de01fc9052ce225a757e67388af6684da520f27ffc182767ca27"
+      "verifiedAt": "2026-11-03T21:04:58.284315Z",
+      "observationDigest": "6b6b21afb623de01fc9052ce225a757e67388af6684da520f27ffc182767ca27",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "neverland.gallery",
@@ -677,8 +762,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:20.791050Z",
-      "observationDigest": "095b544e1c320a99ed4a75ed20617974ece6f6da2c671f9bf79c0f5f9f0c0e02"
+      "verifiedAt": "2026-11-03T21:04:58.435328Z",
+      "observationDigest": "095b544e1c320a99ed4a75ed20617974ece6f6da2c671f9bf79c0f5f9f0c0e02",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "lofty-art.com",
@@ -690,8 +776,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:21.143309Z",
-      "observationDigest": "ae06973377e76dd4d925f4a7ad184b3968a60913c1b56ae317963df0d22f7cc2"
+      "verifiedAt": "2026-11-03T21:04:58.767487Z",
+      "observationDigest": "ae06973377e76dd4d925f4a7ad184b3968a60913c1b56ae317963df0d22f7cc2",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "mixal-gallery.tw",
@@ -703,8 +790,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:21.166966Z",
-      "observationDigest": "62ee6bf35cf60c5d8ffa4a38e5fb30e383a061db6c26e4a5b8dfd5ae6e714034"
+      "verifiedAt": "2026-11-03T21:04:58.859898Z",
+      "observationDigest": "62ee6bf35cf60c5d8ffa4a38e5fb30e383a061db6c26e4a5b8dfd5ae6e714034",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "rodin.cyberbiz.co",
@@ -714,10 +802,13 @@
       "logo": true,
       "platform": "CYBERBIZ",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:21.282244Z",
-      "observationDigest": "00e7689215d57d3f0d59f0211cc2c89bd5de018052373d8d2e0a6802a92f4498"
+      "verifiedAt": "2026-11-03T21:04:58.834437Z",
+      "observationDigest": "00e7689215d57d3f0d59f0211cc2c89bd5de018052373d8d2e0a6802a92f4498",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "lightoarts.com",
@@ -727,10 +818,13 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:21.508057Z",
-      "observationDigest": "f34049be380f04396c322a84c1ccaf468518fe5c5449ad892a5512876a596141"
+      "verifiedAt": "2026-11-03T21:04:59.080067Z",
+      "observationDigest": "f34049be380f04396c322a84c1ccaf468518fe5c5449ad892a5512876a596141",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "2025wei147.shopstore.tw",
@@ -740,10 +834,13 @@
       "logo": true,
       "platform": "SHOPSTORE",
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:21.637577Z",
-      "observationDigest": "ee1d95fc003d726cedc2d58ac610a9f948a490121dc3d8cf8fdd10abdbb7020c"
+      "verifiedAt": "2026-11-03T21:04:59.235702Z",
+      "observationDigest": "ee1d95fc003d726cedc2d58ac610a9f948a490121dc3d8cf8fdd10abdbb7020c",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "ararattw.com",
@@ -753,10 +850,13 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:21.736440Z",
-      "observationDigest": "8ca25d71ae6ee32dfeb25f9305a5b213561a113407e722c6ce63c36b3bbfd5dd"
+      "verifiedAt": "2026-11-03T21:04:59.240952Z",
+      "observationDigest": "8ca25d71ae6ee32dfeb25f9305a5b213561a113407e722c6ce63c36b3bbfd5dd",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "smagtw.org",
@@ -766,10 +866,43 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "verified": true,
+      "verifiedAt": "2026-11-03T21:04:59.500507Z",
+      "observationDigest": "0473b636bfc0d21db79ebf48b03eaae5ab4274674fa9307da983ec8aa8d149e3",
+      "externalIngestionConfigurationPreserved": true
+    },
+    {
+      "domain": "yiriarts.com.tw",
+      "listingSourceId": "ls_01m6hggk8be5z9axf0t4gk9b78",
+      "partyId": "pty_01m6hggk7se48sgbg3y5s7spve",
+      "locations": 2,
+      "logo": false,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "verified": true,
+      "verifiedAt": "2026-11-03T21:04:59.720679Z",
+      "observationDigest": "90cd6b8ebfcbd976e3607c22c2f5575016b4b3bd2d724f33eca0a799c99c4239",
+      "externalIngestionConfigurationPreserved": true
+    },
+    {
+      "domain": "taiwanarttogo.com",
+      "listingSourceId": "ls_01m6hkgasyezmtgj2ce4gmrcc5",
+      "partyId": "pty_01m6hkgaseeecvncd412hbpgta",
+      "locations": 0,
+      "logo": true,
+      "platform": "SHOPLINE",
+      "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:21.956472Z",
-      "observationDigest": "0473b636bfc0d21db79ebf48b03eaae5ab4274674fa9307da983ec8aa8d149e3"
+      "verifiedAt": "2026-11-03T21:04:59.654957Z",
+      "observationDigest": "adb28a536185a98cb09d3f886dc6c004129b3356b94d27401cd35efd638702aa",
+      "externalIngestionConfigurationPreserved": false
     }
   ]
 }

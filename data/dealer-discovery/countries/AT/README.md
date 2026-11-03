@@ -2,7 +2,7 @@
 
 Country: Austria, ISO 3166-1 alpha-2 **AT**. Continuous research and API onboarding authorized from 2026-11-03 until stopped or country coverage is confidently exhausted.
 
-[Ledger](dealers.jsonl) holds reviewed evidence and mutation checkpoints; [index](index.tsv) is generated; [frontier](frontier.jsonl) holds leads and follow-ups; [searches](searches.jsonl) records coverage; [verification](verification.json) records API readbacks. Checkpoint `2026-11-03-at-099`: **160 Parties**, **164 listing sources**, **200 locations**, **139 inspected original logos**, **133 identified platforms**, **93 shipping profiles/defaults**, **19 excluded**, **108 deferred**. Incremental API verification passed; every ingestion list is empty. Paid-data spend **$0**. Discovery remains active.
+[Ledger](dealers.jsonl) holds reviewed evidence and mutation checkpoints; [index](index.tsv) is generated; [frontier](frontier.jsonl) holds leads and follow-ups; [searches](searches.jsonl) records coverage; [verification](verification.json) records API readbacks. Checkpoint `2026-11-03-at-103`: **165 Parties**, **169 listing sources**, **206 locations**, **141 inspected original logos**, **138 identified platforms**, **96 shipping profiles/defaults**, **22 excluded**, **111 deferred**. Incremental API verification passed; every ingestion list is empty. Paid-data spend **$0**. Discovery remains active.
 
 Write only this directory. Read every ledger, including nested hosted ledgers, before claiming identities. Existing Austrian identities in Germany’s ledger stay owned there; queue proposed enrichment here for that owner. Assign new dealers by verified business home country. No agents, merchant contact, paid tools, accounts or crawling.
 

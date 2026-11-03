@@ -1,0 +1,1194 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-173",
+  "observedAt": "2026-11-03T20:40:44.918224Z",
+  "country": "IT",
+  "reason": "LiveAPIWEB_CRAWL drift after previous emptyingestion checkpoint. Discovery neverenabledmethod. User requires emptydiscoveryingestion; restoreonlyItaly-ownedresources.",
+  "ownershipAudit": {
+    "rawJournalFiles": 149,
+    "rawRecords": 47654,
+    "competingManagedSourceOwners": []
+  },
+  "review": "Exact current source/operator/Partycontacts/url/name/platform/image checked beforeeach PATCH; everychange reviewed/intented and returned IDsjournaled inowningledger; directGET verifiedemptyandunchangedmetadata. No resource recreation or othercountry/APIresource change.",
+  "sources": [
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "n7antiquariato.it",
+      "listingSourceId": "ls_01m6cbw6pcea585pr8b6sf4br8",
+      "partyId": "pty_01m6cbw6nte14b0d2q4xfc1far",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:54.702796Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "storeonlineshopgest.jimdofree.com",
+      "listingSourceId": "ls_01m6cc758fe7wrv0xwtmwvsg06",
+      "partyId": "pty_01m6cc7581e7eaveygj4z1bn4w",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:55.169465Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitalecolonne.it",
+      "listingSourceId": "ls_01m6cctya6e39atqf880bsy6zk",
+      "partyId": "pty_01m6ccty9ted39eckyjejzjn6x",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:55.673428Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "bourlot.it",
+      "listingSourceId": "ls_01m6cd5nw5e83vb7a568akh9be",
+      "partyId": "pty_01m6cd5nvse6s9g1pdxd39gkts",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:56.167812Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreriadallai.it",
+      "listingSourceId": "ls_01m6cd5r67ek28rk6sbw9fhh3q",
+      "partyId": "pty_01m6cd5r5veeqtkceqbk17v0t3",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:56.650223Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "shop.antichitagiglio.it",
+      "listingSourceId": "ls_01m6cd5th1eeg8dh23rtkedm1n",
+      "partyId": "pty_01m6cd5tgmedmby67y8warada0",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:57.096796Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "dentisrarebooks.it",
+      "listingSourceId": "ls_01m6ce0j94ex0ac4dqdp85ka83",
+      "partyId": "pty_01m6ce0j8mee2s2fv2tfsg0vvk",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:57.675249Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreriapontremoli.it",
+      "listingSourceId": "ls_01m6ce0mqjekd8jpaeq5327rjy",
+      "partyId": "pty_01m6ce0mq3eravff9sedev8f76",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:58.174253Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitaioviero.com",
+      "listingSourceId": "ls_01m6ceh5n7ewxr0z9w9dm5ap68",
+      "partyId": "pty_01m6ceh5mtepz96rrg554n9x5z",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:58.685916Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitailtemporitrovato.it",
+      "listingSourceId": "ls_01m6cermssepvawsp7kthxwpmd",
+      "partyId": "pty_01m6cerms7echah5vsdbsy72ms",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:59.130041Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "memorabiliaantichita.com",
+      "listingSourceId": "ls_01m6cf1z6ae7tbjwhzjdr75qr2",
+      "partyId": "pty_01m6cf1z5teh198vxj5gtjey18",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:36:59.595798Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antiquariobologna.it",
+      "listingSourceId": "ls_01m6cfvjyee4fa0nd83g8135jq",
+      "partyId": "pty_01m6cfvjwqertrpt9ve1yjn4s2",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:00.118623Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "principessasissi.com",
+      "listingSourceId": "ls_01m6chnkgde8y960451qf5g6m7",
+      "partyId": "pty_01m6chnkfyejptd9t8fj0mep4d",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:00.564196Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "rasoloantichita.com",
+      "listingSourceId": "ls_01m6chznj0e9bvp033g704ye1x",
+      "partyId": "pty_01m6chznhgetp8mszvzqv8jwr7",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:01.069007Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "mobilimerlin.com",
+      "listingSourceId": "ls_01m6cj8kyyetqt7hsjc8kpvz2h",
+      "partyId": "pty_01m6cj8kyderg89rxqg477cdgm",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:01.513561Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "galleriaenricobrunello.it",
+      "listingSourceId": "ls_01m6cjys09e668rr8p2c45zrfr",
+      "partyId": "pty_01m6cjyrztee2btme0e9hck080",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:02.015679Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "dimanoinmano.it",
+      "listingSourceId": "ls_01m6ckj96dejqv4rser57v7hge",
+      "partyId": "pty_01m6ckj95vet4v6edepbtencxp",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:02.556046Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitacastelbarco.it",
+      "listingSourceId": "ls_01m6ckjc9dedxt0s1nd0jyspxq",
+      "partyId": "pty_01m6ckjc8vect82xw5snmhevn0",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:03.048602Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "sbadige.com",
+      "listingSourceId": "ls_01m6cm346vejatyfpmbhaadt2a",
+      "partyId": "pty_01m6cm346benb9vxw528j7yrb5",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:03.518903Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "rmantichita.com",
+      "listingSourceId": "ls_01m6cnwbt6ehns1p6760ncyve2",
+      "partyId": "pty_01m6cnwbste35syfw2yert2p64",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:04.131104Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "bottegadarteantichita.com",
+      "listingSourceId": "ls_01m6cp9vn8eb78zm565tjdqqk8",
+      "partyId": "pty_01m6cp9vmtetv9yz2km89hg9ma",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:04.552449Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "piumacciodoro.it",
+      "listingSourceId": "ls_01m6crfkwse63samcrp6y1xxfw",
+      "partyId": "pty_01m6crfkwbex4sgqx353161mtm",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:04.978139Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "cosevecchielenzi.com",
+      "listingSourceId": "ls_01m6cs03xde9y92kfdf4c40xvw",
+      "partyId": "pty_01m6cs03x0exx9jkn2vyhdhnx9",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:05.388298Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "dagantiqua.it",
+      "listingSourceId": "ls_01m6csd41fe1xrggm1zavtejzq",
+      "partyId": "pty_01m6csd417eegs91t2h6k6592a",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:05.824900Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antiquastyle.it",
+      "listingSourceId": "ls_01m6ctqbs6ejk88ngex69kh8t2",
+      "partyId": "pty_01m6ctqbrpe03a223wynscxfha",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:06.338979Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreriadelsalento.it",
+      "listingSourceId": "ls_01m6cvb8eaerxsq6xjyd4sb97z",
+      "partyId": "pty_01m6cvb8dwe3t903wzgq5kadqg",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:06.837345Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "callegariantiquariato.it",
+      "listingSourceId": "ls_01m6cvxhveew0r3k93v10z6dy4",
+      "partyId": "pty_01m6cvxhv4ezv8atcqajcjxpnx",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:07.274645Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitaborelli.com",
+      "listingSourceId": "ls_01m6cvxm4pexzs2n6fywsj25fk",
+      "partyId": "pty_01m6cvxm4behf891q3b2kfh9fn",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:07.717151Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitailtarlomancini.it",
+      "listingSourceId": "ls_01m6cw5r2megnvz2b1y9aq1hva",
+      "partyId": "pty_01m6cw5r20ep5t5h1cys03nny7",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:08.173155Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitailghiretto.com",
+      "listingSourceId": "ls_01m6cwsrnqek3r13xex69df689",
+      "partyId": "pty_01m6cwsrn9e7hvrqvzm4819xqz",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:08.644308Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreriaitalica.it",
+      "listingSourceId": "ls_01m6cx9ejze4yv4egyr6e6tma9",
+      "partyId": "pty_01m6cx9ejgeynbk2cgcefdspfj",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:09.145557Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libram.net",
+      "listingSourceId": "ls_01m6cxtmt5eyhbz41vh3q0jrec",
+      "partyId": "pty_01m6cxtmsrecybqd5b079cs8m3",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:09.628285Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "exlibrisroma.it",
+      "listingSourceId": "ls_01m6cy8bryevrrgcwz59zp0x2k",
+      "partyId": "pty_01m6cy8brmepe9qv2wmz6wp2wc",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:10.248127Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "deantiquislibris.it",
+      "listingSourceId": "ls_01m6cy8dvkeqz9rvsbmw0hmb7n",
+      "partyId": "pty_01m6cy8dvae2x9attp4kq0cxh3",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:10.776130Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "librerialdrovandi.it",
+      "listingSourceId": "ls_01m6cywt65eh8a4g4nes2cd1b4",
+      "partyId": "pty_01m6cywt5je8t9tfbbchpp8e00",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:11.222463Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitabompadre.com",
+      "listingSourceId": "ls_01m6d0158bev79vb6jmeyx5rex",
+      "partyId": "pty_01m6d0157te91bstebzer14a5x",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:11.843194Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "galleriaesposito.com",
+      "listingSourceId": "ls_01m6d0mfcqehv92cj067yv7ed7",
+      "partyId": "pty_01m6d0mfcaef39jggw34js5d8y",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:12.305553Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "aitretorchi.it",
+      "listingSourceId": "ls_01m6d4yhpredkv31tpwsmnj3zg",
+      "partyId": "pty_01m6d4yhp7e4685vvtywyw0k3k",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:12.743551Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "alfeararebooks.com",
+      "listingSourceId": "ls_01m6d6347ze3zrpc66prc8hjej",
+      "partyId": "pty_01m6d6347ke5maekrn39wbvj3q",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:13.242671Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "masperolibri.com",
+      "listingSourceId": "ls_01m6d6kr6deyw9n494nf5k0p8c",
+      "partyId": "pty_01m6d6kr60ef4r2xxvc12fjn4h",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:13.877501Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "gallinimusica.it",
+      "listingSourceId": "ls_01m6d6xs0ge30bqp6jgcrzp9ea",
+      "partyId": "pty_01m6d6xrzye3xrg1ftwst539a6",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:14.330663Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "cartiglio.it",
+      "listingSourceId": "ls_01m6d887fmehhtzrc7ah8273bw",
+      "partyId": "pty_01m6d887fceyybvnkztac5rmr4",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:14.751171Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "librerialafenice.it",
+      "listingSourceId": "ls_01m6dbdeenexhrg83wd9n0e9rc",
+      "partyId": "pty_01m6dbdee9ep8s14a4fkh4mgjh",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:15.258190Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreriaperini.com",
+      "listingSourceId": "ls_01m6dc4pp5efj8faaxx888dcn9",
+      "partyId": "pty_01m6dc4pnpe9ta2hj1213tcbc8",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:15.677782Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "pera.it",
+      "listingSourceId": "ls_01m6dcvg6dembss0bdaah84m6e",
+      "partyId": "pty_01m6dcvg63ecjs3aq8reprec0b",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:16.174334Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreriapeyrot.com",
+      "listingSourceId": "ls_01m6ddnnv7e0yaeq28gkj32e03",
+      "partyId": "pty_01m6ddnntvea1r6vsa6hcmvzdd",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:16.655637Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "trippini.it",
+      "listingSourceId": "ls_01m6ddnqgqemxvpey8xfrpvc3h",
+      "partyId": "pty_01m6ddnqgeeg59hzer57dcynr6",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:17.083499Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreriapiani.it",
+      "listingSourceId": "ls_01m6djfwmcer4af7t3m9955f3j",
+      "partyId": "pty_01m6djfwkqezdbwrfszjjmdcwe",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:17.525811Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreria-menabo.it",
+      "listingSourceId": "ls_01m6dm60p8e7abj8js7s5b54zp",
+      "partyId": "pty_01m6dm60nkezztymrzjx38qs6z",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:17.974683Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "limantiqua.com",
+      "listingSourceId": "ls_01m6dmvmwbeqy94vnnm9p238sq",
+      "partyId": "pty_01m6dmvmvwetgtd8s8d9anx20t",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:18.495512Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antiquafreddi.it",
+      "listingSourceId": "ls_01m6dnh509ed3t0mp0d6f2ey02",
+      "partyId": "pty_01m6dnh4zrer2aqsjme6gbxw0c",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:18.988597Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "orsilibri.com",
+      "listingSourceId": "ls_01m6dpsggde27bwcb0acbnpgwt",
+      "partyId": "pty_01m6dpsgg1exvtwgbtdp1pbdxd",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:19.522371Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libsoave.com",
+      "listingSourceId": "ls_01m6dv4gr2excbty7wbzf6n53e",
+      "partyId": "pty_01m6dv4gqne2r91e5asqgmmkfd",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:20.176823Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "cronosbresciaitaliavintage.com",
+      "listingSourceId": "ls_01m6e24t4mevdvr7g8ssbhqkxe",
+      "partyId": "pty_01m6e24t4bedj9b9tqaggrdkbz",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:20.661848Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "galleriaprevitali.com",
+      "listingSourceId": "ls_01m6e4vzksexn8eepr2y0c19dv",
+      "partyId": "pty_01m6e4vzkeevstyxc081r822k1",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:21.183303Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "artstudiopedrazzini.it",
+      "listingSourceId": "ls_01m6e60knbe0qt2jrgmxqf4346",
+      "partyId": "pty_01m6e60kmrech9x95zk6t0j0e5",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:21.724946Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "ajassa.com",
+      "listingSourceId": "ls_01m6e6yc15e339b89kc73r8sft",
+      "partyId": "pty_01m6e6yc0geb3sg0pmxx5trkxm",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:22.269440Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "galleriacantore.it",
+      "listingSourceId": "ls_01m6e6ydz7egmrdckvhj5j1jg8",
+      "partyId": "pty_01m6e6ydyre2rshb8j9aymbht5",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:22.793764Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "lentiniantichita.com",
+      "listingSourceId": "ls_01m6ec63bmekebhq3b2d3wrexk",
+      "partyId": "pty_01m6ec63b2e2c8qxwgwjrjj1kr",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:23.228339Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "galleriaorsi.com",
+      "listingSourceId": "ls_01m6g75w6aejxta4vp9k3jkse6",
+      "partyId": "pty_01m6g75w5se458xbsx4qrrfk5g",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:23.697892Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitafiorillo.it",
+      "listingSourceId": "ls_01m6g8ph0bexytpdpgcjzx34c9",
+      "partyId": "pty_01m6g8pgzzee683w6vw713dmk9",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:24.160065Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "aquafortis.com",
+      "listingSourceId": "ls_01m6ga78asee7skye9h4tc9q47",
+      "partyId": "pty_01m6ga78a4eq29rxe9x6nvwk5h",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:24.614786Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "galleriadelcaminetto.it",
+      "listingSourceId": "ls_01m6gahnyeev08ctgs0s3s3trs",
+      "partyId": "pty_01m6gahnxtett886s44b5g206e",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:25.110995Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "lantiquasi.it",
+      "listingSourceId": "ls_01m6gqerqne7086kv9wgpa3g4r",
+      "partyId": "pty_01m6gqerq5e42twhpp9fewd07e",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:25.595420Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "delvillanomobili.it",
+      "listingSourceId": "ls_01m6grdxvxeyqvxa4ab0e7bh13",
+      "partyId": "pty_01m6grdxvae6xa8ydm5srmm2rt",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:26.356378Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "profumidantico.com",
+      "listingSourceId": "ls_01m6grx3r5ej1vnwj7yqhsa6kn",
+      "partyId": "pty_01m6grx3qje30rmgzd744600gd",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:26.820361Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "trodele.com",
+      "listingSourceId": "ls_01m6gsera9ea1be82pynt91rmt",
+      "partyId": "pty_01m6gser9tefm9fpw9k1qn03f8",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:27.261461Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "zanella-antiquariato.com",
+      "listingSourceId": "ls_01m6gsets3ez59bg50a3rykj24",
+      "partyId": "pty_01m6gsetrkefjb3zrfbea513se",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:27.714901Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "portobellocatanzaro.it",
+      "listingSourceId": "ls_01m6gsv9syet1rmhfjrye49ed0",
+      "partyId": "pty_01m6gsv9she4vawgr102jb52wa",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:28.224017Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "altomani.com",
+      "listingSourceId": "ls_01m6gthdm6efwvwdv3yky1zrqz",
+      "partyId": "pty_01m6gthdkmexftqfpspk7ykx43",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:28.675996Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitafallavena.com",
+      "listingSourceId": "ls_01m6gv0gn6enx8nfyxycjervav",
+      "partyId": "pty_01m6gv0gmreg3abqf9hvtvyqfs",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:29.490629Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "ivolpini.it",
+      "listingSourceId": "ls_01m6gvj9tmecy8nhcvk5yxs53g",
+      "partyId": "pty_01m6gvj9t5e16b31c6kvbt6v39",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:29.940640Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitabonetti.it",
+      "listingSourceId": "ls_01m6gzxrwbesjtgt1kxn106xb0",
+      "partyId": "pty_01m6gzxrw3ecgsg4eb9j03p38c",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:30.421159Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "zennaroantiquariato.it",
+      "listingSourceId": "ls_01m6h0a14tejc82tw7f3gsjreb",
+      "partyId": "pty_01m6h0a142efz8eq4shej25gam",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:30.925968Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "libreriapalatinaeditrice.it",
+      "listingSourceId": "ls_01m6h1g6k7ej98k0tv7k30vc71",
+      "partyId": "pty_01m6h1g6jkepxbzh0e39kw4v37",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:31.444598Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "itinerasiena.com",
+      "listingSourceId": "ls_01m6h1x6edesatf0w0ecwyxadz",
+      "partyId": "pty_01m6h1x6e2enm9aaa1w7fpj9ry",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:31.905717Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "botteghinadarte.it",
+      "listingSourceId": "ls_01m6h2x5k1ephstxbmmpwr7ys1",
+      "partyId": "pty_01m6h2x5jge65s0q0661nyn4bd",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:32.387007Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "pratoantichita.it",
+      "listingSourceId": "ls_01m6h45jhbect9kk88101kkant",
+      "partyId": "pty_01m6h45jgyeaese033tqrjnx71",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:32.911427Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "anticartantichita.it",
+      "listingSourceId": "ls_01m6h4zyr2ew8vzzxnxqjw7rd2",
+      "partyId": "pty_01m6h4zyq4e3j8fnrf0rkrh4h5",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:33.425595Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "lafenicelibriantichi.com",
+      "listingSourceId": "ls_01m6h500mnevxv9w3aexqffkjn",
+      "partyId": "pty_01m6h500m1e72r19k0w6fe28qd",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:33.933017Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "adresantiquariato.eu",
+      "listingSourceId": "ls_01m6h5rqkfe5j9ahj8e9fdhe38",
+      "partyId": "pty_01m6h5rqk2e4cvfsxkmj2m4jbg",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:34.524096Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitadisarcina.it",
+      "listingSourceId": "ls_01m6h5rs5je1j8mk5qbx89btkx",
+      "partyId": "pty_01m6h5rs55ecnaj3rhvb26fytv",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:35.038630Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "leonidegianluca.com",
+      "listingSourceId": "ls_01m6h68n1me2htb9nxpmatfk60",
+      "partyId": "pty_01m6h68n12enfaw9f7jh315myq",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:35.484097Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "angeliniavezzano.it",
+      "listingSourceId": "ls_01m6h6pt05e80sprawzbr2dbtn",
+      "partyId": "pty_01m6h6pszwenhrk98ahhmvv18w",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:36.095534Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "lecuriositadelpassatoboutique.it",
+      "listingSourceId": "ls_01m6h7ergzeyvb1fmq2weksbas",
+      "partyId": "pty_01m6h7erghefbrh1722t2jyc5a",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:36.690914Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antemioantiquariato.it",
+      "listingSourceId": "ls_01m6hf2trbe84a6841s5y309bp",
+      "partyId": "pty_01m6hf2tqtek7ay99b898asj1t",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:37.220488Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "chiavacci-antiques.it",
+      "listingSourceId": "ls_01m6hgkh76e7es1bvbepy7tbcq",
+      "partyId": "pty_01m6hgkh6me289cq3vxgpb71hg",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:37.720029Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/ag-antichita/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hdsnq8evtvr7v584m4qadw",
+      "partyId": "pty_01m6hdsnpre7dbp1p030kkm2h3",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:38.176944Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/antichi-ricordi/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6h8nfeceryabeahd2afzcc1",
+      "partyId": "pty_01m6h8nfdveqet85rvkjkke8j7",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:38.585164Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-il-leone/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hhjy0hebpa8qfhxz1q3sm6",
+      "partyId": "pty_01m6hhjxzzewrb67ajp1kabgsj",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:38.984550Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/abellonio-ivano/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hdj0p9eegbf4s2t5njsssc",
+      "partyId": "pty_01m6hdj0npebk9t1jjnx73rpa9",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:39.373310Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/am-marcelli/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hc8dxae8ysb3g8dxmyqzmg",
+      "partyId": "pty_01m6hc8dwveqfty706epd2t9cb",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:39.817764Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/la-cassapanca-fiori/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hegmhwe3n85p6yk0mg3ae9",
+      "partyId": "pty_01m6hegmhges7b452crb7h9v9e",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:40.352503Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/alberto-savio/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hcqyf5e7db5yj1xfbt2ghh",
+      "partyId": "pty_01m6hcqyeqe8y873d1rhhpb07s",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:40.961255Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/acasadimanu74/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hdsvs3ezkbkefv7cqtnk4n",
+      "partyId": "pty_01m6hdsvrqec2skqmv41ff47gd",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:41.338227Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/abbona-roberto/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hd4qyzejg8na5sb3ze3b8x",
+      "partyId": "pty_01m6hd4qyjemm8ec5bkbmjqjcf",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:41.745409Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/federico-andrisani/dealers.jsonl",
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hegeb7e0mr0jn8v68r24yt",
+      "partyId": "pty_01m6hegeateqkr216vn2szwhjw",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:37:42.314873Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antiquariatocannatella.it",
+      "listingSourceId": "ls_01m6hhwc13eqk9v4ej1ayq3zm7",
+      "partyId": "pty_01m6hhwc0med59zzh6b4n2rhac",
+      "observedBefore": [
+        "WEB_CRAWL"
+      ],
+      "result": "PASSED",
+      "patched": true,
+      "verifiedAt": "2026-11-03T20:40:28.182244Z"
+    }
+  ],
+  "paidDataSpendUsd": 0,
+  "pendingOperations": [],
+  "lateObservation": "Second full verification found only newly added Cannatella enabled externally after its successful creation/readback. The previous97 remained empty. Cannatella separately reviewed, journaled, cleared and read back; no API resource recreated. Full main verification rerun; other eleven journals already passed full173."
+}

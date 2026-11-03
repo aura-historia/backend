@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-170",
+  "country": "IT",
+  "observedAt": "2026-11-03T20:01:53.751825Z",
+  "result": "PASSED",
+  "rawJournalFiles": 147,
+  "rawJournalRecordsScanned": 46090,
+  "apiWriteAttemptsThisRun": 5,
+  "decisions": {
+    "added": [
+      "antichitadaziano.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot170-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T20:00:08.322975Z",
+    "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+    "counts": {
+      "parties": 271,
+      "listingSources": 271,
+      "locations": 319,
+      "logos": 225,
+      "identifiedPlatforms": 212,
+      "deliveryProfiles": 146,
+      "emptyIngestionMethods": 271,
+      "excluded": 25,
+      "deferred": 89
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Daziano nativefullproprietor/officialpositiveVAT00340150044, actual currentproduct3920cherry18thcenturysideboard original1920x1440photo and336x77nativebrandingSVG inspected. Product9077samegenericname differs, notmerged. Native ownshowroomDéballageclientevent notmarketplace/auctionoperation; nonantiquerental/newgarden/vehiclelines notqualificationbasis. OneViaMartiri92premises, no registered/warehouse/inventory/dispatchrole fromtaxmatch. ActiveWooCommerceproductcatalogue/quoteplatform verified. GeneralshippingserviceANDcost explicitlyagreedatpurchase: PARTIALUNRESOLVEDdestinations,SUBJECT_TO_CONFIRMATION,ON_REQUESTprice,nullcurrency/basis/qualifyingscope,emptycomponents,nofixedfees/countries/times/features/pickup. All resourcedefaults andemptyingestionreadback. Elevenownedjournalsverified,271emptyingestion,nopendingwrites,$0. No foreigncountrydealer changes; fullcheckstilldue173.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

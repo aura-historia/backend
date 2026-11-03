@@ -1,0 +1,742 @@
+{
+  "schemaVersion": 1,
+  "run": "jp-2026-11-03-078",
+  "observedAt": "2026-11-03T21:15:58.909135Z",
+  "status": "FAILED_EXTERNAL_INGESTION_DRIFT",
+  "managedSourcesChecked": 198,
+  "sourcesWithNonemptyIngestion": 66,
+  "lastPassingVerification": {
+    "run": "jp-2026-11-03-070",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T20:28:05.584720Z"
+  },
+  "issues": [
+    {
+      "domain": "shop.81jp.asia",
+      "listingSourceId": "ls_01m6gv14hse35tf18kmz2xgwpy",
+      "partyId": "pty_01m6gv14hcepybvhh3jgq2g56e",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:30:51.882Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gv14hse35tf18kmz2xgwpy"
+    },
+    {
+      "domain": "amberdesign.jp",
+      "listingSourceId": "ls_01m6gyrn33ew3rdxajrb9rxtg7",
+      "partyId": "pty_01m6gyrn1menqsxx45ee4yz6fw",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:30:59.28Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gyrn33ew3rdxajrb9rxtg7"
+    },
+    {
+      "domain": "antique-gallery-soleil.com",
+      "listingSourceId": "ls_01m6h9njn7evmsvpm0r4kmwhfd",
+      "partyId": "pty_01m6h9njmteyy9yzf9fmjr6qk7",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:31:27.191Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h9njn7evmsvpm0r4kmwhfd"
+    },
+    {
+      "domain": "pandamo.net",
+      "listingSourceId": "ls_01m6h46sw5ekg93ha97pgn1ae9",
+      "partyId": "pty_01m6h46svjebjtsgkkexymvkc0",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:31:27.431Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h46sw5ekg93ha97pgn1ae9"
+    },
+    {
+      "domain": "antique-rasisa.com",
+      "listingSourceId": "ls_01m6h0k5amer6v1s89m8xnypem",
+      "partyId": "pty_01m6h0k5a0eada5jf96ay62qkh",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:31:27.925Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h0k5amer6v1s89m8xnypem"
+    },
+    {
+      "domain": "sam-col.com",
+      "listingSourceId": "ls_01m6gzfbnwepvr267wss86dq4r",
+      "partyId": "pty_01m6gzfbnke3p9ybh4desbe19e",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:31:28.247Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gzfbnwepvr267wss86dq4r"
+    },
+    {
+      "domain": "aunties-collect.ocnk.net",
+      "listingSourceId": "ls_01m6h4yg0recevy0s0nyd1b0a2",
+      "partyId": "pty_01m6h4yfyveg1vcbhht6avtdr7",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:31:39.929Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h4yg0recevy0s0nyd1b0a2"
+    },
+    {
+      "domain": "cerisier-karuizawa.jp",
+      "listingSourceId": "ls_01m6h1y4qwehyrkqxhr9a8vzj6",
+      "partyId": "pty_01m6h1y4qee36vmm7jnfpwmn26",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:31:55.555Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h1y4qwehyrkqxhr9a8vzj6"
+    },
+    {
+      "domain": "crossandborder.com",
+      "listingSourceId": "ls_01m6h88jr7efk87e3s0ja8pm2r",
+      "partyId": "pty_01m6h88jqmet390kxtm4s3y9qz",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:31:59.548Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h88jr7efk87e3s0ja8pm2r"
+    },
+    {
+      "domain": "shop.denim-furniture.jp",
+      "listingSourceId": "ls_01m6gzfhw0en5v7x0kpkp7xzzy",
+      "partyId": "pty_01m6gzfhvjeswafsx2yfn2j1cf",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:04.82Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gzfhw0en5v7x0kpkp7xzzy"
+    },
+    {
+      "domain": "englishcottage.jp",
+      "listingSourceId": "ls_01m6h4f0jjea78tbnbk3ny74r8",
+      "partyId": "pty_01m6h4f0j9eb49tc0rh2ewj6ea",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:10.306Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h4f0jjea78tbnbk3ny74r8"
+    },
+    {
+      "domain": "e-sword.jp",
+      "listingSourceId": "ls_01m6gw54mce7r8g72s6q7fawrp",
+      "partyId": "pty_01m6gw54ktea6vgw4s5pvw5335",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:10.844Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gw54mce7r8g72s6q7fawrp"
+    },
+    {
+      "domain": "foresight-web.com",
+      "listingSourceId": "ls_01m6h9cak2edpv5926m75fg621",
+      "partyId": "pty_01m6h9cajkekaa5pg1tdhaqwa1",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:14.638Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h9cak2edpv5926m75fg621"
+    },
+    {
+      "domain": "funny-supply.com",
+      "listingSourceId": "ls_01m6h5b9jfedrbgg4cnj5qv78k",
+      "partyId": "pty_01m6h5b9j5e8xvvg1mxrr22953",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:16.199Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h5b9jfedrbgg4cnj5qv78k"
+    },
+    {
+      "domain": "beans-online.com",
+      "listingSourceId": "ls_01m6gxtwgwexsbeh0tnxjn1xrm",
+      "partyId": "pty_01m6gxtwgfe6wv94jhyw5z7qm6",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:23.49Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gxtwgwexsbeh0tnxjn1xrm"
+    },
+    {
+      "domain": "gallery-ono.com",
+      "listingSourceId": "ls_01m6hd8z9nebhrns7bh81k14kg",
+      "partyId": "pty_01m6hd8z93eqnb0n77fnd5ws8a",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:23.871Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hd8z9nebhrns7bh81k14kg"
+    },
+    {
+      "domain": "symphony-antique.ocnk.net",
+      "listingSourceId": "ls_01m6h0xrjeedjrda5rbnr0yd55",
+      "partyId": "pty_01m6h0xrj2ecyvyzjf9zk1wb18",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:27.584Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h0xrjeedjrda5rbnr0yd55"
+    },
+    {
+      "domain": "handle-marche.com",
+      "listingSourceId": "ls_01m6gvkv8gejcvs8jc5jj6ezby",
+      "partyId": "pty_01m6gvkv7keq3any0fmnqx615s",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:29.034Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gvkv8gejcvs8jc5jj6ezby"
+    },
+    {
+      "domain": "hi-smile.com",
+      "listingSourceId": "ls_01m6gsp80pepjacs7wwjveff21",
+      "partyId": "pty_01m6gsp80aef7r7nfehhew5ts9",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:32.046Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gsp80pepjacs7wwjveff21"
+    },
+    {
+      "domain": "hope-antiques.com",
+      "listingSourceId": "ls_01m6h0xtkjetvrxyb3a2m677rq",
+      "partyId": "pty_01m6h0xtjze3z9bbym4ghtatwa",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:33.237Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h0xtkjetvrxyb3a2m677rq"
+    },
+    {
+      "domain": "kabashimaya.ocnk.net",
+      "listingSourceId": "ls_01m6gxfm5zedhsgqtfyt4ppyd3",
+      "partyId": "pty_01m6gxfm5kecxswd7ew51w36z0",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:39.439Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gxfm5zedhsgqtfyt4ppyd3"
+    },
+    {
+      "domain": "koyonaku.jp",
+      "listingSourceId": "ls_01m6h3m649e4cb1c993mdsm6ff",
+      "partyId": "pty_01m6h3m63negbvcrg7sp0ba3qv",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:42.572Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h3m649e4cb1c993mdsm6ff"
+    },
+    {
+      "domain": "littlehand.ocnk.net",
+      "listingSourceId": "ls_01m6h2qs5tefwt3zhx3wd5e9yg",
+      "partyId": "pty_01m6h2qs5he8tv3md2hm3670t5",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:32:58.188Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h2qs5tefwt3zhx3wd5e9yg"
+    },
+    {
+      "domain": "mars-speed.co.jp",
+      "listingSourceId": "ls_01m6h2q3yxew3vrnmnr5tw16af",
+      "partyId": "pty_01m6h2q3ybejy93f43623sz8jp",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:03.04Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h2q3yxew3vrnmnr5tw16af"
+    },
+    {
+      "domain": "mirabelle.jp",
+      "listingSourceId": "ls_01m6gzfg9deabr3wvgzdm6cbdn",
+      "partyId": "pty_01m6gzfg93ecfr43ewbhgjw757",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:07.633Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gzfg9deabr3wvgzdm6cbdn"
+    },
+    {
+      "domain": "e-nobiru.pro",
+      "listingSourceId": "ls_01m6gpt8efejzvk7rc0f6avmkj",
+      "partyId": "pty_01m6gpt8dxef1th680nrwvn3sd",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:13.252Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gpt8efejzvk7rc0f6avmkj"
+    },
+    {
+      "domain": "north6antiques.com",
+      "listingSourceId": "ls_01m6gyrq88eeysvyd4psbytndf",
+      "partyId": "pty_01m6gyrq7ret1bef6p3zpm3r4s",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:13.785Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gyrq88eeysvyd4psbytndf"
+    },
+    {
+      "domain": "oakland.jp",
+      "listingSourceId": "ls_01m6h721t9e1w9v47j3z8m553w",
+      "partyId": "pty_01m6h721t0ec8vz7r48ghs1akx",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:15.552Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h721t9e1w9v47j3z8m553w"
+    },
+    {
+      "domain": "orangerie-kumamoto.com",
+      "listingSourceId": "ls_01m6h3kvt2e4hayafewb4qxgey",
+      "partyId": "pty_01m6h3kvsnetpt2p9cw1x7j9aj",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:18.017Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h3kvt2e4hayafewb4qxgey"
+    },
+    {
+      "domain": "primitive-sanchikagu.com",
+      "listingSourceId": "ls_01m6gqkvq8ekbv538k1kq2y21p",
+      "partyId": "pty_01m6gqkvnke5ta2pds62n5x1gh",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:22.937Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gqkvq8ekbv538k1kq2y21p"
+    },
+    {
+      "domain": "bookhouse-q.ocnk.net",
+      "listingSourceId": "ls_01m6h1jfnjewdag96m9pb62fcs",
+      "partyId": "pty_01m6h1jfmrem98kms7jv7hag46",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:23.859Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h1jfnjewdag96m9pb62fcs"
+    },
+    {
+      "domain": "re-come-across.com",
+      "listingSourceId": "ls_01m6gv16wbeg69qshrhpe01v4v",
+      "partyId": "pty_01m6gv16vxe82t4nf8vjj2nds8",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:25.937Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gv16wbeg69qshrhpe01v4v"
+    },
+    {
+      "domain": "ririe93.ocnk.net",
+      "listingSourceId": "ls_01m6gwp3fze66rrw9yds5g26p1",
+      "partyId": "pty_01m6gwp3fce6ssntycme8xw8f2",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:27.523Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gwp3fze66rrw9yds5g26p1"
+    },
+    {
+      "domain": "r-select.jp",
+      "listingSourceId": "ls_01m6gzfdtqej59m33g5hchrcfs",
+      "partyId": "pty_01m6gzfdt6e8btzgs10w9e2n3z",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:30.002Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gzfdtqej59m33g5hchrcfs"
+    },
+    {
+      "domain": "rustique-nabari.com",
+      "listingSourceId": "ls_01m6h2q8dzeh8rqgj4xejpdz1s",
+      "partyId": "pty_01m6h2q8dbe9wa7am5t0q75cne",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:31.035Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h2q8dzeh8rqgj4xejpdz1s"
+    },
+    {
+      "domain": "rustleather.com",
+      "listingSourceId": "ls_01m6ha37b2ecytpqf15jsk8dtd",
+      "partyId": "pty_01m6ha37akem184dmq857qhanm",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:31.083Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6ha37b2ecytpqf15jsk8dtd"
+    },
+    {
+      "domain": "sundayschool.ocnk.net",
+      "listingSourceId": "ls_01m6gy9z4je5xbxs9mnf8a9f8z",
+      "partyId": "pty_01m6gy9z3xe2wtf9fn9pjjqc03",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:42.41Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gy9z4je5xbxs9mnf8a9f8z"
+    },
+    {
+      "domain": "times-net.jp",
+      "listingSourceId": "ls_01m6h0k70xegz9gmvpsxdbzyp0",
+      "partyId": "pty_01m6h0k70ae0wrygmn9btpyws4",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:47.114Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h0k70xegz9gmvpsxdbzyp0"
+    },
+    {
+      "domain": "watch-treasure.com",
+      "listingSourceId": "ls_01m6h5vcneernbmxpyv5d4prn8",
+      "partyId": "pty_01m6h5vcmxek68r0t0rxt7eqtc",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:33:48.49Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h5vcneernbmxpyv5d4prn8"
+    },
+    {
+      "domain": "mizui-hanga.com",
+      "listingSourceId": "ls_01m6hdg812evpvwdpjx9y30byd",
+      "partyId": "pty_01m6hdg80neycb7qz4jp8hxzpf",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:01.637Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hdg812evpvwdpjx9y30byd"
+    },
+    {
+      "domain": "mita-arts.com",
+      "listingSourceId": "ls_01m6hd02jrer88c5r9cq07etr4",
+      "partyId": "pty_01m6hd02j6es0sgrydz6aehy2h",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:02.057Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hd02jrer88c5r9cq07etr4"
+    },
+    {
+      "domain": "kita-antique.com",
+      "listingSourceId": "ls_01m6hbt0qfe2sr7cbnvdjqgqhy",
+      "partyId": "pty_01m6hbt0pxexx9gvnsbe64cekf",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:02.199Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hbt0qfe2sr7cbnvdjqgqhy"
+    },
+    {
+      "domain": "sanmei.com",
+      "listingSourceId": "ls_01m6gw56jrepwtdfa08kq9dt42",
+      "partyId": "pty_01m6gw56jae2e83vvfmsnr9b3p",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:03.048Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gw56jrepwtdfa08kq9dt42"
+    },
+    {
+      "domain": "fynda.ocnk.net",
+      "listingSourceId": "ls_01m6h88yz2e8xrerm2ednhbhjn",
+      "partyId": "pty_01m6h88yygedfaknr2tm2fbx0e",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:03.293Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h88yz2e8xrerm2ednhbhjn"
+    },
+    {
+      "domain": "kobijyutu-kotobuki.jp",
+      "listingSourceId": "ls_01m6gqc3gye15sxc1en4jytnfj",
+      "partyId": "pty_01m6gqc3gjexabnxy7zvh64e7q",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:04.437Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gqc3gye15sxc1en4jytnfj"
+    },
+    {
+      "domain": "kotougiku.jp",
+      "listingSourceId": "ls_01m6hh6gtpeyjbj5cd9dq4zner",
+      "partyId": "pty_01m6hh6gs2en3szzr50sa15mc1",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:04.589Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hh6gtpeyjbj5cd9dq4zner"
+    },
+    {
+      "domain": "yamada-yukodo.com",
+      "listingSourceId": "ls_01m6hfdqnqew0tp9hsrc4d9yat",
+      "partyId": "pty_01m6hfdqn6esysfwwdcdqdp750",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:04.755Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hfdqnqew0tp9hsrc4d9yat"
+    },
+    {
+      "domain": "amagaeru.ocnk.net",
+      "listingSourceId": "ls_01m6gqbzcdexqv1v6fs22ffm5k",
+      "partyId": "pty_01m6gqbzbreaytp4jhsdtzyee3",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:04.967Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gqbzcdexqv1v6fs22ffm5k"
+    },
+    {
+      "domain": "seikado.com",
+      "listingSourceId": "ls_01m6hbstw0ehxaby581kda6kc9",
+      "partyId": "pty_01m6hbstvke9erkkdx03hmsxqe",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:05.007Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hbstw0ehxaby581kda6kc9"
+    },
+    {
+      "domain": "fushou.jp",
+      "listingSourceId": "ls_01m6hbas49e01bt0dfnx10w9bh",
+      "partyId": "pty_01m6hbas3qexm92dby0n8ecvzg",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:05.217Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hbas49e01bt0dfnx10w9bh"
+    },
+    {
+      "domain": "soumei.biz",
+      "listingSourceId": "ls_01m6hczx38etaasb10b76ztaxv",
+      "partyId": "pty_01m6hczx2reva8dwtmgaxwzssc",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:06.416Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hczx38etaasb10b76ztaxv"
+    },
+    {
+      "domain": "yumekouboukyoto.com",
+      "listingSourceId": "ls_01m6gq4a44eyaangz2f5t8tsq8",
+      "partyId": "pty_01m6gq4a3qeyr8w5n2942vb321",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:06.654Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gq4a44eyaangz2f5t8tsq8"
+    },
+    {
+      "domain": "ohya-shobo.com",
+      "listingSourceId": "ls_01m6gtpwfye6rvadbjvdtrxnet",
+      "partyId": "pty_01m6gtpwfcenbbatgh7nn8emym",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:06.549Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gtpwfye6rvadbjvdtrxnet"
+    },
+    {
+      "domain": "renpoudo.com",
+      "listingSourceId": "ls_01m6hhfejpeztspmn8fxcvtgzx",
+      "partyId": "pty_01m6hhfej7eh8bckd7m0n6mjd4",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:07.794Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hhfejpeztspmn8fxcvtgzx"
+    },
+    {
+      "domain": "entreedesign.com",
+      "listingSourceId": "ls_01m6gqkxhme7p8420pzr9rpzqy",
+      "partyId": "pty_01m6gqkxh7e4drta4wn2q34peq",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:08.248Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gqkxhme7p8420pzr9rpzqy"
+    },
+    {
+      "domain": "yamada-shoten.com",
+      "listingSourceId": "ls_01m6gtq3sdecd9pb2vtj83jd3t",
+      "partyId": "pty_01m6gtq3rvem1r4vpfekk5ezgg",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:08.987Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gtq3sdecd9pb2vtj83jd3t"
+    },
+    {
+      "domain": "misima.noomise.com",
+      "listingSourceId": "ls_01m6hfqj0kef688szqeyrj2r56",
+      "partyId": "pty_01m6hfqhzzedgs2d9g7rkvjscy",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:09.694Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hfqj0kef688szqeyrj2r56"
+    },
+    {
+      "domain": "suzurandou.ocnk.net",
+      "listingSourceId": "ls_01m6hb3gfaeb78r4krk1ghv2m2",
+      "partyId": "pty_01m6hb3gewe4ktbx3ebqar8s98",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:10.177Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hb3gfaeb78r4krk1ghv2m2"
+    },
+    {
+      "domain": "ebinashoten.jp",
+      "listingSourceId": "ls_01m6hf37rne1atcnmjaqbyp4gd",
+      "partyId": "pty_01m6hf37r2eht9w2tqb82c07hm",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:10.273Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hf37rne1atcnmjaqbyp4gd"
+    },
+    {
+      "domain": "matsumoto-shoeido.jp",
+      "listingSourceId": "ls_01m6hgbvt5ejr91z4v5m4rw1ge",
+      "partyId": "pty_01m6hgbvsfej693qp3vph7k1xg",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:10.348Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hgbvt5ejr91z4v5m4rw1ge"
+    },
+    {
+      "domain": "harashobo.com",
+      "listingSourceId": "ls_01m6gtq13aep582bf1x5tn3xq6",
+      "partyId": "pty_01m6gtq12te3ttmmv3yp646xfa",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:10.688Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gtq13aep582bf1x5tn3xq6"
+    },
+    {
+      "domain": "hangasw.com",
+      "listingSourceId": "ls_01m6h9pgcte0hbqzky7f0sd48z",
+      "partyId": "pty_01m6h9pgcget980pxm3h7evtpz",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:11.101Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h9pgcte0hbqzky7f0sd48z"
+    },
+    {
+      "domain": "mangetsua.exblog.jp",
+      "listingSourceId": "ls_01m6h05j6qeaj9ndwg2fabgh7x",
+      "partyId": "pty_01m6h05j6gegkb97qfcsxbbdpq",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:11.282Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6h05j6qeaj9ndwg2fabgh7x"
+    },
+    {
+      "domain": "ebira.jp",
+      "listingSourceId": "ls_01m6hc912ne848v2adjynahn7t",
+      "partyId": "pty_01m6hc9125e2nt2bh6bth6xph8",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:11.92Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hc912ne848v2adjynahn7t"
+    },
+    {
+      "domain": "seihoudou.com",
+      "listingSourceId": "ls_01m6hcrh9peq4vf25ty8gj4xy3",
+      "partyId": "pty_01m6hcrh91erwts62jw4jzkx31",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:13.527Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6hcrh9peq4vf25ty8gj4xy3"
+    },
+    {
+      "domain": "seiyudo.com",
+      "listingSourceId": "ls_01m6gw58xfes3ry1b195rhxj2e",
+      "partyId": "pty_01m6gw58x0eyer60s9xdxzgmqs",
+      "expectedMethods": [],
+      "actualMethods": [
+        "WEB_CRAWL"
+      ],
+      "externallyUpdatedAt": "2026-11-03T20:34:13.962Z",
+      "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gw58xfes3ry1b195rhxj2e"
+    }
+  ],
+  "rawSnapshot": "/tmp/aura-dealer-discovery/JP/drift078.json"
+}

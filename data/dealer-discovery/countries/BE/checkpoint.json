@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "run": "be-2026-11-03-055",
-  "observedAt": "2026-11-03T19:50:39.423492Z",
+  "run": "be-2026-11-03-068",
+  "observedAt": "2026-11-03T21:10:09.626391Z",
   "counts": {
-    "parties": 111,
-    "listingSources": 111,
-    "locations": 151,
-    "logos": 71,
-    "identifiedPlatforms": 79,
-    "deliveryProfiles": 50,
-    "emptyIngestionMethods": 111,
-    "excluded": 10,
-    "deferred": 131
+    "parties": 128,
+    "listingSources": 129,
+    "locations": 176,
+    "logos": 81,
+    "identifiedPlatforms": 92,
+    "deliveryProfiles": 62,
+    "emptyIngestionMethods": 129,
+    "excluded": 22,
+    "deferred": 178
   },
-  "verification": "PASSED_FULL",
+  "verification": "PASSED_INCREMENTAL",
   "paidDataSpendUsd": 0,
   "blockers": [],
   "countryCoverage": "OPEN",
-  "description": "No new Belgian API resources in this routing batch. Completed initial triage of all 109 Antica Namur 2026 profiles, preserving open identity, stock and country follow-ups. Verified eight foreign legal homes and queued them to Germany, Italy or France; existing French and Swiss ownership retained. Full verification passed across all four Belgian ledgers: 111 sources, 151 locations and 50 shipping profiles, all ingestion empty. Paid-data spend USD 0; no country blocker. Country coverage remains open. Next full check060."
+  "description": "No additions. Excluded Loeckx, Het Pand, Élysée and DVC for current first-party auction operation, and Bigs Brocante for multi-dealer market scope. Deferred inaccessible Broc-Events, retaining historical marketplace references as leads without claiming closure or alias. All five ledgers audited, indexes regenerated and incrementally verified:128 Parties,129 sources,176 locations,62 shipping profiles, all ingestion empty. No paid data, pending writes or country blocker. Continue final unreviewed national art-directory websites, then remaining BAS2026 frontier; next periodic full verification070."
 }

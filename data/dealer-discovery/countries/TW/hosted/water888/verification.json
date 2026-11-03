@@ -1,9 +1,9 @@
 {
-  "run": "tw-2026-11-03-059",
-  "verifiedAt": "2026-11-03T19:50:25.528404Z",
+  "run": "tw-2026-11-03-072",
+  "verifiedAt": "2026-11-03T21:15:39.063719Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T19:22:38.826169Z",
+  "fullVerifiedAt": "2026-11-03T21:05:07.504439Z",
   "dealersCheckedThisRun": 0,
   "dealersReused": 1,
   "counts": {
@@ -13,22 +13,24 @@
     "logos": 0,
     "identifiedPlatforms": 1,
     "deliveryProfiles": 1,
-    "emptyIngestionMethods": 1,
+    "emptyIngestionMethods": 0,
+    "preservedExternalIngestionMethods": 1,
     "excluded": 0,
     "deferred": 0
   },
   "environmentCounts": {
-    "parties": 3459,
-    "listingSources": 3494
+    "parties": 3655,
+    "listingSources": 3691
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
-    "Live managed Party contacts and ownership match reviewed evidence",
-    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
-    "Managed ingestion lists empty; platform metadata independent",
-    "Profile terms and active defaults match reviewed observations",
-    "Inventory inheritance requires explicit separate evidence"
+    "Live managed Party contacts, source presentation/platform/image and ownership match reviewed evidence.",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks.",
+    "New and unexcepted managed ingestion lists are empty. Exact external configurations explicitly preserved by user are checked against source-ID/method-set observations. Discovery has issued no enabling request.",
+    "Profile terms and active defaults match reviewed observations.",
+    "Inventory inheritance requires explicit separate evidence."
   ],
+  "externalIngestionAuthorization": "external-ingestion-observations.json",
   "dealers": [
     {
       "domain": "shop2000.com.tw",
@@ -38,10 +40,13 @@
       "logo": false,
       "platform": "SHOP2000",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:22:38.825238Z",
-      "observationDigest": "7d0798782c4e0ddf7f1d42293facb611bc4ad6dee10f5f8ea48a5d6d0087faf8"
+      "verifiedAt": "2026-11-03T21:05:07.504077Z",
+      "observationDigest": "7d0798782c4e0ddf7f1d42293facb611bc4ad6dee10f5f8ea48a5d6d0087faf8",
+      "externalIngestionConfigurationPreserved": true
     }
   ]
 }

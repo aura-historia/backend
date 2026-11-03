@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-171",
+  "country": "IT",
+  "observedAt": "2026-11-03T20:14:55.271814Z",
+  "result": "PASSED",
+  "rawJournalFiles": 148,
+  "rawJournalRecordsScanned": 46678,
+  "apiWriteAttemptsThisRun": 10,
+  "decisions": {
+    "added": [
+      "antichitagabrielepintucci.com",
+      "chiavacci-antiques.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot171-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T20:13:18.323832Z",
+    "fullVerifiedAt": "2026-11-03T19:45:19.965278Z",
+    "counts": {
+      "parties": 273,
+      "listingSources": 273,
+      "locations": 321,
+      "logos": 227,
+      "identifiedPlatforms": 213,
+      "deliveryProfiles": 148,
+      "emptyIngestionMethods": 273,
+      "excluded": 25,
+      "deferred": 89
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Two Florence businesses nativeoperator/VATpositiveofficial. Pintucci currentownartretail pages explicitlysellowncollections, original1536x2048representativeportrait/479x602brandinspected; no individualpicturedate/artist/authenticity/availability guarantee. ReciprocalnativeeuEnglishcomItalian mapping sameVAT/contact verified aslanguagealias, not secondstorefront/country. Native operativeSole30 distinctPaoloMascagni16tax; no unaddressedwarehouse/SEOtownbranch/inventory/dispatch/pickup. WORLDWIDEexplicitANYWHERE/PARTIAL/OFFERED unknownrates/times/features/partners. Chiavacci exactofficialDITTACHIAVACCIname without PEC-derivedSrlguess/MarcelloParty; currentnative229Tuscan17cconsoleoriginal1224x996 and368x76brand, currentmerchantProanticIN VENDITA corroboratesactivity. Old2024liquidationbanner notclosure; activityreview3Dec. Nativepostal50100 conflictofficial/currentmerchant50123, omitted; one58/Rpremises, no invented3branches. NationalIT/unresolvedforeign/PARTIAL/OFFERED, no worldwideEU27/rate/insuranceguess. No legal-relatedfamilymerge, sharedplatformalias/source, guessedCMSforChiavacci or ingestion. All elevenjournalsverified,273emptyingestion,nopending,$0. No dueownedactivityreviews<=3Nov.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

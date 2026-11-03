@@ -1,6 +1,7 @@
 {
-  "verifiedAt": "2026-11-03T19:51:05.525200Z",
-  "scope": "Resource integrity only; qualification decision remains in the owning ledger",
+  "verifiedAt": "2026-11-03T21:06:36.589371Z",
+  "scope": "Resource integrity only; exclusions and qualification holds remain unchanged. Exact externally configured ingestion methods are preserved under explicit user instruction.",
+  "externalIngestionAuthorization": "external-ingestion-observations.json",
   "dealers": [
     {
       "domain": "pinkoi.com",
@@ -10,10 +11,13 @@
       "logo": false,
       "platform": "PINKOI",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:05.524784Z",
-      "observationDigest": "35bf44c2a44b2071a4a514ebc9f321488b710483851191a15d73679a32d49a52"
+      "verifiedAt": "2026-11-03T21:06:36.589045Z",
+      "observationDigest": "35bf44c2a44b2071a4a514ebc9f321488b710483851191a15d73679a32d49a52",
+      "externalIngestionConfigurationPreserved": true
     }
   ]
 }

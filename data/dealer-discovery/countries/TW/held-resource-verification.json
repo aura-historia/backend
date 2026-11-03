@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-11-03T19:51:07.205000Z",
+  "verifiedAt": "2026-11-03T21:06:38.199012Z",
   "scope": "Resource integrity only; exclusions and qualification holds remain in owning Taiwan ledgers",
   "ledgerComponents": [
     {
@@ -20,10 +20,13 @@
       "logo": true,
       "platform": null,
       "deliveryProfile": false,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:05.542747Z",
-      "observationDigest": "f259abddfb518299c9a2937637f0947de671a1ee36c734b809f4c63705c76858"
+      "verifiedAt": "2026-11-03T21:06:36.574725Z",
+      "observationDigest": "f259abddfb518299c9a2937637f0947de671a1ee36c734b809f4c63705c76858",
+      "externalIngestionConfigurationPreserved": true
     },
     {
       "domain": "motiveshowroom.com",
@@ -35,8 +38,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:06.180466Z",
-      "observationDigest": "5a5ddd6c74fd728c2eb1a9fb10406c901a9b9a132b0ad8a0283874a8f322f256"
+      "verifiedAt": "2026-11-03T21:06:37.263316Z",
+      "observationDigest": "5a5ddd6c74fd728c2eb1a9fb10406c901a9b9a132b0ad8a0283874a8f322f256",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "sunrecords.tw",
@@ -48,8 +52,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:06.627800Z",
-      "observationDigest": "e0e20090025290819f13fa2c387874abef87b6fc2272d61ffb2ebf54e998aee9"
+      "verifiedAt": "2026-11-03T21:06:37.658721Z",
+      "observationDigest": "e0e20090025290819f13fa2c387874abef87b6fc2272d61ffb2ebf54e998aee9",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "modpolyltd.com",
@@ -61,8 +66,9 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:07.175617Z",
-      "observationDigest": "6071d17e98e0ef614e6412186475f1d05dd09716a24213a899177d0ebfcedfbc"
+      "verifiedAt": "2026-11-03T21:06:38.170983Z",
+      "observationDigest": "6071d17e98e0ef614e6412186475f1d05dd09716a24213a899177d0ebfcedfbc",
+      "externalIngestionConfigurationPreserved": false
     },
     {
       "domain": "pinkoi.com",
@@ -72,10 +78,13 @@
       "logo": false,
       "platform": "PINKOI",
       "deliveryProfile": true,
-      "ingestionMethods": [],
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ],
       "verified": true,
-      "verifiedAt": "2026-11-03T19:51:05.524784Z",
-      "observationDigest": "35bf44c2a44b2071a4a514ebc9f321488b710483851191a15d73679a32d49a52"
+      "verifiedAt": "2026-11-03T21:06:36.589045Z",
+      "observationDigest": "35bf44c2a44b2071a4a514ebc9f321488b710483851191a15d73679a32d49a52",
+      "externalIngestionConfigurationPreserved": true
     }
   ]
 }
