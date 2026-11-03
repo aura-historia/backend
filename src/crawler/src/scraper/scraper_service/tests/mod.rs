@@ -172,7 +172,6 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
     };
 
     ProductCssSelectorSchema {
-        state_labels: None,
         source_listing_id: Some(text_rule("#product-id")),
         title: text_rule("h1"),
         description: None,

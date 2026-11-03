@@ -427,7 +427,6 @@ mod tests {
 
     fn sample_css_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            state_labels: None,
             source_listing_id: Some(ExtractionRule {
                 selector: "span.product-id".into(),
                 additional_selectors: vec![],
