@@ -62,6 +62,23 @@ pub struct SchemaPageView {
     /// How the schema's rules matched the page.
     pub fields: Vec<FieldMatchView>,
     pub findings: Vec<FindingView>,
+    /// What the reviewer should know about the extraction that neither fails the page nor blocks
+    /// approval.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub notices: Vec<NoticeView>,
+}
+
+/// Information about an extraction that is no failed check.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct NoticeView {
+    /// The field the notice is about, named as in `fields`.
+    pub field: String,
+    /// `UNMAPPED_STATE_LABEL`: the schema's `state_labels` do not know the extracted state
+    /// label. `FOREIGN_PRICE_CURRENCY`: the price names another currency than the
+    /// ListingSource's fallback currency.
+    pub notice: String,
+    pub message: String,
 }
 
 /// What a schema extracted from a page; long values are shortened.
@@ -215,6 +232,7 @@ impl PageRefView {
 impl SchemaPageView {
     fn of(page: SchemaPageEvaluation) -> Self {
         let findings = page_findings(&page);
+        let notices = page_notices(&page);
         Self {
             page: PageRefView::of(page.page_reference, page.url, page.role),
             applies: page.apply_ok,
@@ -222,8 +240,37 @@ impl SchemaPageView {
             extracted: page.extracted.map(ExtractedView::of),
             fields: page.fields.into_iter().map(FieldMatchView::of).collect(),
             findings,
+            notices,
         }
     }
+}
+
+fn page_notices(page: &SchemaPageEvaluation) -> Vec<NoticeView> {
+    let unmapped = page
+        .unmapped_state_label
+        .as_deref()
+        .map(|label| NoticeView {
+            field: "state".to_owned(),
+            notice: "UNMAPPED_STATE_LABEL".to_owned(),
+            message: format!(
+                "the state label `{}` is not in the schema's state_labels",
+                value(label)
+            ),
+        });
+    let foreign = page
+        .foreign_price_currency
+        .as_ref()
+        .map(|foreign| NoticeView {
+            field: foreign.field.as_str().to_owned(),
+            notice: "FOREIGN_PRICE_CURRENCY".to_owned(),
+            message: format!(
+                "`{}` names {}, not the fallback currency {}",
+                foreign.field.as_str(),
+                foreign.currency,
+                foreign.fallback_currency
+            ),
+        });
+    unmapped.into_iter().chain(foreign).collect()
 }
 
 fn page_findings(page: &SchemaPageEvaluation) -> Vec<FindingView> {
@@ -372,6 +419,8 @@ mod tests {
                     "plausibility_findings": [{ "field": "title", "check": "BLANK" }],
                     "cross_page_findings": [{ "field": "price", "check": "REPEATED_ACROSS_PAGES", "values": ["£120"] }],
                     "identity_agreement_findings": [],
+                    "unmapped_state_label": "In stock",
+                    "foreign_price_currency": { "field": "price", "currency": "USD", "fallback_currency": "GBP" },
                     "fields": [
                         { "field": "title", "selector": "h1", "selector_match_count": 1, "additional_selector_match_counts": [], "error": null, "required": true, "empty_element_count": 1 },
                         { "field": "price", "selector": ".p", "selector_match_count": 0, "additional_selector_match_counts": [2], "error": null, "required": false },
@@ -429,6 +478,13 @@ mod tests {
             json!([
                 { "kind": "PAGE", "field": "title", "check": "BLANK", "message": "`title` is blank" },
                 { "kind": "CROSS_PAGE", "field": "price", "check": "REPEATED_ACROSS_PAGES", "message": "`price` repeats a value of another product page", "values": ["£120"] },
+            ])
+        );
+        assert_eq!(
+            page["notices"],
+            json!([
+                { "field": "state", "notice": "UNMAPPED_STATE_LABEL", "message": "the state label `In stock` is not in the schema's state_labels" },
+                { "field": "price", "notice": "FOREIGN_PRICE_CURRENCY", "message": "`price` names USD, not the fallback currency GBP" },
             ])
         );
         assert_eq!(

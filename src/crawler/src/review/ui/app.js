@@ -1875,11 +1875,19 @@ function renderRuleOptions(rule) {
             <option value="text" ${type === 'text' ? 'selected' : ''}>Text</option>
             <option value="attribute" ${type === 'attribute' ? 'selected' : ''}>Attribute</option>
             <option value="image_url" ${type === 'image_url' ? 'selected' : ''} title="The best full-size image URL candidate of each matched element">Image URL</option>
+            <option value="attribute_or_text" ${type === 'attribute_or_text' ? 'selected' : ''} title="The attribute when it is not blank, the element's text otherwise">Attribute or text</option>
+            <option value="json_ld_offer" ${type === 'json_ld_offer' ? 'selected' : ''} title="A property of the offers in the matched application/ld+json script">JSON-LD offer</option>
           </select>
         </label>
       </div>
-      ${type === 'attribute' ? `<label>Attribute name
+      ${ruleTypeTakesAttributeName(type) ? `<label>Attribute name
         <input value="${escapeHtmlAttr(effectiveRule.name || '')}" oninput="setCurrentRuleAttributeName(this.value)">
+      </label>` : ''}
+      ${type === 'json_ld_offer' ? `<label>Offer property
+        <select onchange="setCurrentRuleOfferProperty(this.value)">
+          <option value="availability" ${effectiveRule.property === 'availability' ? 'selected' : ''}>Availability</option>
+          <option value="price" ${effectiveRule.property === 'price' ? 'selected' : ''}>Price</option>
+        </select>
       </label>` : ''}
     </div>`;
 }
@@ -2412,12 +2420,49 @@ function renderContradictingIdentities(findings) {
     return `<div class="muted">Contradicting identities: ${values.join(', ')}</div>`;
 }
 
+// Informational findings of a matrix page: an `unmapped_state_label` and a
+// `foreign_price_currency`. Neither fails the page nor blocks approval.
+function pageNotices(page) {
+    const notices = [];
+    if (page?.unmapped_state_label) {
+        notices.push({
+            field: 'state',
+            check: 'UNMAPPED_STATE_LABEL',
+            text: `State label "${page.unmapped_state_label}" is not in the schema's state labels`
+        });
+    }
+    const foreign = page?.foreign_price_currency;
+    if (foreign) {
+        notices.push({
+            field: foreign.field,
+            check: 'FOREIGN_PRICE_CURRENCY',
+            text: `${displayName(foreign.field)} names ${foreign.currency}, not the fallback currency ${foreign.fallback_currency}`
+        });
+    }
+    return notices;
+}
+
+function renderNoticeBadges(notices) {
+    return notices.map(notice =>
+        `<span class="badge badge-changed finding-badge" title="${escapeHtmlAttr(notice.text)}">${escapeHtml(notice.check)}</span>`
+    ).join(' ');
+}
+
+function renderNoticeSummary(matrix) {
+    const pages = (selectedCandidate(matrix)?.pages || []).filter(page => pageNotices(page).length > 0);
+    if (!pages.length) return '';
+    const perPage = pages.map(page => `<li><strong>${escapeHtml(displayName(page.role))}</strong>${matrixPagePath(page) ? `<code>${escapeHtml(matrixPagePath(page))}</code> ` : ''}<span>${
+        pageNotices(page).map(notice => escapeHtml(notice.text)).join('; ')
+    }</span></li>`).join('');
+    return `<div class="muted">Selected schema notes, which block no approval:</div><ul class="plausibility-pages">${perPage}</ul>`;
+}
+
 function renderPlausibilitySummary(matrix) {
     const failingSchemas = matrix.candidates.filter(candidate =>
         (candidate.pages || []).some(page => pageFindings(page).length > 0)
     );
     if (!failingSchemas.length) {
-        return '<div class="muted">Every schema passed the plausibility checks on every live page.</div>';
+        return `<div class="muted">Every schema passed the plausibility checks on every live page.</div>${renderNoticeSummary(matrix)}`;
     }
     const candidate = selectedCandidate(matrix);
     const failingPages = (candidate?.pages || []).filter(page => pageFindings(page).length > 0);
@@ -2431,15 +2476,21 @@ function renderPlausibilitySummary(matrix) {
       ${failingPages.length
         ? `<div class="muted">Selected schema failed them on ${failingPages.length} page${pagePlural}:</div><ul class="plausibility-pages">${perPage}</ul>`
         : '<div class="muted">Selected schema passed them on every live page.</div>'}
+      ${renderNoticeSummary(matrix)}
     </div>`;
 }
 
 function renderSelectedFieldFindings(page) {
     const findings = fieldFindings(page, selectedField);
-    if (!findings.length) return '';
+    const notices = pageNotices(page).filter(notice => notice.field === fieldKey(selectedField));
+    if (!findings.length && !notices.length) return '';
+    const texts = [
+        ...findings.map(finding => escapeHtml(findingDescription(finding))),
+        ...notices.map(notice => escapeHtml(notice.text))
+    ];
     return `<div class="hint-card finding-hint">
-      ${renderFindingBadges(findings)}
-      <span>${findings.map(finding => escapeHtml(findingDescription(finding))).join('; ')} on the selected page.</span>
+      ${renderFindingBadges(findings)} ${renderNoticeBadges(notices)}
+      <span>${texts.join('; ')} on the selected page.</span>
     </div>`;
 }
 
@@ -2983,16 +3034,34 @@ function setCurrentRuleCardinality(cardinality) {
     markDirty();
 }
 
+// The extraction kinds (`ExtractionKind` in rule.rs) that read a named attribute.
+function ruleTypeTakesAttributeName(type) {
+    return type === 'attribute' || type === 'attribute_or_text';
+}
+
 function setCurrentRuleType(type) {
     const rule = ensureCurrentRule();
     rule.type = type;
     if (type === 'attribute') {
         rule.name = rule.name || (selectedField === 'images' ? 'src' : 'href');
+    } else if (type === 'attribute_or_text') {
+        rule.name = rule.name || 'value';
     } else {
         delete rule.name;
     }
+    if (type === 'json_ld_offer') {
+        rule.property = rule.property || (selectedField === 'state' ? 'availability' : 'price');
+    } else {
+        delete rule.property;
+    }
     markDirty();
     rerenderWorkbench();
+}
+
+function setCurrentRuleOfferProperty(property) {
+    const rule = ensureCurrentRule();
+    rule.property = property;
+    markDirty();
 }
 
 function setCurrentRuleAttributeName(name) {
