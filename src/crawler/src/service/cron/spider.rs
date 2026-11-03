@@ -815,6 +815,13 @@ fn emit_crawl_metrics(
     }
 }
 
+/// The crawl root is always `https://{host}`: the stored host is a bare host, never a URL, and
+/// there is no plain-HTTP fallback. A host that merely starts with `http` (`httpbin.org`) is
+/// still a host.
+fn crawl_root_url(host: &str) -> String {
+    format!("https://{host}")
+}
+
 fn spawn_spider_candidate(
     join_set: &mut JoinSet<SpiderSlotOutcome>,
     candidate: SpiderCandidate,
@@ -823,11 +830,7 @@ fn spawn_spider_candidate(
     lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
     threshold: usize,
 ) {
-    let crawl_root_url = if candidate.listing_source_domain.starts_with("http") {
-        candidate.listing_source_domain.clone()
-    } else {
-        format!("https://{}", candidate.listing_source_domain)
-    };
+    let crawl_root_url = crawl_root_url(&candidate.listing_source_domain);
     let domain_id = candidate.domain_id;
     let pace = crawl_pace(&candidate);
     let span = tracing::info_span!(
@@ -1035,6 +1038,54 @@ mod tests {
     use crate::spider::service::MockSpiderService;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::Notify;
+
+    #[test]
+    fn crawl_root_url_is_always_https_host() {
+        for (host, expected) in [
+            ("example.com", "https://example.com"),
+            ("httpbin.org", "https://httpbin.org"),
+            ("httpbin.org:8443", "https://httpbin.org:8443"),
+            ("https-shop.example", "https://https-shop.example"),
+        ] {
+            assert_eq!(crawl_root_url(host), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn should_crawl_a_host_starting_with_http_from_its_https_root() {
+        let domain_id = CrawlerDomainId::new();
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, _| {
+                Box::pin(async move {
+                    Ok(vec![SpiderCandidate {
+                        listing_source_domain: "httpbin.org".to_string(),
+                        ..spider_candidate(domain_id)
+                    }])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .withf(|_, _, crawl_root_url, _, _, _| crawl_root_url == "https://httpbin.org")
+            .returning(|_, _, _, _, _, _| {
+                Box::pin(async {
+                    Err(crate::spider::service::SpiderServiceError::Database(
+                        sqlx::Error::RowNotFound,
+                    ))
+                })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
 
     fn spider_candidate(domain_id: CrawlerDomainId) -> SpiderCandidate {
         SpiderCandidate {
