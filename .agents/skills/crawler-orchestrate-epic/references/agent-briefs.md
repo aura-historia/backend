@@ -18,6 +18,10 @@ anywhere but the trailers. Tell them to stop every background process they start
 binaries, watch loops) before reporting; a wait loop on `pgrep -f` matches its own command line
 and never ends.
 
+Every brief tells the agent not to open issues or comment on them: it reports follow-up findings
+with `path:line` in its report and PR body, and the orchestrator asks the user about them at the
+end of the epic.
+
 Every brief also says how to deliver the report: with the claude-code-remote `send_message` tool
 (loaded with ToolSearch if deferred) to the orchestrator's session id, starting with
 `[#<child> implementer]` or `[#<child> reviewer]`, and again in the agent's final reply.

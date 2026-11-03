@@ -241,20 +241,27 @@ When every child is `merged` or `done`:
      `Closes #<child>` line for every child the epic implemented and `Closes #<N>`; the final
      review's fixes and validation; public-contract or operational notes (swagger, CHANGELOG,
      runbooks); and the findings left for follow-up tickets.
-4. Turn the follow-up findings into issues before you report. Deduplicate the lists from the
-   child PRs and the final review, check open issues first, and comment on an existing issue
-   that already covers a finding instead of opening a duplicate. Open one issue per coherent
-   problem (`Follow-up from epic #<N> (#<epic PR>)`, problem with `path:line`, acceptance
-   criteria, matching labels). Attach each new issue as a sub-issue of the open epic it belongs
-   to (`gh api -X POST repos/<owner>/<repo>/issues/<epic>/sub_issues -F sub_issue_id=<issue id>`,
+4. Have the user evaluate the follow-up findings, and create only the issues they approve. Never
+   open a follow-up issue, or comment a finding onto an existing issue, without the user's
+   permission, and never during the run: collect findings from the child reports, the child PRs
+   and the final review in the ledger, and ask once, after every child is implemented and the
+   final review is done. Deduplicate them first and check open issues, so each finding is
+   presented as new or as covered by an existing issue. Present each one with the problem, its
+   `path:line`, the source (child or final review), your recommendation (new issue, comment on
+   #<existing>, fold into a planned ticket, or drop) and the epic it would belong to. Then, for
+   the findings the user approves, and as the user decided: open one issue per coherent problem
+   (`Follow-up from epic #<N> (#<epic PR>)`, problem with `path:line`, acceptance criteria,
+   matching labels), or comment on the existing issue. Attach each new issue as a sub-issue of
+   the open epic it belongs to
+   (`gh api -X POST repos/<owner>/<repo>/issues/<epic>/sub_issues -F sub_issue_id=<issue id>`,
    using the issue's numeric `id`, not its number); leave it unattached if no epic fits. Then
-   replace the follow-up list in the epic PR body with links to those issues.
+   replace the follow-up list in the epic PR body with links to those issues and name the
+   findings the user dropped.
 5. Wait for CI on that PR. Have a fresh fixer handle failures caused by the epic. **Never merge
    it**; merging into `develop` is the user's call.
 6. Archive the remaining child sessions (and remove any fallback worktrees), then tell the user
-   the epic work is finished. Include the PR link, CI
-   state, each child's PR, the follow-up issues, anything skipped or deferred, and open
-   questions.
+   the epic work is finished. Include the PR link, CI state, each child's PR, the follow-up
+   issues the user approved, anything skipped or deferred, and open questions.
 
 ## When to stop and ask
 
@@ -268,6 +275,8 @@ ask, pause just the affected chain and keep the independent ones running. Ask wh
   jobs (`gh run rerun <run> --failed`), or a required check cannot run at all;
 - a conflict resolution would change the behaviour of either side, not just combine them;
 - a requested model, a permission or a credential is unavailable;
+- a follow-up issue would be created or an existing issue commented on (always ask, once, at the
+  end; see [step 3.4](#3-close-the-epic));
 - the work would touch deployed services, live credentials or anything irreversible beyond
   pushing branches, opening PRs and merging child PRs into the epic branch.
 
