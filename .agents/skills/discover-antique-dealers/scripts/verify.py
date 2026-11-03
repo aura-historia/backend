@@ -12,7 +12,7 @@ from pathlib import Path
 from api import AuraApi, PRODUCTION, read_ledger
 
 ROOT = Path(__file__).resolve().parents[4]
-LEDGER = ROOT / "data/dealer-discovery/dealers.jsonl"
+LEDGER = ROOT / "data/dealer-discovery/countries/DE/dealers.jsonl"
 
 
 def now():

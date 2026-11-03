@@ -15,7 +15,8 @@ When assigned a country alongside other agents, follow the index's country owner
 rules. Read all discovery ledgers for duplicates, but write only your assigned country
 files and pass explicit ledger/output paths to the commands. Queue foreign leads and
 enrichment for another ledger's dealers instead of changing their records or API state.
-The coordinator retains the legacy root ledger, including its earlier foreign dealers.
+Germany's `countries/DE/` ledger retains its earlier foreign dealers until an explicit
+handoff.
 
 Invoking this workflow to find more dealers authorizes research and API onboarding;
 do not seek redundant confirmation. Credentials must be supplied for the environment.

@@ -1,6 +1,6 @@
 # France dealer discovery
 
-Owned scope: France (`FR`). Read root and all country ledgers for duplicates; write only this directory and resources owned by this ledger. The root ledger’s French records, if any arise, remain coordinator-owned.
+Owned scope: France (`FR`). Read all country ledgers for duplicates; write only this directory and resources owned by this ledger. Earlier French records in Germany's ledger remain owned by that ledger until an explicit handoff.
 
 Ongoing goal: continue free research and verified API onboarding until the user stops. Credentials stay in `/tmp/aura-dealer-credential` (owner-only); raw pages/assets and API snapshots are cached outside the repository under `/tmp/aura-dealer-discovery/FR/`.
 

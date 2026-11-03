@@ -108,7 +108,7 @@ amount or quote request alone does not establish per-order or per-item pricing.
 
 ```sh
 python3 .agents/skills/discover-antique-dealers/scripts/api.py snapshot
-python3 .agents/skills/discover-antique-dealers/scripts/api.py audit data/dealer-discovery/dealers.jsonl
+python3 .agents/skills/discover-antique-dealers/scripts/api.py audit data/dealer-discovery/countries/DE/dealers.jsonl
 ```
 
 Supply `AURA_HISTORIA_ACCESS_TOKEN` or `--credential-file` with an external owner-only

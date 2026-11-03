@@ -1,6 +1,6 @@
 # Italy dealer discovery
 
-Ongoing assignment: **Italy (IT)**. Continue until the user stops it. This run owns only this directory and its newly claimed Italian API records. Root and other-country records retain their owners. Read every discovery ledger and current API identities before claiming a dealer; queue foreign leads or other owners’ enrichment here without changing their files or resources.
+Ongoing assignment: **Italy (IT)**. Continue until the user stops it. This run owns only this directory and its newly claimed Italian API records. Other-country records retain their owners. Read every discovery ledger and current API identities before claiming a dealer; queue foreign leads or other owners’ enrichment here without changing their files or resources.
 
 Latest checkpoint: `2026-11-02-it-107` — **183 Parties, 183 listing sources, 216 locations, 153 original logos, 138 identified platforms and 114 delivery profiles**. All 183 ingestion lists are empty. Excluded leads: **17**; deferred dealers: **51**. Paid research spend: **$0**. No product listings were ingested and no dealer was contacted. No pending writes.
 
@@ -23,5 +23,5 @@ Research and interpretation rules:
 - Use first-party contact, catalogue and legal identity evidence. A public VIES result verifies the tax ID/name/address relationship, not stock ownership or premises use. Keep registered addresses separate from actual business premises and never infer stock, dispatch or pickup from an address alone.
 - Inspect original brand assets and native dimensions; omit unverified marks, ICO files, generic imagery and generated substitutes. Identify platforms only from direct technical fingerprints.
 - Model advertised delivery geography, prices, restrictions and collection separately. Keep incomplete destinations partial, unknown values unknown, and item-specific shipping limitations in the ledger. No product listings are ingested and all onboarding ingestion arrays remain empty.
-- Keep API credentials outside the repository in the owner-only credential file. Pass explicit Italy ledger and output paths to every helper; never mutate root or other-country records.
+- Keep API credentials outside the repository in the owner-only credential file. Pass explicit Italy ledger and output paths to every helper; never mutate other-country records.
 

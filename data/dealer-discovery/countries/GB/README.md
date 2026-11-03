@@ -1,6 +1,6 @@
 # GB dealer discovery
 
-Ongoing GB/UK country run. Only this directory and its GB-owned API resources are managed here. Read root and all country ledgers for duplicates. Records owned by other agents remain with their owners; proposed enrichment and foreign leads go in this frontier.
+Ongoing GB/UK country run. Only this directory and its GB-owned API resources are managed here. Read all country ledgers for duplicates. Records owned by other agents remain with their owners; proposed enrichment and foreign leads go in this frontier.
 
 Checkpoint `2026-11-03-gb-147` (2026-11-03T09:10:29.305618Z): **299 Parties**, **303 sources**, **379 locations**, **216 original logos**, **248 advertised-delivery profiles/defaults**, **261 identified platforms**. All 303 ingestion lists are empty. **13 excluded**, **67 deferred**. Paid research spend: **$0**. Product ingestion has not been enabled.
 
