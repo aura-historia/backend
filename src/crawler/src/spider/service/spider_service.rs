@@ -528,7 +528,13 @@ impl SpiderServiceImpl {
         crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<(), SpiderServiceError> {
-        if !state.classification_done && state.total_crawled >= classify_threshold {
+        // A sample that is mostly challenges is no evidence of the shop's URLs: the crawl waits,
+        // asks again with every page it receives and leaves the verdict to the end of the crawl
+        // ([`Self::classify_at_end_if_needed`]), which knows its diagnostics.
+        if !state.classification_done
+            && state.total_crawled >= classify_threshold
+            && !state.mostly_bot_challenges()
+        {
             debug!(
                 url_count = state.inference_sample.len(),
                 "Threshold reached, requesting product URL pattern"
@@ -587,8 +593,24 @@ impl SpiderServiceImpl {
         listing_source_id: &ListingSourceId,
         domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
+        diagnostics: &CrawlDiagnostics,
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && !state.page_buffer.is_empty() {
+            // A first classification of pages that were mostly bot challenges neither opens a
+            // review nor runs inference on them; the run fails as bot protection
+            // ([`blame_bot_challenges`]), as one with a stored pattern does.
+            if mostly_bot_challenges(diagnostics) {
+                return Err(SpiderServiceError::InsufficientInferenceSample {
+                    crawl_root_url: crawl_root_url.to_string(),
+                    stage: "end_of_crawl",
+                    sample_size: state
+                        .total_crawled
+                        .saturating_sub(state.challenged_pages)
+                        .min(state.inference_sample.len()),
+                    min_sample_size: self.config.min_inference_sample_urls,
+                    diagnostics: Box::default(),
+                });
+            }
             info!(
                 url_count = state.inference_sample.len(),
                 "Threshold not reached, classifying collected URLs"
@@ -705,6 +727,7 @@ impl SpiderServiceImpl {
                 continue;
             }
             state.total_crawled += 1;
+            state.challenged_pages += usize::from(page.bot_challenge);
             state.shop_platform = state.shop_platform.or(page.identity.platform);
 
             if state.inference_sample.len() < self.config.max_sample_urls {
@@ -847,8 +870,14 @@ impl SpiderServiceImpl {
             return Err(error);
         }
 
-        self.classify_at_end_if_needed(&mut state, listing_source_id, domain_id, crawl_root_url)
-            .await?;
+        self.classify_at_end_if_needed(
+            &mut state,
+            listing_source_id,
+            domain_id,
+            crawl_root_url,
+            diagnostics,
+        )
+        .await?;
         // A stored pattern that matched none of the pages an incremental crawl
         // fetched still takes the stored product pages the crawl skipped.
         let judged_on_fetched_pages =
@@ -1282,6 +1311,15 @@ mod service_tests {
             .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
     }
 
+    /// The page a mock crawl delivers for `path`; a path under `/challenge` is a bot challenge
+    /// the shop answered instead of the page.
+    fn crawled_page(path: &str) -> CrawledPage {
+        CrawledPage::new(CrawledUrl::new(
+            Url::parse(&format!("https://example.com{path}")).unwrap(),
+        ))
+        .challenged(path.starts_with("/challenge"))
+    }
+
     fn setup_mock_crawl<I, S>(mock: &mut MockSpider, crawl_root_url: &'static str, paths: I)
     where
         I: IntoIterator<Item = S>,
@@ -1308,11 +1346,7 @@ mod service_tests {
                 let (tx, rx) = mpsc::channel(25);
                 tokio::spawn(async move {
                     for path in paths {
-                        tx.send(CrawledPage::new(CrawledUrl::new(
-                            Url::parse(&format!("https://example.com{path}")).unwrap(),
-                        )))
-                        .await
-                        .unwrap();
+                        tx.send(crawled_page(&path)).await.unwrap();
                     }
                 });
                 let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
@@ -1358,10 +1392,7 @@ mod service_tests {
             .return_once(move |_| {
                 let (tx, rx) = mpsc::channel(paths.len().max(1));
                 for path in paths {
-                    tx.try_send(CrawledPage::new(CrawledUrl::new(
-                        Url::parse(&format!("https://example.com{path}")).unwrap(),
-                    )))
-                    .unwrap();
+                    tx.try_send(crawled_page(&path)).unwrap();
                 }
                 let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
                 diagnostics_tx.send(diagnostics).unwrap();
@@ -1861,29 +1892,18 @@ mod service_tests {
             bot_challenge_pages: 11,
             ..CrawlDiagnostics::default()
         };
+        // A first classification of such pages neither opens a review nor runs inference: its
+        // classifier is never asked, and the run stores none of its pages.
         let runs = [
-            (
-                item_pages(),
-                classifying_pattern_service(Some(Ok(Some(Regex::new(r"/product/").unwrap())))),
-                url_repository_storing(1),
-            ),
-            (
-                item_pages(),
-                classifying_pattern_service(Some(Ok(None))),
-                url_repository_storing(1),
-            ),
-            (
-                vec!["/".to_string(), "/category/1".to_string()],
-                classifying_pattern_service(None),
-                url_repository_storing(0),
-            ),
+            item_pages(),
+            vec!["/".to_string(), "/category/1".to_string()],
         ];
-        for (paths, pattern_service, url_repository) in runs {
+        for paths in runs {
             let error = run_failing_crawl_with_frontier(
                 paths,
                 mostly_challenges(),
-                pattern_service,
-                url_repository,
+                classifying_pattern_service(None),
+                url_repository_storing(0),
                 true,
             )
             .await;
@@ -1896,8 +1916,112 @@ mod service_tests {
             else {
                 panic!("{error:?}");
             };
-            assert!(failure.found_no_product_urls(), "{failure:?}");
+            let SpiderServiceError::InsufficientInferenceSample {
+                stage: "end_of_crawl",
+                diagnostics,
+                ..
+            } = &**failure
+            else {
+                panic!("{failure:?}");
+            };
+            assert_eq!(
+                diagnostics.pages_received, 20,
+                "the diagnostics stay attached"
+            );
+            assert_eq!(diagnostics.bot_challenge_pages, 11);
         }
+    }
+
+    /// The threshold comes before any diagnostics: a sample that is mostly challenges is not
+    /// classified then, and the verdict is left to the end of the crawl.
+    #[tokio::test]
+    async fn should_not_classify_a_first_sample_at_the_threshold_when_most_pages_are_bot_challenges()
+     {
+        let mut mock_spider = MockSpider::new();
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            "https://example.com",
+            (0..6)
+                .map(|i| format!("/challenge/{i}"))
+                .chain((0..2).map(|i| format!("/item/{i}"))),
+            received(8, 6),
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(classifying_pattern_service(None)),
+            Arc::new(url_repository_storing(0)),
+            no_frontier(),
+        );
+
+        let error = service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                "https://example.com",
+                5,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await
+            .expect_err("the run fails");
+
+        assert!(
+            matches!(error, SpiderServiceError::BotChallengedCrawl { .. }),
+            "{error:?}"
+        );
+    }
+
+    /// The threshold judges the pages received so far: once challenges are no more than half of
+    /// them, the crawl classifies its sample as it would have at the threshold itself.
+    #[tokio::test]
+    async fn should_classify_at_the_first_page_after_the_threshold_that_leaves_challenges_half_or_less()
+     {
+        let mut mock_spider = MockSpider::new();
+        setup_mock_crawl(
+            &mut mock_spider,
+            "https://example.com",
+            (0..3)
+                .map(|i| format!("/challenge/{i}"))
+                .chain((0..4).map(|i| format!("/item/{i}"))),
+        );
+        let mut pattern_service = MockUrlPatternService::new();
+        pattern_service
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
+        // Asked once, after the sixth page: three challenges of four, then of five, are most
+        // of the pages, three of six are not.
+        pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .withf(|_, _, _, _, sample| sample.len() == 6)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) })
+            });
+        setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig {
+                min_inference_sample_urls: 2,
+                ..SpiderServiceConfig::default()
+            },
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(url_repository_storing(1)),
+            no_frontier(),
+        );
+
+        let result = service
+            .run(
+                &ListingSourceId::new(),
+                &CrawlerDomainId::new(),
+                "https://example.com",
+                4,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await;
+
+        assert!(result.is_ok(), "{result:?}");
     }
 
     /// A stored pattern that matched none of the pages of a run that were mostly bot challenges
