@@ -689,6 +689,64 @@ async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_pag
     );
 }
 
+/// A shop that redirects every page behind a language segment must not make the review store the
+/// prefixed URL, which the crawler does not store and the product URL pattern does not take
+/// (`docs/crawler/networking.md#stored-urls`): the page is stored under the requested URL for a
+/// redirect that only adds the segment, and under the target without the segment for one that also
+/// changes the path.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_store_reviewer_page_without_the_language_segment_the_shop_redirects_it_behind() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, review_id) = pending_schema_review(&pool).await;
+    sqlx::query(
+        "UPDATE listing_source_domains \
+         SET url_pattern = '/products/', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let language_only = repository
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &url("https://example.com/products/sold"),
+            &url("https://example.com/en-us/products/sold"),
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    let path_changed = repository
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &url("https://example.com/products/old-name"),
+            &url("https://example.com/en-us/products/new-name"),
+            SOLD_HTML,
+        )
+        .await
+        .unwrap();
+    let duplicate = repository
+        .add_reviewer_page(
+            review_id,
+            ReviewActor::Human,
+            &url("https://example.com/products/sold"),
+            &url("https://example.com/de/products/sold"),
+            SOLD_HTML,
+        )
+        .await;
+
+    assert_eq!(language_only.url, "https://example.com/products/sold");
+    assert_eq!(path_changed.url, "https://example.com/products/new-name");
+    assert!(matches!(
+        duplicate,
+        Err(ReviewRepositoryError::DuplicateReviewPage(_))
+    ));
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_reviewer_page_when_it_differs_from_a_review_page_only_in_spelling() {
     let pool = get_postgres_client().await;
