@@ -1,0 +1,55 @@
+# France dealer discovery
+
+Owned scope: France (`FR`). Read root and all country ledgers for duplicates; write only this directory and resources owned by this ledger. The root ledger’s French records, if any arise, remain coordinator-owned.
+
+Ongoing goal: continue free research and verified API onboarding until the user stops. Credentials stay in `/tmp/aura-dealer-credential` (owner-only); raw pages/assets and API snapshots are cached outside the repository under `/tmp/aura-dealer-discovery/FR/`.
+
+Checkpoint `2026-11-03-fr-168`: **288 Parties, 291 sources, 369 unique locations (372 source-location associations), 244 original logos, 256 identified platforms, 216 delivery profiles/defaults**. All ingestion lists are empty. **17 excluded, 150 deferred**. Paid-tool spend **$0**. FULL165 completed; next due FULL170.
+
+Use explicit country `--ledger` and verifier `--output` paths. Journal reviewed facts before mutation; reconcile uncertain writes by recorded IDs before retrying. Full verification every fifth batch; incremental checks otherwise.
+
+Lessons and follow-ups:
+
+- Inspect live product/category pages and actual availability data. An enabled cart can coexist with a sold label, zero quantity or allowed pre-orders. An empty homepage, old design, historical article or HTTP block alone establishes neither current stock nor closure. Recent fashion, re-editions and test catalogues need independently verified historic stock.
+- Reuse a confirmed operator across separate working storefronts, with source-specific platform and delivery evidence. Art Antiquités and Les Arts de la Table share one Party and location. Verification counts unique location IDs separately from source associations.
+- Match legal operator, trade name and aliases separately. Helen’s .fr marketing site and .com shop share identity; Aurore’s branch evidence resolves Foyer Aubois wording. Keep uncertain personal spellings out of legal-name facts (JL CREATIONS).
+- Distinguish legal, showroom, correspondence and collection sites. Preserve only agreed address precision when street wording/numbers conflict (Capucine, Atypik). Do not attach a depot, post-order pickup site or multi-site inventory to a legal address.
+- Prefer specific delivery policy over broad banners. AFW’s policy narrows worldwide marketing; Nour’El’s included foreign transport ends at an airport. International and currency selectors do not mean worldwide.
+- Keep item flags, furniture/fragility limits, delivery radii and threshold prices scoped. Verified destinations can retain null service eligibility when item restrictions prevent a source-wide offer; otherwise keep collection-only terms or defer shipping. Null rates are unknown; empty-cart free labels and item port charges are not general tariffs.
+- Preserve unresolved geographic wording for metropolitan/continental France and DOM TOM. Expand an explicit EU policy only with a current official membership reference; geographic completeness and price completeness are independent.
+- Confirm commerce engine directly. Ecwid over WordPress is ECWID; agency/hosting names alone do not identify commerce software. La Brocante en Ligne explicitly identifies 42stores; its valid API code is FORTY_TWO_STORES.
+- Inspect original logo content, media type and dimensions. Cached original format, geometry and byte checks are in [asset-verification.json](asset-verification.json). Transparent marks need a contrasting preview; file extensions can be misleading and resized Wix/Shopify srcsets may upscale. Keep backend URLs on the unmodified original. Cabinet des Antiques’ photograph candidate stays rejected until 2027-02-01.
+- Proantic and the Avignon five-exhibitor centre are excluded as collective sources. Their individual dealers require separate ownership research. The incidental Antichità Castelbarco lead is queued for Italy within this frontier only.
+- Deferrals and enrichment gaps retain evidence, reason and recheck dates in the ledger/frontier. No dealer messages, subscriptions, generated logos, coordinates, dispatch origins, inventory inheritance or product ingestion are implied by discovery.
+
+- Reconcile percent-encoded API catalogue paths against their reviewed Unicode URLs before resuming saved IDs. An identity readback mismatch must never trigger another source POST. A translated legal page can resolve a blank main-language imprint when name, address and contacts match.
+
+
+Run 153 added Librairie Pierre Brunet (HikaShop, Paris; delivery tariff calculated at checkout and free shop collection) and Au Fil des Livres (custom merchant catalogue, Tincey-et-Pontrebeau correspondence address; worldwide insured book shipping). Both original wordmarks were visually inspected. Pierre Brunet shipping profile required reconciliation after the initial POST rejection; API readbacks confirmed no partial profile, and the corrected profile was then created and read back. All ingestion lists remain empty.
+
+Run 154 added Brokepoque (WooCommerce; Calais registered address). France delivery is included in item prices; the seller requires destination quotes for some foreign deliveries. One current profile retains those separate facts without asserting a zero-cost shipping rate. Its published PNG wordmark was inspected.
+
+Run FULL155 completed a full Party/source/location/default/shipping-profile readback across the managed France ledger. All identities, 283 empty ingestion lists, defaults and 208 delivery profiles passed.
+
+Run 156 added DANTAN’s own Wix catalogue (Achicourt registered address; worldwide insured carrier delivery, fee unknown). Its legal operator was matched to current official sole-proprietor registration using the linked seller identity; marketplace records were used only as evidence and no marketplace source was created. No logo was sufficiently identifiable as the dealer’s original mark, so the image field is empty.
+
+Run 157 added Galerie Atena’s BigCommerce catalogue and three current business locations: its registered Paris gallery, Peyraud château showroom and Le Vésinet design showroom. Official active ATENA SAS identity matched. Worldwide insured delivery is advertised, with shipping costs calculated at checkout. The published logo asset has a `.png` path but its response is WebP; the true media type and pixel dimensions were retained.
+
+Run 159 added La Malle d'Asie (WooCommerce; active Lyon shop and registered location; one in-stock antique buffet). France mainland parcel and pallet delivery is priced by item size/weight, and pickup is free in Lyon. Belgian terms distinguish boxes/trunks from furniture delivery quotes; the profile leaves item-specific eligibility unresolved rather than generalizing.
+
+Run FULL160 completed the scheduled full readback across all 286 managed sources and their Parties, locations, defaults and shipping profiles. All ingestion lists remain empty. Galerie JM Béalu & Fils was deferred: its registry/address and inspected original logo match, and its own Wix site has detailed historic stock, but the events page still labels June 2026 shows as upcoming and its Nouveautés path returns 404. Recheck after 2027-02-03; no API source or Party was created.
+
+Run 161 added Courcelles Antiquités (WordPress catalogue; active GALERIE CAZALS DE FABEL registration; two Paris gallery addresses). First-party terms advertise France-wide and export delivery by Colissimo, DHL or specialized carriers; export countries and fees remain unresolved. The original PNG logo was inspected. The first write pass stopped before shipping creation because a collection-site index conflicted with null collection terms; source, Party, locations and location default were read back, the checkpoint was corrected, and the delivery profile was then created and verified. No collection or stock-location assertion was made; ingestion remains empty.
+
+Run 162 added Galerie Zola’s direct WordPress catalogue (active GALERIE ZOLA SASU; Tours gallery). First-party catalogue images and items are current to October 2026; the inspected original JPEG logo is attached. France delivery is advertised with unknown fees; export delivery requires a quote and destination countries are not enumerated. No collection, dispatch origin or inventory inheritance was inferred. The legal page contains unrelated generic privacy placeholders, so only the independently matching legal identity and verified contact facts were used. Ingestion remains empty.
+
+Run 163 deferred Antiquités-Arts France because the two sampled first-party product pages are marked sold/out of stock, despite an active sole-proprietor registration and a WooCommerce catalogue. Its next check is 2027-02-03 for current available own stock. Gorky Antiquités also matches an active registered Paris business and detailed own catalogue, but the inspected objects have no price or explicit availability and the site is undated/legacy; recheck after 2027-02-03. Neither marketplace listing was treated as a source, and no API records were created.
+
+Run 164 deferred Petit Antiquités pending a private item-level catalogue and legal-operator resolution: the site sends online buyers to Proantic and its published SIRET is marked ceased by the official registry, while a different active entity exists at the same address. Didascalies remains unverified because the first-party HTTPS domain has a hostname-mismatched certificate; no TLS bypass was used. Neither lead created an API source or Party.
+
+Run FULL165 completed the scheduled full readback across all 289 managed sources and Parties, locations, defaults and shipping profiles. All ingestion lists remain empty. Run 165 added Antik-France (WooCommerce; active ANTIK-FRANCE SARL, registered at lieu-dit Picol in Lencloître). Its current site lists an in-stock late-19th-century print with cart controls and advertises worldwide delivery at a separately quoted cost. France, Europe and overseas shipping methods were preserved at the advertised scope; no location, pickup, dispatch origin or handling-time inference was made. The original PNG wordmark was inspected.
+
+Run 167 added Danke Galerie (WooCommerce; registered BAST (DANKE GALERIE) entity in Ternay; France and worldwide specialist-carrier delivery quoted, plus appointment pickup). Its site has a current 766-item XXth-century catalogue, separately labelled contemporary collections, and matching legal/contact identity. The original 2026 PNG wordmark was inspected. Pickup address remains undisclosed, so the registered seat is not used as the collection site. All ingestion remains empty.
+
+
+Run 168 added Galerie Saint Martin Antiquités Paris (WooCommerce; active GALERIE SAINT MARTIN ANTIQUITES; three stated gallery locations in Paris and Bretenoux). Current priced, cart-enabled antique stock and explicit worldwide delivery within 15 days were verified. Rates and dispatch origin are unknown. A PHP warning and unrelated Divi demo filler remain on the site; only the consistent gallery contact and official matching identity were used. Its original PNG candidate rendered as a uniform slate image and was rejected. Ingestion remains empty.

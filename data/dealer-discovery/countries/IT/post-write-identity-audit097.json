@@ -1,0 +1,20 @@
+{
+  "run": "2026-11-02-it-097",
+  "observedAt": "2026-11-03T07:56:12.047921Z",
+  "result": "PASSED",
+  "rawDealerLedgers": 26,
+  "otherOwnerHistoricalRecords": 23455,
+  "newPartyId": "pty_01m6g64dm9ev7v36kwk85hz2an",
+  "newListingSourceId": "ls_01m6g64dmve6zv0qbn9egx4sjb",
+  "newLocationId": "ploc_01m6g64e1eent867xp6p22djjx",
+  "identityCheck": "positive exact VIES sole-trader name/VAT",
+  "freshGlobalApiSnapshot": "PASSED; one matching Party and Source after write",
+  "independentResourceReadbacks": "PASSED; exact logo, WOOCOMMERCE and empty ingestion",
+  "locationScope": "business association present; advertised inventory absent",
+  "shipping": "no shipping profile/default inferred",
+  "antichitabova": "EXCLUDED; current first-party auction conditions; no API resources",
+  "galleriadartesanbarnaba": "IN_REVIEW for authoritative legal operator/VAT verification; no API resources",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherOwnerMutations": true
+}

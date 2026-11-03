@@ -1,0 +1,17 @@
+{
+  "run": "2026-11-02-it-106",
+  "observedAt": "2026-11-03T09:08:00.000000Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 3,
+  "rawJournalFiles": 39,
+  "rawJournalRecordsScanned": 33818,
+  "ownedItalyRootsAndAliases": 288,
+  "freshGlobalApiSnapshot": "PASSED; live snapshot contained 1980 Parties and 2004 sources. All 182 managed Italy Party/source identities and empty ingestion lists passed readback; run106 incrementally checked Caminetto location/default and current source/Party metadata while reusing 181 unchanged resource digests.",
+  "crossLedgerOwnership": "PASSED; all 39 raw discovery JSONL journals (33818 records) were checked for domains/aliases/names/contacts/VAT. Italy's 288 roots/aliases have no ownership collision in the four other-country dealer ledgers. Aquafortis, Caminetto and Docet had no API/raw-ledger identity match before their respective writes or queueing.",
+  "newDealer": "Galleria d’Arte del Caminetto ADDED with source ls_01m6gahnyeev08ctgs0s3s3trs, Party pty_01m6gahnxtett886s44b5g206e, Bologna location ploc_01m6gahpbtesqa6tr6x2zyw6wy and default revision 2. Original brand JPEG inspected; no shipping profile or platform asserted; ingestion empty.",
+  "excludedLead": "Arcadia Antichità e Preziosi EXCLUDED before any API write because its first-party site repeatedly labels it as a Bologna auction house.",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherCountryDealerMutations": true,
+  "explicitCountryPaths": "Run 106 onboarding, verification and index outputs target Italy files explicitly. Root legacy mirror is read only for identity deduplication."
+}

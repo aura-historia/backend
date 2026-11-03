@@ -1,0 +1,17 @@
+{
+  "run": "2026-11-02-it-100",
+  "observedAt": "2026-11-03T08:12:45.683005Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 0,
+  "rawDealerLedgers": 27,
+  "otherOwnerHistoricalRecords": 23576,
+  "freshGlobalApiSnapshot": "PASSED; every managed Italy Party/Source matches, all ingestion lists empty",
+  "crossLedgerOwnership": "PASSED; all 174 ADDED domain roots/aliases unique to IT ledger",
+  "biolchini": "DEFERRED for invalid TLS and unconfirmed current item availability; no API resources",
+  "nextLeads": [
+    "africacurio.com"
+  ],
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherOwnerMutations": true
+}

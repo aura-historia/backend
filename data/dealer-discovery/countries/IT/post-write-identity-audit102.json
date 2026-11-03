@@ -1,0 +1,16 @@
+{
+  "run": "2026-11-02-it-102",
+  "observedAt": "2026-11-03T08:36:48.017518Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 3,
+  "rawDealerLedgers": 28,
+  "otherOwnerHistoricalRecords": 23793,
+  "freshGlobalApiSnapshot": "PASSED; every managed Italy Party/Source appears with reviewed names, contacts, platform/logo and empty ingestion; incremental resource readback verification passed",
+  "crossLedgerOwnership": "PASSED; all 244 Italy domain roots/aliases are uniquely owned by this ledger",
+  "newDealers": "Matheus Gallery, Subert and Antichità Fiorillo ADDED with API readback; ingestion is empty for all",
+  "africaCurio": "DEFERRED for lack of current specific item availability; no API resources",
+  "nextLead": "antichitamartini.it deduplicated from API and all raw ledger domains/contacts",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherOwnerMutations": true
+}

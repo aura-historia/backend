@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-03-gb-147",
+  "verifiedAt": "2026-11-03T09:10:03.951785Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T08:41:29.877473Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 1981,
+    "listingSources": 2005
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "thehoarde.com",
+      "listingSourceId": "ls_01m6db805bexzb5vym9je46pv6",
+      "partyId": "pty_01m6db804qezybwr4m919w2jw6",
+      "locations": 1,
+      "logo": false,
+      "platform": "THE_HOARDE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T08:41:29.876589Z",
+      "observationDigest": "f85b222de427b6165449ffea885a0d717d7f176e7ed48f1ed19b0b609b99241a"
+    }
+  ]
+}

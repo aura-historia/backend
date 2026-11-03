@@ -1,0 +1,18 @@
+{
+  "run": "2026-11-02-it-104",
+  "observedAt": "2026-11-03T08:58:00.000000Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 4,
+  "rawJournalFiles": 38,
+  "rawJournalRecordsScanned": 33670,
+  "ownedItalyRootsAndAliases": 283,
+  "freshGlobalApiSnapshot": "PASSED; live snapshot contained 1972 Parties and 1996 listing sources. All 180 managed Italy Party/source identities and empty ingestion lists passed readback; run 104 incrementally checked Ducci's two locations/default and current metadata, reusing 179 unchanged resource digests.",
+  "crossLedgerOwnership": "PASSED; all 38 raw discovery JSONL journals (33670 records) and API identities were checked for domain, alias, name, VAT and contact collisions. Italy's 283 roots/aliases have no collision in the four other-country dealer ledgers.",
+  "newDealers": "Galleria Roberto Ducci ADDED with source ls_01m6ga01bqesyvmkfdx0hgeegv, Party pty_01m6ga01b9efqskam1ybrnbx7g, Florence location ploc_01m6ga01qfez4tdhppcjpc5cna, Pesaro location ploc_01m6ga01yhe6g8yrmk4ze3wxy3 and Florence location-default revision 2; no delivery terms asserted, no shipping profile created, ingestion empty.",
+  "deferredLeads": "Gallori Turchi remains DEFERRED for legal operator relation and current item stock uncertainty; no API write.",
+  "nextLead": "aquafortis.com is queued in run 105 after no API or raw-journal domain/contact collision. Its first-party homepage claims new objects daily but the sampled page shows categories, not inspectable item-level offers; resolve current inventory and exact legal operator before any possible write.",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherCountryDealerMutations": true,
+  "previousRunRecovery": "Run 103 helper output-path error and successful root-ledger verification recovery are documented in post-write-identity-audit103.json; run 104 commands used explicit Italy ledger and verification output paths."
+}

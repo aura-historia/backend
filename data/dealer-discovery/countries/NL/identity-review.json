@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-11-02T23:05:30Z",
+  "scope": "NL",
+  "pendingReviews": [
+    {
+      "domain": "dantan.nl",
+      "backend": {
+        "partyId": "pty_01m6cdk9vceh4rpj9sbaqemypc",
+        "listingSourceId": "ls_01m6cdk9vxe7xv7589hjy4gzxq"
+      },
+      "status": "SHARED_PUBLISHED_VAT_UNRESOLVED",
+      "confidence": 0.99,
+      "evidence": [
+        "https://www.oldin-vintage.com/algemene-voorwaarden",
+        "https://dantan.nl/policies/terms-of-service"
+      ],
+      "reason": "Both current primaryterms publish NL004938617B54, while names, emails, phones and addresses differ and OLDIN KvKfield is blank. A sharedlegaloperator, templatecopy or erroneousVAT cannot be distinguished at confidence>0.95. NeitherVATvalidity nor separatelegalownership asserted. Do not merge resources, enrichlegalidentifiers or create anotherParty for either brand pending firstpartyresolution.",
+      "recheckAfter": "2027-02-01"
+    },
+    {
+      "domain": "oldin-vintage.com",
+      "backend": {
+        "partyId": "pty_01m6cm18fee509hq6hwrzjp17a",
+        "listingSourceId": "ls_01m6cm18fyepka2y903fvpph7k"
+      },
+      "status": "SHARED_PUBLISHED_VAT_UNRESOLVED",
+      "confidence": 0.99,
+      "evidence": [
+        "https://www.oldin-vintage.com/algemene-voorwaarden",
+        "https://dantan.nl/policies/terms-of-service"
+      ],
+      "reason": "Both current primaryterms publish NL004938617B54, while names, emails, phones and addresses differ and OLDIN KvKfield is blank. A sharedlegaloperator, templatecopy or erroneousVAT cannot be distinguished at confidence>0.95. NeitherVATvalidity nor separatelegalownership asserted. Do not merge resources, enrichlegalidentifiers or create anotherParty for either brand pending firstpartyresolution.",
+      "recheckAfter": "2027-02-01"
+    },
+    {
+      "domain": "eklektik.nl",
+      "backend": {
+        "partyId": "pty_01m6cepfbsefysekadspmnqdjv",
+        "listingSourceId": "ls_01m6cepfc6ezdb91xpdbdmfy7m"
+      },
+      "status": "CONFLICTING_PUBLISHED_KVK",
+      "confidence": 0.99,
+      "evidence": [
+        "https://eklektik.nl/contact",
+        "https://eklektik.nl/visit-us",
+        "https://companyinfo.nl/organisatieprofiel/detailhandel-in-antiek/studio-eklektik-everdingen-99067765-000039956350",
+        "https://www.oozo.nl/bedrijven/vianen/everdingen/diefdijk-gedeeltelijk/3989839/studio-eklektik"
+      ],
+      "reason": "The first-party site currently publishes KvK 62716875, while public records based on KVK data identify Studio EKLEKTIK at the same address under registration 99067765, newly registered 2025-12-04. Whether this is a successor registration, unrelated same-name registration or stale website identifier is unresolved. Preserve the existing Party/source and current empty ingestion; do not replace legal identifiers or merge/create Parties until first-party confirmation.",
+      "recheckAfter": "2027-02-01"
+    }
+  ],
+  "policy": "A published identifier collision is evidence for review, not proof of a commonlegaloperator or a validVAT. Preserve verifiedtradingnames/contacts and resourceIDs; do not automaticallymerge, assertVAT orcreate furtherParties for affectedbrands."
+}

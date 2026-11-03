@@ -1,0 +1,15 @@
+{
+  "run": "2026-11-03-gb-145",
+  "auditedAt": "2026-11-03T08:43:23.058203+00:00",
+  "scope": "COUNTRY_GB_MANAGED_DISCOVERY",
+  "ledgers": 19,
+  "facts": 2843,
+  "invalidFacts": [],
+  "pendingObservations": [],
+  "dueActivityReviews": [],
+  "credentialFileOwnerMatchesProcess": true,
+  "credentialFileMode": "0o600",
+  "apiReadback": "FULL_ALL_19_COMPONENTS_PASSED",
+  "fullVerifiedAt": "2026-11-03T08:41:07.997457Z",
+  "paidDataSpendUsd": 0
+}

@@ -1,0 +1,18 @@
+{
+  "run": "2026-11-02-it-103",
+  "observedAt": "2026-11-03T08:50:30.000000Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 5,
+  "rawJournalRecordsScanned": 33575,
+  "freshGlobalApiSnapshot": "PASSED; verifier observed 1,968 Parties and 1,991 sources; all 179 managed Italy Parties/sources were present and matched reviewed identity, platform/logo and empty ingestion; run 103 incrementally checked Martini location/default/shipping resources while reusing 178 unchanged dealer resource digests.",
+  "crossLedgerOwnership": "PASSED; every JSONL journal (38 files, 33,575 raw records) was checked for domains, aliases and contacts. The 281 Italy roots/aliases have no collision in the four other-country dealer ledgers. API identity snapshot and incremental readback found no identity conflict. Root legacy mirror and discovery frontier histories were checked as duplicate sources, not treated as separately owned dealer records.",
+  "newDealers": "Antichità Martini ADDED with source ls_01m6g96rpae3fr9n85gkp3rwnt, Party pty_01m6g96rnsey0rbmfq1xghgape, location ploc_01m6g96s2xe36vtn1gy1r2fy5b and shipping profile shp_01m6g96sn9esf9gw7hfrp92f2j; live readback passed, ingestion empty.",
+  "deferredLeads": "Gallori Turchi deferred: legal operator relation to the separately managed Turchi business and current item offer remain unresolved; no API write.",
+  "nextLead": "galleriarobertoducci.com queued after current first-party contact/VAT/catalogue checks and fresh API/all-journal dedupe; continue the full item/shipping/location review in run104.",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherCountryDealerMutations": true,
+  "sharedVerificationRecovery": "The shared root verification output was accidentally targeted by a country verification helper default; it was immediately regenerated from the root dealer ledger with a full live readback under run 2026-11-03-root-recovery. The Italy verification was then regenerated with explicit country input and output paths.",
+  "rawJournalFiles": 38,
+  "recordsOutsideOwnedDealerLedger": 30671
+}

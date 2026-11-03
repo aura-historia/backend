@@ -1,0 +1,23 @@
+{
+  "run": "2026-11-02-it-099",
+  "observedAt": "2026-11-03T08:09:34.092447Z",
+  "result": "PASSED",
+  "verificationScope": "FULL",
+  "managedDealersChecked": 174,
+  "rawDealerLedgers": 27,
+  "otherOwnerHistoricalRecords": 23556,
+  "newPartyId": "pty_01m6g75w5se458xbsx4qrrfk5g",
+  "newListingSourceId": "ls_01m6g75w6aejxta4vp9k3jkse6",
+  "newLocationId": "ploc_01m6g75wndekdr0ssdw9ngbeqv",
+  "identityCheck": "positive exact current VIES company name/VAT and address",
+  "freshGlobalApiSnapshot": "PASSED; one matching Party and Source",
+  "independentReadbacks": "PASSED; exact operator, contacts, logo, empty ingestion and active business association",
+  "locationScope": "business association only; no advertised inventory",
+  "shipping": "no shipment/pickup claims or shipping profile/default inferred",
+  "nextLeads": [
+    "biolchini-antiques.com"
+  ],
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherOwnerMutations": true
+}

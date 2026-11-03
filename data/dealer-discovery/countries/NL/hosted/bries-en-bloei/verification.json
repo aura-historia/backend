@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-03-nl-430",
+  "verifiedAt": "2026-11-03T06:16:29.094480Z",
+  "scope": "FULL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T06:16:29.094480Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 0,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 1,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 1,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 1908,
+    "listingSources": 1931
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "marktplaats.nl",
+      "listingSourceId": "ls_01m6ehk5kdens99f5ryhwwfbsb",
+      "partyId": "pty_01m6ehk5jte3mbrszyq01afvvp",
+      "locations": 1,
+      "logo": true,
+      "platform": "MARKTPLAATS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T06:16:29.093474Z",
+      "observationDigest": "5d66d2fd443cb5d9ec14a0a9e9c284e416d55001f96d00c206486a8d93e124c9"
+    }
+  ]
+}

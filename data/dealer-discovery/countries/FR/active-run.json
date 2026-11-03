@@ -1,0 +1,78 @@
+{
+  "currentRun": "2026-11-03-fr-168",
+  "status": "RESEARCH",
+  "lastVerifiedRun": "2026-11-03-fr-168",
+  "lastFullVerifiedRun": "FULL165",
+  "ongoingUntilUserStops": true,
+  "candidateDomains": [
+    "fabriqemoi.fr",
+    "lesimparfaits.fr",
+    "legrenierdadele.fr"
+  ],
+  "researchCache": "/tmp/aura-dealer-discovery/FR",
+  "currentFetchFiles": [
+    "/tmp/aura-dealer-discovery/FR/api-snapshot-run168.json",
+    "/tmp/aura-dealer-discovery/pages"
+  ],
+  "countryLedger": "data/dealer-discovery/countries/FR/dealers.jsonl",
+  "frontier": "data/dealer-discovery/countries/FR/frontier.jsonl",
+  "credentialFile": "/tmp/aura-dealer-credential",
+  "nextActions": [
+    "Continue free FR research with all-country ledger and fresh current API dedup before every new write.",
+    "Recheck Chineries Fleuries after 2026-11-04T09:00:00+01:00; update only on positive reopening evidence.",
+    "Recheck effetssinguliers.com and lartetlafacon.fr after 2026-12-03.",
+    "Retry didascalies.art after 2026-12-03 only with normal TLS hostname validation.",
+    "Recheck deferred current-stock/legal candidates at their scheduled dates.",
+    "Next full managed-country readback FULL170.",
+    "Continue until explicit user stop."
+  ],
+  "assetVerification": "data/dealer-discovery/countries/FR/asset-verification.json",
+  "merchantChannelFollowUps": [
+    {
+      "name": "Coup de Cœur — Agnès Cupidon",
+      "publicMerchantProfile": "https://www.proantic.com/galerie/coup-de-coeur/",
+      "country": "FR",
+      "status": "PRIVATE_SOURCE_CHANNEL_UNVERIFIED",
+      "evidenceCache": "/tmp/aura-dealer-discovery/FR/batch66-next-leads.jsonl",
+      "recheckAfter": "2026-12-01",
+      "note": "Public merchant profile identifies independent antique shop in Bayeux but supplies no private-site link. No marketplace Party/Source or merchant record created. Find a merchant-controlled private source and finish exact legal/stock/dedup review before onboarding."
+    },
+    {
+      "name": "Au Chevalier Bayard — Brigitte Sauvage",
+      "publicMerchantProfile": "https://www.proantic.com/galerie/auchevalierbayard/",
+      "country": "FR",
+      "status": "PRIVATE_SOURCE_CHANNEL_UNVERIFIED",
+      "evidenceCache": "/tmp/aura-dealer-discovery/FR/batch66-next-leads.jsonl",
+      "recheckAfter": "2026-12-01",
+      "note": "Public merchant profile identifies Grenoble shop with priced old stock and advertises furniture transport in metropolitan France,but supplies no private-site link. Do not create Proantic as a Party/Source or assign channel terms to an unverified private source. Finish legal/private-channel/dedup review first."
+    },
+    {
+      "name": "Yann Rossetto Antiquités",
+      "publicMerchantProfile": "https://www.proantic.com/en/galerie/yann-rossetto/",
+      "country": "FR",
+      "status": "PRIVATE_SOURCE_CHANNEL_UNVERIFIED",
+      "evidenceCache": "/tmp/aura-dealer-discovery/FR/next85-merchant-leads.jsonl",
+      "recheckAfter": "2026-12-01",
+      "note": "Current merchant profile advertises Nancy; older Puces Privées profile has Chaumont and Facebook only. No independent private-site channel or exact current legal allocation verified. No marketplace Party/Source; finish current primary identity/channel/stock/geography and global dedup before onboarding."
+    },
+    {
+      "name": "Indus Concept Store",
+      "publicMerchantProfile": "https://puces-privees.com/vitrine/indus-concept-store,1477",
+      "country": "FR",
+      "status": "PRIVATE_SOURCE_CHANNEL_UNVERIFIED",
+      "evidenceCache": "/tmp/aura-dealer-discovery/FR/next85-merchant-leads.jsonl",
+      "recheckAfter": "2026-12-01",
+      "note": "Public merchant profile lists Fontaine-les-Grès and recovered-material furniture creations but supplies incomplete http://indusconceptstore link. No current private channel or historical-stock qualification verified. Do not invent domain,brand legal owner or antique classification for newly made salvage creations."
+    },
+    {
+      "name": "Librairie Moresi successeurs",
+      "publicMerchantProfile": "https://app.slamlivrerare.org/membres/librairie-moresi-successeurs/",
+      "country": "FR",
+      "status": "PRIVATE_SOURCE_CHANNEL_UNVERIFIED",
+      "evidenceCache": "/tmp/aura-dealer-discovery/FR/batch134-member-leads.jsonl",
+      "recheckAfter": "2026-12-01",
+      "note": "Current partners Olivier Baltzinger/Philippe Henry and company VAT appear in complete member profiles. No private website is linked. Do not substitute the federation or Livre Rare Book for a merchant Source or create former founder Jean-Luc Moresi as a current operator."
+    }
+  ],
+  "lastResearchCheckpoint": "2026-11-03-fr-168"
+}

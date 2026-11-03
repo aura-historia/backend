@@ -1,0 +1,16 @@
+{
+  "run": "2026-11-02-it-101",
+  "observedAt": "2026-11-03T08:22:55.274573Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 1,
+  "rawDealerLedgers": 28,
+  "otherOwnerHistoricalRecords": 23671,
+  "freshGlobalApiSnapshot": "PASSED; every managed Italy Party/Source matches, all ingestion lists empty; incremental readback verification passed",
+  "crossLedgerOwnership": "PASSED; all 241 ADDED domain roots/aliases unique to IT ledger",
+  "biffanti": "ADDED; Party, listing source, premises location and business default read back; no logo/shipping/inventory default asserted",
+  "africaCurio": "DEFERRED for lack of current specific item availability; no API resources",
+  "nextLead": "matheusgallery.com deduplicated from API and all raw ledger domains/contacts",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherOwnerMutations": true
+}

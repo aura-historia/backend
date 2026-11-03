@@ -1,0 +1,459 @@
+domain	status	platform	listingSourceId	partyId	observedAt	reason	aliases
+10armandcolin.fr	ADDED	CMONSITE	ls_01m6g6v9cvenxv8h9sf6jsj1dz	pty_01m6g6v9c6egsatgf5dfx6nkd1	2026-11-03T08:01:44.929483Z		
+a-cdt.fr	ADDED	SHOPIFY	ls_01m6cv8swne7ybbe633eewy2nw	pty_01m6cv8sw5eygbqpnvdmck40w5	2026-11-02T00:41:41.640080Z		ac-dt.myshopify.com
+abcd-aire.com	DEFERRED	PRESTASHOP			2026-11-01T21:47:15.470593Z	HISTORIC_STOCK_AVAILABILITY_NOT_CONFIRMED	abcd-aire.fr
+abm-collections-antiquites.fr	DEFERRED	DUDA			2026-11-02T03:12:06.819566Z	CURRENT_INSPECTABLE_OWN_STOCK_UNVERIFIED	
+abnantiquitesdenormandie.com	ADDED	WOOCOMMERCE	ls_01m6cvj6yfek6t2qsf26sg2xj8	pty_01m6cvj6y0ed29870r7m11z3sg	2026-11-02T00:46:49.580899Z		abnantiquites.com
+abraxas-libris.fr	ADDED		ls_01m6dm7j6qej5b0vjajxxv1kh9	pty_01m6dm7j66erja2ey759tngh8c	2026-11-02T07:57:55.232962Z		
+achat-antiquites-larochelle.com	ADDED		ls_01m6dw58kweqcar62wrjt2xrg4	pty_01m6dw58kmez2bwdpgeyxen1ze	2026-11-02T10:16:27.772374Z		
+adenya-concept.fr	DEFERRED				2026-11-02T14:05:23.121629Z	CURRENT_LEGAL_OPERATOR_AND_SPECIFIC_OWN_RETAIL_OFFER_UNVERIFIED	
+adequantik.fr	ADDED	WORDPRESS	ls_01m6eejzpbejtv99zw73e1vp6g	pty_01m6eejzntey5bcngjabad4epq	2026-11-02T15:38:32.140764Z		
+agantiquites.fr	DEFERRED				2026-11-01T20:37:21.130871+00:00	CURRENT_OWN_SITE_ITEM_STOCK_NOT_VERIFIED	
+alainbrieux.com	ADDED		ls_01m6dyy0ewehcvy017732ks84v	pty_01m6dyy0edefcbkj1vjzhew4a0	2026-11-02T11:04:55.881391Z		
+alarecherchedutempsperdu.fr	ADDED	PRESTASHOP	ls_01m6craz8yegwb28wdnx3aa4bm	pty_01m6craz8eeawr4dphpdy0p0nm	2026-11-01T23:50:26.706525Z		
+alceste-art.com	DEFERRED				2026-11-02T12:03:00.278787Z		
+allonschiner-enligne.fr	ADDED	PRESTASHOP	ls_01m6cc447nepx8c0e8c93hxrjc	pty_01m6cc446yefeb7wxdkw5cebmb	2026-11-02T01:06:27.424745Z		
+alsace-antiquites.fr	DEFERRED				2026-11-01T20:51:13.907223Z	CURRENT_STOCK_STATUS_NOT_CONFIRMED	
+ambiancevintagebrocante.com	ADDED	SHOPIFY	ls_01m6d4zsfhe6hspqq4xqzf30my	pty_01m6d4zsf1ej08nksqekgse8y4	2026-11-02T03:31:31.429474Z		385f1b-85.myshopify.com
+ameliesourget.net	ADDED		ls_01m6dnsjysexwv9zm5vxqcajnt	pty_01m6dnsjy9egva3eyf5bkgwqra	2026-11-02T08:25:13.798526Z		
+ancre-aldine.com	DEFERRED				2026-11-02T13:27:34.837694Z	PRIVATE_SOURCE_UNAVAILABLE_CURRENT_OWN_STOCK_UNVERIFIED	
+anteparis.fr	DEFERRED				2026-11-01T20:14:02.356586Z	QUALIFYING_ANTIQUE_STOCK_NOT_VERIFIED	
+anticetchine.fr	ADDED	WOOCOMMERCE	ls_01m6g64ezveh5r8vejzhv9rynx	pty_01m6g64ezaew6base2a13vvcar	2026-11-03T07:49:17.175654Z		
+anticleberre.fr	DEFERRED	WORDPRESS			2026-11-01T22:47:30.909691Z	CURRENT_OWNED_STOCK_AVAILABILITY_UNVERIFIED	
+anticstockandsons.com	ADDED	WOOCOMMERCE	ls_01m6cmgrtke98s1jxxxrbzhpa7	pty_01m6cmgrt3ecmtn75k1f5sfbck	2026-11-01T22:43:41.823704Z		
+anticvintageparis.com	ADDED	SHOPIFY	ls_01m6cedtxbeggrcdjbjwnyy50y	pty_01m6cedtwwetdarcb820bpqwbh	2026-11-01T20:57:14.911021Z		
+antik-france.fr	ADDED	WOOCOMMERCE	ls_01m6ga6aeae11t6am3svy4659x	pty_01m6ga6adkejxrfd3cprp39h95	2026-11-03T09:00:12.385634Z		
+antiquaire-clermont-ferrand.fr	ADDED		ls_01m6d98dkheqqbkeyvawt2bps8	pty_01m6d98dk5eehajvyzcgnrqnw9	2026-11-02T04:46:08.213529Z		
+antiquaire-de-province-brest.fr	DEFERRED	WORDPRESS			2026-11-02T09:45:46.953784Z	CURRENT_SPECIFIC_CONTROLLED_HISTORICAL_SALE_OFFER_UNVERIFIED	
+antiquaire-grenoble.fr	DEFERRED	WOOCOMMERCE			2026-11-02T04:14:05.088640Z	CURRENT_LEGAL_ALIAS_AND_PREMISES_REVIEW_REQUIRED	
+antiquaire-normandie.fr	DEFERRED				2026-11-01T20:14:02.356586Z	INSPECTABLE_OWN_STOCK_NOT_VERIFIED	
+antiquaire-perpignan.fr	DEFERRED				2026-11-03T07:38:32.224807Z	PUBLISHED_LEGAL_ADDRESS_AND_ACTIVE_OPERATOR_IDENTITY_UNRESOLVED	
+antiquaire-sanary.fr	DEFERRED				2026-11-01T23:36:41.408955Z	CURRENT_STOCK_AVAILABILITY_AND_PREMISES_UNRESOLVED	brocantecash.fr;debarrascash.fr
+antique-connection.fr	DEFERRED	PRESTASHOP			2026-11-02T03:05:41.185708Z	AVAILABLE_GENUINE_ANTIQUE_STOCK_UNVERIFIED	
+antique-ker.fr	ADDED	WOOCOMMERCE	ls_01m6d6f6sxe00bxqxfarxv2ych	pty_01m6d6f6sce96a73q75ptr6f5f	2026-11-02T03:57:24.977712Z		
+antiquelittlethings.bigcartel.com	ADDED	BIGCARTEL	ls_01m6dpe3q9ev6vzbkt1fbj46tc	pty_01m6dpe3pxew6tt6bv5v20cjnq	2026-11-02T08:36:26.774730Z		antiquelittlethings.fr
+antiquereve.fr	DEFERRED				2026-11-03T07:36:40.026463Z	CURRENT_LEGAL_OPERATOR_REGISTRATION_UNRESOLVED	
+antiques20eme.com	ADDED	WIX	ls_01m6cevh49e218ybrhwckm65dr	pty_01m6cevh3vekw8g43r17hvf79t	2026-11-01T21:04:43.765669Z		
+antiquesmc.fr	ADDED	PRESTASHOP	ls_01m6g7n0fsemjrqksj4fse4afa	pty_01m6g7n0fcen0tj7r4m4da86rs	2026-11-03T08:15:47.524571Z		www.antiquesmc.fr
+antiquite-brocante-violon-caen.com	DEFERRED	WORDPRESS			2026-11-02T06:33:19.724420Z	CURRENT_IDENTIFIABLE_OWN_SALE_STOCK_UNVERIFIED	
+antiquite-decoration-galerie309.com	DEFERRED				2026-11-02T08:45:41.784351Z	DECLARED_OPERATOR_CEASED_CURRENT_OPERATOR_AND_IDENTIFIABLE_STOCK_UNVERIFIED	
+antiquite-or-argent-limoges.fr	DEFERRED				2026-11-02T08:29:55.945790Z	PRIVATE_SOURCE_UNREACHABLE_CURRENT_IDENTITY_AND_OWN_STOCK_UNVERIFIED	
+antiquitedeco.com	ADDED	PRESTASHOP	ls_01m6dsdr24e6jve903s6zrsb1f	pty_01m6dsdr1sem7b0yq74v5r1kjh	2026-11-02T09:28:40.045035Z		
+antiquites-arts.fr	DEFERRED	WOOCOMMERCE			2026-11-03T08:56:21Z	CURRENT_OWN_STOCK_AVAILABILITY_UNVERIFIED	
+antiquites-bastian.com	ADDED	WOOCOMMERCE	ls_01m6dg5wbze6w8mfcpnvy1cd5n	pty_01m6dg5wbce9jbmjdmr48zwmag	2026-11-02T06:47:05.312144Z		
+antiquites-brest.com	ADDED		ls_01m6dfxqzqepv90b98w6dyg8mt	pty_01m6dfxqz4eyk9hrks6yxz8rp6	2026-11-02T06:42:38.626225Z		
+antiquites-brocante-aubenas.fr	ADDED		ls_01m6d5rtx5eq6825m0g9nyyjb5	pty_01m6d5rtwve8n80ny3cqzz31e5	2026-11-02T03:45:12.330079Z		
+antiquites-brocante-bayeux.fr	ADDED	DUDA	ls_01m6d82n2kehg900wtaw36rbrk	pty_01m6d82n2be76v62kadzv8v2cx	2026-11-02T04:25:30.937520Z		
+antiquites-brocante-siegler.fr	ADDED	PRESTASHOP	ls_01m6ch0px7etwvawpfvscw7ac4	pty_01m6ch0pwpedas416v48gxs5v3	2026-11-01T21:42:30.497728Z		
+antiquites-chaumont-bordeaux.com	ADDED	SHOPIFY	ls_01m6cbty89evc9kqeh0xvj72b3	pty_01m6cbty82eddsvxvy8nda6wsw	2026-11-01T20:12:26.226176+00:00		
+antiquites-dijon.fr	ADDED		ls_01m6d3x3v5ew6v43h56g53qr9x	pty_01m6d3x3tqe4ssdc1z4a5g1wx7	2026-11-02T03:12:35.071176Z		
+antiquites-du-paradis.fr	DEFERRED				2026-11-02T03:50:35.268193Z	CURRENT_INSPECTABLE_OWN_SALE_STOCK_UNVERIFIED	
+antiquites-dupuis.fr	DEFERRED				2026-11-02T04:14:05.088640Z	PRIMARY_SITE_EXPLICITLY_TEMPORARILY_SUSPENDED	
+antiquites-gressler.fr	ADDED	JOOMLA	ls_01m6cg23cde169qxp9w5bpyjaw	pty_01m6cg23bfefta6xxt2dgg7d0j	2026-11-01T21:25:46.908988Z		
+antiquites-heliez.fr	DEFERRED				2026-11-02T04:37:29.344032Z	CURRENT_INSPECTABLE_OWN_SALE_STOCK_UNVERIFIED	
+antiquites-lecomte.com	ADDED	WOOCOMMERCE	ls_01m6cbtq6qezhaqqwvd15hgfw2	pty_01m6cbtq6cevgvp83gd6hah8q3	2026-11-01T20:12:26.226176+00:00		
+antiquites-maurin.com	ADDED		ls_01m6e3fmvwe09vh8c47csgs5mg	pty_01m6e3fmvaea5bvt406ej2d7m4	2026-11-02T12:24:29.531842Z		
+antiquites-monfuturanterieur.fr	ADDED	WIX	ls_01m6dh7q98eycsaj7j09hmd5e5	pty_01m6dh7q8pe1v9hg36rw2bjc9h	2026-11-02T07:05:34.802080Z		
+antiquites-mulhouse-darchis.fr	DEFERRED	DUDA			2026-11-02T06:50:39.662305Z	CURRENT_IDENTIFIABLE_OWN_SALE_STOCK_UNVERIFIED	
+antiquites-nancy.fr	ADDED		ls_01m6cypeqzeg49hkm8d4z5082r	pty_01m6cypeqge5ptc0hfa1g5e6vs	2026-11-02T01:41:33.946665Z		
+antiquites-nicolas.fr	DEFERRED	WORDPRESS			2026-11-02T07:11:38.177775Z	CURRENT_IDENTIFIABLE_OWN_SALE_STOCK_UNVERIFIED	
+antiquites-normandie.com	ADDED		ls_01m6dvc0c8e4rbmwg7z4nnzsbe	pty_01m6dvc0bve21tehak7z0kxwsp	2026-11-02T10:02:40.158195Z		
+antiquites-paganini.fr	DEFERRED	DUDA			2026-11-02T06:46:43.857681Z	CURRENT_IDENTIFIABLE_OWN_SALE_STOCK_UNVERIFIED	
+antiquites-perpignan.fr	DEFERRED				2026-11-02T12:42:56.712570Z		
+antiquites-perrusson.com	ADDED	PRESTASHOP	ls_01m6cc41rkev6an52wemvmd3c0	pty_01m6cc41r1egwak2jj5brg0e5g	2026-11-01T20:16:57.138219Z		
+antiquites-rigot.fr	ADDED	WORDPRESS	ls_01m6d34a1zejtbb039qt5mpzmx	pty_01m6d34a1pex8rbfrhxeng3a89	2026-11-02T02:59:02.091828Z		
+antiquites-toulon.fr	DEFERRED	WORDPRESS			2026-11-02T00:25:00.985384Z	NO_INSPECTABLE_OWN_STOCK_AND_LEGAL_OPERATOR_UNVERIFIED	
+antiquites-var.fr	ADDED		ls_01m6ccjmkdenb95q02r3zeswjt	pty_01m6ccjmjwenwaw2e0bd1mjrer	2026-11-01T20:24:55.167003Z		
+antiquites-vuattoux-dole.fr	ADDED	DUDA	ls_01m6d6368getsrfk0ky8afescq	pty_01m6d63684e3b9rgkwb6h0kw1v	2026-11-02T03:50:51.221011Z		
+antiquitesbethune.fr	ADDED	PRESTASHOP	ls_01m6cwpn47e5xbj3sat8f2hdtc	pty_01m6cwpn3sen9s8xgzd9jwarva	2026-11-02T01:06:44.542695Z		
+antiquitescherruault.com	ADDED	WOOCOMMERCE	ls_01m6cf8ftbedjsrrgzqbm16gyv	pty_01m6cf8fszew4ry18fw3zva92n	2026-11-01T21:11:48.449918Z		
+antiquitescollections.fr	DEFERRED				2026-11-02T06:50:39.662305Z	CURRENT_IDENTIFIABLE_OWN_SALE_STOCK_UNVERIFIED	
+antiquitesdesducs.fr	DEFERRED				2026-11-01T21:04:29.354007Z	BUYING_CLEARANCE_SERVICE_NO_CURRENT_RETAIL_CATALOGUE	
+antiquitesdupassage.fr	DEFERRED	HOSTINGER_WEBSITE_BUILDER			2026-11-02T10:46:46.000099Z	BUYING_SERVICE_NO_VERIFIED_CURRENT_RETAIL_STOCK	
+antiquitesericbaudelet.com	ADDED	DUDA	ls_01m6cmgtrvepqtd1q6hbw842kw	pty_01m6cmgtr1era8xe04kjp22tmq	2026-11-01T22:43:43.879748Z		
+antiquitesfrance.fr	DEFERRED				2026-11-01T20:51:13.907223Z	CURRENT_ITEM_AVAILABILITY_NOT_ESTABLISHED	
+antiquiteshoffmann.site-solocal.com	DEFERRED	DUDA			2026-11-02T04:25:11.049141Z	CURRENT_INSPECTABLE_OWN_STOCK_UNVERIFIED	
+antiquiteslagondole.com	DEFERRED				2026-11-01T21:04:29.354007Z	INCOMPLETE_OR_MIRRORED_STOREFRONT_CURRENT_STOCK_UNVERIFIED	
+antiquitesloursblanc.fr	DEFERRED	WOOCOMMERCE			2026-11-02T07:05:14.436255Z	CURRENT_LEGAL_OPERATOR_UNRESOLVED	
+antiquitetavard.eklablog.com	DEFERRED				2026-11-02T05:00:32.371970Z	PRIVATE_PRIMARY_SOURCE_UNAVAILABLE	
+antitique.com	EXCLUDED				2026-11-02T06:50:39.662305Z	OUT_OF_SCOPE_PET_SUPPLIES_RETAILER	
+archivesdunord.com	ADDED		ls_01m6dn4a5kek1ts2sr1wpee4xq	pty_01m6dn4a53eyrr4atxx0c147cn	2026-11-02T08:13:36.706321Z		archivesdunord.fr
+argeades.com	DEFERRED				2026-11-02T13:52:36.564649Z	CEASED_PUBLISHED_OPERATOR_CURRENT_GALLERY_ALLOCATION_UNRESOLVED	
+armandetcolette.fr	DEFERRED				2026-11-02T05:34:28.365091Z	PRIMARY_SOURCE_UNAVAILABLE_CURRENT_OPERATOR_AND_STOCK_UNVERIFIED	
+art-antiquites.com	ADDED	WIZISHOP	ls_01m6cqjfsyebg9m9s5mgcry9qp	pty_01m6cqjfsbeqaaadwv4das31v8	2026-11-01T23:37:04.577403Z		
+art-de-la-table.com	ADDED	WIX	ls_01m6cqkjmheawbgaxthqvpm08b	pty_01m6cqjfsbeqaaadwv4das31v8	2026-11-01T23:38:06.044174Z		
+art-et-restauration40.fr	DEFERRED	WORDPRESS			2026-11-02T09:20:31.891533Z	CURRENT_IDENTIFIED_OWN_HISTORICAL_SALE_STOCK_UNVERIFIED	
+art1900.fr	DEFERRED				2026-11-02T02:23:54.634127Z	CURRENT_LEGAL_OPERATOR_AND_INSPECTABLE_STOCK_UNVERIFIED	
+artanddeco-64.com	DEFERRED				2026-11-02T09:20:31.891533Z	CURRENT_OPERATOR_RELATIONSHIP_AND_OWN_SALE_STOCK_UNVERIFIED	
+artetvintage.fr	ADDED	WIX	ls_01m6chx9afe6t9w8kb3njfz7kw	pty_01m6chx9a1evmrwsb58mc5pvy7	2026-11-01T21:58:06.370433Z		
+artpops.fr	DEFERRED	WIX			2026-11-01T22:53:19.102784Z	PUBLISHED_REGISTRATION_UNRESOLVED	
+atelier416.fr	ADDED	WOOCOMMERCE	ls_01m6d2aa9sefj9ed1e8eabmsx4	pty_01m6d2aa9aegxtbhnyvrcc5pfx	2026-11-02T02:44:51.290903Z		
+atelierdantan.fr	ADDED	WOOCOMMERCE	ls_01m6cj77j2exbb1nctq7y42nbj	pty_01m6cj77hgen1vjvg65a6tqe7q	2026-11-01T22:03:33.231128Z		
+atelierdupetitparc.fr	DEFERRED				2026-11-02T06:20:19.964651Z	PRIMARY_ACCESS_RESTRICTED_QUALIFICATION_INCOMPLETE	
+atelierpatine.fr	ADDED	SHOPIFY	ls_01m6dtfendeekagc6fp4q82h2k	pty_01m6dtfen0eh085d311q0yzjxy	2026-11-02T09:47:05.345167Z		
+atypikantique.com	ADDED	WOOCOMMERCE	ls_01m6ce74eke9y9z2pxk8acje64	pty_01m6ce74e5ep8bm1ns72hva62c	2026-11-01T20:53:35.573335Z		
+audebotte.fr	DEFERRED				2026-11-02T02:44:36.596262Z	CURRENT_INSPECTABLE_OWN_STOCK_UNVERIFIED	
+audetourdunegrange.fr	DEFERRED	WIX			2026-11-01T23:19:37.776840Z	PUBLISHED_ESTABLISHMENT_CLOSED_ACTIVE_ENTITY_STATE_UNRESOLVED	
+aufildeslivres.fr	ADDED	CUSTOM	ls_01m6g8f09seq1vsnhr9fhdng27	pty_01m6g8f09aejebh43hjrc32zzx	2026-11-03T08:29:59.638706Z		
+augrenierdevictoria.com	DEFERRED	ECWID			2026-11-01T21:52:24.082287Z	EMBEDDED_CATALOGUE_ERROR_CURRENT_STOCK_NOT_VERIFIED	
+augrenieroceane.com	DEFERRED				2026-11-03T07:29:50.242839Z	SPECIFIC_QUALIFYING_HISTORIC_STOCK_UNVERIFIED	
+autographes-des-siecles.com	ADDED	WOOCOMMERCE	ls_01m6e7f5wdey1b8hh2y9ca067f	pty_01m6e7f5vve10r2ss9ahwy7pn2	2026-11-02T13:34:07.719640Z		
+autrefoisbrocante.com	ADDED	WIX	ls_01m6cr3kpre17sqbjbgcp3z500	pty_01m6cr3kphemfta628b8b2prf9	2026-11-01T23:46:25.476626Z		
+auvieuxchaudron.fr	ADDED	IONOS_MYWEBSITE	ls_01m6dsdsqmerz98zjq216v721p	pty_01m6dsdsq1e64trt6745x4303a	2026-11-02T09:28:42.967826Z		
+avignon-antiquites.fr	EXCLUDED				2026-11-01T20:51:13.907223Z	MULTI_DEALER_CENTRE	
+azur-antiquites.com	ADDED	WOOCOMMERCE	ls_01m6cgtrdse5e8adyjyew6dd5x	pty_01m6cgtrdbet99s140f3p3vtgx	2026-11-01T21:39:15.473078Z		
+babaettchoupinet.fr	ADDED	WEBADOR	ls_01m6ckqa69e6yt6bejrps1cd5h	pty_01m6ckqa5re1vtwn33f2njk4hy	2026-11-01T22:29:48.274750Z		
+bealu.net	DEFERRED	WIX			2026-11-03T08:47:05Z	CURRENT_ACTIVITY_UNVERIFIED_STALE_EVENTS_AND_BROKEN_NOUVEAUTES	
+beauxdimanches.fr	DEFERRED				2026-11-01T23:50:00.910931Z	PRIMARY_DNS_AND_TLS_ACCESS_UNRESOLVED	
+benedick-sarreguemines.com	ADDED	WORDPRESS	ls_01m6cpn4ahef9b7rv52y04t85g	pty_01m6cpn49zejnvnaw8e5gffpx0	2026-11-01T23:21:01.866923Z		
+bijouteriebouchet.fr	ADDED	WOOCOMMERCE	ls_01m6dxjvxmebys826jsw7bsa24	pty_01m6dxjvx4ecvtsjz6vv6nqfgb	2026-11-02T10:41:22.862569Z		
+bijouxvintage.paris	ADDED	WOOCOMMERCE	ls_01m6chx6yce3mb65gzcs18t45h	pty_01m6chx6xsewwt1nhn3kajyprx	2026-11-01T21:58:04.456797Z		
+bitsandbobs.fr	DEFERRED	KINGESHOP			2026-11-02T05:19:49.948177Z	MULTIPLE_PUBLISHED_LEGAL_OPERATORS_ALLOCATION_UNVERIFIED	
+blanchetti.com	ADDED	STRIKINGLY	ls_01m6cw3754ewfvcg8t9dag7vaq	pty_01m6cw374ne9m9wwp2f6jr05q0	2026-11-02T00:56:06.676660Z		
+boben.fr	ADDED	WOOCOMMERCE	ls_01m6ckq82aea3aedbqdfvjwpa4	pty_01m6ckq81sersaq1vvahafpdhw	2026-11-01T22:29:45.869973Z		
+bonberdal.com	ADDED	WORDPRESS	ls_01m6cbzakrev2btw0ze681crzg	pty_01m6cbzak6ekv8bq0rgz0fcrv6	2026-11-01T20:14:22.324016Z		
+bonjourautrefois.fr	ADDED	SHOPIFY	ls_01m6cr3nsbezt98nt6hbm2b7gx	pty_01m6cr3ns4eazr44s9chhn7653	2026-11-01T23:46:27.309012Z		
+bonjourmimosa.fr	DEFERRED	WOOCOMMERCE			2026-11-01T23:55:17.097130Z	LEGAL_OPERATOR_REGISTRATION_AND_BUSINESS_BASE_UNRESOLVED	
+boutique.cimiezantiquites.fr	ADDED		ls_01m6cn323me758p0bbh35yrtsb	pty_01m6cn3236e4rbq33zfy6gsac2	2026-11-01T22:53:41.932577Z		cimiezantiquites.fr
+boutiqueheritage.fr	DEFERRED	SHOPIFY			2026-11-01T20:56:54.484167Z	EMPTY_QUALIFYING_BROCANTE_COLLECTION	
+breizhcottage.com	ADDED	WIX	ls_01m6cs2h3kep6s5d328t1fethc	pty_01m6cs2h36e7gt7qrqc45dgj0y	2026-11-02T00:03:18.704941Z		
+brikbroc.fr	ADDED		ls_01m6eanvv4e9w8wm72g6bbneb7	pty_01m6eanvtmexmvsjkdt381s2km	2026-11-02T14:30:12.735298Z		brikbroc.com
+brindore.fr	ADDED	WOOCOMMERCE	ls_01m6cqjm6yeskvzp8yn89cyd1b	pty_01m6cqjm6fe259d3bxpp11vqt3	2026-11-01T23:37:09.292882Z		
+broc23.com	ADDED	PRESTASHOP	ls_01m6ccbkssef8bwng145gcytbh	pty_01m6ccbksaeznv07jrrqz65725	2026-11-01T20:21:04.926166Z		
+broc4you.com	DEFERRED				2026-11-02T06:27:27.550078Z	PRIMARY_SOURCE_UNAVAILABLE_CURRENT_OPERATOR_AND_STOCK_UNVERIFIED	
+brocamana.fr	ADDED	WIX	ls_01m6cpn635e9pvq7k2kgr9k4e8	pty_01m6cpn62kef09k3byyrcpfse7	2026-11-01T23:21:04.266561Z		
+brocanate.com	ADDED	VIRTUEMART	ls_01m6cr3ht2emzacptsj247jqec	pty_01m6cr3hsvevx89v38s5gf1jck	2026-11-01T23:46:23.223365Z		
+brocante-ardeche.com	ADDED	HOSTINGER_WEBSITE_BUILDER	ls_01m6d5rqaze5za6wrjv9mgvwb1	pty_01m6d5rqajeadsr26tv2fj0y6f	2026-11-02T03:45:08.571058Z		
+brocante-chic.fr	ADDED	SHOPIFY	ls_01m6cbtvxhebxvrafp9xdbjygy	pty_01m6cbtvxaect8wp1p1q6a79cw	2026-11-01T20:12:26.226176+00:00		brocante-chic.com;brocantechic.fr
+brocante-debarras-rennes.com	ADDED	WOOCOMMERCE	ls_01m6cyp7s8edyramvg65bfv3qq	pty_01m6cyp7rne89ttka73gemy6ve	2026-11-02T01:41:27.475445Z		
+brocante-france.com	ADDED	ECWID	ls_01m6e83ah5ecn8h9677bf4wtw1	pty_01m6e83agme04trzkh06bwh77r	2026-11-02T13:45:07.642582Z		
+brocante-plantier.fr	ADDED	VITRISHOP	ls_01m6d634m9epxvxgsfkq8mrw42	pty_01m6d634kweb4agbsma4wg4267	2026-11-02T03:50:49.496328Z		
+brocanteandco.com	ADDED	WOOCOMMERCE	ls_01m6d2nf8zegbv61xmbr8w4dtb	pty_01m6d2nf8he2j8gnj9v3k07xab	2026-11-02T02:50:56.381973Z		
+brocantecourt.com	EXCLUDED				2026-11-02T03:57:09.042601Z	CURRENT_DOMAIN_NON_ANTIQUES_CONTENT	
+brocantedeco.com	ADDED	PRESTASHOP	ls_01m6deyj0teyar5yg3ntre0hpq	pty_01m6deyj07ehtr1cxvxqpcz9xt	2026-11-02T06:25:37.405074Z		
+brocantedelabruyere.com	DEFERRED	WOOCOMMERCE			2026-11-02T05:57:37.980321Z	CURRENT_SALES_OPERATOR_ALLOCATION_UNRESOLVED	
+brocantedutaureau.com	DEFERRED				2026-11-02T00:41:14.082126Z	CURRENT_IDENTIFIABLE_HISTORIC_STOCK_UNVERIFIED	
+brocanteetantiquites.com	ADDED	PRESTASHOP	ls_01m6ch0s8aewrvdydsg1a5yxkn	pty_01m6ch0s7xe2cv5s3n273heryv	2026-11-01T21:42:32.268461Z		
+brocantejolbro.com	ADDED	SHOPIFY	ls_01m6csk48jet38n6xanqsnw5hg	pty_01m6csk482ekfvtttpwc7nqdfr	2026-11-02T00:12:22.878473Z		
+brocantelavitrine.com	ADDED	SHOPIFY	ls_01m6d1nv6yennr5d2g0jkvdf40	pty_01m6d1nv6ferar6dcpdxqwnyws	2026-11-02T02:33:40.170475Z		boutiquelavitrine.myshopify.com
+brocantique.fr	ADDED	JIMDO	ls_01m6d6vz40emstt35pwj9kzsyj	pty_01m6d6vz3ee25techctajsfk7b	2026-11-02T04:04:23.797079Z		
+brocaz.fr	EXCLUDED				2026-11-02T14:41:24.599776Z	CURRENT_DOMAIN_UNRELATED_AFFILIATE_REDIRECT_NOT_DEALER_STORE	
+brocaz.shop	DEFERRED				2026-11-02T14:41:24.599776Z	CURRENT_PRIVATE_CHANNEL_HOSTING_DEFAULT_LEGAL_AND_HISTORIC_STOCK_UNVERIFIED	
+brocnshop.com	ADDED	WOOCOMMERCE	ls_01m6cr3fwnewda5c0fdv2ap7ar	pty_01m6cr3fw8eavryktjqmnyj761	2026-11-01T23:46:21.391367Z		
+brococoparis.com	ADDED	SHOPIFY	ls_01m6cc3zcde3faqevswyytvv22	pty_01m6cc3zbwe0nrjx27ctrag68d	2026-11-01T20:16:54.702436Z		
+brocome.fr	DEFERRED				2026-11-02T14:41:24.599776Z	CURRENT_PRIVATE_SITE_AND_OPERATOR_UNVERIFIED_AFTER_HISTORICAL_ARTICLE_LEAD	
+brokepoque.com	ADDED	WOOCOMMERCE	ls_01m6g8p9tketeb1hb9rf9gvm07	pty_01m6g8p9t7ea4846t8rhr93jy4	2026-11-03T08:33:58.348227Z		www.brokepoque.com
+buhard-antiquites.com	ADDED	WORDPRESS	ls_01m6d14dsee2vrkk9139kdjdz4	pty_01m6d14drye5pv3qmwxnt9dx26	2026-11-02T02:24:09.462764Z		
+bureaudescapucins.com	ADDED	LWS_SITEBUILDER	ls_01m6ch0xgne7xtkwcq9wyfkkr1	pty_01m6ch0xg1ezhaqwwrq856m0b5	2026-11-01T21:42:37.388204Z		
+cabinetdescuriosites.fr	DEFERRED				2026-11-03T07:55:00+00:00	LEGAL_STATUS_AND_INTERMEDIATION_SCOPE_REQUIRES_CLASSIFICATION	
+cadreepure.fr	DEFERRED				2026-11-01T22:47:30.909691Z	UNVERIFIED_LEGAL_SELLER_AND_CATALOGUE_RELIABILITY	
+caffard-antiquites.com	ADDED		ls_01m6g51e7dewgtxbe497ppkkw1	pty_01m6g51e6weda8mzh4zyya5931	2026-11-03T07:30:08.695864Z		
+camillesourget.com	ADDED	WOOCOMMERCE	ls_01m6dn46gae19sste0m2abyxnr	pty_01m6dn46fye8e9tk653wryj3rb	2026-11-02T08:13:33.337685Z		
+capharnaum.net	EXCLUDED	WOOCOMMERCE			2026-11-02T05:57:37.980321Z	MARKETPLACE_PLATFORM	
+captainbrocante.fr	ADDED		ls_01m6dttt61ed9t4xestaz6rewb	pty_01m6dttt5hepqt24ntjb2p1kay	2026-11-02T09:53:17.440292Z		
+carouche.fr	ADDED	WOOCOMMERCE	ls_01m6chkgfsej0sxdcwb493888z	pty_01m6chkgf7ebb97q9wqwvpbgkf	2026-11-01T21:52:46.760200Z		
+casa-marie-antiquites.fr	DEFERRED				2026-11-02T12:31:07.683934Z		
+cash-antiquites.com	ADDED	SHOPIFY	ls_01m6d592z0e1r9944wb2rvhjrn	pty_01m6d592ygeeds8vtpgdke3wap	2026-11-02T03:36:36.494042Z		ipiqhw-9x.myshopify.com
+cavelibris.fr	ADDED	WOOCOMMERCE	ls_01m6edjmk8ejms6wwjfzv9qje5	pty_01m6edjmjwejbsrv3xv792xk95	2026-11-02T15:20:52.183162Z		
+cdejahier.com	ADDED	WOOCOMMERCE	ls_01m6g82dw3efh9ecbd39gwmfv4	pty_01m6g82dvjeeytjde0ebn4n6qr	2026-11-03T08:23:07.194650Z		www.cdejahier.com
+ch-antiquaire.com	DEFERRED				2026-11-02T15:06:53.971045Z	SPECIFIC_CURRENT_OWN_HISTORIC_RETAIL_OFFER_UNVERIFIED	
+chantaldupont-antiquites.fr	EXCLUDED				2026-11-02T05:08:43.686553Z	CONFIRMED_CEASED_OPERATOR	
+charpentier-achat-antiquites.fr	ADDED		ls_01m6dw570jef7vt9axetc17mt2	pty_01m6dw5706eckt34d69szjpv3t	2026-11-02T10:16:26.170379Z		
+chezcax.com	DEFERRED				2026-11-02T12:03:00.278787Z		
+chezmemebrocante.com	DEFERRED	SHOPIFY			2026-11-02T02:33:09.857742Z	CURRENT_LEGAL_OPERATOR_AND_BASE_UNVERIFIED	616c90-ef.myshopify.com
+chiner-solidaire.fr	ADDED	WOOCOMMERCE	ls_01m6ccbhgeeyfsvca9h0hwk187	pty_01m6ccbhfwe8j8nm6fm6brhntw	2026-11-01T20:21:02.501160Z		
+chineravecemeric.fr	DEFERRED	SUMUP			2026-11-01T22:27:53.434903Z	LEGAL_OPERATOR_AND_DIRECT_BUSINESS_CONTACT_UNVERIFIED	chineravecemeric-fr.sumupstore.com
+chinerfacile.fr	ADDED	IONOS_MYWEBSITE	ls_01m6d9bhb4e3tbv7mq5h78m2eg	pty_01m6d9bhavekhtd43td7t64gex	2026-11-02T04:47:50.501949Z		
+chineriesfleuries.fr	ADDED	WOOCOMMERCE	ls_01m6cjye1aeq7se1w2bynnera6	pty_01m6cjye0tenvtcf6e6e5ne3th	2026-11-03T08:00:23+00:00		
+chinetbroc61.jimdoweb.com	DEFERRED	JIMDO			2026-11-02T00:02:53.357177Z	LEGACY_ESTABLISHMENT_AND_CATALOGUE_CURRENTNESS_UNRESOLVED	chinetbroc-61.com
+chineusedegrenier.com	DEFERRED				2026-11-02T05:39:01.151739Z	PRIMARY_SOURCE_UNAVAILABLE_CURRENT_OPERATOR_AND_STOCK_UNVERIFIED	
+chinons.eu	ADDED	E_MONSITE	ls_01m6cm8qfbey8sdp4gkabfkhc7	pty_01m6cm8qeqer1aj75a3zzhxeen	2026-11-01T22:39:19.032766Z		
+choubroc.fr	ADDED	SHOPIFY	ls_01m6e4mct1e7atg0jqn1g0hk16	pty_01m6e4mcs4e76acnp5xwyvawhy	2026-11-02T12:44:32.975739Z		
+circa-arles.com	DEFERRED				2026-11-02T12:23:56.937747Z		
+citron12.com	ADDED	SHOPIFY	ls_01m6dc4k47etntcnq9az941xf4	pty_01m6dc4k3ne06tkxt23812xx2c	2026-11-02T05:36:29.230801Z		citron-12.myshopify.com
+collin-estampes.fr	ADDED		ls_01m6dyxy56ek0tt1rk7tyv8mdm	pty_01m6dyxy4ee7p9vrjz5xqbw8s2	2026-11-02T11:04:54.071934Z		
+commeundimanche.bigcartel.com	ADDED	BIGCARTEL	ls_01m6dsz7deebn9nm680sp4h97e	pty_01m6dsz7cwej1a63xrefqpxb7n	2026-11-02T09:38:13.465124Z		
+comptoirantiquedebourgogne.com	ADDED	JIMDO	ls_01m6cevgf5ez2rqz5bbqf28yct	pty_01m6cevgeqespryss6d5dqcdvk	2026-11-01T21:06:11.944312Z		
+comtesse-g.com	DEFERRED	WOOCOMMERCE			2026-11-02T04:37:29.344032Z	PRIMARY_SITE_INTEGRITY_REVIEW_REQUIRED	
+coromandel-antique.com	DEFERRED				2026-11-01T22:02:51.029218Z	PRIMARY_TEMPORARY_OUTAGE_CATALOGUE_UNAVAILABLE	
+coucouretro.fr	ADDED	WOOCOMMERCE	ls_01m6cypa6be6p8778phar4sdwx	pty_01m6cypa5temhbsz0vchq8kg1c	2026-11-02T01:41:29.777480Z		
+couleursvintage.fr	DEFERRED	SHOPIFY			2026-11-01T20:59:43.054178Z	HISTORIC_COLLECTIBLE_STOCK_NOT_VERIFIED	
+courcelles-antiquites.com	ADDED	WORDPRESS	ls_01m6g9nwhjezpbzd7b92n0xw9m	pty_01m6g9nwh1ehqb1dkgmj97asf0	2026-11-03T08:52:09.911998Z		
+crozonantiquites.com	DEFERRED	WIX			2026-11-02T00:55:25.781344Z	CURRENT_AVAILABLE_OWN_STOCK_NOT_VERIFIED	
+curiovestige.fr	DEFERRED				2026-11-02T10:46:46.000099Z	PRIMARY_ACCESS_OPERATOR_AND_STOCK_UNVERIFIED	
+daelgrau.com	ADDED	HBJO_ONLINE	ls_01m6dx5vqfeq2awh1j0cfkghe3	pty_01m6dx5vq2e6ht5rrynvfd7ns1	2026-11-02T10:34:15.996323Z		
+danke-galerie.com	ADDED	WOOCOMMERCE	ls_01m6gad9eyeyrt4rw0nny0yzz8	pty_01m6gad9e9efe80c1jy8nm93ms	2026-11-03T09:04:00.796969Z		
+dantan.store	ADDED	WIX	ls_01m6g8y97se9srm14yrmhrpkxk	pty_01m6g8y975ea88566fgkk1ebk6	2026-11-03T08:38:20.047468Z		www.dantan.store
+davidbijoux.fr	ADDED	WOOCOMMERCE	ls_01m6dws23ze8ar2d8swfgjvs4b	pty_01m6dws23gexx83fkt8jt3kfda	2026-11-02T10:27:17.132673Z		
+decouvertesdumonde.fr	ADDED	EPROSHOPPING	ls_01m6cmgq0ee0rag896dy9wc45c	pty_01m6cmgpzyetcbq3y156xx52d3	2026-11-01T22:43:40.087991Z		
+delanpatrick.com	ADDED	WORDPRESS	ls_01m6dr3k9ee4pvp7zzct93x2s6	pty_01m6dr3k8xekf99z8c0x7wrw4r	2026-11-02T09:05:38.955582Z		
+dellinger-antiquites.com	DEFERRED				2026-11-01T20:24:30.234563Z	SHARED_HOST_MERCHANT_CATALOGUE_IDENTITY_MAPPING	
+dessins-architecture.com	ADDED	SQUARESPACE	ls_01m6ds7d2zefkapm7m8zy71j6z	pty_01m6ds4ft2e0dsh9x9zrsx212f	2026-11-02T09:25:12.195833Z		apple-rhino-2dj6.squarespace.com
+desuet.fr	ADDED	WOOCOMMERCE	ls_01m6db7pqjec28nkpgk9ee2v21	pty_01m6db7pq3etpsm5ws03t34q6c	2026-11-02T05:20:42.893719Z		
+didascalies.art	DEFERRED				2026-11-03T08:57:48Z	PRIMARY_SITE_TLS_CERTIFICATE_HOSTNAME_MISMATCH	www.didascalies.art
+douxaout.fr	ADDED	SQUARESPACE	ls_01m6d34bpbeqnsm5c0bxgyrcn0	pty_01m6d34bp3eajaj90x615aeat3	2026-11-02T02:59:04.526036Z		douxaout.com
+dreamsartculture.fr	ADDED		ls_01m6d9n22jepqbkeqzsp2dafmt	pty_01m6d9n222ev8vvg1vtctpzym4	2026-11-02T04:53:03.026687Z		dreamsartculture.art
+droin-antiquites.fr	ADDED	WOOCOMMERCE	ls_01m6cha6bxejhah3b824b5nxz7	pty_01m6cha6bceygv4x30jgsymc4a	2026-11-01T21:47:40.941598Z		
+duhautoyantique.fr	ADDED		ls_01m6d2actwem58bzadx97xf3hy	pty_01m6d2actdefka7cw64cpxh26z	2026-11-02T02:44:53.028564Z		
+echodepoque.com	ADDED	SHOPIFY	ls_01m6cm8yt4e7ytk34b0wxt460n	pty_01m6cm8ysgec6azaej6hbdwrwh	2026-11-01T22:39:26.448139Z		
+echodestemps.fr	ADDED	SQUARESPACE_COMMERCE	ls_01m6g6b8bbemqs8zf25744m74y	pty_01m6g6b8ane2rbv7j24wbwqy0n	2026-11-03T07:52:59.763663Z		
+effetssinguliers.com	DEFERRED	SHOPIFY			2026-11-03T08:25:00Z		
+elogeparis.com	ADDED	SHOPIFY	ls_01m6ch0tw5ebdt2gbx24z2byn7	pty_01m6ch0tvqeqssarxsmk6n6sqx	2026-11-01T21:42:34.947642Z		
+emyrecycl.fr	DEFERRED	DUDA			2026-11-02T05:08:43.686553Z	CURRENT_OWN_STOCK_AND_OPERATING_ENTITY_REVIEW_REQUIRED	
+encherissez.com	EXCLUDED				2026-11-01T22:39:31.231437+00:00	AUCTION_OPERATOR	expertisez.com
+eshop.brocantesque.fr	ADDED	SUMUP	ls_01m6eany7tee0tatmggnkrj6sj	pty_01m6eany78epp8qjw3xecm9km0	2026-11-02T14:30:15.023652Z		brocantesque.fr;brocantesque.sumupstore.com
+eva-antiquites.com	DEFERRED				2026-11-02T03:36:27.194830Z	CURRENT_PRIMARY_OPERATOR_AND_ANTIQUE_STOCK_UNVERIFIED	
+expertantiquite.fr	ADDED		ls_01m6dqg9gzepsadkqjk5mv9jn8	pty_01m6dqg9gderntcfp7v0r09trf	2026-11-02T08:55:07.027550Z		
+fabriqemoi.fr	ADDED	WOOCOMMERCE	ls_01m6cnvp3cegkr815g038a4p8m	pty_01m6cnvp2re8a94822kv2szqq2	2026-11-01T23:07:08.721490Z		
+fabuleusecaverne.com	ADDED	WOOCOMMERCE	ls_01m6dy9c2neh8rz1mb71wed2xy	pty_01m6dy9c22erj8a5wmn3j4xt7w	2026-11-02T10:53:40.219142Z		
+faubourgdamboise.com	DEFERRED	WIX			2026-11-02T01:20:35.423550Z	CURRENT_LEGAL_OPERATOR_LINK_UNVERIFIED	
+fauvette.com	ADDED	SHOPIFY	ls_01m6cct8kxe9n8sce5fvvdsmkq	pty_01m6cct8kee12v8vbktsq343k7	2026-11-01T20:29:04.947501Z		
+folqlo.fr	ADDED	SHOPIFY	ls_01m6cctayde378b045gzhejs9z	pty_01m6cctaxyeywtrh4gxggt2x94	2026-11-01T20:29:06.776709Z		
+french-lagom.com	ADDED		ls_01m6e9b233edgr1x74q267hnre	pty_01m6e9b22kerwrr35x6rbbqms8	2026-11-02T14:06:49.905028Z		
+galerie-atena.com	ADDED	BIGCOMMERCE	ls_01m6g937r3entsmn516vcs9ab3	pty_01m6g937qje90ajf90vapfehgy	2026-11-03T08:41:03.059177Z		
+galerie-conesa.com	DEFERRED	WEBACAPPELLA			2026-11-02T09:51:57.602265Z	CURRENT_PRIVATE_LISTING_CATALOGUE_CHANNEL_UNVERIFIED	
+galerie-dessein.com	ADDED	WIFEO	ls_01m6cmgwh5en3adnmk8ays0kvt	pty_01m6cmgwgnesybtvg38tcf5p3a	2026-11-01T22:43:46.499058Z		galerie-dessein.wifeo.com
+galerie-du-pont.com	DEFERRED	ECWID			2026-11-01T20:49:26.815066Z	CURRENT_ITEM_STOCK_AND_FULL_OPERATOR_UNRESOLVED	
+galerie-st-martin-antiquites.fr	ADDED	WOOCOMMERCE	ls_01m6gak12we0csy99evhgnpfez	pty_01m6gak12ae3qa25tyqksneeqa	2026-11-03T09:07:09.220363Z		
+galerie44.com	ADDED	PRESTASHOP	ls_01m6g5qy5xeg9ssxnxd4fk9beb	pty_01m6g5qy5dep2ag4v6f4cjtqwz	2026-11-03T07:42:26.735726Z		
+galeriemuscari.com	DEFERRED				2026-11-02T09:04:56.064346Z	PRIMARY_ACCESS_UNAUTHORIZED_CURRENT_IDENTITY_AND_STOCK_UNVERIFIED	
+galerievalerielevesque.com	ADDED	WORDPRESS	ls_01m6dq11yne4m8dmsz5nhks57f	pty_01m6dq11y5ek08da0x4njbdssa	2026-11-02T08:46:47.124464Z		
+galeriezola.com	ADDED	WORDPRESS	ls_01m6g9x98re7y9cdbyt7h0b4v5	pty_01m6g9x989epeaa3n4mvs0gbgf	2026-11-03T08:55:15.858746Z		
+gorkyantiq.fr	DEFERRED				2026-11-03T08:56:21Z	CURRENT_OWN_ITEM_AVAILABILITY_UNVERIFIED	
+grange-valleeduloir.com	DEFERRED				2026-11-03T08:05:00+00:00	PRIVATE_SALE_CHANNEL_AND_LEGAL_OPERATOR_UNRESOLVED	
+gresse-antiquites-montpellier.fr	ADDED	DUDA	ls_01m6dxy1v6erfrcpb90np1y4pz	pty_01m6dxy1tte52bebz2s8hxc351	2026-11-02T10:47:28.991191Z		
+grisgroseille.com	ADDED	WIX	ls_01m6dakt7nezhth1fqhjv67z1y	pty_01m6dakt77ewttrp87azw6ab4h	2026-11-02T05:09:50.707576Z		
+gslr-antiques.com	ADDED		ls_01m6d7fkk5ev0tchrwvjkjkpf9	pty_01m6d7fkjtepxbtw2vx5sg7bp8	2026-11-02T04:15:06.957568Z		
+guillaumerullier-antiquaire.com	DEFERRED				2026-11-02T12:03:00.278787Z		
+gustave-leonie.fr	ADDED	WEBADOR	ls_01m6d9fw89eqzbe4j3vabqjerz	pty_01m6d9fw7fe2er614f8yk1kf9v	2026-11-02T04:50:13.322803Z		
+gwenbroc.fr	DEFERRED	WEBADOR			2026-11-02T03:57:09.042601Z	CURRENT_LEGAL_OPERATOR_UNVERIFIED	
+hadrien-antiquites-brocante.com	DEFERRED	WORDPRESS			2026-11-02T10:46:46.000099Z	CURRENT_SPECIFIC_RETAIL_OFFER_UNVERIFIED	
+hansen-gerret-antiquites.fr	DEFERRED				2026-11-02T12:31:07.683934Z		
+hatchuel.fr	ADDED	WOOCOMMERCE	ls_01m6dn48mpezjvx83bdgf7nk72	pty_01m6dn48mee5vaayfc0hx7z3ne	2026-11-02T08:13:34.972266Z		
+havas-antiquites.com	DEFERRED	PRESTASHOP			2026-11-02T10:01:36.748555Z	PUBLISHED_OPERATOR_REGISTRATION_CEASED_SUCCESSOR_ALLOCATION_UNVERIFIED	
+helen-antiquites.com	ADDED	WOOCOMMERCE	ls_01m6ccbf48eydsdm6vspes7wtp	pty_01m6ccbf3peds8cc5w4xy6d0mh	2026-11-01T20:23:46.785071Z		helen-antiquites.fr
+hellobroc.com	ADDED	SHOPIFY	ls_01m6cv2995e7htwdrr8ny1yewb	pty_01m6cv298je99vh9x0khsb8bx3	2026-11-02T00:38:08.119582Z		hello-broc.myshopify.com
+henrietteetginette.bigcartel.com	ADDED	BIGCARTEL	ls_01m6cnd7yke79rf0w6tx3bq4p2	pty_01m6cnd7y6ex5r7zpwy06fb3q9	2026-11-01T22:59:15.315282Z		henrietteetginette.com
+histoires-sans-fin.fr	ADDED	WOOCOMMERCE	ls_01m6cm8w95ew4vrhsjcz3a99wv	pty_01m6cm8w8new4r5gb38b35kyrk	2026-11-01T22:39:24.184842Z		
+hotelbaumann.fr	DEFERRED				2026-11-02T10:33:47.233920Z	CURRENT_LEGAL_OPERATOR_UNVERIFIED	
+idantique.com	DEFERRED	JIMDO			2026-11-02T11:15:45.659148Z	CURRENT_UNSOLD_RETAIL_OFFER_UNVERIFIED	
+inspiration-brocante.com	ADDED	WOOCOMMERCE	ls_01m6cha895e1br887cxb4kw7h7	pty_01m6cha88se8ztywas2ky939at	2026-11-01T21:47:43.683180Z		
+instantdhier.fr	ADDED	WOOCOMMERCE	ls_01m6g51b6pe2rbmep0dayavqwx	pty_01m6g51b62e6btmhhzc4194v41	2026-11-03T07:30:06.734415Z		
+jac-art.fr	ADDED	WIX	ls_01m6cvj959ebqaqzh7evrrfg7k	pty_01m6cvj94feq29m8ps3ytvdrs5	2026-11-02T00:46:52.200497Z		
+jeanlucferrand.com	ADDED	WOOCOMMERCE	ls_01m6ccjhwye8998yw2317pegea	pty_01m6ccjhwde9dtc6fhq6b3b64h	2026-11-01T20:24:52.685558Z		
+jebroc.fr	DEFERRED	JIMDO			2026-11-02T01:20:35.423550Z	PUBLISHED_OPERATOR_CEASED_CURRENT_OPERATOR_UNVERIFIED	
+joaillerieguerin.com	ADDED		ls_01m6dxjsmrebqrnpwb41ky3jqr	pty_01m6dxjsm8es9s9h017scvq6jt	2026-11-02T10:41:20.509429Z		
+la-fee-vintage.fr	EXCLUDED	SHOPIFY			2026-11-02T03:34:26.458368Z	NEW_RETRO_STYLE_FASHION_NOT_ANTIQUE_STOCK	
+la-petite-brocante-de-saint-jean.com	ADDED	WIX	ls_01m6d5rsaaep0b9m94q1z2zrcq	pty_01m6d5rsa0ezparf7sfc361qq6	2026-11-02T03:45:10.249443Z		
+labellebrocante.fr	ADDED	WIX	ls_01m6cf8d2jevhs29vb9gamjr1w	pty_01m6cf8d25edb8p3gm1kvb4gsx	2026-11-01T21:11:45.867626Z		
+labraderie.org	ADDED	PRESTASHOP	ls_01m6e33m4beahs0jas62yvj7q7	pty_01m6e33m3vepk8x5hpbqx9ehgg	2026-11-02T12:17:54.806827Z		
+labrocanteamienoise.fr	ADDED	WOOCOMMERCE	ls_01m6d1z58ve39t6nnmqyxmt1r7	pty_01m6d1z58aer5vq251w3h4ft5d	2026-11-02T02:38:45.683513Z		
+labrocantebucolique.fr	ADDED	WOOCOMMERCE	ls_01m6cp4t8segf8cdzz1mkbpxmv	pty_01m6cp4t8ae0vbgk8pgx4psjdg	2026-11-01T23:12:07.848068Z		
+labrocantedelaura.fr	ADDED	SHOPIFY	ls_01m6cnvx4hesnbmhpcf7ckr0qv	pty_01m6cnvx43e7grfg512fmbzzrm	2026-11-01T23:07:16.120519Z		
+labrocantedelola.com	ADDED	SHOPIFY	ls_01m6cqv6w2ej6b2amp1mgdjq03	pty_01m6cqv6vpe1xrzqg0vaegvtjs	2026-11-01T23:41:50.047450Z		
+labrocantedemalise.com	ADDED	SHOPIFY	ls_01m6d4zxqhed1vdy5pd3zn8fe2	pty_01m6d4zxpreqe9npa02s6yqwrn	2026-11-02T03:31:36.251034Z		la-brocante-demalise.myshopify.com
+labrocantedepaula.fr	ADDED	WOOCOMMERCE	ls_01m6cjybs7e3abtna0742z34rd	pty_01m6cjybrqe6tr9hxhnh43swn5	2026-11-01T22:16:10.736939Z		
+labrocantedesfontaines.fr	ADDED	WEBADOR	ls_01m6d1c1hqe21a07r7yfd3rvgy	pty_01m6d1c1h8edaaqrnfxkh54aj4	2026-11-02T02:28:18.935713Z		
+labrocanteenligne.com	ADDED	FORTY_TWO_STORES	ls_01m6ce6zhse1gakmk58660966m	pty_01m6ce6zhbex49gyf0etgsvsm5	2026-11-01T20:53:30.321474Z		
+labrocanteriedeflo.com	ADDED	WIX	ls_01m6d1z257eaq9jm91pxxzsndp	pty_01m6d1z24he4da1z99h267qpf8	2026-11-02T02:38:43.017513Z		
+labrocanteusebordelaise.fr	ADDED	SHOPIFY	ls_01m6csjzfeewwrjv6zppmv9txf	pty_01m6csjzesegtaq98ccm32bfmm	2026-11-02T00:12:18.079396Z		
+lacapucinebleue.com	ADDED	PRESTASHOP	ls_01m6cdzva9e4t9v5zw7an55458	pty_01m6cdzv9te6rvakp2hjhckhkp	2026-11-01T20:49:36.486228Z		
+lacocotteenpapier.fr	ADDED	WEBNODE	ls_01m6cj74sze6jrkbsd99q79mja	pty_01m6cj74s6eaqscgn6dqbh1q7q	2026-11-01T22:03:30.311904Z		
+ladamealobjet.fr	DEFERRED	SHOPIFY			2026-11-01T22:53:19.102784Z	PUBLISHED_LEGAL_LOCATION_CONFLICT	
+lagondoleantiquites.com	DEFERRED				2026-11-02T03:34:26.458368Z	CURRENT_PRIMARY_SITE_UNREACHABLE	
+lagrangedenoe.com	DEFERRED				2026-11-01T22:02:51.029218Z	PRIMARY_DNS_FAILURE_IDENTITY_AND_STOCK_UNVERIFIED	
+lagrangevintage.com	ADDED	WOOCOMMERCE	ls_01m6cqv4t2e9wv84fhsdxy2rz0	pty_01m6cqv4spem0bbghr7qk95v03	2026-11-01T23:41:47.902645Z		
+lalicorneantiquites.fr	DEFERRED	WORDPRESS			2026-11-02T04:37:29.344032Z	CURRENT_OWN_SALE_STOCK_UNVERIFIED	
+lalunegalerie.fr	ADDED	SQUARESPACE	ls_01m6den8xded9vh7g1qc60t3ct	pty_01m6den8wme2btgdy6cjkj4bap	2026-11-02T06:20:32.931440Z		lalunedecoration.com;lalune.squarespace.com
+lamaisondelacomtoise.com	DEFERRED				2026-11-02T06:46:43.857681Z	PRIMARY_SOURCE_UNAVAILABLE_CURRENT_OPERATOR_AND_STOCK_UNVERIFIED	
+lamalledasie.fr	ADDED	WOOCOMMERCE	ls_01m6g971gpe67rdzqcqqxzfmjy	pty_01m6g971gae048w79176b1gps3	2026-11-03T08:43:06.866838Z		
+lamallefleurie.fr	DEFERRED				2026-11-01T23:11:24.461747Z	PRIMARY_TLS_AND_READER_FETCH_UNAVAILABLE	
+lamourquibouquine.com	ADDED	WIX	ls_01m6djgbegewpvfqk3c14e9edt	pty_01m6djgbe0ech99p98cnd3qxh1	2026-11-02T07:27:45.719834Z		
+lampda.fr	ADDED	WOOCOMMERCE	ls_01m6chkk1vebg934p2vxh16qec	pty_01m6chkk1beg295vzdwetmvj2s	2026-11-01T21:52:49.189443Z		
+lanabrocante.fr	ADDED	SHOPIFY	ls_01m6cedp2hejgr5cpex07es24w	pty_01m6cedp1re24vp8nyn4e6ahp2	2026-11-01T20:57:10.008039Z		
+lapetitecalanque.fr	DEFERRED				2026-11-03T07:33:24.989892Z	SPECIFIC_CURRENT_ANTIQUE_OWN_STOCK_UNVERIFIED	
+lapetitechaiserouge.fr	EXCLUDED	JIMDO			2026-11-02T00:46:12.003311Z	CONFIRMED_INACTIVE_REGISTERED_BUSINESS	
+lapierremarket.fr	ADDED	SHOPIFY	ls_01m6g72qtye9mv1yjfnejdcjjk	pty_01m6g72qtceg6tbzberv9e4byw	2026-11-03T08:05:48.879633Z		
+lardanchet.fr	ADDED	DRUPAL	ls_01m6e0w600esj9e2w35hah4js6	pty_01m6e0w5zcerjs69nphz81rhyk	2026-11-02T11:38:53.271308Z		
+laregencelille.com	ADDED	SHOPIFY	ls_01m6dx5pzje89s3ex1kpf884n7	pty_01m6dx5pz1emdrct8s4m2vynkx	2026-11-02T10:34:11.887328Z		
+lartetlafacon.fr	DEFERRED				2026-11-03T08:12:51.313004Z		
+latelierdecarlita.fr	ADDED	HOSTINGER_ECOMMERCE	ls_01m6ctbdw2emntbxjkwjwmcx4x	pty_01m6ctbdvjecf93nc1wv7xmmpp	2026-11-02T00:25:38.950410Z		
+lateliershop.fr	DEFERRED	SHOPIFY			2026-11-02T00:37:48.941404Z	PUBLISHED_OPERATOR_CEASED_CURRENT_OPERATOR_UNVERIFIED	l-ateliershop.myshopify.com
+le-grenier.org	DEFERRED	WOOCOMMERCE			2026-11-02T02:38:30.787877Z	PUBLISHED_OPERATOR_CEASED_CURRENT_OPERATOR_UNVERIFIED	
+le-sabot-bleu.fr	ADDED	WOOCOMMERCE	ls_01m6cjy93de45anf0y3km9cas0	pty_01m6cjy92xebsvxmm45mb8e69m	2026-11-01T22:16:08.322551Z		
+leavitanova.wixsite.com	ADDED	WIX	ls_01m6cfkswmehxawy7fx7brdwya	pty_01m6cfksvte9db5yxgc0zv4g6r	2026-11-01T21:17:58.577405Z		
+lecabinetdesantiques.com	ADDED	ODOO	ls_01m6cbtse6ewsvmrpwph5t4aae	pty_01m6cbtsdzejras74wea6sck1m	2026-11-01T20:12:26.226176+00:00		
+lechatrouge.fr	ADDED	WOOCOMMERCE	ls_01m6g771cqedk986tqk27a8j6k	pty_01m6g771cbex0taehxgr6rv9ta	2026-11-03T08:08:09.681759Z		
+lechineurdupassesimple.fr	ADDED		ls_01m6cctcq0ee7ac5kcx7g8h09k	pty_01m6cctcpkegybkh6tzgcw721z	2026-11-01T20:29:09.391846Z		
+leclatdinterieur.fr	ADDED	WIX	ls_01m6dq0yyre2t9nagq2rbc7r12	pty_01m6dq0yxfeb5rcjvdmnn7dewp	2026-11-02T08:46:45.238825Z		
+lecointredrouet.com	ADDED	WOOCOMMERCE	ls_01m6eckvypez39fzkn8ah4m5e7	pty_01m6eckvy3egr8d7ss8ssteysm	2026-11-02T15:04:03.690830Z		
+lecrin-antiquaire.fr	ADDED	WOOCOMMERCE	ls_01m6g5dqz6eeprtx0hvfkv2tct	pty_01m6g5dqyjesr8ppeba51x4mjb	2026-11-03T07:36:52.516513Z		
+lecristalantique.fr	ADDED	SHOPIFY	ls_01m6cmr4c2ehftmt0g8rxt3wvh	pty_01m6cmr4b3eb68832a3z01mhw0	2026-11-01T22:47:44.301110Z		lecristalantique.com
+ledrugstoredaurore.fr	ADDED	WIX	ls_01m6cravbcewtsjsf44s1rh4sp	pty_01m6cravateqdbf1pasb4hpfyb	2026-11-01T23:50:22.722120Z		
+lefantassin.fr	ADDED	VIRTUEMART	ls_01m6d9smzpehqrfk1374szaxs5	pty_01m6d9smzaehza4ps9nv071v53	2026-11-02T04:55:34.052932Z		
+legrenierdadele.fr	ADDED	WOOCOMMERCE	ls_01m6cnvtxgenpa7ph4a8e83nyc	pty_01m6cnvtx2e9q8eed5dp71xf81	2026-11-01T23:07:13.554605Z		legrenierdadele.com
+legrenierdaugustine.com	ADDED	WOOCOMMERCE	ls_01m6dpe1cferatgefpwwj01214	pty_01m6dpe1bzeeerqphmyeaad4tx	2026-11-02T08:36:24.600009Z		
+legrenierdemanon.com	DEFERRED				2026-11-02T02:58:19.425711Z	PRIMARY_SITE_DNS_UNAVAILABLE_CURRENT_STOCK_UNVERIFIED	
+legrenierdurenard.fr	ADDED	SHOPIFY	ls_01m6cm8sxeespsbq87ygc72s9r	pty_01m6cm8swyejpb3zphw36cprt9	2026-11-01T22:39:21.484590Z		
+lelocalatrouvailles.fr	DEFERRED				2026-11-01T21:17:21.669808Z	EMPTY_PRIMARY_RESPONSE_AND_APEX_CERTIFICATE_MISMATCH	
+leloftenprovence.com	ADDED	WIX	ls_01m6ctbgaje8w819kazzq4amjs	pty_01m6ctbga2e29v83s2yn8z8c65	2026-11-02T00:25:40.779053Z		
+lemouton-vert.com	DEFERRED				2026-11-02T02:44:36.596262Z	PRIMARY_SITE_DNS_UNAVAILABLE_CURRENT_STOCK_UNVERIFIED	
+leperepenard.com	ADDED	DRUPAL	ls_01m6dzmf0gepfbb2cjsfe9fz40	pty_01m6dzmezyeexbscpfgx13p8yt	2026-11-02T11:17:11.754393Z		
+lepetitmarchecollection.com	EXCLUDED	WOOCOMMERCE			2026-11-02T03:05:41.185708Z	OUTSIDE_SCOPE_NEW_FASHION_RETAILER	
+lesain-antiquites.fr	DEFERRED				2026-11-01T20:36:38.161445Z	UNFINISHED_CATALOGUE_AND_CGV_TEMPLATE	
+lesateliersboutique.com	ADDED	WOOCOMMERCE	ls_01m6cejq41efg9s5h0vb85mykt	pty_01m6cejq3mef6r1aeredrdfexq	2026-11-01T20:59:55.036070Z		
+lesaugustaux.fr	DEFERRED				2026-11-02T13:33:37.385413Z	PRIVATE_CHANNEL_HOSTING_PLACEHOLDER_NO_VERIFIED_CURRENT_STOCK	
+leselectionneur.fr	ADDED	SHOPIFY	ls_01m6e2p2nwe2e8n5zjcfh8k7tv	pty_01m6e2p2ncesg9a2zbvd53ghdv	2026-11-02T12:10:31.070349Z		
+leselixirsdubrocanteur.odoo.com	EXCLUDED	ODOO			2026-11-02T02:38:30.787877Z	OUTSIDE_SCOPE_NEW_BEVERAGES_NOT_ANTIQUE_DEALER_SOURCE	
+lesgreniersdelily.com	ADDED	WOOCOMMERCE	ls_01m6cqjj17epc98d5p76wf16sf	pty_01m6cqjj0rep5aa3qqmk23fb4w	2026-11-01T23:37:06.727467Z		
+lesimparfaits.fr	ADDED	WOOCOMMERCE	ls_01m6cnvrebewft5emfj5nvbdnr	pty_01m6cnvrdte4jt2cakgamgr7sm	2026-11-01T23:07:11.347869Z		
+leskitscheries.com	ADDED	SHOPIFY	ls_01m6cbzcx7eea9hhaaeg0kvmd8	pty_01m6cbzcwtehhvwpyhnvm69k7k	2026-11-01T20:14:24.611837Z		
+lesmajuscules-antiquites.fr	ADDED	DUDA	ls_01m6cgttsyew3sj97ejcyqya3q	pty_01m6cgttshe20bqze18a259nj1	2026-11-01T21:39:18.146536Z		
+lesmeublesdavant.com	ADDED	WIX	ls_01m6cd9g17ejfbms5g1kamtz8m	pty_01m6cd9g0se10bvhr2899gez8a	2026-11-01T20:37:24.223621Z		
+lestrouvaillesdelise.fr	DEFERRED	WIX			2026-11-02T00:37:48.941404Z	PRIMARY_SHOP_PAUSE_NO_REOPENING_DATE	
+lestrouvaillesdelonclepierre-63.fr	DEFERRED				2026-11-02T04:45:47.029260Z	CURRENT_OPERATOR_UNRESOLVED_PUBLISHED_ENTITY_CEASED	
+lesvieilleschoses.com	DEFERRED				2026-11-02T12:42:56.712570Z		
+leszamsoeurs.com	ADDED	SQUARESPACE	ls_01m6cedrhge2n92asekfgy6kjj	pty_01m6cedrh1e2e921x2qwgdg0pg	2026-11-01T20:57:12.465328Z		
+librairie-amateur.com	ADDED		ls_01m6dzmd4gesnbmmgxps2zbp38	pty_01m6dzmd3yebx8pwmxenm75wt6	2026-11-02T11:17:09.844534Z		
+librairie-ancienne-clagahe.fr	ADDED	WOOCOMMERCE	ls_01m6dnefpfe3781tdrn6zt2nqk	pty_01m6dnefnvexzs6ydvecfre0aq	2026-11-02T08:19:10.840543Z		
+librairie-bertran-rouen.fr	DEFERRED				2026-11-02T12:00:03.668994Z		
+librairie-candide.com	DEFERRED				2026-11-02T15:51:16.466039Z	SPECIFIC_CURRENT_OWN_HISTORIC_RETAIL_OFFER_UNVERIFIED	
+librairie-casteran.com	ADDED	DRUPAL	ls_01m6e0w7x5e7ya4fbfsf0vxtyp	pty_01m6e0w7wmec69sx8vc154xsay	2026-11-02T11:38:55.871360Z		
+librairie-curiosa.com	ADDED	BLOGGER	ls_01m6dmt6tqe599v5nzf3zxnmcr	pty_01m6djgbe0ech99p98cnd3qxh1	2026-11-02T08:08:05.331081Z		
+librairie-edk.fr	DEFERRED				2026-11-02T15:03:42.162095Z	HISTORICAL_BLOG_TARGET_UNRESOLVED_CURRENT_OPERATOR_AND_STOCK_UNVERIFIED	
+librairie-gil.com	ADDED	WOOCOMMERCE	ls_01m6ed6gqdeb1taztgb1a8vd5y	pty_01m6ed6gq1eq0bvf0qa7h9fncf	2026-11-02T15:14:15.466402Z		
+librairie-nivet.fr	ADDED	DUDA	ls_01m6e23n2see1rnn8dgpx0fv78	pty_01m6e23n24eddspqffq6x1qkw8	2026-11-02T12:00:26.713469Z		
+librairie-occitania.fr	ADDED	WOOCOMMERCE	ls_01m6e0waf9ex8tsrna2kmn20x2	pty_01m6e0waerevs8vammdnfnp6hd	2026-11-02T11:38:58.312867Z		
+librairie-phlucas.com	ADDED		ls_01m6e73zb7efns9chj6mxp54rb	pty_01m6e73zanexkr6zxk0s2ew3pc	2026-11-02T13:28:00.230903Z		
+librairie-pierre-brunet.fr	ADDED	HIKASHOP	ls_01m6g8eywpee5bsxfn3dxcxd6w	pty_01m6g8eyw6eh6ryhv4ympdzf41	2026-11-03T08:30:54.898917Z		
+librairie-raphael-thomas.com	ADDED	DRUPAL	ls_01m6ds4ftpe0p8cq6ees57ekp0	pty_01m6ds4ft2e0dsh9x9zrsx212f	2026-11-02T09:23:36.935852Z		
+librairie-richard.com	ADDED	JIMDO	ls_01m6e23q07ez79jvtjt8h0m2vw	pty_01m6e23pzqeaxbtc1qcdcd8y10	2026-11-02T12:00:28.592120Z		
+librairie-siblot.fr	DEFERRED				2026-11-02T15:26:50.342922Z	CURRENT_PRIVATE_MERCHANT_CHANNEL_UNRESOLVED	
+librairiecastagne.com	ADDED	WOOCOMMERCE	ls_01m6djgddne7qb20aw91vsbvx4	pty_01m6djgdd3ev9tw9tgjkcx8p4d	2026-11-02T07:27:47.871716Z		
+librairiediogene.fr	ADDED	DRUPAL	ls_01m6e73xdbenwr5kr5773rgmza	pty_01m6e73xcmem1syas0mznzjfj8	2026-11-02T13:27:58.153205Z		librairie-diogene-lpa.fr
+librairiedupassage.com	EXCLUDED	WIX			2026-11-02T07:26:58.309724Z	OPERATED_AUCTION_BUSINESS	
+librairiegiard.com	DEFERRED				2026-11-02T15:20:06.726849Z	CURRENT_LEGAL_OPERATOR_AND_PRIVATE_RETAIL_STOCK_UNVERIFIED_AUCTION_ROLE_NEEDS_REVIEW	
+librairiegodon.com	DEFERRED				2026-11-02T15:13:36.008269Z	CONTINUING_APPOINTMENT_TRADE_CURRENT_LEGAL_OPERATOR_AND_OFFER_UNVERIFIED	
+librairiehistoireetsociete.com	ADDED	WORDPRESS	ls_01m6e5vavye4sbpwwcn0f5t2ce	pty_01m6e5vavgepnsthmz5mhwv56f	2026-11-02T13:05:48.145379Z		
+librairiejumentverte.com	ADDED	PRESTASHOP	ls_01m6dm7fppe319s65xvq79cq1x	pty_01m6dm7fp5et29d7d5g9j0t1yq	2026-11-02T07:57:52.772042Z		
+librairielanuitdesrois.com	ADDED	SITE123	ls_01m6e5vcfwet9v6v38cdevb8th	pty_01m6e5vcffesv9j96h44e5hmpx	2026-11-02T13:05:50.190591Z		
+librairievignes.com	ADDED	SHOPIFY	ls_01m6dnempce8qs9bpt1xwx88qx	pty_01m6dnemnwe94aayvy4x07n3e6	2026-11-02T08:19:16.045705Z		
+lignedebrocante.com	DEFERRED				2026-11-02T06:25:21.623164Z	PRIMARY_SOURCE_UNAVAILABLE_CURRENT_OPERATOR_AND_STOCK_UNVERIFIED	
+limage-et-le-livre.com	ADDED		ls_01m6edz720ekq8aee2g03nb7k1	pty_01m6edz71pee7vbz9t8b11xvgq	2026-11-02T15:27:44.435866Z		
+livres-anciens-laurencier.com	ADDED	DRUPAL	ls_01m6e5vegqexvbbmn9fx11peq4	pty_01m6e5vegaensspzecf6p08365	2026-11-02T13:05:52.277058Z		
+livres-au-choix.com	ADDED		ls_01m6dm7mk2epgta31bx3zbrfge	pty_01m6dm7mjhezws0gzjjwd4t34z	2026-11-02T07:57:57.150922Z		
+livresetmanuscrits.com	ADDED		ls_01m6dnej8zeb49t1b66jmt8w1e	pty_01m6dnej8cezxaazqw8addfhvm	2026-11-02T08:19:13.302618Z		
+livresoccasionetancien.kingeshop.com	ADDED	KINGESHOP	ls_01m6cjy6fre0h81d7rxg7vdx3z	pty_01m6cjy6f5e0ha7hpj5pevdzp7	2026-11-01T22:16:05.648223Z		
+llantiquites.com	ADDED	WOOCOMMERCE	ls_01m6ctbj10ewx942te4a94d56s	pty_01m6ctbj0gev0bq91ndrfsk7a0	2026-11-02T00:25:43.397745Z		
+loeildeprunelle.com	ADDED	WOOCOMMERCE	ls_01m6e1ra3ae7frfbz5m9w066mn	pty_01m6e1ra2wembsnt7vbg3zr7gx	2026-11-02T11:54:15.263442Z		
+loire-antique.com	ADDED	WIX	ls_01m6cfkvvfeectchf4htdac7ct	pty_01m6cfkvtte9p978v6fq318dsw	2026-11-01T21:18:00.654675Z		
+louisiane-interieurs.com	DEFERRED	WOOCOMMERCE			2026-11-01T21:11:06.821244Z	LEGAL_OPERATOR_CONTRADICTION_AND_CGV_UNFINISHED	
+lovmint.com	DEFERRED	WIX			2026-11-02T00:46:12.003311Z	PRODUCT_RENDERING_AND_CURRENT_AVAILABILITY_UNVERIFIED	
+ma-lou.fr	DEFERRED				2026-11-02T02:33:09.857742Z	CURRENT_INSPECTABLE_HISTORIC_STOCK_UNVERIFIED	
+madamechine.fr	ADDED	SHOPIFY	ls_01m6cqv2vqe008nsmcr7nm9scf	pty_01m6cqv2v7e6vv1z8j6whstxtq	2026-11-01T23:41:45.818608Z		
+magicbooks.fr	ADDED	ECWID	ls_01m6dnsmpqedyv4x4d8rheehcs	pty_01m6dnsmp9etta2fyyc63z0vdt	2026-11-02T08:25:16.163154Z		
+magicbrocante.com	ADDED	SHOPIFY	ls_01m6d1nrsceygth6kc8ksemy54	pty_01m6d1nrrte6as85mg5sh1kxp7	2026-11-02T02:33:37.849033Z		theophile-b9d9.myshopify.com
+maison-kraemer.fr	DEFERRED				2026-11-02T06:42:19.983877Z	CURRENT_IDENTIFIABLE_OWN_SALE_STOCK_UNVERIFIED	
+maison-les-relayeurs.shop	ADDED	SHOPIFY	ls_01m6g57tj1epnrcrnz91nv2zy0	pty_01m6g57theegysh3r9rcfshwvn	2026-11-03T07:33:38.607727Z		
+maison-lk.com	ADDED	WOOCOMMERCE	ls_01m6ckqcgje4gvqamf0rtyv8nq	pty_01m6ckqcg3et9r66dn6sedbrxr	2026-11-01T22:29:50.360763Z		
+maisoncolombebrocante.fr	DEFERRED				2026-11-02T02:50:40.056468Z	PRIMARY_SITE_DNS_UNAVAILABLE_CURRENT_STOCK_UNVERIFIED	
+maisongirouette.fr	ADDED	WOOCOMMERCE	ls_01m6cp4qxte16a0jzsevvj5n3s	pty_01m6cp4qxben3t5pjxsn4gzvm2	2026-11-01T23:12:05.474409Z		
+maisonlecan.com	ADDED	PRESTASHOP	ls_01m6ccjf5ye13ssq6wbmyk81q8	pty_01m6ccjf5ee2zsmms99cskfxb1	2026-11-01T20:24:49.921420Z		
+maisonmohs.com	ADDED	SHOPIFY	ls_01m6dwrzsxejwtzb4cekpgfnxh	pty_01m6dwrzsge47ve61v03cynn9r	2026-11-02T10:27:14.759865Z		
+maisonnordik.com	ADDED	WOOCOMMERCE	ls_01m6den6gqewmbr9xaytrckr69	pty_01m6den6g9ewd9bkpm483ea0vm	2026-11-02T06:20:30.616387Z		
+maisonpoete.fr	ADDED	WIX	ls_01m6crmrggeq3rn4rxt8dj63yd	pty_01m6crmrg0ey8vzpa0m4fzb543	2026-11-01T23:55:47.685530Z		
+mamignonne.fr	ADDED	WOOCOMMERCE	ls_01m6e33hrcer4ssgvm3n2e0zvb	pty_01m6e33hqqeys9684fvtp6k1j9	2026-11-02T12:17:52.411848Z		
+mamzellebrocante.com	ADDED	WOOCOMMERCE	ls_01m6craxh2erea83rfv03q6j06	pty_01m6craxgmejqtxcm67h279pab	2026-11-01T23:50:24.390508Z		
+manubroc.fr	ADDED	E_MONSITE	ls_01m6efej22enfarny47wf09k7y	pty_01m6efej1fe1k905cd4pp9ytv2	2026-11-02T15:53:35.927237Z		manubroc.e-monsite.com
+marchanddoublis.com	ADDED		ls_01m6cdzxgze0vt62cw7dqacw70	pty_01m6cdzxghetnbtptg97bh34n6	2026-11-01T20:49:38.707325Z		
+marche-conclu.com	DEFERRED				2026-11-02T12:03:00.278787Z		
+mavaliseencarton.com	ADDED	WOOCOMMERCE	ls_01m6ce720ae7y928nans74ghzs	pty_01m6ce71zverss62fwvvgagrsn	2026-11-01T20:53:32.842945Z		
+max-tetelin.com	ADDED		ls_01m6dfd0f3e5esz20465mmgdmj	pty_01m6dfd0epek7bdbnhg0g1qphj	2026-11-02T06:33:30.584456Z		
+memoranda.fr	DEFERRED				2026-11-02T15:13:36.008269Z	SPECIFIC_CURRENT_OWN_HISTORIC_RETAIL_OFFER_UNVERIFIED	
+michelantiquites.com	DEFERRED				2026-11-02T10:14:39.077794Z	PRIMARY_HTTP_402_CONTENT_AND_OPERATOR_UNVERIFIED	
+moka-brocante.com	ADDED	WOOCOMMERCE	ls_01m6cgn5kmerkrpn5fr881kvj1	pty_01m6cgn5k4esbr3wa0x1yq7ncy	2026-11-01T21:36:12.716499Z		
+mulubrok.com	ADDED	WORDPRESS	ls_01m6d3gwrse45tt14g60pfsjbh	pty_01m6d3gwr6exer7ygv8gfd37d5	2026-11-02T03:05:55.663841Z		
+murmuredesarts.com	ADDED	WORDPRESS	ls_01m6chkncmexs814brjqdsnsst	pty_01m6chknc5efvr6dqmb02qkmxn	2026-11-01T21:52:51.516440Z		
+myreference.fr	ADDED	SHOPIFY	ls_01m6cs2kdbe19b352a4gtsm3js	pty_01m6cs2kcyemwtf170jhdqdtaa	2026-11-02T00:03:20.407025Z		
+mywiny.fr	ADDED	SUMUP	ls_01m6eek1gveedb7pz17wr5nzsw	pty_01m6eek1geexktcswk3g0m2d72	2026-11-02T15:38:34.116776Z		mywiny.sumupstore.com
+nancy1900.com	DEFERRED	WIX			2026-11-02T01:20:35.423550Z	CURRENT_INSPECTABLE_OWN_STOCK_NOT_VERIFIED	
+nordikdna.com	ADDED	WIX	ls_01m6cw31spe1185q8210sg5jh0	pty_01m6cw31s6e5fs5e0dzfzbmg02	2026-11-02T00:56:02.312407Z		
+normandbroc.com	ADDED	WOOCOMMERCE	ls_01m6d1c6gfehxacrwdc6dwq8y4	pty_01m6d1c6g0ex2t3tbq98jqch3a	2026-11-02T02:28:24.450988Z		
+normandie-antiquites.com	DEFERRED				2026-11-01T21:17:21.669808Z	OWN_SITE_CURRENT_RETAIL_CATALOGUE_NOT_VERIFIED	
+nourelantiquities.com	ADDED	WIX	ls_01m6ccbcrgey1v9rn81k6jx5me	pty_01m6ccbcr2e9zs5en1xhefpnct	2026-11-01T20:20:57.692778Z		
+o-pus.fr	ADDED	WOOCOMMERCE	ls_01m6e2p56fe8gv5bkb4wna7ezz	pty_01m6e2p55xesxt6jxz2x6fkwwn	2026-11-02T12:10:33.549204Z		
+obdissyantiq.fr	DEFERRED	SHOPIFY			2026-11-01T21:57:31.249491Z	CLAIMED_OPERATOR_CEASED_CURRENT_MERCHANT_IDENTITY_UNRESOLVED	
+opalineetpatine.com	ADDED	WOOCOMMERCE	ls_01m6d14g3ee7mr9rnpx71kt9gd	pty_01m6d14g2zeytvbav6m0rqw86t	2026-11-02T02:24:38.918208Z		
+orvintage.com	DEFERRED				2026-11-02T10:52:42.246315Z	CURRENT_SPECIFIC_RETAIL_OFFER_AND_SITE_ALLOCATION_UNVERIFIED	
+paillerets.com	DEFERRED	WOOCOMMERCE			2026-11-03T07:55:00+00:00	CURRENT_LEGAL_OPERATOR_REGISTRATION_UNRESOLVED	
+pasplustardquhier.com	ADDED	PRESTASHOP	ls_01m6cd9jgne3hspv5ddh8sw2ez	pty_01m6cd9jg7esnrcz1yns13tzw7	2026-11-01T20:37:26.835736Z		
+pauantiquites.fr	ADDED	WIX	ls_01m6dr3hhpe7t9x4h5svq3j014	pty_01m6dr3hh8e7htzk35mq8rc1hk	2026-11-02T09:05:37.175455Z		
+pavillonmoderne.fr	ADDED	WORDPRESS	ls_01m6e1r87feczv7mz0gx9yws36	pty_01m6e1r86wenrvydxd8jhn63tx	2026-11-02T11:54:13.041909Z		
+pepiterie-vintage.fr	ADDED	SHOPIFY	ls_01m6drzcttevb987czxchkba7j	pty_01m6drzct7evxr8ncp9tdh5n0x	2026-11-02T09:20:50.971625Z		
+petitantiquites.com	DEFERRED				2026-11-03T08:57:48Z	PRIVATE_CATALOGUE_NOT_SEPARATE_AND_LEGAL_IDENTITY_CONTRADICTED	
+picardieantiquites.com	ADDED	JOOMLA	ls_01m6ce330eev1rb2bzj18gnthg	pty_01m6ce3300eryva2zxr3cz16a9	2026-11-01T20:51:22.214437Z		
+pierrebecq-antiquaire.fr	ADDED	WIX	ls_01m6da7esre2d9sm7s983vfsrz	pty_01m6da7esee12ss9zfdx5vghem	2026-11-02T05:03:05.494624Z		
+pinceaudor.fr	EXCLUDED				2026-11-02T04:03:56.852703Z	UNTRUSTWORTHY_UNRESOLVED_OPERATOR_AND_CATALOGUE_CONTRADICTIONS	
+planete-collections.com	ADDED	MAGENTO	ls_01m6cwpjr6eetr2fgt46223zdr	pty_01m6cwpjqke0ebp64tt9sqnf1b	2026-11-02T01:06:41.496225Z		planete-collections.ch
+pp-antiquite.fr	DEFERRED				2026-11-03T07:42:11.030986Z	CURRENT_LEGAL_OPERATOR_REGISTRATION_UNRESOLVED	
+proantic.com	EXCLUDED				2026-11-01T20:28:40.851715Z	MULTI_DEALER_MARKETPLACE	
+psychofripes.fr	DEFERRED				2026-11-02T12:10:09.931892Z		
+puces-privees.com	EXCLUDED				2026-11-02T06:27:27.550078Z	MARKETPLACE_PLATFORM	
+pucesdoc.fr	ADDED	WOOCOMMERCE	ls_01m6cqv0f0ewavcwb72vhpkj8a	pty_01m6cqv0ehe2dbyr46sk4krvcg	2026-11-01T23:41:43.859964Z		
+pupucesboutique.com	DEFERRED				2026-11-02T15:51:16.466039Z	PUBLISHED_OPERATOR_REGISTRATION_CEASED_CURRENT_SUCCESSOR_UNVERIFIED	
+rajaabroc.fr	ADDED		ls_01m6cnd5wcecdaxd35wcbsw7zg	pty_01m6cnd5w0e02896ythvcye4xt	2026-11-01T22:59:13.185248Z		
+razzia.online	ADDED	SHOPIFY	ls_01m6cxj0xqeyds59grp21sxxpz	pty_01m6cxj0x6e9dr5h5spg31qxa5	2026-11-02T01:21:40.762129Z		xizskm-hs.myshopify.com
+rejanebrocante.com	ADDED	SHOPIFY	ls_01m6d14jpcem6b4tsxt6p0fnjk	pty_01m6d14jnxeewbx4txcbr27gm1	2026-11-02T02:24:14.858937Z		rejane-brocante.myshopify.com
+remparts-antiquites.com	ADDED	WOOCOMMERCE	ls_01m6dfxng3e72bf6frssfkp90y	pty_01m6dfxnfve2wtx6hw3274z94h	2026-11-02T06:42:36.732424Z		
+retourdechine.com	ADDED	SHOPIFY	ls_01m6d4zvcre709xd547g0tebb6	pty_01m6d4zvc7efqrj1b9jpqepf7j	2026-11-02T03:31:33.809257Z		retour-de-chine.myshopify.com
+retrobroc.com	ADDED	WOOCOMMERCE	ls_01m6cnda3re10b33gf0mw3rx5p	pty_01m6cnda3ce0jtf2pr2sc70245	2026-11-01T22:59:17.470024Z		
+retrostory.fr	ADDED	WEBADOR	ls_01m6cdzzt5ermsy33b0njzxrf2	pty_01m6cdzzsqe44beyck7n4hrecg	2026-11-01T20:49:41.141040Z		
+revedebrocante.com	DEFERRED	WORDPRESS			2026-11-02T05:39:01.151739Z	TEMPORARY_PRIMARY_SITE_PAUSE	
+revele-boutique.com	ADDED	WOOCOMMERCE	ls_01m6cgn0c6ep588p2bnkf8b7yw	pty_01m6cgn0bme87818w7zrf7as3c	2026-11-01T21:36:07.503815Z		
+rivantic.com	ADDED	SHOPIFY	ls_01m6d9yvddehg9a9qrxgwfetpd	pty_01m6d9yvcwe2ct9t7smqxn96ad	2026-11-02T04:58:24.143638Z		232c2e-bd.myshopify.com
+rivegauche-antiquites.fr	ADDED	WOOCOMMERCE	ls_01m6e8jtbsew09nrcxe2vcvxd4	pty_01m6e8jtb8e48adzxm6wakrjf7	2026-11-02T13:53:35.120439Z		
+rodriguezantiquites.com	ADDED	WIX	ls_01m6cw34xke5q97fe6crtxqtbd	pty_01m6cw34x1etb9mg9xvkysv8yx	2026-11-02T00:56:04.619407Z		
+romaneroux.com	ADDED	SHOPIFY	ls_01m6g7vadyewyv8wsm1kx5v96f	pty_01m6g7vadnen3aqvvqpwmm1cjc	2026-11-03T08:19:14.048967Z		
+rougegommette.com	ADDED	WIX	ls_01m6cgn8ape4qv3axaqtw12cyk	pty_01m6cgn8a6eztrv66h30abd8jy	2026-11-01T21:36:15.440603Z		
+rougesgrenat.shop	ADDED	WOOCOMMERCE	ls_01m6csk25de9zrhx9dd5nkd89s	pty_01m6csk24xetcbz1sjracr6d9w	2026-11-02T00:12:20.417682Z		rougesgrenat.fr
+scandishop.fr	ADDED	WOOCOMMERCE	ls_01m6cg1xx5etdad39ffp9nzqn6	pty_01m6cg1xwje8nada7bs6hwf8z4	2026-11-01T21:25:42.501291Z		
+secret-antiques.com	ADDED	ANTIKIUM	ls_01m6e83cqwet0t7q7vtef5q8q2	pty_01m6e83cqfemd8rn5yhjcw4vp0	2026-11-02T13:46:05.819907+00:00		
+seineg-creations.fr	DEFERRED				2026-11-02T13:52:36.564649Z	NO_VERIFIED_HISTORIC_OWN_STOCK_NEW_VINTAGE_STYLE_AND_BUILDING_SERVICES	
+selennia.fr	ADDED	CUSTOM	ls_01m6g7fmhmesqtvdye8hdnmjht	pty_01m6g7fmh8ep1svgw6m9y564bz	2026-11-03T08:12:51.313034Z		
+shibum-design.com	ADDED	WORDPRESS	ls_01m6dtfc9neq8a5931ay26q68m	pty_01m6dtfc93e5rsgwc2q18ratah	2026-11-02T09:47:02.779292Z		
+shop.antiquefranceworldwide.com	ADDED	SHOPIFY	ls_01m6cbz84new4s9df2g30v8wwn	pty_01m6cbz848esfvx9mgjs2bd9w5	2026-11-01T20:14:19.847148Z		antiquefranceworldwide.com
+shop.jgsdecoration.com	DEFERRED	SHOPIFY			2026-11-01T21:47:15.470593Z	CURRENT_COLLECTIONS_REEDITIONS_NO_VERIFIED_HISTORIC_STOCK	
+sillyetbilly.com	ADDED	SHOPIFY	ls_01m6d55mm8e6wbvtasf5yw8grr	pty_01m6d55mkneayr9ssmf736j10f	2026-11-02T03:34:44.439545Z		sillyetbilly.myshopify.com
+slavia-vintage.com	DEFERRED				2026-11-02T05:26:50.953642Z	PRIMARY_SHOP_UNAVAILABLE_CURRENT_OPERATOR_AND_STOCK_UNVERIFIED	
+souffledantan.com	DEFERRED				2026-11-01T23:11:24.461747Z	PUBLISHED_OPERATOR_CEASED_CURRENT_OPERATOR_UNRESOLVED	
+studiosousou.fr	ADDED	WIX	ls_01m6d2nhare4svcdga8a5f9fpg	pty_01m6d2nhaae2nagng46bqwkskq	2026-11-02T02:50:58.663659Z		
+stylequalitebykvm.com	DEFERRED				2026-11-01T21:04:29.354007Z	PRIMARY_HOMEPAGE_HTTP404_CURRENT_ACTIVITY_UNVERIFIED	
+sur1rdebrocante.bigcartel.com	DEFERRED	BIGCARTEL			2026-11-02T05:34:28.365091Z	CURRENT_LEGAL_OPERATOR_AND_BASE_UNVERIFIED	
+sylvain-pfeffer-antiquites.com	ADDED	WORDPRESS	ls_01m6dsz9q4eyntehnkf53sgfcp	pty_01m6dsz9pqehx9aebd4fm84h1h	2026-11-02T09:38:15.277622Z		
+tamaloubroc.com	ADDED	MAGENTO	ls_01m6cn34sfesmvnca09k4yg548	pty_01m6cn34s0ebsrp56ewscq95gr	2026-11-01T22:53:44.412759Z		
+themarquise.fr	ADDED	PRESTASHOP	ls_01m6crmp9cevktnwsrhv2bdxth	pty_01m6crmp8zed0b37qgt89ref8e	2026-11-01T23:55:45.132322Z		themarquise.bzh
+thesanctuarycollector.fr	DEFERRED	SHOPIFY			2026-11-01T20:59:43.054178Z	HISTORIC_STOCK_NOT_VERIFIED_IN_RECENT_MERCHANDISE_SHOP	
+thisisvintage.fr	ADDED	WOOCOMMERCE	ls_01m6cg20wge2jtj0m715dpd5f4	pty_01m6cg20w1ezh8757szyxf2cb0	2026-11-01T21:25:44.864802Z		
+tom-antiquites.fr	DEFERRED				2026-11-02T15:06:53.971045Z	LEGAL_OPERATOR_AND_SPECIFIC_CURRENT_OWN_HISTORIC_RETAIL_OFFER_UNVERIFIED	
+toovintage.com	ADDED	E_MONSITE	ls_01m6eanry3egnse0jx7nyr893z	pty_01m6eanrxhe5hakvav47vth1p7	2026-11-02T14:30:10.078206Z		
+tripont.fr	ADDED	WIX	ls_01m6cnd38tezdv6wx5dm7s7tyd	pty_01m6cnd38ae38r32f65y6se3fy	2026-11-01T22:59:10.963780Z		
+trotta.fr	DEFERRED				2026-11-02T07:05:14.436255Z	CURRENT_IDENTIFIABLE_OWN_SALE_STOCK_UNVERIFIED	
+undimancheauxpuces.com	ADDED	WIX	ls_01m6d1c3p1et9tmh182btjkvkr	pty_01m6d1c3njeeya7rc9nagaeaes	2026-11-02T02:28:21.760397Z		
+uneplacepourchaquechose.fr	DEFERRED	SHOPIFY			2026-11-02T05:19:49.948177Z	CURRENT_LEGAL_OPERATOR_UNVERIFIED	une-place-pour-chaque-chose.myshopify.com
+unicarouen.fr	DEFERRED	SQUARESPACE			2026-11-02T07:10:39.697842Z	HISTORIC_OWN_STOCK_AND_FULL_LEGAL_OPERATOR_UNVERIFIED	
+urrea-bijouxoccasion.fr	ADDED	JIMDO	ls_01m6dx5sege0z9mxa03jc9nfh8	pty_01m6dx5se4ed7bj21cjpw9fatm	2026-11-02T10:34:14.241132Z		
+vaissellevintageetcie.com	ADDED	SHOPIFY	ls_01m6cejmx9evzs8wvg1c078cg8	pty_01m6cejmwseg6bb8m47s0h8j2z	2026-11-01T20:59:52.481335Z		
+vcommevintage.com	DEFERRED	SHOPIFY			2026-11-02T05:26:50.953642Z	CURRENT_LEGAL_OPERATOR_UNVERIFIED	e20wr0-z3.myshopify.com
+videdeco.com	EXCLUDED	PRESTASHOP			2026-11-02T05:57:37.980321Z	MARKETPLACE_PLATFORM	
+villabrieg.com	ADDED	WOOCOMMERCE	ls_01m6cypccmezy89h73vt30mapm	pty_01m6cypcc4e9h8ge6bqxw0v5ap	2026-11-02T01:41:32.118033Z		
+vintageandco.com	EXCLUDED	PRESTASHOP			2026-11-02T04:52:22.007713Z	OUT_OF_SCOPE_WINE_AND_SPIRITS_RETAILER	
+vintagechristal.com	ADDED	WOOCOMMERCE	ls_01m6d9n47bedb89yg2e7abk8jj	pty_01m6d9n46yew1bkevajnqavwns	2026-11-02T04:53:05.189516Z		
+vintagefrenchart.com	ADDED	WOOCOMMERCE	ls_01m6deyg39e4esehr8qe3cprhp	pty_01m6deyg2ge9f906pnnrh28gje	2026-11-02T06:25:34.831764Z		
+vintaliciousnormandy.fr	ADDED	EPROSHOPPING	ls_01m6cf8aegenksnber6tpbrec1	pty_01m6cf8adzeqhbx6v5khkcb189	2026-11-01T21:11:43.033399Z		
+violinemarine.com	ADDED		ls_01m6dsz56he7ytnr57yvvcsxzt	pty_01m6dsz564er5v21ccgz19pdjh	2026-11-02T09:38:11.176691Z		
+voletsbleusbrocante.com	DEFERRED				2026-11-01T20:16:43.557089Z	CURRENT_QUALIFYING_STOCK_AND_LEGAL_OPERATOR_UNRESOLVED	
+woodson-interior.com	ADDED	WIX	ls_01m6cgtnqxewr839tcc87r1eym	pty_01m6cgtnqaecvrnqxr1cpgtjdy	2026-11-01T21:39:13.063748Z		
+xn--antiquitsquinty-inb.fr	DEFERRED				2026-11-02T13:44:22.290565Z	NO_SPECIFIC_CURRENT_RETAIL_STOCK_OR_NAMED_LEGAL_PUBLISHER	
+xn--chacon-antiquits-pqb.fr	DEFERRED	WIX			2026-11-02T04:45:47.029260Z	CURRENT_OWN_STOCK_AND_EXACT_LEGAL_OPERATOR_UNVERIFIED	chacon-antiquités.fr
+zazoubroc.com	ADDED	WOOCOMMERCE	ls_01m6cgn38ae9y8xt68k412vhr6	pty_01m6cgn37rexe8hpk5w7pcf9qy	2026-11-01T21:36:09.939706Z		
+zenbroc.fr	DEFERRED	PRESTASHOP			2026-11-02T00:41:14.082126Z	NO_VERIFIED_HISTORIC_OWN_STOCK	

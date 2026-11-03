@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-03-gb-147",
+  "verifiedAt": "2026-11-03T09:09:54.931704Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T08:41:12.464581Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 1,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 1981,
+    "listingSources": 2005
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "hemswell-antiques.com",
+      "listingSourceId": "ls_01m6denx33ew6bs84bthhgx71k",
+      "partyId": "pty_01m6denx2neeyrx5x6b3fvcqfv",
+      "locations": 1,
+      "logo": false,
+      "platform": "HEMSWELL_ANTIQUES",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T08:41:12.463469Z",
+      "observationDigest": "fdf85bface4e254c778110f6f20fd6744d479f5eb291ff791dc3dfe1c6053a18"
+    }
+  ]
+}

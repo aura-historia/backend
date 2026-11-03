@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-03-gb-147",
+  "verifiedAt": "2026-11-03T09:09:59.694521Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T08:41:25.619212Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 1981,
+    "listingSources": 2005
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "bada.org",
+      "listingSourceId": "ls_01m6dr34qse3kaxj2md0z75gkm",
+      "partyId": "pty_01m6dr34qbe85r2emy6srtgbxf",
+      "locations": 1,
+      "logo": false,
+      "platform": "DRUPAL",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T08:41:25.618316Z",
+      "observationDigest": "7a2f209efe95c4a8c273aef239a0c6d9ac5570fef82a5797d69dfeb3b892b080"
+    }
+  ]
+}

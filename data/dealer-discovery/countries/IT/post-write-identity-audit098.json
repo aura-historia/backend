@@ -1,0 +1,23 @@
+{
+  "run": "2026-11-02-it-098",
+  "observedAt": "2026-11-03T08:03:20.269979Z",
+  "result": "PASSED",
+  "rawDealerLedgers": 27,
+  "otherOwnerHistoricalRecords": 23503,
+  "newPartyId": "pty_01m6g6pc11eas8r51h36d4vn19",
+  "newListingSourceId": "ls_01m6g6pc1mewfb73gnm4pp54gb",
+  "newLocationId": "ploc_01m6g6pcetepp9mrtamzrf6gks",
+  "identityCheck": "positive exact current VIES company name/VAT; address matches first-party premises",
+  "freshGlobalApiSnapshot": "PASSED; one matching Party and Source",
+  "independentReadbacks": "PASSED; exact source/operator/logo/platform, active business association, empty ingestion",
+  "locationScope": "business association present; advertised inventory absent",
+  "shipping": "no shipping profile/default inferred",
+  "antichitabova": "EXCLUDED; current first-party auctions; no API resources",
+  "nextLeads": [
+    "galleriaorsi.com"
+  ],
+  "gracis": "DEFERRED; current own-site says entirely modern/contemporary from 2019; no API resources",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherOwnerMutations": true
+}

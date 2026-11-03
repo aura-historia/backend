@@ -1,0 +1,119 @@
+{
+  "checkedAt": "2026-11-03T09:02:51.862247Z",
+  "scope": "Every current discovery ledger; normalized domain/alias, trading/operator/legal names, emails and phones in facts and verified deferred components, plus known Party IDs. Each creation also uses live API source and Party name/contact checks.",
+  "ledgers": [
+    {
+      "ledger": "data/dealer-discovery/dealers.jsonl",
+      "uniqueDomains": 838
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/NL/dealers.jsonl",
+      "uniqueDomains": 771
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/FR/dealers.jsonl",
+      "uniqueDomains": 456
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/dealers.jsonl",
+      "uniqueDomains": 363
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/ES/dealers.jsonl",
+      "uniqueDomains": 608
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "uniqueDomains": 248
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/NL/hosted/depot-j-j/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/NL/hosted/kunstkabinet/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/NL/hosted/bries-en-bloei/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/NL/hosted/verzamelkramer/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/harmony/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/sylvie-collett/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/rams-head/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/tom-scott/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/used-unique-boutique/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/pendle-antiques/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/quest-antiques/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/welsh-vernacular/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/garret-hurst/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/millers-wooler/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/jo-brayshaw/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/natural-room-emporium/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/trixie-bea/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/ellis-fine-art/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/quality-antiques-vintage/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/chris-holmes/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/athey/dealers.jsonl",
+      "uniqueDomains": 1
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/GB/hosted/cantelo/dealers.jsonl",
+      "uniqueDomains": 1
+    }
+  ],
+  "crossOwnerMatches": []
+}

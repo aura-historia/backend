@@ -1,0 +1,1125 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-095",
+  "observedAt": "2026-11-02T15:17:25.262702Z",
+  "status": "PASSED",
+  "contractReferences": [
+    "docs/geography.md#listingsource-location-defaults-2000",
+    "docs/swagger.yaml#ChangeSourceLocationDefaultApplicabilityData"
+  ],
+  "managedSourcesAtStart": 169,
+  "inventoryAssertionsReviewed": 20,
+  "decisions": {
+    "retain": 11,
+    "replaceEvidenceReference": 1,
+    "removeUnsupported": 8
+  },
+  "cause": "Recent qualification-object URLs were supplied through inventoryEvidence,which the discovery helper uses to enable inherited stock geography. Qualification is not physical stock allocation. Older assertions were independently checked rather than all cleared.",
+  "mutationScope": "Only managed Italy source-default advertisedInventory applicability; preserve every Party/source/location ID,businessAssociation,other location/default fields,shipping,contacts,logos,platforms and empty ingestion. No other owner mutations.",
+  "items": [
+    {
+      "domain": "centromercatoantiquariato.it",
+      "partyId": "pty_01m6cbw1egekpsx7sz0me4k0me",
+      "listingSourceId": "ls_01m6cbw1f1ew68ye3djk95wazk",
+      "partyLocationId": "ploc_01m6cbw1wwenyv656rzne8rdm5",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Primary page explicitly describes the permanent Barletta physical antiques exhibition as viewable and consultable through this same online catalogue; independent exhibition/stock association,not a legal-address inference.",
+      "previousInventoryReference": "https://www.centromercatoantiquariato.it/pages/negozio-antiquariato-online",
+      "reviewedInventoryReference": "https://www.centromercatoantiquariato.it/pages/negozio-antiquariato-online",
+      "primaryEvidence": [
+        "https://www.centromercatoantiquariato.it/pages/negozio-antiquariato-online"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6cbw1f1ew68ye3djk95wazk",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cbw1wwenyv656rzne8rdm5",
+          "businessAssociation": {
+            "reference": "https://www.centromercatoantiquariato.it/pages/contatti",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.centromercatoantiquariato.it/pages/negozio-antiquariato-online",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6cbw1f1ew68ye3djk95wazk",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cbw1wwenyv656rzne8rdm5",
+          "businessAssociation": {
+            "reference": "https://www.centromercatoantiquariato.it/pages/contatti",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.centromercatoantiquariato.it/pages/negozio-antiquariato-online",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:17.751825Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:39.812057Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "n7antiquariato.it",
+      "partyId": "pty_01m6cbw6nte14b0d2q4xfc1far",
+      "listingSourceId": "ls_01m6cbw6pcea585pr8b6sf4br8",
+      "partyLocationId": "ploc_01m6cbw74feyha35xdc8egg8m2",
+      "decision": "REMOVE_UNSUPPORTED",
+      "assessmentConfidence": 0.99,
+      "reason": "The selected native homepage is navigation/events and general dealer information. Inspected evidence does not separately locate the source catalogue inventory at the first business premises.",
+      "previousInventoryReference": "https://www.n7antiquariato.it/",
+      "reviewedInventoryReference": null,
+      "primaryEvidence": [
+        "https://www.n7antiquariato.it/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6cbw6pcea585pr8b6sf4br8",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cbw74feyha35xdc8egg8m2",
+          "businessAssociation": {
+            "reference": "https://www.n7antiquariato.it/dove-siamo-contatti.asp",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.n7antiquariato.it/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6cbw6pcea585pr8b6sf4br8",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cbw74feyha35xdc8egg8m2",
+          "businessAssociation": {
+            "reference": "https://www.n7antiquariato.it/dove-siamo-contatti.asp",
+            "scope": "ASSOCIATED_BUSINESS"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:18.331671Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:39.911289Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "ghilli.it",
+      "partyId": "pty_01m6ccfvfaev5r3tm67wztspx4",
+      "listingSourceId": "ls_01m6ccfvfyeey99mhw6a8wyp40",
+      "partyLocationId": "ploc_01m6ccfvxjegw81raj16xnv8a8",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Native FAQ explicitly states all website articles are displayed and purchasable at the ViaAmpere55 Milan shop. This is direct separate source-wide inventory evidence.",
+      "previousInventoryReference": "https://www.ghilli.it/faq/",
+      "reviewedInventoryReference": "https://www.ghilli.it/faq/",
+      "primaryEvidence": [
+        "https://www.ghilli.it/faq/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6ccfvfyeey99mhw6a8wyp40",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ccfvxjegw81raj16xnv8a8",
+          "businessAssociation": {
+            "reference": "https://www.ghilli.it/termini-e-condizioni/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.ghilli.it/faq/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6ccfvfyeey99mhw6a8wyp40",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ccfvxjegw81raj16xnv8a8",
+          "businessAssociation": {
+            "reference": "https://www.ghilli.it/termini-e-condizioni/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.ghilli.it/faq/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:18.640995Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.025402Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "domusaureacatania.it",
+      "partyId": "pty_01m6ceh3sxebasrnq9hn6et9mx",
+      "listingSourceId": "ls_01m6ceh3tjetzt8ajmg45j08wy",
+      "partyLocationId": "ploc_01m6ceh472e1w8eh5q85b95sxx",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "The actual InNegozio furniture catalogue describes its photographed pieces as part of the wider collection viewable in the showroom. Its source is this physical-shop catalogue.",
+      "previousInventoryReference": "https://www.domusaureacatania.it/in-negozio/mobili",
+      "reviewedInventoryReference": "https://www.domusaureacatania.it/in-negozio/mobili",
+      "primaryEvidence": [
+        "https://www.domusaureacatania.it/in-negozio/mobili"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6ceh3tjetzt8ajmg45j08wy",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ceh472e1w8eh5q85b95sxx",
+          "businessAssociation": {
+            "reference": "https://www.domusaureacatania.it/contatti",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.domusaureacatania.it/in-negozio/mobili",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6ceh3tjetzt8ajmg45j08wy",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ceh472e1w8eh5q85b95sxx",
+          "businessAssociation": {
+            "reference": "https://www.domusaureacatania.it/contatti",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.domusaureacatania.it/in-negozio/mobili",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:18.905407Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.119812Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "antichitailtemporitrovato.it",
+      "partyId": "pty_01m6cerms7echah5vsdbsy72ms",
+      "listingSourceId": "ls_01m6cermssepvawsp7kthxwpmd",
+      "partyLocationId": "ploc_01m6cern7ce6y96dcq1qhdzmes",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Native primary page explicitly calls ViaDelFangario13 the depot of the online furniture/object website and describes its exhibition. This links online stock to the selected depot independently of its address.",
+      "previousInventoryReference": "https://www.antichitailtemporitrovato.it/",
+      "reviewedInventoryReference": "https://www.antichitailtemporitrovato.it/",
+      "primaryEvidence": [
+        "https://www.antichitailtemporitrovato.it/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6cermssepvawsp7kthxwpmd",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cern7ce6y96dcq1qhdzmes",
+          "businessAssociation": {
+            "reference": "https://www.antichitailtemporitrovato.it/index.php?p=Dove%20siamo&t=Dove%20siamo",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.antichitailtemporitrovato.it/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6cermssepvawsp7kthxwpmd",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cern7ce6y96dcq1qhdzmes",
+          "businessAssociation": {
+            "reference": "https://www.antichitailtemporitrovato.it/index.php?p=Dove%20siamo&t=Dove%20siamo",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.antichitailtemporitrovato.it/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:19.161004Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.211499Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "antiquariatovisconti.com",
+      "partyId": "pty_01m6cfc6gpeqgarxg6y03krwyv",
+      "listingSourceId": "ls_01m6cfc6h7eqnbq417dk6gvnje",
+      "partyLocationId": "ploc_01m6cfc6z8et4s8sfh0b7x7hhd",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Primary page explicitly describes the selected Surano exhibition as holding a wide range of items available for sale and invites viewing that selection. This is advertised physical stock,not merely a business address.",
+      "previousInventoryReference": "https://www.antiquariatovisconti.com/",
+      "reviewedInventoryReference": "https://www.antiquariatovisconti.com/",
+      "primaryEvidence": [
+        "https://www.antiquariatovisconti.com/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6cfc6h7eqnbq417dk6gvnje",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cfc6z8et4s8sfh0b7x7hhd",
+          "businessAssociation": {
+            "reference": "https://www.antiquariatovisconti.com/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.antiquariatovisconti.com/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6cfc6h7eqnbq417dk6gvnje",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cfc6z8et4s8sfh0b7x7hhd",
+          "businessAssociation": {
+            "reference": "https://www.antiquariatovisconti.com/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.antiquariatovisconti.com/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:19.409550Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.317979Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "rasoloantichita.com",
+      "partyId": "pty_01m6chznhgetp8mszvzqv8jwr7",
+      "listingSourceId": "ls_01m6chznj0e9bvp033g704ye1x",
+      "partyLocationId": "ploc_01m6chznxqe8at9kg3q2sxpvrq",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Primary company page describes the selected combined shop/warehouse and its physical stock of antique items represented by the catalogue. No dispatch or pickup guarantee follows.",
+      "previousInventoryReference": "https://www.rasoloantichita.com/it/company-negozio-antiquariato-padova.aspx",
+      "reviewedInventoryReference": "https://www.rasoloantichita.com/it/company-negozio-antiquariato-padova.aspx",
+      "primaryEvidence": [
+        "https://www.rasoloantichita.com/it/company-negozio-antiquariato-padova.aspx"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6chznj0e9bvp033g704ye1x",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6chznxqe8at9kg3q2sxpvrq",
+          "businessAssociation": {
+            "reference": "https://www.rasoloantichita.com/it/contatti-antiquariato-padova-provincia.aspx",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.rasoloantichita.com/it/company-negozio-antiquariato-padova.aspx",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6chznj0e9bvp033g704ye1x",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6chznxqe8at9kg3q2sxpvrq",
+          "businessAssociation": {
+            "reference": "https://www.rasoloantichita.com/it/contatti-antiquariato-padova-provincia.aspx",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.rasoloantichita.com/it/company-negozio-antiquariato-padova.aspx",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:19.711813Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.414921Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "gallerianovecento.it",
+      "partyId": "pty_01m6ckjepme159130953n15fcq",
+      "listingSourceId": "ls_01m6ckjeq7ez9s2qfzvaa9dwe3",
+      "partyLocationId": "ploc_01m6ckjf4tenr9j3qjc5xzegqn",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Primary buying policy expressly says acquired objects are offered physically in this shop and virtually in this website store. Separate explicit dual-channel stock statement.",
+      "previousInventoryReference": "https://www.gallerianovecento.it/pages/vendi-con-noi",
+      "reviewedInventoryReference": "https://www.gallerianovecento.it/pages/vendi-con-noi",
+      "primaryEvidence": [
+        "https://www.gallerianovecento.it/pages/vendi-con-noi"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6ckjeq7ez9s2qfzvaa9dwe3",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ckjf4tenr9j3qjc5xzegqn",
+          "businessAssociation": {
+            "reference": "https://www.gallerianovecento.it/pages/contact",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.gallerianovecento.it/pages/vendi-con-noi",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6ckjeq7ez9s2qfzvaa9dwe3",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ckjf4tenr9j3qjc5xzegqn",
+          "businessAssociation": {
+            "reference": "https://www.gallerianovecento.it/pages/contact",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.gallerianovecento.it/pages/vendi-con-noi",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:19.985245Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.504589Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "studiobenacense.it",
+      "partyId": "pty_01m6cmhbkre3b9svnfyprqd4js",
+      "listingSourceId": "ls_01m6cmhbm9ev1s895c2p99ydat",
+      "partyLocationId": "ploc_01m6cmhcb6er78xxqppfmgww31",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Primary about locates the library at ViaDisciplini32 and expressly describes its volumes as resting and visible there,with catalogues of those holdings. Separate physical-stock statement.",
+      "previousInventoryReference": "https://www.studiobenacense.it/chi-siamo/",
+      "reviewedInventoryReference": "https://www.studiobenacense.it/chi-siamo/",
+      "primaryEvidence": [
+        "https://www.studiobenacense.it/chi-siamo/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6cmhbm9ev1s895c2p99ydat",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cmhcb6er78xxqppfmgww31",
+          "businessAssociation": {
+            "reference": "https://www.studiobenacense.it/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.studiobenacense.it/chi-siamo/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6cmhbm9ev1s895c2p99ydat",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cmhcb6er78xxqppfmgww31",
+          "businessAssociation": {
+            "reference": "https://www.studiobenacense.it/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.studiobenacense.it/chi-siamo/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:20.313222Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.600946Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "vecchilibri.net",
+      "partyId": "pty_01m6cmhe55e2r96zknz5apgdw7",
+      "listingSourceId": "ls_01m6cmhe5qeagtw5n0xxz0c3e0",
+      "partyLocationId": "ploc_01m6cmhehmemwt9gw9frqzajdn",
+      "decision": "REMOVE_UNSUPPORTED",
+      "assessmentConfidence": 0.99,
+      "reason": "Native business/about identifies a public shop; one variant has local pickup availability. A particular variant/pickup observation does not establish the source-wide stock location for all catalogue items.",
+      "previousInventoryReference": "https://vecchilibri.net/pages/chi-siamo",
+      "reviewedInventoryReference": null,
+      "primaryEvidence": [
+        "https://vecchilibri.net/pages/chi-siamo"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6cmhe5qeagtw5n0xxz0c3e0",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cmhehmemwt9gw9frqzajdn",
+          "businessAssociation": {
+            "reference": "https://vecchilibri.net/policies/contact-information",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://vecchilibri.net/pages/chi-siamo",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6cmhe5qeagtw5n0xxz0c3e0",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cmhehmemwt9gw9frqzajdn",
+          "businessAssociation": {
+            "reference": "https://vecchilibri.net/policies/contact-information",
+            "scope": "ASSOCIATED_BUSINESS"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:20.839704Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.692361Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "antichitalarghi.it",
+      "partyId": "pty_01m6cp9xd7e3jt5db820nnndy6",
+      "listingSourceId": "ls_01m6cp9xdmeyfr47yzvkvwm4kj",
+      "partyLocationId": "ploc_01m6cp9xs9ere80hhmscbcws36",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Primary homepage expressly says all objects are on display and viewable at the selected Lierna shop. This is direct inventory evidence,independent of the address.",
+      "previousInventoryReference": "https://www.antichitalarghi.it/",
+      "reviewedInventoryReference": "https://www.antichitalarghi.it/",
+      "primaryEvidence": [
+        "https://www.antichitalarghi.it/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6cp9xdmeyfr47yzvkvwm4kj",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cp9xs9ere80hhmscbcws36",
+          "businessAssociation": {
+            "reference": "https://www.antichitalarghi.it/contattaci/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.antichitalarghi.it/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6cp9xdmeyfr47yzvkvwm4kj",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6cp9xs9ere80hhmscbcws36",
+          "businessAssociation": {
+            "reference": "https://www.antichitalarghi.it/contattaci/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.antichitalarghi.it/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:21.161361Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.790901Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "prospero-libri.it",
+      "partyId": "pty_01m6d7v112e14t885nap48qhxc",
+      "listingSourceId": "ls_01m6d7v11keq7s2k7gfvatzpfm",
+      "partyLocationId": "ploc_01m6d7v1dveg5sn7b3cq8rz79f",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Native contact expressly says the website presents a selection of books available at this current library,whose current address is specified. Direct source-to-shop stock statement.",
+      "previousInventoryReference": "https://www.prospero-libri.it/contatti.html",
+      "reviewedInventoryReference": "https://www.prospero-libri.it/contatti.html",
+      "primaryEvidence": [
+        "https://www.prospero-libri.it/contatti.html"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6d7v11keq7s2k7gfvatzpfm",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6d7v1dveg5sn7b3cq8rz79f",
+          "businessAssociation": {
+            "reference": "https://www.prospero-libri.it/contatti.html",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.prospero-libri.it/contatti.html",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6d7v11keq7s2k7gfvatzpfm",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6d7v1dveg5sn7b3cq8rz79f",
+          "businessAssociation": {
+            "reference": "https://www.prospero-libri.it/contatti.html",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.prospero-libri.it/contatti.html",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:21.481796Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.883911Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "galleriacosta.com",
+      "partyId": "pty_01m6e9d1tzetmszzv3khqjn22d",
+      "listingSourceId": "ls_01m6e9d1vke8q9090mcvectx0m",
+      "partyLocationId": "ploc_01m6e9d28pedmabfah76674b7s",
+      "decision": "REMOVE_UNSUPPORTED",
+      "assessmentConfidence": 0.99,
+      "reason": "A particular available chest does not establish where all catalogue stock is held. There are three current premises; selecting the first Torino site is unsupported inventory allocation.",
+      "previousInventoryReference": "https://galleriacosta.com/products/cassettone-retour-degypte",
+      "reviewedInventoryReference": null,
+      "primaryEvidence": [
+        "https://galleriacosta.com/products/cassettone-retour-degypte"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6e9d1vke8q9090mcvectx0m",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6e9d28pedmabfah76674b7s",
+          "businessAssociation": {
+            "reference": "https://galleriacosta.com/pages/chi-siamo",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://galleriacosta.com/products/cassettone-retour-degypte",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6e9d1vke8q9090mcvectx0m",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6e9d28pedmabfah76674b7s",
+          "businessAssociation": {
+            "reference": "https://galleriacosta.com/pages/chi-siamo",
+            "scope": "ASSOCIATED_BUSINESS"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:21.986521Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:40.983227Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "ilbalon.it",
+      "partyId": "pty_01m6e9d4dee5hvg981t0vdz2wy",
+      "listingSourceId": "ls_01m6e9d4dxeagbxd0621ybye8v",
+      "partyLocationId": "ploc_01m6e9d4v0esxvv0s1s36r38py",
+      "decision": "REMOVE_UNSUPPORTED",
+      "assessmentConfidence": 0.99,
+      "reason": "A particular antique offer,shop address and agreed pickup do not independently establish the location of the complete online catalogue. General inventory geography remains unasserted.",
+      "previousInventoryReference": "https://ilbalon.it/prodotto/cassettone-luigi-xv-epoca-700-piemonte/",
+      "reviewedInventoryReference": null,
+      "primaryEvidence": [
+        "https://ilbalon.it/prodotto/cassettone-luigi-xv-epoca-700-piemonte/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6e9d4dxeagbxd0621ybye8v",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6e9d4v0esxvv0s1s36r38py",
+          "businessAssociation": {
+            "reference": "https://ilbalon.it/termini-e-condizioni-di-vendita/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://ilbalon.it/prodotto/cassettone-luigi-xv-epoca-700-piemonte/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6e9d4dxeagbxd0621ybye8v",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6e9d4v0esxvv0s1s36r38py",
+          "businessAssociation": {
+            "reference": "https://ilbalon.it/termini-e-condizioni-di-vendita/",
+            "scope": "ASSOCIATED_BUSINESS"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:22.502447Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:41.066217Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "galleriabertola.com",
+      "partyId": "pty_01m6ea225fe0xb67nvktdxbtat",
+      "listingSourceId": "ls_01m6ea2263ean9074a2hsawcjy",
+      "partyLocationId": "ploc_01m6ea22m2ezfbjgzmwyd0gmmf",
+      "decision": "RETAIN",
+      "assessmentConfidence": 0.99,
+      "reason": "Current bounded Opere gallery presents its offered works as viewable at the named ViaSilvioPellico29/E gallery and invites visitors to inspect those proposals in person. The retail-stock representation,not appointment/address alone,supports this advertised-inventory scope.",
+      "previousInventoryReference": "https://www.galleriabertola.com/opere-gallery",
+      "reviewedInventoryReference": "https://www.galleriabertola.com/opere-gallery",
+      "primaryEvidence": [
+        "https://www.galleriabertola.com/opere-gallery"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6ea2263ean9074a2hsawcjy",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ea22m2ezfbjgzmwyd0gmmf",
+          "businessAssociation": {
+            "reference": "https://www.galleriabertola.com/contatti",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.galleriabertola.com/opere-gallery",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "VERIFIED_UNCHANGED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6ea2263ean9074a2hsawcjy",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ea22m2ezfbjgzmwyd0gmmf",
+          "businessAssociation": {
+            "reference": "https://www.galleriabertola.com/contatti",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.galleriabertola.com/opere-gallery",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:22.816294Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:41.158703Z",
+        "result": "PASSED",
+        "revision": 2,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "fanedecorations.com",
+      "partyId": "pty_01m6ea240ze4f92kep41t7qvhk",
+      "listingSourceId": "ls_01m6ea241gek3t19qvpw1x0ck7",
+      "partyLocationId": "ploc_01m6ea24gper29mtaxv1agvenv",
+      "decision": "REPLACE_EVIDENCE_REFERENCE",
+      "assessmentConfidence": 0.99,
+      "reason": "Native homepage separately describes its own selected objects hosted in this shop and explicitly invites visiting ViaGaudenzioFerrari4 to discover the collection in person. Retain the advertised physical-collection association using this primary general statement,not the individual cooler product URL.",
+      "previousInventoryReference": "https://www.fanedecorations.com/prodotto/rinfresca-bottiglie-francese-in-metallo-argentato-prima-meta-xix/",
+      "reviewedInventoryReference": "https://www.fanedecorations.com/",
+      "primaryEvidence": [
+        "https://www.fanedecorations.com/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6ea241gek3t19qvpw1x0ck7",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ea24gper29mtaxv1agvenv",
+          "businessAssociation": {
+            "reference": "https://www.fanedecorations.com/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.fanedecorations.com/prodotto/rinfresca-bottiglie-francese-in-metallo-argentato-prima-meta-xix/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6ea241gek3t19qvpw1x0ck7",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ea24gper29mtaxv1agvenv",
+          "businessAssociation": {
+            "reference": "https://www.fanedecorations.com/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.fanedecorations.com/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:23.311464Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:41.255973Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "galleriagiamblanco.com",
+      "partyId": "pty_01m6eax8htebg8kgkqwv983pnr",
+      "listingSourceId": "ls_01m6eax8j9eqwt7wcszjx4spj8",
+      "partyLocationId": "ploc_01m6eax8zqe5ft3csjkb6y978v",
+      "decision": "REMOVE_UNSUPPORTED",
+      "assessmentConfidence": 0.99,
+      "reason": "The particular for-sale painting proves qualified stock,not its physical presence or source-wide stock allocation. Generic gallery/exhibition tour wording does not independently place the entire for-sale source at the selected street.",
+      "previousInventoryReference": "https://www.galleriagiamblanco.com/prodotto/angelo-da-campo-verona-1735-1826-paesaggio-con-pastori-e-cavalieri/",
+      "reviewedInventoryReference": null,
+      "primaryEvidence": [
+        "https://www.galleriagiamblanco.com/prodotto/angelo-da-campo-verona-1735-1826-paesaggio-con-pastori-e-cavalieri/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6eax8j9eqwt7wcszjx4spj8",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6eax8zqe5ft3csjkb6y978v",
+          "businessAssociation": {
+            "reference": "https://www.galleriagiamblanco.com/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.galleriagiamblanco.com/prodotto/angelo-da-campo-verona-1735-1826-paesaggio-con-pastori-e-cavalieri/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6eax8j9eqwt7wcszjx4spj8",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6eax8zqe5ft3csjkb6y978v",
+          "businessAssociation": {
+            "reference": "https://www.galleriagiamblanco.com/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:23.852509Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:41.339581Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "mirabilia.gallery",
+      "partyId": "pty_01m6eaxabhe898v9kkqqygzz98",
+      "listingSourceId": "ls_01m6eaxabxef0v5ts20jgmt4d5",
+      "partyLocationId": "ploc_01m6eaxarae4f8bz7yy5wgvbn1",
+      "decision": "REMOVE_UNSUPPORTED",
+      "assessmentConfidence": 0.99,
+      "reason": "The particular available plate and an appointment gallery establish current retail activity/business premises,not the physical location of every online offer. Tax/residence/internal details are not source inventory proof.",
+      "previousInventoryReference": "https://mirabilia.gallery/shop/piatto-maiolica-rossetti-1750/",
+      "reviewedInventoryReference": null,
+      "primaryEvidence": [
+        "https://mirabilia.gallery/shop/piatto-maiolica-rossetti-1750/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6eaxabxef0v5ts20jgmt4d5",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6eaxarae4f8bz7yy5wgvbn1",
+          "businessAssociation": {
+            "reference": "https://mirabilia.gallery/contatti-2/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://mirabilia.gallery/shop/piatto-maiolica-rossetti-1750/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6eaxabxef0v5ts20jgmt4d5",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6eaxarae4f8bz7yy5wgvbn1",
+          "businessAssociation": {
+            "reference": "https://mirabilia.gallery/contatti-2/",
+            "scope": "ASSOCIATED_BUSINESS"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:24.324690Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:41.423274Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "galleriapirra.it",
+      "partyId": "pty_01m6ec61caenpaqywvrkkf1vab",
+      "listingSourceId": "ls_01m6ec61cwerpsq9jtgm0qmmgz",
+      "partyLocationId": "ploc_01m6ec61tted6tgr2x33fhbbgc",
+      "decision": "REMOVE_UNSUPPORTED",
+      "assessmentConfidence": 0.99,
+      "reason": "The hosted particular painting has only city-level gallery/shipping context. It does not establish source-wide stock at the selected full street address,which is independently a business site.",
+      "previousInventoryReference": "https://www.1stdibs.com/art/paintings/landscape-paintings/anna-sogno-highway-paesaggio-americano-1966-esposto-mostra-italia-nel-1995/id-a_18758992/",
+      "reviewedInventoryReference": null,
+      "primaryEvidence": [
+        "https://www.1stdibs.com/art/paintings/landscape-paintings/anna-sogno-highway-paesaggio-americano-1966-esposto-mostra-italia-nel-1995/id-a_18758992/"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6ec61cwerpsq9jtgm0qmmgz",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ec61tted6tgr2x33fhbbgc",
+          "businessAssociation": {
+            "reference": "https://www.galleriapirra.it/webform/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "https://www.1stdibs.com/art/paintings/landscape-paintings/anna-sogno-highway-paesaggio-americano-1966-esposto-mostra-italia-nel-1995/id-a_18758992/",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6ec61cwerpsq9jtgm0qmmgz",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ec61tted6tgr2x33fhbbgc",
+          "businessAssociation": {
+            "reference": "https://www.galleriapirra.it/webform/contatti/",
+            "scope": "ASSOCIATED_BUSINESS"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:24.792328Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:41.514215Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    },
+    {
+      "domain": "lentiniantichita.com",
+      "partyId": "pty_01m6ec63b2e2c8qxwgwjrjj1kr",
+      "listingSourceId": "ls_01m6ec63bmekebhq3b2d3wrexk",
+      "partyLocationId": "ploc_01m6ec63t6ekmr3g3wer529gz2",
+      "decision": "REMOVE_UNSUPPORTED",
+      "assessmentConfidence": 0.99,
+      "reason": "The priced travelling desk and current public business address prove qualified dealing,not source-wide stock allocation at that address. No separate inventory-location assertion verified.",
+      "previousInventoryReference": "http://www.lentiniantichita.com/dettaglio.asp?id=464484&lingua=ita&index=0",
+      "reviewedInventoryReference": null,
+      "primaryEvidence": [
+        "http://www.lentiniantichita.com/dettaglio.asp?id=464484&lingua=ita&index=0"
+      ],
+      "before": {
+        "listingSourceId": "ls_01m6ec63bmekebhq3b2d3wrexk",
+        "revision": 2,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ec63t6ekmr3g3wer529gz2",
+          "businessAssociation": {
+            "reference": "http://www.lentiniantichita.com/contatti.asp?lingua=ita",
+            "scope": "ASSOCIATED_BUSINESS"
+          },
+          "advertisedInventory": {
+            "reference": "http://www.lentiniantichita.com/dettaglio.asp?id=464484&lingua=ita&index=0",
+            "scope": "ADVERTISED_INVENTORY"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "status": "APPLIED_AND_VERIFIED",
+      "meaning": "Advertised inventory is separate from associated business,pickup,dispatch and guaranteed actual per-item availability. Removal means unknown stock geography,not absent stock or closed business.",
+      "after": {
+        "listingSourceId": "ls_01m6ec63bmekebhq3b2d3wrexk",
+        "revision": 3,
+        "assignment": {
+          "partyLocationId": "ploc_01m6ec63t6ekmr3g3wer529gz2",
+          "businessAssociation": {
+            "reference": "http://www.lentiniantichita.com/contatti.asp?lingua=ita",
+            "scope": "ASSOCIATED_BUSINESS"
+          }
+        },
+        "eligibility": "ACTIVE"
+      },
+      "verifiedAt": "2026-11-02T15:17:25.257821Z",
+      "independentReadback": {
+        "verifiedAt": "2026-11-02T16:01:41.687315Z",
+        "result": "PASSED",
+        "revision": 3,
+        "businessAssociationPreserved": true,
+        "inventoryAssertionMatchesReviewedScope": true
+      }
+    }
+  ],
+  "pendingOperations": [],
+  "fullReadbackAfterCorrections": {
+    "run": "2026-11-02-it-095",
+    "scope": "FULL",
+    "completeDealerResourceSets": 170,
+    "reused": 0,
+    "verifiedAt": "2026-11-02T15:47:05.387042Z",
+    "result": "PASSED"
+  },
+  "retainedInventoryAssertions": 12,
+  "removedUnsupportedAssertions": 8,
+  "correctedEvidenceReferences": 1,
+  "apiResourceIdsPreserved": true,
+  "verifiedAt": "2026-11-02T16:01:41.974345Z",
+  "independentDefaultsReadback": "PASSED",
+  "newQualifiedSourceHasNoInferredInventoryDefault": true
+}

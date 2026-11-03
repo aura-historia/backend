@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-03-gb-147",
+  "verifiedAt": "2026-11-03T09:10:29.305618Z",
+  "scope": "FULL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T09:10:29.305618Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 0,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 1981,
+    "listingSources": 2005
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "sellingantiques.co.uk",
+      "listingSourceId": "ls_01m6ganrbjed0sn4508rzsjbyb",
+      "partyId": "pty_01m6ganrb5ek5sbsvxkabq6202",
+      "locations": 1,
+      "logo": false,
+      "platform": "SELLINGANTIQUES",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T09:10:29.304729Z",
+      "observationDigest": "88e9a1d49d0145350abea1cc898391556887b926e1cddae6ccddf1bcc98dc29b"
+    }
+  ]
+}

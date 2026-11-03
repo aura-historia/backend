@@ -1,0 +1,19 @@
+{
+  "run": "2026-11-02-it-105",
+  "observedAt": "2026-11-03T09:02:00.000000Z",
+  "result": "PASSED",
+  "apiWritesThisRun": 3,
+  "rawJournalFiles": 38,
+  "rawJournalRecordsScanned": 33729,
+  "ownedItalyRootsAndAliases": 285,
+  "freshGlobalApiSnapshot": "PASSED; live snapshot contained 1975 Parties and 1999 sources. All 181 managed Italy Party/source identities and empty ingestion lists passed readback; run 105 incrementally checked Aquafortis location/default and current metadata while reusing 180 unchanged resource digests.",
+  "crossLedgerOwnership": "PASSED; all 38 raw discovery JSONL journals (33729 records) were checked for domains/aliases/contacts. Italy's 285 roots/aliases have no domain ownership collision in the four other-country dealer ledgers. Aquafortis had no API or raw-journal identity/contact match before onboarding.",
+  "newDealers": "Aquafortis ADDED with source ls_01m6ga78asee7skye9h4tc9q47, Party pty_01m6ga78a4eq29rxe9x6nvwk5h, Florence location ploc_01m6ga78q5ew8tzs3dr8ftwmkx and location-default revision 2; logo verified, no platform/shipping terms asserted, ingestion empty.",
+  "previousRun": "Run 104 added Galleria Roberto Ducci with WooCommerce platform and two business premises, both verified by incremental readback.",
+  "deferredLeads": "Gallori Turchi remains DEFERRED for legal operator relation and current item stock uncertainty; no API write.",
+  "nextLead": "galleriadelcaminetto.it queued after first-party Bologna gallery/event page review and fresh API/journal domain/name dedupe. Its page has category-level collection descriptions, so run 106 must inspect item-specific stock and exact legal identity before any write.",
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherCountryDealerMutations": true,
+  "explicitCountryPaths": "Run 105 onboarding, verification and audit used the Italy ledger; verification output and index target the Italy country directory. The root legacy mirror was read for duplicate checks only."
+}

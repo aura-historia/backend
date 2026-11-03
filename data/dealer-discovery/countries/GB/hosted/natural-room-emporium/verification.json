@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-03-gb-147",
+  "verifiedAt": "2026-11-03T09:10:08.438529Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-03T08:41:42.636731Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 1,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 1981,
+    "listingSources": 2005
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "evintiques.shop",
+      "listingSourceId": "ls_01m6fh6vk2esmvyf6xsw0krqat",
+      "partyId": "pty_01m6fh6vjhedj96atp397xgdgv",
+      "locations": 1,
+      "logo": false,
+      "platform": "EVINTIQUES",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-03T08:41:42.635688Z",
+      "observationDigest": "8435e738f992377a91b57bda41bddee0142dd51671fe98e6ddb387351e7b5ec9"
+    }
+  ]
+}

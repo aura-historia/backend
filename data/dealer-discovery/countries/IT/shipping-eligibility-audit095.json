@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-095",
+  "domain": "vecchilibri.net",
+  "observedAt": "2026-11-02T15:46:03.361503Z",
+  "status": "PASSED",
+  "confidence": 0.99,
+  "listingSourceId": "ls_01m6cmhe5qeagtw5n0xxz0c3e0",
+  "partyId": "pty_01m6cmhe55e2r96zknz5apgdw7",
+  "shippingProfileId": "shp_01m6cmhf4bexc8evsybtj0xgas",
+  "beforeManagementRevision": 1,
+  "beforeCollectionEligibility": "OFFERED",
+  "reviewedCollectionEligibility": null,
+  "evidence": [
+    "https://vecchilibri.net/",
+    "https://vecchilibri.net/variants/50729320874250/?section_id=pickup-availability",
+    "https://vecchilibri.lol/policies/refund-policy"
+  ],
+  "reason": "Reviewed public pickup observation concerns one particular book variant. It establishes that pickup site/alternative mode for the observed item,not source-wide eligibility for every catalogue item. Keep the known site and other advertised policy; whole-source collection eligibility remains unknown.",
+  "preservedOtherTerms": true,
+  "pendingOperation": null,
+  "fullReadbackAfterCorrection": {
+    "run": "2026-11-02-it-095",
+    "scope": "FULL",
+    "completeDealerResourceSets": 170,
+    "reused": 0,
+    "verifiedAt": "2026-11-02T15:47:05.387042Z",
+    "result": "PASSED"
+  },
+  "afterManagementRevision": 2,
+  "afterCollectionEligibility": null,
+  "verifiedAt": "2026-11-02T16:01:41.974388Z",
+  "resourceIdsPreserved": true,
+  "shippingDefaultUnchanged": true,
+  "relatedEvidenceChecks": [
+    {
+      "domain": "laprimularossa.it",
+      "decision": "RETAIN_SOURCE_WIDE_PICKUP_ELIGIBILITY",
+      "confidence": 0.99,
+      "evidence": [
+        "https://laprimularossa.it/pages/condizioni-di-vendita",
+        "https://laprimularossa.it/variants/53427116114187/?section_id=pickup-availability"
+      ],
+      "reason": "General sales conditions independently offer local pickup without shipping/packing costs; item-specific pickup availability supplies the concrete site. Unlike a variant-only inference,the global eligibility has a separate source-wide policy basis. No resource changed."
+    }
+  ],
+  "independentProfileReadback": "PASSED",
+  "otherProfileContentPreserved": true,
+  "knownPickupSitePreserved": true
+}

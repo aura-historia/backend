@@ -1,0 +1,25 @@
+{
+  "run": "2026-11-02-it-096",
+  "observedAt": "2026-11-03T07:40:42.707337Z",
+  "result": "PASSED",
+  "rawDealerLedgers": 26,
+  "otherOwnerHistoricalRecords": 23374,
+  "newPartyId": "pty_01m6g570rse87sn24xmxwjafdk",
+  "newListingSourceId": "ls_01m6g570sce7x8ey421c5b49aj",
+  "newLocationId": "ploc_01m6g5715sem0aj2ram57f7mmm",
+  "newShippingProfileId": "shp_01m6g571qbe6ascw0dfpq5hhgs",
+  "identityCheck": "positive exact company name/VAT; differing tax address not assigned as a location",
+  "freshGlobalApiSnapshot": "PASSED; one matching Party and one matching Source",
+  "independentResourceReadbacks": "PASSED; active platform/profile/default and empty ingestion",
+  "locationScope": "business association present; advertised inventory absent",
+  "shippingRateCorrection": "management revision 1→2; conditional international quote stored with source-wide rate unknown; live readback passed",
+  "mattarte": "DEFERRED; no API resources",
+  "nextLeads": [
+    "novarinofineart.it",
+    "ritatuci.com",
+    "taher-sabahi.com"
+  ],
+  "paidResearchSpendUsd": 0,
+  "credentialMode": "0600",
+  "noOtherOwnerMutations": true
+}
