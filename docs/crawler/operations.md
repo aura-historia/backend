@@ -1,6 +1,6 @@
 # Crawler operations
 
-This document is needed because crawler operation has separate state, credentials, migrations, review access, and a dual-database boundary.
+This document is needed because crawler operation has separate state, credentials, migrations and review access.
 
 ## Runtime prerequisites
 
@@ -9,7 +9,9 @@ The `server` binary needs:
 | Input | Purpose |
 |---|---|
 | `LOCAL_DB_URL` | Required connection URL of the crawler-local Postgres database. The operator creates the database; `server` only migrates it. Unset or blank fails startup; see [single-server deployment](#single-server-deployment). |
-| `BUSINESS_DATABASE_URL` | Authoritative ListingSource reads and ProductListing raw capture. |
+| `AURA_API_BASE_URL`, `CRAWLER_API_TOKEN` | Base URL of the Aura Historia API (`https`; `http` only for a loopback host) and a bearer token that may read admin ListingSources (`GET /v1/admin/listing-sources`, scope `listing-sources:read` for a delegated token). The token is never logged. Unset or invalid values fail startup. |
+| `PRODUCT_LISTING_INGESTION_QUEUE_URL` | Required URL of the product-listing ingestion FIFO queue that receives raw observations. |
+| AWS credentials | The SDK default credential chain, allowed `sqs:SendMessage` on that queue and nothing broader. |
 | `SPIDER_MAX_SIZE_BYTES` | Required spider page-body ceiling; use a value from 1 MiB through 8 MiB. |
 | `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION` | Vertex AI configuration; not read with `CRAWLER_AUTHORING_MODE` `manual` or `agent`. |
 | Application Default Credentials | Vertex AI authentication; `GOOGLE_APPLICATION_CREDENTIALS` is one local option. |
@@ -22,7 +24,7 @@ Optional `CRAWLER_MASS_REMOVAL_CONFIRMED_DOMAINS` lists, comma-separated, the Li
 
 Optional `CRAWLER_CLOUDWATCH_LOG_GROUP` and `CRAWLER_CLOUDWATCH_LOG_STREAM` enable CloudWatch log export. That deployment needs permission to create the group and stream and put log events. Logs must expose operational outcomes and identifiers without raw source payloads.
 
-The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces `BUSINESS_DATABASE_URL`, AWS credentials and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it. Without `LOCAL_DB_URL`, `dev` starts the [local database](#local-database) itself and uses its `crawler_demo` database. With it, `dev` uses that database as given, like `server`: a run against a copy of `crawler_demo` leaves the demo state untouched, and a `.env` written for `server` points `dev` at the server database.
+The local `dev` binary runs the same pipeline through the shared [composition root](README.md#binaries) and reads the same LLM, spider and review settings. It replaces the API, the ingestion queue and CloudWatch export with demo ListingSources, a raw-observation file and stdout logging, and defaults `SPIDER_MAX_SIZE_BYTES` to 8 MiB when it is unset; `server` requires the variable and its spider rejects each crawl without it. Without `LOCAL_DB_URL`, `dev` starts the [local database](#local-database) itself and uses its `crawler_demo` database. With it, `dev` uses that database as given, like `server`: a run against a copy of `crawler_demo` leaves the demo state untouched, and a `.env` written for `server` points `dev` at the server database.
 
 `server` and `dev` apply crawler-local migrations at startup. Migrations under [`src/crawler/migrations`](../../src/crawler/migrations/) are the authoritative crawler database contract; do not repair the live schema by hand. This lifecycle is outside the AWS Deploy/Migrate/Initialize workflows: manual Migrate owns only business PostgreSQL migrations, and FX-only Initialize never migrates crawler state.
 
@@ -271,7 +273,7 @@ CREATE DATABASE crawler_server OWNER crawler;
 
 Set `LOCAL_DB_URL=postgres://crawler:<password>@127.0.0.1:5432/crawler_server` in the environment file; percent-encode reserved characters in the password. A missing or blank value fails startup with `missing required environment variable: LOCAL_DB_URL`. Keep the Postgres port closed to the outside. The database holds all crawler state; back it up.
 
-`BUSINESS_DATABASE_URL` must reach the business PostgreSQL from the host, for example through a security-group rule for the host's address and `sslmode=require` in the URL. A failed connection at startup stops the process. Business migrations belong to the manual Migrate workflow, never to the crawler, so the business schema must already be current.
+The host needs outbound HTTPS to the API and to SQS, and no route to the business PostgreSQL. A scope refresh that cannot reach the API or receives a failed or malformed page skips that pass and is retried at the next one; startup stops only on a missing or invalid setting. Raw capture into the business database is the ingestion consumer's job, so a failure there is not visible to the crawler.
 
 Prepare the host once:
 
@@ -317,7 +319,7 @@ Run `systemctl stop crawler-server`, replace the binary and run `systemctl start
 
 ### After start
 
-- The journal shows `Connected to crawler-local Postgres`, `Connected to authoritative business Postgres`, `Crawler authoring mode configured: ...` with `authoring_mode` `manual` or `agent` and `authoring_mode_source` `env`, in `agent` mode `Generated the review agents' tokens of this start and wrote them to their token file` with the file's `path`, and `Crawler review console listening`.
+- The journal shows `Connected to crawler-local Postgres`, `Crawler authoring mode configured: ...` with `authoring_mode` `manual` or `agent` and `authoring_mode_source` `env`, in `agent` mode `Generated the review agents' tokens of this start and wrote them to their token file` with the file's `path`, and `Crawler review console listening`.
 - `curl -fsS http://127.0.0.1:7878/health` returns `{"ok":true}`.
 - `curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7878/api/listing_sources` lists the ListingSources, with the ListingSources that need an operator first.
 - The first spider pass does not log a `SPIDER_MAX_SIZE_BYTES` error: the spider checks that value, from 1048576 through 8388608, on each crawl, not at startup.
@@ -334,7 +336,8 @@ All metrics use the namespace `AuraHistoria/Crawler`. Dimension values are Listi
 | `ScrapedOrAwaitingReview` | Count | `listing_source_id`, `domain` | Per scraper domain batch: 1 when the batch completed a scrape or a page of it waited on a product-schema review, else 0. Per scraper pass, also 1 for each domain that only a pending review keeps from scraping and so has no batch: the domain has a product URL pattern while its ListingSource has no product schema and a pending product-schema review, or it has none while its URL-pattern review is pending ([manual authoring](#manual-authoring)), and its ListingSource is crawl-enabled with LLM budget left and its [domain circuit](scheduling-and-retries.md#scraper-domain-circuits) is not open. |
 | `DomainCircuitOpened` | Count | `listing_source_id`, `domain` | Per scraper domain batch: 1 when the batch opened the [domain circuit](scheduling-and-retries.md#scraper-domain-circuits), else 0. |
 | `UrlFailures` | Count | `listing_source_id`, `domain`, `failure_kind` | Per scraper domain batch and failure kind: the URL failures that recorded that `last_error_kind`, such as `HTTP_503` or `Timeout`. |
-| `ProductsCaptured` | Count | `listing_source_id`, `domain` | Per raw-capture batch: observations raw capture persisted durably; 0 when every capture of the domain failed. |
+| `ProductsCaptured` | Count | `listing_source_id`, `domain` | Per raw-capture batch: observations the ingestion queue accepted; 0 when every submission of the domain failed. |
+| `ProductsDiscardedUnsendable` | Count | `listing_source_id`, `domain` | Per raw-capture batch, only when non-zero: observations discarded because they exceed the ingestion message limit or cannot be encoded. |
 | `CrawlOutcome` | Count | `listing_source_id`, `domain`, `crawl_outcome` | 1 per spider crawl that [recorded](scheduling-and-retries.md#spider-crawl-completion) a `last_crawl_outcome`, with that outcome. A URL-pattern decision that clears a domain's `AWAITING_URL_PATTERN_REVIEW` is no crawl and emits none. |
 | `CrawlProductUrls`, `CrawlTruncated` | Count | `listing_source_id`, `domain` | Per spider crawl that classified its URLs with a product pattern, including a pattern that matched nothing on pages that were not mostly [bot challenges](networking.md#bot-challenges): the product URLs the crawl stored, each page once whether the shop links it with or without its trailing slash, and without the pages the pattern matches that are stored `other` because an operator [rejected](#manual-authoring) them, plus, for an [incremental crawl](scheduling-and-retries.md#discovery-coverage), the stored product pages it found linked and did not fetch again; and 1 when the crawl was cut short, else 0. |
 | `ScraperDueUrls` | Count | none | URLs due for scraping when a scraper pass starts. |

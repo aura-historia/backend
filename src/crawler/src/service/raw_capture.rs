@@ -460,8 +460,10 @@ mod tests {
     /// Answers every submission from a script and records what it was asked to submit.
     struct FakeSubmitUseCase {
         submissions: Mutex<Vec<ProductListingIngestionSubmission>>,
-        respond: Box<dyn Fn(usize, &ProductListingIngestionSubmission) -> Reply + Send + Sync>,
+        respond: Responder,
     }
+
+    type Responder = Box<dyn Fn(usize, &ProductListingIngestionSubmission) -> Reply + Send + Sync>;
 
     enum Reply {
         Outcomes(Vec<(usize, ProductListingIngestionOutcome)>),
