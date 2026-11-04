@@ -1,21 +1,30 @@
 domain	status	platform	listingSourceId	partyId	observedAt	reason	aliases
 aalyours.wordpress.com	EXCLUDED				2026-11-03T16:24:53.860872Z		
+aaxsf.com	ADDED	SHOPIFY	ls_01m6jwb752e52sd0c1z3g65zwt	pty_01m6jwb74je5p9mk1n61bj3cnn	2026-11-04T08:55:55.582782Z		
 abrandtandson.com	ADDED	SHOPIFY	ls_01m6h5j23wem4r02h163q2dffg	pty_01m6h5j23fesxt53p2esqnkeyy	2026-11-03T16:58:27.979637Z		
+acanthusantiques.com	ADDED	SHOPIFY	ls_01m6kanycpe1vsc1qq4syhe709	pty_01m6kanycdej5b6fykp8qcvr63	2026-11-04T13:06:26.881639Z		
 adamweinbergerrarebooks.com	DEFERRED				2026-11-03T10:09:07.444893Z	CURRENT_CATALOGUE_ACCESS_UNVERIFIED	
+adelsongalleries.com	ADDED	SQUARESPACE	ls_01m6k6w74dek8svr7k3gsadn94	pty_01m6k6w740ecybpzxwxpsm53e1	2026-11-04T11:59:58.574778Z		
 adobegallery.com	ADDED		ls_01m6gjgvwnev1rsew3wm7wqdq8	pty_01m6gjgvw7ethrdnhsbzmh8av6	2026-11-03T11:25:45.795867Z		
 alaskafurexchange.com	ADDED		ls_01m6gpcb21e398328tm2qcgqpg	pty_01m6gpcb1ceq58zgzd645v9hm4	2026-11-03T12:33:11.759043Z		
+alexandregallery.com	ADDED	EXHIBIT_E	ls_01m6k6w9g8ezdaws5xd1ypf0ge	pty_01m6k6w9fdebvbaekjne3ebz97	2026-11-04T12:00:01.052903Z		
+allinsongallery.com	ADDED		ls_01m6hsvq0je08tzp8347tcneyr	pty_01m6hsvq02et4a3nn3pyjhcz14	2026-11-04T08:19:18.756921Z		
 alohashirts.com	DEFERRED				2026-11-03T12:03:39.693828Z	CURRENT_SITE_INTEGRITY_AND_INDIVIDUAL_STOCK_UNVERIFIED	
 alvr.com	ADDED	WOOCOMMERCE	ls_01m6hgcbexe6ga5szs26msg804	pty_01m6hgcbefehnatfrqek1w5vzb	2026-11-03T20:07:35.626808Z		
 americanprimitive.com	DEFERRED				2026-11-03T20:59:47.524170Z	UNRELATED_NATIVE_CONTENT	
+americanspiritantiques.com	DEFERRED				2026-11-03T21:25:23.510867Z	CURRENT_AVAILABLE_STOCK_NOT_VERIFIED	
 americansportingclassics.com	ADDED	SQUARESPACE	ls_01m6ghckhxedgba0dd5r8ff7mg	pty_01m6ghckhbe17s8x1hkf6x5h1c	2026-11-03T11:05:57.520925Z		
 amsterdammodern.com	ADDED		ls_01m6h43a15e66b7xc42zh00b7r	pty_01m6h43a0rejpsfmdymx3t8ne4	2026-11-03T16:32:56.147032Z		
+annlongfineart.com	ADDED	WORDPRESS	ls_01m6kgcm7mexqs4qa4aa0fyw8g	pty_01m6kgcm6pe87tbngvrmqpaens	2026-11-04T14:46:13.037028Z		
 anthonysfineart.com	ADDED	SHOPIFY	ls_01m6h4rxwdeasbm660ktgpcktw	pty_01m6h4rxvve9kr2qvm6qm80h9n	2026-11-03T16:44:44.001827Z		
 antiqs.com	ADDED	WORDPRESS	ls_01m6gp4k6we1zb1mzj84vpwbt7	pty_01m6gp4k6ke3xt9vnek8mdvtct	2026-11-03T12:28:58.171343Z		
+antiquariantraders.com	DEFERRED				2026-11-04T11:29:15.861697Z	NATIVE_PLACEHOLDER_AFTER_HISTORICAL_LIQUIDATION_CURRENT_OPERATION_UNVERIFIED	
 antiqueamericanclocks.com	EXCLUDED				2026-11-03T15:59:15.728036Z		
 antiquearchitectural.com	ADDED	GODADDY	ls_01m6gs50grewd9q6qqffkgj8e7	pty_01m6gs50g7em1t65vgwg77zd38	2026-11-03T13:21:37.158207Z		
 antiqueboutiquede.com	DEFERRED				2026-11-03T12:37:37.868443Z	NATIVE_MERCHANT_CONTENT_UNINSPECTABLE	
 antiquebyzrm.com	ADDED	SHOPIFY	ls_01m6gepnyhe3nrct5yj0kp83fk	pty_01m6gepny5eq0skxgt6zybgmyg	2026-11-03T10:19:02.308539Z		
 antiqueimportersnw.com	DEFERRED				2026-11-03T10:46:25.819423Z	CURRENT_INDIVIDUAL_ITEM_AVAILABILITY_UNVERIFIED	
+antiquemapsandglobes.com	DEFERRED				2026-11-03T22:37:30.929505Z	CURRENT_OPERATOR_HOME_AND_CATALOGUE_ACCESS_REVIEW	
 antiquemarketandmore.com	EXCLUDED				2026-11-03T15:14:55.960956Z		
 antiquemystique.com	ADDED	BIGCOMMERCE	ls_01m6gkh99ce2ptcjbww3e1ev1k	pty_01m6gkh993ekyar04411qwdgke	2026-11-03T11:43:27.751622Z		
 antiqueresourcesinc.com	ADDED	WOOCOMMERCE	ls_01m6ggbpfnetavxbfxrjea2qp8	pty_01m6ggbpf3egd9bvvw6c33hjk4	2026-11-03T10:47:59.808747Z		
@@ -27,55 +36,78 @@ antiquewarehousect.com	ADDED	SHOPIFY	ls_01m6gp4h54en3swq1zekq1m42f	pty_01m6gp4h4
 apmidcenturymodern.com	DEFERRED				2026-11-03T12:37:37.868436Z	RELATED_CATALOGUE_LEGAL_OPERATOR_REUSE_UNRESOLVED	
 aradergalleries.com	EXCLUDED				2026-11-03T18:48:44.983666Z	OPERATES_AUCTIONS	araderlive.com
 archantiques.com	ADDED	SQUARESPACE	ls_01m6gj353sec6r2max1emsr7wm	pty_01m6gj3537ee2vj992047b7x1m	2026-11-03T11:18:17.012754Z		
+armstrongfineart.com	EXCLUDED				2026-11-03T22:44:30.126094Z	DEALER_OPERATES_AUCTIONS	armstrongfineartllc.com
 artcollectiblesantiques.com	EXCLUDED				2026-11-03T12:42:33.026958Z	OPERATED_AUCTIONS	
 artdistrictantiques.weebly.com	EXCLUDED				2026-11-03T17:21:59.847834Z		
 arthurwerickson.com	ADDED	SHOPIFY	ls_01m6gj2xg6enwsxexmwfvthr1w	pty_01m6gj2xfnean9djhn5x6w318f	2026-11-03T11:18:09.264795Z		
 artifacts-iowacity.com	DEFERRED				2026-11-03T13:11:25.958881Z	CURRENT_SELECTED_HISTORICAL_ITEM_UNVERIFIED	
+ashcroftandmoore.com	EXCLUDED				2026-11-04T12:43:54.691611Z	AUCTION_BUSINESS	
 asjinteriorsllc.com	DEFERRED				2026-11-03T16:36:10.265182Z	INDIVIDUAL_HISTORICAL_STOCK_AND_OPERATING_MODEL_UNVERIFIED	
+atlasshowroom.com	ADDED	SHOPIFY	ls_01m6kebm2dehgaef2rzwsqj327	pty_01m6kebm1we7w991qs6hvabpte	2026-11-04T14:10:43.376298Z		
 authenticprovence.com	ADDED	WOOCOMMERCE	ls_01m6gh298pew1rqcfmfwfpx9ae	pty_01m6gh298ae5580sa6bgzw7q94	2026-11-03T11:00:19.784011Z		
 averygalleries.com	ADDED	ARTLOGIC	ls_01m6hhsf23ecy9bjkrxvh0ayja	pty_01m6hhsf1meegajsmchgvqht9b	2026-11-03T20:32:13.969498Z		
+azumagallery.com	ADDED		ls_01m6k12v1veq4saj7jtfsa0rv6	pty_01m6k12v0nev6ase4nqfwjmb7j	2026-11-04T10:18:43.463941Z		
+backrowhome.com	DEFERRED				2026-11-04T11:01:56.929720Z	PRODUCT_CONTRADICTIONS_AND_AUCTION_ROLE_UNRESOLVED	
+balsamoantiques.com	ADDED		ls_01m6k82xknetrbn4r0h3dacjvt	pty_01m6k82xjxecmr4takpbd1rwx3	2026-11-04T12:21:06.071936Z		
 balzacantiques.com	ADDED	WIX	ls_01m6hds1ckez3vgy3es247fxet	pty_01m6hds1c6ejnasc4enpkzqd9g	2026-11-03T19:23:52.906060Z		
 bankbookswv.com	DEFERRED				2026-11-03T12:38:41.642079Z	CURRENT_HISTORICAL_ITEM_AVAILABILITY_UNRESOLVED	
+barbaragerrantiques.com	DEFERRED				2026-11-04T14:28:08.194656Z	CURRENT_BUSINESS_HOME_AND_ITEM_AVAILABILITY_UNVERIFIED	
 bardith.com	ADDED	WOOCOMMERCE	ls_01m6hgzm24e9frjnhtbkkbve7h	pty_01m6hgzm1megdrqfh1qbqf9mg9	2026-11-03T20:18:07.445511Z		
 barnon26.com	ADDED		ls_01m6gnst86e618zqdxmcfwzk71	pty_01m6gnst7qem4arqvf0zbatk8y	2026-11-03T12:23:05.060664Z		
 baumanrarebooks.com	ADDED		ls_01m6gvjtehetd8x3x5dpndbk49	pty_01m6gvjtdze7kbefx390ffdjhj	2026-11-03T14:04:08.192245Z		
+beauchampantiques.com	ADDED	WOOCOMMERCE	ls_01m6k3kcpbew18mbxnsgyb1ses	pty_01m6k3kcnre1nadcmh9vv60ajs	2026-11-04T11:02:43.613543Z		
 bellandbird.com	ADDED	SHOPIFY	ls_01m6h0470fem683pdyaryd073v	pty_01m6h046zveqwbt2fx80zws6nh	2026-11-03T15:23:31.510570Z		
 benchmarkbooks.com	DEFERRED				2026-11-03T11:32:45.065934Z	PRIMARY_PUBLIC_SITE_HTTP429	
 berndgoeckler.com	ADDED		ls_01m6hct17rehz8y0zws46wtrpt	pty_01m6hct17ae30b1e2zs16b7sbq	2026-11-03T19:05:08.921554Z		
 bernettrarebooks.com	ADDED	BIBLIOPOLIS	ls_01m6gx6kesejj85yrs0hbrkzcd	pty_01m6gx6keaephbjwncgxf6vrk7	2026-11-03T14:32:23.445302Z		bernettpenka.com
+bgfa.com	DEFERRED				2026-11-04T08:26:25.610377Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNRESOLVED	
 bi-gardenantiques.com	ADDED	WORDPRESS	ls_01m6hhezgxedebd036p6e51vvh	pty_01m6hhezggetmsymky99jmskjx	2026-11-03T20:26:30.589589Z		
 biblioctopus.com	DEFERRED				2026-11-03T14:02:20.414482Z	CURRENT_ITEM_ACCESS_BLOCKED_STALE_CONFLICTING_CACHE	
 billsclockworks.com	ADDED		ls_01m6h293hvecza4ns4d7q4wc3c	pty_01m6h293hbezmafg4nzph1s2dk	2026-11-03T16:01:09.067858Z		
 birlantantiquescharleston.com	DEFERRED				2026-11-03T19:21:18.587677Z	AUCTION_ROLE_AND_INDIVIDUAL_STOCK_UNRESOLVED	birlant.com
+bkrulikfineart.com	ADDED	WORDPRESS	ls_01m6k7gk80eytr10v2mf8nxzd1	pty_01m6k7gk7cekbb0yx6x8x9mm0c	2026-11-04T12:11:05.575204Z		
+blackmancruz.com	ADDED	SHOPIFY	ls_01m6jvtt2cektt16vktpz0nas5	pty_01m6jvtt23e878tthdvb38vwsy	2026-11-04T08:46:57.813712Z		
 blacksheepantiquesnc.com	ADDED	WIX	ls_01m6gq43hjebbapzkae4j3nss7	pty_01m6gq43h4egyvwtj022zd6g0a	2026-11-03T12:46:10.254220Z		
 blantiques.com	EXCLUDED				2026-11-03T11:03:28.182168Z	MULTI_DEALER_MARKETPLACE	
 bloomsburypdx.com	ADDED	SHOPIFY	ls_01m6gj301gecx9dv72mkv06zg3	pty_01m6gj3013ejt9332r4j951wrp	2026-11-03T11:18:12.050582Z		
-bostonraremaps.com	DEFERRED				2026-11-03T10:27:32.777749Z	PRIMARY_SITE_TEMPORARY_FETCH_FAILURE	
+bostonraremaps.com	ADDED	WOOCOMMERCE	ls_01m6hr4qtgehhafea861fsyt78	pty_01m6hr4qt1efxtmr4y1n16kajn	2026-11-03T22:23:14.646210Z		
 bourneantiques.com	ADDED	WIX	ls_01m6gepr3hedh9hb5wf3xahped	pty_01m6gepr37e808dsdxdq572yrj	2026-11-03T10:19:04.012442Z		
 brantmackley.com	ADDED	SQUARESPACE	ls_01m6h9sf1mezrvq0hb03j80exp	pty_01m6h9sf1bezt9ek9fbryn2je8	2026-11-03T18:12:24.449374Z		
+brierhillgallery.com	ADDED	SQUARESPACE	ls_01m6hsch1ke3ys78dkwedpavkv	pty_01m6hsch1bepvb5ndzzqsrz0e6	2026-11-03T22:44:57.626126Z		
 brockandco.com	DEFERRED				2026-11-03T20:30:59.258387Z	UNRELATED_NATIVE_CONTENT	
 bromer.com	DEFERRED				2026-11-03T14:30:25.747309Z	LEGACY_PREDECESSOR_NO_CURRENT_OPERATOR_RECREATED	
+caravatis.com	DEFERRED				2026-11-03T22:01:50.133741Z	INDIVIDUAL_CURRENT_ANTIQUE_OFFER_UNVERIFIED	
 carltonhobbs.com	ADDED	WORDPRESS	ls_01m6hct2yaexqtyxn4c7p98yhm	pty_01m6hct2xtecda669jfgge857e	2026-11-03T19:05:10.620493Z		
+carltonrochell.com	DEFERRED				2026-11-04T10:37:02.373744Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNVERIFIED	
 carolinefaison.com	DEFERRED				2026-11-03T16:36:10.265156Z	DOMAIN_NO_LONGER_IDENTIFIES_ANTIQUE_OPERATOR	
 cedricdupontantiques.com	ADDED	WOOCOMMERCE	ls_01m6gfjwj8ey7a3zsdghske5dc	pty_01m6gfjwhtepfsaqwh1a5fqsfv	2026-11-03T10:34:26.108172Z		
 charlecoteantiques.com	DEFERRED				2026-11-03T11:30:10.071423Z	CURRENT_NATIVE_OPERATOR_CONTENT_UNRELATED	
 checksantiques.com	DEFERRED				2026-11-03T11:24:22.936216Z	CURRENT_INDIVIDUAL_STOCK_UNVERIFIED	
+childsgallery.com	ADDED	WOOCOMMERCE	ls_01m6htbzfde87s8bjypeyx2szg	pty_01m6htbzf1eq2b80qzb765exc2	2026-11-04T08:19:18.757031Z		
+christopherbishopfineart.com	DEFERRED				2026-11-04T08:15:09.468393Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNRESOLVED	
 chroniclecollectibles.com	DEFERRED				2026-11-03T10:22:27.063984Z	LEGAL_OPERATOR_AND_STOCK_PROVENANCE_UNVERIFIED	
 circa2antiques.com	ADDED	SHOPIFY	ls_01m6gq3zchedzvw7z074dytgx6	pty_01m6gq3zc6eersr1s08xw6yzn4	2026-11-03T12:46:06.407947Z		
 cityfoundry.com	ADDED	SHOPIFY	ls_01m6h3nn1ae1nvz3xp07n9gsmd	pty_01m6h3nn0xe9xbn1a218kef87b	2026-11-03T16:25:28.800510Z		
 claremontrug.com	ADDED	WORDPRESS	ls_01m6hbd6v7ep9t5nb9swd2ed2n	pty_01m6hbd6tre9pawsyphrpzrazb	2026-11-03T18:40:40.485804Z		
 cliftonandersonantiques.com	ADDED	WORDPRESS	ls_01m6gsfqbpeyvrqnwszwfmt4k3	pty_01m6gsfqb7eevb6sav4a6s0cyh	2026-11-03T13:27:28.753611Z		
+clintonhowellantiques.com	ADDED	SHOPIFY	ls_01m6jwqqq6e1bs64h8n50vna9s	pty_01m6jwqqpxet1r2knhfsa8e99y	2026-11-04T09:02:45.541775Z		
 clockgallery.net	ADDED		ls_01m6h295vqe638jpgxshj1k3kh	pty_01m6h295v0ek8b6xzf8bevp915	2026-11-03T16:01:10.934030Z		
+clperkins.com	DEFERRED				2026-11-04T13:01:31.710057Z	CURRENT_BUSINESS_HOME_COUNTRY_UNVERIFIED	
 codyuniques.com	DEFERRED				2026-11-03T12:03:39.693848Z	PUBLIC_SITE_RENDERING_AND_CURRENT_IDENTITY_INCOMPLETE	
+coloniaantiques.com	DEFERRED				2026-11-04T13:01:31.710060Z	NATIVE_REDIRECT_TO_SOCIAL_LOGIN_CURRENT_STOCK_HOME_UNVERIFIED	
+connerrosenkranz.com	DEFERRED				2026-11-04T08:26:25.611460Z	NATIVE_SITE_MAINTENANCE_CURRENT_IDENTITY_UNVERIFIED	
+conradgraeber.com	ADDED	SQUARESPACE	ls_01m6hsjwgsehfv5h2xh0xa5ww6	pty_01m6hsjwg8e5c8xmhjn2p7ag42	2026-11-03T22:48:26.210067Z		
 countryfrenchinteriors.com	ADDED	WOOCOMMERCE	ls_01m6gfjtq8exdtehwz48wa9k68	pty_01m6gfjtpsec1ra57ce1fa0508	2026-11-03T10:34:24.251524Z		
 coupdetatsf.com	ADDED	WOOCOMMERCE	ls_01m6hf6rq8edgadx5ajwhsesjz	pty_01m6hf6rprewa97mx6gbkjdb10	2026-11-03T19:47:03.662526Z		
 crossgategallery.com	EXCLUDED				2026-11-03T16:43:34.145754Z		
 cupboardsandroses.com	DEFERRED				2026-11-03T12:20:33.044324Z	TLS_MISMATCH_AND_UNINSPECTABLE_PUBLIC_PAGES	
 curiousinterests.com	DEFERRED				2026-11-03T10:22:27.063982Z	CURRENT_ITEM_STOCK_UNVERIFIED	
+curtiswrightmaps.com	ADDED	WOOCOMMERCE	ls_01m6hr4t2xe50b6zfnthdt17te	pty_01m6hr4t1ne358qnz7nhmyvzc4	2026-11-03T22:23:16.781528Z		
 daiichiarts.com	ADDED	ARTLOGIC	ls_01m6hg5aqfehg8f69xj7pg6e34	pty_01m6hg5aq0e5e8dvzmh8nnnbdm	2026-11-03T20:03:45.975553Z		
 dandyrollhome.com	ADDED	SHOPIFY	ls_01m6gt20yfes7te6azqpwh2b50	pty_01m6gt20y1ewpajdxqk7wp8bpf	2026-11-03T13:37:28.185128Z		
 danielsteinantiques.com	ADDED		ls_01m6gh2bkver4849dfjvgqm12a	pty_01m6gh2bkfehjb4a23m67szg1f	2026-11-03T11:58:42.146287Z		
 danishteakclassics.com	ADDED	WORDPRESS	ls_01m6gj37k5e3t8gwzxhm0r6n53	pty_01m6gj37jpe92tzb120w0hakkt	2026-11-03T11:58:45.452353Z		
+davidcookgalleries.com	ADDED	SHOPIFY	ls_01m6kawck2ebp9myqj6vs362tq	pty_01m6kawcjjewxah17pgkdf7d5x	2026-11-04T13:09:58.061991Z		davidcookfineart.com
 daviddike.com	EXCLUDED				2026-11-03T19:27:19.434642Z	OPERATES_AUCTIONS	
 davidneliganantiques.com	ADDED	WOOCOMMERCE	ls_01m6hae8pse7x8eyy6cmbpf1cp	pty_01m6hae8paecksff9xx5z8z6d9	2026-11-03T18:23:46.923217Z		
 davidskinnerantiques.com	DEFERRED				2026-11-03T11:05:28.027054Z	AUCTION_ROLE_CESSATION_UNVERIFIED	
@@ -83,14 +115,21 @@ ddtreasures.com	DEFERRED				2026-11-03T13:11:25.958868Z	CURRENT_INDIVIDUAL_HISTO
 deadpeoplesstuffok.com	ADDED	LIGHTSPEED	ls_01m6gkh75med38eets34h07kkg	pty_01m6gkh759ezqvd6vvanpvb26p	2026-11-03T11:43:26.212398Z		
 debraforce.com	ADDED	EXHIBIT_E	ls_01m6hd1t3secka4frpd3nby3df	pty_01m6hd1t3jercbr76898ncjpx5	2026-11-03T19:09:23.588247Z		
 delaneyantiqueclocks.com	ADDED	DRUPAL	ls_01m6h291rhefrb6zrrt8k21paw	pty_01m6h291r1eces8r25ffb001eq	2026-11-03T16:01:06.672942Z		
+demolitiondepot.com	ADDED		ls_01m6hpnm0qe0mazsxrw2s40hmc	pty_01m6hpnm05exbaec2g7709d64q	2026-11-03T21:57:30.135315Z		
+dolanmaxwell.com	ADDED	ARTLOGIC	ls_01m6hsjrgzejr8bbqy684mhvkj	pty_01m6hsjrgfe9dtnfnjardksvd8	2026-11-03T22:48:22.109832Z		
 dorisleslieblau.com	DEFERRED				2026-11-03T18:39:23.851871Z	FULL_INDIVIDUAL_ANTIQUE_STOCK_PHOTO_AND_DETAIL_ACCESS_GAP	
+douglasdawson.com	DEFERRED				2026-11-04T09:06:54.725418Z	CURRENT_NATIVE_IDENTITY_AND_STOCK_UNVERIFIED	
 dovetailantiqueskaty.com	EXCLUDED				2026-11-03T10:22:27.063979Z	MULTI_DEALER_ANTIQUE_MALL	
 doyledoyle.com	ADDED	SHOPIFY	ls_01m6h5j045e4bbxg72mj5yfstq	pty_01m6h5j03we4qrhan5amzqymb3	2026-11-03T16:58:25.980673Z		
+druckerantiques.com	DEFERRED				2026-11-04T14:45:24.261992Z	CURRENT_STOCK_AND_AUCTION_ROLE_REVIEW	
 dsmvintage.co	DEFERRED				2026-11-03T13:11:25.958885Z	CURRENT_LIVE_SALE_AUCTION_ROLE_UNRESOLVED	
 duanesantiquemarket.org	DEFERRED				2026-11-03T12:32:38.314279Z	CURRENT_INDIVIDUAL_STOCK_AND_OPERATOR_MODEL_UNRESOLVED	
+dwigmore.com	ADDED	SQUARESPACE	ls_01m6k45c7xem38b9tbwpq3p7qr	pty_01m6k45c7aeett0jwdb5d02c12	2026-11-04T11:12:32.427713Z		
 earlycal.com	ADDED	SHOPIFY	ls_01m6gnnypye8h9dbmwm1bwhpdb	pty_01m6gnnypfe9yb51eqardnqrjg	2026-11-03T12:20:58.742015Z		
 eastboothbaytrading.com	ADDED	SQUARESPACE	ls_01m6gnswgref997aqywz6286p1	pty_01m6gnswgde5f8fs3bqqnzv0ma	2026-11-03T12:23:06.785776Z		
+eastwoodgallery.com	ADDED	WIX	ls_01m6kgcqz6etg94ez8v7w08a6x	pty_01m6kgcqypefgtszsnvk1c8mp0	2026-11-04T14:46:16.605506Z		
 eecummingsart.com	ADDED		ls_01m6hd1vhmesb8csm2zswg9ych	pty_01m6gx6cy2esdb3wjr4ch7hcxs	2026-11-03T19:09:24.896242Z		
+egenolfgallery.com	ADDED	SHOPIFY	ls_01m6k12s38ej2bdjj2n6gr26ry	pty_01m6k12s2wen0r7m4sfkf0pqf1	2026-11-04T10:18:41.666523Z		
 elderly.com	ADDED	SHOPIFY	ls_01m6h1qt1je9vsf7y7hrnszvq7	pty_01m6h1qt0ze2avw25kjqzgyy29	2026-11-03T15:51:42.442773Z		
 elliottandgracesnyder.com	ADDED	SQUARESPACE	ls_01m6ghkw2ze8avzf7k8wvgee60	pty_01m6ghkw2eect9vg59rq70mmqs	2026-11-03T11:09:56.144542Z		
 elmoreindianart.com	DEFERRED				2026-11-03T17:59:59.600468Z	CURRENT_NATIVE_ACCESS_AND_OWN_STOCK_UNVERIFIED	
@@ -102,56 +141,104 @@ eronjohnsonantiques.com	DEFERRED				2026-11-03T11:24:22.936208Z	SUCCESSOR_AND_CU
 erstwhilejewelry.com	ADDED	SHOPIFY	ls_01m6h0hwnwez89qdavgbg02dj4	pty_01m6h0hwnhey4vrxeps3p10v4r	2026-11-03T15:30:59.556862Z		
 etcwheeling.com	DEFERRED				2026-11-03T16:47:27.422008Z	CURRENT_INDIVIDUAL_STOCK_AND_ACTIVITY_UNVERIFIED	
 european-crossroads.com	ADDED	SHOPIFY	ls_01m6gepkzmen1rmn082y6e2c3m	pty_01m6gepkz7ee3ra2m04vhay70p	2026-11-03T10:18:59.766211Z		
+fatchancemodern.com	DEFERRED				2026-11-04T08:45:34.438850Z	CURRENT_NATIVE_DEALER_CATALOGUE_UNVERIFIED	
 fightingbear.com	DEFERRED				2026-11-03T12:03:39.693851Z	CURRENT_INDIVIDUAL_GALLERY_STOCK_UNRESOLVED	
+findlaygalleries.com	ADDED	WORDPRESS	ls_01m6hns8d5ekq867cje4n4w6k5	pty_01m6hns8cme4er7cztpqbfve2c	2026-11-03T21:42:01.145122Z		
 finnegangallery.com	ADDED	PH9	ls_01m6hhf291ee0thr6v8n2js2y7	pty_01m6hhf285eqhaprxhbdkk9g1h	2026-11-03T20:26:32.754461Z		
 firesideantiques.com	ADDED	WOOCOMMERCE	ls_01m6ge9pbrepsbvvx1msag5hac	pty_01m6ge9pbaeacsftah90wf51my	2026-11-03T10:11:56.648496Z		
+fiskeandfreeman.com	DEFERRED				2026-11-03T21:25:23.510870Z	CURRENT_FIRST_PARTY_SOURCE_UNAVAILABLE	
+fitzdecarts.com	EXCLUDED				2026-11-04T13:24:31.735866Z	UNTRUSTWORTHY_CURRENT_UNRELATED_DOMAIN_CONTENT	
+florianpapp.com	DEFERRED				2026-11-04T13:09:33.038427Z	CURRENT_FIRST_PARTY_ACCESS_STOCK_AND_HOME_UNVERIFIED	
+flyingcranesantiques.com	DEFERRED				2026-11-04T10:30:37.674709Z	NEW_DOMAIN_OPERATOR_NO_CURRENT_STOCK_OR_VERIFIED_HOME	
+foltzgallery.com	ADDED	ARTCLOUD	ls_01m6jxyzq3e2za17d4hqazb1n6	pty_01m6jxyzpge29sa6sybrcmbhj3	2026-11-04T09:24:11.467606Z		
 forumgallery.com	ADDED	EXHIBIT_E	ls_01m6hk4qd4e6zsjndvd480wbvy	pty_01m6hk4qcqecavgavnb74ypejx	2026-11-03T20:55:50.772608Z		
+fostergwin.com	ADDED	WORDPRESS	ls_01m6kfeekvefdvj5n3jgt1x4qm	pty_01m6kfeek3e72stgr39yj1ckav	2026-11-04T14:29:43.976817Z		
 foundforthehome.com	ADDED	SHOPIFY	ls_01m6heprchepy8b8d45541mzm2	pty_01m6heprbxe7296a3zw07p22rk	2026-11-03T19:38:19.247039Z		
+fredmoheban.com	ADDED	WOOCOMMERCE	ls_01m6jyhs8qez3vv5vqbh9zzgjf	pty_01m6jyhs87e7q86jwvsdd8z9t9	2026-11-04T09:34:27.399900Z		
 frenchmetro.com	ADDED	SHOPIFY	ls_01m6gjsvgpe2xt2wv2tdyqgmas	pty_01m6gjsvg5exkr18hvram4wn3k	2026-11-03T11:30:40.783191Z		
 furnishgreen.com	ADDED	SHOPIFY	ls_01m6gqwfebez9ac38tpqcq0mth	pty_01m6gqwfdne088wr7g7fy66rpw	2026-11-03T12:59:29.629052Z		
+galeriehalf.com	ADDED	WOOCOMMERCE	ls_01m6jv8gg6ednswxggp89qeach	pty_01m6jv8gftesj9nxbqaykdsxe7	2026-11-04T08:36:58.240895Z		
+galerielerebours.com	ADDED	ARTLOGIC	ls_01m6k6fgjxeh19rxvxy9fkt4x9	pty_01m6k6fgjke4pr2jr193xn9t8c	2026-11-04T11:53:01.406647Z		lereboursantiques.com
 garagevintage.weebly.com	DEFERRED				2026-11-03T17:13:00.915331Z	INDIVIDUAL_CURRENT_HISTORICAL_STOCK_UNVERIFIED	
 gardencourtantiques.com	ADDED	WOOCOMMERCE	ls_01m6hhf4acedg9ybna00ngaww8	pty_01m6hhf49teb3r9txw9f0c5qmt	2026-11-03T20:26:34.670726Z		
 garlands.com	ADDED	SHOPIFY	ls_01m6h94502ed5bea6hhbptkayx	pty_01m6h944zmec1s3nw1q1pt9zwv	2026-11-03T18:00:47.496164Z		
+garveyrita.com	ADDED	ICOMPENDIUM	ls_01m6hmwngveght7yb1qh9g5303	pty_01m6hmwngcezh89vdpcs04tvxn	2026-11-03T21:26:24.215800Z		
 gasolinealleyantiques.com	ADDED		ls_01m6ggbx4veaztd0sn6m3eheya	pty_01m6ggbx46eeys1mjzsf17nvff	2026-11-03T10:48:06.177280Z		
+geminiantiquesltd.com	EXCLUDED				2026-11-04T09:06:54.725414Z	DEALER_ALSO_OPERATES_AUCTION_BUSINESS	
 geographicus.com	DEFERRED				2026-11-03T10:27:32.777752Z	PRIMARY_SITE_ACCESS_BLOCKED	
 georgeglazer.com	ADDED	WOOCOMMERCE	ls_01m6gf7yewe6t90a8dga7qnqvs	pty_01m6gf7yeaem19sf39ar5mcpe4	2026-11-03T10:28:28.241321Z		
 godelfineart.com	ADDED	EXHIBIT_E	ls_01m6hdbf2zeneah9dbgsjwb5p7	pty_01m6hdbf2he21sak1mmnz2c07v	2026-11-03T19:14:40.078228Z		
 gofrenchantiques.com	ADDED	WORDPRESS	ls_01m6ggbvh8ednvgprw8028ypha	pty_01m6ggbvgyefkvce7wk7wpvhev	2026-11-03T11:58:44.205059Z		
+goldentriangle.biz	ADDED	SHOPIFY	ls_01m6kebfmbe46tdr7y4mcmjnzv	pty_01m6kebfkje3nrp5bjbbexk9gq	2026-11-04T14:10:38.694693Z		
 golgothaantiques.com	ADDED	WIX	ls_01m6geygc9er0r1qvz1et8qje3	pty_01m6geygbkexbb7e7a6m0x664w	2026-11-03T10:23:18.142311Z		
+governorsantiques.com	ADDED	SHOPIFY	ls_01m6hqq6egeg5btg79142g1mwz	pty_01m6hqq6e4exzt2j2b6b03ax5y	2026-11-03T22:15:50.596307Z		
+gpgallery.com	DEFERRED				2026-11-04T09:23:17.259745Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNVERIFIED	
 grahamshay.com	ADDED	WORDPRESS	ls_01m6hjresee4frzjdjfwh8bepy	pty_01m6hjrerwe1vvydpt36keaf32	2026-11-03T20:49:08.929805Z		
 greencastleantiques.com	ADDED	SHOPIFY	ls_01m6gs4yt5ep28eq5nx7jgazht	pty_01m6gs4ystea68mvb16v3j72he	2026-11-03T13:21:35.388759Z		
 greenwaldantiques.com	ADDED		ls_01m6gt1x3tev98ba7p2qz4brz6	pty_01m6gt1x3der0a9shy98ath4xq	2026-11-03T13:37:23.854416Z		
+gregkramerandco.com	DEFERRED				2026-11-04T11:21:07.099510Z	CURRENT_HOME_COUNTRY_UNVERIFIED	
+gsergeant.com	ADDED	MASTERPIECE_ONLINE	ls_01m6k8zkmae9xt0gdfx5nbjys8	pty_01m6k8zkkye538w1ht8hszfkrz	2026-11-04T12:36:46.296372Z		
 guariscogallery.com	ADDED	WORDPRESS	ls_01m6hk4s20ewpra44skbkfadw2	pty_01m6hk4s1cepvbmdf92vv19yyh	2026-11-03T20:55:52.477223Z		
+hardygalleries.com	ADDED		ls_01m6kbcrn1e7kbpvtfjawy55en	pty_01m6kbcrmhe78av6hkfb207jp8	2026-11-04T13:18:54.495393Z		
+harrisschrank.com	DEFERRED				2026-11-03T22:56:48.907749Z	CURRENT_BUSINESS_HOME_UNVERIFIED	
+hawthornefineart.com	ADDED	LIVEBOOKS	ls_01m6k74vtbeafte3m5a6sqk00c	pty_01m6k74vszet6by94w9wg43b0a	2026-11-04T12:04:41.528018Z		
+hedgerowantiques.com	DEFERRED				2026-11-04T12:43:54.691632Z	CURRENT_BUSINESS_HOME_AND_IDENTIFIED_INDIVIDUAL_STOCK_UNVERIFIED	
+helenafoxfineart.com	ADDED	WOOCOMMERCE	ls_01m6kd77w9eem9w713fn8ts93w	pty_01m6kd77vzecnb9emyrfyqg7vb	2026-11-04T13:50:50.814182Z		
 helenstoreyantiques.com	ADDED	SHOPIFY	ls_01m6gqd86remgbc7v686x80v2t	pty_01m6gqd867e6nbd4he1vwazc72	2026-11-03T12:51:10.488851Z		
 henpickedantiques.com	DEFERRED				2026-11-03T11:24:22.936214Z	INDIVIDUAL_STOCK_INSPECTION_INCOMPLETE	
+highridgebooks.com	ADDED	WOOCOMMERCE	ls_01m6hrcw12e58s44ed8j6qxycz	pty_01m6hrcw0sen0aw3xggnx6sq07	2026-11-03T22:27:40.376664Z		
+hill-stone.com	ADDED	PH9	ls_01m6ht3b88ebnbk9t4jnq1afd9	pty_01m6ht3b7veqjsd8kj6y2x7w38	2026-11-04T08:19:18.756995Z		
+hirschlandadler.com	ADDED	EXHIBIT_E	ls_01m6jtpxb1e94byhbghqsx44xf	pty_01m6jtpxaqej48kaex1grg24yp	2026-11-04T08:27:20.908488Z		
+historichouseparts.com	ADDED	X_CART	ls_01m6hpzjs3e9ksbzcxf0cr697b	pty_01m6hpzjrjewkva3v5vgyq658a	2026-11-03T22:02:56.888023Z		
 hoelsindianshop.com	DEFERRED				2026-11-03T18:04:49.715338Z	CURRENT_NATIVE_ACCESS_AND_HISTORICAL_STOCK_UNVERIFIED	
 holyterrorantiques.com	DEFERRED				2026-11-03T13:50:12.248724Z	LEGACY_GALLERY_CURRENT_STOCK_GAP	
 honeyhomeanddesign.com	DEFERRED				2026-11-03T15:14:55.960951Z	INDIVIDUAL_HISTORICAL_STOCK_UNVERIFIED	
 hydeparkantiques.com	DEFERRED				2026-11-03T19:04:34.899504Z	NATIVE_ACCESS_AND_CURRENT_STOCK_UNVERIFIED	
 hyperkitten.com	ADDED		ls_01m6h111j2ec7r0tc7rv03q1am	pty_01m6h111hpevfr2x6aj3qn3vn2	2026-11-03T15:39:16.040912Z		
 inspireddesignsbyconniebruse.com	DEFERRED				2026-11-03T16:24:53.860468Z	INDIVIDUAL_CURRENT_HISTORICAL_OFFER_UNVERIFIED	
+ippodogallery.com	DEFERRED				2026-11-04T10:33:04.117209Z	OPERATING_ENTITY_AND_HOME_COUNTRY_SCOPE_UNRESOLVED	
 irishacresgallery.com	DEFERRED				2026-11-03T11:30:10.071430Z	CURRENT_INDIVIDUAL_STOCK_INSPECTION_INCOMPLETE	
+ironhorseantiques.com	ADDED	SQUARESPACE	ls_01m6hmc94zejwtbsz9v83dmh38	pty_01m6hmc94feqg8j1p8pvht8ypd	2026-11-03T21:17:27.047641Z		
 isadoras.com	ADDED	SHOPIFY	ls_01m6h044tke2fvftrkcd06bx60	pty_01m6h044t6ed2raathp2cw9kkn	2026-11-03T15:23:29.261950Z		
 izzardasianart.com	DEFERRED				2026-11-03T20:03:19.307541Z	CURRENT_INDIVIDUAL_STOCK_AMBIGUITY	
+jacarandatribal.com	ADDED	WEBFLOW	ls_01m6k2npnde1yt1167cjreay93	pty_01m6k2npmrew5vjre29aq6zpc1	2026-11-04T10:46:30.268479Z		
+jackmeiergallery.com	ADDED	SQUARESPACE	ls_01m6jxz1gaezp94tgctxdb3p4x	pty_01m6jxz1fved29p025gc02paq3	2026-11-04T09:24:13.260589Z		
+jamescomptongallery.com	ADDED	WORDPRESS	ls_01m6k8gxtfezzs02x0pkyqaxzv	pty_01m6k8gxsye8zrm29jc20kwt8f	2026-11-04T12:28:44.989940Z		
 jamescumminsbookseller.com	ADDED	BIBLIOPOLIS	ls_01m6gvjxhgebqs6nrexgzarveh	pty_01m6gvjxgqe3s88whcwt5dfq9m	2026-11-03T14:04:10.534518Z		
+jamesreinish.com	DEFERRED				2026-11-04T12:04:01.767681Z	CURRENT_INDIVIDUAL_STOCK_AVAILABILITY_UNVERIFIED	
+jamessansum.com	EXCLUDED				2026-11-04T12:51:39.347648Z	UNTRUSTWORTHY_CURRENT_WEBSITE_UNRELATED_SPAM_LINK_FARM	
 jaynethompsonantiques.com	ADDED	SHOPIFY	ls_01m6gsfvzme66sxxwkwagawgpq	pty_01m6gsfvz4e5rvg6ccwb1wzkfh	2026-11-03T13:27:32.918801Z		
 jaysonhome.com	ADDED	SHOPIFY	ls_01m6h5hy3testvqmxp8wzhfnh9	pty_01m6h5hy3bedrvx7vm2av11m1w	2026-11-03T16:58:23.859934Z		
 jeffbridgman.com	DEFERRED				2026-11-03T16:43:34.145750Z	NATIVE_SOURCE_INTEGRITY_AND_CURRENT_STOCK_REVIEW_NEEDED	
 jewett-berdan.com	ADDED	GOOGLE_SITES	ls_01m6h8nnqsepnsp482c36f5p81	pty_01m6h8nnq7e8vrewa09gh6fs4q	2026-11-03T17:52:51.688313Z		
+jfchen.com	ADDED	WOOCOMMERCE	ls_01m6jv8jk7ek5sfh1bb3qyjz0r	pty_01m6jv8jjvezsv3dk3d5zh66ys	2026-11-04T08:36:59.811864Z		
 jimbodetools.com	ADDED	SHOPIFY	ls_01m6h10zezertaxq1zsw3fmt18	pty_01m6h10zefekktb7dsz8vmm3d5	2026-11-03T15:39:13.975391Z		
 jkrantiques.com	DEFERRED				2026-11-03T11:08:42.458077Z	PARTNERED_AUCTION_ROLE_UNRESOLVED	
+jmwgallery.com	ADDED	SQUARESPACE	ls_01m6kgcp7bebx811ajpmbqdjhh	pty_01m6kgcp6vecvbrxw20zsv74eq	2026-11-04T14:46:14.798820Z		
+johnchaski.com	DEFERRED				2026-11-03T21:16:04.106041Z	NO_CURRENT_AVAILABLE_STOCK	
 joykennedycollection.com	ADDED	WIX	ls_01m6gzddg9er7rpjer949ekw4j	pty_01m6gzddfjetxbsb3gratzvvkd	2026-11-03T15:11:04.522783Z		
 jrobinson.com	ADDED	WOOCOMMERCE	ls_01m6hgk90tejb8sh8v3gjdznz4	pty_01m6hgk906ejm84828a5hgercw	2026-11-03T20:11:22.533232Z		
+jrusselljinishiangallery.com	ADDED	SQUARESPACE	ls_01m6k32tdweh7vnkekxtqvvbft	pty_01m6k32tdgegma59j3p6terk6h	2026-11-04T10:53:39.849918Z		
 judyfrankelantiques.com	ADDED		ls_01m6gt1ysvevasy6yqdnzcceem	pty_01m6gt1yseewgtzty7qn49q64d	2026-11-03T13:37:26.146050Z		
+justinwestbrookantiques.com	EXCLUDED				2026-11-04T12:43:54.691624Z	RETAIL_BUSINESS_OPERATES_RELATED_AUCTION_COMPANY	
+kagedo.com	EXCLUDED				2026-11-04T10:15:45.667676Z	CLOSED_GALLERY_ARCHIVE_ONLY	
 kahlerpayne.net	ADDED	GODADDY	ls_01m6gt22yves38wvbgzqtf401v	pty_01m6gt22yee5sb75ag585x49fm	2026-11-03T13:37:29.740624Z		
 kaikodo.com	ADDED	WORDPRESS	ls_01m6hg58gzer4v30zjxjrsv62j	pty_01m6hg58g9ec3ajn54tw25096v	2026-11-03T20:03:42.972189Z		
+kangcollection.com	ADDED	EXHIBIT_E	ls_01m6k256y9e7n91c9vze9qy0a9	pty_01m6k256xwe0gadmntnjjc9sq2	2026-11-04T10:37:29.589929Z		
+kargesfineart.com	DEFERRED				2026-11-04T13:13:38.918567Z	OWN_AUCTION_HISTORY_CURRENT_OPERATOR_ROLE_UNRESOLVED	
 kcartifact.com	ADDED	GODADDY	ls_01m6grc8v7esjtjz3b320859p9	pty_01m6grc8ttecy8rq12j8y4x0v0	2026-11-03T13:08:06.428391Z		
 keilsantiques.com	DEFERRED				2026-11-03T10:59:47.554639Z	RELATED_STOREFRONTS_LEGAL_OPERATOR_UNRESOLVED	
+kelleherfineart.com	ADDED		ls_01m6k9wwx5e3bses952pzm63ca	pty_01m6k9wwwhevwv67cma2nxxq21	2026-11-04T12:52:46.579251Z		
 kellykinzleantiques.com	DEFERRED				2026-11-03T11:03:28.182172Z	PUBLIC_PAGE_ACCESS_INCOMPLETE	
+kennyballantiques.com	DEFERRED				2026-11-04T09:56:50.375068Z	CURRENT_FIRST_PARTY_ACCESS_BLOCKED	
 kensandersbooks.com	DEFERRED				2026-11-03T11:32:45.065916Z	PRIMARY_PUBLIC_SITE_HTTP429	
 kentshire.com	ADDED	SHOPIFY	ls_01m6hgc8r2ecmr3fst9es1knn1	pty_01m6hgc8qgej5b3gm7nz1cp948	2026-11-03T20:07:33.139335Z		
+kiechelart.com	EXCLUDED				2026-11-04T13:49:45.122549Z	OPERATES_OWN_AUCTION_BUSINESS	
+kilgoregallery.com	DEFERRED				2026-11-04T12:03:34.442843Z	NATIVE_COMING_SOON_CURRENT_OPERATOR_HOME_STOCK_UNVERIFIED	
 kimfaisonantiques.com	DEFERRED				2026-11-03T11:05:28.027057Z	NATIVE_HOME_AND_CURRENT_CATALOGUE_UNVERIFIED	
 kirbyantiques.com	ADDED	WORDPRESS	ls_01m6hepthtejn920jd0aqr1ay8	pty_01m6hepthceqkr0zm6kgghn4ke	2026-11-03T19:38:20.911635Z		
+kraushaargalleries.com	ADDED	EXHIBIT_E	ls_01m6k7gheeeyd98fpnetfjg4er	pty_01m6k7ghe1e97bcq74tb9cz5gc	2026-11-04T12:11:03.828661Z		
+lahardware.com	ADDED	WOOCOMMERCE	ls_01m6hq7cpfe309rb383mv63aky	pty_01m6hq7cp1ew1by9gpa8ys6mqk	2026-11-03T22:07:12.806376Z		
 lajunkantiques.com	DEFERRED				2026-11-03T16:11:36.580361Z	CURRENT_INDIVIDUAL_HISTORICAL_STOCK_UNVERIFIED	
 langantiques.com	ADDED	MAGENTO	ls_01m6h042n2ekxr4g58t8sb3daf	pty_01m6h042mney39b0fs17p17fqa	2026-11-03T15:23:27.058365Z		
 larkstreetmusic.com	ADDED		ls_01m6h1qqweej0a86kqb209z400	pty_01m6h1qqvve11sc0khbx1tndy9	2026-11-03T15:51:39.889369Z		
@@ -160,6 +247,7 @@ laurelridgegonzales.com	ADDED	WOOCOMMERCE	ls_01m6geyd5de00tsc5r217yargb	pty_01m6
 leapingleopardantiques.com	EXCLUDED				2026-11-03T13:21:07.354703Z	MULTI_DEALER_MARKETPLACE_AND_OPERATED_AUCTIONS	
 leatherwoodantiques.com	ADDED		ls_01m6hkw06heppvhtz8eyj7j4t7	pty_01m6hkw062ea48dpx0hc2mbfv1	2026-11-03T21:08:33.404054Z		
 lechateauatl.com	ADDED	SHOPIFY	ls_01m6ge01rres1vq43bt0n56sq0	pty_01m6ge01r6emnvj3k6atk6b3rd	2026-11-03T10:06:40.940204Z		
+leestanton.com	ADDED	SHOPIFY	ls_01m6jvtqc0eht8s4f3nbgm29y3	pty_01m6jvtqbheketh6sbskgnnt2h	2026-11-04T08:46:55.682333Z		
 legacyantiques.com	DEFERRED				2026-11-03T19:36:53.863029Z	ADVERTISED_ESTATE_AUCTION_ROLE_UNRESOLVED	
 lilliannassau.com	ADDED	EXHIBIT_E	ls_01m6hcj6b5ebzrnfwdcy2vdkay	pty_01m6hcj6asekcbhphpe1tma7jq	2026-11-03T19:00:51.921454Z		
 lindarosenantiques.com	ADDED	DRUPAL	ls_01m6h4rzdzevfs4x94vqv1386c	pty_01m6h4rzdme0h92tevkyhj0pqp	2026-11-03T16:44:46.689296Z		
@@ -176,88 +264,152 @@ lux-et-umbra.com	DEFERRED				2026-11-03T11:32:45.065939Z	CURRENT_AUCTION_ROLE_AN
 m2.thehanashirtco.com	DEFERRED				2026-11-03T12:03:39.693841Z	WEBSITE_SHUTDOWN_RETAIL_CONTINUES_HOSTED_SCOPE_REVIEW	
 machine-age.com	DEFERRED				2026-11-03T17:38:48.740370Z	PRESENT_OPERATOR_HOME_AND_LIVE_STOCK_ACCESS_UNVERIFIED	
 macklowegallery.com	ADDED	SHOPIFY	ls_01m6hgc5ygehhvacadswgyet4e	pty_01m6hgc5xyecqaf9ea7kby9jqs	2026-11-03T20:07:30.399171Z		
+macmaisonantiquesneworleans.com	DEFERRED				2026-11-04T09:56:50.375065Z	CURRENT_INDIVIDUAL_STOCK_UNVERIFIED	
+madriverantiques.com	DEFERRED				2026-11-03T21:16:04.106044Z	BUSINESS_HOME_FIRST_PARTY_CONFIRMATION	
 maiellotradehouse.com	ADDED	WOOCOMMERCE	ls_01m6geyeqke90bwfbyhm4y1e50	pty_01m6geyeq8ecfv7mds9765wcy6	2026-11-03T10:23:16.457569Z		
 mainstreetmodern.com	ADDED	SHOPIFY	ls_01m6ghkt6cecd91s9pdv9t8yhf	pty_01m6ghkt5veez8t6rkx6mknrks	2026-11-03T11:58:43.215171Z		mainstmodern.com
 maisongerard.com	ADDED	EXHIBIT_E	ls_01m6hcj7xse16877e16qrd1g89	pty_01m6hcj7x9ema8062p5spxhf4z	2026-11-03T19:00:53.676190Z		
+mapsandart.com	ADDED	WOOCOMMERCE	ls_01m6hs0482em99wdv88hd62t3v	pty_01m6hs047ge3j90cpyjbvv0893	2026-11-03T22:38:11.949196Z		
 mapsofantiquity.com	ADDED	SHOPIFY	ls_01m6gf7vxremnsqbyh3k0gfad8	pty_01m6gf7vx5eb9tmdx5m0fe48nx	2026-11-03T10:28:25.724260Z		
 marcyburns.com	ADDED	SQUARESPACE	ls_01m6h9cnjkewabegbfmtscpgh8	pty_01m6h9cnj8eckv0dx5qf4e1db2	2026-11-03T18:05:25.360123Z		
+markmurray.com	ADDED	SQUARESPACE	ls_01m6jt2v1hekfsw7bp1bd3f35e	pty_01m6jt2v0fez3awf91b9x8yxhp	2026-11-04T08:19:18.757123Z		
+martayanlan.com	DEFERRED				2026-11-03T22:27:02.274077Z	CURRENT_PRIMARY_SITE_RATE_LIMITED	
+maxwellgalleries.com	DEFERRED				2026-11-04T13:17:58.116091Z	CURRENT_OWN_STOCK_NOT_ESTABLISHED	
+mcdonoughfineart.com	EXCLUDED				2026-11-04T13:41:44.236718Z	CURRENT_UNRELATED_UNTRUSTWORTHY_DOMAIN_CONTENT	
 medicinemangallery.com	EXCLUDED				2026-11-03T17:59:59.600472Z	OPERATES_AUCTIONS	auctionmedicinemangallery.com
+melissalevinson.com	ADDED	SHOPIFY	ls_01m6jwb4w7ejm8m2vna9pea3tw	pty_01m6jwb4t8e2js0kr6tcxy7t09	2026-11-04T08:55:53.344803Z		
+michaelhallantiques.com	ADDED	SQUARESPACE	ls_01m6k8zhjperbvmw23n95ccdaw	pty_01m6k8zhhqe00tg4w2pawjy715	2026-11-04T12:36:44.394302Z		
+michaelhaskell.com	DEFERRED				2026-11-04T12:43:54.691629Z	CURRENT_STOCK_AND_HOSTED_CATALOGUE_IDENTITY_UNVERIFIED	
 michaelpashbyantiques.com	ADDED	WOOCOMMERCE	ls_01m6hcj4fwetv9qs5jvffkeewv	pty_01m6hcj4fjevssmbpg3xwgwwn8	2026-11-03T19:00:50.292482Z		
+michaelrosenfeld.com	ADDED	OCTOBER_CMS	ls_01m6k7gfq8e5rvh1721acbfaay	pty_01m6k7gfpbeacvtbhqtpaft895	2026-11-04T12:11:02.060207Z		
+michaeltrapp.com	ADDED	SHOPIFY	ls_01m6k82vf3ep1a9fa661xwrqcm	pty_01m6k82venedtsr5w4bq9a9ztn	2026-11-04T12:21:04.330730Z		
 michelebeiny.com	ADDED	PH9	ls_01m6hgzf15eyws5bzte35wamb1	pty_01m6hgzf0peq7ryejmqpf7a5mv	2026-11-03T20:18:02.032718Z		
 midcenturymobler.com	ADDED	SHOPIFY	ls_01m6h435hpezpbg2stgym1hr2b	pty_01m6h435h6evasnyh7bef34w1z	2026-11-03T16:32:51.565003Z		
 millard-lowe.com	DEFERRED				2026-11-03T12:50:20.245749Z	CURRENT_AUCTION_SERVICE_ROLE_UNRESOLVED	
+millhouseantiquesandgardens.com	ADDED	WIX	ls_01m6k6fehzes58hq55gk41wjde	pty_01m6k6fehked29tdtef5z0c0bs	2026-11-04T11:52:59.785239Z		
 mincklerfineart.com	DEFERRED				2026-11-03T12:03:39.693853Z	CURRENT_INDIVIDUAL_HISTORICAL_STOCK_UNVERIFIED	
 mirabelleantiques.com	ADDED	SQUARESPACE	ls_01m6gqdaeqeae9y8cabq5wwded	pty_01m6gqdae9eees91mqqccch0qw	2026-11-03T12:51:12.770974Z		
 mirviss.com	ADDED	ARTLOGIC	ls_01m6hfz1e7ev4bacqb9gj52d9z	pty_01m6hfz1dhe299tb2rsvhd5hbb	2026-11-03T20:00:19.029867Z		
 miscellaneaetc.com	ADDED	SHOPIFY	ls_01m6ggbs7je2faj51f748ns6df	pty_01m6ggbs6retjbmjkhnrva0xbs	2026-11-03T10:48:02.444561Z		
 mishmoshonline.com	EXCLUDED				2026-11-03T13:50:12.248732Z	OPERATED_ONLINE_AUCTIONS	
 missoulausedfurniture.com	ADDED	WIX	ls_01m6gzntj8eeya8d71t3nscht5	pty_01m6gznthmepg9j106f0tatgea	2026-11-03T15:15:39.923533Z		
+mksrugs.com	ADDED	WORDPRESS	ls_01m6jyhtzke7p82n9183mg904d	pty_01m6jyhtz3e369sp4nsa9yxbkp	2026-11-04T09:34:29.748512Z		
 modernantiquarian.com	ADDED	SHOPIFY	ls_01m6gqwhr4eyntnbas9h9vpqm9	pty_01m6gqwhqpe4vb0q92xh3jcj6w	2026-11-03T12:59:31.804445Z		
 modernmanorphx.com	DEFERRED				2026-11-03T17:21:59.847831Z	INDIVIDUAL_CURRENT_STOCK_ACCESS_INCOMPLETE	
 modlivin.com	ADDED	SHOPIFY	ls_01m6h6fvyke5rsf9gbcc98yq7x	pty_01m6h6fvy6e3gt1vde9ck6jhqy	2026-11-03T17:14:44.801903Z		
 modmood.com	DEFERRED				2026-11-03T17:13:00.915327Z	HISTORICAL_GALLERY_NOT_CURRENT_INDIVIDUAL_OFFER	
 momsjoyroom.net	ADDED	WEBADOR	ls_01m6gpnjhnemr96sxxswgj0rzw	pty_01m6gpnjhbe1wt8yr4ezq67bk1	2026-11-03T12:38:14.655115Z		
 mongersongallery.com	ADDED	ARTLOGIC	ls_01m6hjddt7en0v4rp4kkhp673q	pty_01m6hjdds5emg8444acd97db80	2026-11-03T20:43:08.042176Z		
+moniqueshay.com	DEFERRED				2026-11-04T12:35:58.251259Z	NATIVE_ACCESS_FAILURE_CURRENT_OPERATOR_HOME_STOCK_UNVERIFIED	
+montageantiques.com	DEFERRED				2026-11-04T12:19:57.697664Z	US_STOREFRONT_AND_RELATED_GERMAN_ENTITY_OPERATOR_SCOPE_UNRESOLVED	
 montaine-antiques.com	ADDED	SQUARESPACE	ls_01m6gtj80cegjtkg96xnbdxhjd	pty_01m6gtj7zve1btppgbg4w7pek0	2026-11-03T13:46:20.034256Z		
+montgomeryleefineart.com	ADDED	WORDPRESS	ls_01m6kbctaxe0t8spqh2887y17z	pty_01m6kbctafe7wagz636tcx3p0x	2026-11-04T13:18:56.517803Z		
 morningstargallery.com	ADDED	SQUARESPACE	ls_01m6h9cqbvep9rhqr392n20seg	pty_01m6h9cqbhe48t2zst3pv11q3t	2026-11-03T18:05:27.060928Z		
 morrisantiques.com	DEFERRED				2026-11-03T11:30:10.071427Z	NATIVE_SITE_CONTENT_UNINSPECTABLE	
 mossantiques.com	DEFERRED				2026-11-03T10:59:47.554643Z	RELATED_STOREFRONTS_LEGAL_OPERATOR_UNRESOLVED	
+mundayantiques.com	DEFERRED				2026-11-04T12:35:58.251250Z	CURRENT_BUSINESS_HOME_COUNTRY_UNVERIFIED	
 mysisterandmevintage.com	ADDED	SQUARESPACE	ls_01m6gjgxydejd80hraa85q8tam	pty_01m6gjgxxyen99x2ng7h2d57yg	2026-11-03T11:25:48.245937Z		
 mywifeandhercrazyideas.com	DEFERRED				2026-11-03T15:14:55.960954Z	CURRENT_STOCK_AND_CHANNEL_ROLE_UNVERIFIED	
 nagaantiques.com	ADDED	WORDPRESS	ls_01m6gyz994ekmsdxp5mk82xnk5	pty_01m6gyz98cehrt4sqd89gy5r98	2026-11-03T15:03:21.164791Z		
 nazmiyalantiquerugs.com	EXCLUDED				2026-11-03T18:39:23.852775Z	OPERATES_AUCTIONS	nazmiyalauctions.com;bidlive.nazmiyalauctions.com
 neondesertvintage.com	DEFERRED				2026-11-03T13:45:01.297720Z	LINKED_CURRENT_CATALOGUE_INACCESSIBLE	
 newel.com	EXCLUDED				2026-11-03T10:14:45.434261Z	OPERATES_AUCTION_BUSINESS	
+newsomberdan.com	DEFERRED				2026-11-04T11:29:15.861700Z	NATIVE_EMPTY_WIX_PAGE_CURRENT_DEALER_EVIDENCE_UNVERIFIED	
+nicholashall.art	ADDED	WORDPRESS	ls_01m6k6wc4ted5r5h1xxezr7skv	pty_01m6k6wc4cejvbadejmb5fcdwm	2026-11-04T12:00:03.858785Z		
 nickbrockantiques.com	ADDED	SHOPIFY	ls_01m6he4qn5ep3t0h2q3brf2x60	pty_01m6he4qmje0eaq3aytxdt0gt9	2026-11-03T19:28:28.095336Z		
+noreast1.com	ADDED		ls_01m6hqq4e2e72r7aefq65a50gj	pty_01m6hqq4dpeyms1bys8bhzyrmr	2026-11-03T22:15:48.561642Z		
+nwcartographic.com	DEFERRED				2026-11-03T22:24:27.402263Z	CURRENT_AUCTION_OPERATION_REVIEW_REQUIRED	
 nygardgallery.com	DEFERRED				2026-11-03T20:30:59.258392Z	CURRENT_IDENTITY_AND_STOCK_RECONCILIATION	
 oakknoll.com	ADDED	BIBLIOPOLIS	ls_01m6gx6hcqet7a3mj23ecv41my	pty_01m6gx6hc5eyctbmk7dzfb15vm	2026-11-03T14:32:21.836330Z		
 obnoxiousantiques.com	ADDED	WORDPRESS	ls_01m6gqwp2qev6rer6rbmvftz4y	pty_01m6gqwp2bevk9852m1vm1j7d4	2026-11-03T12:59:35.635648Z		
 obsoleteinc.com	ADDED		ls_01m6hf6nvyek9aarrxmgtkh9e4	pty_01m6hf6nvaen08n8p9d8jtn1j6	2026-11-03T19:47:01.544827Z		
+oceanicart.com	DEFERRED				2026-11-04T10:45:42.265519Z	REVIEWED_CURRENT_OBJECTS_SOLD_OR_UNAVAILABLE	
 ogtstore.com	ADDED	WOOCOMMERCE	ls_01m6gefjvbeghv05ybqzqsw9ws	pty_01m6gefjtye5z93n12wk2rdq6e	2026-11-03T10:15:10.678329Z		
 oldasadam.com	ADDED	WOOCOMMERCE	ls_01m6h8wvxxe6hadg7b2qvg7ed2	pty_01m6h8wvxfeknaw75qfxgtzcg1	2026-11-03T17:56:47.940269Z		
 oldehope.com	ADDED	WORDPRESS	ls_01m6h8wsfwe24r98yjh2jk8jpb	pty_01m6h8wsfce0zbr9w16sgmthn9	2026-11-03T17:56:45.749631Z		
 oldhousedepot.com	DEFERRED				2026-11-03T16:36:10.265179Z	CURRENT_INDIVIDUAL_HISTORICAL_STOCK_UNVERIFIED	
+oldhouseparts.com	ADDED		ls_01m6hq7am9efd8kvxpssnx5n8w	pty_01m6hq7akte1z93zdmhcrqk1tw	2026-11-03T22:07:10.687762Z		
+oldimprints.com	DEFERRED				2026-11-03T22:27:02.274080Z	ANNOUNCED_CLOSING_NO_CURRENT_CATALOGUE	
+oldmapgallery.com	DEFERRED				2026-11-03T22:22:42.395518Z	CURRENT_BUSINESS_HOME_CONFIRMATION_NEEDED	
+oldmasterdrawings.com	ADDED		ls_01m6jt2shkecdvrf051mjpry0e	pty_01m6jt2sh0emvakqvf7brrkdtg	2026-11-04T08:19:18.757104Z		
 oldplank.com	ADDED	BIGCOMMERCE	ls_01m6gefes4e97tmmzp7nv2vccn	pty_01m6geferpehav1bhb2xrm9jpz	2026-11-03T10:15:05.670122Z		
 oldprintshop.com	ADDED		ls_01m6h7xwtse098nwydrdkswtpn	pty_01m6h7xwtced28gv5t0y6nvkb8	2026-11-03T17:39:53.063828Z		
 oldtools.com	ADDED	CART7	ls_01m6h113jvep2tx8p4mc9nj4w2	pty_01m6h113jfe1bsr5jbj43a59cv	2026-11-03T15:39:18.195993Z		
+onaantiques.com	DEFERRED				2026-11-04T11:21:07.099495Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNVERIFIED	
+onishigallery.com	ADDED	ARTLOGIC	ls_01m6k1jnfye3tvjvx7a0kx4mdb	pty_01m6k1jnfceg3tey1fpg3z0vb1	2026-11-04T10:27:22.033361Z		
+ophirgallery.com	ADDED	EXHIBIT_E	ls_01m6k45e30e54asecg9642aepx	pty_01m6k45e2ee05svbn1v7gtg4q8	2026-11-04T11:12:34.206961Z		
+orientationsgallery.com	DEFERRED				2026-11-04T10:26:49.585688Z	CURRENT_ACTIVITY_AND_INDIVIDUAL_OFFER_UNVERIFIED	
+owingsgallery.com	ADDED	ARTLOGIC	ls_01m6jxbftkekxbqjpm0ycg0jr8	pty_01m6jxbft4ebw9xa1p95mv2685	2026-11-04T09:13:33.114421Z		
+pagodared.com	ADDED	SPREE_COMMERCE	ls_01m6kebhxdeycbrm1b5gc4e56y	pty_01m6kebhwre4arxa0d9f7mmd6p	2026-11-04T14:10:40.988492Z		
+pantryandhearth.com	DEFERRED				2026-11-04T12:27:41.775483Z	SPECIFIC_CURRENT_ART_ANTIQUES_OFFER_UNVERIFIED	
 paramountantiquemall.com	EXCLUDED				2026-11-03T12:32:38.314272Z	MULTI_DEALER_MARKETPLACE	
+paramourfinearts.com	ADDED		ls_01m6hsjt8bebys9jcvg41vj1n8	pty_01m6hsjt7te51t31tg1tj06vms	2026-11-03T22:48:24.398997Z		
 parcmonceau.com	DEFERRED				2026-11-03T16:36:10.265176Z	FIRST_PARTY_IDENTITY_AND_STOCK_UNREACHABLE	
+patmcganngallery.com	ADDED	SHOPIFY	ls_01m6jv8ejretbt91rv29qsmn0w	pty_01m6jv8ejbecwv90z56mtk5nhb	2026-11-04T08:36:56.161970Z		
+patriciastaubleantiques.com	DEFERRED				2026-11-04T11:35:39.240122Z	NATIVE_SITE_UNREACHABLE_CURRENT_COUNTRY_STOCK_UNVERIFIED	
+peaceandplentyantiques.com	ADDED	SQUARESPACE	ls_01m6kcggkfenya1t0bk6g61yby	pty_01m6kcggk5e1btkd1hq68wmgkn	2026-11-04T13:38:25.702487Z		
 petereaton.com	ADDED		ls_01m6hkvxjcekwrjn0dzag40tz7	pty_01m6hkvxhvezjagt08k3g93252	2026-11-03T21:08:31.666396Z		
+peterfetterman.com	ADDED	ARTLOGIC	ls_01m6jwqnyweqgs1q47grqytjjt	pty_01m6jwqnx3e9xs611f84tbq5ty	2026-11-04T09:02:43.538002Z		
 peterpap.com	ADDED	WOOCOMMERCE	ls_01m6h8nh2ee35s638syqpre31f	pty_01m6h8nh26emy87ry06j97fbtk	2026-11-03T17:52:47.914430Z		
+petersawyerantiques.com	DEFERRED				2026-11-04T11:35:39.240118Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNVERIFIED	
+pgny.com	EXCLUDED				2026-11-04T09:33:13.553840Z	DEALER_OPERATES_OWN_AUCTIONS	
 philaprintshop.com	ADDED	SHOPIFY	ls_01m6h7xyyre9fak4043rwzyr3e	pty_01m6h7xyyfejpsjs4ye8fgha2e	2026-11-03T17:39:55.244645Z		
+philipcolleck.com	DEFERRED				2026-11-04T09:01:55.941566Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNVERIFIED	
+philiphbradleyco.weebly.com	DEFERRED				2026-11-04T14:28:08.194652Z	CURRENT_OPERATOR_AND_IDENTIFIED_STOCK_UNVERIFIED	
 pickersparadisewv.com	DEFERRED				2026-11-03T16:47:27.422030Z	CURRENT_INDIVIDUAL_HISTORICAL_STOCK_UNVERIFIED	
 pineandpatina.com	DEFERRED				2026-11-03T16:11:36.580392Z	BUSINESS_HOME_AND_GENUINE_CURRENT_STOCK_UNVERIFIED	
 pippinvintage.com	ADDED	SHOPIFY	ls_01m6h0hqxxeyjvx9z6gdacv7my	pty_01m6h0hqxje2s88kyvjkw3fenm	2026-11-03T15:30:54.648781Z		
 prairieedge.com	ADDED	SHOPIFY	ls_01m6gkhay9emntbj9abzq0zeke	pty_01m6gkhay1ekaaadam2ezgra3v	2026-11-03T11:58:46.403673Z		
 preservationco.com	ADDED		ls_01m6h8nkn3ek5r737p6s9zazy0	pty_01m6h8nkmvemj94pvkbrwxc387	2026-11-03T17:52:50.038971Z		
 primitivesunlimitednatchez.com	DEFERRED				2026-11-03T16:47:27.422033Z	FIRST_PARTY_IDENTITY_AND_STOCK_UNREACHABLE	
+printsoldandrare.com	ADDED		ls_01m6hs022feg0b6f2snyg7mqz8	pty_01m6hs021ze61t935qpyr3w4p0	2026-11-03T22:38:09.747320Z		
+provenanceantiquesatlanta.com	DEFERRED				2026-11-04T11:29:15.861683Z	NATIVE_TLS_FAILURE_CURRENT_IDENTITY_STOCK_UNVERIFIED	
 prphbooks.com	DEFERRED				2026-11-03T10:09:07.444897Z	LEGAL_OPERATOR_AND_CURRENT_AUCTION_ROLE_UNRESOLVED	
 questroyalfineart.com	ADDED	WORDPRESS	ls_01m6hd1rh2ewjt9gz9j27255bv	pty_01m6hd1rgferc83naw2g8b6gsh	2026-11-03T19:09:22.057022Z		
 raremaps.com	ADDED		ls_01m6gf7s74ekm8wkkk0w46ktd9	pty_01m6gf7s6hesvs03xmn2w4jtwy	2026-11-03T10:28:23.096072Z		
 rauantiques.com	ADDED	SHOPIFY	ls_01m6ge9kxcefx8z1nvdtm8fqdj	pty_01m6ge9kwzexwr96zp62v071vw	2026-11-03T10:11:54.434500Z		msrau.com
 rbarnantiques.com	DEFERRED				2026-11-03T12:32:38.314276Z	NATIVE_DNS_AND_READER_ACCESS_UNAVAILABLE	
+recyclingthepast.com	ADDED		ls_01m6hpzmtke798f83t9b94ahr5	pty_01m6hpzmt6eqarag9e5k892zph	2026-11-03T22:02:58.906871Z		
+redferngallery.com	DEFERRED				2026-11-04T09:12:34.127447Z	CURRENT_NATIVE_IDENTITY_AND_STOCK_UNVERIFIED	
 redmodernfurniture.com	DEFERRED				2026-11-03T17:21:59.847827Z	LIVE_INDIVIDUAL_STOCK_AND_PRESENT_BUSINESS_HOME_UNVERIFIED	
+rehs.com	ADDED	WORDPRESS	ls_01m6jz4f93ezzvp94spta4vj73	pty_01m6jz4f8mey1b54sbys2rmna5	2026-11-04T09:44:39.750969Z		
+relewis.com	ADDED		ls_01m6htc157e6p81tyws2kkb5kk	pty_01m6htc14vewrv70nkmvagq93b	2026-11-04T08:19:18.757053Z		
 rerhodeisland.com	ADDED	SHOPIFY	ls_01m6gp4f1ce7fbv1w751ccjwym	pty_01m6gp4f0se1pbs6ndsj73kkcf	2026-11-03T12:28:53.917565Z		
 restored2love.com	DEFERRED				2026-11-03T13:50:12.248728Z	CURRENT_HISTORICAL_CATALOGUE_EMPTY	
 retrofret.com	ADDED	SHOPIFY	ls_01m6h1qkfvevm8da9q08aas9wf	pty_01m6h1qkfee3rbdmwsnrhqm7qt	2026-11-03T15:51:35.322452Z		
 retroinferno.com	ADDED	SQUARESPACE	ls_01m6grc76eeaq86tq936c1hkx7	pty_01m6grc760ep0tsekvm4hzw5xq	2026-11-03T13:08:04.779682Z		
 rhiannonantiques.com	DEFERRED				2026-11-03T16:11:36.580377Z	HISTORICAL_STOCK_AND_VENDOR_ROLE_UNVERIFIED	
+riccasarchitectural.com	DEFERRED				2026-11-03T21:54:38.848849Z	CURRENT_ANTIQUE_STOCK_AVAILABILITY_UNVERIFIED	
+richardnortongallery.com	ADDED		ls_01m6jx1053e9xvt7a20069qjaz	pty_01m6jx104jeh988q4r586yg1xm	2026-11-04T09:07:48.729803Z		
 rjorgensen.com	DEFERRED				2026-11-03T18:22:55.791203Z	PRESENT_NATIVE_ACTIVITY_UNVERIFIED_AFTER_REPORTED_CLOSURE	
+rmchait.com	ADDED	EXHIBIT_E	ls_01m6k45ab5e4j85svv0dp815r3	pty_01m6k45aa9e99s0ne2x3yq4e6h	2026-11-04T11:12:30.528375Z		
 robertmorrissey.com	ADDED		ls_01m6haeb5te78td6zpecjcskan	pty_01m6haeb58efj8c99vfvb5cwxh	2026-11-03T18:23:48.685050Z		
+robertofreitas.com	ADDED		ls_01m6kcgf0yef1tpk2mzsffqwem	pty_01m6kcgf0eemnbctm7zpe6g2rc	2026-11-04T13:38:24.215322Z		
 robertsimon.com	ADDED	SQUARESPACE	ls_01m6hbyfwve578rfys7jddy4fn	pty_01m6hbyfw8ejyt7w3jy225e9ec	2026-11-03T18:50:06.808772Z		
+robuck.co	ADDED	SHOPIFY	ls_01m6k5k3beecmsws78eaqddzdg	pty_01m6k5k3b4ecfayrm8k52k64ej	2026-11-04T11:37:30.453414Z		
+rogerwinterantiques.com	DEFERRED				2026-11-04T13:37:41.005516Z	CURRENT_NATIVE_ACCESS_STOCK_AND_HOME_UNVERIFIED	
 roushantiques.com	DEFERRED				2026-11-03T13:07:02.239353Z	GALLERY_EXPLICITLY_NOT_LIVE_AVAILABILITY	
 royalantiques.com	DEFERRED				2026-11-03T10:59:47.554646Z	PUBLIC_SITE_UNREACHABLE_AND_RELATED_OPERATOR_REVIEW	
+rsjohnsonfineart.com	DEFERRED				2026-11-03T23:01:32.166065Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_AND_PREMISES_REVIEW	
 rumbleseatmusic.com	ADDED	WIX	ls_01m6h1qnhjet78tg49728zt4h8	pty_01m6h1qnh5egs9wcpvcsyhsa30	2026-11-03T15:51:37.710397Z		
 saladocreekantiques.com	DEFERRED				2026-11-03T10:18:25.259811Z	PRIMARY_SITE_REQUIRES_AUTHENTICATION	
 salmonrarebooks.com	ADDED	ARTLOGIC	ls_01m6gx6f76e739gh5x94yv3bzw	pty_01m6gx6f6nevkr1e31cj7zk74p	2026-11-03T14:32:19.737736Z		
 samplings.com	ADDED	DRUPAL	ls_01m6h5zb7bej9s9nyt7he82x44	pty_01m6h5zb6tebg9whvhngg2qg3a	2026-11-03T17:05:43.792378Z		
 samuelherrup.com	ADDED		ls_01m6hkdp9ce2ys2w9g591vfhv5	pty_01m6hkdp8ye8q9y58tke420a4n	2026-11-03T21:03:08.031580Z		
 sandyjacobsantiques.com	DEFERRED				2026-11-03T18:15:47.161531Z	PRESENT_HOME_AND_INDIVIDUAL_CURRENT_STOCK_UNVERIFIED	
+sarasotasalvage.com	DEFERRED				2026-11-03T22:15:10.414834Z	RELOCATION_AND_DIRECT_ANTIQUE_STOCK_QUALIFICATION_UNRESOLVED	
+scandinavianantiquesandliving.com	DEFERRED				2026-11-04T11:01:56.929726Z	NATIVE_DOMAINS_DNS_FAILURE_CURRENT_OPERATION_UNVERIFIED	
 schillerandbodo.com	DEFERRED				2026-11-03T20:48:28.956273Z	CURRENT_ACTIVITY_REVIEW	
+schillersalvage.com	DEFERRED				2026-11-03T22:11:04.312904Z	LOOKALIKE_DOMAIN_IDENTITY_UNVERIFIED	
+schillerssalvage.com	ADDED	SQUARESPACE	ls_01m6hqf4d9es9sgqb7awc717hb	pty_01m6hqf4cteyxaxmevwvp841b4	2026-11-03T22:11:25.891257Z		
+schneiblefinearts.com	ADDED	WOOCOMMERCE	ls_01m6k1sbhrekg8eah9nxqp21gr	pty_01m6k1sbhbe1yr2c1faapkgkm7	2026-11-04T10:31:02.034318Z		
 schoelkopfgallery.com	ADDED	ARTLOGIC	ls_01m6hjrgrdem5bycb6jh3v92rm	pty_01m6hjrgqpevsb0afx9ngt5br2	2026-11-03T20:49:10.858596Z		menconischoelkopf.com;msfineart.com
 scholten-japanese-art.com	DEFERRED				2026-11-03T19:59:53.917824Z	NATIVE_ACCESS_AND_CURRENT_STOCK	
 schwarzgallery.com	ADDED	WOOCOMMERCE	ls_01m6hbyj06ep5td070cy73cwwk	pty_01m6hbyhzmefpvx8bdrvktw6vr	2026-11-03T18:50:08.491287Z		
+scullersrow.com	DEFERRED				2026-11-04T10:52:47.201505Z	REDIRECTED_LANDING_NO_CURRENT_STOCK_OR_VERIFIED_HOME	questergallery.com
+sherwoodantiques.com	DEFERRED				2026-11-04T13:41:44.236714Z	NATIVE_SHOP_UNDER_CONSTRUCTION_COUNTRY_AND_STOCK_UNVERIFIED	
 sherwoodsspirit.com	DEFERRED				2026-11-03T18:11:30.567377Z	CURRENT_NATIVE_IDENTITY_AND_AVAILABLE_STOCK_UNVERIFIED	
+shfap.com	DEFERRED				2026-11-03T21:40:08.310165Z	CURRENT_SALE_AVAILABILITY_UNRESOLVED	
 shibui.com	ADDED	SHOPIFY	ls_01m6gyzb96ez8t8terzg9j94gh	pty_01m6gyzb8jehwatp59kndgd63w	2026-11-03T15:03:23.877428Z		
 shiprocksantafe.com	ADDED		ls_01m6h9sdeaee3b5b70e1mmaew4	pty_01m6h9sde0evgbwwqwpr42wzpy	2026-11-03T18:12:22.791518Z		
 shogunsgallery.com	ADDED	SHOPIFY	ls_01m6gyzdv3ej2bg1tdv3a4my97	pty_01m6gyzdtgenwvkf4mzftg98qm	2026-11-03T15:03:26.436569Z		
@@ -273,20 +425,31 @@ spackantiquemaps.com	ADDED	DRUPAL	ls_01m6gfjrbge70ar2r1w90qs71g	pty_01m6gfjrb2e1
 spartanewused.com	EXCLUDED				2026-11-03T11:24:22.936204Z	MULTI_DEALER_MARKETPLACE	
 spencermarks.com	ADDED	SHOPIFY	ls_01m6hgkbcyet3tha3dbseqgtc7	pty_01m6hgkbche9c8f8wj6qe0v09v	2026-11-03T20:11:25.067881Z		
 spindlerantiques.com	ADDED	SQUARESPACE	ls_01m6gdzzb8eha9g42vt71c8bt7	pty_01m6gdzzaney2s6adtrmmv778b	2026-11-03T10:06:38.456826Z		
+spurgeonlewis.com	DEFERRED				2026-11-04T09:56:50.375047Z	CURRENT_STOCK_PHOTOGRAPHS_UNAVAILABLE	
 ssvintagewarehouse.com	DEFERRED				2026-11-03T13:26:14.017845Z	CURRENT_INDIVIDUAL_CATALOGUE_UNINSPECTABLE	
+stanfordfineart.com	DEFERRED				2026-11-04T13:41:44.236701Z	CURRENT_FIRST_PARTY_ACCESS_STOCK_AND_HOME_UNVERIFIED	
+steigrad.com	DEFERRED				2026-11-04T11:59:06.603824Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNVERIFIED	
 stephenscore.com	DEFERRED				2026-11-03T21:07:43.803389Z	PARKED_DOMAIN_CURRENT_SOURCE_UNVERIFIED	
 sternrarebooks.com	DEFERRED				2026-11-03T14:02:20.414479Z	ANNOUNCED_OPERATOR_AND_PREMISES_TRANSITION_UNRESOLVED	
 stevenfstillantiques.com	DEFERRED				2026-11-03T11:03:28.182170Z	NATIVE_WEBSITE_CONTENT_INTEGRITY_UNRESOLVED	
 stonehouseantiques.com	ADDED	WIX	ls_01m6gqwkzeehfasxrm6e7118zh	pty_01m6gqwkype7gbq2ykfcnt5fs6	2026-11-03T12:59:33.950036Z		
+store.sternfinearts.com	ADDED	TURBIFY	ls_01m6kb3rgbezssa7gptjm9zehv	pty_01m6kb3rg1ewgrtc9788kt8za2	2026-11-04T13:13:59.315055Z		sternfinearts.com
 straydogantiques.com	DEFERRED				2026-11-03T16:47:27.422027Z	FIRST_PARTY_IDENTITY_AND_STOCK_UNREACHABLE	
 stremmelgallery.com	EXCLUDED				2026-11-03T20:41:54.992428Z	AUCTION_OPERATOR	
 studiomodus.store	DEFERRED				2026-11-03T11:24:22.936211Z	SUCCESSOR_LEGAL_OPERATOR_UNRESOLVED	
 sullivangoss.com	ADDED	EXHIBIT_E	ls_01m6hk4nntedqs0nvg5g13crde	pty_01m6hk4nnae9vbqqp8pxv3ps39	2026-11-03T20:55:49.008447Z		
 sunbeamvintage.com	ADDED	SHOPIFY	ls_01m6h43c7newhttjpdvre70gxd	pty_01m6h43c79ex1byx919pn1z561	2026-11-03T16:32:58.695001Z		
+susansheehangallery.com	ADDED	WORDPRESS	ls_01m6k74xqxenp90nrf8v1p62z1	pty_01m6k74xqbeaz94x51h5kpz31b	2026-11-04T12:04:43.546175Z		
+susantellergallery.com	DEFERRED				2026-11-03T22:52:40.431256Z	INDIVIDUAL_CURRENT_SALE_AVAILABILITY_UNRESOLVED	
 swaen.com	ADDED		ls_01m6ge58hqe4hvwdgn4vfp19gk	pty_01m6ge58hbex3r1frbx8yseafr	2026-11-03T10:09:31.556132Z		
+sylviaantiques.com	ADDED	WIX	ls_01m6kc1a4necyt4hbc9f4zvg43	pty_01m6kc1a43emva6h2511s8xrb1	2026-11-04T13:30:07.907908Z		
+taimodern.com	ADDED	WORDPRESS	ls_01m6k2ck9ceyv9nz4m7ksyyj2t	pty_01m6k2ck8yehea04fc7sypesnz	2026-11-04T10:41:31.641505Z		
+tambaran.com	DEFERRED				2026-11-04T10:45:42.265522Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNVERIFIED	
+tanseycontemporary.com	DEFERRED				2026-11-04T13:09:33.038432Z	CURRENT_FIRST_PARTY_ACCESS_STOCK_AND_HOME_UNVERIFIED	
 tansushop.com	ADDED	BIGCOMMERCE	ls_01m6gzdbfgemx8748nwwywcyxc	pty_01m6gzdbf8e0tba4cf78vvnzgm	2026-11-03T15:11:02.322146Z		
 taylorandgraham.com	ADDED	SHOPIFY	ls_01m6hjrczdezftf6rnn6cgbd0j	pty_01m6hjrcyveatr99r59te8xg4e	2026-11-03T20:50:53.104848Z		
 templetonantiques.com	ADDED	SHOPIFY	ls_01m6gdzwrmee0vpqcnew2tygw4	pty_01m6gdzwr2ea0vy33s5k0gvqqe	2026-11-03T10:06:35.895365Z		
+tenzingasianart.com	DEFERRED				2026-11-04T10:40:46.980600Z	CURRENT_HOME_COUNTRY_AND_INDIVIDUAL_SALE_UNVERIFIED	
 terraceoaksantiques.com	EXCLUDED				2026-11-03T11:03:28.182163Z	MULTI_DEALER_MARKETPLACE	
 tetonantiques.com	DEFERRED				2026-11-03T12:42:33.026980Z	CURRENT_HOSTED_AUCTION_ROLE_REQUIRES_REVIEW	
 theartstorewv.com	DEFERRED				2026-11-03T16:47:27.422022Z	PARKED_PRIMARY_DOMAIN_AND_HISTORICAL_BLOG_ONLY	
@@ -294,35 +457,51 @@ thebeaconsupply.com	DEFERRED				2026-11-03T12:42:33.026977Z	CURRENT_INDIVIDUAL_S
 thebestthings.com	ADDED		ls_01m6h115pkeprrdrz3xak0rmsm	pty_01m6h115p7e0tbpt8jvtbnh4tv	2026-11-03T15:39:20.384659Z		
 thefarmfargo.com	EXCLUDED				2026-11-03T16:11:36.580388Z		
 themodernvault.com	ADDED	WOOCOMMERCE	ls_01m6h437rme3grvg2mpccrcssp	pty_01m6h437r7ezpvcvbnq0f3qba9	2026-11-03T16:32:53.896465Z		
+thepreservationstation.com	ADDED	WOOCOMMERCE	ls_01m6hpnj7ye5y99q83zq408tnj	pty_01m6hpnj79ea88v2yvv8f1y95k	2026-11-03T21:57:28.311799Z		
 therusticchaos.com	EXCLUDED				2026-11-03T12:22:43.927375Z	MULTI_DEALER_MARKETPLACE	
+thewellbybdantiques.com	ADDED	SHOPIFY	ls_01m6jwb20je4g827p8h2gce04b	pty_01m6jwb202e6nv3mykr4833739	2026-11-04T08:55:50.876674Z		bdantiques.com
+thistleamericana.com	ADDED	WOOCOMMERCE	ls_01m6kc181zebh9brp5estpd823	pty_01m6kc1817e8p98fv6hva1qp3d	2026-11-04T13:30:05.855187Z		
 thomascolville.com	DEFERRED				2026-11-03T19:13:40.908605Z	PUBLISHED_MULTIPLE_OPERATORS_UNRESOLVED	
+thomasfrenchfineart.com	ADDED		ls_01m6hsvrgbe3bry3x6bgwk91vt	pty_01m6hsvrfvehyaznhmgyz3m8n4	2026-11-04T08:19:18.756969Z		
 thomsengallery.com	ADDED	ARTLOGIC	ls_01m6hfyyzmech9t5awqgcw96y0	pty_01m6hfyyz5ea891az65e9mjnm7	2026-11-03T20:00:16.899470Z		
+thurstonnichols.com	DEFERRED				2026-11-04T13:29:35.715572Z	CURRENT_ADVERTISED_AUCTION_ROLE_UNRESOLVED	
 tillouantiques.com	ADDED	WORDPRESS	ls_01m6ha1ph9e84br2zt8kaq9a9w	pty_01m6ha1ph2e85tz70kham7f5je	2026-11-03T18:16:54.449311Z		
+tmurrayarts.com	ADDED	WORDPRESS	ls_01m6k255ehe0pb7rrnrj4wkb6t	pty_01m6k255e0ed2takpyr66g1164	2026-11-04T10:37:28.147286Z		
 tschanzrarebooks.com	DEFERRED				2026-11-03T11:32:45.065930Z	PRIMARY_PUBLIC_SITE_HTTP429	
+tuckerpayneantiques.com	ADDED	FIRST_DIBS	ls_01m6kbqy1qe78977chhdpgwpx6	pty_01m6kbqy1bextt6t4hgw1e8p5r	2026-11-04T13:25:00.483649Z		
+tunickart.com	ADDED		ls_01m6ht3cx9en2v9wrnjvxm3fj4	pty_01m6ht3cwwempsa0bepfrttnwy	2026-11-04T08:19:18.757014Z		
 twentytwohome.com	ADDED	SHOPIFY	ls_01m6gtjaeheeybfcva0bwb80ch	pty_01m6gtjae1etjb552mn5w4pa07	2026-11-03T13:46:21.843644Z		
+twomaisons.com	DEFERRED				2026-11-04T13:49:45.122545Z	CURRENT_STOCK_AND_BUSINESS_HOME_COUNTRY_UNRESOLVED	
 uncleaudsvintage.com	DEFERRED				2026-11-03T13:21:07.354706Z	CURRENT_STOCK_AND_VENDOR_MODEL_UNRESOLVED	
 uniqueantiquesct.com	DEFERRED				2026-11-03T12:28:26.425274Z	CURRENT_SITE_RENDERING_AND_AUCTION_ROLE_UNVERIFIED	
 urbanredeux.com	ADDED	SQUARESPACE	ls_01m6gh8zyrez8rhqbnc0mmxa3c	pty_01m6gh8zy5etvank37wa29vnab	2026-11-03T11:03:59.136593Z		
 urbanremainschicago.com	ADDED	SHOPIFY	ls_01m6gefh2mehmvcz0wcef6psw8	pty_01m6gefh1wey1sa4kgsnz501y3	2026-11-03T10:15:07.427148Z		
 usfolkart.com	ADDED	SQUARESPACE	ls_01m6hkdnare3qt2vxytzdsmt9y	pty_01m6hkdn9seaktk0e39etz53vn	2026-11-03T21:03:06.168571Z		
+vallejogallery.com	DEFERRED				2026-11-04T10:52:47.200166Z	CURRENT_BUSINESS_HOME_UNVERIFIED_CONTACT_BLOCKED	
 vandekar.com	ADDED	ARTSYSTEMS	ls_01m6hgzhnyem2r9j1b1brpr1e1	pty_01m6hgzhnbe1qba1mtjay3zxcv	2026-11-03T20:18:04.521260Z		
 vandvantiques.com	DEFERRED				2026-11-03T12:50:20.245746Z	CURRENT_OWN_INDIVIDUAL_STOCK_AVAILABILITY_UNRESOLVED	
 vareikafinearts.com	DEFERRED				2026-11-03T19:13:40.908959Z	INDIVIDUAL_STOCK_ACCESS_AND_IMAGE_UNVERIFIED	
+villagebraider.com	DEFERRED				2026-11-04T13:24:31.735862Z	CURRENT_IDENTIFIED_OWN_STOCK_UNVERIFIED	
 vintagegrindhouse.com	ADDED	SHOPIFY	ls_01m6h70k46e5dvdx2y8xnncx99	pty_01m6h70k37ef8b38grx07v0w8n	2026-11-03T17:23:51.862752Z		
 vintagerootsllc.com	DEFERRED				2026-11-03T12:42:33.026972Z	NATIVE_SHOP_HAS_NO_CURRENT_PRODUCTS	
 vintagesourcekc.com	ADDED	SHOPIFY	ls_01m6grc510em4rd18z07g7kk87	pty_01m6grc50me3evg1h2nbx0j70j	2026-11-03T13:08:02.979784Z		
 vintagetreasurestn.com	DEFERRED				2026-11-03T13:36:19.243350Z	VENDOR_MARKETPLACE_ROLE_UNRESOLVED	
 vmantiques.com	DEFERRED				2026-11-03T12:45:36.086540Z	CURRENT_INDIVIDUAL_STOCK_UNVERIFIED	
 vosegalleries.com	EXCLUDED				2026-11-03T20:41:54.992424Z	AUCTION_OPERATOR	
+waldhornadlers.com	DEFERRED				2026-11-04T09:43:15.834670Z	CURRENT_FIRST_PARTY_CATALOGUE_UNAVAILABLE	
+walterarader.com	DEFERRED				2026-11-04T10:40:46.980603Z	OPERATOR_RELATIONSHIP_HOME_AND_PRESENT_OFFER_UNVERIFIED	
 waltonsjewelry.com	ADDED	SHOPIFY	ls_01m6h0hnsmeqprc9thgswc2t28	pty_01m6h0hns7e9pajh8z4whsvhys	2026-11-03T15:30:52.645713Z		
 wardmaps.com	ADDED	SHOPIFY	ls_01m6gfjp2ne5prvkxqbvz1krr6	pty_01m6gfjp25ek2ve45jhmdfas0t	2026-11-03T10:34:20.047791Z		
 whitehallantiques.com	ADDED	WOOCOMMERCE	ls_01m6gq41f4e7y8ddzyknmx3s8d	pty_01m6gq41etevssnng983j4k3cm	2026-11-03T12:46:08.535907Z		
 whiteowlrarebooks.com	EXCLUDED				2026-11-03T11:32:45.065936Z	OPERATES_RECURRING_BOOK_AUCTIONS	
 wildwanderer.co	DEFERRED				2026-11-03T13:45:01.297717Z	NO_CURRENT_INDIVIDUAL_HISTORICAL_STOCK_INSPECTED	
+williampcarlfineprints.com	ADDED		ls_01m6hscjfzee5av3d930a7tt10	pty_01m6hscjfcer1ty50ns5jqpc8k	2026-11-03T22:44:59.674577Z		
 williamwordantiques.com	DEFERRED				2026-11-03T19:21:18.587670Z	CURRENT_FULL_OBJECT_IMAGE_ACCESS_UNVERIFIED	
 wilson-antiques.com	EXCLUDED				2026-11-03T18:15:47.161534Z	MULTI_DEALER_MARKETPLACE	
 wilsonsestatejewelry.com	ADDED	SHOPIFY	ls_01m6h0ht2yet2sy04zd884dft3	pty_01m6h0ht03evgvdhzyn25tvjcn	2026-11-03T15:30:57.453327Z		
+wirthmoreantiques.com	ADDED		ls_01m6jz4cz4ec09dyg0djmtjtx6	pty_01m6jz4cyhe1f8ntmpsfpsrf3d	2026-11-04T09:44:38.009338Z		
 woodenshoeantiques.com	DEFERRED				2026-11-03T12:37:37.868440Z	NATIVE_HTTP401_AND_READER_TIMEOUT	
 yellowfishtrading.com	DEFERRED				2026-11-03T13:50:12.248711Z	CURRENT_STOREFRONT_PASSWORD_GATED	yellowfishtradingco.com
 yesteryear.net	ADDED	SHOPIFY	ls_01m6gj32q2e96awrfyp7rhqqca	pty_01m6gj32pjewcs4ea7eh990ycq	2026-11-03T11:18:14.431332Z		
+zaplinlampert.com	DEFERRED				2026-11-04T09:12:34.127443Z	CURRENT_INDIVIDUAL_SALE_AVAILABILITY_UNVERIFIED	
 zentnercollection.com	ADDED	WOOCOMMERCE	ls_01m6gzd8z9evdt2sjc4e5e6zht	pty_01m6gzd8ydetfaxyvgqe0z3mwn	2026-11-03T15:10:59.921031Z		

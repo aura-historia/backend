@@ -1,25 +1,25 @@
 {
-  "run": "2026-11-02-it-175",
-  "verifiedAt": "2026-11-03T21:06:58.242617Z",
+  "run": "2026-11-02-it-215",
+  "verifiedAt": "2026-11-04T14:45:21.965348Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-03T20:41:46.276043Z",
-  "dealersCheckedThisRun": 2,
-  "dealersReused": 267,
+  "fullVerifiedAt": "2026-11-04T14:09:08.673976Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 318,
   "counts": {
-    "parties": 269,
-    "listingSources": 269,
-    "locations": 316,
-    "logos": 231,
-    "identifiedPlatforms": 208,
-    "deliveryProfiles": 152,
-    "emptyIngestionMethods": 269,
-    "excluded": 25,
-    "deferred": 89
+    "parties": 319,
+    "listingSources": 319,
+    "locations": 373,
+    "logos": 274,
+    "identifiedPlatforms": 250,
+    "deliveryProfiles": 170,
+    "emptyIngestionMethods": 319,
+    "excluded": 27,
+    "deferred": 99
   },
   "environmentCounts": {
-    "parties": 3641,
-    "listingSources": 3677
+    "parties": 4579,
+    "listingSources": 4622
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
@@ -40,7 +40,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:54.658252Z",
+      "verifiedAt": "2026-11-04T14:08:19.696581Z",
       "observationDigest": "8f567b602248f8eff04c071694809e348df9cffddb662422bc92c32b6ddfb4db"
     },
     {
@@ -53,7 +53,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:54.363939Z",
+      "verifiedAt": "2026-11-04T14:08:19.583819Z",
       "observationDigest": "83100d1ff5c47a1153fe8e178736fba9008e2e05a85bfd177124bbaa946919cc"
     },
     {
@@ -66,7 +66,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:54.387644Z",
+      "verifiedAt": "2026-11-04T14:08:19.597939Z",
       "observationDigest": "a3baa5341a9ec3ca354e43a4d229ca91eec0bc550ce3b6924ddc8a2b9df02bc4"
     },
     {
@@ -79,7 +79,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:54.911801Z",
+      "verifiedAt": "2026-11-04T14:08:20.111802Z",
       "observationDigest": "204dc8f0cf4a8cf70373d9a71e7ca81a1dc997e282833f38094609d5ec7a3c66"
     },
     {
@@ -92,7 +92,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:55.043371Z",
+      "verifiedAt": "2026-11-04T14:08:20.258911Z",
       "observationDigest": "8bfa9bf03e37652f379ae048e16d8c038d4f9b7fe8a3dcb07b9b22a3c73da898"
     },
     {
@@ -105,7 +105,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:55.261823Z",
+      "verifiedAt": "2026-11-04T14:08:20.137192Z",
       "observationDigest": "a2c2f76b4c35a7d12f9fdd4d9227ecbdae00971934761eb474b76c3e4ce8888b"
     },
     {
@@ -118,7 +118,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:55.863256Z",
+      "verifiedAt": "2026-11-04T14:08:20.667125Z",
       "observationDigest": "9422628bef970c680a43a1542164ce87ca65000147bca34b63a8998be7d6e921"
     },
     {
@@ -131,7 +131,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:55.723713Z",
+      "verifiedAt": "2026-11-04T14:08:20.687570Z",
       "observationDigest": "8a4b80c498ec13caeaff8196d33e2c928f808d0ad39d4ca981ca16e981a4a9c1"
     },
     {
@@ -144,7 +144,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:55.826214Z",
+      "verifiedAt": "2026-11-04T14:08:20.725340Z",
       "observationDigest": "bcff46bebda114b4aaa9fe67ef1add514438e5f16ae24432df74f64924eac822"
     },
     {
@@ -157,7 +157,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:56.458611Z",
+      "verifiedAt": "2026-11-04T14:08:21.157585Z",
       "observationDigest": "0742a942cdbd0dc76ded1f512c7ad6421a658e69d7146cd23e57ef7fa0764bf8"
     },
     {
@@ -170,7 +170,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:56.480521Z",
+      "verifiedAt": "2026-11-04T14:08:21.358341Z",
       "observationDigest": "eb6e3d14bdce873af74ed8e4f262de93823b3fc4aef533e8327118775561da3a"
     },
     {
@@ -183,7 +183,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:56.304795Z",
+      "verifiedAt": "2026-11-04T14:08:21.222131Z",
       "observationDigest": "12700e9db1a9c9a3b4183278943b05ffac0a5781b781d3f52adc68eaf99514e1"
     },
     {
@@ -196,7 +196,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:56.882780Z",
+      "verifiedAt": "2026-11-04T14:08:21.690533Z",
       "observationDigest": "4bcada5e3f386cdbded02e92f1b58b3dad8c28019d21bef651fae6e4ef1755fe"
     },
     {
@@ -209,7 +209,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:56.946704Z",
+      "verifiedAt": "2026-11-04T14:08:21.605789Z",
       "observationDigest": "fe01ce52e899d90612e22cc760b71099ca50528fc4340ae258ca3dbf58018bfe"
     },
     {
@@ -222,7 +222,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:56.912586Z",
+      "verifiedAt": "2026-11-04T14:08:21.741934Z",
       "observationDigest": "3d81caed9e9a3b661964954a60271a218e45e19c87557c09bb4f7d3720b0f2c4"
     },
     {
@@ -235,7 +235,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:57.423510Z",
+      "verifiedAt": "2026-11-04T14:08:22.076554Z",
       "observationDigest": "60c8b4718eb817c920dbe3d40e44393f3b1916a1bf8152839b6cf69839f3f231"
     },
     {
@@ -248,7 +248,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:57.447917Z",
+      "verifiedAt": "2026-11-04T14:08:22.173266Z",
       "observationDigest": "def4db5b3a8911c9e7fd4a738c949749b68b24860566898e4bfbb5d300c1757c"
     },
     {
@@ -261,7 +261,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:57.750404Z",
+      "verifiedAt": "2026-11-04T14:08:22.335179Z",
       "observationDigest": "bbcb508e8f252d9bce9f7d69b26f56fef483001552b03cf8158d8092c91e319c"
     },
     {
@@ -274,7 +274,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:57.913392Z",
+      "verifiedAt": "2026-11-04T14:08:22.483768Z",
       "observationDigest": "d8315ac4ef235ba4f7a4786a15a23aadd2e7a4df5c01fe5ed8100ffc75f85da5"
     },
     {
@@ -287,7 +287,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:58.023126Z",
+      "verifiedAt": "2026-11-04T14:08:22.673625Z",
       "observationDigest": "ede9eafbb6835ba77f1c274b3539e2ea9ef2f340dfc5336f797e7472ff1d36ce"
     },
     {
@@ -300,7 +300,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:58.423162Z",
+      "verifiedAt": "2026-11-04T14:08:22.789516Z",
       "observationDigest": "c9cee28d6fac5d8cb3655601826bbdc0d89a5221a3c2688f30c04df238493dad"
     },
     {
@@ -313,7 +313,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:58.378594Z",
+      "verifiedAt": "2026-11-04T14:08:22.866329Z",
       "observationDigest": "95bc3bfd851ba282a2edc41348b3abf4803b4a4637d521d95f503fbb6c66f9ce"
     },
     {
@@ -326,7 +326,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:58.538788Z",
+      "verifiedAt": "2026-11-04T14:08:23.130199Z",
       "observationDigest": "91db3d5f6a94232a451065d033c300e51da16319fa40b27bc9718bde372f5e48"
     },
     {
@@ -339,7 +339,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:58.819153Z",
+      "verifiedAt": "2026-11-04T14:08:23.194874Z",
       "observationDigest": "7a4f91d9c5166be1d8e3da0a2e4a55e67748b99383b28552ad92a2f5a77566e9"
     },
     {
@@ -352,7 +352,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:58.870601Z",
+      "verifiedAt": "2026-11-04T14:08:23.257737Z",
       "observationDigest": "51c8412477c8d6a97514de7db694649dae24486cc1b678b49b30928a3aa85a3d"
     },
     {
@@ -365,7 +365,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:59.203610Z",
+      "verifiedAt": "2026-11-04T14:08:23.655467Z",
       "observationDigest": "f9e5a4dcde3074228921f5b9a917ac76c85126581207a836865fce7af7ccbf7b"
     },
     {
@@ -378,7 +378,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:59.255499Z",
+      "verifiedAt": "2026-11-04T14:08:23.591953Z",
       "observationDigest": "92bdff085924f4dd8a37d2ae41e0e910480cc6bf18812f845399f0fd31d4f555"
     },
     {
@@ -391,7 +391,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:59.374342Z",
+      "verifiedAt": "2026-11-04T14:08:23.751160Z",
       "observationDigest": "d83c03b331fd6ec7506334479c736c5182c5c558ff1cec5e46dc777faa4ceaf8"
     },
     {
@@ -404,7 +404,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:59.633625Z",
+      "verifiedAt": "2026-11-04T14:08:24.046263Z",
       "observationDigest": "c0b8c709ce3c46c1a5d9f813c542d88ab3bf8360293f218cc0e0d82f775a74b9"
     },
     {
@@ -417,7 +417,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:59.787511Z",
+      "verifiedAt": "2026-11-04T14:08:24.160621Z",
       "observationDigest": "c105b43282a8cb160baa9d5abab27da4aab943b55e94092ec210a28501ceebea"
     },
     {
@@ -430,7 +430,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:40:59.814620Z",
+      "verifiedAt": "2026-11-04T14:08:24.162657Z",
       "observationDigest": "000636f55d3d6a5f4691ce9e41106b882b199a7b06e54e5edac4aa568df01be4"
     },
     {
@@ -443,7 +443,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:00.242001Z",
+      "verifiedAt": "2026-11-04T14:08:24.426065Z",
       "observationDigest": "adb9054b26a3277005cb5515a141c9b46ec1519501757baa64a60f20cc975eb7"
     },
     {
@@ -456,7 +456,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:00.502286Z",
+      "verifiedAt": "2026-11-04T14:08:24.573405Z",
       "observationDigest": "08416d8a97f5de5311777b628f8c701304eef9e92e4b99e1c8ba5ae8c28ac5f0"
     },
     {
@@ -469,7 +469,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:00.560243Z",
+      "verifiedAt": "2026-11-04T14:08:24.672414Z",
       "observationDigest": "38f67e1b7d9c4d9d07c56f7b45ab53a103a0ea1797d2743efa1aaef4c09271da"
     },
     {
@@ -482,7 +482,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:01.003463Z",
+      "verifiedAt": "2026-11-04T14:08:24.950924Z",
       "observationDigest": "cfef5492f8981f2458cbfa4cd2248c80153c1002ed3841a6d0c6f4a43c4679c6"
     },
     {
@@ -495,7 +495,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:01.248113Z",
+      "verifiedAt": "2026-11-04T14:08:25.078015Z",
       "observationDigest": "8be1ff8f8698b618350aadfab0fea94971fae6830c362901d20c8a32e1ad631f"
     },
     {
@@ -508,7 +508,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:01.107312Z",
+      "verifiedAt": "2026-11-04T14:08:25.176623Z",
       "observationDigest": "6ca7dad805ad35298d613362c33c774c588d434a03f111593c55113393c398f3"
     },
     {
@@ -521,7 +521,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:01.525125Z",
+      "verifiedAt": "2026-11-04T14:08:25.372377Z",
       "observationDigest": "a60189b8c1e91869ee511233f1e78311e69a1b7e7a46094a9f11dd3d04dec0be"
     },
     {
@@ -534,7 +534,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:01.823958Z",
+      "verifiedAt": "2026-11-04T14:08:25.581951Z",
       "observationDigest": "e4a80900bdd03bebd950e542c58d0a57a84773414bef286c21c9ac197a78dc58"
     },
     {
@@ -547,7 +547,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:01.986570Z",
+      "verifiedAt": "2026-11-04T14:08:25.646327Z",
       "observationDigest": "a085cc527de6f0a4200e15efeec926bfa3b320ef5f82f2c924c09a17b0b0d4cc"
     },
     {
@@ -560,7 +560,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:02.128889Z",
+      "verifiedAt": "2026-11-04T14:08:25.773049Z",
       "observationDigest": "c183ea1b0d1739c1afcdfc04f1c28ed498181f4792dae06f95b37e1a4390af24"
     },
     {
@@ -573,7 +573,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:02.468224Z",
+      "verifiedAt": "2026-11-04T14:08:26.072179Z",
       "observationDigest": "002cb50a6d0f8c9945551159d8b8d6052abd1724c4fc12ab13317204807c5182"
     },
     {
@@ -586,7 +586,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:02.767896Z",
+      "verifiedAt": "2026-11-04T14:08:26.119407Z",
       "observationDigest": "514768e862fe715b56e008832652b7549f780b59566287415e3c2a1ad80782f7"
     },
     {
@@ -599,7 +599,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:02.698133Z",
+      "verifiedAt": "2026-11-04T14:08:26.289079Z",
       "observationDigest": "b127af0a8c454444796cc28ef3e2ee17eb2849e6f16b0e1a76c9c2c71b36bc89"
     },
     {
@@ -612,7 +612,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:03.387154Z",
+      "verifiedAt": "2026-11-04T14:08:26.553603Z",
       "observationDigest": "6277477029f7fde834d63aceb9c6ff938459e2fbeec09b8035d32be17fb14de5"
     },
     {
@@ -625,7 +625,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:03.559404Z",
+      "verifiedAt": "2026-11-04T14:08:26.659761Z",
       "observationDigest": "40ce27a4f56e1968a56c0c632a23eb754acc7293c43ce1deeb3a9865f48ef141"
     },
     {
@@ -638,7 +638,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:03.606384Z",
+      "verifiedAt": "2026-11-04T14:08:26.729919Z",
       "observationDigest": "73395e08c8789b509ca3c1ba9d436593638a7638b6d8116e5c11a0dcc921f28a"
     },
     {
@@ -651,7 +651,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:04.149871Z",
+      "verifiedAt": "2026-11-04T14:08:27.113621Z",
       "observationDigest": "6d6c15b99f14a6229c6b1ef07c6c2ff7d9749e66fce02a7ce39bd79c54945b1d"
     },
     {
@@ -664,7 +664,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:04.105842Z",
+      "verifiedAt": "2026-11-04T14:08:27.060589Z",
       "observationDigest": "ef13a6522533793469e2b4379caacb7f5e68b43621503dbf15830c81b01e6156"
     },
     {
@@ -677,7 +677,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:04.257067Z",
+      "verifiedAt": "2026-11-04T14:08:27.199612Z",
       "observationDigest": "4221108f6d9fbafc60ee05a6573ff793cdae1102033e4623fc1599719d3a9589"
     },
     {
@@ -690,7 +690,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:04.754099Z",
+      "verifiedAt": "2026-11-04T14:08:27.535727Z",
       "observationDigest": "5b30e128b6ab1046047f5f75dc63a538888786bade6297fb75a8ef1dba223f4a"
     },
     {
@@ -703,7 +703,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:04.697144Z",
+      "verifiedAt": "2026-11-04T14:08:27.525758Z",
       "observationDigest": "9f6da6a9ba567f8a03f37b998a286e950f004ec2b1435284af0095cc2275b6d0"
     },
     {
@@ -716,7 +716,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:04.916666Z",
+      "verifiedAt": "2026-11-04T14:08:27.773809Z",
       "observationDigest": "8b8f4e2d56d51cfdbdd80a4cff368774d1d9f7d9044783b0fc41dc44df03f551"
     },
     {
@@ -729,7 +729,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:05.539916Z",
+      "verifiedAt": "2026-11-04T14:08:28.146259Z",
       "observationDigest": "1b28e409bcee24b315066e23e8d87911b29eb207a5dd5530750a6e8092a6df9c"
     },
     {
@@ -742,7 +742,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:05.372184Z",
+      "verifiedAt": "2026-11-04T14:08:28.001187Z",
       "observationDigest": "558dbb5f8309aa8f2fc23e33a7cde7388c2accb9164a6e1431bdc07063958299"
     },
     {
@@ -755,7 +755,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:05.474855Z",
+      "verifiedAt": "2026-11-04T14:08:28.235109Z",
       "observationDigest": "8961d835f343b475622418ebcb3716bd59cd28f5fb33f105e178e8b96ec6c536"
     },
     {
@@ -768,7 +768,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:06.079140Z",
+      "verifiedAt": "2026-11-04T14:08:28.489698Z",
       "observationDigest": "598218d4483cb78b6d26d9a3be2e4538ea3daf4ba9529173b9309dc04b7b86be"
     },
     {
@@ -781,7 +781,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:06.081895Z",
+      "verifiedAt": "2026-11-04T14:08:28.617916Z",
       "observationDigest": "664d36338805852e1a4440510264b31f7e4f25627de0c2d21e92d8bb517b03ae"
     },
     {
@@ -794,7 +794,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:06.172181Z",
+      "verifiedAt": "2026-11-04T14:08:28.689892Z",
       "observationDigest": "1b84b59a6ca5a50efbb39efdf3367dfc826caa563cc4d632c73b5b1fcc5377b7"
     },
     {
@@ -807,7 +807,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:06.678579Z",
+      "verifiedAt": "2026-11-04T14:08:28.985325Z",
       "observationDigest": "c3738da07cda43830c1972438f612d133e1cea0116a1bc331c2176eb1e3bbe5b"
     },
     {
@@ -820,7 +820,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:06.649945Z",
+      "verifiedAt": "2026-11-04T14:08:29.035491Z",
       "observationDigest": "4cc46d60265c64db8d730da514c888469dc8e404db48a5fca3e9bf6fa74b2519"
     },
     {
@@ -833,7 +833,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:06.852984Z",
+      "verifiedAt": "2026-11-04T14:08:29.189218Z",
       "observationDigest": "12632a0a9593135dad6e622ccb91ca9a8ae56f29d3d0ecf9dbf2e65e52a1b215"
     },
     {
@@ -846,7 +846,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:07.455317Z",
+      "verifiedAt": "2026-11-04T14:08:29.442916Z",
       "observationDigest": "24fa4eced2cca87c450d80073fe01f0bfb7dd3fcfb1e3a28d1bbc88781745791"
     },
     {
@@ -859,7 +859,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:07.272269Z",
+      "verifiedAt": "2026-11-04T14:08:29.496474Z",
       "observationDigest": "e52cb5d2426fbc6c3c52aab1d3cabaeac19837440fae951e820c1a94064b682f"
     },
     {
@@ -872,7 +872,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:07.476477Z",
+      "verifiedAt": "2026-11-04T14:08:29.661944Z",
       "observationDigest": "52c196ff958babd9edca55be95e85fa9b1bcb4aa679b5d4e14c538f0bc8eff7f"
     },
     {
@@ -885,7 +885,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:07.708897Z",
+      "verifiedAt": "2026-11-04T14:08:29.837798Z",
       "observationDigest": "0ba1f457b4a7c84151518c8ffc9249a18f06851004abc7f0719e82d5379b4f69"
     },
     {
@@ -898,7 +898,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:07.924515Z",
+      "verifiedAt": "2026-11-04T14:08:29.938118Z",
       "observationDigest": "507d836d8376bb4c48097b291f64d90f694bbf18257bc45454d5e26126cd2ab3"
     },
     {
@@ -911,7 +911,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:07.957324Z",
+      "verifiedAt": "2026-11-04T14:08:30.081864Z",
       "observationDigest": "854558385f0ab0ebbd7a1a21ea3845794b5a3f64b616f978c8cd9c27f1ee399f"
     },
     {
@@ -924,7 +924,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:08.229926Z",
+      "verifiedAt": "2026-11-04T14:08:30.233499Z",
       "observationDigest": "f576680de0776243b694dc43db509f1f0728453a0cd1f0e21d4ea8e8104a4dac"
     },
     {
@@ -937,7 +937,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:08.548654Z",
+      "verifiedAt": "2026-11-04T14:08:30.404671Z",
       "observationDigest": "5d1b9c0c00240ed918bfa280859d2eb821a222ac50a6c69486f8d45bb9de852e"
     },
     {
@@ -950,7 +950,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:08.602805Z",
+      "verifiedAt": "2026-11-04T14:08:30.554862Z",
       "observationDigest": "6b020893965ab33bf7288428349ccae0613832a4a5afda6865c2d8092d9796a0"
     },
     {
@@ -963,7 +963,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:08.806350Z",
+      "verifiedAt": "2026-11-04T14:08:30.726429Z",
       "observationDigest": "fa915552919da26f305343adadac9f7978f8b1fc0cb8ca2a75353a29e3ad3e37"
     },
     {
@@ -976,7 +976,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:08.988001Z",
+      "verifiedAt": "2026-11-04T14:08:30.788284Z",
       "observationDigest": "fdab36a18fc6d42434566fb731d498388458185f5f9ea76c5991dbe97692dcce"
     },
     {
@@ -989,7 +989,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:09.060169Z",
+      "verifiedAt": "2026-11-04T14:08:30.945307Z",
       "observationDigest": "1a2f87eb7ac0da5ccd9f8c28939d10663cc491f4806e34be01ca617b9056321f"
     },
     {
@@ -1002,7 +1002,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:09.676290Z",
+      "verifiedAt": "2026-11-04T14:08:31.195307Z",
       "observationDigest": "cf74f3d4a4355ea15749ddfc4f9d5e56242c451c50e1218fbf24a3d97937e65f"
     },
     {
@@ -1015,7 +1015,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:09.694281Z",
+      "verifiedAt": "2026-11-04T14:08:31.300858Z",
       "observationDigest": "b85c012634434d8962d80e2f8ad9947cb625077b5b811f296fabfd078089c8a7"
     },
     {
@@ -1028,7 +1028,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:09.807368Z",
+      "verifiedAt": "2026-11-04T14:08:31.420511Z",
       "observationDigest": "3d34e28bf2c9efb0228c0f9e449949ac752052b3ad9d5764fff1baaf2a680be4"
     },
     {
@@ -1041,7 +1041,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:10.306236Z",
+      "verifiedAt": "2026-11-04T14:08:31.641106Z",
       "observationDigest": "9a597a8d36fc2cb9ede992c2efee6dbf97b5f8c4fd26420f15da93f9cef96981"
     },
     {
@@ -1054,7 +1054,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:10.293399Z",
+      "verifiedAt": "2026-11-04T14:08:31.784314Z",
       "observationDigest": "21b501da3608e9a8a12aa3efee63f6b7d17a07714901f1cf17834568acbf3afc"
     },
     {
@@ -1067,7 +1067,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:10.299729Z",
+      "verifiedAt": "2026-11-04T14:08:31.804217Z",
       "observationDigest": "95449727653d4a75e09464e0e1b65641225314d99349adc2a5298fbbf6c10629"
     },
     {
@@ -1080,7 +1080,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:10.827635Z",
+      "verifiedAt": "2026-11-04T14:08:32.022935Z",
       "observationDigest": "afac1c51d7f4b21ef1dcef86b0c0a12fcaf9ea285a9ef4b73133f28e85f815d7"
     },
     {
@@ -1093,7 +1093,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:10.916339Z",
+      "verifiedAt": "2026-11-04T14:08:32.267674Z",
       "observationDigest": "6cb741b39141dae89d11be410a846825ac81241321980e2667260735eafbaa89"
     },
     {
@@ -1106,7 +1106,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:11.053130Z",
+      "verifiedAt": "2026-11-04T14:08:32.351602Z",
       "observationDigest": "2bd49a7ddbe3a0c083fac5d3675a77920a709c05f96900988e689d9b3be82448"
     },
     {
@@ -1119,7 +1119,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:11.620975Z",
+      "verifiedAt": "2026-11-04T14:08:32.490047Z",
       "observationDigest": "94eca16ef6f14e8a5b529898b220380abe53d470db6fc2dda07399dfd0d4d1f8"
     },
     {
@@ -1132,7 +1132,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:11.647263Z",
+      "verifiedAt": "2026-11-04T14:08:32.737556Z",
       "observationDigest": "b3b26ef9685d34b010eb700548736554dbf7a9ccfd0a80bce34608cea204255a"
     },
     {
@@ -1145,7 +1145,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:11.894254Z",
+      "verifiedAt": "2026-11-04T14:08:32.796271Z",
       "observationDigest": "30763997b00472205517e5b4fc0724c81a9b09d70278a1b7b8eb6efbcacce29b"
     },
     {
@@ -1158,7 +1158,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:12.318553Z",
+      "verifiedAt": "2026-11-04T14:08:32.975378Z",
       "observationDigest": "ef71d84af24dba4359064db151717a4bc0de2d317cae68aef29e0797202e766b"
     },
     {
@@ -1171,7 +1171,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:12.456759Z",
+      "verifiedAt": "2026-11-04T14:08:33.240006Z",
       "observationDigest": "d8efd9cdd3572aa1935164ecbb8a4a076a99a0efe9407ef5db6e7d006e8f1416"
     },
     {
@@ -1184,7 +1184,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:12.540578Z",
+      "verifiedAt": "2026-11-04T14:08:33.304277Z",
       "observationDigest": "049d2ec10a702d1581a8633cae973f3e6d7a6973f48a19ada18ea44ca6493869"
     },
     {
@@ -1197,7 +1197,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:12.951507Z",
+      "verifiedAt": "2026-11-04T14:08:33.492991Z",
       "observationDigest": "8704e765d7021ff2082d879da52a505fdab7f96d5a6df90c406f7e5d7faf3beb"
     },
     {
@@ -1210,7 +1210,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:13.194370Z",
+      "verifiedAt": "2026-11-04T14:08:33.909147Z",
       "observationDigest": "db6201b6e0b23fe31164eb8d6b73ec8e6ffdd8a5aadfa97490567a8b920b9274"
     },
     {
@@ -1223,7 +1223,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:13.005803Z",
+      "verifiedAt": "2026-11-04T14:08:33.672617Z",
       "observationDigest": "7f74b0ac5a6c27934c0391183e12948025ca16d0e41eae456717ab17d1172d59"
     },
     {
@@ -1236,7 +1236,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:13.434637Z",
+      "verifiedAt": "2026-11-04T14:08:33.941783Z",
       "observationDigest": "c4f539a10ae827c4765e45ab832bfd6e9babb03d4c0a301d8a985b8f55902e9a"
     },
     {
@@ -1249,7 +1249,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:13.564391Z",
+      "verifiedAt": "2026-11-04T14:08:34.183801Z",
       "observationDigest": "3ad98a918ecd6dc1164e6fbdf92358ffb3ae8dab9fc1002b0d6fbf1baf9be06a"
     },
     {
@@ -1262,7 +1262,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:13.699763Z",
+      "verifiedAt": "2026-11-04T14:08:34.398946Z",
       "observationDigest": "ef047cf123bf477c8b3d82783d2ee22d7463293b8bfafca1d11e7d4ff6e241ca"
     },
     {
@@ -1275,7 +1275,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:13.946601Z",
+      "verifiedAt": "2026-11-04T14:08:34.467179Z",
       "observationDigest": "f47bc469f76288a42cf7ea01c5a67be1ea94bd15d073540abed8f0f99ac6d672"
     },
     {
@@ -1288,7 +1288,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:14.098268Z",
+      "verifiedAt": "2026-11-04T14:08:34.672882Z",
       "observationDigest": "f673814102d38316e7ce8dc9c20df36acb0ccc68aec4c4c5b28749d0d4207775"
     },
     {
@@ -1301,7 +1301,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:14.271251Z",
+      "verifiedAt": "2026-11-04T14:08:34.912257Z",
       "observationDigest": "6f11460e66dfee1a846cd9e68617ea325549499916470ec8eda2d9e1828f1928"
     },
     {
@@ -1314,7 +1314,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:14.467332Z",
+      "verifiedAt": "2026-11-04T14:08:34.958833Z",
       "observationDigest": "0bddb541ad1d662dafd2afb839d2e65a1b5c796a1cce24e0d37f115643b3f34b"
     },
     {
@@ -1327,7 +1327,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:14.522963Z",
+      "verifiedAt": "2026-11-04T14:08:35.113410Z",
       "observationDigest": "991c922908f2f2babea0e420c9b0f76c570a7a75b73d820f48f863334b2d3873"
     },
     {
@@ -1340,7 +1340,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:14.788810Z",
+      "verifiedAt": "2026-11-04T14:08:35.439896Z",
       "observationDigest": "d6cea9e6f04b5156d4c91c73023942632322f822a36b1b1138b69ba7754553d7"
     },
     {
@@ -1353,7 +1353,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:15.204579Z",
+      "verifiedAt": "2026-11-04T14:08:35.544236Z",
       "observationDigest": "f3ede819db4a714f96b4dcc0d215016b8dafd4cf0ca1d6fa1b3cab14d303f40b"
     },
     {
@@ -1366,7 +1366,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:15.107690Z",
+      "verifiedAt": "2026-11-04T14:08:35.575949Z",
       "observationDigest": "c5753e3c50f94336b284a7d5559c4c0f6418fb55ed1f3d220012e8bffa7aa3e0"
     },
     {
@@ -1379,7 +1379,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:15.420445Z",
+      "verifiedAt": "2026-11-04T14:08:36.029629Z",
       "observationDigest": "abf28305595cee6a294ca351cbdcf51efd72b7918b14eb06d7e65e0246653066"
     },
     {
@@ -1392,7 +1392,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:15.640531Z",
+      "verifiedAt": "2026-11-04T14:08:36.050992Z",
       "observationDigest": "ac37e5a1556a56a6f2cd5af5036b21c59846485ef36cac0be86e633aebe4f4a7"
     },
     {
@@ -1405,7 +1405,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:15.706773Z",
+      "verifiedAt": "2026-11-04T14:08:36.047383Z",
       "observationDigest": "118d27a5f7f793a511c5be8335648bdd0e7deb2013d590f654b84cc767e9064e"
     },
     {
@@ -1418,7 +1418,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:15.962651Z",
+      "verifiedAt": "2026-11-04T14:08:36.500005Z",
       "observationDigest": "9f30a4901036f2b49a892839dc44f7d128c0288a549f4e594002076926a5d20e"
     },
     {
@@ -1431,7 +1431,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:16.165972Z",
+      "verifiedAt": "2026-11-04T14:08:36.528162Z",
       "observationDigest": "0f9aa1640e860b8728bf69d99e8be0ee3f070da56698bdf3625af835cd842ef6"
     },
     {
@@ -1444,7 +1444,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:16.252340Z",
+      "verifiedAt": "2026-11-04T14:08:36.509260Z",
       "observationDigest": "47bd0d97a36560082e38ac8882e37259935bd2848ddd28c502ae908808dde424"
     },
     {
@@ -1457,7 +1457,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:16.470559Z",
+      "verifiedAt": "2026-11-04T14:08:36.962612Z",
       "observationDigest": "738009e936ec247f134f116ca159b455b5e593a4d037221a671821fcfc417831"
     },
     {
@@ -1470,7 +1470,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:16.806164Z",
+      "verifiedAt": "2026-11-04T14:08:36.989247Z",
       "observationDigest": "0e80dd740d052479b6b27e0c3de8e6421ab526796b39fd18ab7f4c1136ba3669"
     },
     {
@@ -1483,7 +1483,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:16.689384Z",
+      "verifiedAt": "2026-11-04T14:08:36.963470Z",
       "observationDigest": "56625968e3dd04f15c773db97f401050997b5af91312d6911c7f9c4326752ae0"
     },
     {
@@ -1496,7 +1496,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:17.053397Z",
+      "verifiedAt": "2026-11-04T14:08:37.426610Z",
       "observationDigest": "9d00b4ad99a1af3f0a49551cd2cc871b7ed517a6123d2a263497564297deca54"
     },
     {
@@ -1509,7 +1509,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:17.256491Z",
+      "verifiedAt": "2026-11-04T14:08:37.452146Z",
       "observationDigest": "f5790a51eb6a22426576a0be12276e56b069f6eeb30092d8420cc9246b748915"
     },
     {
@@ -1522,7 +1522,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:17.338111Z",
+      "verifiedAt": "2026-11-04T14:08:37.458430Z",
       "observationDigest": "f76b35d63a5861181c8952b29af839162eea7cf33154c53202470a1d1454f125"
     },
     {
@@ -1535,7 +1535,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:17.613111Z",
+      "verifiedAt": "2026-11-04T14:08:37.884136Z",
       "observationDigest": "0e97cc90cd23964c95d98cdc1b906e0b8fe8fcf41e320b462f3175f36e5a1872"
     },
     {
@@ -1548,7 +1548,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:17.695218Z",
+      "verifiedAt": "2026-11-04T14:08:37.836517Z",
       "observationDigest": "def256b10478d5d37b7f62acd2fcace348ea30a21ab6d8413b9842596c772fdb"
     },
     {
@@ -1561,7 +1561,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:17.900634Z",
+      "verifiedAt": "2026-11-04T14:08:37.908750Z",
       "observationDigest": "2f737748c214327b272f99ececaa6ab9e75b92bb2375f33d8b97c72f4a7adaee"
     },
     {
@@ -1574,7 +1574,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:18.158706Z",
+      "verifiedAt": "2026-11-04T14:08:38.351457Z",
       "observationDigest": "a5cceb312ed03744877a6189394fa0341ee8951810b5b89ed4fe30c8ccaa4a2e"
     },
     {
@@ -1587,7 +1587,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:18.239512Z",
+      "verifiedAt": "2026-11-04T14:08:38.403250Z",
       "observationDigest": "862cb4a3365ea365861a656100487331c9aab8b8053b8d28fee22c9a1f0ed9b0"
     },
     {
@@ -1600,7 +1600,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:18.355031Z",
+      "verifiedAt": "2026-11-04T14:08:38.372478Z",
       "observationDigest": "391334d124aebda9e1c09a0b5a48c2a1782065ab700b76ac8654d6f9ca9a7862"
     },
     {
@@ -1613,7 +1613,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:18.688802Z",
+      "verifiedAt": "2026-11-04T14:08:38.822435Z",
       "observationDigest": "c0d8d990128e1ed3df4e3567d0168c0a027ac8122598d22e735735eaff5cc8ce"
     },
     {
@@ -1626,7 +1626,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:18.754108Z",
+      "verifiedAt": "2026-11-04T14:08:38.862550Z",
       "observationDigest": "d85f642306fbdd5e3dde37498fff00b58b08679763f238e80359d38c14870206"
     },
     {
@@ -1639,7 +1639,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:18.892178Z",
+      "verifiedAt": "2026-11-04T14:08:38.866023Z",
       "observationDigest": "a7a8de0865cf8c21c8ef2fcdb230f7aada9944d05b6bbef361ec7b3984a041b1"
     },
     {
@@ -1652,7 +1652,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:19.215324Z",
+      "verifiedAt": "2026-11-04T14:08:39.308366Z",
       "observationDigest": "e3fda2748c283adb539c28bfdccc275f3a0455d82885fc6ed5cb7dac9a4cecfb"
     },
     {
@@ -1665,7 +1665,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:19.199272Z",
+      "verifiedAt": "2026-11-04T14:08:39.263626Z",
       "observationDigest": "93375351b7adbcec5070e3d31aee14e754435501d47afe2c2a0f12476ac5ee85"
     },
     {
@@ -1678,7 +1678,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:19.313465Z",
+      "verifiedAt": "2026-11-04T14:08:39.263174Z",
       "observationDigest": "c005bc244c3a6321bec733018156e8e3a96d7264b5c9c733c4c94d1a87f0c568"
     },
     {
@@ -1691,7 +1691,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:19.810469Z",
+      "verifiedAt": "2026-11-04T14:08:39.735391Z",
       "observationDigest": "0b2f73517d5f9c90bbd44002526115c372c745dd0c7bdf93a28115cb82fe5051"
     },
     {
@@ -1704,7 +1704,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:19.828363Z",
+      "verifiedAt": "2026-11-04T14:08:39.807279Z",
       "observationDigest": "8074642f6546b983ee2683a17f26d2f847dd7cb11432112c9d9744cdad4c0ccf"
     },
     {
@@ -1717,7 +1717,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:19.817091Z",
+      "verifiedAt": "2026-11-04T14:08:39.768285Z",
       "observationDigest": "e727d55e5b2f1432d43e195c8c93fc6d2a17eb792c6b0fecf960892eb3eb45bd"
     },
     {
@@ -1730,7 +1730,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:20.484240Z",
+      "verifiedAt": "2026-11-04T14:08:40.234702Z",
       "observationDigest": "bb0518f538a28f35e9ec708ddc3333d23d4d0056ef3495bf6e366d6be505def1"
     },
     {
@@ -1743,7 +1743,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:20.236247Z",
+      "verifiedAt": "2026-11-04T14:08:40.160921Z",
       "observationDigest": "e14e8490dab45e89e7db138e2efb79a295e545e77535e1f5dda28d282fad7683"
     },
     {
@@ -1756,7 +1756,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:20.314940Z",
+      "verifiedAt": "2026-11-04T14:08:40.219322Z",
       "observationDigest": "8a64947f65764a28d04330dba1fbb92c6361517e9107022782ae13b0b075a829"
     },
     {
@@ -1769,7 +1769,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:20.784204Z",
+      "verifiedAt": "2026-11-04T14:08:40.636110Z",
       "observationDigest": "164a44f3e5329820167e606c60cf3c78eaa740fed95c62e4481c436b8d3b1ee9"
     },
     {
@@ -1782,7 +1782,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:20.813397Z",
+      "verifiedAt": "2026-11-04T14:08:40.599530Z",
       "observationDigest": "1f511af9a15976e68bc6623cd8afe3450c10a3fce38c33ab165da1a22ec9d22b"
     },
     {
@@ -1795,7 +1795,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:21.176320Z",
+      "verifiedAt": "2026-11-04T14:08:40.755641Z",
       "observationDigest": "5f2107960fdc711060e360580aab25b4e1a96531d90295c7a8feeeea1e70a2ca"
     },
     {
@@ -1808,7 +1808,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:21.291029Z",
+      "verifiedAt": "2026-11-04T14:08:40.980533Z",
       "observationDigest": "2d0648c830d017953f1986a75b5988f517e8e0a63334036a346db73478a20b8d"
     },
     {
@@ -1821,7 +1821,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:21.603669Z",
+      "verifiedAt": "2026-11-04T14:08:41.104367Z",
       "observationDigest": "3d9f36e581238f0c0c252c26909c311b2c02dedce9b27afef403d4dc020656c7"
     },
     {
@@ -1834,7 +1834,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:21.874121Z",
+      "verifiedAt": "2026-11-04T14:08:41.160431Z",
       "observationDigest": "6af4718b37e4c03d5e68088bcf5488bba1bd654a68b8e9894d580f7f79088982"
     },
     {
@@ -1847,7 +1847,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:21.814454Z",
+      "verifiedAt": "2026-11-04T14:08:41.372225Z",
       "observationDigest": "cd4f244a836a36c35fafe5bc3a58eb53672a824b7622211b7d4d7f390be2f29a"
     },
     {
@@ -1860,7 +1860,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:22.240073Z",
+      "verifiedAt": "2026-11-04T14:08:41.600046Z",
       "observationDigest": "b548ad2c8cdb5b73272ea69eedd8bb79a989f17fc99f6fb572d2ac90678e1469"
     },
     {
@@ -1873,7 +1873,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:22.497558Z",
+      "verifiedAt": "2026-11-04T14:08:41.612300Z",
       "observationDigest": "5408bcd5074ea0d86afac8f52d78916dcf88cc97a775ff8b1ba807015248ad56"
     },
     {
@@ -1886,7 +1886,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:22.626517Z",
+      "verifiedAt": "2026-11-04T14:08:41.833560Z",
       "observationDigest": "c80aac0b003b9a4913449294159f32372b257909c7f7f2d43cd151f6ce999121"
     },
     {
@@ -1899,7 +1899,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:23.128703Z",
+      "verifiedAt": "2026-11-04T14:08:42.552388Z",
       "observationDigest": "528e2fa2be741aafa165d87edbc6e7ca913fd343395d69dca62612a19ffc9c98"
     },
     {
@@ -1912,7 +1912,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:23.005528Z",
+      "verifiedAt": "2026-11-04T14:08:42.039095Z",
       "observationDigest": "e2b40b8da2c48ed1b615be3e1c45c49d78e7bdc86b957c0a591acc1d409e1ca3"
     },
     {
@@ -1925,7 +1925,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:23.195811Z",
+      "verifiedAt": "2026-11-04T14:08:42.641060Z",
       "observationDigest": "1ecea87d86e92f6b94314a71dc452c878ed3e02aae854d9bd0383c503f6b2871"
     },
     {
@@ -1938,7 +1938,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:23.623351Z",
+      "verifiedAt": "2026-11-04T14:08:42.887319Z",
       "observationDigest": "d10cc923a08aaa2c135298d726baada9efcaa7b6609be62fd4394b7f6493ec8c"
     },
     {
@@ -1951,7 +1951,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:23.548133Z",
+      "verifiedAt": "2026-11-04T14:08:43.033564Z",
       "observationDigest": "ed85f113086537a4ceccb12d6d6c0736956ca5f47f25df0fe713d9c06b32191a"
     },
     {
@@ -1964,7 +1964,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:23.810303Z",
+      "verifiedAt": "2026-11-04T14:08:43.150008Z",
       "observationDigest": "da74b2f0cfeb6262f067016385132323c1318b3ccae9103297fa839086bcd3ac"
     },
     {
@@ -1977,7 +1977,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:24.044240Z",
+      "verifiedAt": "2026-11-04T14:08:43.385633Z",
       "observationDigest": "a5f106e0326b0d28a18d101a260d38b8fb179a7cc38c20fdae052fd4fe6ffa1e"
     },
     {
@@ -1990,7 +1990,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:24.347367Z",
+      "verifiedAt": "2026-11-04T14:08:43.508392Z",
       "observationDigest": "44d683c5b5c3059a49f7dd732e107765f0f7fbbfe251f7a4207ee5e4def8e765"
     },
     {
@@ -2003,7 +2003,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:24.486059Z",
+      "verifiedAt": "2026-11-04T14:08:43.642885Z",
       "observationDigest": "e0f0b1677fbc9377acc5da639ddf2f22f765744e3ec11b7eaf4c84342eb3ab5f"
     },
     {
@@ -2016,7 +2016,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:24.638529Z",
+      "verifiedAt": "2026-11-04T14:08:43.895134Z",
       "observationDigest": "4927d992dc10d08cac05fed49bed488efff62e6d510a9ae1e7dc4db41bf7ae00"
     },
     {
@@ -2029,7 +2029,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:24.977892Z",
+      "verifiedAt": "2026-11-04T14:08:44.012589Z",
       "observationDigest": "731ed461929bbfd16a0bce4ee3980169cb264679d66ab4bd3c8226fe3b1e73c2"
     },
     {
@@ -2042,7 +2042,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:25.108947Z",
+      "verifiedAt": "2026-11-04T14:08:44.106586Z",
       "observationDigest": "fd40eacc2ef2af314a28ed1559bee0f9b882ebc3aa4da354f6e04044561bd164"
     },
     {
@@ -2055,7 +2055,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:25.145277Z",
+      "verifiedAt": "2026-11-04T14:08:44.303246Z",
       "observationDigest": "eb4f966dfede67e9a433d6d567f6ed88ea2502f8d6877266e2bdab34fd35620e"
     },
     {
@@ -2068,7 +2068,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:25.460675Z",
+      "verifiedAt": "2026-11-04T14:08:44.457898Z",
       "observationDigest": "0c383344a3e89d699a6e920a1c62790005e21248fd4c05d2c36f37b857344a6e"
     },
     {
@@ -2081,7 +2081,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:25.691256Z",
+      "verifiedAt": "2026-11-04T14:08:44.515469Z",
       "observationDigest": "65a26e6e92b144169ce29bcfcc7984403e4ddfbe52b7dd4b92c13983d1407964"
     },
     {
@@ -2094,7 +2094,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:25.715566Z",
+      "verifiedAt": "2026-11-04T14:08:44.720141Z",
       "observationDigest": "c05cc738ce698b7ebc3fc08d3572d081b4002dd3e01ce8d3ba95b732bc6690e1"
     },
     {
@@ -2107,7 +2107,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:26.072504Z",
+      "verifiedAt": "2026-11-04T14:08:44.985268Z",
       "observationDigest": "10b8eda2d994717b0534c13a0262f7e35b78696fba6747d2e3149bc3d6cf3727"
     },
     {
@@ -2120,7 +2120,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:26.160805Z",
+      "verifiedAt": "2026-11-04T14:08:45.291221Z",
       "observationDigest": "d8a4f73ca582a17ea076b6084c426741605c0e96746dd432526aa3d2fc1bf3fb"
     },
     {
@@ -2133,7 +2133,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:26.373909Z",
+      "verifiedAt": "2026-11-04T14:08:45.562068Z",
       "observationDigest": "d3a3280198be4a256e75ed70467edbb4c33d2e488e436fbee6849ee3c93be7fe"
     },
     {
@@ -2146,7 +2146,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:26.640467Z",
+      "verifiedAt": "2026-11-04T14:08:45.676773Z",
       "observationDigest": "59718241c9970f9d82b2711f55ef2ba1824222afd83a67c81013bc8e51b647c8"
     },
     {
@@ -2159,7 +2159,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:26.736318Z",
+      "verifiedAt": "2026-11-04T14:08:45.750321Z",
       "observationDigest": "e9587e82b9c4bb1eac7c1a8fec81336ee2c09503ec0575c46f53c7497a895868"
     },
     {
@@ -2172,7 +2172,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:27.041416Z",
+      "verifiedAt": "2026-11-04T14:08:46.067501Z",
       "observationDigest": "dd9d75e28d65856505e7e6445c95f0c3171ef5c9b669fac96267987d081a9cea"
     },
     {
@@ -2185,7 +2185,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:27.368457Z",
+      "verifiedAt": "2026-11-04T14:08:46.075260Z",
       "observationDigest": "386bae767b9342f167fb57106c30cc32cd24e9b5a89dbb402b4dbad0525f9b16"
     },
     {
@@ -2198,7 +2198,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:27.303753Z",
+      "verifiedAt": "2026-11-04T14:08:46.216568Z",
       "observationDigest": "ef3caeb5a5a5eaf83fd10399fba920717b38a2d76f6224e67cbb98344f6feeeb"
     },
     {
@@ -2211,7 +2211,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:27.674552Z",
+      "verifiedAt": "2026-11-04T14:08:46.517240Z",
       "observationDigest": "7c2a6d68da408b0d106e34739769cc34d56f0845598a7cd343ff131de76838f8"
     },
     {
@@ -2224,7 +2224,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:27.793499Z",
+      "verifiedAt": "2026-11-04T14:08:46.486048Z",
       "observationDigest": "5c372af41a367386c6cafb1277d706c3a499e5d0e14c67290cae43d4efc8a3cd"
     },
     {
@@ -2237,7 +2237,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:28.183419Z",
+      "verifiedAt": "2026-11-04T14:08:46.781888Z",
       "observationDigest": "20aff9519c1a220a47beaa18406670065febda75b7ed7b1888cf269aced7da1e"
     },
     {
@@ -2250,7 +2250,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:28.237135Z",
+      "verifiedAt": "2026-11-04T14:08:46.952425Z",
       "observationDigest": "a46e702f19956276b5f5d27f487bae145dd8e53b7b64803e59a9756f6e1c8aee"
     },
     {
@@ -2263,7 +2263,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:28.434220Z",
+      "verifiedAt": "2026-11-04T14:08:46.901034Z",
       "observationDigest": "106aa79616c7bd0cf47632c208086fc0a27c1154dc07e47336d4d06fc6b0a8ed"
     },
     {
@@ -2276,7 +2276,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:28.824731Z",
+      "verifiedAt": "2026-11-04T14:08:47.174081Z",
       "observationDigest": "7ffa9580c458c47712adb6ae141065e23db753ed4e71c99d322a1a3c7e71e6c1"
     },
     {
@@ -2289,7 +2289,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:28.724343Z",
+      "verifiedAt": "2026-11-04T14:08:47.285879Z",
       "observationDigest": "70517565cb49da314bf99fbd2557a566fbe59f6534ff8adbbe0e477a31aab6d6"
     },
     {
@@ -2302,7 +2302,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:28.929327Z",
+      "verifiedAt": "2026-11-04T14:08:47.324619Z",
       "observationDigest": "7b4adf9af62f5d45f1ab96577ee3bad00644f292cc45d8f2acdd391d5b74a6e4"
     },
     {
@@ -2315,7 +2315,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:29.231715Z",
+      "verifiedAt": "2026-11-04T14:08:47.558248Z",
       "observationDigest": "88680800042223160a9c83f0e1f621b0ffaa348de8d0f069d656b505e559668d"
     },
     {
@@ -2328,7 +2328,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:29.257868Z",
+      "verifiedAt": "2026-11-04T14:08:47.664619Z",
       "observationDigest": "ccfcbb3b629f6932c9534289d102499fe889f12e245821df6468dbe87d9fffc8"
     },
     {
@@ -2341,7 +2341,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:29.447257Z",
+      "verifiedAt": "2026-11-04T14:08:47.775331Z",
       "observationDigest": "73f8f6c2734f4e0198944e5942556b12550828f76cd015512af8d533545bf2be"
     },
     {
@@ -2354,7 +2354,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:29.834764Z",
+      "verifiedAt": "2026-11-04T14:08:48.083985Z",
       "observationDigest": "09dc69ead117b88ffdd604c8591c84e73460d7941230a14617fd6d25d7621607"
     },
     {
@@ -2367,7 +2367,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:29.873397Z",
+      "verifiedAt": "2026-11-04T14:08:48.159213Z",
       "observationDigest": "6e2e9e2b0c1e98066c140a4bbb16a7db65cd93e7b4b5270b61e8e9c2013d4431"
     },
     {
@@ -2380,7 +2380,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:30.031923Z",
+      "verifiedAt": "2026-11-04T14:08:48.239338Z",
       "observationDigest": "3321f4c891c7050bc0efbe0122dbd5cdaeb22a1d81cf25a25517c3202c13ee72"
     },
     {
@@ -2393,7 +2393,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:30.652144Z",
+      "verifiedAt": "2026-11-04T14:08:48.490714Z",
       "observationDigest": "b80ac356c7ce779fd3ec9345ee594a6f9e29e35b541876cf32184d756c990ce5"
     },
     {
@@ -2406,7 +2406,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:30.545945Z",
+      "verifiedAt": "2026-11-04T14:08:48.581428Z",
       "observationDigest": "b2365eba6d148a40fb1277ddc8bafb76f21164f7bf933a3878b90ee70f37458c"
     },
     {
@@ -2419,7 +2419,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:30.867504Z",
+      "verifiedAt": "2026-11-04T14:08:48.774945Z",
       "observationDigest": "88b7e7f887489487f8ba7fd6126f5d02a02daee60b4ac9c25b48c2ff3127908a"
     },
     {
@@ -2432,7 +2432,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:31.323864Z",
+      "verifiedAt": "2026-11-04T14:08:48.867896Z",
       "observationDigest": "ff217fd54c44edbadb02b414758f8a2766e0e98cefe2bd18305cd439aed7b3dc"
     },
     {
@@ -2445,7 +2445,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:31.365161Z",
+      "verifiedAt": "2026-11-04T14:08:48.968224Z",
       "observationDigest": "0ba6d737f6d4b4ae78ea869aa4a1b3898aa9ac17647fb8796aedf30390304da9"
     },
     {
@@ -2458,7 +2458,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:31.354027Z",
+      "verifiedAt": "2026-11-04T14:08:49.192104Z",
       "observationDigest": "c90496c4fa0fc4a3067145f79dcf8d4f231b0b118b8e3512803f7eedd8aeb1ac"
     },
     {
@@ -2471,7 +2471,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:31.983941Z",
+      "verifiedAt": "2026-11-04T14:08:49.361978Z",
       "observationDigest": "ce33b5fbf94e9c11fc682de419301d45e8801c027ebf3cdb59e31f52616d16b6"
     },
     {
@@ -2484,7 +2484,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:31.862948Z",
+      "verifiedAt": "2026-11-04T14:08:49.367987Z",
       "observationDigest": "55daae2d2923c384af9b3ccea34f970a1400def1568908daedf024746dc5d789"
     },
     {
@@ -2497,7 +2497,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:31.899255Z",
+      "verifiedAt": "2026-11-04T14:08:49.598002Z",
       "observationDigest": "07b40634910be6a62099bf5709f9ebcd3e1fca319bcd58ccc683316f77fe4a42"
     },
     {
@@ -2510,7 +2510,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:32.390317Z",
+      "verifiedAt": "2026-11-04T14:08:49.865914Z",
       "observationDigest": "d3ca761a5e03bed6f950f8c17586f3065981eb79e329d559c8f6dbaff98d564a"
     },
     {
@@ -2523,7 +2523,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:32.381295Z",
+      "verifiedAt": "2026-11-04T14:08:49.773758Z",
       "observationDigest": "ee4e9428ce76846071d03a66c81a49233c7306c7b8dfb60222ba5ef1ad249c26"
     },
     {
@@ -2536,7 +2536,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:32.424249Z",
+      "verifiedAt": "2026-11-04T14:08:49.985996Z",
       "observationDigest": "65ca9940af5db631b2034e1f45bdbbc5386606ec3a6fb84976b46317300e4c0b"
     },
     {
@@ -2549,7 +2549,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:33.095370Z",
+      "verifiedAt": "2026-11-04T14:08:50.320219Z",
       "observationDigest": "c79421b5e2b49e38547728b4d84445cbf573e04b17dd9c79b0e9b028b9106998"
     },
     {
@@ -2562,7 +2562,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:33.166329Z",
+      "verifiedAt": "2026-11-04T14:08:50.408476Z",
       "observationDigest": "e62d22ee4ef118a094f841dd89ca7f7fbbe30ed6b6c480f3cfb2503d4d3df980"
     },
     {
@@ -2575,7 +2575,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:32.911938Z",
+      "verifiedAt": "2026-11-04T14:08:50.360571Z",
       "observationDigest": "b10422f90446f21a218ac6f96453c7934031363016262dc2a15c75cd4818e7d9"
     },
     {
@@ -2588,7 +2588,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:33.630371Z",
+      "verifiedAt": "2026-11-04T14:08:50.853791Z",
       "observationDigest": "547c3cf1398a6a198a2a514e0ae1139188b0ba736d38ae25b41d6b0c463efa99"
     },
     {
@@ -2601,7 +2601,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:33.626115Z",
+      "verifiedAt": "2026-11-04T14:08:50.842637Z",
       "observationDigest": "20078922f94d06033a5e456ca3354fb946c9c36882601a00e041780a53e0f895"
     },
     {
@@ -2614,7 +2614,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:33.779269Z",
+      "verifiedAt": "2026-11-04T14:08:50.964663Z",
       "observationDigest": "e601cf7289a938e3a773aa0eac065334255a326cc72791ac72265e2207c82b66"
     },
     {
@@ -2627,7 +2627,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:34.290891Z",
+      "verifiedAt": "2026-11-04T14:08:51.423348Z",
       "observationDigest": "4d30b7bf80fbae40df4445a2b2eba3e999a95eac74aca18b95364e8ea64c0f04"
     },
     {
@@ -2640,7 +2640,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:34.179830Z",
+      "verifiedAt": "2026-11-04T14:08:51.243619Z",
       "observationDigest": "34d4c5a26dbe9852ca697a315d940288ab0e9003f00465bebc9499af00b533ab"
     },
     {
@@ -2653,7 +2653,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:34.299485Z",
+      "verifiedAt": "2026-11-04T14:08:51.447954Z",
       "observationDigest": "6373b05ac85697bedc9373993e45e26692537b8126dd23743168e84d6bb4169d"
     },
     {
@@ -2666,7 +2666,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:34.675222Z",
+      "verifiedAt": "2026-11-04T14:08:51.651408Z",
       "observationDigest": "45f92a67268759ef89dd3a15ef85edf94871fff52a48bde42be73ca66ee92125"
     },
     {
@@ -2679,7 +2679,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:34.848536Z",
+      "verifiedAt": "2026-11-04T14:08:51.936205Z",
       "observationDigest": "5b8f67e998e0b2605895e79fc2ea1cb9b373772107ae5e5ca13b762150623480"
     },
     {
@@ -2692,7 +2692,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:34.814368Z",
+      "verifiedAt": "2026-11-04T14:08:51.907765Z",
       "observationDigest": "92bac7ccfc0ec2d3efb60953b2086c96ec71aa4abc15de0556c488b3610a6fbb"
     },
     {
@@ -2705,7 +2705,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:35.348655Z",
+      "verifiedAt": "2026-11-04T14:08:52.237396Z",
       "observationDigest": "e1d703ea39b031e26c66f716a2c8ce99ce77d725d872dbe38ae9cb4c9c81db39"
     },
     {
@@ -2718,7 +2718,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:35.276006Z",
+      "verifiedAt": "2026-11-04T14:08:52.309600Z",
       "observationDigest": "59b0a6c90c0670ddd6e1932b652342cd321a2d0bb5c80e6687031b91e360acf0"
     },
     {
@@ -2731,7 +2731,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:35.277527Z",
+      "verifiedAt": "2026-11-04T14:08:52.356854Z",
       "observationDigest": "59b9e33717828a7203d0c37b8259ca07c63dd543ef3cb0c1a0eefc592cfb5098"
     },
     {
@@ -2744,7 +2744,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:35.803924Z",
+      "verifiedAt": "2026-11-04T14:08:52.806514Z",
       "observationDigest": "1b715f9bdd5fae2721e10e5ee2a84b2852f6d453f635bb8f70cdc35c88bddb6e"
     },
     {
@@ -2757,7 +2757,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:35.815757Z",
+      "verifiedAt": "2026-11-04T14:08:52.779027Z",
       "observationDigest": "c69f13206006af097e515e236024742bd14fe36cb221cebf09d4f1b67d3ff446"
     },
     {
@@ -2770,7 +2770,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:35.777527Z",
+      "verifiedAt": "2026-11-04T14:08:52.744675Z",
       "observationDigest": "5601ea0b970c69527baf2c36d9ab57de9e224965c08fc6f491eebc56c7b19d73"
     },
     {
@@ -2783,7 +2783,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:36.365316Z",
+      "verifiedAt": "2026-11-04T14:08:53.209530Z",
       "observationDigest": "ec628730b3dc789f9ed04ae163f7d0e8cba65c3f8d1d55f56d833d21bcd146a1"
     },
     {
@@ -2796,7 +2796,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:36.261213Z",
+      "verifiedAt": "2026-11-04T14:08:53.177583Z",
       "observationDigest": "b6f2f7eb1f49309aad2d207510ff7e83a1e714159a4dbf1d349f60769592394b"
     },
     {
@@ -2809,7 +2809,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:36.382844Z",
+      "verifiedAt": "2026-11-04T14:08:53.215954Z",
       "observationDigest": "943a60004918bfa42578d13808c04893f8b1987353cc1d220b52af2724dcbaea"
     },
     {
@@ -2822,7 +2822,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:36.734884Z",
+      "verifiedAt": "2026-11-04T14:08:53.565219Z",
       "observationDigest": "972f4a2fab772c1c1ca8ca2b3afbd9c7e2074f8a6e941d38d866aacdaf0ddf22"
     },
     {
@@ -2835,7 +2835,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:36.894612Z",
+      "verifiedAt": "2026-11-04T14:08:53.633942Z",
       "observationDigest": "56fc7d17b7eb295aedfeb254207767ed627afe54fd6cb1c0fe1cde4b615eb2ac"
     },
     {
@@ -2848,7 +2848,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:36.924471Z",
+      "verifiedAt": "2026-11-04T14:08:53.631359Z",
       "observationDigest": "d62f643995cca0e94a457426e7b358f93a4112bb9ba13eacae44fa3919ec6208"
     },
     {
@@ -2861,7 +2861,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:37.460026Z",
+      "verifiedAt": "2026-11-04T14:08:54.059760Z",
       "observationDigest": "df773fbebedfd2690d4f587246304f102e8ce0cc8d674e02cf29c8add87d00d8"
     },
     {
@@ -2874,7 +2874,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:37.652818Z",
+      "verifiedAt": "2026-11-04T14:08:54.066352Z",
       "observationDigest": "b98c10ed0b126e51fa2a52c3dabbc7960fc0923cd222a6b36e50fafb02dea0de"
     },
     {
@@ -2887,7 +2887,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:37.723531Z",
+      "verifiedAt": "2026-11-04T14:08:54.167923Z",
       "observationDigest": "8595754fd19283a937b756c801f49a043f0572e897b3f8d82d13ef08b28fbc4a"
     },
     {
@@ -2900,7 +2900,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:37.887701Z",
+      "verifiedAt": "2026-11-04T14:08:54.475356Z",
       "observationDigest": "498c4ffc8965923c79e3304ee6fdca4e6629695392bebfea622c4e6a12b43c0f"
     },
     {
@@ -2913,7 +2913,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:38.105895Z",
+      "verifiedAt": "2026-11-04T14:08:54.494718Z",
       "observationDigest": "cabe9d161b33c04ee710293f124b338e5f7e88954b3af8258a54477957aaa912"
     },
     {
@@ -2926,7 +2926,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:38.351040Z",
+      "verifiedAt": "2026-11-04T14:08:54.580178Z",
       "observationDigest": "fcf6650158f478e9715cec4d67e2af44b426223fc775f9b03d49ac677db7b7a8"
     },
     {
@@ -2939,7 +2939,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:38.450380Z",
+      "verifiedAt": "2026-11-04T14:08:54.883987Z",
       "observationDigest": "32fb786b792467781b8472261043739ff3905985c24ebf7aa630797c98540071"
     },
     {
@@ -2952,7 +2952,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:38.839013Z",
+      "verifiedAt": "2026-11-04T14:08:54.950511Z",
       "observationDigest": "1919ce69825d22e323647fba599ebcd1a838bd0febe2a71bf092476477ef8029"
     },
     {
@@ -2965,7 +2965,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:38.925023Z",
+      "verifiedAt": "2026-11-04T14:08:55.064555Z",
       "observationDigest": "186227c714594d70ac650540b18a65d0e416fdee8f40ad75e26b6739b0c15db6"
     },
     {
@@ -2978,7 +2978,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:38.947936Z",
+      "verifiedAt": "2026-11-04T14:08:55.349523Z",
       "observationDigest": "546751a3503e25c6a07f68dec2a519ef6c3d84bc4f3a481c63838dccdcc88a65"
     },
     {
@@ -2991,7 +2991,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:39.394980Z",
+      "verifiedAt": "2026-11-04T14:08:55.334243Z",
       "observationDigest": "ddf7f0c1c5ff69f4a759977aa33e661721d26a031e11909f8412df42e4ed709e"
     },
     {
@@ -3004,7 +3004,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:39.459368Z",
+      "verifiedAt": "2026-11-04T14:08:55.528925Z",
       "observationDigest": "e8d7bafb48fef2d7ccbef4e459fcf8c6fbae9d2dda94360dc43bbc0a91a48c76"
     },
     {
@@ -3017,7 +3017,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:39.553533Z",
+      "verifiedAt": "2026-11-04T14:08:55.835366Z",
       "observationDigest": "ab305450efc07289e576f59062ec63896c986a6f83b80a5294b87505033cdc9c"
     },
     {
@@ -3030,7 +3030,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:39.836264Z",
+      "verifiedAt": "2026-11-04T14:08:55.736131Z",
       "observationDigest": "dbb73471c644e3885770d306701d1477ae5da2575496bc8c8f6db1aa5ce4db98"
     },
     {
@@ -3043,7 +3043,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:39.972492Z",
+      "verifiedAt": "2026-11-04T14:08:56.009863Z",
       "observationDigest": "a2b927202c470d40a53162faf8adf565551dc4248add64a8e84ecfbe1e9b8abd"
     },
     {
@@ -3056,7 +3056,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:39.990736Z",
+      "verifiedAt": "2026-11-04T14:08:56.147515Z",
       "observationDigest": "8eabd8d19dafe6929557989324772cd4f699400a7cc6b16d3709d50bca213fa3"
     },
     {
@@ -3069,7 +3069,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:40.407329Z",
+      "verifiedAt": "2026-11-04T14:08:56.312752Z",
       "observationDigest": "1a1f43f552fcde3575bc366635bb60e4e3917e0a8980d45f1385b4bc5d00ea2b"
     },
     {
@@ -3082,7 +3082,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:40.467441Z",
+      "verifiedAt": "2026-11-04T14:08:56.418321Z",
       "observationDigest": "983feb09e28ba6d2a3c849615db21b2c6b3910cd8168398daa70054b8c58aeb9"
     },
     {
@@ -3095,7 +3095,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:40.478323Z",
+      "verifiedAt": "2026-11-04T14:08:56.533281Z",
       "observationDigest": "bfc93f9e1ce32c5a39977cd19109e52a0b14daa3cd8c52452c813d2702afba5e"
     },
     {
@@ -3108,7 +3108,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:40.867471Z",
+      "verifiedAt": "2026-11-04T14:08:56.701962Z",
       "observationDigest": "fb0fc54f75b69d9fbf515d6c452da7f8e138e902ce6275ac153a0f40abd32676"
     },
     {
@@ -3121,7 +3121,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:40.967898Z",
+      "verifiedAt": "2026-11-04T14:08:56.798762Z",
       "observationDigest": "6ec7b5804b311d7cca2e107e1dbf5e712ae91e283228f960a62226779ddeba48"
     },
     {
@@ -3134,7 +3134,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:41.014037Z",
+      "verifiedAt": "2026-11-04T14:08:56.900349Z",
       "observationDigest": "8d5e1d167af61a9c6c21a66f6c33787ad80fb0b94a6257997829d9588c2166fc"
     },
     {
@@ -3147,7 +3147,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:41.516216Z",
+      "verifiedAt": "2026-11-04T14:08:57.146389Z",
       "observationDigest": "297ad86cabe99b82b6e8c37492638b47f30c6727271d620c80257bc374610b38"
     },
     {
@@ -3160,7 +3160,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:41.517671Z",
+      "verifiedAt": "2026-11-04T14:08:57.208043Z",
       "observationDigest": "2923752d87c65410a75ba3565b78512974c54a11e9b6c8447263f011fead945a"
     },
     {
@@ -3173,7 +3173,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:41.782835Z",
+      "verifiedAt": "2026-11-04T14:08:57.463493Z",
       "observationDigest": "da226883579f79d82c9ca7c19d331d93bd2aced5f8b9f10e2a626f733283e5e6"
     },
     {
@@ -3186,7 +3186,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:42.112764Z",
+      "verifiedAt": "2026-11-04T14:08:57.619996Z",
       "observationDigest": "d79340faaa4f7f72eb4fbda72a562fc26156895b6b2bb0655225a0f39d0e2b2c"
     },
     {
@@ -3199,7 +3199,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:41.954383Z",
+      "verifiedAt": "2026-11-04T14:08:57.599585Z",
       "observationDigest": "d92f75455c1909d2f901a1871eb1817e0b3978bb345292e472a7eff419810275"
     },
     {
@@ -3212,7 +3212,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:42.407894Z",
+      "verifiedAt": "2026-11-04T14:08:57.862810Z",
       "observationDigest": "4b079112e2eb79ff0417ce637ee69011dccbd03a8a7d1b7ab79d401368a10391"
     },
     {
@@ -3225,7 +3225,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:42.677680Z",
+      "verifiedAt": "2026-11-04T14:08:58.066384Z",
       "observationDigest": "16e306b682d80403a18b112684f1afadca064af25e6325a774b1f88702caa3e5"
     },
     {
@@ -3238,7 +3238,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:42.775305Z",
+      "verifiedAt": "2026-11-04T14:08:58.068436Z",
       "observationDigest": "cbb65c38873e8f030a1b04aaefcd6fc15bfedb9cb6c3f138ee0eb622423861cf"
     },
     {
@@ -3251,7 +3251,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:42.862421Z",
+      "verifiedAt": "2026-11-04T14:08:58.228641Z",
       "observationDigest": "56554302053a9f3fee331268e64b8a0957c3b06e57a364a33983ad19b1a5cf3c"
     },
     {
@@ -3264,7 +3264,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:43.154640Z",
+      "verifiedAt": "2026-11-04T14:08:58.473109Z",
       "observationDigest": "535f0adfa376d08bef9f9e3e6fbbdd3024e2cad7ba658185f53a8a25d5cf8248"
     },
     {
@@ -3277,7 +3277,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:43.336592Z",
+      "verifiedAt": "2026-11-04T14:08:58.545278Z",
       "observationDigest": "23312340add1ff2e30c375023c8a207fe026a0a4141e6e8230899e5fd9307cfb"
     },
     {
@@ -3290,7 +3290,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:43.322496Z",
+      "verifiedAt": "2026-11-04T14:08:58.604480Z",
       "observationDigest": "68c538ad8e447bed45bc0613965664b9df196fe2db0c612b3867d951e0e76509"
     },
     {
@@ -3303,7 +3303,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:43.678219Z",
+      "verifiedAt": "2026-11-04T14:08:58.961249Z",
       "observationDigest": "83000d96b3343d178f73fa4671751cd05c32d33210514cebdec6d97233463cd4"
     },
     {
@@ -3316,7 +3316,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:44.015111Z",
+      "verifiedAt": "2026-11-04T14:08:59.085032Z",
       "observationDigest": "427f10cb043785e446423e9f97ec9b157aeba6d586b0f47e9df27202e4fe51bd"
     },
     {
@@ -3329,7 +3329,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:43.850246Z",
+      "verifiedAt": "2026-11-04T14:08:59.083248Z",
       "observationDigest": "c15b913639620772bc1c60a459dedea40fe5742c57f63ae867b27e73759ac9fd"
     },
     {
@@ -3342,7 +3342,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:44.090277Z",
+      "verifiedAt": "2026-11-04T14:08:59.351670Z",
       "observationDigest": "fcdfdefbad4c24844d3723fb2cf345a0a70152e9d770fbca3e434fa2b320a9a5"
     },
     {
@@ -3355,7 +3355,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:44.325938Z",
+      "verifiedAt": "2026-11-04T14:08:59.458113Z",
       "observationDigest": "239679aafca3dbb44bffcede50d8522909a32b51fc2257e265f2701cd0139ef9"
     },
     {
@@ -3368,7 +3368,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:44.462281Z",
+      "verifiedAt": "2026-11-04T14:08:59.463212Z",
       "observationDigest": "2086c2dae25af8e315a9672b2d248b2465eb5053e4c93b6a0cf65c30daf8d651"
     },
     {
@@ -3381,7 +3381,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:44.637928Z",
+      "verifiedAt": "2026-11-04T14:08:59.843685Z",
       "observationDigest": "965a6e7c5b82158ee5119ae3607358b078a244a2612620541fe21b2e4ccc4bc0"
     },
     {
@@ -3394,7 +3394,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:44.890167Z",
+      "verifiedAt": "2026-11-04T14:08:59.913620Z",
       "observationDigest": "202582b36329d1d975320111628a2310555a20d0cf9cacb5f0c7dbdae0b8a9a4"
     },
     {
@@ -3407,7 +3407,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:44.886864Z",
+      "verifiedAt": "2026-11-04T14:08:59.827782Z",
       "observationDigest": "bbe7b47fe0298694d0d4512014fb97e6a1d8168d86983d266e8e9f4450050e6a"
     },
     {
@@ -3420,7 +3420,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:45.193033Z",
+      "verifiedAt": "2026-11-04T14:09:00.460624Z",
       "observationDigest": "fb12159ee52ddbb7ccf84b46fb13f2d08987c508f6d109353227763e4c3d7b0f"
     },
     {
@@ -3433,7 +3433,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:45.669419Z",
+      "verifiedAt": "2026-11-04T14:09:00.542266Z",
       "observationDigest": "84c7ea11986627d7e3df366784ecfc60fdfc04dc9bd2629f801b6f4e70979cdb"
     },
     {
@@ -3446,7 +3446,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:45.712775Z",
+      "verifiedAt": "2026-11-04T14:09:00.611008Z",
       "observationDigest": "3c6f7d19b2ccfbd1cef4f183fa6879c69868b6ab70f9e9a1f27a20b3ec6e7815"
     },
     {
@@ -3459,7 +3459,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:45.806776Z",
+      "verifiedAt": "2026-11-04T14:09:00.932253Z",
       "observationDigest": "779c52d4db6bd7a2de01ac4c3bfb238cf7b475bb1b5cb11b8cd000cf0e4bf436"
     },
     {
@@ -3472,7 +3472,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:46.265590Z",
+      "verifiedAt": "2026-11-04T14:09:01.005364Z",
       "observationDigest": "bc9704ea4934f36c449cf5163f1b98e88fc1df3d5da6fd821b85e5a7990896fa"
     },
     {
@@ -3485,7 +3485,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:41:46.275223Z",
+      "verifiedAt": "2026-11-04T14:09:01.063443Z",
       "observationDigest": "5ee8c011baa4dab8ce7180489b8296e79671e8711bb2bd8019f78e755c621e4d"
     },
     {
@@ -3498,7 +3498,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T20:47:20.417457Z",
+      "verifiedAt": "2026-11-04T14:09:01.433445Z",
       "observationDigest": "79681fe6a1da63af62fd7bfd29595b210df55d88dcd516bb19cbd7dc8bb5c81a"
     },
     {
@@ -3511,7 +3511,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T21:06:58.162520Z",
+      "verifiedAt": "2026-11-04T14:09:01.439172Z",
       "observationDigest": "aaf2e3175512a3bea35489586cf29ab869c008849fced77729fc8987d71c5d79"
     },
     {
@@ -3524,8 +3524,658 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-03T21:06:58.241443Z",
+      "verifiedAt": "2026-11-04T14:09:01.581392Z",
       "observationDigest": "2ba3131ee18669f92d304647b1252b43e422b1dc6433d3d0d7e88985dfe2c704"
+    },
+    {
+      "domain": "antichitalapieve.it",
+      "listingSourceId": "ls_01m6hpw7b9e3sahbbhmyanzh9q",
+      "partyId": "pty_01m6hpw7avehnvptpepy3bvy4w",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:01.960239Z",
+      "observationDigest": "a5a430b24149068dd5d4040cd74322733cb2d046195db8db94fb491b89d336cb"
+    },
+    {
+      "domain": "antichitaischia.it",
+      "listingSourceId": "ls_01m6hpws45et7r5vzxp4f8g6b2",
+      "partyId": "pty_01m6hpws3reynvcmazf27w9dc5",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:01.926794Z",
+      "observationDigest": "939a9727770be82afc573feeb39269d1c5763d84429c2344471d4198f0b15fdc"
+    },
+    {
+      "domain": "ritatuci.com",
+      "listingSourceId": "ls_01m6hq79bde5mv4gw5bnea126y",
+      "partyId": "pty_01m6hq79axey7s5b3ge9rt5dv9",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:01.974654Z",
+      "observationDigest": "7bc13bd61d508774ab8e6d3cd0938644c2da325b82e6c7a4c232fe12ec6d3a86"
+    },
+    {
+      "domain": "antiquesmoglia.com",
+      "listingSourceId": "ls_01m6hqn172e6d9dzt5rvv3kvyw",
+      "partyId": "pty_01m6hqn168et1b8xv4aatcerpc",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:02.350020Z",
+      "observationDigest": "7967ab613021636492a643b6711080e0311bba651745905ae3a945c160ba6ad9"
+    },
+    {
+      "domain": "antichitasantoro.com",
+      "listingSourceId": "ls_01m6hrj1j2ewf92w4s1e55499w",
+      "partyId": "pty_01m6hrj1hke8yabyjpr9zcdr02",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:02.383555Z",
+      "observationDigest": "79fa5bea6fe3b839668b8de01c4315413ef36e3f489c7fadebc51180720f7725"
+    },
+    {
+      "domain": "antichitavecchiabottega.com",
+      "listingSourceId": "ls_01m6hrm64eebcsqqk8g1zvxyvj",
+      "partyId": "pty_01m6hrm646ee7a1x5vvb6kebjf",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:02.366180Z",
+      "observationDigest": "ac2be8aeb5ef68392e54a91e2c128aa3da1e838aee0c55543d6eaf58c8a9e27f"
+    },
+    {
+      "domain": "arabafenicelucca.it",
+      "listingSourceId": "ls_01m6hsq9j5exx8tke4pkr6v9sr",
+      "partyId": "pty_01m6hsq9hnez0r0s3ej4g8wf1t",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:02.818079Z",
+      "observationDigest": "5cfd6021203fbc10d9b40af62a51ccb054f0bf0bd9cd243571ee9f5fd405529f"
+    },
+    {
+      "domain": "arcutifineart.com",
+      "listingSourceId": "ls_01m6hsqg0neqavchcbk1emf1z5",
+      "partyId": "pty_01m6hsqfzze95re5g73p0fhs5y",
+      "locations": 2,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:02.971192Z",
+      "observationDigest": "0de8a40dca99ed09cd7dd0d8ab831b75c97407ffd19f379e65462bc19fe7a09d"
+    },
+    {
+      "domain": "artantico.com",
+      "listingSourceId": "ls_01m6jt2aw2e91rwnazypb32zg5",
+      "partyId": "pty_01m6jt2avke8a8ac8j6fz4n0p9",
+      "locations": 1,
+      "logo": true,
+      "platform": "NICEPAGE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:02.823350Z",
+      "observationDigest": "f22024f66032c029393122891ae3168bd63ecc00462f1de91fb6362b633f37d4"
+    },
+    {
+      "domain": "bamyan.it",
+      "listingSourceId": "ls_01m6jtga71e1n8vx7vtpqw0880",
+      "partyId": "pty_01m6jtga6neg0bex2smdg48pty",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:03.219383Z",
+      "observationDigest": "eeffbc0ae7004fb2244a8b8f62a40c20f4afb702c11c3955185c6440042cb31f"
+    },
+    {
+      "domain": "antiquariatobaroni.com",
+      "listingSourceId": "ls_01m6jv12a5eb9v5st0h1z0gx0t",
+      "partyId": "pty_01m6jv129me46rtefpazj3ywgt",
+      "locations": 1,
+      "logo": true,
+      "platform": "JOOMLA",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:03.246098Z",
+      "observationDigest": "134fc588ebff495ad062a2c3f8394ace0afd88ef6ac32305cb9984d648cce5ad"
+    },
+    {
+      "domain": "berardiarte.it",
+      "listingSourceId": "ls_01m6jv1448eddv0129dns6t58y",
+      "partyId": "pty_01m6jv143re3184r6nw43rev3d",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:03.408022Z",
+      "observationDigest": "0067436ac605df41370afa57135ea05b6f756ff7147c9234def17fc873e3c316"
+    },
+    {
+      "domain": "bisgart.com",
+      "listingSourceId": "ls_01m6jvzjn4e8htvx8w4k4dhrcp",
+      "partyId": "pty_01m6jvzjmredeba72xkbt0c7tw",
+      "locations": 1,
+      "logo": true,
+      "platform": "VIRTUEMART",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:03.723028Z",
+      "observationDigest": "33934c40500aeee52428cb51b28caa52433c8581ae0ab6e694251fd8534149fb"
+    },
+    {
+      "domain": "bisiantichita.it",
+      "listingSourceId": "ls_01m6jvzt0sehz8j686gs2t6ws3",
+      "partyId": "pty_01m6jvzt0der6rrtmawx325ptt",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:03.729874Z",
+      "observationDigest": "76fb9fb5d41767b1cd4ae65daa343a9ede7dd37a596ffae1f857d4e6460ee7c1"
+    },
+    {
+      "domain": "bernavasebastiano.com",
+      "listingSourceId": "ls_01m6jvzbqceypa6hzrb64zgstg",
+      "partyId": "pty_01m6jvzbpzedprwzedwh85jy96",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:03.821546Z",
+      "observationDigest": "c4124d41477e126a15b25989e19634773fd29fb94e50aabc9f7282114ad5dc1b"
+    },
+    {
+      "domain": "borrelliantichita.it",
+      "listingSourceId": "ls_01m6jyayhqe9g9t4fnch1dtzw0",
+      "partyId": "pty_01m6jyayejevn85xb0k2gzsq47",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:04.292657Z",
+      "observationDigest": "0b50323e877e1018b788f3b3e72ff14cff8a8e3c94a28cb9214029988df9cf48"
+    },
+    {
+      "domain": "mybuildingarts.com",
+      "listingSourceId": "ls_01m6k01bgwevj8d2z92jdrcxg1",
+      "partyId": "pty_01m6k01bg6e25trkryss3dd8pw",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:04.280502Z",
+      "observationDigest": "63af247993a64f28374f6dab16544f2d76159f16f31588023efc517ac2324db1"
+    },
+    {
+      "domain": "brozzettiantichita.com",
+      "listingSourceId": "ls_01m6k0fs9we0c977trckwn0cm6",
+      "partyId": "pty_01m6k0fs9gee19b5gpj9v6qhme",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:04.426400Z",
+      "observationDigest": "55db7c3c132e78ba028bbd33de584d1dd03e5fa59c7b7ecf2f169b1e27e51abe"
+    },
+    {
+      "domain": "coradirarefinds.com",
+      "listingSourceId": "ls_01m6k0g04ze5r9w2x3wvzvm6pj",
+      "partyId": "pty_01m6k0g04pew2scbxmzahah6fc",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:04.742945Z",
+      "observationDigest": "d802b7dae449f3ca539065dd85d7d00a9c7b4008efc5cfe38415d655935eefe6"
+    },
+    {
+      "domain": "debbiantichita.it",
+      "listingSourceId": "ls_01m6k0ww72e2kvwfczz8brf3k9",
+      "partyId": "pty_01m6k0ww6med68x4zkat5rz248",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:04.675923Z",
+      "observationDigest": "6f3f004d3d05be32ae74b7f73089ff5c765e2cf6fbec1d250e7e947622881abf"
+    },
+    {
+      "domain": "dequart.com",
+      "listingSourceId": "ls_01m6k1aqbsex7v3f7grctravmb",
+      "partyId": "pty_01m6k1aqb5ee1bytj4wfzxfwf2",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:04.887600Z",
+      "observationDigest": "9932f99b1d9def7b2afb53d727f1e75325cfd07472bc6053ae13299df5a5e704"
+    },
+    {
+      "domain": "digart.it",
+      "listingSourceId": "ls_01m6k1azeeej2b00kcwnvqytdr",
+      "partyId": "pty_01m6k1azdyepd9pytgk6fe2mqw",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:05.069775Z",
+      "observationDigest": "77cfe40178da5bb5f02ed5962bebe30cc79214d0d44340e0e4833cfe4640ca93"
+    },
+    {
+      "domain": "emporiodellepassioni.com",
+      "listingSourceId": "ls_01m6k251kze8cafxcyw1d23ecv",
+      "partyId": "pty_01m6k251kgejsr79j8k47txea2",
+      "locations": 1,
+      "logo": false,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:05.238120Z",
+      "observationDigest": "c33b631fdcd90fb91be6ca75eed8d1c35dc201d34971206963a0650536d571d1"
+    },
+    {
+      "domain": "antiquescamellini.com",
+      "listingSourceId": "ls_01m6k377f6ew79gnyjrcwccbhr",
+      "partyId": "pty_01m6k377ete589sbhgf44k1kqr",
+      "locations": 1,
+      "logo": true,
+      "platform": "NOPCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:05.280807Z",
+      "observationDigest": "b61bb945d003c1f4e027df0777f77798350f4cea9112a54ca244e3b084105d0f"
+    },
+    {
+      "domain": "galleriasinigaglia.it",
+      "listingSourceId": "ls_01m6k4k1vhe55tp3dtw596zytz",
+      "partyId": "pty_01m6k4k1v1eybbqz15vsb814ar",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:05.524236Z",
+      "observationDigest": "93264509d87ee58181b1e98902e100e77e0f32b5459185f05ee4809290413a4d"
+    },
+    {
+      "domain": "gioielligradara.it",
+      "listingSourceId": "ls_01m6k61dcde5frjss2j5e96jst",
+      "partyId": "pty_01m6k61dc1e1z8hbch7q61824e",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:05.589540Z",
+      "observationDigest": "8afb291f5bdf932bc2b50437ff58ad58e43ce9f883cbd574dc11ded8a7d831fe"
+    },
+    {
+      "domain": "kinskygallery.com",
+      "listingSourceId": "ls_01m6k6mhb9ekvrx5gj6zhjt188",
+      "partyId": "pty_01m6k6mhasevpb8az12x76r20h",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:05.745334Z",
+      "observationDigest": "cdccfd242d2aa565087a87d16545407b2053481b3f183c4ef785fdadf312ca65"
+    },
+    {
+      "domain": "lantica.it",
+      "listingSourceId": "ls_01m6k72ndkecs9xt3pfs8nfksp",
+      "partyId": "pty_01m6k72nd4eyjr7dvt1gh8pkhz",
+      "locations": 2,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:06.158325Z",
+      "observationDigest": "684492b6bc7b8700764914c14cf60f09b5f35f82e14bb208f2d98cec1cb289a6"
+    },
+    {
+      "domain": "lagallerya.it",
+      "listingSourceId": "ls_01m6k7pk14ej8stymnee38fre6",
+      "partyId": "pty_01m6k7pk0kemmvje60vbpn345y",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:06.000668Z",
+      "observationDigest": "5826ea0c2670c2ed6a60ce1d363ce4b7c05a414ddc5ffac01bf98e9c0151b492"
+    },
+    {
+      "domain": "la-pendulerie.com",
+      "listingSourceId": "ls_01m6k7pv1seg78by4dnf3345ym",
+      "partyId": "pty_01m6k7pv1gehsb223r6j82w4e6",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:06.166463Z",
+      "observationDigest": "c75db552931ea9b395c0c6128acd05219cb23cfc3eb917cafd249887a889c8b1"
+    },
+    {
+      "domain": "leardiniluperio.com",
+      "listingSourceId": "ls_01m6k8vw7kehtbf9bn8nv2591t",
+      "partyId": "pty_01m6k8vw6tewc8h7j08tnjje4b",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:06.427425Z",
+      "observationDigest": "0266eee7d163967da902c0219cf4da9b2b1b705f5e87839b2e1178b8b1a4c154"
+    },
+    {
+      "domain": "lesgaleriesduluxembourg.com",
+      "listingSourceId": "ls_01m6k8w4v7ee7tnst1d8xf4nx4",
+      "partyId": "pty_01m6k8w4tmemssa3jvkkqgwtjs",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:06.582761Z",
+      "observationDigest": "fa7318bac36916a89dcd228a0084f0f90a69fc6dfa4acd254b9c03b8b1626422"
+    },
+    {
+      "domain": "marziocinelli.it",
+      "listingSourceId": "ls_01m6k9vqzdeq7se8pvydfscbt5",
+      "partyId": "pty_01m6k9vqyme319vkr2qd7vmrym",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:06.577516Z",
+      "observationDigest": "39faf1faa6b0a52423c8790403bf686edd16681a909dce26374766e92eedefd5"
+    },
+    {
+      "domain": "milaneantiques.com",
+      "listingSourceId": "ls_01m6kaa5bxem585gg3d7kdg3yq",
+      "partyId": "pty_01m6kaa5b9e308vsp0zsxzn5kw",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:06.841372Z",
+      "observationDigest": "c6ff9e77651713024c610fce9cc5cea3fdacd7282feab1a3ebabd12f6ea497ba"
+    },
+    {
+      "domain": "milaniantichita.it",
+      "listingSourceId": "ls_01m6kaafn0e659epgvfreqhvmt",
+      "partyId": "pty_01m6kaafmcervrzts259b93hyc",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:06.963122Z",
+      "observationDigest": "00097bc55875dcefc92fb73f4eb8a51bc71f9e9830dafeb81d9f7f899b5000b7"
+    },
+    {
+      "domain": "mrantichita.com",
+      "listingSourceId": "ls_01m6kaqwnwe2vts1da360chzq7",
+      "partyId": "pty_01m6kaqwn9e4qtzfyv5w9gwnh3",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:07.013963Z",
+      "observationDigest": "0d8ec2d68105233f2b68a2d6d49c76c43e05c8378e5bd0b99f079fde272806db"
+    },
+    {
+      "domain": "mtgallery.it",
+      "listingSourceId": "ls_01m6kar5e2ezt9a9f4w8zv1ajf",
+      "partyId": "pty_01m6kar5deeewtfmnz7c5xvt6f",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:07.240192Z",
+      "observationDigest": "005d23a9c53c8fd2e130f49a339b68b4125b696ac0b60c511ab0874c4e917bd8"
+    },
+    {
+      "domain": "oldhouseantichita.it",
+      "listingSourceId": "ls_01m6kbfz9pesrs5rcpbbdyqnm1",
+      "partyId": "pty_01m6kbfz99e9jaj5kdma4hnz2j",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:07.369551Z",
+      "observationDigest": "6cb20f27ac74428c5ae24be361fd47c3e3585ab717402bc1280611945f31e49e"
+    },
+    {
+      "domain": "oldpaintingsonline.com",
+      "listingSourceId": "ls_01m6kbga3vepka0mwhfrhjxdt1",
+      "partyId": "pty_01m6kbga3fewwafdzrzmecfyd6",
+      "locations": 2,
+      "logo": true,
+      "platform": "SQUARESPACE_COMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:07.548148Z",
+      "observationDigest": "a8a74c520cb328d9c049ef15890b558e1e93df7aed940bb5228fd68a901a11ae"
+    },
+    {
+      "domain": "ossimoro.com",
+      "listingSourceId": "ls_01m6kcgg65e71apak7gcbp621t",
+      "partyId": "pty_01m6kcgg5qehjsc94c61bsn7s9",
+      "locations": 2,
+      "logo": false,
+      "platform": "FLAZIO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:07.756059Z",
+      "observationDigest": "73781dc4163882c5a01a37ea5524ec669b674407eff8eab5c17c929e9669259e"
+    },
+    {
+      "domain": "palazzotorlo.it",
+      "listingSourceId": "ls_01m6kcgs2wemrtr2kchh0cqn4z",
+      "partyId": "pty_01m6kcgs26e6p8f07tk6yy4ex0",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:07.835753Z",
+      "observationDigest": "db0a24eb1e5a000c74c2bd09840719239e3414577f949daae50691e31486351c"
+    },
+    {
+      "domain": "phidiasantiques.com",
+      "listingSourceId": "ls_01m6kd11x0ewrthf6vrpy4m9mp",
+      "partyId": "pty_01m6kd11wnej2a6984hjjh9zde",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:08.026413Z",
+      "observationDigest": "91a4cc2c100687ab4d1b6f7b199dbf8fed12bb13d8915396893ec3f3f9a9af4e"
+    },
+    {
+      "domain": "pianosound.it",
+      "listingSourceId": "ls_01m6kdhr3jerebaeqanjzw6p98",
+      "partyId": "pty_01m6kdhr36esprtfzkdhk4egxb",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:08.152556Z",
+      "observationDigest": "20f5cc3ac8d9054c67fe7441d261f678078b46968342841bed4e22f55c1006b3"
+    },
+    {
+      "domain": "pigozzofineart.it",
+      "listingSourceId": "ls_01m6kdj07me0gv7dbyhz414mym",
+      "partyId": "pty_01m6kdj071e779p1ck1fv5rt68",
+      "locations": 2,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:08.328907Z",
+      "observationDigest": "515850155b4e2d9e6efafff4e94a9ca16e4b076688b56ec5a2dd23d249324fa4"
+    },
+    {
+      "domain": "antichitapoliarts.it",
+      "listingSourceId": "ls_01m6ke45djejts6v4kg11wmvf4",
+      "partyId": "pty_01m6ke45d2e10rhqsm831cagvy",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:08.440734Z",
+      "observationDigest": "3b59d108bb4e3f12181748d15bf517c0f33d6c3308ecbd894ba09292d5a56b79"
+    },
+    {
+      "domain": "portatemporum.com",
+      "listingSourceId": "ls_01m6ke4eykeeqastpm0x5jej9k",
+      "partyId": "pty_01m6ke4ey1ecc8ahq9x04at576",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:09:08.673006Z",
+      "observationDigest": "8d20bf571017ebd7dd4dd31286a20bd9e889a7859949b49a88ac902cbf3c2975"
+    },
+    {
+      "domain": "priorfineartgallery.it",
+      "listingSourceId": "ls_01m6kf0psse4sv6ngtrz4ptj98",
+      "partyId": "pty_01m6kf0psjepeb5ey4zdkmhvf5",
+      "locations": 2,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:23:38.720315Z",
+      "observationDigest": "9630ef77ac57589c667f7eb8afefa6b0448053b2916796761994807caeffb5e2"
+    },
+    {
+      "domain": "pernici.eu",
+      "listingSourceId": "ls_01m6kf0ycyejerr1r2jq97zaqt",
+      "partyId": "pty_01m6kf0ycqemx8vp9v1trr0gj8",
+      "locations": 1,
+      "logo": true,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:23:37.824870Z",
+      "observationDigest": "1f3f0c3eef53d7e7e87823de890306be88f883cd69b76b3df370377a2923dd66"
+    },
+    {
+      "domain": "brickandstone.it",
+      "listingSourceId": "ls_01m6kf17baejdrs0bw9rt2ae4p",
+      "partyId": "pty_01m6kf17ateaq8y9xfm5m0j956",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:23:37.907502Z",
+      "observationDigest": "58517f9b032587f0fa2b49a6a5b5dcd50e9ca03dd749f79871f02365fb044aba"
+    },
+    {
+      "domain": "schiavetto.com",
+      "listingSourceId": "ls_01m6kg891bebyrdwpkazxjjdf8",
+      "partyId": "pty_01m6kg8910eawswpc281t752bw",
+      "locations": 2,
+      "logo": false,
+      "platform": "WEBSITE_X5",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:45:21.964218Z",
+      "observationDigest": "70de296835c74244401fd8d8e1a53c64785bc6f570ca5568bcf3e75adaeb9055"
     }
   ]
 }

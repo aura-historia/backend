@@ -34,8 +34,49 @@ The [production bootstrap](../opensearch/prod/bootstrap.py) requires Python 3,
 OpenSSL, Docker Compose and the normal OpenSearch host prerequisites below. It
 checks for at least 100 GiB free Docker storage and enough available RAM for the
 configured container limit plus 8 GiB host headroom. The default container limit
-is 32 GiB, with a 16 GiB heap and no swap. Its four-CPU quota and increased CPU
-weight cap and prioritize work; they do not exclusively reserve cores.
+is 32 GiB, with a 16 GiB heap and no swap. Its CPU quota is eight logical CPUs;
+the host CPU allocation below reserves six and permits two shared CPUs.
+
+### Production CPU allocation
+
+The production host has six physical cores with two hardware threads each. Keep
+sibling threads together: CPUs `3-5,9-11` are reserved for OpenSearch, `2,8` are
+shared for bursting, and `0-1,6-7` remain available exclusively to other host
+workloads. OpenSearch runs in its own top-level systemd slice on `2-5,8-11`;
+ordinary host services, user sessions and other containers use `0-2,6-8`.
+This reserves three physical cores (six logical CPUs); kernel and interrupt
+activity can still occur there. CPU shares alone do not provide this reservation.
+
+Require cgroup v2 and Docker's systemd cgroup driver. Verify CPU topology before
+using these host-specific masks on another machine, and keep the slice, Compose
+`OPENSEARCH_CPUSET` and host exclusions consistent. Install and enable the slice
+before first bootstrap, then apply host exclusions after bootstrap reports a
+healthy node. For an existing initialized host, from the stable checkout:
+
+```sh
+sudo install -m 0644 opensearch/prod/auraopensearch.slice /etc/systemd/system/auraopensearch.slice
+sudo install -D -m 0644 opensearch/prod/host-cpus.scope.conf /etc/systemd/system/init.scope.d/60-aura-opensearch-cpus.conf
+sudo systemctl daemon-reload
+sudo systemctl enable --now auraopensearch.slice
+docker compose -f opensearch/prod/compose.yaml up -d --no-deps --wait opensearch
+# Apply host exclusions only after OpenSearch is healthy in its own slice:
+sudo systemctl set-property system.slice AllowedCPUs=0-2,6-8
+sudo systemctl set-property user.slice AllowedCPUs=0-2,6-8
+sudo systemctl set-property machine.slice AllowedCPUs=0-2,6-8
+sudo systemctl set-property init.scope AllowedCPUs=0-2,6-8
+```
+
+The enabled slice, persistent slice properties and `init.scope` drop-in survive
+reboot; `set-property` alone is transient for `init.scope`. Every
+additional top-level slice or scope must also exclude the reserved CPUs. Verify
+`EffectiveCPUs` for the host slices and the running container's `cpuset.cpus.effective`
+and `cpu.max`; the latter must allow eight CPUs (`800000 100000`). Changing the
+container's parent slice requires recreation and a brief search outage; preserve
+its existing external volumes. To remove the reservation, restore prior host CPU
+masks, recreate OpenSearch without the dedicated parent slice and CPU mask, then
+disable and remove the slice.
+
+### Production storage and bootstrap
 
 The independent external Docker volumes survive Compose removal and grow on the
 host filesystem as data grows. They are not a dedicated disk or a space quota.

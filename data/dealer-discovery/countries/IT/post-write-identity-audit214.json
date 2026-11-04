@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-214",
+  "country": "IT",
+  "observedAt": "2026-11-04T14:28:37.242158Z",
+  "result": "PASSED",
+  "rawJournalFiles": 320,
+  "rawJournalRecordsScanned": 61167,
+  "apiWriteAttemptsThisRun": 12,
+  "decisions": {
+    "added": [
+      "priorfineartgallery.it",
+      "pernici.eu",
+      "brickandstone.it"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot214-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T14:25:53.350227Z",
+    "fullVerifiedAt": "2026-11-04T14:08:19.471862Z",
+    "counts": {
+      "parties": 386,
+      "listingSources": 386,
+      "locations": 438,
+      "logos": 276,
+      "identifiedPlatforms": 317,
+      "deliveryProfiles": 179,
+      "emptyIngestionMethods": 386,
+      "excluded": 27,
+      "deferred": 108
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Prior: complete current CristinaPrior business/VAT positive. Actual current Opera20 painting502x640 and original1702x764logo inspected; attribution/date/expertise are seller descriptions, not guarantees. Native WordPress verified. Two explicit galleries, CastelfrancoChiesa7 and AsoloCornaro218, remain distinct from officialtaxChiesa3. No registered/stock/dispatch/pickup/default or verified shipping terms. Wrong initial guessed route404 was corrected to the actual published working link; no closure inferred.",
+    "Pernici: complete current personal operator/VAT positive. Specific1880-1890Cantagalli LaMusica majolica plaque1914x1914 inspected; Renaissance fresco is copied composition, not object age/authorship. Original2078x366brandPNG verified including white-background preview. Native explicitAnticoAntico provider/runtime verified. Gramsci121a gallery differs from taxPacchetti24D. Empty#service link is not a shipping policy; Skypeidentifierraffa.it not websitealias. No fulfillment or extra artist/manufacturer Party.",
+    "Recuperando: complete current hosted SNC/VAT and official fullFattoriniDanieleEC name corroborate native business/address/mobile. Specific late19c GialloSiena mantel1965x1965 inspected, distinct from generic modern materials. Original8670x2374logo and actualShopify verified. One independently explicit sales-premises/warehouse location, no formal registered or allstock/dispatch default. Native worldwide without geographic limits supports COMPLETEANYWHERE/OFFERED/PACKING, all rates/times/actors/origin unknown. Explicit purchased warehouse collection bound to verified location, independent/offered with nullable arrangement; no invented appointment/window. Currency selectors, zero prices and empty-cart free-freight text not imported. Assuring reliability is not insurance."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-186",
+  "country": "IT",
+  "observedAt": "2026-11-04T08:26:03.590893Z",
+  "result": "PASSED",
+  "rawJournalFiles": 209,
+  "rawJournalRecordsScanned": 53437,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "bamyan.it",
+      "IT:ANTICOANTICO:598"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:ANTICOANTICO:2204"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot186-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T08:25:14.687150Z",
+    "fullVerifiedAt": "2026-11-03T22:52:45.686753Z",
+    "counts": {
+      "parties": 315,
+      "listingSources": 315,
+      "locations": 363,
+      "logos": 242,
+      "identifiedPlatforms": 252,
+      "deliveryProfiles": 161,
+      "emptyIngestionMethods": 315,
+      "excluded": 26,
+      "deferred": 93
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Bamyan current exact official individual-business name retained instead of conflicting legacy SNC text. Native Rubano showroom and distinct Padova tax address remain separate; visits do not establish purchased collection.",
+    "Bamyan current Buddha and original SVG inspected; dated Asian origins of goods do not establish foreign dealer home. Native WooCommerce builder verified. FAQ asks customers to contact for shipping information but specifies no destination, price or delivery offer, so no profile invented.",
+    "Barbara Cesaro current full proprietor matches exact native VAT; actual biblical painting inspected. A historical internship in another auction house is not current auction operation. Italy landline retains its geographic leading zero.",
+    "Barbero full operator positive, but actual selected stock images remain inaccessible after bounded ordinary requests; deferred with no imported facts or API resources, no closure or fraud claim. Native shop and tax address remain distinct. Baldrighi 964 is already managed at antichitabaldrighi.it and receives no duplicate mutation."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

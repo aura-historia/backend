@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-193",
+  "country": "IT",
+  "observedAt": "2026-11-04T10:25:40.482718Z",
+  "result": "PASSED",
+  "rawJournalFiles": 241,
+  "rawJournalRecordsScanned": 56186,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "dequart.com",
+      "digart.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:ANTICOANTICO:2303"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot193-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T10:25:01.465773Z",
+    "fullVerifiedAt": "2026-11-04T10:23:35.753339Z",
+    "counts": {
+      "parties": 334,
+      "listingSources": 334,
+      "locations": 382,
+      "logos": 253,
+      "identifiedPlatforms": 269,
+      "deliveryProfiles": 168,
+      "emptyIngestionMethods": 334,
+      "excluded": 26,
+      "deferred": 98
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "DEQU.Art full proprietor Margherita Dequarti and VAT positively validated; actual antique bronze original and original 934 x 366 logo inspected, WooCommerce verified. Current Omegna footer/hosted business, Milano/Borgomanero appointment text and official Borgomanero tax address remain distinct. Primary 329 phone not replaced by additional 333 product-template contact. Qualified packing/insured shipment retains unresolved geography, without universal worldwide/rates/time/pickup.",
+    "Digart full sole trader Egon Stuflesser and exact VAT positively validated. Working native antique catalogue is adopted, current hosted etching supplies additional current own-art evidence, and actual native 500 x 500 cropped Madonna plus original 1419 x 1920 etching were inspected. No full-object/native high-resolution originality claim from filenames explicitly mentioning upscaling. Native Ortisei 39046 business differs from government Roncadizza/Castelrotto 39040 tax statement and broad hosted Bolzano heading; no silent tax correction/interior/branch. Unknown logo/platform/shipping omitted.",
+    "Diego Merulla current own antique wardrobe image inspected, but native hosted brand lacks a complete primary legal operator while secondary directories suggest middle name Daniele. Current negative intra-EU VAT result is not domestic invalidity or closure. Deferred exact hosted 2303 without facts/resources, follow-up December 4. No secondary-name import or partial proprietor creation.",
+    "Vijion native-link lead queued for current legal/source-boundary review; possible existing Digart operator is not assigned without primary corroboration. No unrelated artist/gallery/platform Party or duplicate hosted/native sources. All raw journals, including an extra Vijion name scan, read before mutations."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

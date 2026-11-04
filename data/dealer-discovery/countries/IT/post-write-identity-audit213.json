@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-213",
+  "country": "IT",
+  "observedAt": "2026-11-04T14:12:01.775641Z",
+  "result": "PASSED",
+  "rawJournalFiles": 309,
+  "rawJournalRecordsScanned": 60920,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "antichitapoliarts.it",
+      "portatemporum.com",
+      "IT:ANTICOANTICO:2256"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot213-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T14:10:51.061633Z",
+    "fullVerifiedAt": "2026-11-04T14:08:19.471862Z",
+    "counts": {
+      "parties": 383,
+      "listingSources": 383,
+      "locations": 434,
+      "logos": 273,
+      "identifiedPlatforms": 314,
+      "deliveryProfiles": 178,
+      "emptyIngestionMethods": 383,
+      "excluded": 27,
+      "deferred": 108
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Poliarts 2000 SRL: complete current primary and official VAT match. Actual native 1920x1080 pair of workshop-Bembo-attributed painted portraits inspected separately from installations; no independent attribution/date/material/frame guarantee or repair of caption typo. Original320x120PNG merchant logo and WordPress runtime verified. Vigevano33int. exhibition address retained literally, no invented unit, registered/warehouse/stock/dispatch/pickup/default or shipping terms.",
+    "Porta Temporum di Dini Stefano: complete current primary/official identity. Native1920x1920religious painting and distinct hosted1600x1200Montanini-attributed pair inspected; never conflate works or independently authenticate/date them. Original1205x206wordmark verified;1616x1637monogram also reviewed but not combined. WIX confirmed, no WixStores. Street suffix snc means no civic number, not corporate SNC. Showroom separate from Firenze tax address. Explicit worldwide shipping and packing support PARTIAL ANYWHERE/OFFERED/PACKING; no insurance/tracking/rates/times/carrierParty/dispatch/pickup.",
+    "Poesia Antiqua: exact hosted2256 current full Arte Casa SNC di Candeo Paolo e Perinelli Roberta/VAT positive. Actual1711x1920portrait front/frame inspected; circle/workshopLefevre attribution, date and reverse description are not independent guarantees or reverse inspection. Native rebuilding brochure supplies brand/contact/gallery corroboration, never current stock or another source. Original591x329JPEG logo verified. Native fixed0536981311/email selected, unusual11digitmobile omitted without repair; hosted3805903477 retained as corroboration. Gallery premises only, unknown fulfillment omitted, source ANTICOANTICO."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-187",
+  "country": "IT",
+  "observedAt": "2026-11-04T08:35:56.983175Z",
+  "result": "PASSED",
+  "rawJournalFiles": 211,
+  "rawJournalRecordsScanned": 53614,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "antiquariatobaroni.com",
+      "berardiarte.it",
+      "IT:ANTICOANTICO:834"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:ANTICOANTICO:1043"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot187-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T08:35:12.284317Z",
+    "fullVerifiedAt": "2026-11-03T22:52:45.686753Z",
+    "counts": {
+      "parties": 318,
+      "listingSources": 318,
+      "locations": 366,
+      "logos": 244,
+      "identifiedPlatforms": 255,
+      "deliveryProfiles": 161,
+      "emptyIngestionMethods": 318,
+      "excluded": 26,
+      "deferred": 94
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Baroni current native Goito 46044 contact retained rather than repairing older hosted Cerlongo 46040. Marmirolo tax address remains distinct; no premises/inventory/dispatch role invented. White original logo inspected on dark background, direct Joomla runtime verified.",
+    "Berardi current native full SRL and positive official identity supersede older hosted SNC history. Specific harp painting explicitly available; sold-work archives, historical exhibitions and museum loans do not establish own current stock. No unverified .com alias or Saturday-appointment pickup inference.",
+    "Bardoni complete current proprietor is explicit in native business name; negative VIES only concerns intra-EU scope. Actual paired floral paintings inspected; dating/signature remain seller claims. No merchant logo/email/fulfillment invented.",
+    "Barzan actual current antique desk inspected, but complete current legal operator remains unresolved in current primary pages. Secondary/older Fabio Massimo leads and family names are not imported. Facebook login was not bypassed. Italy and unspecified foreign staff delivery observations retained for future review without API resources."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

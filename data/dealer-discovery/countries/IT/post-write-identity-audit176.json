@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-176",
+  "country": "IT",
+  "observedAt": "2026-11-03T21:28:21.176339Z",
+  "result": "PASSED",
+  "rawJournalFiles": 169,
+  "rawJournalRecordsScanned": 49920,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:2059",
+      "IT:ANTICOANTICO:123"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot176-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T21:26:10.557912Z",
+    "fullVerifiedAt": "2026-11-03T20:38:08.548711Z",
+    "counts": {
+      "parties": 283,
+      "listingSources": 283,
+      "locations": 330,
+      "logos": 231,
+      "identifiedPlatforms": 222,
+      "deliveryProfiles": 154,
+      "emptyIngestionMethods": 283,
+      "excluded": 25,
+      "deferred": 90
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": "Two exact hosted additions with inspected directly relevant own antiques. 555 tradingheadingSRL and nativeVAT03749550988 identify officialfull555SRLS A SOCIO UNICO atsameBresciaTurati8; onecompanyParty, no singlemember/transitionhistory inferred. Original1440x1920cupboardoverall and four480x640details inspected; restorationduration not shippingtime, contactroles[] notregistered/warehouse/inventory/dispatch. Searchresult auction555atCapitolium is an auctionnumber, not an operator/identifier match; no relationship inferred. Galliera nativeexplicitsoletraderMarinaMorisi/currentVAT03260561208 andcontacts establishoperator; VIESnegative didnotvalidateintraEUregistration, doesnotestablish domesticvalidity/invalidity ortradingstate. Current1797watch ownoffer original1024x1014 inspected; regularfunctioning explicitlynotguaranteed. Recentwatches/jewelry notqualificationbasis, no independent1797hallmark/authenticity/availability claim. Currenthostedpricedoffersaccessible, native500 notclosure; activityreview3Dec. Painting125162original403remaineduninspected afteroneallowedordinarypublicreferrerretry; no workaround/mirror/challenge. Separatewatchimage200normally qualifiesstock. NativeBologna19AshopBUSINESS_PREMISES, emailpubliclydecoded, no shipping/logo/collection/inventory/dispatch assumed. Actualcanonicalhosts sharedantico onlyexact2059/123, no brokenstandalone/globalalias/source. Sixteenjournals passed,283emptyingestion,no pendingwrites,$0. No due activityreviews on currentlocal3Nov; no new ingestion drift.",
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-204",
+  "country": "IT",
+  "observedAt": "2026-11-04T12:45:12.497489Z",
+  "result": "PASSED",
+  "rawJournalFiles": 285,
+  "rawJournalRecordsScanned": 59273,
+  "apiWriteAttemptsThisRun": 13,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:2210",
+      "IT:ANTICOANTICO:915",
+      "IT:ANTICOANTICO:1110"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot204-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T12:43:56.850168Z",
+    "fullVerifiedAt": "2026-11-04T12:35:44.257604Z",
+    "counts": {
+      "parties": 362,
+      "listingSources": 362,
+      "locations": 410,
+      "logos": 261,
+      "identifiedPlatforms": 295,
+      "deliveryProfiles": 174,
+      "emptyIngestionMethods": 362,
+      "excluded": 26,
+      "deferred": 103
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Liviero complete current native/full official business name positive, no invented corporate suffix or second proprietorParty. Actual own Seicento-labelled unknown-artist framedpainting455x606 inspected. Same-contact current dealer-authored Proantic says shipments/exports: PARTIAL/OFFERED/UNRESOLVED geography, rates/features/times/origin/collection unknown. Selling through external European auctions does not establish own auctionoperation. Proantic corroboration only, not a second managedsource. Current XXSettembre215 business address roles[] distinct Olimpia27int1 tax.",
+    "Lodi full current SamueleLodi positively matches exact nativeVAT/bio; grandfatherLivio/fatherLeandro biography not current partners. Actual own1880-labelled Raadsig-attributed painting1920x1395 inspected, not reverse/repairs/authenticity guarantee. External eBay channel not owned marketplace/auction operation or another source. Selected painting free/uninsuredITcourier/groundfloor/free purchasedpickup exceptSaturdayafternoonSunday/within10days kept as itemterms. Separate current407055 furnitureofferITexpresscourier groundfloor. StructuredPARTIALITcoverage eligibilitynull/no rates/features/time/origin/collection, no invented class assignment or catalogue-wide free/insured/pickup.",
+    "Lombardi full current GuidoLombardi positive, actual pairframed religiouspaintings1400x1050 inspected. Gallery700/item600 age discrepancy preserved, directoriginalart qualification independentof exact dating. Current nine-digitnationalmobile335429921 retained, olderfairnumber/emailnot repaired/adopted. VialeEuropa378A primaryroles[] distinctFanucchi32tax; LUprovince not Luxembourgcountry. No shipping/pickup/logo/email/extra nativecatalogue guessed."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

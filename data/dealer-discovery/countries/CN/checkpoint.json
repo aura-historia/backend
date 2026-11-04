@@ -1,24 +1,25 @@
 {
-  "run": "cn-2026-11-03-102",
-  "observedAt": "2026-11-03T21:14:55.194481+00:00",
+  "run": "cn-2026-11-04-195",
+  "observedAt": "2026-11-04T14:47:18.617337+00:00",
   "counts": {
-    "parties": 17,
-    "listingSources": 17,
-    "locations": 19,
-    "logos": 14,
+    "parties": 18,
+    "listingSources": 18,
+    "locations": 21,
+    "logos": 15,
     "identifiedPlatforms": 7,
     "deliveryProfiles": 3,
-    "emptyIngestionMethods": 1,
-    "excluded": 41,
-    "deferred": 206
+    "emptyIngestionMethods": 2,
+    "excluded": 56,
+    "deferred": 282
   },
   "verificationStatus": "FAILED_INGESTION_DRIFT",
+  "apiWriteIntents": 0,
   "lastPassingVerificationRun": "cn-2026-11-03-093",
   "lastPassingFullVerificationRun": "cn-2026-11-03-090",
-  "supplementalFullReadbackRun": "cn-2026-11-03-100",
+  "supplementalFullReadbackRun": "cn-2026-11-04-195",
   "countryCoverage": "OPEN",
   "paidDataSpendUsd": 0,
   "blockers": [],
   "verificationException": "External WEB_CRAWL activation on16sources; user direction pending.",
-  "next": "Continue eastern original-art dealers and direct legal-seller/invoice evidence; next scheduled full verification attempt batch105."
+  "next": "Continue wider Beijing licensed-store and other regional original-art/antique reservoirs beyond completed small registry sets. Next scheduled full readback200; country OPEN."
 }

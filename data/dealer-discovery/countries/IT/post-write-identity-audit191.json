@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-191",
+  "country": "IT",
+  "observedAt": "2026-11-04T10:10:57.375515Z",
+  "result": "PASSED",
+  "rawJournalFiles": 235,
+  "rawJournalRecordsScanned": 55877,
+  "apiWriteAttemptsThisRun": 13,
+  "decisions": {
+    "added": [
+      "brozzettiantichita.com",
+      "coradirarefinds.com",
+      "IT:ANTICOANTICO:2181"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot191-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T10:10:11.650863Z",
+    "fullVerifiedAt": "2026-11-04T08:51:31.520957Z",
+    "counts": {
+      "parties": 329,
+      "listingSources": 329,
+      "locations": 377,
+      "logos": 251,
+      "identifiedPlatforms": 265,
+      "deliveryProfiles": 167,
+      "emptyIngestionMethods": 329,
+      "excluded": 26,
+      "deferred": 97
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Brozzetti current exact SNC identity positively validated. Native original screen and transparent logo inspected; seller discloses lacquer losses and future restoration, not completed work. Only current Cherasco gallery adopted. Conflicting secondary Fossano civic 2/11A omitted. Native direct delivery retained with unresolved destinations and unknown price/features/time/pickup.",
+    "Coradi full current SRL identity positively validated and public Saint Cecilia original photo/SVG inspected. Lot labels are stock codes in reviewed direct-retail context, not sufficient auction-operation evidence. No account/login/private price accessed. World geography is qualified by material/import restrictions, with null item eligibility and checkout-calculated prices; optional/selected-artwork mandatory insurance is not a universal feature. Timings have no firm bound. Unknown platform omitted; Moving designer credit not promoted to commerce technology.",
+    "Collector’s Corner full current sole-trader operator explicit on exact 2181 despite negative intra-EU-only VAT validation. Actual second original painting photo inspected after inaccessible first original and one bounded public-Referer retry; no bypass or claim to have viewed the first/frame reverse. Qualification is original antique art, independently of militaria; no unverified merchant email/logo/shipping/pickup adopted."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

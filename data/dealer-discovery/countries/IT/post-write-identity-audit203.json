@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-203",
+  "country": "IT",
+  "observedAt": "2026-11-04T12:38:19.148461Z",
+  "result": "PASSED",
+  "rawJournalFiles": 279,
+  "rawJournalRecordsScanned": 59114,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "leardiniluperio.com",
+      "lesgaleriesduluxembourg.com",
+      "IT:ANTICOANTICO:439"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot203-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T12:37:46.964597Z",
+    "fullVerifiedAt": "2026-11-04T12:35:44.257604Z",
+    "counts": {
+      "parties": 359,
+      "listingSources": 359,
+      "locations": 407,
+      "logos": 261,
+      "identifiedPlatforms": 292,
+      "deliveryProfiles": 172,
+      "emptyIngestionMethods": 359,
+      "excluded": 26,
+      "deferred": 103
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Leardini current full SNC/nativeVAT official positive, specific seventeenth-century-labelled Botticino mantel photographed2560x1813 inspected independently of separately advertised reproductions/new general materials. Original490x132PNG and actual WooCommerce application verified. Exhibition business premises distinct from tax/registered/warehouse/stock/dispatch/purchased collection. Family biography not separate legaloperators and SalvatorRosa profile not painter authorship. Buyer shipping/pickup unknown.",
+    "LesGaleries current full SRL/nativeVAT169 positive; descriptive hosted registrationnumber163 not repaired/imported asVAT, Guendalina representation not a soletrader Party. Bergamo business homeIT independent of Luxembourg/French brand/artists. Currentcat1 offer painted landscape large720x579 inspected; soldcat2 not qualification and originalupload exceeds5MB limit/not fully inspected. NativecustomPHP/platform/logo unverified omitted. No shipping/pickup inferred.",
+    "DueTorri exact439 explicit soleproprietorTommasoTomasi/current official positive. Actual original1330x1919 offered painting inspected, no Carracci/date/material authenticity guarantee. Centolance businessaddress roles[] distinct Matteotti tax; secondaryfair email not imported. Olderprovider/tomasi404 not closure, additional allraw/fullAPI alias scans empty and legacyURL included prewrite blocking. No merchantlogo/email/shipping/pickup guessed."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

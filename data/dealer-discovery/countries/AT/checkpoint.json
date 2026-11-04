@@ -1,52 +1,36 @@
 {
-  "run": "2026-11-03-at-103",
-  "checkpointedAt": "2026-11-03T20:11:26.407001Z",
+  "run": "2026-11-04-at-150",
+  "checkpointedAt": "2026-11-04T14:46:15.352554Z",
   "discoveryStatus": "ACTIVE",
   "country": "AT",
   "counts": {
-    "parties": 165,
-    "listingSources": 169,
-    "locations": 206,
-    "logos": 141,
-    "identifiedPlatforms": 138,
-    "deliveryProfiles": 96,
-    "emptyIngestionMethods": 169,
-    "excluded": 22,
-    "deferred": 111
+    "parties": 216,
+    "listingSources": 220,
+    "locations": 279,
+    "logos": 179,
+    "identifiedPlatforms": 184,
+    "deliveryProfiles": 127,
+    "emptyIngestionMethods": 153,
+    "excluded": 27,
+    "deferred": 195
   },
-  "verificationScope": "INCREMENTAL",
-  "verifiedAt": "2026-11-03T20:11:25.800277Z",
-  "fullVerifiedAt": "2026-11-03T19:59:40.645621Z",
+  "verificationStatus": "FAILED_EXTERNAL_INGESTION_CHANGE",
+  "verificationAttemptedAt": "2026-11-04T14:46:15.352554Z",
+  "sourceMetadataObservedAt": "2026-11-04T14:45:25.138057Z",
+  "lastPassedRun": "2026-11-03-at-103",
+  "lastPassedAt": "2026-11-03T20:11:25.800277Z",
+  "lastPassedFullVerifiedAt": "2026-11-03T19:59:40.645621Z",
+  "verificationExceptions": "data/dealer-discovery/countries/AT/verification-exceptions.json",
   "ledgerComponents": [
-    {
-      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
-      "verification": "data/dealer-discovery/countries/AT/verification-root.json",
-      "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-03T20:11:17.284831Z",
-      "fullVerifiedAt": "2026-11-03T20:00:13.989999Z"
-    },
-    {
-      "ledger": "data/dealer-discovery/countries/AT/hosted/mayrhofer/dealers.jsonl",
-      "verification": "data/dealer-discovery/countries/AT/hosted/mayrhofer/verification.json",
-      "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-03T20:11:15.990298Z",
-      "fullVerifiedAt": "2026-11-03T19:59:40.645621Z"
-    },
-    {
-      "ledger": "data/dealer-discovery/countries/AT/hosted/nostalgie-antik/dealers.jsonl",
-      "verification": "data/dealer-discovery/countries/AT/hosted/nostalgie-antik/verification.json",
-      "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-03T20:11:25.800277Z",
-      "fullVerifiedAt": "2026-11-03T19:59:49.700764Z"
-    },
-    {
-      "ledger": "data/dealer-discovery/countries/AT/hosted/schrattenecker/dealers.jsonl",
-      "verification": "data/dealer-discovery/countries/AT/hosted/schrattenecker/verification.json",
-      "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-03T20:11:25.561616Z",
-      "fullVerifiedAt": "2026-11-03T19:59:57.905374Z"
-    }
+    "data/dealer-discovery/countries/AT/dealers.jsonl",
+    "data/dealer-discovery/countries/AT/hosted/mayrhofer/dealers.jsonl",
+    "data/dealer-discovery/countries/AT/hosted/nostalgie-antik/dealers.jsonl",
+    "data/dealer-discovery/countries/AT/hosted/schrattenecker/dealers.jsonl",
+    "data/dealer-discovery/countries/AT/hosted/stefan-muellner/dealers.jsonl"
   ],
   "paidDataSpendUsd": 0,
-  "blockers": []
+  "blockers": [],
+  "verificationLimitations": [
+    "Strict empty-ingestion invariant fails on externally changed managed sources; affected settings retained. Independent discovery continues."
+  ]
 }

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "run": "jp-2026-11-03-078",
-  "observedAt": "2026-11-03T21:15:58.909135Z",
+  "run": "jp-2026-11-04-157",
+  "observedAt": "2026-11-04T14:47:10.043947Z",
   "status": "FAILED_EXTERNAL_INGESTION_DRIFT",
-  "managedSourcesChecked": 198,
+  "managedSourcesChecked": 269,
   "sourcesWithNonemptyIngestion": 66,
   "lastPassingVerification": {
     "run": "jp-2026-11-03-070",
@@ -738,5 +738,75 @@
       "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gw58xfes3ry1b195rhxj2e"
     }
   ],
-  "rawSnapshot": "/tmp/aura-dealer-discovery/JP/drift078.json"
+  "rawSnapshot": "/tmp/aura-dealer-discovery/JP/drift157.json",
+  "ledgerReports": [
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/verification.json",
+      "currentAttempt": "FAILED_EXTERNAL_INGESTION_DRIFT",
+      "observedAt": "2026-11-04T14:47:10.043947Z",
+      "lastPassingRun": "jp-2026-11-03-070",
+      "scope": "INCREMENTAL",
+      "ingestionSourcesChecked": 269,
+      "sourcesWithNonemptyIngestion": 66
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/hanzomon/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/hanzomon/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:40.829913Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/imado/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:50.549812Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/maruhira/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:59.614718Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    }
+  ],
+  "countryIngestionSourcesChecked": 272,
+  "countrySourcesWithNonemptyIngestion": 66,
+  "countryEmptyIngestionMethods": 206,
+  "countryStatus": "FAILED_EXTERNAL_INGESTION_DRIFT"
 }

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-03-fr-260",
-  "observedAt": "2026-11-03T21:16:21.758910Z",
+  "run": "2026-11-04-fr-335",
+  "observedAt": "2026-11-04T14:42:09.313062Z",
   "scope": "FULL_MANAGED_LOCATION_PROFILE_DEFAULT_REVIEW",
   "status": "RESOURCE_FIELDS_MATCH",
   "strictCountryVerification": "NOT_A_PASSING_COUNTRY_VERIFICATION",
   "explanation": "All managed locations, location defaults, shipping profiles and shipping defaults read live with the existing strict field checks. Party/source metadata and actual ingestion exceptions are separately recorded in metadata-review.json and verification-attempt.json. Nonempty ingestion remains an unresolved strict-verification failure.",
-  "managedSources": 402,
+  "managedSources": 498,
   "failures": [],
   "resources": [
     {
@@ -16,7 +16,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cbtr79exctd8txbh0777k9",
-      "observedAt": "2026-11-03T21:15:37.946121Z"
+      "observedAt": "2026-11-04T14:41:15.849438Z"
     },
     {
       "domain": "lecabinetdesantiques.com",
@@ -25,7 +25,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cbttjpe218hp4d11vfpa4a",
-      "observedAt": "2026-11-03T21:15:37.982381Z"
+      "observedAt": "2026-11-04T14:41:15.931394Z"
     },
     {
       "domain": "brocante-chic.fr",
@@ -34,7 +34,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cbtwzzehsb88rwk61j5k7b",
-      "observedAt": "2026-11-03T21:15:37.881707Z"
+      "observedAt": "2026-11-04T14:41:15.848308Z"
     },
     {
       "domain": "antiquites-chaumont-bordeaux.com",
@@ -43,7 +43,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:38.156462Z"
+      "observedAt": "2026-11-04T14:41:16.102180Z"
     },
     {
       "domain": "shop.antiquefranceworldwide.com",
@@ -52,7 +52,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cbz97ae90s5fnzmbnyrjye",
-      "observedAt": "2026-11-03T21:15:38.323750Z"
+      "observedAt": "2026-11-04T14:41:16.180387Z"
     },
     {
       "domain": "bonberdal.com",
@@ -61,7 +61,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cbzbn6ebf8kfy70dc8jpx9",
-      "observedAt": "2026-11-03T21:15:38.336009Z"
+      "observedAt": "2026-11-04T14:41:16.253539Z"
     },
     {
       "domain": "leskitscheries.com",
@@ -70,7 +70,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cbzdz0es6tewype73w5pym",
-      "observedAt": "2026-11-03T21:15:38.489813Z"
+      "observedAt": "2026-11-04T14:41:16.435188Z"
     },
     {
       "domain": "brococoparis.com",
@@ -79,7 +79,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cc40eze8nr2746ewg69kzj",
-      "observedAt": "2026-11-03T21:15:38.671280Z"
+      "observedAt": "2026-11-04T14:41:16.499856Z"
     },
     {
       "domain": "antiquites-perrusson.com",
@@ -88,7 +88,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cc42t8e3ytcsgmbv4dejcx",
-      "observedAt": "2026-11-03T21:15:38.679111Z"
+      "observedAt": "2026-11-04T14:41:16.590735Z"
     },
     {
       "domain": "allonschiner-enligne.fr",
@@ -97,7 +97,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cc45ame03ts2t0z49yb06n",
-      "observedAt": "2026-11-03T21:15:38.808775Z"
+      "observedAt": "2026-11-04T14:41:16.753801Z"
     },
     {
       "domain": "nourelantiquities.com",
@@ -106,7 +106,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ccbdvte6csxs3zx4kphee8",
-      "observedAt": "2026-11-03T21:15:39.004894Z"
+      "observedAt": "2026-11-04T14:41:16.832704Z"
     },
     {
       "domain": "helen-antiquites.com",
@@ -115,7 +115,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ccbg2dedjr6pf9jy60efkq",
-      "observedAt": "2026-11-03T21:15:39.044214Z"
+      "observedAt": "2026-11-04T14:41:16.923524Z"
     },
     {
       "domain": "chiner-solidaire.fr",
@@ -124,7 +124,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ccbjg4e8ba87716rwsf3dh",
-      "observedAt": "2026-11-03T21:15:39.152917Z"
+      "observedAt": "2026-11-04T14:41:17.087234Z"
     },
     {
       "domain": "broc23.com",
@@ -133,7 +133,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ccbmthe6hsf74p93gabp3j",
-      "observedAt": "2026-11-03T21:15:39.321289Z"
+      "observedAt": "2026-11-04T14:41:17.151685Z"
     },
     {
       "domain": "maisonlecan.com",
@@ -142,7 +142,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6ccjgfdezxv5bgjhdq9h64y",
-      "observedAt": "2026-11-03T21:15:39.469325Z"
+      "observedAt": "2026-11-04T14:41:17.344926Z"
     },
     {
       "domain": "jeanlucferrand.com",
@@ -151,7 +151,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6ccjk5aehbthy0fg86sak88",
-      "observedAt": "2026-11-03T21:15:39.570334Z"
+      "observedAt": "2026-11-04T14:41:17.479475Z"
     },
     {
       "domain": "antiquites-var.fr",
@@ -160,7 +160,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ccjnp6e5stxxr49hg8c4ge",
-      "observedAt": "2026-11-03T21:15:39.633162Z"
+      "observedAt": "2026-11-04T14:41:17.464072Z"
     },
     {
       "domain": "fauvette.com",
@@ -169,7 +169,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cct9p7eafanq3vtceq9yc4",
-      "observedAt": "2026-11-03T21:15:39.827331Z"
+      "observedAt": "2026-11-04T14:41:17.656174Z"
     },
     {
       "domain": "folqlo.fr",
@@ -178,7 +178,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:39.840500Z"
+      "observedAt": "2026-11-04T14:41:17.715870Z"
     },
     {
       "domain": "lechineurdupassesimple.fr",
@@ -187,7 +187,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cctdy0ej4tn2r7tnws9kw8",
-      "observedAt": "2026-11-03T21:15:40.052618Z"
+      "observedAt": "2026-11-04T14:41:17.886063Z"
     },
     {
       "domain": "lesmeublesdavant.com",
@@ -196,7 +196,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cd9h42e6psvvvvr7mb22wq",
-      "observedAt": "2026-11-03T21:15:40.170525Z"
+      "observedAt": "2026-11-04T14:41:17.954874Z"
     },
     {
       "domain": "pasplustardquhier.com",
@@ -205,7 +205,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cd9kgheh5vbghtdykj35n8",
-      "observedAt": "2026-11-03T21:15:40.198238Z"
+      "observedAt": "2026-11-04T14:41:18.050204Z"
     },
     {
       "domain": "lacapucinebleue.com",
@@ -214,7 +214,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cdzwaeegfszcbymfz2jn7v",
-      "observedAt": "2026-11-03T21:15:40.406493Z"
+      "observedAt": "2026-11-04T14:41:18.219216Z"
     },
     {
       "domain": "marchanddoublis.com",
@@ -223,7 +223,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cdzyh3e2br0qt4r0knnr1j",
-      "observedAt": "2026-11-03T21:15:40.526703Z"
+      "observedAt": "2026-11-04T14:41:18.299982Z"
     },
     {
       "domain": "retrostory.fr",
@@ -232,7 +232,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ce00tyew9v66pgda16mqtn",
-      "observedAt": "2026-11-03T21:15:40.562058Z"
+      "observedAt": "2026-11-04T14:41:18.376645Z"
     },
     {
       "domain": "picardieantiquites.com",
@@ -241,7 +241,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:40.662756Z"
+      "observedAt": "2026-11-04T14:41:18.454807Z"
     },
     {
       "domain": "labrocanteenligne.com",
@@ -250,7 +250,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ce70kme83rmeeqptwh9h3s",
-      "observedAt": "2026-11-03T21:15:40.856885Z"
+      "observedAt": "2026-11-04T14:41:18.611869Z"
     },
     {
       "domain": "mavaliseencarton.com",
@@ -259,7 +259,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ce7332e2s9t0fn5jthm3gd",
-      "observedAt": "2026-11-03T21:15:40.899650Z"
+      "observedAt": "2026-11-04T14:41:18.687317Z"
     },
     {
       "domain": "atypikantique.com",
@@ -268,7 +268,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6ce75n9etdazte2r3qd27pc",
-      "observedAt": "2026-11-03T21:15:41.219487Z"
+      "observedAt": "2026-11-04T14:41:18.872964Z"
     },
     {
       "domain": "lanabrocante.fr",
@@ -277,7 +277,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cedq46e51vvp0d5sqn0zdr",
-      "observedAt": "2026-11-03T21:15:41.182614Z"
+      "observedAt": "2026-11-04T14:41:18.918384Z"
     },
     {
       "domain": "leszamsoeurs.com",
@@ -286,7 +286,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cedsj7etkarzqf22ta4aw3",
-      "observedAt": "2026-11-03T21:15:41.233963Z"
+      "observedAt": "2026-11-04T14:41:18.997517Z"
     },
     {
       "domain": "anticvintageparis.com",
@@ -295,7 +295,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cedvxkezj8rs2b0cey6qf8",
-      "observedAt": "2026-11-03T21:15:41.517879Z"
+      "observedAt": "2026-11-04T14:41:19.206027Z"
     },
     {
       "domain": "vaissellevintageetcie.com",
@@ -304,7 +304,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cejnxkechshgk5y68bhhjb",
-      "observedAt": "2026-11-03T21:15:41.522225Z"
+      "observedAt": "2026-11-04T14:41:19.247546Z"
     },
     {
       "domain": "lesateliersboutique.com",
@@ -313,7 +313,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cejr9necps8ba8vk4q1fec",
-      "observedAt": "2026-11-03T21:15:41.644222Z"
+      "observedAt": "2026-11-04T14:41:19.426053Z"
     },
     {
       "domain": "comptoirantiquedebourgogne.com",
@@ -322,7 +322,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:41.750143Z"
+      "observedAt": "2026-11-04T14:41:19.408096Z"
     },
     {
       "domain": "antiques20eme.com",
@@ -331,7 +331,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cevjbyeb3a24k8djgkvfmf",
-      "observedAt": "2026-11-03T21:15:41.844399Z"
+      "observedAt": "2026-11-04T14:41:19.559730Z"
     },
     {
       "domain": "vintaliciousnormandy.fr",
@@ -340,7 +340,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cf8bfgea2rfzwvaw9z44ww",
-      "observedAt": "2026-11-03T21:15:41.974449Z"
+      "observedAt": "2026-11-04T14:41:19.761528Z"
     },
     {
       "domain": "labellebrocante.fr",
@@ -349,7 +349,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cf8e9yerjs0srpfeddj5vw",
-      "observedAt": "2026-11-03T21:15:42.195468Z"
+      "observedAt": "2026-11-04T14:41:19.849973Z"
     },
     {
       "domain": "antiquitescherruault.com",
@@ -358,7 +358,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cf8h10eghb3hf5rh7h6mpd",
-      "observedAt": "2026-11-03T21:15:42.496279Z"
+      "observedAt": "2026-11-04T14:41:19.972719Z"
     },
     {
       "domain": "leavitanova.wixsite.com",
@@ -367,7 +367,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:42.328073Z"
+      "observedAt": "2026-11-04T14:41:19.991384Z"
     },
     {
       "domain": "loire-antique.com",
@@ -376,7 +376,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:42.581012Z"
+      "observedAt": "2026-11-04T14:41:20.102172Z"
     },
     {
       "domain": "scandishop.fr",
@@ -385,7 +385,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cg1z7jevpb3j8trrvtzwjs",
-      "observedAt": "2026-11-03T21:15:42.835580Z"
+      "observedAt": "2026-11-04T14:41:20.379461Z"
     },
     {
       "domain": "thisisvintage.fr",
@@ -394,7 +394,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cg21wjezmtsj1k5d3rcrf9",
-      "observedAt": "2026-11-03T21:15:42.794879Z"
+      "observedAt": "2026-11-04T14:41:20.307735Z"
     },
     {
       "domain": "antiquites-gressler.fr",
@@ -403,7 +403,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:42.843987Z"
+      "observedAt": "2026-11-04T14:41:20.365135Z"
     },
     {
       "domain": "revele-boutique.com",
@@ -412,7 +412,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cgn1rwetrb8bxtx5nzxv1s",
-      "observedAt": "2026-11-03T21:15:43.233589Z"
+      "observedAt": "2026-11-04T14:41:20.753962Z"
     },
     {
       "domain": "zazoubroc.com",
@@ -421,7 +421,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cgn492emg9j67ebe85w25p",
-      "observedAt": "2026-11-03T21:15:43.187356Z"
+      "observedAt": "2026-11-04T14:41:20.695002Z"
     },
     {
       "domain": "moka-brocante.com",
@@ -430,7 +430,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cgn6xae6ws6dkabjyhv6wy",
-      "observedAt": "2026-11-03T21:15:43.261938Z"
+      "observedAt": "2026-11-04T14:41:20.751195Z"
     },
     {
       "domain": "rougegommette.com",
@@ -439,7 +439,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cgn9heehavfbegqvqtns9v",
-      "observedAt": "2026-11-03T21:15:43.593153Z"
+      "observedAt": "2026-11-04T14:41:21.159857Z"
     },
     {
       "domain": "woodson-interior.com",
@@ -448,7 +448,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cgtq18e1m849vv668007y4",
-      "observedAt": "2026-11-03T21:15:43.640017Z"
+      "observedAt": "2026-11-04T14:41:21.165199Z"
     },
     {
       "domain": "azur-antiquites.com",
@@ -457,7 +457,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cgtse8emgbkf9ncm8gawhm",
-      "observedAt": "2026-11-03T21:15:43.580727Z"
+      "observedAt": "2026-11-04T14:41:21.083464Z"
     },
     {
       "domain": "lesmajuscules-antiquites.fr",
@@ -466,7 +466,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cgtw0je65a58hzcak86c57",
-      "observedAt": "2026-11-03T21:15:44.006341Z"
+      "observedAt": "2026-11-04T14:41:21.470735Z"
     },
     {
       "domain": "antiquites-brocante-siegler.fr",
@@ -475,7 +475,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ch0qy3eft89e1af4q5zs52",
-      "observedAt": "2026-11-03T21:15:43.917677Z"
+      "observedAt": "2026-11-04T14:41:21.512857Z"
     },
     {
       "domain": "brocanteetantiquites.com",
@@ -484,7 +484,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:43.909718Z"
+      "observedAt": "2026-11-04T14:41:21.403773Z"
     },
     {
       "domain": "elogeparis.com",
@@ -493,7 +493,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6ch0w11e14arg7en95f8v28",
-      "observedAt": "2026-11-03T21:15:44.301588Z"
+      "observedAt": "2026-11-04T14:41:21.846079Z"
     },
     {
       "domain": "bureaudescapucins.com",
@@ -502,7 +502,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ch0ykve8h8dg0q3x8s8zvz",
-      "observedAt": "2026-11-03T21:15:44.252818Z"
+      "observedAt": "2026-11-04T14:41:21.825807Z"
     },
     {
       "domain": "droin-antiquites.fr",
@@ -511,7 +511,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:44.335753Z"
+      "observedAt": "2026-11-04T14:41:21.836535Z"
     },
     {
       "domain": "inspiration-brocante.com",
@@ -520,7 +520,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cha9p2ek987pdnwcacawyx",
-      "observedAt": "2026-11-03T21:15:44.659855Z"
+      "observedAt": "2026-11-04T14:41:22.223348Z"
     },
     {
       "domain": "carouche.fr",
@@ -529,7 +529,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6chkhpgew7snvv1qmwnxmrf",
-      "observedAt": "2026-11-03T21:15:44.635320Z"
+      "observedAt": "2026-11-04T14:41:22.160589Z"
     },
     {
       "domain": "lampda.fr",
@@ -538,7 +538,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6chkm3cehxb926qyq6ys5xk",
-      "observedAt": "2026-11-03T21:15:44.645840Z"
+      "observedAt": "2026-11-04T14:41:22.146841Z"
     },
     {
       "domain": "murmuredesarts.com",
@@ -547,7 +547,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6chkpcgep4a707rn6fd56dd",
-      "observedAt": "2026-11-03T21:15:44.987221Z"
+      "observedAt": "2026-11-04T14:41:22.460560Z"
     },
     {
       "domain": "bijouxvintage.paris",
@@ -556,7 +556,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6chx7zqe16rvmpyb6a77h1g",
-      "observedAt": "2026-11-03T21:15:44.982514Z"
+      "observedAt": "2026-11-04T14:41:22.490611Z"
     },
     {
       "domain": "artetvintage.fr",
@@ -565,7 +565,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:44.907641Z"
+      "observedAt": "2026-11-04T14:41:22.461343Z"
     },
     {
       "domain": "lacocotteenpapier.fr",
@@ -574,7 +574,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cj762qe2zadcewye7cs57q",
-      "observedAt": "2026-11-03T21:15:45.505365Z"
+      "observedAt": "2026-11-04T14:41:22.858741Z"
     },
     {
       "domain": "atelierdantan.fr",
@@ -583,7 +583,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cj78xfez08k1nwsgqf36t7",
-      "observedAt": "2026-11-03T21:15:45.664368Z"
+      "observedAt": "2026-11-04T14:41:22.850235Z"
     },
     {
       "domain": "livresoccasionetancien.kingeshop.com",
@@ -592,7 +592,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cjy7rdesxvsczsmgektazf",
-      "observedAt": "2026-11-03T21:15:45.632373Z"
+      "observedAt": "2026-11-04T14:41:22.873525Z"
     },
     {
       "domain": "le-sabot-bleu.fr",
@@ -601,7 +601,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cjyac9eyftd5bs8weq98hc",
-      "observedAt": "2026-11-03T21:15:45.941580Z"
+      "observedAt": "2026-11-04T14:41:23.233730Z"
     },
     {
       "domain": "labrocantedepaula.fr",
@@ -610,7 +610,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cjycttevpa2csk3hwyb7q3",
-      "observedAt": "2026-11-03T21:15:45.964199Z"
+      "observedAt": "2026-11-04T14:41:23.204118Z"
     },
     {
       "domain": "chineriesfleuries.fr",
@@ -619,7 +619,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cjyf0texj8g1cpt34he75g",
-      "observedAt": "2026-11-03T21:15:46.015980Z"
+      "observedAt": "2026-11-04T14:41:23.180914Z"
     },
     {
       "domain": "boben.fr",
@@ -628,7 +628,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:46.192331Z"
+      "observedAt": "2026-11-04T14:41:23.434208Z"
     },
     {
       "domain": "babaettchoupinet.fr",
@@ -637,7 +637,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ckqb5xeqjrnr1c2n5zh02b",
-      "observedAt": "2026-11-03T21:15:46.273379Z"
+      "observedAt": "2026-11-04T14:41:23.517687Z"
     },
     {
       "domain": "maison-lk.com",
@@ -646,7 +646,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:46.356839Z"
+      "observedAt": "2026-11-04T14:41:23.582199Z"
     },
     {
       "domain": "chinons.eu",
@@ -655,7 +655,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cm8rhpezss9zcx136myw0a",
-      "observedAt": "2026-11-03T21:15:46.518043Z"
+      "observedAt": "2026-11-04T14:41:23.765141Z"
     },
     {
       "domain": "legrenierdurenard.fr",
@@ -664,7 +664,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cm8tyze1ks673xqadftf5x",
-      "observedAt": "2026-11-03T21:15:46.615961Z"
+      "observedAt": "2026-11-04T14:41:23.805000Z"
     },
     {
       "domain": "histoires-sans-fin.fr",
@@ -673,7 +673,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cm8xgzexprsmwdxcp8244j",
-      "observedAt": "2026-11-03T21:15:46.740810Z"
+      "observedAt": "2026-11-04T14:41:24.047869Z"
     },
     {
       "domain": "echodepoque.com",
@@ -682,7 +682,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cm8zvhen9a88rfjk7apvmd",
-      "observedAt": "2026-11-03T21:15:46.863216Z"
+      "observedAt": "2026-11-04T14:41:24.076216Z"
     },
     {
       "domain": "decouvertesdumonde.fr",
@@ -691,7 +691,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:46.873389Z"
+      "observedAt": "2026-11-04T14:41:24.053223Z"
     },
     {
       "domain": "anticstockandsons.com",
@@ -700,7 +700,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:46.998711Z"
+      "observedAt": "2026-11-04T14:41:24.278937Z"
     },
     {
       "domain": "antiquitesericbaudelet.com",
@@ -709,7 +709,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:47.112988Z"
+      "observedAt": "2026-11-04T14:41:24.269984Z"
     },
     {
       "domain": "galerie-dessein.com",
@@ -718,7 +718,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cmgxsnef6acbcj2a7nzjg6",
-      "observedAt": "2026-11-03T21:15:47.204448Z"
+      "observedAt": "2026-11-04T14:41:24.416633Z"
     },
     {
       "domain": "lecristalantique.fr",
@@ -727,7 +727,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cmr5xxe3zvdq668b7pej02",
-      "observedAt": "2026-11-03T21:15:47.407137Z"
+      "observedAt": "2026-11-04T14:41:24.648171Z"
     },
     {
       "domain": "boutique.cimiezantiquites.fr",
@@ -736,7 +736,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cn3387ejxvjndgxe3rg8k4",
-      "observedAt": "2026-11-03T21:15:47.514006Z"
+      "observedAt": "2026-11-04T14:41:24.658056Z"
     },
     {
       "domain": "tamaloubroc.com",
@@ -745,7 +745,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cn35s4ekq9m9tk2n4myrqd",
-      "observedAt": "2026-11-03T21:15:47.525921Z"
+      "observedAt": "2026-11-04T14:41:24.727716Z"
     },
     {
       "domain": "tripont.fr",
@@ -754,7 +754,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cnd4fdewhtz08g7qveapvq",
-      "observedAt": "2026-11-03T21:15:47.796821Z"
+      "observedAt": "2026-11-04T14:41:25.041349Z"
     },
     {
       "domain": "rajaabroc.fr",
@@ -763,7 +763,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cnd6v0ees9wz9xvzjpmsnw",
-      "observedAt": "2026-11-03T21:15:47.828473Z"
+      "observedAt": "2026-11-04T14:41:24.965151Z"
     },
     {
       "domain": "henrietteetginette.bigcartel.com",
@@ -772,7 +772,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cnd8vzee18sewm8mhbrz67",
-      "observedAt": "2026-11-03T21:15:47.838700Z"
+      "observedAt": "2026-11-04T14:41:25.031761Z"
     },
     {
       "domain": "retrobroc.com",
@@ -781,7 +781,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cndb0qehyt4w32hqc7ycg9",
-      "observedAt": "2026-11-03T21:15:48.135810Z"
+      "observedAt": "2026-11-04T14:41:25.279055Z"
     },
     {
       "domain": "fabriqemoi.fr",
@@ -790,7 +790,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cnvq4je2zayqcp9arwjjv3",
-      "observedAt": "2026-11-03T21:15:48.166905Z"
+      "observedAt": "2026-11-04T14:41:25.356269Z"
     },
     {
       "domain": "lesimparfaits.fr",
@@ -799,7 +799,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cnvsmdex7sa0hyeck0g2pf",
-      "observedAt": "2026-11-03T21:15:48.236463Z"
+      "observedAt": "2026-11-04T14:41:25.431276Z"
     },
     {
       "domain": "legrenierdadele.fr",
@@ -808,7 +808,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cnvvx7eyqve94nawg1y5h9",
-      "observedAt": "2026-11-03T21:15:48.434357Z"
+      "observedAt": "2026-11-04T14:41:25.584445Z"
     },
     {
       "domain": "labrocantedelaura.fr",
@@ -817,7 +817,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cnvyacek4sekm1kmzwd659",
-      "observedAt": "2026-11-03T21:15:48.567198Z"
+      "observedAt": "2026-11-04T14:41:25.735852Z"
     },
     {
       "domain": "maisongirouette.fr",
@@ -826,7 +826,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cp4ry3ezjs10c8y9cjzbd1",
-      "observedAt": "2026-11-03T21:15:48.559041Z"
+      "observedAt": "2026-11-04T14:41:25.739266Z"
     },
     {
       "domain": "labrocantebucolique.fr",
@@ -835,7 +835,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cp4v9cegesmj6bzkv909ts",
-      "observedAt": "2026-11-03T21:15:48.759231Z"
+      "observedAt": "2026-11-04T14:41:25.894755Z"
     },
     {
       "domain": "benedick-sarreguemines.com",
@@ -844,7 +844,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:48.793828Z"
+      "observedAt": "2026-11-04T14:41:25.968014Z"
     },
     {
       "domain": "brocamana.fr",
@@ -853,7 +853,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cpn739e92a14gz6g2tkfgc",
-      "observedAt": "2026-11-03T21:15:48.853984Z"
+      "observedAt": "2026-11-04T14:41:26.038033Z"
     },
     {
       "domain": "art-antiquites.com",
@@ -862,7 +862,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cqjgxcecp9j44tyv1ag7sz",
-      "observedAt": "2026-11-03T21:15:49.113351Z"
+      "observedAt": "2026-11-04T14:41:26.225825Z"
     },
     {
       "domain": "lesgreniersdelily.com",
@@ -871,7 +871,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cqjk11ejssfx7mq93fgemn",
-      "observedAt": "2026-11-03T21:15:49.112574Z"
+      "observedAt": "2026-11-04T14:41:26.304965Z"
     },
     {
       "domain": "brindore.fr",
@@ -880,7 +880,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cqjnd2egfbj9bw3pac0x2c",
-      "observedAt": "2026-11-03T21:15:49.259430Z"
+      "observedAt": "2026-11-04T14:41:26.400228Z"
     },
     {
       "domain": "art-de-la-table.com",
@@ -889,7 +889,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cqmd40e4fb5msa0xctvf98",
-      "observedAt": "2026-11-03T21:15:49.427411Z"
+      "observedAt": "2026-11-04T14:41:26.554802Z"
     },
     {
       "domain": "pucesdoc.fr",
@@ -898,7 +898,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cqv1p1eg2vjmksdemezg6q",
-      "observedAt": "2026-11-03T21:15:49.425077Z"
+      "observedAt": "2026-11-04T14:41:26.598913Z"
     },
     {
       "domain": "madamechine.fr",
@@ -907,7 +907,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:49.516038Z"
+      "observedAt": "2026-11-04T14:41:26.642116Z"
     },
     {
       "domain": "lagrangevintage.com",
@@ -916,7 +916,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cqv5p0ejjr89c25dge9k57",
-      "observedAt": "2026-11-03T21:15:49.732329Z"
+      "observedAt": "2026-11-04T14:41:26.855353Z"
     },
     {
       "domain": "labrocantedelola.com",
@@ -925,7 +925,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cqv7rke6tv0epsftcqh655",
-      "observedAt": "2026-11-03T21:15:49.748364Z"
+      "observedAt": "2026-11-04T14:41:26.904071Z"
     },
     {
       "domain": "brocnshop.com",
@@ -934,7 +934,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cr3gsvegpv2wvf9y77qq6b",
-      "observedAt": "2026-11-03T21:15:49.844345Z"
+      "observedAt": "2026-11-04T14:41:26.946886Z"
     },
     {
       "domain": "brocanate.com",
@@ -943,7 +943,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cr3jmtevn8c9x3w913469m",
-      "observedAt": "2026-11-03T21:15:50.062473Z"
+      "observedAt": "2026-11-04T14:41:27.142531Z"
     },
     {
       "domain": "autrefoisbrocante.com",
@@ -952,7 +952,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cr3mrkenzs2ecjkxqfyjaa",
-      "observedAt": "2026-11-03T21:15:50.144882Z"
+      "observedAt": "2026-11-04T14:41:27.318686Z"
     },
     {
       "domain": "bonjourautrefois.fr",
@@ -961,7 +961,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cr3pmnenksqzmxvr599w6d",
-      "observedAt": "2026-11-03T21:15:50.184596Z"
+      "observedAt": "2026-11-04T14:41:27.292001Z"
     },
     {
       "domain": "ledrugstoredaurore.fr",
@@ -970,7 +970,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6crawbkef59hn1df7yjmcnh",
-      "observedAt": "2026-11-03T21:15:50.367854Z"
+      "observedAt": "2026-11-04T14:41:27.426257Z"
     },
     {
       "domain": "mamzellebrocante.com",
@@ -979,7 +979,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:50.379033Z"
+      "observedAt": "2026-11-04T14:41:27.525068Z"
     },
     {
       "domain": "alarecherchedutempsperdu.fr",
@@ -988,7 +988,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6crb093e2b9xjsrattmske7",
-      "observedAt": "2026-11-03T21:15:50.507756Z"
+      "observedAt": "2026-11-04T14:41:27.611557Z"
     },
     {
       "domain": "themarquise.fr",
@@ -997,7 +997,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6crmq6we5bac1d4wzexa5j8",
-      "observedAt": "2026-11-03T21:15:50.666330Z"
+      "observedAt": "2026-11-04T14:41:27.744999Z"
     },
     {
       "domain": "maisonpoete.fr",
@@ -1006,7 +1006,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6crmss0ewk9392rjf7pn2w3",
-      "observedAt": "2026-11-03T21:15:50.768298Z"
+      "observedAt": "2026-11-04T14:41:27.917114Z"
     },
     {
       "domain": "breizhcottage.com",
@@ -1015,7 +1015,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cs2j4yerrv4274b6t0h0na",
-      "observedAt": "2026-11-03T21:15:50.840148Z"
+      "observedAt": "2026-11-04T14:41:27.911984Z"
     },
     {
       "domain": "myreference.fr",
@@ -1024,7 +1024,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:50.930201Z"
+      "observedAt": "2026-11-04T14:41:28.001621Z"
     },
     {
       "domain": "labrocanteusebordelaise.fr",
@@ -1033,7 +1033,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6csk0rqe8psja5kc5mbd31v",
-      "observedAt": "2026-11-03T21:15:51.256342Z"
+      "observedAt": "2026-11-04T14:41:28.324706Z"
     },
     {
       "domain": "rougesgrenat.shop",
@@ -1042,7 +1042,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6csk364etks0h6xe8tf7jbj",
-      "observedAt": "2026-11-03T21:15:51.173771Z"
+      "observedAt": "2026-11-04T14:41:28.234420Z"
     },
     {
       "domain": "brocantejolbro.com",
@@ -1051,7 +1051,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6csk5ftebjv71qmnyn2s4zz",
-      "observedAt": "2026-11-03T21:15:51.370857Z"
+      "observedAt": "2026-11-04T14:41:28.354200Z"
     },
     {
       "domain": "latelierdecarlita.fr",
@@ -1060,7 +1060,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ctbez1e9eb8d5fv38az50s",
-      "observedAt": "2026-11-03T21:15:51.525905Z"
+      "observedAt": "2026-11-04T14:41:28.587639Z"
     },
     {
       "domain": "leloftenprovence.com",
@@ -1069,7 +1069,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:51.528473Z"
+      "observedAt": "2026-11-04T14:41:28.564769Z"
     },
     {
       "domain": "llantiquites.com",
@@ -1078,7 +1078,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ctbkbye8evsrmg8z0s5qtg",
-      "observedAt": "2026-11-03T21:15:51.687057Z"
+      "observedAt": "2026-11-04T14:41:28.667710Z"
     },
     {
       "domain": "hellobroc.com",
@@ -1087,7 +1087,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cv2agje1kras2y82pzkbqd",
-      "observedAt": "2026-11-03T21:15:51.932658Z"
+      "observedAt": "2026-11-04T14:41:28.953635Z"
     },
     {
       "domain": "a-cdt.fr",
@@ -1096,7 +1096,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cv8v1xew7rd3ssza0r0gvr",
-      "observedAt": "2026-11-03T21:15:51.899727Z"
+      "observedAt": "2026-11-04T14:41:28.981478Z"
     },
     {
       "domain": "abnantiquitesdenormandie.com",
@@ -1105,7 +1105,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cvj7wse98sq0qv9zstzhct",
-      "observedAt": "2026-11-03T21:15:51.990061Z"
+      "observedAt": "2026-11-04T14:41:28.967379Z"
     },
     {
       "domain": "jac-art.fr",
@@ -1114,7 +1114,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cvjaaket1bejh17eqcqdm2",
-      "observedAt": "2026-11-03T21:15:52.309941Z"
+      "observedAt": "2026-11-04T14:41:29.361094Z"
     },
     {
       "domain": "nordikdna.com",
@@ -1123,7 +1123,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cw33ezejqrfhba21z82crk",
-      "observedAt": "2026-11-03T21:15:52.338538Z"
+      "observedAt": "2026-11-04T14:41:29.381631Z"
     },
     {
       "domain": "rodriguezantiquites.com",
@@ -1132,7 +1132,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cw35wfeysbc2s27k876kde",
-      "observedAt": "2026-11-03T21:15:52.310769Z"
+      "observedAt": "2026-11-04T14:41:29.285556Z"
     },
     {
       "domain": "blanchetti.com",
@@ -1141,7 +1141,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:52.609603Z"
+      "observedAt": "2026-11-04T14:41:29.599749Z"
     },
     {
       "domain": "planete-collections.com",
@@ -1150,7 +1150,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cwpksge2cbkn3eq9nrcn5t",
-      "observedAt": "2026-11-03T21:15:52.637800Z"
+      "observedAt": "2026-11-04T14:41:29.710731Z"
     },
     {
       "domain": "antiquitesbethune.fr",
@@ -1159,7 +1159,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6cwppqre5yr8khdyfczrnq4",
-      "observedAt": "2026-11-03T21:15:52.729742Z"
+      "observedAt": "2026-11-04T14:41:29.792536Z"
     },
     {
       "domain": "razzia.online",
@@ -1168,7 +1168,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cxj1y7eg3t0qsdb1fbxjb4",
-      "observedAt": "2026-11-03T21:15:52.911969Z"
+      "observedAt": "2026-11-04T14:41:29.912299Z"
     },
     {
       "domain": "brocante-debarras-rennes.com",
@@ -1177,7 +1177,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cyp8whedpbq9qaa8wqj06n",
-      "observedAt": "2026-11-03T21:15:52.956826Z"
+      "observedAt": "2026-11-04T14:41:30.055936Z"
     },
     {
       "domain": "coucouretro.fr",
@@ -1186,7 +1186,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cypb55e75vregjj1aj2119",
-      "observedAt": "2026-11-03T21:15:53.032062Z"
+      "observedAt": "2026-11-04T14:41:30.126537Z"
     },
     {
       "domain": "villabrieg.com",
@@ -1195,7 +1195,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6cypdcdefab0wptn2c60y88",
-      "observedAt": "2026-11-03T21:15:53.226921Z"
+      "observedAt": "2026-11-04T14:41:30.242901Z"
     },
     {
       "domain": "antiquites-nancy.fr",
@@ -1204,7 +1204,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:53.194189Z"
+      "observedAt": "2026-11-04T14:41:30.324491Z"
     },
     {
       "domain": "buhard-antiquites.com",
@@ -1213,7 +1213,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d14evge9svmf2dehqnvdvr",
-      "observedAt": "2026-11-03T21:15:53.344582Z"
+      "observedAt": "2026-11-04T14:41:30.457478Z"
     },
     {
       "domain": "opalineetpatine.com",
@@ -1222,7 +1222,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6d14ha5ea4vr9mw6j0mckfv",
-      "observedAt": "2026-11-03T21:15:53.585222Z"
+      "observedAt": "2026-11-04T14:41:30.645112Z"
     },
     {
       "domain": "rejanebrocante.com",
@@ -1231,7 +1231,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 3,
       "profile": "shp_01m6d14m0hej8bd8v6b2w86gzz",
-      "observedAt": "2026-11-03T21:15:53.744538Z"
+      "observedAt": "2026-11-04T14:41:30.830536Z"
     },
     {
       "domain": "labrocantedesfontaines.fr",
@@ -1240,7 +1240,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d1c2g6erb87spmdvne6zqg",
-      "observedAt": "2026-11-03T21:15:53.650290Z"
+      "observedAt": "2026-11-04T14:41:30.764408Z"
     },
     {
       "domain": "undimancheauxpuces.com",
@@ -1249,7 +1249,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 3,
       "profile": "shp_01m6d1c52ce14va7vh2sacvwcd",
-      "observedAt": "2026-11-03T21:15:54.061807Z"
+      "observedAt": "2026-11-04T14:41:31.147524Z"
     },
     {
       "domain": "normandbroc.com",
@@ -1258,7 +1258,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6d1c7pme6ca6p4fdhjgkfb8",
-      "observedAt": "2026-11-03T21:15:54.108365Z"
+      "observedAt": "2026-11-04T14:41:31.155247Z"
     },
     {
       "domain": "magicbrocante.com",
@@ -1267,7 +1267,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d1nsv4esjbdbwrscgtqq83",
-      "observedAt": "2026-11-03T21:15:54.049240Z"
+      "observedAt": "2026-11-04T14:41:31.166774Z"
     },
     {
       "domain": "brocantelavitrine.com",
@@ -1276,7 +1276,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d1nw6kem7tne6p6g0dhcrc",
-      "observedAt": "2026-11-03T21:15:54.385505Z"
+      "observedAt": "2026-11-04T14:41:31.477571Z"
     },
     {
       "domain": "labrocanteriedeflo.com",
@@ -1285,7 +1285,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6d1z3gze4w86rdmjddevcwg",
-      "observedAt": "2026-11-03T21:15:54.494713Z"
+      "observedAt": "2026-11-04T14:41:31.566722Z"
     },
     {
       "domain": "labrocanteamienoise.fr",
@@ -1294,7 +1294,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d1z6a0ehptr6mmj2esmyfd",
-      "observedAt": "2026-11-03T21:15:54.412869Z"
+      "observedAt": "2026-11-04T14:41:31.470506Z"
     },
     {
       "domain": "atelier416.fr",
@@ -1303,7 +1303,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6d2abfhest8r9azd40hh5b6",
-      "observedAt": "2026-11-03T21:15:54.762685Z"
+      "observedAt": "2026-11-04T14:41:31.861924Z"
     },
     {
       "domain": "duhautoyantique.fr",
@@ -1312,7 +1312,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:54.645018Z"
+      "observedAt": "2026-11-04T14:41:31.722148Z"
     },
     {
       "domain": "brocanteandco.com",
@@ -1321,7 +1321,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d2ng86ef4vkyykhex6ssr1",
-      "observedAt": "2026-11-03T21:15:54.810178Z"
+      "observedAt": "2026-11-04T14:41:31.885206Z"
     },
     {
       "domain": "studiosousou.fr",
@@ -1330,7 +1330,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6d2njceezq8ztdzsvpf0zcm",
-      "observedAt": "2026-11-03T21:15:55.049149Z"
+      "observedAt": "2026-11-04T14:41:32.097869Z"
     },
     {
       "domain": "antiquites-rigot.fr",
@@ -1339,7 +1339,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:55.003746Z"
+      "observedAt": "2026-11-04T14:41:32.136142Z"
     },
     {
       "domain": "douxaout.fr",
@@ -1348,7 +1348,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6d34csvedatamnp66aqrsss",
-      "observedAt": "2026-11-03T21:15:55.214062Z"
+      "observedAt": "2026-11-04T14:41:32.306627Z"
     },
     {
       "domain": "mulubrok.com",
@@ -1357,7 +1357,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6d3gy3yegwb3cv3jez2zfsn",
-      "observedAt": "2026-11-03T21:15:55.404679Z"
+      "observedAt": "2026-11-04T14:41:32.493000Z"
     },
     {
       "domain": "antiquites-dijon.fr",
@@ -1366,7 +1366,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:55.281720Z"
+      "observedAt": "2026-11-04T14:41:32.376498Z"
     },
     {
       "domain": "ambiancevintagebrocante.com",
@@ -1375,7 +1375,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:55.589602Z"
+      "observedAt": "2026-11-04T14:41:32.549144Z"
     },
     {
       "domain": "retourdechine.com",
@@ -1384,7 +1384,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d4zwd9eh6sh3dc9t3meg78",
-      "observedAt": "2026-11-03T21:15:55.596958Z"
+      "observedAt": "2026-11-04T14:41:32.684207Z"
     },
     {
       "domain": "labrocantedemalise.com",
@@ -1393,7 +1393,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d4zyrged4v34gvhqzc14xq",
-      "observedAt": "2026-11-03T21:15:55.726848Z"
+      "observedAt": "2026-11-04T14:41:32.794294Z"
     },
     {
       "domain": "sillyetbilly.com",
@@ -1402,7 +1402,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 3,
       "profile": "shp_01m6d55pbae0j9m0j6yj6qv715",
-      "observedAt": "2026-11-03T21:15:56.075954Z"
+      "observedAt": "2026-11-04T14:41:33.045647Z"
     },
     {
       "domain": "cash-antiquites.com",
@@ -1411,7 +1411,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d593zxe8msxbfztb7wxfmq",
-      "observedAt": "2026-11-03T21:15:55.929180Z"
+      "observedAt": "2026-11-04T14:41:33.053503Z"
     },
     {
       "domain": "brocante-ardeche.com",
@@ -1420,7 +1420,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:56.035455Z"
+      "observedAt": "2026-11-04T14:41:33.094731Z"
     },
     {
       "domain": "la-petite-brocante-de-saint-jean.com",
@@ -1429,7 +1429,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:56.162000Z"
+      "observedAt": "2026-11-04T14:41:33.303099Z"
     },
     {
       "domain": "antiquites-brocante-aubenas.fr",
@@ -1438,7 +1438,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d5rvt5ea5a2avzb3nwp2y8",
-      "observedAt": "2026-11-03T21:15:56.350081Z"
+      "observedAt": "2026-11-04T14:41:33.367027Z"
     },
     {
       "domain": "brocante-plantier.fr",
@@ -1447,7 +1447,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:56.315185Z"
+      "observedAt": "2026-11-04T14:41:33.345840Z"
     },
     {
       "domain": "antiquites-vuattoux-dole.fr",
@@ -1456,7 +1456,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:56.403029Z"
+      "observedAt": "2026-11-04T14:41:33.535895Z"
     },
     {
       "domain": "antique-ker.fr",
@@ -1465,7 +1465,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:56.545976Z"
+      "observedAt": "2026-11-04T14:41:33.590715Z"
     },
     {
       "domain": "brocantique.fr",
@@ -1474,7 +1474,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d6w055epxbdst5f2wgfgja",
-      "observedAt": "2026-11-03T21:15:56.680574Z"
+      "observedAt": "2026-11-04T14:41:33.689793Z"
     },
     {
       "domain": "gslr-antiques.com",
@@ -1483,7 +1483,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d7fmfeemc8f4fbvzs432kk",
-      "observedAt": "2026-11-03T21:15:56.744514Z"
+      "observedAt": "2026-11-04T14:41:33.869545Z"
     },
     {
       "domain": "antiquites-brocante-bayeux.fr",
@@ -1492,7 +1492,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:56.860216Z"
+      "observedAt": "2026-11-04T14:41:33.906150Z"
     },
     {
       "domain": "antiquaire-clermont-ferrand.fr",
@@ -1501,7 +1501,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:56.922274Z"
+      "observedAt": "2026-11-04T14:41:33.935464Z"
     },
     {
       "domain": "chinerfacile.fr",
@@ -1510,7 +1510,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:56.984948Z"
+      "observedAt": "2026-11-04T14:41:34.117623Z"
     },
     {
       "domain": "gustave-leonie.fr",
@@ -1519,7 +1519,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d9fx8qesd850v3rrgrk8zh",
-      "observedAt": "2026-11-03T21:15:57.207534Z"
+      "observedAt": "2026-11-04T14:41:34.228781Z"
     },
     {
       "domain": "dreamsartculture.fr",
@@ -1528,7 +1528,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d9n31ve5d81a39mrdbcqv1",
-      "observedAt": "2026-11-03T21:15:57.240271Z"
+      "observedAt": "2026-11-04T14:41:34.240644Z"
     },
     {
       "domain": "vintagechristal.com",
@@ -1537,7 +1537,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d9n564eectezbeg19detys",
-      "observedAt": "2026-11-03T21:15:57.302024Z"
+      "observedAt": "2026-11-04T14:41:34.407315Z"
     },
     {
       "domain": "lefantassin.fr",
@@ -1546,7 +1546,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 3,
       "profile": "shp_01m6d9spc5e23rb8rchd69fqds",
-      "observedAt": "2026-11-03T21:15:57.693569Z"
+      "observedAt": "2026-11-04T14:41:34.740189Z"
     },
     {
       "domain": "rivantic.com",
@@ -1555,7 +1555,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6d9ywjfez188m42kfx46gfh",
-      "observedAt": "2026-11-03T21:15:57.575118Z"
+      "observedAt": "2026-11-04T14:41:34.584571Z"
     },
     {
       "domain": "pierrebecq-antiquaire.fr",
@@ -1564,7 +1564,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:57.617829Z"
+      "observedAt": "2026-11-04T14:41:34.715718Z"
     },
     {
       "domain": "grisgroseille.com",
@@ -1573,7 +1573,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dakv4yey7v4j0tnbedazpp",
-      "observedAt": "2026-11-03T21:15:57.883475Z"
+      "observedAt": "2026-11-04T14:41:34.876868Z"
     },
     {
       "domain": "desuet.fr",
@@ -1582,7 +1582,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6db7qr3eph96x387xgqzz6t",
-      "observedAt": "2026-11-03T21:15:57.914375Z"
+      "observedAt": "2026-11-04T14:41:35.053829Z"
     },
     {
       "domain": "citron12.com",
@@ -1591,7 +1591,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dc4m6tedv8c03z919bzbtq",
-      "observedAt": "2026-11-03T21:15:58.022589Z"
+      "observedAt": "2026-11-04T14:41:35.066601Z"
     },
     {
       "domain": "maisonnordik.com",
@@ -1600,7 +1600,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6den7g3emga1jf7fwevnnnv",
-      "observedAt": "2026-11-03T21:15:58.202302Z"
+      "observedAt": "2026-11-04T14:41:35.199410Z"
     },
     {
       "domain": "lalunegalerie.fr",
@@ -1609,7 +1609,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6den9xae12vc2cckay12kq9",
-      "observedAt": "2026-11-03T21:15:58.222303Z"
+      "observedAt": "2026-11-04T14:41:35.366312Z"
     },
     {
       "domain": "vintagefrenchart.com",
@@ -1618,7 +1618,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:58.292609Z"
+      "observedAt": "2026-11-04T14:41:35.274021Z"
     },
     {
       "domain": "brocantedeco.com",
@@ -1627,7 +1627,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6deyk3rebxae1qva34t0zdc",
-      "observedAt": "2026-11-03T21:15:58.529707Z"
+      "observedAt": "2026-11-04T14:41:35.533744Z"
     },
     {
       "domain": "max-tetelin.com",
@@ -1636,7 +1636,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dfd1bxe2ca1bjfycdh3nx7",
-      "observedAt": "2026-11-03T21:15:58.563416Z"
+      "observedAt": "2026-11-04T14:41:35.599032Z"
     },
     {
       "domain": "remparts-antiquites.com",
@@ -1645,7 +1645,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6dfxphjezqtf1q2kqcw2h4k",
-      "observedAt": "2026-11-03T21:15:58.712057Z"
+      "observedAt": "2026-11-04T14:41:35.733736Z"
     },
     {
       "domain": "antiquites-brest.com",
@@ -1654,7 +1654,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:58.767935Z"
+      "observedAt": "2026-11-04T14:41:35.768563Z"
     },
     {
       "domain": "antiquites-bastian.com",
@@ -1663,7 +1663,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:58.802527Z"
+      "observedAt": "2026-11-04T14:41:35.852808Z"
     },
     {
       "domain": "antiquites-monfuturanterieur.fr",
@@ -1672,7 +1672,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dh7rd3e4vr9ekeep8pt7t9",
-      "observedAt": "2026-11-03T21:15:59.026364Z"
+      "observedAt": "2026-11-04T14:41:36.059563Z"
     },
     {
       "domain": "lamourquibouquine.com",
@@ -1681,7 +1681,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:58.998673Z"
+      "observedAt": "2026-11-04T14:41:35.997420Z"
     },
     {
       "domain": "librairiecastagne.com",
@@ -1690,7 +1690,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:59.126137Z"
+      "observedAt": "2026-11-04T14:41:36.204323Z"
     },
     {
       "domain": "librairiejumentverte.com",
@@ -1699,7 +1699,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dm7gt3e9ts0em3w88zx8qe",
-      "observedAt": "2026-11-03T21:15:59.348404Z"
+      "observedAt": "2026-11-04T14:41:36.307328Z"
     },
     {
       "domain": "abraxas-libris.fr",
@@ -1708,7 +1708,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dm7k8fe9rt1f5gnadxzwg5",
-      "observedAt": "2026-11-03T21:15:59.317203Z"
+      "observedAt": "2026-11-04T14:41:36.385130Z"
     },
     {
       "domain": "livres-au-choix.com",
@@ -1717,7 +1717,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:59.380104Z"
+      "observedAt": "2026-11-04T14:41:36.443374Z"
     },
     {
       "domain": "librairie-curiosa.com",
@@ -1726,7 +1726,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:59.548542Z"
+      "observedAt": "2026-11-04T14:41:36.539572Z"
     },
     {
       "domain": "camillesourget.com",
@@ -1735,7 +1735,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dn47dsebat00nr4k0rs1a4",
-      "observedAt": "2026-11-03T21:15:59.644778Z"
+      "observedAt": "2026-11-04T14:41:36.720327Z"
     },
     {
       "domain": "hatchuel.fr",
@@ -1744,7 +1744,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:15:59.608116Z"
+      "observedAt": "2026-11-04T14:41:36.688342Z"
     },
     {
       "domain": "archivesdunord.com",
@@ -1753,7 +1753,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 0,
       "profile": "shp_01m6dn4aqsexbrcwc4t9bwnp78",
-      "observedAt": "2026-11-03T21:15:59.752492Z"
+      "observedAt": "2026-11-04T14:41:36.797367Z"
     },
     {
       "domain": "librairie-ancienne-clagahe.fr",
@@ -1762,7 +1762,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dnegsze50ac1w95r84gawe",
-      "observedAt": "2026-11-03T21:15:59.912150Z"
+      "observedAt": "2026-11-04T14:41:37.004321Z"
     },
     {
       "domain": "livresetmanuscrits.com",
@@ -1771,7 +1771,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dnekb8e46trrd293g4nj9k",
-      "observedAt": "2026-11-03T21:15:59.961066Z"
+      "observedAt": "2026-11-04T14:41:37.050875Z"
     },
     {
       "domain": "librairievignes.com",
@@ -1780,7 +1780,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6dnenykey3bd921gm3kaz42",
-      "observedAt": "2026-11-03T21:16:00.226669Z"
+      "observedAt": "2026-11-04T14:41:37.201451Z"
     },
     {
       "domain": "ameliesourget.net",
@@ -1789,7 +1789,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:00.218927Z"
+      "observedAt": "2026-11-04T14:41:37.249486Z"
     },
     {
       "domain": "magicbooks.fr",
@@ -1798,7 +1798,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dnsnqse149fq04e6c2pehn",
-      "observedAt": "2026-11-03T21:16:00.394360Z"
+      "observedAt": "2026-11-04T14:41:37.367220Z"
     },
     {
       "domain": "legrenierdaugustine.com",
@@ -1807,7 +1807,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dpe2fgeqeayr4y3037vkh1",
-      "observedAt": "2026-11-03T21:16:00.584999Z"
+      "observedAt": "2026-11-04T14:41:37.562901Z"
     },
     {
       "domain": "antiquelittlethings.bigcartel.com",
@@ -1816,7 +1816,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dpe4pgecqt8qq8d57etra9",
-      "observedAt": "2026-11-03T21:16:00.585937Z"
+      "observedAt": "2026-11-04T14:41:37.538939Z"
     },
     {
       "domain": "leclatdinterieur.fr",
@@ -1825,7 +1825,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6dq108qetcret2ajj6w6z6z",
-      "observedAt": "2026-11-03T21:16:00.834268Z"
+      "observedAt": "2026-11-04T14:41:37.788250Z"
     },
     {
       "domain": "galerievalerielevesque.com",
@@ -1834,7 +1834,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:00.830942Z"
+      "observedAt": "2026-11-04T14:41:37.766438Z"
     },
     {
       "domain": "expertantiquite.fr",
@@ -1843,7 +1843,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dqgamtezptk3jajspwxm1w",
-      "observedAt": "2026-11-03T21:16:00.914440Z"
+      "observedAt": "2026-11-04T14:41:37.888924Z"
     },
     {
       "domain": "pauantiquites.fr",
@@ -1852,7 +1852,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:01.092790Z"
+      "observedAt": "2026-11-04T14:41:38.026947Z"
     },
     {
       "domain": "delanpatrick.com",
@@ -1861,7 +1861,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:01.082192Z"
+      "observedAt": "2026-11-04T14:41:38.055151Z"
     },
     {
       "domain": "pepiterie-vintage.fr",
@@ -1870,7 +1870,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6drze5ce5mrz2zjrqk3gqfn",
-      "observedAt": "2026-11-03T21:16:01.330811Z"
+      "observedAt": "2026-11-04T14:41:38.282541Z"
     },
     {
       "domain": "librairie-raphael-thomas.com",
@@ -1879,7 +1879,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:01.349805Z"
+      "observedAt": "2026-11-04T14:41:38.242197Z"
     },
     {
       "domain": "dessins-architecture.com",
@@ -1888,7 +1888,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:01.355610Z"
+      "observedAt": "2026-11-04T14:41:38.321154Z"
     },
     {
       "domain": "antiquitedeco.com",
@@ -1897,7 +1897,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:01.561539Z"
+      "observedAt": "2026-11-04T14:41:38.505276Z"
     },
     {
       "domain": "auvieuxchaudron.fr",
@@ -1906,7 +1906,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6dsdtykegfv9dkrwfhe5hn8",
-      "observedAt": "2026-11-03T21:16:01.748941Z"
+      "observedAt": "2026-11-04T14:41:38.675791Z"
     },
     {
       "domain": "violinemarine.com",
@@ -1915,7 +1915,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dsz66vefss05pc2qz8r3t4",
-      "observedAt": "2026-11-03T21:16:01.661108Z"
+      "observedAt": "2026-11-04T14:41:38.614042Z"
     },
     {
       "domain": "commeundimanche.bigcartel.com",
@@ -1924,7 +1924,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dsz8eteanssd5p5eksny7w",
-      "observedAt": "2026-11-03T21:16:01.840443Z"
+      "observedAt": "2026-11-04T14:41:38.796823Z"
     },
     {
       "domain": "sylvain-pfeffer-antiquites.com",
@@ -1933,7 +1933,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:01.898875Z"
+      "observedAt": "2026-11-04T14:41:38.853447Z"
     },
     {
       "domain": "shibum-design.com",
@@ -1942,7 +1942,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dtfdahere8r9cr4vzn66jv",
-      "observedAt": "2026-11-03T21:16:02.092481Z"
+      "observedAt": "2026-11-04T14:41:38.990432Z"
     },
     {
       "domain": "atelierpatine.fr",
@@ -1951,7 +1951,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6dtfft5edb8psczntm0kp43",
-      "observedAt": "2026-11-03T21:16:02.240313Z"
+      "observedAt": "2026-11-04T14:41:39.208292Z"
     },
     {
       "domain": "captainbrocante.fr",
@@ -1960,7 +1960,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dttv7ze84vnwhtx1cbz827",
-      "observedAt": "2026-11-03T21:16:02.208696Z"
+      "observedAt": "2026-11-04T14:41:39.183857Z"
     },
     {
       "domain": "antiquites-normandie.com",
@@ -1969,7 +1969,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:02.344463Z"
+      "observedAt": "2026-11-04T14:41:39.197321Z"
     },
     {
       "domain": "charpentier-achat-antiquites.fr",
@@ -1978,7 +1978,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:02.452867Z"
+      "observedAt": "2026-11-04T14:41:39.416470Z"
     },
     {
       "domain": "achat-antiquites-larochelle.com",
@@ -1987,7 +1987,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:02.507269Z"
+      "observedAt": "2026-11-04T14:41:39.426315Z"
     },
     {
       "domain": "maisonmohs.com",
@@ -1996,7 +1996,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dws0sdeams40360ad4kbks",
-      "observedAt": "2026-11-03T21:16:02.682891Z"
+      "observedAt": "2026-11-04T14:41:39.510266Z"
     },
     {
       "domain": "davidbijoux.fr",
@@ -2005,7 +2005,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dws34heanr0cj363rn2tbg",
-      "observedAt": "2026-11-03T21:16:02.777743Z"
+      "observedAt": "2026-11-04T14:41:39.738845Z"
     },
     {
       "domain": "laregencelille.com",
@@ -2014,7 +2014,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dx5r4bejrv23arr0yfp19y",
-      "observedAt": "2026-11-03T21:16:02.861559Z"
+      "observedAt": "2026-11-04T14:41:39.756298Z"
     },
     {
       "domain": "urrea-bijouxoccasion.fr",
@@ -2023,7 +2023,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dx5tfaepc99ven6ds2w88s",
-      "observedAt": "2026-11-03T21:16:03.038887Z"
+      "observedAt": "2026-11-04T14:41:39.823375Z"
     },
     {
       "domain": "daelgrau.com",
@@ -2032,7 +2032,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:03.008363Z"
+      "observedAt": "2026-11-04T14:41:39.962912Z"
     },
     {
       "domain": "joaillerieguerin.com",
@@ -2041,7 +2041,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dxjtpbetn8mt5wghfmcckd",
-      "observedAt": "2026-11-03T21:16:03.214510Z"
+      "observedAt": "2026-11-04T14:41:40.073155Z"
     },
     {
       "domain": "bijouteriebouchet.fr",
@@ -2050,7 +2050,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dxjwz9ebnaxpff8rxzqwb3",
-      "observedAt": "2026-11-03T21:16:03.362237Z"
+      "observedAt": "2026-11-04T14:41:40.151971Z"
     },
     {
       "domain": "gresse-antiquites-montpellier.fr",
@@ -2059,7 +2059,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:03.356207Z"
+      "observedAt": "2026-11-04T14:41:40.269709Z"
     },
     {
       "domain": "fabuleusecaverne.com",
@@ -2068,7 +2068,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dy9d3mejtrjks1zdyjrd7t",
-      "observedAt": "2026-11-03T21:16:03.529234Z"
+      "observedAt": "2026-11-04T14:41:40.377612Z"
     },
     {
       "domain": "collin-estampes.fr",
@@ -2077,7 +2077,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6dyxz41ek8tajxvw0d33dqr",
-      "observedAt": "2026-11-03T21:16:03.701705Z"
+      "observedAt": "2026-11-04T14:41:40.465678Z"
     },
     {
       "domain": "alainbrieux.com",
@@ -2086,7 +2086,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:03.635512Z"
+      "observedAt": "2026-11-04T14:41:40.489695Z"
     },
     {
       "domain": "librairie-amateur.com",
@@ -2095,7 +2095,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:03.748716Z"
+      "observedAt": "2026-11-04T14:41:40.631936Z"
     },
     {
       "domain": "leperepenard.com",
@@ -2104,7 +2104,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:03.900951Z"
+      "observedAt": "2026-11-04T14:41:40.700722Z"
     },
     {
       "domain": "lardanchet.fr",
@@ -2113,7 +2113,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:03.968657Z"
+      "observedAt": "2026-11-04T14:41:40.729809Z"
     },
     {
       "domain": "librairie-casteran.com",
@@ -2122,7 +2122,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e0w910ee08qeavqe4xvjnz",
-      "observedAt": "2026-11-03T21:16:04.098276Z"
+      "observedAt": "2026-11-04T14:41:40.931676Z"
     },
     {
       "domain": "librairie-occitania.fr",
@@ -2131,7 +2131,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e0wbg0egk9j8g2wb4ykyr9",
-      "observedAt": "2026-11-03T21:16:04.247670Z"
+      "observedAt": "2026-11-04T14:41:40.983993Z"
     },
     {
       "domain": "pavillonmoderne.fr",
@@ -2140,7 +2140,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:04.221265Z"
+      "observedAt": "2026-11-04T14:41:40.972336Z"
     },
     {
       "domain": "loeildeprunelle.com",
@@ -2149,7 +2149,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:04.411926Z"
+      "observedAt": "2026-11-04T14:41:41.257607Z"
     },
     {
       "domain": "librairie-nivet.fr",
@@ -2158,7 +2158,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:04.456765Z"
+      "observedAt": "2026-11-04T14:41:41.191985Z"
     },
     {
       "domain": "librairie-richard.com",
@@ -2167,7 +2167,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:04.449911Z"
+      "observedAt": "2026-11-04T14:41:41.208367Z"
     },
     {
       "domain": "leselectionneur.fr",
@@ -2176,7 +2176,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e2p3pvebbth78wf49zba7m",
-      "observedAt": "2026-11-03T21:16:04.728845Z"
+      "observedAt": "2026-11-04T14:41:41.488541Z"
     },
     {
       "domain": "o-pus.fr",
@@ -2185,7 +2185,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e2p68vef9tpg5rrbpzj1rv",
-      "observedAt": "2026-11-03T21:16:04.736507Z"
+      "observedAt": "2026-11-04T14:41:41.544925Z"
     },
     {
       "domain": "mamignonne.fr",
@@ -2194,7 +2194,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e33jvme0ha11q0xm6gred0",
-      "observedAt": "2026-11-03T21:16:04.761590Z"
+      "observedAt": "2026-11-04T14:41:41.577990Z"
     },
     {
       "domain": "labraderie.org",
@@ -2203,7 +2203,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e33n5kek0v4zyzyv0c9q2n",
-      "observedAt": "2026-11-03T21:16:05.052482Z"
+      "observedAt": "2026-11-04T14:41:41.777791Z"
     },
     {
       "domain": "antiquites-maurin.com",
@@ -2212,7 +2212,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 3,
       "profile": "shp_01m6e3fpewef0af1ewm7g91453",
-      "observedAt": "2026-11-03T21:16:05.196334Z"
+      "observedAt": "2026-11-04T14:41:41.997629Z"
     },
     {
       "domain": "choubroc.fr",
@@ -2221,7 +2221,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e4mdw0ejesgw9s2v3fa1dx",
-      "observedAt": "2026-11-03T21:16:05.068294Z"
+      "observedAt": "2026-11-04T14:41:41.890790Z"
     },
     {
       "domain": "librairiehistoireetsociete.com",
@@ -2230,7 +2230,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:05.253017Z"
+      "observedAt": "2026-11-04T14:41:42.090626Z"
     },
     {
       "domain": "librairielanuitdesrois.com",
@@ -2239,7 +2239,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:05.373941Z"
+      "observedAt": "2026-11-04T14:41:42.328141Z"
     },
     {
       "domain": "livres-anciens-laurencier.com",
@@ -2248,7 +2248,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:05.516561Z"
+      "observedAt": "2026-11-04T14:41:42.530172Z"
     },
     {
       "domain": "librairiediogene.fr",
@@ -2257,7 +2257,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:05.479888Z"
+      "observedAt": "2026-11-04T14:41:42.489731Z"
     },
     {
       "domain": "librairie-phlucas.com",
@@ -2266,7 +2266,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:05.600396Z"
+      "observedAt": "2026-11-04T14:41:42.606889Z"
     },
     {
       "domain": "autographes-des-siecles.com",
@@ -2275,7 +2275,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e7f6ybe0eb5sktv34sx69p",
-      "observedAt": "2026-11-03T21:16:05.780351Z"
+      "observedAt": "2026-11-04T14:41:42.802040Z"
     },
     {
       "domain": "brocante-france.com",
@@ -2284,7 +2284,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:05.831705Z"
+      "observedAt": "2026-11-04T14:41:42.889401Z"
     },
     {
       "domain": "secret-antiques.com",
@@ -2293,7 +2293,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:05.815496Z"
+      "observedAt": "2026-11-04T14:41:42.832051Z"
     },
     {
       "domain": "rivegauche-antiquites.fr",
@@ -2302,7 +2302,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:06.004949Z"
+      "observedAt": "2026-11-04T14:41:43.026394Z"
     },
     {
       "domain": "french-lagom.com",
@@ -2311,7 +2311,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6e9b357ev1a9nw7nqma0f0w",
-      "observedAt": "2026-11-03T21:16:06.139384Z"
+      "observedAt": "2026-11-04T14:41:43.154856Z"
     },
     {
       "domain": "toovintage.com",
@@ -2320,7 +2320,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6eant9ne7ct7x10ms2y0cdq",
-      "observedAt": "2026-11-03T21:16:06.258602Z"
+      "observedAt": "2026-11-04T14:41:43.303657Z"
     },
     {
       "domain": "brikbroc.fr",
@@ -2329,7 +2329,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6eanx0xexg9dvsv9xer3saw",
-      "observedAt": "2026-11-03T21:16:06.337970Z"
+      "observedAt": "2026-11-04T14:41:43.320539Z"
     },
     {
       "domain": "eshop.brocantesque.fr",
@@ -2338,7 +2338,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6eanza1eqhst00c4h49vbzj",
-      "observedAt": "2026-11-03T21:16:06.451985Z"
+      "observedAt": "2026-11-04T14:41:43.479040Z"
     },
     {
       "domain": "lecointredrouet.com",
@@ -2347,7 +2347,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:06.555502Z"
+      "observedAt": "2026-11-04T14:41:43.528295Z"
     },
     {
       "domain": "librairie-gil.com",
@@ -2356,7 +2356,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ed6hsten3v26m72y5b2kgz",
-      "observedAt": "2026-11-03T21:16:06.665265Z"
+      "observedAt": "2026-11-04T14:41:43.641152Z"
     },
     {
       "domain": "cavelibris.fr",
@@ -2365,7 +2365,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6edjngje6tvdj85wg1gagwy",
-      "observedAt": "2026-11-03T21:16:06.778997Z"
+      "observedAt": "2026-11-04T14:41:43.790299Z"
     },
     {
       "domain": "limage-et-le-livre.com",
@@ -2374,7 +2374,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6edz7zmejpb5vnr7m1a8q3z",
-      "observedAt": "2026-11-03T21:16:06.869189Z"
+      "observedAt": "2026-11-04T14:41:43.848583Z"
     },
     {
       "domain": "adequantik.fr",
@@ -2383,7 +2383,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:06.993125Z"
+      "observedAt": "2026-11-04T14:41:43.983641Z"
     },
     {
       "domain": "mywiny.fr",
@@ -2392,7 +2392,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6eek2ekeb5a72yvafygfs8v",
-      "observedAt": "2026-11-03T21:16:07.130650Z"
+      "observedAt": "2026-11-04T14:41:44.109994Z"
     },
     {
       "domain": "manubroc.fr",
@@ -2401,7 +2401,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6efek10enev450r5byqbas9",
-      "observedAt": "2026-11-03T21:16:07.197006Z"
+      "observedAt": "2026-11-04T14:41:44.142226Z"
     },
     {
       "domain": "instantdhier.fr",
@@ -2410,7 +2410,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6g51cjgent9kr2wkjvtfjmt",
-      "observedAt": "2026-11-03T21:16:07.377557Z"
+      "observedAt": "2026-11-04T14:41:44.391600Z"
     },
     {
       "domain": "caffard-antiquites.com",
@@ -2419,7 +2419,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:07.360314Z"
+      "observedAt": "2026-11-04T14:41:44.333634Z"
     },
     {
       "domain": "maison-les-relayeurs.shop",
@@ -2428,7 +2428,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g57vnpexqbpffxg0rjnfav",
-      "observedAt": "2026-11-03T21:16:07.527909Z"
+      "observedAt": "2026-11-04T14:41:44.473397Z"
     },
     {
       "domain": "lecrin-antiquaire.fr",
@@ -2437,7 +2437,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g5ds12eczv9h9qzgzbd1dm",
-      "observedAt": "2026-11-03T21:16:07.669211Z"
+      "observedAt": "2026-11-04T14:41:44.654455Z"
     },
     {
       "domain": "galerie44.com",
@@ -2446,7 +2446,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6g5qzeae9wv5bka0zhf9yxt",
-      "observedAt": "2026-11-03T21:16:07.770656Z"
+      "observedAt": "2026-11-04T14:41:44.790184Z"
     },
     {
       "domain": "anticetchine.fr",
@@ -2455,7 +2455,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6g64g7wexkbz36vmtvbry7g",
-      "observedAt": "2026-11-03T21:16:07.939760Z"
+      "observedAt": "2026-11-04T14:41:44.880590Z"
     },
     {
       "domain": "echodestemps.fr",
@@ -2464,7 +2464,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6g6b9m7efxb9t1dbjh85tp0",
-      "observedAt": "2026-11-03T21:16:08.059661Z"
+      "observedAt": "2026-11-04T14:41:45.133975Z"
     },
     {
       "domain": "10armandcolin.fr",
@@ -2473,7 +2473,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g6vafce0gr3fcjmwqj9d65",
-      "observedAt": "2026-11-03T21:16:08.133477Z"
+      "observedAt": "2026-11-04T14:41:45.292615Z"
     },
     {
       "domain": "lapierremarket.fr",
@@ -2482,7 +2482,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g72rswemtttsa141veq9ps",
-      "observedAt": "2026-11-03T21:16:08.295987Z"
+      "observedAt": "2026-11-04T14:41:45.457705Z"
     },
     {
       "domain": "lechatrouge.fr",
@@ -2491,7 +2491,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g772cre4sagteq16pfmrry",
-      "observedAt": "2026-11-03T21:16:08.366548Z"
+      "observedAt": "2026-11-04T14:41:45.623738Z"
     },
     {
       "domain": "selennia.fr",
@@ -2500,7 +2500,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g7fndhessay2g477y72evj",
-      "observedAt": "2026-11-03T21:16:08.435676Z"
+      "observedAt": "2026-11-04T14:41:45.689667Z"
     },
     {
       "domain": "antiquesmc.fr",
@@ -2509,7 +2509,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g7n1f1erbt2m0sbqms0s97",
-      "observedAt": "2026-11-03T21:16:08.571479Z"
+      "observedAt": "2026-11-04T14:41:45.765603Z"
     },
     {
       "domain": "romaneroux.com",
@@ -2518,7 +2518,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g7vb8weswsm8hd3m4qf4x6",
-      "observedAt": "2026-11-03T21:16:08.677770Z"
+      "observedAt": "2026-11-04T14:41:45.934665Z"
     },
     {
       "domain": "cdejahier.com",
@@ -2527,7 +2527,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g82ev7e3stpb3wsmn3b3z8",
-      "observedAt": "2026-11-03T21:16:08.742147Z"
+      "observedAt": "2026-11-04T14:41:45.998487Z"
     },
     {
       "domain": "librairie-pierre-brunet.fr",
@@ -2536,7 +2536,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g8gqh8erbvmpekp62j1rhw",
-      "observedAt": "2026-11-03T21:16:08.888017Z"
+      "observedAt": "2026-11-04T14:41:46.078299Z"
     },
     {
       "domain": "aufildeslivres.fr",
@@ -2545,7 +2545,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g8f1gcexza52995phsdd3y",
-      "observedAt": "2026-11-03T21:16:09.000423Z"
+      "observedAt": "2026-11-04T14:41:46.266627Z"
     },
     {
       "domain": "brokepoque.com",
@@ -2554,7 +2554,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g8parje4arahrb6btd4j4v",
-      "observedAt": "2026-11-03T21:16:09.095444Z"
+      "observedAt": "2026-11-04T14:41:46.306483Z"
     },
     {
       "domain": "dantan.store",
@@ -2563,7 +2563,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g8ya7yegd9byfqr6nvy3na",
-      "observedAt": "2026-11-03T21:16:09.213660Z"
+      "observedAt": "2026-11-04T14:41:46.401357Z"
     },
     {
       "domain": "galerie-atena.com",
@@ -2572,7 +2572,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 3,
       "profile": "shp_01m6g93972ezhsxxm69hy9v7px",
-      "observedAt": "2026-11-03T21:16:09.520164Z"
+      "observedAt": "2026-11-04T14:41:46.737395Z"
     },
     {
       "domain": "lamalledasie.fr",
@@ -2581,7 +2581,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g972e9ed0r99xva95b92sy",
-      "observedAt": "2026-11-03T21:16:09.437106Z"
+      "observedAt": "2026-11-04T14:41:46.636342Z"
     },
     {
       "domain": "courcelles-antiquites.com",
@@ -2590,7 +2590,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6g9qmfzebfaxe5q23eg8153",
-      "observedAt": "2026-11-03T21:16:09.615372Z"
+      "observedAt": "2026-11-04T14:41:46.806850Z"
     },
     {
       "domain": "galeriezola.com",
@@ -2599,7 +2599,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6g9xa8te3gaj4fb0wz1vbbd",
-      "observedAt": "2026-11-03T21:16:09.756560Z"
+      "observedAt": "2026-11-04T14:41:46.971948Z"
     },
     {
       "domain": "antik-france.fr",
@@ -2608,7 +2608,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ga6bntevz8z6yz8m31dd76",
-      "observedAt": "2026-11-03T21:16:09.841175Z"
+      "observedAt": "2026-11-04T14:41:47.049488Z"
     },
     {
       "domain": "danke-galerie.com",
@@ -2617,7 +2617,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gadaj0e8prfrzwn6y9w9th",
-      "observedAt": "2026-11-03T21:16:09.913996Z"
+      "observedAt": "2026-11-04T14:41:47.111372Z"
     },
     {
       "domain": "galerie-st-martin-antiquites.fr",
@@ -2626,7 +2626,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 3,
       "profile": "shp_01m6gak2meerdasxsnty98kszg",
-      "observedAt": "2026-11-03T21:16:10.279378Z"
+      "observedAt": "2026-11-04T14:41:47.456864Z"
     },
     {
       "domain": "hirschantiquites.com",
@@ -2635,7 +2635,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:10.079471Z"
+      "observedAt": "2026-11-04T14:41:47.286572Z"
     },
     {
       "domain": "brocstore.com",
@@ -2644,7 +2644,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:10.189040Z"
+      "observedAt": "2026-11-04T14:41:47.355046Z"
     },
     {
       "domain": "stockenbulle.com",
@@ -2653,7 +2653,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6gqh8rxe7gakazvm7x0d131",
-      "observedAt": "2026-11-03T21:16:10.500983Z"
+      "observedAt": "2026-11-04T14:41:47.658014Z"
     },
     {
       "domain": "yvon-lambert.com",
@@ -2662,7 +2662,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gqs18eecjs2b3jwp5f3rxr",
-      "observedAt": "2026-11-03T21:16:10.505586Z"
+      "observedAt": "2026-11-04T14:41:47.675002Z"
     },
     {
       "domain": "boutique.lesavoirdemarie.fr",
@@ -2671,7 +2671,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gqs358enqrpap0pmkzrb36",
-      "observedAt": "2026-11-03T21:16:10.618879Z"
+      "observedAt": "2026-11-04T14:41:47.783570Z"
     },
     {
       "domain": "ddaymilitaria.fr",
@@ -2680,7 +2680,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gr8taye7888yw0akbh1jn4",
-      "observedAt": "2026-11-03T21:16:10.843073Z"
+      "observedAt": "2026-11-04T14:41:47.972391Z"
     },
     {
       "domain": "latelier50.com",
@@ -2689,7 +2689,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gr8wpqev9rya91qkak12zk",
-      "observedAt": "2026-11-03T21:16:10.823338Z"
+      "observedAt": "2026-11-04T14:41:48.028696Z"
     },
     {
       "domain": "ma-cabane-vintage.com",
@@ -2698,7 +2698,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6grmrkeeb0tkjr5r7y3ganq",
-      "observedAt": "2026-11-03T21:16:10.947501Z"
+      "observedAt": "2026-11-04T14:41:48.120146Z"
     },
     {
       "domain": "rieunier-joailliers-horlogers.com",
@@ -2707,7 +2707,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6grmtywenw8ekcg12k9keym",
-      "observedAt": "2026-11-03T21:16:11.212481Z"
+      "observedAt": "2026-11-04T14:41:48.415598Z"
     },
     {
       "domain": "calaoshop.com",
@@ -2716,7 +2716,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6grycg0e7r8m94j2a4n279t",
-      "observedAt": "2026-11-03T21:16:11.157462Z"
+      "observedAt": "2026-11-04T14:41:48.336104Z"
     },
     {
       "domain": "boutique.la-baule-antiquites.com",
@@ -2725,7 +2725,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6gsc703ec5tncphq04dhnx7",
-      "observedAt": "2026-11-03T21:16:11.357280Z"
+      "observedAt": "2026-11-04T14:41:48.499147Z"
     },
     {
       "domain": "110volts.fr",
@@ -2734,7 +2734,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gstzc1e0ysvzg4k9sbk92p",
-      "observedAt": "2026-11-03T21:16:11.520681Z"
+      "observedAt": "2026-11-04T14:41:48.658598Z"
     },
     {
       "domain": "galeriepentcheff.fr",
@@ -2743,7 +2743,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:11.467437Z"
+      "observedAt": "2026-11-04T14:41:48.653986Z"
     },
     {
       "domain": "schon-grandin.com",
@@ -2752,7 +2752,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gt3g8pearswstnd9evfezh",
-      "observedAt": "2026-11-03T21:16:11.682375Z"
+      "observedAt": "2026-11-04T14:41:48.821919Z"
     },
     {
       "domain": "antiquites-art-nouveau.fr",
@@ -2761,7 +2761,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gts9h0edzv5vdsqfsa8f6n",
-      "observedAt": "2026-11-03T21:16:11.793586Z"
+      "observedAt": "2026-11-04T14:41:48.984619Z"
     },
     {
       "domain": "nord-antique.com",
@@ -2770,7 +2770,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gtsbx2eeqah6g6mkjjjp51",
-      "observedAt": "2026-11-03T21:16:11.854420Z"
+      "observedAt": "2026-11-04T14:41:48.986272Z"
     },
     {
       "domain": "rosycabroc.art",
@@ -2779,7 +2779,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gtse61e9qr03eg2fa6zrfy",
-      "observedAt": "2026-11-03T21:16:12.047172Z"
+      "observedAt": "2026-11-04T14:41:49.163948Z"
     },
     {
       "domain": "universcollectionshop.com",
@@ -2788,7 +2788,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gtsg9fejwagt55gmbx60qe",
-      "observedAt": "2026-11-03T21:16:12.150999Z"
+      "observedAt": "2026-11-04T14:41:49.343767Z"
     },
     {
       "domain": "philarama37.com",
@@ -2797,7 +2797,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:12.103017Z"
+      "observedAt": "2026-11-04T14:41:49.229451Z"
     },
     {
       "domain": "occasionnel-luxe.com",
@@ -2806,7 +2806,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gvgx39es6arrkcntnenhpf",
-      "observedAt": "2026-11-03T21:16:12.382208Z"
+      "observedAt": "2026-11-04T14:41:49.467776Z"
     },
     {
       "domain": "lecentrevilleantiquites.com",
@@ -2815,7 +2815,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:12.345254Z"
+      "observedAt": "2026-11-04T14:41:49.479271Z"
     },
     {
       "domain": "pipat-antiquites.fr",
@@ -2824,7 +2824,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6gwqwgbe5dvvssr0e3sdhe0",
-      "observedAt": "2026-11-03T21:16:12.534265Z"
+      "observedAt": "2026-11-04T14:41:49.763236Z"
     },
     {
       "domain": "objetschinois.com",
@@ -2833,7 +2833,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gwqytxert93x5g7e5ex32a",
-      "observedAt": "2026-11-03T21:16:12.694422Z"
+      "observedAt": "2026-11-04T14:41:49.785498Z"
     },
     {
       "domain": "argenteriegalerielassus.com",
@@ -2842,7 +2842,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gx3p7beexswb91ttwxpcjx",
-      "observedAt": "2026-11-03T21:16:12.712346Z"
+      "observedAt": "2026-11-04T14:41:49.783596Z"
     },
     {
       "domain": "aenigmattic.fr",
@@ -2851,7 +2851,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:12.774406Z"
+      "observedAt": "2026-11-04T14:41:50.036843Z"
     },
     {
       "domain": "joanna-h.com",
@@ -2860,7 +2860,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gy7xxse52awmrfta8tegam",
-      "observedAt": "2026-11-03T21:16:13.039038Z"
+      "observedAt": "2026-11-04T14:41:50.092737Z"
     },
     {
       "domain": "temps-dantan.fr",
@@ -2869,7 +2869,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gy4qxye14akf48982db6pe",
-      "observedAt": "2026-11-03T21:16:13.069230Z"
+      "observedAt": "2026-11-04T14:41:50.104756Z"
     },
     {
       "domain": "tomaselli-collection.com",
@@ -2878,7 +2878,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:13.008752Z"
+      "observedAt": "2026-11-04T14:41:50.277462Z"
     },
     {
       "domain": "antiquesdavignon.com",
@@ -2887,7 +2887,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gyk4f9edk8q5tn4c8077pq",
-      "observedAt": "2026-11-03T21:16:13.352830Z"
+      "observedAt": "2026-11-04T14:41:50.403786Z"
     },
     {
       "domain": "galerieorigines.com",
@@ -2896,7 +2896,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6gyk72fer4rv03v4wm54z39",
-      "observedAt": "2026-11-03T21:16:13.460214Z"
+      "observedAt": "2026-11-04T14:41:50.477770Z"
     },
     {
       "domain": "lavalisearlesienne.com",
@@ -2905,7 +2905,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gyk9g5eyg8m1mfg16a6tzp",
-      "observedAt": "2026-11-03T21:16:13.402955Z"
+      "observedAt": "2026-11-04T14:41:50.575022Z"
     },
     {
       "domain": "guillaume-duchemin.fr",
@@ -2914,7 +2914,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gz6whze1796y2g25mkfdvq",
-      "observedAt": "2026-11-03T21:16:13.693464Z"
+      "observedAt": "2026-11-04T14:41:50.716080Z"
     },
     {
       "domain": "galerierotomagus.fr",
@@ -2923,7 +2923,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gz6yk3e21tjfmagm4jpq3z",
-      "observedAt": "2026-11-03T21:16:13.744968Z"
+      "observedAt": "2026-11-04T14:41:50.803833Z"
     },
     {
       "domain": "galerieprivee-art.fr",
@@ -2932,7 +2932,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gz70nqehgscwjtrqpjep65",
-      "observedAt": "2026-11-03T21:16:13.800071Z"
+      "observedAt": "2026-11-04T14:41:50.887688Z"
     },
     {
       "domain": "bijouxbaume.com",
@@ -2941,7 +2941,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6gzh48ke2ab8yczbzwn2ce1",
-      "observedAt": "2026-11-03T21:16:14.014777Z"
+      "observedAt": "2026-11-04T14:41:51.061252Z"
     },
     {
       "domain": "valeriemuneantiquites.fr",
@@ -2950,7 +2950,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:14.025248Z"
+      "observedAt": "2026-11-04T14:41:51.109159Z"
     },
     {
       "domain": "vanrijn-tours.com",
@@ -2959,7 +2959,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h0dyvte7k8sskvp0ctxcpm",
-      "observedAt": "2026-11-03T21:16:14.132691Z"
+      "observedAt": "2026-11-04T14:41:51.264206Z"
     },
     {
       "domain": "paulfoulon.com",
@@ -2968,7 +2968,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h0vey2ecdbbb1crxjjn1q1",
-      "observedAt": "2026-11-03T21:16:14.350288Z"
+      "observedAt": "2026-11-04T14:41:51.429164Z"
     },
     {
       "domain": "galerie-damidot.fr",
@@ -2977,7 +2977,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h1ez34ew9aq1h96fyac2b8",
-      "observedAt": "2026-11-03T21:16:14.333606Z"
+      "observedAt": "2026-11-04T14:41:51.489929Z"
     },
     {
       "domain": "galerie-goudard-87.com",
@@ -2986,7 +2986,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:14.376639Z"
+      "observedAt": "2026-11-04T14:41:51.492490Z"
     },
     {
       "domain": "no7gallery.com",
@@ -2995,7 +2995,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h21taseahad1y2gtnwhnce",
-      "observedAt": "2026-11-03T21:16:14.679566Z"
+      "observedAt": "2026-11-04T14:41:51.734553Z"
     },
     {
       "domain": "antiquiteslassaussois.com",
@@ -3004,7 +3004,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6h21wskedxvd6pbbf3xmh7w",
-      "observedAt": "2026-11-03T21:16:14.758081Z"
+      "observedAt": "2026-11-04T14:41:51.894323Z"
     },
     {
       "domain": "rennes-antiquites.com",
@@ -3013,7 +3013,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h27tmqe28sbn79pgzq35xn",
-      "observedAt": "2026-11-03T21:16:14.690581Z"
+      "observedAt": "2026-11-04T14:41:51.814244Z"
     },
     {
       "domain": "brugal-antiquites.com",
@@ -3022,7 +3022,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:14.938423Z"
+      "observedAt": "2026-11-04T14:41:51.962850Z"
     },
     {
       "domain": "bretagneancienne.com",
@@ -3031,7 +3031,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:14.943508Z"
+      "observedAt": "2026-11-04T14:41:52.064519Z"
     },
     {
       "domain": "we-art-together.fr",
@@ -3040,7 +3040,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h2zh12evas3myrhwcjxc0e",
-      "observedAt": "2026-11-03T21:16:15.106814Z"
+      "observedAt": "2026-11-04T14:41:52.217476Z"
     },
     {
       "domain": "artecollection.fr",
@@ -3049,7 +3049,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h2zk5wexzbet722t4bgnfm",
-      "observedAt": "2026-11-03T21:16:15.305675Z"
+      "observedAt": "2026-11-04T14:41:52.288027Z"
     },
     {
       "domain": "antiquite-philippe-fustemberg.fr",
@@ -3058,7 +3058,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:15.233897Z"
+      "observedAt": "2026-11-04T14:41:52.330425Z"
     },
     {
       "domain": "arialouise.com",
@@ -3067,7 +3067,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h3gnkwe9v8kfkzd4pffdpn",
-      "observedAt": "2026-11-03T21:16:15.453062Z"
+      "observedAt": "2026-11-04T14:41:52.543646Z"
     },
     {
       "domain": "123numismatique.com",
@@ -3076,7 +3076,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h449n5et1sh37d3h2vzbwx",
-      "observedAt": "2026-11-03T21:16:15.575773Z"
+      "observedAt": "2026-11-04T14:41:52.612376Z"
     },
     {
       "domain": "capornumismatique.com",
@@ -3085,7 +3085,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h44bjsebkbykmk1e06hbmc",
-      "observedAt": "2026-11-03T21:16:15.611482Z"
+      "observedAt": "2026-11-04T14:41:52.643200Z"
     },
     {
       "domain": "numismeo.com",
@@ -3094,7 +3094,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h44drfe7ztgevqcfr0x1v7",
-      "observedAt": "2026-11-03T21:16:15.755965Z"
+      "observedAt": "2026-11-04T14:41:52.884866Z"
     },
     {
       "domain": "leholdy.com",
@@ -3103,7 +3103,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6h4tz2yeg8v1fytdqvap4s9",
-      "observedAt": "2026-11-03T21:16:15.991284Z"
+      "observedAt": "2026-11-04T14:41:53.026439Z"
     },
     {
       "domain": "buschcollectibles.com",
@@ -3112,7 +3112,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h4v1e8esa85x5gj1fnmr7b",
-      "observedAt": "2026-11-03T21:16:15.957838Z"
+      "observedAt": "2026-11-04T14:41:52.942959Z"
     },
     {
       "domain": "numismatique-or-argent.eu",
@@ -3121,7 +3121,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h5kbfnez3bcj6052m1536y",
-      "observedAt": "2026-11-03T21:16:16.104276Z"
+      "observedAt": "2026-11-04T14:41:53.207257Z"
     },
     {
       "domain": "antika.fr",
@@ -3130,7 +3130,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h5kdkheq6sge4pkzyb72f1",
-      "observedAt": "2026-11-03T21:16:16.267695Z"
+      "observedAt": "2026-11-04T14:41:53.281517Z"
     },
     {
       "domain": "suffren-numismatique.com",
@@ -3139,7 +3139,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:16.230313Z"
+      "observedAt": "2026-11-04T14:41:53.279622Z"
     },
     {
       "domain": "lhistoirevagabonde.com",
@@ -3148,7 +3148,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h6dmtpewcv8rb0q83q6awm",
-      "observedAt": "2026-11-03T21:16:16.425547Z"
+      "observedAt": "2026-11-04T14:41:53.539873Z"
     },
     {
       "domain": "bibliographique.com",
@@ -3157,7 +3157,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h6m66ee4v9yaqsb6rxy5zj",
-      "observedAt": "2026-11-03T21:16:16.554593Z"
+      "observedAt": "2026-11-04T14:41:53.607389Z"
     },
     {
       "domain": "livresentre2actions.fr",
@@ -3166,7 +3166,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h6m88qedhbrbzwfxwccq9f",
-      "observedAt": "2026-11-03T21:16:16.577388Z"
+      "observedAt": "2026-11-04T14:41:53.614593Z"
     },
     {
       "domain": "lapetitelibrairiedesjardins.fr",
@@ -3175,7 +3175,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h6maa2e75rctjben0y32rd",
-      "observedAt": "2026-11-03T21:16:16.727859Z"
+      "observedAt": "2026-11-04T14:41:53.845467Z"
     },
     {
       "domain": "lalibrairieantique.fr",
@@ -3184,7 +3184,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6h6smrvek8s4jk962ze7zra",
-      "observedAt": "2026-11-03T21:16:16.972077Z"
+      "observedAt": "2026-11-04T14:41:54.030921Z"
     },
     {
       "domain": "librairie-oeilcacodylate.com",
@@ -3193,7 +3193,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h6sptyecq8fb94f2c5qzkg",
-      "observedAt": "2026-11-03T21:16:16.872435Z"
+      "observedAt": "2026-11-04T14:41:53.941568Z"
     },
     {
       "domain": "lafamilybrocante.fr",
@@ -3202,7 +3202,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h75ez9eybvn9ezy96zrkvc",
-      "observedAt": "2026-11-03T21:16:17.033049Z"
+      "observedAt": "2026-11-04T14:41:54.193587Z"
     },
     {
       "domain": "brocante-debarras-vendee.fr",
@@ -3211,7 +3211,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:17.122771Z"
+      "observedAt": "2026-11-04T14:41:54.188857Z"
     },
     {
       "domain": "latelierdeladorure.com",
@@ -3220,7 +3220,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:17.228584Z"
+      "observedAt": "2026-11-04T14:41:54.271496Z"
     },
     {
       "domain": "galeriejabert.com",
@@ -3229,7 +3229,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:17.329937Z"
+      "observedAt": "2026-11-04T14:41:54.512402Z"
     },
     {
       "domain": "monnaies-et-collections.fr",
@@ -3238,7 +3238,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:17.350356Z"
+      "observedAt": "2026-11-04T14:41:54.434337Z"
     },
     {
       "domain": "numismatique-tours.fr",
@@ -3247,7 +3247,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h7zkmbe4hsd6q50981vzkr",
-      "observedAt": "2026-11-03T21:16:17.543050Z"
+      "observedAt": "2026-11-04T14:41:54.571854Z"
     },
     {
       "domain": "philatelie72.com",
@@ -3256,7 +3256,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6h7zns6eg4a6ej6fkzwejnr",
-      "observedAt": "2026-11-03T21:16:17.664636Z"
+      "observedAt": "2026-11-04T14:41:54.769169Z"
     },
     {
       "domain": "antiquites-brocante-landes.com",
@@ -3265,7 +3265,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:17.678183Z"
+      "observedAt": "2026-11-04T14:41:54.825006Z"
     },
     {
       "domain": "printimeuble.com",
@@ -3274,7 +3274,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:17.785372Z"
+      "observedAt": "2026-11-04T14:41:54.821684Z"
     },
     {
       "domain": "galerie-rollin.com",
@@ -3283,7 +3283,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6h92yqce58rcgg8z82kapjx",
-      "observedAt": "2026-11-03T21:16:18.112158Z"
+      "observedAt": "2026-11-04T14:41:55.137070Z"
     },
     {
       "domain": "cordier-ebeniste.fr",
@@ -3292,7 +3292,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:17.915846Z"
+      "observedAt": "2026-11-04T14:41:55.044623Z"
     },
     {
       "domain": "antiquites-edelweiss.jimdoweb.com",
@@ -3301,7 +3301,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6ha4886e4qa53sm9kh44ksc",
-      "observedAt": "2026-11-03T21:16:18.118462Z"
+      "observedAt": "2026-11-04T14:41:55.143601Z"
     },
     {
       "domain": "antiquite-bally.fr",
@@ -3310,7 +3310,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hb89f3eh6vantxhdyqtsf8",
-      "observedAt": "2026-11-03T21:16:18.244614Z"
+      "observedAt": "2026-11-04T14:41:55.353334Z"
     },
     {
       "domain": "napoli-antic.fr",
@@ -3319,7 +3319,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": "shp_01m6hb8bnbead8dqb0xv218f35",
-      "observedAt": "2026-11-03T21:16:18.513341Z"
+      "observedAt": "2026-11-04T14:41:55.522379Z"
     },
     {
       "domain": "brocantique.pro",
@@ -3328,7 +3328,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:18.348978Z"
+      "observedAt": "2026-11-04T14:41:55.373327Z"
     },
     {
       "domain": "antiquites-tremblin-cyril.fr",
@@ -3337,7 +3337,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:18.479772Z"
+      "observedAt": "2026-11-04T14:41:55.607038Z"
     },
     {
       "domain": "legrenierdesaintlie.fr",
@@ -3346,7 +3346,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hc05a9evtb05sn1jnhpzhf",
-      "observedAt": "2026-11-03T21:16:18.702313Z"
+      "observedAt": "2026-11-04T14:41:55.682237Z"
     },
     {
       "domain": "dealeuse.com",
@@ -3355,7 +3355,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hccnyme289vefpffqnak20",
-      "observedAt": "2026-11-03T21:16:18.806816Z"
+      "observedAt": "2026-11-04T14:41:55.841098Z"
     },
     {
       "domain": "galerie-martynoff.com",
@@ -3364,7 +3364,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hccr67eatrjdaqzyssmbmf",
-      "observedAt": "2026-11-03T21:16:18.861227Z"
+      "observedAt": "2026-11-04T14:41:55.916210Z"
     },
     {
       "domain": "boulogneantiquites.com",
@@ -3373,7 +3373,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:18.972595Z"
+      "observedAt": "2026-11-04T14:41:55.908441Z"
     },
     {
       "domain": "ausecondempire.fr",
@@ -3382,7 +3382,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hcndyremxbwaf5j0ck369r",
-      "observedAt": "2026-11-03T21:16:19.136228Z"
+      "observedAt": "2026-11-04T14:41:56.256088Z"
     },
     {
       "domain": "lasalledesventes.fr",
@@ -3391,7 +3391,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:19.111826Z"
+      "observedAt": "2026-11-04T14:41:56.149521Z"
     },
     {
       "domain": "selectionjuliensegard.com",
@@ -3400,7 +3400,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:19.300467Z"
+      "observedAt": "2026-11-04T14:41:56.225419Z"
     },
     {
       "domain": "galeriecristo.com",
@@ -3409,7 +3409,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:19.452680Z"
+      "observedAt": "2026-11-04T14:41:56.453652Z"
     },
     {
       "domain": "violondingres.fr",
@@ -3418,7 +3418,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:19.482758Z"
+      "observedAt": "2026-11-04T14:41:56.567806Z"
     },
     {
       "domain": "brocante-oplus.fr",
@@ -3427,7 +3427,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6het2mredcvxdg9gvc9zew3",
-      "observedAt": "2026-11-03T21:16:19.622578Z"
+      "observedAt": "2026-11-04T14:41:56.571179Z"
     },
     {
       "domain": "lerepairedesantiquites.com",
@@ -3436,7 +3436,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hf2qkhe7ft7hsz49p7m2rz",
-      "observedAt": "2026-11-03T21:16:19.761945Z"
+      "observedAt": "2026-11-04T14:41:56.776697Z"
     },
     {
       "domain": "antiquitesmaisongossot.fr",
@@ -3445,7 +3445,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hf8x51ee0b7h233p35cz51",
-      "observedAt": "2026-11-03T21:16:19.805161Z"
+      "observedAt": "2026-11-04T14:41:56.874526Z"
     },
     {
       "domain": "olive-bassett.com",
@@ -3454,7 +3454,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hffbxaeyrspccg33x80xqd",
-      "observedAt": "2026-11-03T21:16:19.929247Z"
+      "observedAt": "2026-11-04T14:41:56.876649Z"
     },
     {
       "domain": "ruedeparisbrocante.fr",
@@ -3463,7 +3463,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hfpc4weryame7vezd2y812",
-      "observedAt": "2026-11-03T21:16:20.070050Z"
+      "observedAt": "2026-11-04T14:41:57.125302Z"
     },
     {
       "domain": "galeriedefrancony.com",
@@ -3472,7 +3472,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hft3pzejstc8rhnypygddm",
-      "observedAt": "2026-11-03T21:16:20.150249Z"
+      "observedAt": "2026-11-04T14:41:57.197265Z"
     },
     {
       "domain": "bouillondart.com",
@@ -3481,7 +3481,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hfzygqeq89rty7eer2q95e",
-      "observedAt": "2026-11-03T21:16:20.237337Z"
+      "observedAt": "2026-11-04T14:41:57.204103Z"
     },
     {
       "domain": "paulazzopardi.com",
@@ -3490,7 +3490,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 2,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:20.388969Z"
+      "observedAt": "2026-11-04T14:41:57.433581Z"
     },
     {
       "domain": "brocantetendance.com",
@@ -3499,7 +3499,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hgwsc1eqqth9vwgcddy68s",
-      "observedAt": "2026-11-03T21:16:20.463618Z"
+      "observedAt": "2026-11-04T14:41:57.509334Z"
     },
     {
       "domain": "annejoubert.com",
@@ -3508,7 +3508,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:20.466528Z"
+      "observedAt": "2026-11-04T14:41:57.436742Z"
     },
     {
       "domain": "debongout-paris.com",
@@ -3517,7 +3517,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hh2fazegesp899ekygqm8h",
-      "observedAt": "2026-11-03T21:16:20.690562Z"
+      "observedAt": "2026-11-04T14:41:57.763560Z"
     },
     {
       "domain": "lescoupsdecoeur.com",
@@ -3526,7 +3526,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hhaz82e20rz4xzxm5505c9",
-      "observedAt": "2026-11-03T21:16:20.764715Z"
+      "observedAt": "2026-11-04T14:41:57.741894Z"
     },
     {
       "domain": "galerie-prisme.com",
@@ -3535,7 +3535,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hhcf71enpvb1t6h5nht21a",
-      "observedAt": "2026-11-03T21:16:20.778617Z"
+      "observedAt": "2026-11-04T14:41:57.820846Z"
     },
     {
       "domain": "heliasfrogg.com",
@@ -3544,7 +3544,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:20.933656Z"
+      "observedAt": "2026-11-04T14:41:57.985760Z"
     },
     {
       "domain": "martinez-fleurot.com",
@@ -3553,7 +3553,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hj9z9xee8scxx7xggkqyam",
-      "observedAt": "2026-11-03T21:16:21.095039Z"
+      "observedAt": "2026-11-04T14:41:58.106708Z"
     },
     {
       "domain": "maisondelagravure.com",
@@ -3562,7 +3562,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hjh4n8e5j9ksjfjd1ppwdf",
-      "observedAt": "2026-11-03T21:16:21.139095Z"
+      "observedAt": "2026-11-04T14:41:58.146573Z"
     },
     {
       "domain": "art.paris",
@@ -3571,7 +3571,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hk02hpesh8w1x8mwjn7btf",
-      "observedAt": "2026-11-03T21:16:21.268577Z"
+      "observedAt": "2026-11-04T14:41:58.292035Z"
     },
     {
       "domain": "galerieconsonance.com",
@@ -3580,7 +3580,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hk04tpepdbeknhdj7r3z9t",
-      "observedAt": "2026-11-03T21:16:21.399593Z"
+      "observedAt": "2026-11-04T14:41:58.414705Z"
     },
     {
       "domain": "galerie.pozor.com",
@@ -3589,7 +3589,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hk075jebg8gprfgmys6vgv",
-      "observedAt": "2026-11-03T21:16:21.444858Z"
+      "observedAt": "2026-11-04T14:41:58.442812Z"
     },
     {
       "domain": "galeriepaulproute.fr",
@@ -3598,7 +3598,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:21.508562Z"
+      "observedAt": "2026-11-04T14:41:58.528387Z"
     },
     {
       "domain": "le-cadre-noir.fr",
@@ -3607,7 +3607,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:21.623732Z"
+      "observedAt": "2026-11-04T14:41:58.642151Z"
     },
     {
       "domain": "galerie-marguerite.fr",
@@ -3616,7 +3616,7 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": "shp_01m6hkt88vew6s07zdexwh82q3",
-      "observedAt": "2026-11-03T21:16:21.758603Z"
+      "observedAt": "2026-11-04T14:41:58.748657Z"
     },
     {
       "domain": "carteancienne.com",
@@ -3625,7 +3625,871 @@
       "status": "RESOURCE_FIELDS_MATCH",
       "locations": 1,
       "profile": null,
-      "observedAt": "2026-11-03T21:16:21.731960Z"
+      "observedAt": "2026-11-04T14:41:58.761128Z"
+    },
+    {
+      "domain": "galerie-art-alatelier.org",
+      "listingSourceId": "ls_01m6hmewyter0vfmag69za4zxj",
+      "partyId": "pty_01m6hmewy6ekvaqznhr2tm6s7e",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": null,
+      "observedAt": "2026-11-04T14:41:58.975025Z"
+    },
+    {
+      "domain": "ouaissantiquites.com",
+      "listingSourceId": "ls_01m6hmqezdepx972xp7pzmh6k1",
+      "partyId": "pty_01m6hmqez5e4q8f2rb4av9hpfx",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:41:58.977900Z"
+    },
+    {
+      "domain": "marcilhacgalerie.com",
+      "listingSourceId": "ls_01m6hmqgexedt8qhqt6zcfjh1q",
+      "partyId": "pty_01m6hmqgemep2s423w4cnfncn7",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": null,
+      "observedAt": "2026-11-04T14:41:59.091239Z"
+    },
+    {
+      "domain": "gerardin-antique.com",
+      "listingSourceId": "ls_01m6hmwbjaexyacy806vps2esm",
+      "partyId": "pty_01m6hmwbhret39zcs109wct3pt",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hmwcg9ev9a40jgv1mhgxq4",
+      "observedAt": "2026-11-04T14:41:59.281753Z"
+    },
+    {
+      "domain": "vintagefrance.shop",
+      "listingSourceId": "ls_01m6hn1rnyeptvryht30png22n",
+      "partyId": "pty_01m6hn1rnae0xssjhd2ft0ysnz",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hn1sq0eq5tv7gwamqrs0ag",
+      "observedAt": "2026-11-04T14:41:59.291637Z"
+    },
+    {
+      "domain": "curiositesdainay.com",
+      "listingSourceId": "ls_01m6hnc3hxebjvfnaq3a4t3fsr",
+      "partyId": "pty_01m6hnc3hges994j5pfddd74sm",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": null,
+      "observedAt": "2026-11-04T14:41:59.420329Z"
+    },
+    {
+      "domain": "puces-et-encore.com",
+      "listingSourceId": "ls_01m6hnc5hfeseafwkmbk38rp5r",
+      "partyId": "pty_01m6hnc5h1e8593e5cc39w3cdp",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hnc6ewe37r2x4de4h7wgpt",
+      "observedAt": "2026-11-04T14:41:59.604572Z"
+    },
+    {
+      "domain": "orlinda.gallery",
+      "listingSourceId": "ls_01m6hnkq18egs89c9hq1qv282k",
+      "partyId": "pty_01m6hnkq0keb79scbrrxt4mf0d",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hnkr47ekh87f0dg227h2bd",
+      "observedAt": "2026-11-04T14:41:59.600688Z"
+    },
+    {
+      "domain": "galeriedurst.com",
+      "listingSourceId": "ls_01m6hnksk1ezc9qtcn8e8vq9zj",
+      "partyId": "pty_01m6hnksjfe669cyshbay880bk",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hnktkjecqas4rhd24vq55p",
+      "observedAt": "2026-11-04T14:41:59.727692Z"
+    },
+    {
+      "domain": "galerie-ventdescimes.com",
+      "listingSourceId": "ls_01m6hnwgjsex79n1stygx4668q",
+      "partyId": "pty_01m6hnwgjbebqba7exwhb3r0cw",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hnwhfte6ztbxyt8w88y2m1",
+      "observedAt": "2026-11-04T14:41:59.920511Z"
+    },
+    {
+      "domain": "galeriejeanlouismandon.com",
+      "listingSourceId": "ls_01m6hp3qs5e3m8m0jqb4egrfed",
+      "partyId": "pty_01m6hp3qrmeb0swn7hx02t71qm",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:41:59.834935Z"
+    },
+    {
+      "domain": "artfwd.gallery",
+      "listingSourceId": "ls_01m6hp3sb1e9qs1jhjydhx37sv",
+      "partyId": "pty_01m6hp3sanesf84ynm4y7x6krr",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:41:59.961631Z"
+    },
+    {
+      "domain": "estampe.fr",
+      "listingSourceId": "ls_01m6hpd9w5etgrwfrt5x36steb",
+      "partyId": "pty_01m6hpd9vsew1v9gcjcj3gyt96",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hpdastexa9gfnrmgpw3s19",
+      "observedAt": "2026-11-04T14:42:00.292780Z"
+    },
+    {
+      "domain": "galerie21.fr",
+      "listingSourceId": "ls_01m6hpz8eeeb2tkczwz01naa2f",
+      "partyId": "pty_01m6hpz8dve2z87kw96bmv4y3a",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6hpz9x7ebn9jtnxet0btqxp",
+      "observedAt": "2026-11-04T14:42:00.479605Z"
+    },
+    {
+      "domain": "galerienea.com",
+      "listingSourceId": "ls_01m6hpzb6ges9t0eg3j4ddbg1p",
+      "partyId": "pty_01m6hpzb5ze83t01b7z05xyt1c",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hpzc44e0xa9zppwfkm9w39",
+      "observedAt": "2026-11-04T14:42:00.489949Z"
+    },
+    {
+      "domain": "galexc.fr",
+      "listingSourceId": "ls_01m6hq6krxesxv6fbb3cg51r2p",
+      "partyId": "pty_01m6hq6krfee4sypsmyy8f34gq",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hq6mpdez9vgmg8kd6jysz8",
+      "observedAt": "2026-11-04T14:42:00.616616Z"
+    },
+    {
+      "domain": "galerie-porteheureuse.com",
+      "listingSourceId": "ls_01m6hq6nzjedtbjgmjaj2e7189",
+      "partyId": "pty_01m6hq6nz2eq69rx6ws8a398ee",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hq6pwbe7qskxa2jz8s436z",
+      "observedAt": "2026-11-04T14:42:00.798408Z"
+    },
+    {
+      "domain": "achetezdelart.shop",
+      "listingSourceId": "ls_01m6hqd67xe7rtsmwjf0encgnq",
+      "partyId": "pty_01m6hqd671ed596x5d5r3vcjpp",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6hqd7c4edn9tvtq9899z60w",
+      "observedAt": "2026-11-04T14:42:00.914286Z"
+    },
+    {
+      "domain": "baudoin-lebon.com",
+      "listingSourceId": "ls_01m6hqjd0hetqr0j4tk679ez5r",
+      "partyId": "pty_01m6hqjd00eg0ssk1kb4wxqrng",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:00.847801Z"
+    },
+    {
+      "domain": "ramine.com",
+      "listingSourceId": "ls_01m6hqsknfe708g2ymqr8ceydt",
+      "partyId": "pty_01m6hqskmpe7n8mztpav4r2e89",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 3,
+      "profile": "shp_01m6hqwebpes9b5qe7tabj6deq",
+      "observedAt": "2026-11-04T14:42:01.299493Z"
+    },
+    {
+      "domain": "passion-of-time.com",
+      "listingSourceId": "ls_01m6hr2hpxeatacq3gqv1x94p5",
+      "partyId": "pty_01m6hr2hpceksa5nk2vrf9nesg",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hr2jrkedsb20617edeh132",
+      "observedAt": "2026-11-04T14:42:01.210648Z"
+    },
+    {
+      "domain": "cristalandcie.com",
+      "listingSourceId": "ls_01m6hr8wzwexw90qcmbv27jwdp",
+      "partyId": "pty_01m6hr8wzcep1vw5s33va9d29k",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hr8xx7eh4873yr807qzhak",
+      "observedAt": "2026-11-04T14:42:01.237454Z"
+    },
+    {
+      "domain": "artshop-galerie.fr",
+      "listingSourceId": "ls_01m6hrkztvevkva19yn4y1vn5c",
+      "partyId": "pty_01m6hrkzt6eyd8y8b7dggnt1tz",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:01.471793Z"
+    },
+    {
+      "domain": "irisdevotelittardi.art",
+      "listingSourceId": "ls_01m6hrm1jaeaxt1cwaj949r00e",
+      "partyId": "pty_01m6hrm1hseb98xgs3h55jjesm",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:01.473253Z"
+    },
+    {
+      "domain": "brocante-antiquites-roques.com",
+      "listingSourceId": "ls_01m6hrver2ecys60vkmnc5rjkh",
+      "partyId": "pty_01m6hrveqqe5btntayazpkg0xc",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:01.527135Z"
+    },
+    {
+      "domain": "antinoe.fr",
+      "listingSourceId": "ls_01m6hrvg8fek7tprc8gx9f5j8c",
+      "partyId": "pty_01m6hrvg85e0dv9dw1ec4bvngb",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:01.696993Z"
+    },
+    {
+      "domain": "estampesmartinez.com",
+      "listingSourceId": "ls_01m6hset20ev3rgzfe58tyn5h5",
+      "partyId": "pty_01m6hset1feenb6dsn3sg6jphy",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6hsev5xexatskrkkdpd0z8f",
+      "observedAt": "2026-11-04T14:42:01.880676Z"
+    },
+    {
+      "domain": "edwigegallery.com",
+      "listingSourceId": "ls_01m6hsewg5exht61n3dgtvapr6",
+      "partyId": "pty_01m6hsewfheg8bhjv1d8hw7eed",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hsexf1edn8vekw2kkxa24t",
+      "observedAt": "2026-11-04T14:42:01.854524Z"
+    },
+    {
+      "domain": "zebres.paris",
+      "listingSourceId": "ls_01m6hseyn8er3a9fmv6cqme7vb",
+      "partyId": "pty_01m6hseymqee28773be1830ev5",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6hsezm5e2aa7t7ketw2jzjv",
+      "observedAt": "2026-11-04T14:42:02.025900Z"
+    },
+    {
+      "domain": "pingelrarebooks.com",
+      "listingSourceId": "ls_01m6hswfzye5ka1pfqmkrcstgd",
+      "partyId": "pty_01m6hswfzkexbsgph5sapw1p7y",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:02.117899Z"
+    },
+    {
+      "domain": "autographes-manuscripta.com",
+      "listingSourceId": "ls_01m6hswhcwec6sertjy6tgz7as",
+      "partyId": "pty_01m6hswhchex98j2xggvg9v4b2",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6hswjqtewtr7tx9a1beq65q",
+      "observedAt": "2026-11-04T14:42:02.380050Z"
+    },
+    {
+      "domain": "patrickmartin-antiquaire.fr",
+      "listingSourceId": "ls_01m6hswm54eamvzr1j48frrhz9",
+      "partyId": "pty_01m6hswm4jefwsbz99c3crw299",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:02.274076Z"
+    },
+    {
+      "domain": "maison-riondet.fr",
+      "listingSourceId": "ls_01m6htcpdyerxvrqnby7e49e5d",
+      "partyId": "pty_01m6htcpdberettarp2ns52gmd",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:02.446906Z"
+    },
+    {
+      "domain": "artsdaustralie.com",
+      "listingSourceId": "ls_01m6htcrcdek0aew90mgkybjsr",
+      "partyId": "pty_01m6htcrc1efa972983r51g622",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:02.532037Z"
+    },
+    {
+      "domain": "maison-rapin.com",
+      "listingSourceId": "ls_01m6jt6xc8ezkbk4de2rhmza56",
+      "partyId": "pty_01m6jt6xc0ehss6ghykt3jnbfa",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:02.625968Z"
+    },
+    {
+      "domain": "galerie-laurentin.com",
+      "listingSourceId": "ls_01m6jt6yrye1xbvr8xh75x2qrq",
+      "partyId": "pty_01m6jt6yrpeaw86mpag95n645h",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6jt6zr6e5ktrm0ktgjs6bvr",
+      "observedAt": "2026-11-04T14:42:02.850590Z"
+    },
+    {
+      "domain": "galerie-la-forest-divonne.myshopify.com",
+      "listingSourceId": "ls_01m6jt70zseed93evte3cp6nym",
+      "partyId": "pty_01m6jt70z8eta8r2evm194fje3",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:02.806967Z"
+    },
+    {
+      "domain": "lecloitredelart.com",
+      "listingSourceId": "ls_01m6jtg1yxew0bvkfrhkng8yq1",
+      "partyId": "pty_01m6jtg1yde7nsramwq23n6g03",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6jtg341e4fa19sp4wsmdwbb",
+      "observedAt": "2026-11-04T14:42:03.046688Z"
+    },
+    {
+      "domain": "brocantedespepell.fr",
+      "listingSourceId": "ls_01m6jts693e4p8npym8h3dj3rc",
+      "partyId": "pty_01m6jts68heaptgqtxng436ykm",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6jts755epnsxj85bg9dv5px",
+      "observedAt": "2026-11-04T14:42:03.128469Z"
+    },
+    {
+      "domain": "dansdebeauxdraps.fr",
+      "listingSourceId": "ls_01m6jv757teqybe083g29mmb7a",
+      "partyId": "pty_01m6jv757eejvsewq62s4fhty1",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6jv765xeq28jd2xde7cpyz9",
+      "observedAt": "2026-11-04T14:42:03.179161Z"
+    },
+    {
+      "domain": "traditiondelecriture.com",
+      "listingSourceId": "ls_01m6jv77apeg8vr0kqpqdgqsht",
+      "partyId": "pty_01m6jv77a9ed2rxdje22nxqjzg",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6jv787ne85bmr3s50fq479t",
+      "observedAt": "2026-11-04T14:42:03.361825Z"
+    },
+    {
+      "domain": "egypt-art.com",
+      "listingSourceId": "ls_01m6jvjtc6eqp94swv4hmpx91c",
+      "partyId": "pty_01m6jvjtbpe6j9ykdxshe3m9jd",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:03.453270Z"
+    },
+    {
+      "domain": "magicsixties.fr",
+      "listingSourceId": "ls_01m6jvvhcfeh7rvhggdttxkyr0",
+      "partyId": "pty_01m6jvvhc6ew4tvejtnteyvpag",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:03.419771Z"
+    },
+    {
+      "domain": "lafrenchcigogne.fr",
+      "listingSourceId": "ls_01m6jwk189eznaq3aeqy0xsfdd",
+      "partyId": "pty_01m6jwk17pea38vd59eh4vm6j2",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6jwk29deh9rz1n7e4vxynyn",
+      "observedAt": "2026-11-04T14:42:03.664114Z"
+    },
+    {
+      "domain": "collect-arts.com",
+      "listingSourceId": "ls_01m6jy7jx4e03rb1wtnjw2tbr9",
+      "partyId": "pty_01m6jy7jwmes0a3p9t2hyp9dpq",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6jy7ktre5nat5a7g3pcprdp",
+      "observedAt": "2026-11-04T14:42:03.752339Z"
+    },
+    {
+      "domain": "farel.fr",
+      "listingSourceId": "ls_01m6jy7n1bevhr02x7we7bhveh",
+      "partyId": "pty_01m6jy7n0rew5rytx6sf42n1db",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6jy7p7wewptqt1hypwn1246",
+      "observedAt": "2026-11-04T14:42:03.839438Z"
+    },
+    {
+      "domain": "ursuleandalex.fr",
+      "listingSourceId": "ls_01m6jzd16fen9awygpmhbv1wgs",
+      "partyId": "pty_01m6jzd160e0yta15jst69gpb3",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6jzd23sedqrwa4acyeafg15",
+      "observedAt": "2026-11-04T14:42:04.029433Z"
+    },
+    {
+      "domain": "oriolsole.com",
+      "listingSourceId": "ls_01m6jzd3bdea88y3wsfd1gmjjg",
+      "partyId": "pty_01m6jzd3axeqar4dhzgvknk3f4",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:04.121369Z"
+    },
+    {
+      "domain": "galerieartetoiles.com",
+      "listingSourceId": "ls_01m6jzm6sgejbrpk23a8sp32q5",
+      "partyId": "pty_01m6jzm6ryeptb8y4sk89kb8m5",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:04.113384Z"
+    },
+    {
+      "domain": "richardlouis.art",
+      "listingSourceId": "ls_01m6jzm8cwew8rdqc64kc8e8fb",
+      "partyId": "pty_01m6jzm8cferbv5zgb4bkgjx1q",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:04.260152Z"
+    },
+    {
+      "domain": "lecubevernet.com",
+      "listingSourceId": "ls_01m6jzv54meqya312jjbb1e3hh",
+      "partyId": "pty_01m6jzv547ehdsmbx6z8317vdx",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6jzv60rewdtj5e6c91qtwx7",
+      "observedAt": "2026-11-04T14:42:04.430108Z"
+    },
+    {
+      "domain": "antiquites-forest.com",
+      "listingSourceId": "ls_01m6k02gjke8n8sdf8x6qx60na",
+      "partyId": "pty_01m6k02gj0ezarca0mbfmphher",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:04.360788Z"
+    },
+    {
+      "domain": "ladameauxarmoires.com",
+      "listingSourceId": "ls_01m6k0espeeqzrzhkz7k4p9cw0",
+      "partyId": "pty_01m6k0esngehh8syh9hvmp3v2j",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k0etsaenvvfbkfm2wjvxms",
+      "observedAt": "2026-11-04T14:42:04.600480Z"
+    },
+    {
+      "domain": "antiquites-brocante.net",
+      "listingSourceId": "ls_01m6k0ew05ekcryrdg075jjbw8",
+      "partyId": "pty_01m6k0evzmexd8q1dyrwgbgdf2",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k0hgpdexzv3rxpp8p4722d",
+      "observedAt": "2026-11-04T14:42:04.677589Z"
+    },
+    {
+      "domain": "moulindesemainville.com",
+      "listingSourceId": "ls_01m6k11zraezr9480a3g8fh2k7",
+      "partyId": "pty_01m6k11zqze5xatr9x3rjshvq2",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6k120x5epca0x9036f654xv",
+      "observedAt": "2026-11-04T14:42:04.858393Z"
+    },
+    {
+      "domain": "dock-sud.com",
+      "listingSourceId": "ls_01m6k26j14e2aafn0asc13senq",
+      "partyId": "pty_01m6k26j0qem68hc1at3em6psh",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:04.839004Z"
+    },
+    {
+      "domain": "galerieplurielle.fr",
+      "listingSourceId": "ls_01m6k26ks8e1zs19v26cdgsx6q",
+      "partyId": "pty_01m6k26krtezwtdkkfzr15wg2q",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:05.004061Z"
+    },
+    {
+      "domain": "atelierdpj.com",
+      "listingSourceId": "ls_01m6k26ntcepzsarf7gmnx4h4x",
+      "partyId": "pty_01m6k26nsye2zsch8ewdfdbt1k",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6k26pxze51sdbbnjcf9srym",
+      "observedAt": "2026-11-04T14:42:05.262569Z"
+    },
+    {
+      "domain": "lagalerieflorence.fr",
+      "listingSourceId": "ls_01m6k2wfpwenaa0mdwe3gf2zcx",
+      "partyId": "pty_01m6k2wfpce4stexn5x5r2x8x8",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:05.105198Z"
+    },
+    {
+      "domain": "maze-art.space",
+      "listingSourceId": "ls_01m6k2whdsehfve5g2nc3f9fds",
+      "partyId": "pty_01m6k2whd7e2cb6dm808c0qc6z",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k2wjckenttw4xxp9srazyb",
+      "observedAt": "2026-11-04T14:42:05.342445Z"
+    },
+    {
+      "domain": "celiaf-art.com",
+      "listingSourceId": "ls_01m6k359g0ebrtkrjexqpk3dkc",
+      "partyId": "pty_01m6k359fce24tvac92wkv2rw9",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:05.353027Z"
+    },
+    {
+      "domain": "galerie-libre-est-lart.com",
+      "listingSourceId": "ls_01m6k35bfge8eapdd62yc4w5zs",
+      "partyId": "pty_01m6k35beve4f99mqxade02mms",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:05.499469Z"
+    },
+    {
+      "domain": "artdeclairegalerie.com",
+      "listingSourceId": "ls_01m6k3d7wve1nvdvjb3bvdm667",
+      "partyId": "pty_01m6k3d7weehfrndwas2gxh8rn",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6k3d8zvev0ah7ftek7qr5et",
+      "observedAt": "2026-11-04T14:42:05.765315Z"
+    },
+    {
+      "domain": "lesartistestemoins.com",
+      "listingSourceId": "ls_01m6k3da3ae5pbex953knbk8t1",
+      "partyId": "pty_01m6k3da2xeahsn9wgzdm5zkck",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k3daywe5fv6krt088t17kx",
+      "observedAt": "2026-11-04T14:42:05.662631Z"
+    },
+    {
+      "domain": "annatschopp.com",
+      "listingSourceId": "ls_01m6k3dc37eegrk8deg78dxd2k",
+      "partyId": "pty_01m6k3dc2vez1vhx4dsyzbykn6",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k3dcy8ejs9grgt1y4r6765",
+      "observedAt": "2026-11-04T14:42:05.826965Z"
+    },
+    {
+      "domain": "brocantepatoureau.fr",
+      "listingSourceId": "ls_01m6k3nt01e41bd4dext27yy5p",
+      "partyId": "pty_01m6k3nszee48arzqjz9wcwkce",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k3ntzbej0sygp1zsza68r3",
+      "observedAt": "2026-11-04T14:42:06.032865Z"
+    },
+    {
+      "domain": "galeriedutilleul.com",
+      "listingSourceId": "ls_01m6k40y20ezg8qv30kkcnptqe",
+      "partyId": "pty_01m6k40y1ge6hvskrgkecrqrq1",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k40z2yezybcn5p5kpct0me",
+      "observedAt": "2026-11-04T14:42:06.096701Z"
+    },
+    {
+      "domain": "cjungalerie.com",
+      "listingSourceId": "ls_01m6k4eaeqe07adph682htktsf",
+      "partyId": "pty_01m6k4eaecear94s3r13xfb3ay",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:06.068364Z"
+    },
+    {
+      "domain": "kaxu.fr",
+      "listingSourceId": "ls_01m6k4ec11e5na5cqevx1mjant",
+      "partyId": "pty_01m6k4ec0re2ntc0ycxvjzn5hf",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:06.275958Z"
+    },
+    {
+      "domain": "classartbiarritz.com",
+      "listingSourceId": "ls_01m6k4t230e42vg0c6q69ha4rb",
+      "partyId": "pty_01m6k4t22ae21rk2c8ph68d8h9",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k4t2yhe4w9y85htav3ng6g",
+      "observedAt": "2026-11-04T14:42:06.408369Z"
+    },
+    {
+      "domain": "galeriegt.com",
+      "listingSourceId": "ls_01m6k5ckn2eycbnqpcat8x4132",
+      "partyId": "pty_01m6k5ckmkea1ba1n3dcjf57bp",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k5cmdvemzaa2tq0sa33xyx",
+      "observedAt": "2026-11-04T14:42:06.423536Z"
+    },
+    {
+      "domain": "classartbiarritz.net",
+      "listingSourceId": "ls_01m6k5cnmtecw879q51cts6pzj",
+      "partyId": "pty_01m6k4t22ae21rk2c8ph68d8h9",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k5cp97e2190dy3q0j8cqz9",
+      "observedAt": "2026-11-04T14:42:06.598817Z"
+    },
+    {
+      "domain": "galeriepage-biarritz.com",
+      "listingSourceId": "ls_01m6k60zt2e2rsx3ase2k7ztkh",
+      "partyId": "pty_01m6k60zskedhsfehxd7jppab5",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:06.664307Z"
+    },
+    {
+      "domain": "store.galerie-barthelemy-bouscayrol.com",
+      "listingSourceId": "ls_01m6k611d4en6rgfejbwcajmm3",
+      "partyId": "pty_01m6k611cren8svqahsq0j1jg6",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6k612ffezx9d99n01bats3d",
+      "observedAt": "2026-11-04T14:42:06.817080Z"
+    },
+    {
+      "domain": "classartbiarritz.de",
+      "listingSourceId": "ls_01m6k6vswfej4s6589c9xrp6cy",
+      "partyId": "pty_01m6k4t22ae21rk2c8ph68d8h9",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k6vtntec6r9r0bc32e9pkz",
+      "observedAt": "2026-11-04T14:42:06.915988Z"
+    },
+    {
+      "domain": "quorum.art",
+      "listingSourceId": "ls_01m6k75x9bet6vnyc92bjwq04k",
+      "partyId": "pty_01m6k75x8reyv8svx2wy64k7d5",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6k75yb2emns6tjd0tpw4hcq",
+      "observedAt": "2026-11-04T14:42:07.041188Z"
+    },
+    {
+      "domain": "galerieleminotaure-boutique.fr",
+      "listingSourceId": "ls_01m6k7exkce4vrq15tgn5r58k4",
+      "partyId": "pty_01m6k7exjtezx8bfwhnb5500t5",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6k7eyt6edprwmkm4fc3t5aa",
+      "observedAt": "2026-11-04T14:42:07.197578Z"
+    },
+    {
+      "domain": "galeriepatrickburtin.fr",
+      "listingSourceId": "ls_01m6k7srvye64b62be69qfgntc",
+      "partyId": "pty_01m6k7srvhewmaaenqggk9nxya",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:07.161288Z"
+    },
+    {
+      "domain": "latelierdesetoiles.com",
+      "listingSourceId": "ls_01m6k7stfhe19v4qxmqqxzyreq",
+      "partyId": "pty_01m6k7stf7ehztycr5rnnbwa2c",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k7svaeebbbexq05t2gjzts",
+      "observedAt": "2026-11-04T14:42:07.372455Z"
+    },
+    {
+      "domain": "antiquiteslevoyageur.com",
+      "listingSourceId": "ls_01m6k85gxxee6bjmhqc9253kdy",
+      "partyId": "pty_01m6k85gx3ew3v0dsb7ygtt4ct",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k85j03er2r19hwwt5nq2bv",
+      "observedAt": "2026-11-04T14:42:07.502799Z"
+    },
+    {
+      "domain": "galeriegart.fr",
+      "listingSourceId": "ls_01m6k8tcd2ena9mv82mm4038dq",
+      "partyId": "pty_01m6k8tccfejpscvmb9t2bqna3",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k8tddae2js7dnq0sn1xsz5",
+      "observedAt": "2026-11-04T14:42:07.516236Z"
+    },
+    {
+      "domain": "portraitbyrebecca.fr",
+      "listingSourceId": "ls_01m6k8tej3ef2tksv5e8dp9e62",
+      "partyId": "pty_01m6k8tehmeqzbxs98g6t7g038",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6k8tffbevx925ghkm5sx88f",
+      "observedAt": "2026-11-04T14:42:07.675998Z"
+    },
+    {
+      "domain": "uchiwagallery.com",
+      "listingSourceId": "ls_01m6kaf66pe91sk43ttsc9h722",
+      "partyId": "pty_01m6kaf662ezw8wgv3jjxvet93",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6kaf73cegc8z6g4j3rtebfw",
+      "observedAt": "2026-11-04T14:42:07.811803Z"
+    },
+    {
+      "domain": "circe-zaar.com",
+      "listingSourceId": "ls_01m6kaf8jwer6bp6f4mg40cwmp",
+      "partyId": "pty_01m6kaf8jeeba86a9k8nd11sw5",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6kaf9f1eftbxh1k8syh4ysr",
+      "observedAt": "2026-11-04T14:42:07.842018Z"
+    },
+    {
+      "domain": "cridart.com",
+      "listingSourceId": "ls_01m6kbagbwefzaxyh8bem1jwve",
+      "partyId": "pty_01m6kbagb8eyh99g76nk9k7ymx",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:08.006727Z"
+    },
+    {
+      "domain": "lapetitegaleriebrest.com",
+      "listingSourceId": "ls_01m6kbmbwxetm86m3e2z6n2f8x",
+      "partyId": "pty_01m6kbmbwkexyt2nvxadm3rep4",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:08.067866Z"
+    },
+    {
+      "domain": "lamonstrueusegalerie.sumupstore.com",
+      "listingSourceId": "ls_01m6kbmdhqeakbzf4vqfp0dmrx",
+      "partyId": "pty_01m6kbmdh2e1abywavsmpywt9v",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6kbmeghexcsjfp45e2s8ecc",
+      "observedAt": "2026-11-04T14:42:08.174544Z"
+    },
+    {
+      "domain": "dominiquejoyeuxart.com",
+      "listingSourceId": "ls_01m6kckj9sesj9pj3wm28pgd3v",
+      "partyId": "pty_01m6kckj96ek597xbetak561d3",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6kckk6de90v8ebht82zw316",
+      "observedAt": "2026-11-04T14:42:08.347945Z"
+    },
+    {
+      "domain": "clubbarbara.fr",
+      "listingSourceId": "ls_01m6kckmcfesfbdrnxkmy89byy",
+      "partyId": "pty_01m6kckmbze0xr7skaa88s2yvf",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6kcknace7jbcfmvpr3156jc",
+      "observedAt": "2026-11-04T14:42:08.369954Z"
+    },
+    {
+      "domain": "galeriespot72.com",
+      "listingSourceId": "ls_01m6kdn6z7errrbzbkva04kp9m",
+      "partyId": "pty_01m6kdn6yne1ham3g60hf88w2w",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6kdn821e74ba8nsd68wa91p",
+      "observedAt": "2026-11-04T14:42:08.599958Z"
+    },
+    {
+      "domain": "lignes-croisees.fr",
+      "listingSourceId": "ls_01m6kecpcqeecb56v5fb1tq533",
+      "partyId": "pty_01m6kecpc5e8xabpetv6k41nep",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6kecqdbezpacg3ptcq3fbr6",
+      "observedAt": "2026-11-04T14:42:08.670730Z"
+    },
+    {
+      "domain": "avant-pendant-apres.fr",
+      "listingSourceId": "ls_01m6kevv6yef6a5aq53jyg4qjd",
+      "partyId": "pty_01m6kevv6hewk9f5d64v9h2hha",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6kevw53eskav1j6zx5nppsk",
+      "observedAt": "2026-11-04T14:42:08.687651Z"
+    },
+    {
+      "domain": "cdgalerie-art.com",
+      "listingSourceId": "ls_01m6kfrtw2ethsg3sj0qs76z3m",
+      "partyId": "pty_01m6kfrtvte1dstr53amp7bz52",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:08.836980Z"
+    },
+    {
+      "domain": "helenabeudaert.com",
+      "listingSourceId": "ls_01m6kg2pkqe93sy6x0pjwbajcg",
+      "partyId": "pty_01m6kg2pk7eefsqveemw22nvph",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": "shp_01m6kg2qgcenpsb9bc76w49dvc",
+      "observedAt": "2026-11-04T14:42:08.976139Z"
+    },
+    {
+      "domain": "galerieflashback.com",
+      "listingSourceId": "ls_01m6kg2rkhehp9qrkz3qt7efx5",
+      "partyId": "pty_01m6kg2rk5e8h8kpezk94dyzbn",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 1,
+      "profile": null,
+      "observedAt": "2026-11-04T14:42:08.932438Z"
+    },
+    {
+      "domain": "galerievincentjoly.fr",
+      "listingSourceId": "ls_01m6kg2t4beh2bd49e642x8hb4",
+      "partyId": "pty_01m6kg2t40ec2a55zdakdxvmhc",
+      "status": "RESOURCE_FIELDS_MATCH",
+      "locations": 2,
+      "profile": "shp_01m6kg2v73ezhr7tsqfc76v5jc",
+      "observedAt": "2026-11-04T14:42:09.312551Z"
     }
   ],
   "paidDataSpendUsd": 0

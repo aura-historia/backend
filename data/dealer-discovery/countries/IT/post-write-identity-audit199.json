@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-199",
+  "country": "IT",
+  "observedAt": "2026-11-04T11:48:59.366621Z",
+  "result": "PASSED",
+  "rawJournalFiles": 267,
+  "rawJournalRecordsScanned": 57930,
+  "apiWriteAttemptsThisRun": 4,
+  "decisions": {
+    "added": [
+      "gioielligradara.it",
+      "IT:ANTICOANTICO:878"
+    ],
+    "excluded": [],
+    "deferred": [
+      "galleriacesaro.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot199-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T11:48:15.282197Z",
+    "fullVerifiedAt": "2026-11-04T11:37:17.897171Z",
+    "counts": {
+      "parties": 347,
+      "listingSources": 347,
+      "locations": 394,
+      "logos": 256,
+      "identifiedPlatforms": 282,
+      "deliveryProfiles": 170,
+      "emptyIngestionMethods": 347,
+      "excluded": 26,
+      "deferred": 103
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Gradara complete native proprietor/VAT positive, original266x111PNG and native AnticoAntico author/customASP cataloguing verified. Specific offered458394 Liberty brooch explicitly first1900s and over-century; actual1920x1303original inspected. Generic vintage/1940s jewellery and title/style conflict of another brooch not qualification basis; no independent gem/date/authentication/certification guarantee. Explicit Mentana17 exercise/shop distinct from Bellaria tax base. No customer shipping/purchased pickup verified.",
+    "IAS full AlbertoSandri/VAT current positive, actual pair old genre paintings original1600x973 inspected. ExactAntico878 sole source; native DNS failures not closure, Proantic corroboration not another source. Current Calissano6 versus ElvioPertinace6 unresolved, all locations/defaults omitted; tax address not substituted. FamilyIvan history not operator merger. No logo/email/customer shipping verified.",
+    "ArteCesaro nativeVAT04251750289 differs from current hosted790VAT05024070285 positive fullSRL; negative native intra-EU result only, not domestic invalidity/closure. Current native full operator unresolved, all facts/resources omitted. Actual second original1920x1279 Chinese panel inspected after first403+onepublicretry; no bypass or artwork-guarantee. Already-owned BarbaraCesaro598 distinct and unchanged. December4 follow-up.",
+    "Exact hostedUomoArte1099,Ghilli453 andIVolpini173 resolved to already-owned native Italy sources and existing IDs. No extra Party/source, transfer, enrichment or older-follow-up reset."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

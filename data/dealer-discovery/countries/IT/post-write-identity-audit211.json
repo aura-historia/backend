@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-211",
+  "country": "IT",
+  "observedAt": "2026-11-04T13:51:49.039831Z",
+  "result": "PASSED",
+  "rawJournalFiles": 303,
+  "rawJournalRecordsScanned": 60506,
+  "apiWriteAttemptsThisRun": 5,
+  "decisions": {
+    "added": [
+      "phidiasantiques.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "persepolis.it",
+      "IT:ANTICOANTICO:2167"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot211-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T13:49:59.693593Z",
+    "fullVerifiedAt": "2026-11-04T13:08:15.025739Z",
+    "counts": {
+      "parties": 377,
+      "listingSources": 377,
+      "locations": 427,
+      "logos": 269,
+      "identifiedPlatforms": 309,
+      "deliveryProfiles": 177,
+      "emptyIngestionMethods": 377,
+      "excluded": 27,
+      "deferred": 108
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Phidias currentnativeJune2026privacyVAT00655091205 plus hostedexplicitSRL/completeofficialpositive. Actualcurrent1957Ligabue-attributedfineart680x1020viewed, directart without100yearclaim; original921x211merchantlogo inspected. OnecurrentRoma22/42121location with galleryBUSINESS_PREMISES+explicitprivacyREGISTERED_ADDRESS, hosted22A42100/taxCalzavecchio23distinctnotrepaired. Namednativeplatformunverified/omitted. Explicitdeliverytransport supportsPARTIALUNRESOLVEDterritory/OFFERED/nullrates/features/times; exportassistance notworldcoverage/insurance/pickup. FrenchParisPhidiasauctionhomonymdifferentoperator/domain, nomerge.",
+    "Persepolis currentnativeValerioChietti copyright versus currenthosted/officialpositiveRaffaeleChietti soletrader05872481212 unresolvedfullcurrentoperator. Actualnative846x1000Cleopatraoriginalfineartviewed, so no falsevintage/newrug-only or no-stockexclusion. OdooTerms/MyCompanytemplate notlegalidentity, SanFrancisco/BARTcontacttemplate notUSbranch, actualNapolilocationsnotrepaired/imported whiledeferred. No inferredhandover/newVAT/relationship, templatefulfillmentpromise, resources or ingestion.",
+    "PerniceAniello2167 fullpositivePERNICEANIELLO/VAT02849730045 and currentdirect17c/18carttextoffers. Actualpublishedoriginals/variants acrossthreepaintings inaccessible403 plusoneordinarypublicreferrerretry403; noactualphotoinspection claimed/bypass/closure or inventedpath/caserepair. DeferredCURRENT_STOCK_IMAGES_INACCESSIBLE inexactnewhostedjournal, facts/backendempty. Same-nameTorreDelGreco/otherVATcoraldealer distinct."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

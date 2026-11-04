@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-215",
+  "observedAt": "2026-11-04T14:42:00.684724Z",
+  "result": "DISTINCT_IDENTITIES",
+  "matchingPhrase": "Santa Barbara art gallery",
+  "existingOwner": "countries/US/dealers.jsonl",
+  "existingDomain": "sullivangoss.com",
+  "matchedField": "facts.locations.value[0].label",
+  "interpretation": "The matching phrase is a geographic description in the US-owned SullivanGoss location, not its operator identity. The Italian candidate has exact primary/official SantaBarbaraArtGallerySRL, VAT02664690647, Italian business/contact evidence and merchant820. No ownership transfer, copied managed record, enrichment or other-country API mutation.",
+  "italianCandidate": {
+    "entityKey": "IT:ANTICOANTICO:820",
+    "operator": "Santa Barbara Art Gallery S.r.l.",
+    "vatId": "02664690647",
+    "evidence": [
+      "https://www.anticoantico.com/espositori/default.asp?idantiquario=820&lingua=ita",
+      "https://ec.europa.eu/taxation_customs/vies/rest-api/ms/IT/vat/02664690647"
+    ],
+    "status": "DEFERRED_STOCK_IMAGES_INACCESSIBLE"
+  },
+  "noOtherCountryMutations": true
+}

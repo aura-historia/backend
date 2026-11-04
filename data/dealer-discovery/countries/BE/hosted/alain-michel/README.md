@@ -1,0 +1,3 @@
+# Alain Michel hosted catalogue
+
+Ownership covers only https://www.proantic.com/galerie/alain-michel-antiquites/, operated by verified Belgian ALAIN MICHEL BV0433234563. Exact current own contact/VAT and official registered entity/establishment bind merchant account. Platform root and other merchants retain separate owners. Source ingestion stays empty. Showroom41RueHenriWafelaerts1060 and registeredHoogstraat1691000 remain distinct. Same-operator own French policy advertises worldwide delivery and Brussels collection; unknown exact pickupsite, costs, insurance and times remain unknown. No inventory/dispatch inference. Included in country audit/index/verification; raw evidence stays in /tmp.

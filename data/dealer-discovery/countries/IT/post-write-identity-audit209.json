@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-209",
+  "country": "IT",
+  "observedAt": "2026-11-04T13:25:08.139384Z",
+  "result": "PASSED",
+  "rawJournalFiles": 296,
+  "rawJournalRecordsScanned": 60054,
+  "apiWriteAttemptsThisRun": 7,
+  "decisions": {
+    "added": [
+      "oldhouseantichita.it",
+      "oldpaintingsonline.com"
+    ],
+    "excluded": [],
+    "deferred": [
+      "castignoli.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot209-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T13:23:39.437629Z",
+    "fullVerifiedAt": "2026-11-04T13:08:15.025739Z",
+    "counts": {
+      "parties": 374,
+      "listingSources": 374,
+      "locations": 423,
+      "logos": 267,
+      "identifiedPlatforms": 307,
+      "deliveryProfiles": 175,
+      "emptyIngestionMethods": 374,
+      "excluded": 27,
+      "deferred": 105
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "OldHouse complete nativeexplicitsoletrader/Cristina/fullofficialVATpositive. Actual owncurrent D034seventeenth-century-labelledSanLorenzo paint1600x1063 inspected beyondhomepageportfolio and generic1800-1970heading; unrestoredsellercondition not independentguarantee. NativeEmiliaParmense56showroomBUSINESS_PREMISES distinct hostedshortEmilia56/taxZappellazzo35/olderfairFiorenzuola. ActualWIXgenerator/runtime verified, noWixStores. Composite2138x1429showroom/wordmarkcard reviewed but nooriginalstandalonelogo verified, omitted with datedassetReview; no CF/PEC/husbandParty or shipping/pickup invented.",
+    "OPO fullnative/currentofficialSRL/VATpositive and owninventory/directretail, notmarketplace or expertsParties. ActualcurrentVenicepainting2500x1814surface/2500x1939framedview inspected, notfull3255metadataresolution/reverse. NativeEnglishframe50x39vsIT/repeated55x70 not repaired/imported asobjectfacts. ActualSquarespaceCommerce and original659x339PNGlogo verified. Explicit SalòCavour22salesBUSINESS_PREMISES distinct RomaBrunacci10REGISTERED_ADDRESS/current00146; olderprivacy00186/extraoemail retained, currentcontactinfoopo selected. OctoberhoursnotNovemberpromise, shop-online404/templateerrornotclosure. No allstock/dispatch/purchasedcollection/fulfillment invented.",
+    "Castignoli DEFERRED unresolved currentnativepositiveVAT11382600960/fullCASTIGNOLIALESSIO versus currenthosted00160130969negativeintraEUonly; no inferredlegalhandover/closure/domesticVATinvalidity. CurrentnativeAlessio referente/brand-onlyprivacy and axeleroproviderconditions not resolution/operatorParty. Nativeearly1800Verdierpocketwatch potentialdirectantiques means no blanketvintage-only exclusion; Longines1927notover100asof2026. Originalpocketimage999plusoneordinarypublicreferrerretry999, noactualfullimageinspection or bypass. Facts/backendempty, noresources."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

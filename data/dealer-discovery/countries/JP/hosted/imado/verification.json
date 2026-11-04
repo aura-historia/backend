@@ -1,0 +1,47 @@
+{
+  "run": "jp-2026-11-04-157",
+  "verifiedAt": "2026-11-04T14:46:50.549812Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-04T14:40:50.231216Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 1,
+    "identifiedPlatforms": 0,
+    "deliveryProfiles": 1,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 4584,
+    "listingSources": 4627
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "fufufufu.com",
+      "listingSourceId": "ls_01m6kbewvme67sarwhms7xydwp",
+      "partyId": "pty_01m6kbewv7e3f94rj022bjdfsc",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T14:40:50.230874Z",
+      "observationDigest": "e5d08052e529441be832c3e8aedf5fbb71ec9844dced9f869a57bb5e6b200fc5"
+    }
+  ]
+}

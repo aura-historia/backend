@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-212",
+  "country": "IT",
+  "observedAt": "2026-11-04T14:01:05.047686Z",
+  "result": "PASSED",
+  "rawJournalFiles": 304,
+  "rawJournalRecordsScanned": 60684,
+  "apiWriteAttemptsThisRun": 10,
+  "decisions": {
+    "added": [
+      "pianosound.it",
+      "pigozzofineart.it",
+      "IT:ANTICOANTICO:2287"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot212-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T14:00:06.648635Z",
+    "fullVerifiedAt": "2026-11-04T13:08:15.025739Z",
+    "counts": {
+      "parties": 380,
+      "listingSources": 380,
+      "locations": 431,
+      "logos": 270,
+      "identifiedPlatforms": 311,
+      "deliveryProfiles": 177,
+      "emptyIngestionMethods": 380,
+      "excluded": 27,
+      "deferred": 108
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Pianosound completecurrentnative/hosted/fullofficialSRLpositive. ActualspecificpublicStodartcirca1830antiquecabinetoffer250x351originalJPEG inspected; onlythisperiodantiqueoffer qualifies, notpre1950category/modelserial inference/ordinarynewusedmusicstock. Nativeexplicitalllistedclassicsexhibited/forsale, independent2026publicstocklist supportsactivity, copyright1998notclosure. WHOLESALETRADEBUYERSONLY/no directprivatecustomers preserved inbuyerRestrictions. MisanoCellaRaibano29a/bbusinessdistincthost29B/RiccioneEmpoli33tax, no otherroles/defaultstock. Nativecustomplatform/logo/fulfillmentunverifiedomitted; foreigntrade10countriesnotworldshipping. Emptyhosted2444legalonly.",
+    "Pigozzo completecurrentnative/SRL/VATofficialpositive, actualownTeniersFOLLOWERcatconcert2560x2123viewed and sameexacthosted373618; attribution/date/material/provenance notindependentguarantee. Originaltransparent1000x230PNGwhitewordmark verifiedondarkbrowserbackground. NativeWORDPRESS7.1.4/Elementorpostcatalogue direct; WooCommercehintgenericOceanWPthemeCSSnot commerceproof. ExplicitoperatingTentorio2D versusregisteredGaribaldi30 distinctlocations/roles, no allstock/dispatch/pickup/fulfillment. Narcisofoundernotsoletraderoperator/extraParty.",
+    "PieroCimo2287 completecurrentpersonaloperator/VAT01328780935 matchesofficialCIMO-PIERO. Actualcurrentfour18c-labelledMascherepaintedpanels1367x1920JPEGcomposite inspectedallfourfrontframes; no independentage/material/coevalframe/authenticity/reverse guarantees. PublishedZorutti12Casarsa33072roles[]distinctSarpi38SanVito33078tax. Exactmerchantjournal/providerANTICOANTICO only, no fake domain/providerParty/native/logo/email/fulfillment/defaultstock or ingestion."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

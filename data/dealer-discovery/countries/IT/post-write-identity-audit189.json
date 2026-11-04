@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-189",
+  "country": "IT",
+  "observedAt": "2026-11-04T09:45:19.376898Z",
+  "result": "PASSED",
+  "rawJournalFiles": 225,
+  "rawJournalRecordsScanned": 55242,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "borrelliantichita.it",
+      "IT:ANTICOANTICO:2027",
+      "IT:PROANTIC:3308"
+    ],
+    "excluded": [],
+    "deferred": [
+      "cittaantiquaria.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot189-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T09:38:06.191458Z",
+    "fullVerifiedAt": "2026-11-04T08:51:31.520957Z",
+    "counts": {
+      "parties": 324,
+      "listingSources": 324,
+      "locations": 372,
+      "logos": 248,
+      "identifiedPlatforms": 261,
+      "deliveryProfiles": 164,
+      "emptyIngestionMethods": 324,
+      "excluded": 26,
+      "deferred": 96
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Borrelli current exact SRL/VAT and own console qualified. Specific condition says unrestored despite restoration services. Explicit worldwide tracking retained, with crating structured only for Italy; further European crating remains a qualified observation. No private-agreement price mode, insurance, courier Party, inventory/dispatch or pickup inferred. Unverified external Catawiki seller lead HTTP403 was not bypassed or used as stock/own-house evidence.",
+    "Brandina native Squarespace brochure confirms current proprietor/shop/email and points Catalogue to exact Antico 2027. Only hosted inventory source is created, with ANTICOANTICO platform metadata. Native signature candidate omitted as unverified merchant logo, and no shipping terms inferred from art-price enquiries/appointments.",
+    "Lazzarin exact active Proantic gallery and own in-stock item both expose public mag_id3308. Only exact dealer-authored gallery path/language variants belong to its journal; no global host matching, platform Party or recommended/sold other stock. Full current operator/VAT positive; Caravino civic 30 and tax civic 26 distinct. Empty Antico 2443 is identity corroboration only, not a source.",
+    "Brixia full current SRL/VAT identity is positive, but replacement buying site and empty hosted catalogue provide no inspectable own art/antique offer. Deferred without resources, closure claim, postal/mobile digit repair or invented shipping.",
+    "Broad surname review found only an unrelated FR Giard note containing the concatenated words brand inactive. No competing dealer identity or ownership was found, and no other owner’s files or resources were changed."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

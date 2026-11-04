@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-194",
+  "country": "IT",
+  "observedAt": "2026-11-04T10:42:51.856686Z",
+  "result": "PASSED",
+  "rawJournalFiles": 246,
+  "rawJournalRecordsScanned": 56497,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "emporiodellepassioni.com",
+      "IT:ANTICOANTICO:2291",
+      "IT:ANTICOANTICO:2437"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot194-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T10:40:37.843078Z",
+    "fullVerifiedAt": "2026-11-04T10:23:35.753339Z",
+    "counts": {
+      "parties": 337,
+      "listingSources": 337,
+      "locations": 385,
+      "logos": 253,
+      "identifiedPlatforms": 272,
+      "deliveryProfiles": 169,
+      "emptyIngestionMethods": 337,
+      "excluded": 26,
+      "deferred": 98
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Emporio complete current SRL/VAT positive; native current showroom Bollana 18 adopted separately from hosted/privacy Industria 15 and official Cesena Europa 596 tax assertion. Original standalone logo not verified; WordPress direct evidence retained without guessed commerce plugin. Actual console multi-view presentations inspected with edited/styled-setting limitation, while AI-named Saint Joseph painting is explicitly rejected as physical photographic qualification evidence. No unedited-photo/authenticity guarantee or brand-image substitute.",
+    "Emporio native Italy/international and current exact own hosted item’s explicit Italy/world shipping support partial global geographic reach with unknown universal item eligibility. No rates, time bounds, insured/tracked/packing feature, origin or collection inferred from safe transport/private agreement. General restoration does not override selected-item unrestored condition. Retail negotiation form is not an observed timed auction service; no form submitted.",
+    "Calderan full current proprietor/VAT positive and actual own eighteenth-century mirror photo inspected. Native dedicated Webnode brochure supplies precise current shop civic 2G and visible business email, while hosted coarse civic 2 and official Venti Settembre tax remain distinct. The visible email is split by markup, and placeholder mailto contact@example.com is not imported. Only exact hosted 2291 is the inventory source, platform ANTICOANTICO; no extra founder/family/brand/provider Party or source.",
+    "Donà full current proprietor/VAT positive and actual own original Brioschi painting inspected. Recent design/accessories are not the qualification basis. Current Cartura business and Albignasego legal/tax assertions remain separate, with no branch, registered/warehouse, inventory/dispatch or purchased pickup inference. Artist typos not repaired or imported; no unverified logo/email/native domain/shipping.",
+    "Feheri Solutions Kft./feheribooks.com is a Hungary lead from explicit current primary business home. Queued in Italy frontier with target HU and no known existing owner after raw/global checks; no Italian dealer/resource or foreign mutation. Empty hosted catalogue is not current-stock qualification."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

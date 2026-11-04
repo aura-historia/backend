@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-198",
+  "country": "IT",
+  "observedAt": "2026-11-04T11:39:33.733679Z",
+  "result": "PASSED",
+  "rawJournalFiles": 266,
+  "rawJournalRecordsScanned": 57755,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:960"
+    ],
+    "excluded": [],
+    "deferred": [
+      "giustiantichita.it",
+      "IT:ANTICOANTICO:921"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot198-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T11:39:01.845517Z",
+    "fullVerifiedAt": "2026-11-04T11:37:17.897171Z",
+    "counts": {
+      "parties": 345,
+      "listingSources": 345,
+      "locations": 393,
+      "logos": 255,
+      "identifiedPlatforms": 280,
+      "deliveryProfiles": 170,
+      "emptyIngestionMethods": 345,
+      "excluded": 26,
+      "deferred": 102
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Scaccabarozzi positive full proprietor, current exact hosted960 antique painting original1288x1399 inspected and consistent fixed line/native public business email verified. Native mobile differs from hosted, both omitted; native typo Emauele not repaired in adopted complete hosted street. Rosalba Teso separate space does not authorize another operator/merge. Native WordPress/template portfolio is corroboration only, hosted960 sole source; no logo or buyer-specific shipping verified.",
+    "Giusti actual current native pair still-life original1399x1227 inspected, but current hosted SAS label versus official current proprietor GIUSTI ANTICHITA DI GIUSTI MATTEO unresolved. No assumption of legal conversion, partners, merger with FineArt or foreign template fax repair. All facts/resources omitted, recheckDecember4.",
+    "Mazzoni exact current921 gallery empty. Positive full official Cose di una Volta Antichità di Mazzoni Giorgio is research only;2026 fair lists and secondary email do not replace inspectable current own art stock. Current Firenze73/A, fair71/73 and taxPetrarca79 distinct; no closure claim or resources. RecheckDecember4."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

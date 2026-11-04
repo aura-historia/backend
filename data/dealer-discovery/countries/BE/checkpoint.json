@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "run": "be-2026-11-03-068",
-  "observedAt": "2026-11-03T21:10:09.626391Z",
+  "run": "be-2026-11-04-127",
+  "observedAt": "2026-11-04T14:43:02.417253Z",
   "counts": {
-    "parties": 128,
-    "listingSources": 129,
-    "locations": 176,
-    "logos": 81,
-    "identifiedPlatforms": 92,
-    "deliveryProfiles": 62,
-    "emptyIngestionMethods": 129,
-    "excluded": 22,
-    "deferred": 178
+    "parties": 201,
+    "listingSources": 202,
+    "locations": 272,
+    "logos": 119,
+    "identifiedPlatforms": 137,
+    "deliveryProfiles": 101,
+    "emptyIngestionMethods": 202,
+    "excluded": 41,
+    "deferred": 346
   },
   "verification": "PASSED_INCREMENTAL",
   "paidDataSpendUsd": 0,
   "blockers": [],
   "countryCoverage": "OPEN",
-  "description": "No additions. Excluded Loeckx, Het Pand, Élysée and DVC for current first-party auction operation, and Bigs Brocante for multi-dealer market scope. Deferred inaccessible Broc-Events, retaining historical marketplace references as leads without claiming closure or alias. All five ledgers audited, indexes regenerated and incrementally verified:128 Parties,129 sources,176 locations,62 shipping profiles, all ingestion empty. No paid data, pending writes or country blocker. Continue final unreviewed national art-directory websites, then remaining BAS2026 frontier; next periodic full verification070."
+  "description": "Three previousdeferrals resolved and onboarded: ArtPartout,SPAXProjects,AleorCraft&Biodesign. Fresh publicofficialNBBmetadata boundtoexactfirstpartycompanynumbersorfullname+currentaddress; actualoriginalartphotos/two logos verified, addressconflicts/shippingomissions preserved. All newresourceIDs/defaults readback andall twelveledgers audit/index/incremental pass. Totals201parties/202sources,allingestionempty. ContinueNECA8–11 andexact-numberlegalfollowups; no blocker/paidspend,nextFULL130,countryopen."
 }

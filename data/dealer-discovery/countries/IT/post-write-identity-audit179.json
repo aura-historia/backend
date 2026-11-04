@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-179",
+  "country": "IT",
+  "observedAt": "2026-11-03T22:18:26.747064Z",
+  "result": "PASSED",
+  "rawJournalFiles": 183,
+  "rawJournalRecordsScanned": 51426,
+  "apiWriteAttemptsThisRun": 14,
+  "decisions": {
+    "added": [
+      "antiquesmoglia.com",
+      "IT:ANTICOANTICO:866",
+      "IT:ANTICOANTICO:2231",
+      "IT:ANTICOANTICO:2087"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot179-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T22:17:45.261408Z",
+    "fullVerifiedAt": "2026-11-03T22:09:41.578051Z",
+    "counts": {
+      "parties": 293,
+      "listingSources": 293,
+      "locations": 340,
+      "logos": 236,
+      "identifiedPlatforms": 231,
+      "deliveryProfiles": 157,
+      "emptyIngestionMethods": 293,
+      "excluded": 25,
+      "deferred": 91
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Moglia nativewarehouse132 retained separately from tax130; demoPrivacytemplate is not operator evidence. No all-stock/dispatch/purchasedcollection inference. Original110x99logo used honestly, WordPress verified, noWooCommerce guess.",
+    "LaTorre exactSASoperator verified, no inferredregisteredrole or ship/pickup. Original.jpgbytes at.pngstockURL inspected. Old donatedcharitypainting is not ownedauctionoperation.",
+    "MonnaAgnese fullcurrent LuanaLazzeri verified by exactnativeVAT; no family/historyname guesses, taxFiorentina35int2 not anotherpremises. Directsculpture/paintingbasis, not recentjewelry; uncertainSansovino/date claims not independentlyauthenticated.",
+    "Morello fullBarbaraBacchiega/current230contact distinctfromtax234A. Battleartist remains understudy; oldrelining/possiblecoevalframe preserved. OnlypartialITshipping, eligibility/rate/featuresunknown; safehandling not insurance/tracking, abroadunknown, no purchasedcollection."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

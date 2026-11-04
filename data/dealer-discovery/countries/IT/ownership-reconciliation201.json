@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-201",
+  "observedAt": "2026-11-04T11:57:28.570933+00:00",
+  "result": "UNRELATED_NAME_REFERENCES_ONLY",
+  "reviewedRawMatches": [
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "antichitabonetti.it",
+      "run": "2026-11-02-it-129",
+      "matchedText": [
+        "cy PDF downloaded externally but not text-inspected and not relied on.\"],\"omissions\":[\"Do not merge Flavio Bonetti with Paolo Bonetti or L’Antica SAS, or create another proprietor Party. No independently verified formal company suffix.\",\"No inventory default, collection arrangement, dispatch origin, delivery des"
+      ]
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/US/dealers.jsonl",
+      "domain": "christopherbishopfineart.com",
+      "run": "2026-11-03-us-101",
+      "matchedText": [
+        "contactclearlyestablishesindependentNYgalleryandconditionalexhibition/byappointmenthours. Readablenativepagespresent2025FischettiTriumphOfNightandWomenArtistsprior-yearshowsand2025TEFAFvirtualtour,notexplicitpresentindividualsaleoffers/prices/availableinventory. Genericexpertadvisoryandprivateviewingcontactd"
+      ]
+    }
+  ],
+  "interpretation": "IT antichitabonetti.it is independently identified current Flavio Bonetti/VAT00894950146, distinct from current L’Antica SAS di Bonetti Paolo&C/VAT00963260146, native lantica.it. An earlier research reference to Paolo does not make the managed Flavio business the same operator. US Christopher Bishop ledger references artist Fischetti, not Kushan di Sebastiano Fischetti/VAT04744630288. No foreign dealer resource changed; narrow full operator/VAT/domain/contact checks remain required before adoption.",
+  "noOtherCountryMutations": true,
+  "paidDataSpendUsd": 0
+}

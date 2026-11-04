@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-201",
+  "country": "IT",
+  "observedAt": "2026-11-04T12:06:52.932326Z",
+  "result": "PASSED",
+  "rawJournalFiles": 272,
+  "rawJournalRecordsScanned": 58475,
+  "apiWriteAttemptsThisRun": 12,
+  "decisions": {
+    "added": [
+      "lantica.it",
+      "IT:ANTICOANTICO:2366",
+      "IT:ANTICOANTICO:596"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot201-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T12:06:03.963600Z",
+    "fullVerifiedAt": "2026-11-04T11:37:17.897171Z",
+    "counts": {
+      "parties": 353,
+      "listingSources": 353,
+      "locations": 401,
+      "logos": 258,
+      "identifiedPlatforms": 288,
+      "deliveryProfiles": 172,
+      "emptyIngestionMethods": 353,
+      "excluded": 26,
+      "deferred": 103
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Native L’Antica current fullSAS/VAT positive, distinct from already-owned FlavioBonetti with different VAT. Actual native19c-labelledchair1030x687 and original400x120PNG inspected; WordPress verified. Native Trieste36 first-floor OFFICE versus CorsoItalia1 EXHIBITION separate, no registered/warehouse/inventory/dispatch or buyerpickup. Native Ritiro means acquisition, not purchased collection. PARTIAL IT/UNRESOLVEDforeign delivery, ownvehiclesnorthernItaly kept narrative; insurance recommended only, no price/time/features inference.",
+    "Kushan complete SebastianoFischetti proprietor/VAT positive, actual original886x886 Ganesh sculpture inspected. Nepal goods origin is not business home/delivery geography. Current Squarcione14 business roles[] versus officialAbba20 tax distinct. Unrelated USartistFischetti reference reconciled in own ownership-reconciliation201, no foreign mutation. No CITES/expert certification, ivory/export law, logo/email/shipping guessed.",
+    "PaganiMonica current complete proprietor/VAT positive, actual nineteenth-century-labelled paintedwardrobe1440x1920 inspected. Native currentRoma15 business roles[], official interior1 not imported; secondarySusegana not branch/repair. Photo storage setting does not identify warehouse/stock/dispatch. Direct antique furniture independentlyofrecentdesign/salvage. No nativeplatformstore/logo/email/shipping/defaults guessed."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

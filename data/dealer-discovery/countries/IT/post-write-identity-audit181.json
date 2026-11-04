@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-181",
+  "country": "IT",
+  "observedAt": "2026-11-03T22:35:16.891341Z",
+  "result": "PASSED",
+  "rawJournalFiles": 192,
+  "rawJournalRecordsScanned": 51885,
+  "apiWriteAttemptsThisRun": 14,
+  "decisions": {
+    "added": [
+      "antichitasantoro.com",
+      "antichitavecchiabottega.com",
+      "IT:ANTICOANTICO:2239",
+      "IT:ANTICOANTICO:968"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot181-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T22:34:25.208300Z",
+    "fullVerifiedAt": "2026-11-03T22:09:41.578051Z",
+    "counts": {
+      "parties": 300,
+      "listingSources": 300,
+      "locations": 347,
+      "logos": 238,
+      "identifiedPlatforms": 238,
+      "deliveryProfiles": 158,
+      "emptyIngestionMethods": 300,
+      "excluded": 25,
+      "deferred": 92
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Santoro currenttitolarePierdario exactVAT; no cofounder/family/expertParty, taxinterior13orhistoricalvilla/registeredrole expansion. Itemconditionslink leads onlypublications; insuranceappraisal/abroadconsultancy not shipmentinsurance/worldwideshipping.",
+    "VecchiaBottega nativefullfooterlegal/VAT,currentpublicvalidemail andoriginalWixbrandverified. Malformedcontactinfo@ omitted. NativeCastaldi2 distincttaxCornarotta3/oldsecondaryVecellio5; no purchasedpickup/stock/dispatch. Wixbuilderverified, genericStoresSDKregistry not installedstoreproof.",
+    "Vera nativecurrentSRL verified; primarymirrorhasambiguousdimensionrepetitionnotrepaired. Twooffersincludedeliveryinitemprice butdestinations/itemapplicability/rate decompositionunresolved:PARTIALUNRESOLVED/nullrateeligibility, noFREE/IT/worldwide. Corporatepurposeabilityto transactviaonlineauctions notactualauctionhouseoperation.",
+    "Vietti concreteinspectedoldmaiolicabowlalternativeClericiorRubati attribution preserved. No originalmerchantlogo/validcurrentemail/standalonedomain/shiporcollectionpolicy verified; olddirectoryemail not imported."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

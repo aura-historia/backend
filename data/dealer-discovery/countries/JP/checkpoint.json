@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "run": "jp-2026-11-03-078",
-  "observedAt": "2026-11-03T21:15:58.909135Z",
+  "run": "jp-2026-11-04-157",
+  "observedAt": "2026-11-04T14:47:10.043947Z",
   "statuses": {
-    "ADDED": 198,
-    "DEFERRED": 137,
-    "EXCLUDED": 23
+    "ADDED": 272,
+    "DEFERRED": 246,
+    "EXCLUDED": 51
   },
   "paidDataSpendUsd": 0,
-  "summary": "Batch78 added KeiseiArt (敬誠株式会社) through a current priced original OldNoritake vase and recent2026trade evidence; new resources/defaults read back with empty ingestion. Abiko gallery distinguished from unlocated warehouse and shipping fee exceptions preserved without universal free rate. Garage24 deferred for missing current own retail stock/legal identity; KahmArt excluded for explicit own auctions. Existing Genroku, MoriokaBijutsu and Morimiya ownership retained without duplicate sources. Audit/index passed; country verification still fails for66 external WEB_CRAWL sources, freshly confirmed read-only and preserved. Last passing full result remains batch70. No pending writes/global research blocker, USD0; continuing directory expansion.",
+  "summary": "Batch 157 deferred Eizawa and Maruo because current primary pages verify active Japanese buying businesses but no current inspectable own-stock sale offers. Buying examples, artist articles and inbound free postage were not promoted to sale stock or delivery. Eizawa linked buying domains remain research under the same operator, without new sources or aliases. Ide was excluded on explicit own trade-auction hosting, with proprietor identity from first-party terms. All-country recursive duplicate checks cleared; no API mutations. All four ledgers audited, indexed and verified; the same external ingestion drift is preserved. USD0, continue.",
   "verification": "FAILED_EXTERNAL_INGESTION_DRIFT",
   "lastPassingVerification": {
     "run": "jp-2026-11-03-070",
@@ -18,5 +18,78 @@
   "verificationFailures": 66,
   "countryCoverageComplete": false,
   "blockers": [],
-  "pendingMutations": 0
+  "pendingMutations": 0,
+  "ledgerReports": [
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/verification.json",
+      "currentAttempt": "FAILED_EXTERNAL_INGESTION_DRIFT",
+      "observedAt": "2026-11-04T14:47:10.043947Z",
+      "lastPassingRun": "jp-2026-11-03-070",
+      "scope": "INCREMENTAL",
+      "ingestionSourcesChecked": 269,
+      "sourcesWithNonemptyIngestion": 66
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/hanzomon/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/hanzomon/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:40.829913Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/imado/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:50.549812Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/maruhira/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:59.614718Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    }
+  ],
+  "ledgerPaths": [
+    "data/dealer-discovery/countries/JP/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/hanzomon/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl"
+  ],
+  "lastPassingVerificationScopeNote": "Historic main-ledger full report predates hosted additions; no current passing country aggregate while external ingestion drift persists."
 }
