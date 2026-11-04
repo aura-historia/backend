@@ -302,7 +302,6 @@ where
     let push_queue_capacity = cron_config.effective_push_queue_capacity();
     let push_max_batch_age_ms = cron_config.effective_push_max_batch_age().as_millis();
     let push_max_concurrency = cron_config.effective_push_max_concurrency();
-    let business_db_max_connections = cron_config.effective_business_db_max_connections();
 
     let cron_job = CrawlerCronJob::new(
         cron_config,
@@ -322,7 +321,6 @@ where
         push_queue_capacity,
         push_max_batch_age_ms,
         push_max_concurrency,
-        business_db_max_connections,
         authoring_mode = authoring.as_str(),
         review_bind_addr = %review_config.bind_addr,
         "Crawler Server is fully initialized. Starting background tasks..."

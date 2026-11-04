@@ -56,18 +56,41 @@ impl UnconfiguredListingSources {
     }
 }
 
+/// What a registration source says about a ListingSource's fallback currency.
+///
+/// The admin API does not return the currency, so a sync from it must not clear the value the
+/// crawler mirrors locally: that would also change the scraper-context fingerprint and recapture
+/// every page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FallbackCurrency {
+    /// The source states the currency, or states that the ListingSource has none (`None`).
+    Supplied(Option<Currency>),
+    /// The source does not carry the currency; the locally stored value stays as it is.
+    NotSupplied,
+}
+
+impl FallbackCurrency {
+    /// The currency a sync writes, or `None` to write no value.
+    fn supplied(self) -> Option<Option<Currency>> {
+        match self {
+            Self::Supplied(currency) => Some(currency),
+            Self::NotSupplied => None,
+        }
+    }
+}
+
 /// Crawler-safe business identity.
 ///
-/// The business reader supplies canonical ListingSource values. `crawl_enabled` and
+/// The registration source supplies canonical ListingSource values. `crawl_enabled` and
 /// `fallback_currency` are crawler-local state derived from a complete successful
-/// `WEB_CRAWL` source read.
+/// `WEB_CRAWL` scope read.
 #[derive(Debug, Clone)]
 pub struct RegisteredListingSource {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: ListingSourceName,
     pub listing_source_slug: ListingSourceSlugId,
     pub crawl_enabled: bool,
-    pub fallback_currency: Option<Currency>,
+    pub fallback_currency: FallbackCurrency,
 }
 
 /// Result of one atomically applied business snapshot.
@@ -211,14 +234,22 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
                     listing_source_name = EXCLUDED.listing_source_name, \
                     listing_source_slug = EXCLUDED.listing_source_slug, \
                     crawl_enabled = EXCLUDED.crawl_enabled, \
-                    fallback_currency = EXCLUDED.fallback_currency, \
+                    fallback_currency = CASE WHEN $6 THEN EXCLUDED.fallback_currency \
+                                             ELSE listing_sources.fallback_currency END, \
                     updated = NOW()",
             )
             .bind(uuid::Uuid::from(listing_source.listing_source_id))
             .bind(listing_source.listing_source_name.as_ref())
             .bind(listing_source.listing_source_slug.to_string())
             .bind(listing_source.crawl_enabled)
-            .bind(listing_source.fallback_currency.map(Currency::as_str))
+            .bind(
+                listing_source
+                    .fallback_currency
+                    .supplied()
+                    .flatten()
+                    .map(Currency::as_str),
+            )
+            .bind(listing_source.fallback_currency.supplied().is_some())
             .execute(&mut *transaction)
             .await?;
         }
@@ -277,7 +308,7 @@ mod tests {
             listing_source_slug: ListingSourceSlugId::raw("source")
                 .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
             crawl_enabled: true,
-            fallback_currency: None,
+            fallback_currency: FallbackCurrency::Supplied(None),
         }
     }
 

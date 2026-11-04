@@ -56,8 +56,11 @@ pub(crate) enum CrawlerMetric {
     /// a pending review holds back, which has no batch. The no-successful-scrape alarm reads it
     /// alone, so a domain that only waits on a reviewer does not alarm.
     ScrapedOrAwaitingReview,
-    /// Raw observations raw capture persisted durably, per capture batch.
+    /// Raw observations the ingestion queue accepted, per capture batch.
     ProductsCaptured,
+    /// Raw observations discarded because they exceed the ingestion message limit or cannot be
+    /// encoded, per capture batch; only recorded when non-zero.
+    ProductsDiscardedUnsendable,
     /// Scraper URL failures of one `failure_kind`, per domain batch.
     UrlFailures,
     /// Scraper domain circuits opened.
@@ -82,6 +85,7 @@ impl CrawlerMetric {
             Self::ScrapesAwaitingSchemaReview => "ScrapesAwaitingSchemaReview",
             Self::ScrapedOrAwaitingReview => "ScrapedOrAwaitingReview",
             Self::ProductsCaptured => "ProductsCaptured",
+            Self::ProductsDiscardedUnsendable => "ProductsDiscardedUnsendable",
             Self::UrlFailures => "UrlFailures",
             Self::DomainCircuitOpened => "DomainCircuitOpened",
             Self::CrawlProductUrls => "CrawlProductUrls",
