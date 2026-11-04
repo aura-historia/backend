@@ -558,8 +558,9 @@ ordinary replacement/read APIs; corrected configuration gates allow bounded back
 recovery, while exhausted or invalid inputs require cause correction and changed input or
 approved operational recovery. Cleanup requeues only private browsing blocks: business
 resolutions blocked as `STORAGE_NOT_PERMITTED` stay blocked after a retention-rule or
-reference-release correction until protected Retry or changed input, each a paid call within
-budgets that blocks again when no candidate is retainable.
+reference-release correction until protected Retry, changed input, or approved operational
+recovery that reproduces Retry's generation fence, invalidation and wake-up. Each recovery is
+a paid call within budgets and blocks again when no candidate is retainable.
 
 Redrive a small approved DLQ sample with original identities/generations: superseded work
 completes as stale, completed work reuses evidence, active leases defer and malformed jobs

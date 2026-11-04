@@ -171,11 +171,11 @@ when approving paid evaluation or production volume.
 
 The adapter conservatively applies the HERE Japan storage prohibition to all default data:
 Japan-constrained retained requests fail before I/O. A returned candidate whose country is
-Japanese, missing, outside the reference release or contradictory is withheld: nothing
-derived from it is retained, yet it still counts toward ambiguity, so verified alternatives
-stay reviewable. A result without a retainable candidate fails storage. Other
-providers/products/regions need separate review. Supplier processing may occur outside the
-AWS region; endpoint region alone is not a data-residency guarantee.
+Japanese or unverifiable (missing, malformed, unrecognized or contradictory) is withheld: it
+remains a returned alternative, but nothing derived from it is retained. A result without a
+retainable candidate fails storage. Other providers/products/regions need separate review.
+Supplier processing may occur outside the AWS region; endpoint region alone is not a
+data-residency guarantee.
 
 Persistence owners check storage permission before retaining any derivatives and preserve
 reference release, provenance, attribution and profile. Private reuse stays isolated to its
