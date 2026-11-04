@@ -200,7 +200,6 @@ struct Controls {
     scope_daily_limit: i32,
     concurrency_limit: i32,
     scope_concurrency_limit: i32,
-    calls: i32,
     consecutive_failures: i32,
     open_until: Option<OffsetDateTime>,
 }
@@ -247,11 +246,80 @@ impl Repository<'_> {
         sqlx::query_as(
             r#"
             SELECT
-            profile,enabled,storage_permitted,daily_limit,scope_daily_limit,concurrency_limit,scope_concurrency_limit,calls,consecutive_failures,open_until
+            profile,enabled,storage_permitted,daily_limit,scope_daily_limit,concurrency_limit,scope_concurrency_limit,consecutive_failures,open_until
             FROM geo_resolution_provider_controls WHERE profile=$1 FOR NO KEY UPDATE
             "#,
         ).bind(profile).fetch_optional(&mut *self.connection).await.map_err(sql_error)?.ok_or_else(corrupt)
     }
+    async fn is_bound(&mut self, id: ResolutionId) -> Result<bool, ResolutionError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM geo_resolution_bindings WHERE resolution_id=$1)",
+        )
+        .bind(id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(sql_error)
+    }
+    async fn release_lease(&mut self, id: ResolutionId) -> Result<(), ResolutionError> {
+        sqlx::query(
+            "UPDATE geo_resolutions SET lease_token=NULL,lease_until=NULL WHERE resolution_id=$1",
+        )
+        .bind(id.into_uuid())
+        .execute(&mut *self.connection)
+        .await
+        .map_err(sql_error)?;
+        Ok(())
+    }
+    /// Roll both daily budgets over to today, then read today's calls and live leases.
+    async fn budget_usage(
+        &mut self,
+        profile: &str,
+        scope_key: &str,
+        now: OffsetDateTime,
+    ) -> Result<BudgetUsage, ResolutionError> {
+        sqlx::query(
+            r#"
+            UPDATE geo_resolution_provider_controls SET calls=CASE WHEN budget_day=$2 THEN calls ELSE 0
+            END,budget_day=$2 WHERE profile=$1
+            "#,
+        ).bind(profile).bind(now.date()).execute(&mut *self.connection).await.map_err(sql_error)?;
+        let calls = sqlx::query_scalar(
+            "SELECT calls FROM geo_resolution_provider_controls WHERE profile=$1",
+        )
+        .bind(profile)
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(sql_error)?;
+        sqlx::query(
+            r#"
+            INSERT INTO geo_resolution_scope_budgets(profile,scope_key,budget_day,calls) VALUES($1,$2,$3,0) ON
+            CONFLICT(profile,scope_key) DO UPDATE SET calls=CASE WHEN
+            geo_resolution_scope_budgets.budget_day=EXCLUDED.budget_day THEN geo_resolution_scope_budgets.calls
+            ELSE 0 END,budget_day=EXCLUDED.budget_day
+            "#,
+        ).bind(profile).bind(scope_key).bind(now.date()).execute(&mut *self.connection).await.map_err(sql_error)?;
+        let scope_calls = sqlx::query_scalar(
+            "SELECT calls FROM geo_resolution_scope_budgets WHERE profile=$1 AND scope_key=$2",
+        )
+        .bind(profile)
+        .bind(scope_key)
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(sql_error)?;
+        let (active,scope_active):(i64,i64)=sqlx::query_as("SELECT count(*),count(*) FILTER(WHERE scope_key=$2) FROM geo_resolutions WHERE profile=$1 AND lease_until>$3").bind(profile).bind(scope_key).bind(now).fetch_one(&mut *self.connection).await.map_err(sql_error)?;
+        Ok(BudgetUsage {
+            calls,
+            scope_calls,
+            active,
+            scope_active,
+        })
+    }
+}
+struct BudgetUsage {
+    calls: i32,
+    scope_calls: i32,
+    active: i64,
+    scope_active: i64,
 }
 #[async_trait::async_trait]
 impl ResolutionRepository for Repository<'_> {
@@ -400,7 +468,7 @@ impl ResolutionRepository for Repository<'_> {
         w: ResolutionWork,
         profile: &str,
     ) -> Result<ClaimOutcome, ResolutionError> {
-        let mut control = self.controls(profile).await?;
+        let control = self.controls(profile).await?;
         let Some(r) = self.row(w.id).await? else {
             return Err(ResolutionError::Missing);
         };
@@ -415,14 +483,7 @@ impl ResolutionRepository for Repository<'_> {
             return Err(ResolutionError::Conflict);
         }
         let now = self.clock().await?;
-        let bound: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM geo_resolution_bindings WHERE resolution_id=$1)",
-        )
-        .bind(w.id.into_uuid())
-        .fetch_one(&mut *self.connection)
-        .await
-        .map_err(sql_error)?;
-        if !bound {
+        if !self.is_bound(w.id).await? {
             return Ok(ClaimOutcome::Complete);
         }
         if r.valid_until.is_some_and(|until| until > now) && control.storage_permitted {
@@ -439,40 +500,11 @@ impl ResolutionRepository for Repository<'_> {
         {
             return Ok(ClaimOutcome::Deferred);
         }
-        sqlx::query(
-            r#"
-            UPDATE geo_resolution_provider_controls SET calls=CASE WHEN budget_day=$2 THEN calls ELSE 0
-            END,budget_day=$2 WHERE profile=$1
-            "#,
-        ).bind(profile).bind(now.date()).execute(&mut *self.connection).await.map_err(sql_error)?;
-        control.calls = sqlx::query_scalar(
-            "SELECT calls FROM geo_resolution_provider_controls WHERE profile=$1",
-        )
-        .bind(profile)
-        .fetch_one(&mut *self.connection)
-        .await
-        .map_err(sql_error)?;
-        sqlx::query(
-            r#"
-            INSERT INTO geo_resolution_scope_budgets(profile,scope_key,budget_day,calls) VALUES($1,$2,$3,0) ON
-            CONFLICT(profile,scope_key) DO UPDATE SET calls=CASE WHEN
-            geo_resolution_scope_budgets.budget_day=EXCLUDED.budget_day THEN geo_resolution_scope_budgets.calls
-            ELSE 0 END,budget_day=EXCLUDED.budget_day
-            "#,
-        ).bind(profile).bind(&r.scope_key).bind(now.date()).execute(&mut *self.connection).await.map_err(sql_error)?;
-        let scope_calls: i32 = sqlx::query_scalar(
-            "SELECT calls FROM geo_resolution_scope_budgets WHERE profile=$1 AND scope_key=$2",
-        )
-        .bind(profile)
-        .bind(&r.scope_key)
-        .fetch_one(&mut *self.connection)
-        .await
-        .map_err(sql_error)?;
-        let (active,scope_active):(i64,i64)=sqlx::query_as("SELECT count(*),count(*) FILTER(WHERE scope_key=$2) FROM geo_resolutions WHERE profile=$1 AND lease_until>$3").bind(profile).bind(&r.scope_key).bind(now).fetch_one(&mut *self.connection).await.map_err(sql_error)?;
-        if control.calls >= control.daily_limit
-            || scope_calls >= control.scope_daily_limit
-            || active >= i64::from(control.concurrency_limit)
-            || scope_active >= i64::from(control.scope_concurrency_limit)
+        let usage = self.budget_usage(profile, &r.scope_key, now).await?;
+        if usage.calls >= control.daily_limit
+            || usage.scope_calls >= control.scope_daily_limit
+            || usage.active >= i64::from(control.concurrency_limit)
+            || usage.scope_active >= i64::from(control.scope_concurrency_limit)
         {
             return Ok(ClaimOutcome::Deferred);
         }
@@ -504,8 +536,7 @@ impl ResolutionRepository for Repository<'_> {
         };
         if r.erased {
             if r.lease_token == Some(c.token) {
-                sqlx::query("UPDATE geo_resolutions SET lease_token=NULL,lease_until=NULL WHERE resolution_id=$1")
-                    .bind(c.work.id.into_uuid()).execute(&mut *self.connection).await.map_err(sql_error)?;
+                self.release_lease(c.work.id).await?;
             }
             return Ok(true);
         }
@@ -520,20 +551,12 @@ impl ResolutionRepository for Repository<'_> {
             // finishes or the lease expires. Only that exact call may release it;
             // it cannot apply evidence or release a newer claim's reservation.
             if r.lease_token == Some(c.token) {
-                sqlx::query("UPDATE geo_resolutions SET lease_token=NULL,lease_until=NULL WHERE resolution_id=$1")
-                    .bind(c.work.id.into_uuid()).execute(&mut *self.connection).await.map_err(sql_error)?;
+                self.release_lease(c.work.id).await?;
             }
             return Ok(false);
         }
-        let bound: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM geo_resolution_bindings WHERE resolution_id=$1)",
-        )
-        .bind(c.work.id.into_uuid())
-        .fetch_one(&mut *self.connection)
-        .await
-        .map_err(sql_error)?;
-        if !bound {
-            sqlx::query("UPDATE geo_resolutions SET lease_token=NULL,lease_until=NULL WHERE resolution_id=$1").bind(c.work.id.into_uuid()).execute(&mut *self.connection).await.map_err(sql_error)?;
+        if !self.is_bound(c.work.id).await? {
+            self.release_lease(c.work.id).await?;
             return Ok(true);
         }
         let completion = if !control.storage_permitted {
