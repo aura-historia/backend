@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-04-fr-310",
-  "observedAt": "2026-11-04T11:10:35.413233Z",
+  "run": "2026-11-04-fr-336",
+  "observedAt": "2026-11-04T14:46:48.988328Z",
   "scope": "CACHED_ORIGINAL_ASSET_METADATA",
   "notes": [
     "Checks the already downloaded and visually reviewed original files against current owned-ledger metadata; this is not a fresh network/logo-availability claim.",
     "Raster pixels, SVG viewBox/rounded extents, binary media format and exact cached bytes are checked. API source URLs and original image URLs are unchanged."
   ],
-  "verifiedCount": 391,
+  "verifiedCount": 417,
   "mismatches": [],
   "resources": [
     {
@@ -4988,6 +4988,327 @@
         "kind": "RASTER_PIXELS",
         "width": 289,
         "height": 90
+      }
+    },
+    {
+      "domain": "cjungalerie.com",
+      "listingSourceId": "ls_01m6k4eaeqe07adph682htktsf",
+      "url": "https://images.squarespace-cdn.com/content/v1/60479e3813fcb01afb298ea8/1615311019881-QSRNCR7LKJ1P9CVCALQH/LOGO+2+site+copie2+copie+copie.png",
+      "mediaType": "image/png",
+      "bytes": 53087,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 2500,
+        "height": 451
+      }
+    },
+    {
+      "domain": "kaxu.fr",
+      "listingSourceId": "ls_01m6k4ec11e5na5cqevx1mjant",
+      "url": "https://static.wixstatic.com/media/31af04_eca4bbc448bc41a385fb2f6b60e9e25b~mv2.png",
+      "mediaType": "image/png",
+      "bytes": 59712,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 2362,
+        "height": 2362
+      }
+    },
+    {
+      "domain": "classartbiarritz.com",
+      "listingSourceId": "ls_01m6k4t230e42vg0c6q69ha4rb",
+      "url": "https://static.wixstatic.com/media/3c0353_6c42f3aa5f47437bb652227c9f20444d~mv2.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 17344,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 355,
+        "height": 350
+      }
+    },
+    {
+      "domain": "galeriegt.com",
+      "listingSourceId": "ls_01m6k5ckn2eycbnqpcat8x4132",
+      "url": "https://static.wixstatic.com/media/282fd5_1dcd3ba24dc845a3a3b0928b7bd23db9~mv2.png",
+      "mediaType": "image/png",
+      "bytes": 31813,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 938,
+        "height": 938
+      }
+    },
+    {
+      "domain": "classartbiarritz.net",
+      "listingSourceId": "ls_01m6k5cnmtecw879q51cts6pzj",
+      "url": "https://static.wixstatic.com/media/3c0353_6c42f3aa5f47437bb652227c9f20444d~mv2.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 17344,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 355,
+        "height": 350
+      }
+    },
+    {
+      "domain": "galeriepage-biarritz.com",
+      "listingSourceId": "ls_01m6k60zt2e2rsx3ase2k7ztkh",
+      "url": "https://static.wixstatic.com/media/65a2ae_57c1132c08bd42a798f017576b50bba8~mv2.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 39903,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 701,
+        "height": 220
+      }
+    },
+    {
+      "domain": "store.galerie-barthelemy-bouscayrol.com",
+      "listingSourceId": "ls_01m6k611d4en6rgfejbwcajmm3",
+      "url": "https://store.galerie-barthelemy-bouscayrol.com/wp-content/uploads/2025/02/cropped-Logo-Store-Galerie-Barthelemy-Bouscayrol-e1739198430383.png",
+      "mediaType": "image/png",
+      "bytes": 17409,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 984,
+        "height": 279
+      }
+    },
+    {
+      "domain": "classartbiarritz.de",
+      "listingSourceId": "ls_01m6k6vswfej4s6589c9xrp6cy",
+      "url": "https://static.wixstatic.com/media/3c0353_6c42f3aa5f47437bb652227c9f20444d~mv2.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 17344,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 355,
+        "height": 350
+      }
+    },
+    {
+      "domain": "quorum.art",
+      "listingSourceId": "ls_01m6k75x9bet6vnyc92bjwq04k",
+      "url": "https://media.cdnws.com/_i/239912/1030/2619/30/logo-quorum.png",
+      "mediaType": "image/png",
+      "bytes": 12908,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 617,
+        "height": 126
+      }
+    },
+    {
+      "domain": "galerieleminotaure-boutique.fr",
+      "listingSourceId": "ls_01m6k7exkce4vrq15tgn5r58k4",
+      "url": "https://galerieleminotaure-boutique.fr/wp-content/uploads/2021/03/logo.png",
+      "mediaType": "image/png",
+      "bytes": 36500,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1024,
+        "height": 186
+      }
+    },
+    {
+      "domain": "galeriepatrickburtin.fr",
+      "listingSourceId": "ls_01m6k7srvye64b62be69qfgntc",
+      "url": "https://galeriepatrickburtin.fr/wp-content/uploads/2024/11/logo-pb.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 6077,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0.0,
+          0.0,
+          97.0,
+          46.0
+        ],
+        "recordedDimensions": [
+          97,
+          46
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "latelierdesetoiles.com",
+      "listingSourceId": "ls_01m6k7stfhe19v4qxmqqxzyreq",
+      "url": "https://latelierdesetoiles.com/wp-content/uploads/2016/01/Logo-Vert-1.png",
+      "mediaType": "image/png",
+      "bytes": 103533,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 3508,
+        "height": 2480
+      }
+    },
+    {
+      "domain": "antiquiteslevoyageur.com",
+      "listingSourceId": "ls_01m6k85gxxee6bjmhqc9253kdy",
+      "url": "https://antiquiteslevoyageur.com/cdn/shop/files/logo1_26750.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 40547,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1300,
+        "height": 660
+      }
+    },
+    {
+      "domain": "uchiwagallery.com",
+      "listingSourceId": "ls_01m6kaf66pe91sk43ttsc9h722",
+      "url": "https://www.uchiwagallery.com/cdn/shop/files/Logo-Noir-transparent_f63058e4-6269-4fd8-9e12-96124e3b07c0.png",
+      "mediaType": "image/png",
+      "bytes": 53509,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 948,
+        "height": 590
+      }
+    },
+    {
+      "domain": "cridart.com",
+      "listingSourceId": "ls_01m6kbagbwefzaxyh8bem1jwve",
+      "url": "https://www.cridart.com/wp-content/uploads/2022/09/logo_cridart-light.png",
+      "mediaType": "image/png",
+      "bytes": 3358,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 458,
+        "height": 125
+      }
+    },
+    {
+      "domain": "lapetitegaleriebrest.com",
+      "listingSourceId": "ls_01m6kbmbwxetm86m3e2z6n2f8x",
+      "url": "https://static.wixstatic.com/media/44e060_175cedd90c534f308e30fe48dc8fc4e3~mv2.png",
+      "mediaType": "image/png",
+      "bytes": 16768,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 376,
+        "height": 139
+      }
+    },
+    {
+      "domain": "lamonstrueusegalerie.sumupstore.com",
+      "listingSourceId": "ls_01m6kbmdhqeakbzf4vqfp0dmrx",
+      "url": "https://cdn.sumup.store/shops/52031436/settings/b160f341-6ef8-4a98-b599-0790f9f9dffe.png",
+      "mediaType": "image/png",
+      "bytes": 82861,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1198,
+        "height": 1154
+      }
+    },
+    {
+      "domain": "clubbarbara.fr",
+      "listingSourceId": "ls_01m6kckmcfesfbdrnxkmy89byy",
+      "url": "https://clubbarbara.fr/cdn/shop/files/club_barbara_Online_Store_for_Vintage_and_Colorful_Decoration.webp?v=1763587052",
+      "mediaType": "image/png",
+      "bytes": 97025,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 500
+      }
+    },
+    {
+      "domain": "galeriespot72.com",
+      "listingSourceId": "ls_01m6kdn6z7errrbzbkva04kp9m",
+      "url": "https://image.jimcdn.com/app/cms/image/transf/none/path/s3d622158f2e674f4/image/i880d7af3e50267c0/version/1727162534/image.png",
+      "mediaType": "image/png",
+      "bytes": 1024424,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 3508,
+        "height": 4960
+      }
+    },
+    {
+      "domain": "lignes-croisees.fr",
+      "listingSourceId": "ls_01m6kecpcqeecb56v5fb1tq533",
+      "url": "https://media.cdnws.com/_i/118060/4210/2928/12/lignes-croisees-antiquites-decoration.png",
+      "mediaType": "image/png",
+      "bytes": 1033411,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1894,
+        "height": 1658
+      }
+    },
+    {
+      "domain": "avant-pendant-apres.fr",
+      "listingSourceId": "ls_01m6kevv6yef6a5aq53jyg4qjd",
+      "url": "https://avant-pendant-apres.fr/wp-content/uploads/2021/03/Logo_AvantPendantApres_site.png",
+      "mediaType": "image/png",
+      "bytes": 16100,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 655,
+        "height": 421
+      }
+    },
+    {
+      "domain": "cdgalerie-art.com",
+      "listingSourceId": "ls_01m6kfrtw2ethsg3sj0qs76z3m",
+      "url": "https://cdgalerie-art.com/cdn/shop/files/CDGalerieLogo_7ca79260-2392-4333-a0f7-9b2026b503ab.png?v=1753300453",
+      "mediaType": "image/png",
+      "bytes": 68128,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 2757,
+        "height": 1193
+      }
+    },
+    {
+      "domain": "helenabeudaert.com",
+      "listingSourceId": "ls_01m6kg2pkqe93sy6x0pjwbajcg",
+      "url": "https://www.helenabeudaert.com/wp-content/uploads/2023/10/HelenaBeudaert_logo_Web.png",
+      "mediaType": "image/png",
+      "bytes": 25530,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 400,
+        "height": 270
+      }
+    },
+    {
+      "domain": "galerieflashback.com",
+      "listingSourceId": "ls_01m6kg2rkhehp9qrkz3qt7efx5",
+      "url": "https://images.squarespace-cdn.com/content/v1/674195f33accb05014f06f9f/3e1b93c5-83c8-43a3-8c81-49c731da6104/LOGO+Flash+Back+Galerie+XX%C3%A8me.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 109375,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 2247,
+        "height": 2177
+      }
+    },
+    {
+      "domain": "galerievincentjoly.fr",
+      "listingSourceId": "ls_01m6kg2t4beh2bd49e642x8hb4",
+      "url": "https://www.galerievincentjoly.fr/wp-content/uploads/2021/05/galerie-vincent-joly-logo.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 13151,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 200,
+        "height": 88
+      }
+    },
+    {
+      "domain": "bart-antik.com",
+      "listingSourceId": "ls_01m6kgd385ehxv8agdttf9cpv6",
+      "url": "https://www.bart-antik.com/media/images/logo.png",
+      "mediaType": "image/png",
+      "bytes": 14320,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 122,
+        "height": 126
       }
     }
   ]

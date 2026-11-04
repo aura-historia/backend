@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-196",
+  "country": "IT",
+  "observedAt": "2026-11-04T11:28:12.278129Z",
+  "result": "PASSED",
+  "rawJournalFiles": 257,
+  "rawJournalRecordsScanned": 57535,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "galleriasinigaglia.it",
+      "IT:ANTICOANTICO:2154"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:ANTICOANTICO:2263"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot196-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T11:25:08.816920Z",
+    "fullVerifiedAt": "2026-11-04T10:23:35.753339Z",
+    "counts": {
+      "parties": 342,
+      "listingSources": 342,
+      "locations": 390,
+      "logos": 255,
+      "identifiedPlatforms": 277,
+      "deliveryProfiles": 170,
+      "emptyIngestionMethods": 342,
+      "excluded": 26,
+      "deferred": 99
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Sinigaglia full current SRLS/VAT positively matched; actual circa-1750 walnut armchair original full and detail inspected, original S/G PNG and Wix verified. Via C. Borgo operator address has roles []; official expanded Carlo Borgo does not add a function. Founder Matteo/family Matheus references are not additional Parties or merger evidence. Italy and unspecified abroad delivery retained PARTIAL, without worldwide destinations, price/time/insurance/packing/actors/collection invention.",
+    "Mason complete sole-trader business/VAT positive. Actual nineteenth-century-labelled Russian Madonna icon with silver riza original photo inspected; Russian goods origin is not dealer home or a shipping restriction. Padova published business address roles [] and Limena tax base remain distinct. No unverified native logo/email/shipping/purchased collection.",
+    "Le Lanterne exact current catalogue empty; bounded free research found historical 2021 interview and directories, not an inspectable current first-party own offer. Negative intra-EU result only, no domestic-invalidity/closure inference. No imported facts/resources; recheck current stock and complete operator December 4. Preserve primary civic77 versus secondary73."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

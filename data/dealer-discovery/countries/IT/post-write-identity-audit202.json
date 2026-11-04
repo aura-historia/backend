@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-202",
+  "country": "IT",
+  "observedAt": "2026-11-04T12:19:30.390972Z",
+  "result": "PASSED",
+  "rawJournalFiles": 275,
+  "rawJournalRecordsScanned": 58752,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "lagallerya.it",
+      "la-pendulerie.com",
+      "IT:ANTICOANTICO:2436"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot202-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T12:18:29.012198Z",
+    "fullVerifiedAt": "2026-11-04T11:37:17.897171Z",
+    "counts": {
+      "parties": 356,
+      "listingSources": 356,
+      "locations": 404,
+      "logos": 260,
+      "identifiedPlatforms": 290,
+      "deliveryProfiles": 172,
+      "emptyIngestionMethods": 356,
+      "excluded": 26,
+      "deferred": 103
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Gallerya full current native SNC/VAT positive and actual afterCanova nineteenth-century-labelled writingchild alternate1697x2560/styled896x1173 photos inspected, no autograph/unedited/material guarantees. Original white2363x591PNG darkpreview/WooCommerce verified. Current native34 business premises preserved versus tax/older34D; warehouse/stock/defaults unknown. Literal public info@email/mobile adopted, contact@mysite.com/tel123 placeholders ignored. Anna not an inferred legalpartner; appointmentnotpickup.",
+    "Pendulerie exact nativeVAT/current officialfullSRL/current structuredhostedSRLfooter support one current corporateoperator. Conflicting descriptiveSAS wording retained without conversion/date/Francescosoletrader claim. PublishedHTTPpubliccatalogue works; wwwHTTPS hostname failure no closure/TLSbypass. Actual offeredcolourclock1440x1920 inspected with editedblackbackground; museumBWcomparison983x1791 notownstock/provenance. Original350x161PNG verified; nativeplatform uncertain and omitted. Milano primarybusiness roles[]/Napoli tax distinct, no France home or buyer shipping/pickup inferred.",
+    "Tarditi full current dealer-authored proprietor retained; negativeintraEU validation not domesticinvalidity/closure. Actual eighteenth-century-labelled two-partcabinet1440x1920 inspected. AddressSNC means no civic number, not SNCcompanyform; nine-digitnationalmobile not padded. No native/logo/email/shipping/pickup/defaults guessed.",
+    "All current owned activityReview fields scanned asof2026-11-04: no due activity reviews. Future PeraNovember10 and other dated followups retained; API resource verification is not a fresh live-stock claim for every older dealer."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

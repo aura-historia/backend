@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-207",
+  "country": "IT",
+  "observedAt": "2026-11-04T13:03:59.143927Z",
+  "result": "PASSED",
+  "rawJournalFiles": 290,
+  "rawJournalRecordsScanned": 59624,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "milaneantiques.com",
+      "milaniantichita.it",
+      "IT:ANTICOANTICO:2074"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot207-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T13:03:05.386885Z",
+    "fullVerifiedAt": "2026-11-04T12:35:44.257604Z",
+    "counts": {
+      "parties": 369,
+      "listingSources": 369,
+      "locations": 417,
+      "logos": 264,
+      "identifiedPlatforms": 302,
+      "deliveryProfiles": 175,
+      "emptyIngestionMethods": 369,
+      "excluded": 27,
+      "deferred": 104
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Milan current nativeSRL/VAT positive, actual native own eighteenth-century-labelled pairLeClerc firstframedpainting1570x1920 inspected, not bothworks/reverse/material/date guarantee. Original400x119PNG and native explicitauthorAntico/current exact941inventory/assetapplication verifyANTICOANTICO. Working publishedHTTP/legacydesign/privacy2015 notclosure. Own Pisacane59gallery/business premises distinct tax/registered/warehouse/stock/dispatch/pickup; transport/export servicesquestions not buyercoverage. One native source, exact941corroboonly.",
+    "Milani oldpublished.com ordinaryredirect to current.it confirms one operator/source, exactold.comalias retained. Current fullSRL/native/hosted/officialVAT positive. Actual currentOpere pair1544x1037originalWebP inspected as compositepresentation, soldarchive notqualification; extraAntonioArrigoniheading retained without repair/autographclaim. No reverse1929label/study/provenance independentguarantee. Original874x91WebP/RIFF/VP8X verified versus institutionalmarks and actualWordPress identified. FoundersClaudio/Silvia notextraParties. Primary currentemail/fixedline, rolesBUSINESS_PREMISES, no shipping/pickup/stock/dispatch.",
+    "Mobiliartdeco exact2074/fullcurrentofficialproprietorMassimilianoEnricoRovelli/VAT positive. Actual Printemps1940s-labelled ownpainting1000x1000 inspected; directfineART independentlyof furniture/design, no over100yearantiqueclaim. SellerRaoul/Raulspellings/date/material/provenance notauthenticated, reverselabelnotviewed. NativeHTTPS/HTTPdisconnect notclosure. Gorizia88roles[] distinctMocchirolo2Otax, no civicrepair. ExplicitdealerEnglishworldwide supportsPARTIALANYWHERE/OFFERED allrates/features/times/actors/origin/collectionunknown; carefulshipping notinsurance/packingguarantee. No verifiedoriginalmerchantlogo/email or nativeplatform."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

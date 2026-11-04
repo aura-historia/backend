@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-200",
+  "country": "IT",
+  "observedAt": "2026-11-04T11:59:16.864355Z",
+  "result": "PASSED",
+  "rawJournalFiles": 269,
+  "rawJournalRecordsScanned": 58145,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "kinskygallery.com",
+      "IT:ANTICOANTICO:879",
+      "IT:ANTICOANTICO:2116"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot200-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T11:58:22.254712Z",
+    "fullVerifiedAt": "2026-11-04T11:37:17.897171Z",
+    "counts": {
+      "parties": 350,
+      "listingSources": 350,
+      "locations": 397,
+      "logos": 257,
+      "identifiedPlatforms": 285,
+      "deliveryProfiles": 171,
+      "emptyIngestionMethods": 350,
+      "excluded": 26,
+      "deferred": 103
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Kinsky full current native operator positive and actual currentpriced/InStock landscape original2560x1525 inspected, cropped painting surface only; incomplete signature and near-certain sellerHancock attribution not autograph guarantee. Original native lionwordmark800x379PNG/WooCommerce verified. ItalianFossano premises plus purchased-item collection explicit, taxRoma56/historicalUK/Torino distinct. PARTIAL IT plusUNRESOLVED international specialist packing/mandatoryinsurance/quotedfreight; packing in itemprice not free shipping; ambiguous12/20days/export timing not numeric guarantees. Purchased custody is not all-source inventory/dispatch. Legal PDF identity and retention-after-sale note preserved, independentavailability/authentication/legality not guaranteed.",
+    "Pelucchi exact current full SNC operator primary and own17c-labelled chest original1920x1440 inspected; negative intraEU validation only, no domesticinvalidity/closure. Older PaoloRoberto directories not substituted for current RobertoEdoardo primary company or partnerParties. Monza shop only selection, no stock/default/pickup inference; item ready-for-delivery not source-wide shippingpolicy.",
+    "Briciole exact current nativeVAT mapped by current official primary fullIlPostodelleBricioleDiDeMoriSara, not contactRosa or secondarySarah spelling. Actual mixedpainting/diorama original1600x1600 inspected; revived17c-labelledcanvas/19cframe/undatedraisedfigures not homogeneousoriginal17c. OtherLigabueeditionmodeldate not castingage and not antiquequalificationbasis. CurrentDerna1 pointofsale/workshop distinct from taxCorrezzana/oldLambrate; no logo/email/shipping guessed."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

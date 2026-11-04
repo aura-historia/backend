@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "run": "jp-2026-11-04-130",
-  "observedAt": "2026-11-04T11:14:17.561720Z",
+  "run": "jp-2026-11-04-157",
+  "observedAt": "2026-11-04T14:47:10.043947Z",
   "statuses": {
-    "ADDED": 257,
-    "DEFERRED": 208,
-    "EXCLUDED": 44
+    "ADDED": 272,
+    "DEFERRED": 246,
+    "EXCLUDED": 51
   },
   "paidDataSpendUsd": 0,
-  "summary": "Batch 130 added UNFASHION’s independent own-stock antique/original-art catalogue after bounded public inventory and individual detail checks. Inspected an available framed lithograph and advertised nineteenth-century bronze; seller attributions remain claims and the print-title/body discrepancy was not imported as verified artwork identity. Verified Otawara shop/operator/public phone. Preserved item/country/transport restrictions and unknown freight; omitted masked email, unverified logo and uncertain commerce classification. Current fixed-price stock and outside auction selling were not confused with own auction operation. One addition; no exclusions or deferrals. Country totals 257 added, 208 deferred, 44 excluded. Audit/index passed; scheduled explicit full verification failed on the same 66 external ingestion changes, confirmed by fresh source readbacks. Dated PASS070 retained. USD 0; no pending mutations or global blocker; research continues.",
+  "summary": "Batch 157 deferred Eizawa and Maruo because current primary pages verify active Japanese buying businesses but no current inspectable own-stock sale offers. Buying examples, artist articles and inbound free postage were not promoted to sale stock or delivery. Eizawa linked buying domains remain research under the same operator, without new sources or aliases. Ide was excluded on explicit own trade-auction hosting, with proprietor identity from first-party terms. All-country recursive duplicate checks cleared; no API mutations. All four ledgers audited, indexed and verified; the same external ingestion drift is preserved. USD0, continue.",
   "verification": "FAILED_EXTERNAL_INGESTION_DRIFT",
   "lastPassingVerification": {
     "run": "jp-2026-11-03-070",
@@ -18,5 +18,78 @@
   "verificationFailures": 66,
   "countryCoverageComplete": false,
   "blockers": [],
-  "pendingMutations": 0
+  "pendingMutations": 0,
+  "ledgerReports": [
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/verification.json",
+      "currentAttempt": "FAILED_EXTERNAL_INGESTION_DRIFT",
+      "observedAt": "2026-11-04T14:47:10.043947Z",
+      "lastPassingRun": "jp-2026-11-03-070",
+      "scope": "INCREMENTAL",
+      "ingestionSourcesChecked": 269,
+      "sourcesWithNonemptyIngestion": 66
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/hanzomon/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/hanzomon/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:40.829913Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/imado/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:50.549812Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/maruhira/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T14:46:59.614718Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    }
+  ],
+  "ledgerPaths": [
+    "data/dealer-discovery/countries/JP/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/hanzomon/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl"
+  ],
+  "lastPassingVerificationScopeNote": "Historic main-ledger full report predates hosted additions; no current passing country aggregate while external ingestion drift persists."
 }

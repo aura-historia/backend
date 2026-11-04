@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-197",
+  "country": "IT",
+  "observedAt": "2026-11-04T11:34:15.598219Z",
+  "result": "PASSED",
+  "rawJournalFiles": 262,
+  "rawJournalRecordsScanned": 57624,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:2051",
+      "IT:ANTICOANTICO:2224"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:ANTICOANTICO:2345"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot197-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T11:33:53.073916Z",
+    "fullVerifiedAt": "2026-11-04T10:23:35.753339Z",
+    "counts": {
+      "parties": 344,
+      "listingSources": 344,
+      "locations": 392,
+      "logos": 255,
+      "identifiedPlatforms": 279,
+      "deliveryProfiles": 170,
+      "emptyIngestionMethods": 344,
+      "excluded": 26,
+      "deferred": 100
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Ghidotti complete proprietor business and VAT positive. Actual current Noli me tangere religious painting original1050x1400 inspected; follower attribution, relining and date retained as seller descriptions, not autograph/authenticity guarantees. Native HTTPS and published HTTP DNS failures are not closure or native platform evidence. Exact hosted2051 managed source only; published Matteotti33 business roles[] and Maffoni5 tax base distinct.",
+    "Baghino current complete Ditta Giorgio Baghino and VAT positive. Actual original1920x1440 painted ceramic plate inspected, qualifying direct art/antiques independently of modern design. Native dealer biography transport is in acquisition/valuation context, not buyer delivery/free freight; no shipping profile created. SantaLucia112 business roles[] and MadonnaDellaNeve12 tax base distinct.",
+    "Genova actual current religious painting original1445x1920 inspected, but full proprietor only proposed by secondary directories; no adoption of Battistina Dellepiane. Negative intra-EU validation only, not domestic invalidity or closure. Current Vald’Astico versus old GuidoPoli address and consignment scope retained; facts/backend empty, December4 review."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

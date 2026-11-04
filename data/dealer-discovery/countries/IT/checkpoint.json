@@ -2,81 +2,81 @@
   "schemaVersion": 1,
   "country": "IT",
   "goalStatus": "ACTIVE",
-  "observedAt": "2026-11-04T11:01:53.181355Z",
-  "lastVerifiedRun": "2026-11-02-it-195",
+  "observedAt": "2026-11-04T14:28:37.242158Z",
+  "lastVerifiedRun": "2026-11-02-it-214",
   "verificationScope": "INCREMENTAL",
-  "fullVerifiedAt": "2026-11-04T10:23:35.753339Z",
+  "fullVerifiedAt": "2026-11-04T14:08:19.471862Z",
   "counts": {
-    "parties": 340,
-    "listingSources": 340,
-    "locations": 388,
-    "logos": 254,
-    "identifiedPlatforms": 275,
-    "deliveryProfiles": 169,
-    "emptyIngestionMethods": 340,
-    "excluded": 26,
-    "deferred": 98
+    "parties": 386,
+    "listingSources": 386,
+    "locations": 438,
+    "logos": 276,
+    "identifiedPlatforms": 317,
+    "deliveryProfiles": 179,
+    "emptyIngestionMethods": 386,
+    "excluded": 27,
+    "deferred": 108
   },
   "paidDataSpendUsd": 0,
   "pendingOperations": [],
-  "nextRun": "2026-11-02-it-196",
+  "nextRun": "2026-11-02-it-215",
   "nextDomains": [
-    "galleriasinigaglia.it",
-    "anticoantico.com"
+    "antichitamoneghini.com",
+    "IT:ANTICOANTICO:820",
+    "schiavetto.com"
   ],
   "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
   "frontier": "data/dealer-discovery/countries/IT/frontier.jsonl",
   "index": "data/dealer-discovery/countries/IT/index.tsv",
   "verification": "data/dealer-discovery/countries/IT/verification.json",
-  "nextAction": "Continue Galleria Sinigaglia SRLS 2378/native galleriasinigaglia.it, Galleria Mason di Mason Leandro 2154, and Le Lanterne di Luca Sperandio 2263. Sinigaglia and Mason full current VAT operators positive; Sperandio intra-EU validation negative only and exact hosted catalogue currently empty, so look for inspectable current first-party original-art stock before qualification. Distinguish Sinigaglia SRLS/Matteo from family Matheus Gallery, and physical business from tax/registered/dispatch/collection. Read all raw journals and fresh live identities before any adoption. Next full all-owned verification due 198.",
-  "fullCheckDueRun": "2026-11-02-it-198",
-  "lastCrossLedgerAuditAt": "2026-11-04T11:01:53.181355Z",
+  "nextAction": "Continue Moneghini939 through the current native full Riccardo operator/VAT01535190084, specific offered paintings and actual photos. Review Santa Barbara Art Gallery820/Italian SRL/VAT02664690647, current Spello stock and explicitly registered Avellino address. The generic phrase SantaBarbaraartgallery occurs only as a geographic label for US-owned SullivanGoss; compare exact operators/VAT/contacts and record this narrow distinction, never change US resources or bypass identity matches. Review Schiavetto884/native complete SRL and own period furniture separately from restoration portfolio; negative intra-EU VAT04019940263 is not domestic invalidity or closure. Inspect current contact locations and advertised transport/collection faithfully. Read all raw country/nested journals and fresh full API identities before writes. Last full213; next full218.",
+  "fullCheckDueRun": "2026-11-02-it-218",
+  "lastCrossLedgerAuditAt": "2026-11-04T14:28:37.242158Z",
   "managedFactsConfidenceAudit": "ALL_STRICTLY_ABOVE_0_95",
-  "crossLedgerReadMode": "All 251 raw journals (56941 records), including hosted ledgers; no competing owner identity matches.",
+  "crossLedgerReadMode": "All 320 raw journals (61167 records), including hosted ledgers; no competing owner identity matches.",
   "identityVerification": "data/dealer-discovery/countries/IT/identity-verification.jsonl",
   "postWriteIdentityAudit": {
     "schemaVersion": 1,
-    "run": "2026-11-02-it-195",
+    "run": "2026-11-02-it-214",
     "country": "IT",
-    "observedAt": "2026-11-04T11:01:53.181355Z",
+    "observedAt": "2026-11-04T14:28:37.242158Z",
     "result": "PASSED",
-    "rawJournalFiles": 251,
-    "rawJournalRecordsScanned": 56941,
-    "apiWriteAttemptsThisRun": 9,
+    "rawJournalFiles": 320,
+    "rawJournalRecordsScanned": 61167,
+    "apiWriteAttemptsThisRun": 12,
     "decisions": {
       "added": [
-        "antiquescamellini.com",
-        "IT:ANTICOANTICO:2155",
-        "IT:ANTICOANTICO:2334"
+        "priorfineartgallery.it",
+        "pernici.eu",
+        "brickandstone.it"
       ],
       "excluded": [],
       "deferred": []
     },
     "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
-    "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot195-prewrite.json",
+    "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot214-prewrite.json",
     "verification": {
       "path": "data/dealer-discovery/countries/IT/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:49.758566Z",
-      "fullVerifiedAt": "2026-11-04T10:23:35.753339Z",
+      "verifiedAt": "2026-11-04T14:25:53.350227Z",
+      "fullVerifiedAt": "2026-11-04T14:08:19.471862Z",
       "counts": {
-        "parties": 340,
-        "listingSources": 340,
-        "locations": 388,
-        "logos": 254,
-        "identifiedPlatforms": 275,
-        "deliveryProfiles": 169,
-        "emptyIngestionMethods": 340,
-        "excluded": 26,
-        "deferred": 98
+        "parties": 386,
+        "listingSources": 386,
+        "locations": 438,
+        "logos": 276,
+        "identifiedPlatforms": 317,
+        "deliveryProfiles": 179,
+        "emptyIngestionMethods": 386,
+        "excluded": 27,
+        "deferred": 108
       }
     },
     "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
     "omissions": [
-      "Camellini current full SRL/VAT positively validated; working bare HTTPS native catalogue, original logo and nopCommerce verified. Actual framed Magnasco landscape inspected, private-collection label and explicit dealer availability retained without title/possession/source-wide inventory claims. Native showroom and Scandiano tax base distinct. A secondary auction-directory label was investigated against current first-party retail/about/legal/navigation and targeted searches; no owned auction service identified. No unverified founder/daughter operators, .it alias, TLS bypass or stock-unavailable inference from Skype footer.",
-      "Enrica current complete proprietor explicit and positive official validation. Actual second original eighteenth-century-labelled Madonna painting crop inspected; frame/reverse and bg_processed first image not claimed inspected. Probably Polish artwork origin is not an imported fact or business-home assignment. Old native DNS failure not closure, source/alias or historic-email proof. Alessandria business and official tax addresses distinct; no stock/dispatch/pickup inferred.",
-      "Fava current full proprietor business/VAT positive; actual religious painting original inspected, with title/observed wider Nativity-type composition retained without independent iconographic reconciliation or invented empty-description details. Current Sombrico address, Via Roma tax and secondary Statuto address distinct. Direct antique art qualifies independently of salvage/tools/vinyl/design categories; no guessed native domain, email/logo/shipping or extra proprietor Party.",
-      "All country activityReview fields were scanned as of the current date: no due activity review. Future observations, including Pera’s November 10 follow-up, remain dated rather than automatically assumed resolved. This is separate from API resource verification and is not a new live-stock check of every older business."
+      "Prior: complete current CristinaPrior business/VAT positive. Actual current Opera20 painting502x640 and original1702x764logo inspected; attribution/date/expertise are seller descriptions, not guarantees. Native WordPress verified. Two explicit galleries, CastelfrancoChiesa7 and AsoloCornaro218, remain distinct from officialtaxChiesa3. No registered/stock/dispatch/pickup/default or verified shipping terms. Wrong initial guessed route404 was corrected to the actual published working link; no closure inferred.",
+      "Pernici: complete current personal operator/VAT positive. Specific1880-1890Cantagalli LaMusica majolica plaque1914x1914 inspected; Renaissance fresco is copied composition, not object age/authorship. Original2078x366brandPNG verified including white-background preview. Native explicitAnticoAntico provider/runtime verified. Gramsci121a gallery differs from taxPacchetti24D. Empty#service link is not a shipping policy; Skypeidentifierraffa.it not websitealias. No fulfillment or extra artist/manufacturer Party.",
+      "Recuperando: complete current hosted SNC/VAT and official fullFattoriniDanieleEC name corroborate native business/address/mobile. Specific late19c GialloSiena mantel1965x1965 inspected, distinct from generic modern materials. Original8670x2374logo and actualShopify verified. One independently explicit sales-premises/warehouse location, no formal registered or allstock/dispatch default. Native worldwide without geographic limits supports COMPLETEANYWHERE/OFFERED/PACKING, all rates/times/actors/origin unknown. Explicit purchased warehouse collection bound to verified location, independent/offered with nullable arrangement; no invented appointment/window. Currency selectors, zero prices and empty-cart free-freight text not imported. Assuring reliability is not insurance."
     ],
     "noOtherCountryDealerMutations": true,
     "paidResearchSpendUsd": 0,
@@ -89,26 +89,26 @@
       "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/main-verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:27.669277Z",
-      "fullVerifiedAt": "2026-11-04T10:24:21.316119Z",
+      "verifiedAt": "2026-11-04T14:45:21.965348Z",
+      "fullVerifiedAt": "2026-11-04T14:09:08.673976Z",
       "counts": {
-        "parties": 293,
-        "listingSources": 293,
-        "locations": 341,
-        "logos": 253,
-        "identifiedPlatforms": 228,
-        "deliveryProfiles": 162,
-        "emptyIngestionMethods": 293,
-        "excluded": 26,
-        "deferred": 93
+        "parties": 319,
+        "listingSources": 319,
+        "locations": 373,
+        "logos": 274,
+        "identifiedPlatforms": 250,
+        "deliveryProfiles": 170,
+        "emptyIngestionMethods": 319,
+        "excluded": 27,
+        "deferred": 99
       }
     },
     {
       "ledger": "data/dealer-discovery/countries/IT/hosted/555-srls/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/555-srls/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:27.148820Z",
-      "fullVerifiedAt": "2026-11-04T10:23:35.886899Z",
+      "verifiedAt": "2026-11-04T14:45:21.250597Z",
+      "fullVerifiedAt": "2026-11-04T14:08:19.477934Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -125,8 +125,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/abbona-roberto/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/abbona-roberto/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:27.200064Z",
-      "fullVerifiedAt": "2026-11-04T10:23:38.235980Z",
+      "verifiedAt": "2026-11-04T14:45:21.264687Z",
+      "fullVerifiedAt": "2026-11-04T14:08:19.471862Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -143,8 +143,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/abellonio-ivano/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/abellonio-ivano/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:27.293212Z",
-      "fullVerifiedAt": "2026-11-04T10:23:36.676856Z",
+      "verifiedAt": "2026-11-04T14:45:21.342005Z",
+      "fullVerifiedAt": "2026-11-04T14:08:19.492982Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -161,8 +161,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/acasadimanu74/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/acasadimanu74/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:27.207853Z",
-      "fullVerifiedAt": "2026-11-04T10:23:35.753339Z",
+      "verifiedAt": "2026-11-04T14:45:21.365430Z",
+      "fullVerifiedAt": "2026-11-04T14:08:19.495587Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -179,8 +179,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/ag-antichita/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/ag-antichita/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:35.548522Z",
-      "fullVerifiedAt": "2026-11-04T10:23:44.634198Z",
+      "verifiedAt": "2026-11-04T14:45:30.126160Z",
+      "fullVerifiedAt": "2026-11-04T14:08:28.822417Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -197,8 +197,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/alberto-savio/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/alberto-savio/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:35.556118Z",
-      "fullVerifiedAt": "2026-11-04T10:23:45.810861Z",
+      "verifiedAt": "2026-11-04T14:45:30.078683Z",
+      "fullVerifiedAt": "2026-11-04T14:08:28.707056Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -215,8 +215,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/am-marcelli/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/am-marcelli/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:35.659641Z",
-      "fullVerifiedAt": "2026-11-04T10:23:45.715770Z",
+      "verifiedAt": "2026-11-04T14:45:30.205328Z",
+      "fullVerifiedAt": "2026-11-04T14:08:28.792345Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -233,8 +233,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/anna-delmonte/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/anna-delmonte/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:35.621539Z",
-      "fullVerifiedAt": "2026-11-04T10:23:47.264549Z",
+      "verifiedAt": "2026-11-04T14:45:30.287971Z",
+      "fullVerifiedAt": "2026-11-04T14:08:28.734992Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -251,8 +251,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichi-ricordi/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichi-ricordi/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:35.943609Z",
-      "fullVerifiedAt": "2026-11-04T10:23:53.174666Z",
+      "verifiedAt": "2026-11-04T14:45:30.771141Z",
+      "fullVerifiedAt": "2026-11-04T14:08:37.704640Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -269,8 +269,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-68/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-68/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:44.129623Z",
-      "fullVerifiedAt": "2026-11-04T10:23:53.886076Z",
+      "verifiedAt": "2026-11-04T14:45:38.761607Z",
+      "fullVerifiedAt": "2026-11-04T14:08:37.893878Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -287,8 +287,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-amore/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-amore/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:44.005459Z",
-      "fullVerifiedAt": "2026-11-04T10:23:53.538368Z",
+      "verifiedAt": "2026-11-04T14:45:38.930268Z",
+      "fullVerifiedAt": "2026-11-04T14:08:37.558953Z",
       "counts": {
         "parties": 0,
         "listingSources": 0,
@@ -305,8 +305,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-brandina/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-brandina/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:44.105015Z",
-      "fullVerifiedAt": "2026-11-04T10:23:55.505731Z",
+      "verifiedAt": "2026-11-04T14:45:39.128853Z",
+      "fullVerifiedAt": "2026-11-04T14:08:38.002187Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -323,8 +323,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-davide/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-davide/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:44.130803Z",
-      "fullVerifiedAt": "2026-11-04T10:24:01.520844Z",
+      "verifiedAt": "2026-11-04T14:45:39.090059Z",
+      "fullVerifiedAt": "2026-11-04T14:08:47.736640Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -341,8 +341,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-galliera/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-galliera/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:44.364292Z",
-      "fullVerifiedAt": "2026-11-04T10:24:01.851209Z",
+      "verifiedAt": "2026-11-04T14:45:39.455425Z",
+      "fullVerifiedAt": "2026-11-04T14:08:47.653654Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -359,8 +359,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-gulino/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-gulino/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:52.496311Z",
-      "fullVerifiedAt": "2026-11-04T10:24:02.330960Z",
+      "verifiedAt": "2026-11-04T14:45:47.886342Z",
+      "fullVerifiedAt": "2026-11-04T14:08:48.079861Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -377,8 +377,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-il-leone/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-il-leone/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:52.349478Z",
-      "fullVerifiedAt": "2026-11-04T10:24:04.043038Z",
+      "verifiedAt": "2026-11-04T14:45:47.841634Z",
+      "fullVerifiedAt": "2026-11-04T14:08:47.816484Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -395,8 +395,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-la-torre/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-la-torre/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:52.604230Z",
-      "fullVerifiedAt": "2026-11-04T10:24:09.865177Z",
+      "verifiedAt": "2026-11-04T14:45:48.051601Z",
+      "fullVerifiedAt": "2026-11-04T14:08:56.687893Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -413,8 +413,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-morello/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-morello/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:52.441389Z",
-      "fullVerifiedAt": "2026-11-04T10:24:10.215748Z",
+      "verifiedAt": "2026-11-04T14:45:48.261624Z",
+      "fullVerifiedAt": "2026-11-04T14:08:56.871765Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -431,8 +431,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-palladio/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-palladio/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:57:52.640261Z",
-      "fullVerifiedAt": "2026-11-04T10:24:10.704034Z",
+      "verifiedAt": "2026-11-04T14:45:48.271845Z",
+      "fullVerifiedAt": "2026-11-04T14:08:56.740183Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -449,8 +449,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-perla/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-perla/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:00.679410Z",
-      "fullVerifiedAt": "2026-11-04T10:24:12.246753Z",
+      "verifiedAt": "2026-11-04T14:45:56.497783Z",
+      "fullVerifiedAt": "2026-11-04T14:08:57.152244Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -467,8 +467,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-vera/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-vera/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:00.668208Z",
-      "fullVerifiedAt": "2026-11-04T10:24:18.304358Z",
+      "verifiedAt": "2026-11-04T14:45:56.623023Z",
+      "fullVerifiedAt": "2026-11-04T14:09:06.237386Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -485,8 +485,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/antichita-vietti/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/antichita-vietti/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:00.778923Z",
-      "fullVerifiedAt": "2026-11-04T10:24:18.474911Z",
+      "verifiedAt": "2026-11-04T14:45:56.737578Z",
+      "fullVerifiedAt": "2026-11-04T14:09:06.225699Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -503,8 +503,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/aritroso-bontacchio/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/aritroso-bontacchio/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:00.852434Z",
-      "fullVerifiedAt": "2026-11-04T10:24:18.920225Z",
+      "verifiedAt": "2026-11-04T14:45:56.903760Z",
+      "fullVerifiedAt": "2026-11-04T14:09:06.233279Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -521,8 +521,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/arredantico-cascino/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/arredantico-cascino/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:01.145413Z",
-      "fullVerifiedAt": "2026-11-04T10:24:20.326927Z",
+      "verifiedAt": "2026-11-04T14:45:56.824841Z",
+      "fullVerifiedAt": "2026-11-04T14:09:06.592025Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -539,8 +539,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/arredo-antico-urbani/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/arredo-antico-urbani/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:08.819476Z",
-      "fullVerifiedAt": "2026-11-04T10:24:26.437861Z",
+      "verifiedAt": "2026-11-04T14:46:05.930792Z",
+      "fullVerifiedAt": "2026-11-04T14:09:15.550022Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -557,8 +557,26 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/artantica-gia/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/artantica-gia/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:08.968512Z",
-      "fullVerifiedAt": "2026-11-04T10:24:26.465284Z",
+      "verifiedAt": "2026-11-04T14:46:05.870137Z",
+      "fullVerifiedAt": "2026-11-04T14:09:15.621497Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/arte-arredare-pagani/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/arte-arredare-pagani/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:06.304554Z",
+      "fullVerifiedAt": "2026-11-04T14:09:15.870470Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -575,8 +593,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/atena-srls/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/atena-srls/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:08.971684Z",
-      "fullVerifiedAt": "2026-11-04T10:24:27.197566Z",
+      "verifiedAt": "2026-11-04T14:46:06.265224Z",
+      "fullVerifiedAt": "2026-11-04T14:09:16.135052Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -593,8 +611,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/barbara-cesaro/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/barbara-cesaro/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:09.192756Z",
-      "fullVerifiedAt": "2026-11-04T10:24:28.410318Z",
+      "verifiedAt": "2026-11-04T14:46:06.580000Z",
+      "fullVerifiedAt": "2026-11-04T14:09:18.084756Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -611,8 +629,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/barbero-antichita/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/barbero-antichita/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:09.356475Z",
-      "fullVerifiedAt": "2026-11-04T10:24:29.423316Z",
+      "verifiedAt": "2026-11-04T14:46:15.723682Z",
+      "fullVerifiedAt": "2026-11-04T14:09:24.622875Z",
       "counts": {
         "parties": 0,
         "listingSources": 0,
@@ -629,8 +647,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/bardoni-davide/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/bardoni-davide/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:16.969957Z",
-      "fullVerifiedAt": "2026-11-04T10:24:34.705944Z",
+      "verifiedAt": "2026-11-04T14:46:17.082708Z",
+      "fullVerifiedAt": "2026-11-04T14:09:24.999987Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -647,8 +665,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/barzan-antiquariato/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/barzan-antiquariato/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:16.920010Z",
-      "fullVerifiedAt": "2026-11-04T10:24:34.335926Z",
+      "verifiedAt": "2026-11-04T14:46:16.146410Z",
+      "fullVerifiedAt": "2026-11-04T14:09:24.758778Z",
       "counts": {
         "parties": 0,
         "listingSources": 0,
@@ -665,8 +683,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/bonatelli-antichita/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/bonatelli-antichita/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:17.000450Z",
-      "fullVerifiedAt": "2026-11-04T10:24:35.053951Z",
+      "verifiedAt": "2026-11-04T14:46:16.215192Z",
+      "fullVerifiedAt": "2026-11-04T14:09:25.018804Z",
       "counts": {
         "parties": 0,
         "listingSources": 0,
@@ -680,11 +698,29 @@
       }
     },
     {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/bottega-restauro-tarditi/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/bottega-restauro-tarditi/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:16.562518Z",
+      "fullVerifiedAt": "2026-11-04T14:09:27.575151Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
       "ledger": "data/dealer-discovery/countries/IT/hosted/catellani-arte/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/catellani-arte/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:17.047201Z",
-      "fullVerifiedAt": "2026-11-04T10:24:36.848970Z",
+      "verifiedAt": "2026-11-04T14:46:25.524675Z",
+      "fullVerifiedAt": "2026-11-04T14:09:34.197651Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -701,8 +737,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/cherubini-zorzella/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/cherubini-zorzella/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:17.399261Z",
-      "fullVerifiedAt": "2026-11-04T10:24:37.944394Z",
+      "verifiedAt": "2026-11-04T14:46:25.924530Z",
+      "fullVerifiedAt": "2026-11-04T14:09:34.177551Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -719,8 +755,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/collectors-corner-sciarra/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/collectors-corner-sciarra/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:24.871656Z",
-      "fullVerifiedAt": "2026-11-04T10:24:42.956775Z",
+      "verifiedAt": "2026-11-04T14:46:26.004328Z",
+      "fullVerifiedAt": "2026-11-04T14:09:34.295100Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -737,8 +773,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/contra-de-proti/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/contra-de-proti/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:24.871474Z",
-      "fullVerifiedAt": "2026-11-04T10:24:43.277169Z",
+      "verifiedAt": "2026-11-04T14:46:26.256669Z",
+      "fullVerifiedAt": "2026-11-04T14:09:34.318020Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -755,8 +791,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/damasco-srl/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/damasco-srl/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:24.802660Z",
-      "fullVerifiedAt": "2026-11-04T10:24:43.669365Z",
+      "verifiedAt": "2026-11-04T14:46:26.852182Z",
+      "fullVerifiedAt": "2026-11-04T14:09:36.967514Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -773,8 +809,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/diego-merulla/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/diego-merulla/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:24.923949Z",
-      "fullVerifiedAt": "2026-11-04T10:24:45.009154Z",
+      "verifiedAt": "2026-11-04T14:46:34.909778Z",
+      "fullVerifiedAt": "2026-11-04T14:09:43.195968Z",
       "counts": {
         "parties": 0,
         "listingSources": 0,
@@ -791,8 +827,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/ditta-calderan-stella/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/ditta-calderan-stella/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:25.228412Z",
-      "fullVerifiedAt": "2026-11-04T10:40:14.705950Z",
+      "verifiedAt": "2026-11-04T14:46:35.237717Z",
+      "fullVerifiedAt": "2026-11-04T14:09:43.783759Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -809,8 +845,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/dona-loris/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/dona-loris/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:32.752344Z",
-      "fullVerifiedAt": "2026-11-04T10:40:22.163699Z",
+      "verifiedAt": "2026-11-04T14:46:35.142116Z",
+      "fullVerifiedAt": "2026-11-04T14:09:43.743602Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -826,9 +862,9 @@
     {
       "ledger": "data/dealer-discovery/countries/IT/hosted/enrica-pasino/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/enrica-pasino/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:58:33.289756Z",
-      "fullVerifiedAt": "2026-11-04T10:58:33.289756Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:35.545580Z",
+      "fullVerifiedAt": "2026-11-04T14:09:43.640852Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -844,9 +880,9 @@
     {
       "ledger": "data/dealer-discovery/countries/IT/hosted/fava-antichita-mario/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/fava-antichita-mario/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:58:33.146743Z",
-      "fullVerifiedAt": "2026-11-04T10:58:33.146743Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:36.079563Z",
+      "fullVerifiedAt": "2026-11-04T14:09:46.743229Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -863,8 +899,26 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/federico-andrisani/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/federico-andrisani/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:32.776366Z",
-      "fullVerifiedAt": "2026-11-04T10:24:46.727888Z",
+      "verifiedAt": "2026-11-04T14:46:43.935914Z",
+      "fullVerifiedAt": "2026-11-04T14:09:52.959080Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/galleria-mason/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/galleria-mason/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:43.998562Z",
+      "fullVerifiedAt": "2026-11-04T14:09:53.409784Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -881,8 +935,170 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/galleria-santagati/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/galleria-santagati/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:33.292460Z",
-      "fullVerifiedAt": "2026-11-04T10:24:51.254601Z",
+      "verifiedAt": "2026-11-04T14:46:44.194066Z",
+      "fullVerifiedAt": "2026-11-04T14:09:53.374585Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/genova-antica/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/genova-antica/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:44.502811Z",
+      "fullVerifiedAt": "2026-11-04T14:09:53.021427Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/ghidotti-guido/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/ghidotti-guido/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:45.235799Z",
+      "fullVerifiedAt": "2026-11-04T14:09:56.483953Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/giorgio-baghino/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/giorgio-baghino/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:53.455556Z",
+      "fullVerifiedAt": "2026-11-04T14:10:02.666694Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/giorgio-mazzoni/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/giorgio-mazzoni/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:54.217216Z",
+      "fullVerifiedAt": "2026-11-04T14:10:02.437607Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/giorgio-scaccabarozzi/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/giorgio-scaccabarozzi/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:53.639127Z",
+      "fullVerifiedAt": "2026-11-04T14:10:03.170481Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/ias-alberto-sandri/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/ias-alberto-sandri/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:54.678971Z",
+      "fullVerifiedAt": "2026-11-04T14:10:03.150079Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/il-collezionista-pelucchi/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/il-collezionista-pelucchi/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:46:54.399439Z",
+      "fullVerifiedAt": "2026-11-04T14:10:06.163394Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/il-posto-briciole-de-mori/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/il-posto-briciole-de-mori/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:02.615892Z",
+      "fullVerifiedAt": "2026-11-04T14:10:12.006208Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/kushan-fischetti/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/kushan-fischetti/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:02.788976Z",
+      "fullVerifiedAt": "2026-11-04T14:10:12.228819Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -899,8 +1115,152 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/la-cassapanca-fiori/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/la-cassapanca-fiori/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:40.993956Z",
-      "fullVerifiedAt": "2026-11-04T10:24:51.581775Z",
+      "verifiedAt": "2026-11-04T14:47:04.048447Z",
+      "fullVerifiedAt": "2026-11-04T14:10:12.724777Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/le-due-torri-tomasi/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/le-due-torri-tomasi/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:03.310210Z",
+      "fullVerifiedAt": "2026-11-04T14:10:12.593027Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/le-lanterne-sperandio/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/le-lanterne-sperandio/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:03.697905Z",
+      "fullVerifiedAt": "2026-11-04T14:10:15.224443Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/liviero-stefano/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/liviero-stefano/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:11.291046Z",
+      "fullVerifiedAt": "2026-11-04T14:10:21.572360Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/lodi-arredantico/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/lodi-arredantico/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:11.634774Z",
+      "fullVerifiedAt": "2026-11-04T14:10:21.808013Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/lombardi-guido/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/lombardi-guido/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:11.981365Z",
+      "fullVerifiedAt": "2026-11-04T14:10:22.082580Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/luciano-nidi/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/luciano-nidi/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:12.373189Z",
+      "fullVerifiedAt": "2026-11-04T14:10:22.189598Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/lunadei-primo/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/lunadei-primo/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:12.722754Z",
+      "fullVerifiedAt": "2026-11-04T14:10:24.854740Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/marco-settimelli/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/marco-settimelli/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:19.857043Z",
+      "fullVerifiedAt": "2026-11-04T14:10:31.030014Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -917,8 +1277,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/massimo-lazzarin-proantic/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/massimo-lazzarin-proantic/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:41.045582Z",
-      "fullVerifiedAt": "2026-11-04T10:24:52.179414Z",
+      "verifiedAt": "2026-11-04T14:47:20.158908Z",
+      "fullVerifiedAt": "2026-11-04T14:10:31.315520Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -935,8 +1295,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/mobili-epoca-debbia-daniel/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/mobili-epoca-debbia-daniel/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:41.286412Z",
-      "fullVerifiedAt": "2026-11-04T10:24:53.293061Z",
+      "verifiedAt": "2026-11-04T14:47:20.507753Z",
+      "fullVerifiedAt": "2026-11-04T14:10:31.545779Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -950,11 +1310,65 @@
       }
     },
     {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/mobiliartdeco-rovelli/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/mobiliartdeco-rovelli/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:20.757747Z",
+      "fullVerifiedAt": "2026-11-04T14:10:31.769820Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/moneghini-riccardo/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/moneghini-riccardo/verification.json",
+      "scope": "FULL",
+      "verifiedAt": "2026-11-04T14:47:21.592775Z",
+      "fullVerifiedAt": "2026-11-04T14:47:21.592775Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
       "ledger": "data/dealer-discovery/countries/IT/hosted/monna-agnese/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/monna-agnese/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:41.410699Z",
-      "fullVerifiedAt": "2026-11-04T10:24:54.853849Z",
+      "verifiedAt": "2026-11-04T14:47:28.324047Z",
+      "fullVerifiedAt": "2026-11-04T14:10:34.616716Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/neroantico11-prelli/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/neroantico11-prelli/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:28.532890Z",
+      "fullVerifiedAt": "2026-11-04T14:10:40.680298Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -971,8 +1385,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/orfeo-bertacchi/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/orfeo-bertacchi/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:41.456911Z",
-      "fullVerifiedAt": "2026-11-04T10:24:59.250121Z",
+      "verifiedAt": "2026-11-04T14:47:29.109641Z",
+      "fullVerifiedAt": "2026-11-04T14:10:40.955325Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -989,8 +1403,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/pampuro-fabio/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/pampuro-fabio/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:49.663854Z",
-      "fullVerifiedAt": "2026-11-04T10:24:59.638683Z",
+      "verifiedAt": "2026-11-04T14:47:29.218464Z",
+      "fullVerifiedAt": "2026-11-04T14:10:41.365156Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -1007,8 +1421,8 @@
       "ledger": "data/dealer-discovery/countries/IT/hosted/pardini-maria-gemma/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/pardini-maria-gemma/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:49.551328Z",
-      "fullVerifiedAt": "2026-11-04T10:25:00.436722Z",
+      "verifiedAt": "2026-11-04T14:47:29.931617Z",
+      "fullVerifiedAt": "2026-11-04T14:10:41.404076Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -1022,11 +1436,83 @@
       }
     },
     {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/pernice-aniello/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/pernice-aniello/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:36.979672Z",
+      "fullVerifiedAt": "2026-11-04T14:10:43.786076Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/piero-cimo/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/piero-cimo/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:37.308734Z",
+      "fullVerifiedAt": "2026-11-04T14:10:50.218869Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/poesia-antiqua/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/poesia-antiqua/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T14:47:37.714347Z",
+      "fullVerifiedAt": "2026-11-04T14:10:50.458401Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 1,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/santa-barbara-spello/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/IT/hosted/santa-barbara-spello/verification.json",
+      "scope": "FULL",
+      "verifiedAt": "2026-11-04T14:47:38.147390Z",
+      "fullVerifiedAt": "2026-11-04T14:47:38.147390Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
       "ledger": "data/dealer-discovery/countries/IT/hosted/taddei-gilberto/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/IT/hosted/taddei-gilberto/verification.json",
       "scope": "INCREMENTAL",
-      "verifiedAt": "2026-11-04T10:58:49.758566Z",
-      "fullVerifiedAt": "2026-11-04T10:25:01.465773Z",
+      "verifiedAt": "2026-11-04T14:47:38.350753Z",
+      "fullVerifiedAt": "2026-11-04T14:10:51.061633Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -1045,8 +1531,8 @@
   "scopeInstructionObservedAt": "2026-11-03T18:34:12.000445Z",
   "qualificationScopeNotes": "New additions must directly sell art or antiques. General used-goods, fashion and ordinary book shops are outside the tightened research scope. Existing resource IDs remain owned and must never be recreated.",
   "nextEntityKeys": [
-    "IT:ANTICOANTICO:2378",
-    "IT:ANTICOANTICO:2154",
-    "IT:ANTICOANTICO:2263"
+    "IT:ANTICOANTICO:939",
+    "IT:ANTICOANTICO:820",
+    "IT:ANTICOANTICO:884"
   ]
 }

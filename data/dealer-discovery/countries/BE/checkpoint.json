@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "run": "be-2026-11-04-098",
-  "observedAt": "2026-11-04T11:15:20.361731Z",
+  "run": "be-2026-11-04-127",
+  "observedAt": "2026-11-04T14:43:02.417253Z",
   "counts": {
-    "parties": 177,
-    "listingSources": 178,
-    "locations": 241,
-    "logos": 105,
-    "identifiedPlatforms": 116,
-    "deliveryProfiles": 88,
-    "emptyIngestionMethods": 178,
-    "excluded": 36,
-    "deferred": 291
+    "parties": 201,
+    "listingSources": 202,
+    "locations": 272,
+    "logos": 119,
+    "identifiedPlatforms": 137,
+    "deliveryProfiles": 101,
+    "emptyIngestionMethods": 202,
+    "excluded": 41,
+    "deferred": 346
   },
   "verification": "PASSED_INCREMENTAL",
   "paidDataSpendUsd": 0,
   "blockers": [],
   "countryCoverage": "OPEN",
-  "description": "No additions or exclusions: three new own-domain deferrals, three hosted legal-identity deferrals, and two existing owners retained. Current first-party rug-restoration services and empty catalogues were not treated as available antique sale stock; Antic Arts now has hosted-stock evidence but its operator gap remains. All nine ledgers audited, indexed and incrementally verified;177 Parties/178 sources and all ingestion empty. Next roster offset32–40 is under research; country remains open."
+  "description": "Three previousdeferrals resolved and onboarded: ArtPartout,SPAXProjects,AleorCraft&Biodesign. Fresh publicofficialNBBmetadata boundtoexactfirstpartycompanynumbersorfullname+currentaddress; actualoriginalartphotos/two logos verified, addressconflicts/shippingomissions preserved. All newresourceIDs/defaults readback andall twelveledgers audit/index/incremental pass. Totals201parties/202sources,allingestionempty. ContinueNECA8–11 andexact-numberlegalfollowups; no blocker/paidspend,nextFULL130,countryopen."
 }

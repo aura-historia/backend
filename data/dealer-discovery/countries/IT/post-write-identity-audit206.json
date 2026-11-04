@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-206",
+  "country": "IT",
+  "observedAt": "2026-11-04T12:56:06.290176Z",
+  "result": "PASSED",
+  "rawJournalFiles": 288,
+  "rawJournalRecordsScanned": 59423,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "marziocinelli.it",
+      "IT:ANTICOANTICO:2370"
+    ],
+    "excluded": [],
+    "deferred": [
+      "twpvintage.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot206-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T12:55:02.965568Z",
+    "fullVerifiedAt": "2026-11-04T12:35:44.257604Z",
+    "counts": {
+      "parties": 366,
+      "listingSources": 366,
+      "locations": 414,
+      "logos": 262,
+      "identifiedPlatforms": 299,
+      "deliveryProfiles": 174,
+      "emptyIngestionMethods": 366,
+      "excluded": 27,
+      "deferred": 104
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Cinelli exact full current native/controller/VAT positive; actual current Faenza late500/early600-labelled decoratedinkwell1500x1500 inspected, laterdrawers explicit and not characterized as original. Current catalogue distinguished soldarchive/copyrightyear, originalnative500x125PNG and actualWooCommerce9.7.3runtime verified. Ilenia workcompanion not a legalpartnerParty. ViaRomana136-138/R Firenze businesspremises distinct RioNellElba tax, no warehouse/stock/dispatch/pickup. Native primaryemail chosen, no shipping/purchasedcollection verified. Exact2342 corroborationonly.",
+    "Settimelli exact current full businessname/nativeVAT officialpositive, actual current firsthalf18c-labelled Flemishstilllife788x1400 inspected. GenericFiammingo not namedartist or Belgiumhome/shippingdestination; sellerrestoration/date/material/condition not independentguarantees. Livornese370-372 roles[] distinct officialBrusciana4/secondaryValdElsa4. No emails/logo/shipping/pickup or standalonecatalogue guessed.",
+    "TWP/MatteoRizzi positive complete currentoperator/VAT but current reviewed restoredmachines, undated vintageadvertising and1956/1960scales did not establish direct originalart or specifically antique stock under narrower user scope. DEFERRED noresources/facts/backend until specific qualified current offer. Relatedphone3398013721 and taxBollana18 with already-managed EmporioSRL are contact/geography leads, not identity/ownership proof; distinct positiveVAT/operators retained, Emporio unchanged. Modelhistory not specificobjectdate."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

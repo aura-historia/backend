@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-205",
+  "country": "IT",
+  "observedAt": "2026-11-04T12:50:36.498554Z",
+  "result": "PASSED",
+  "rawJournalFiles": 287,
+  "rawJournalRecordsScanned": 59349,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:2131",
+      "IT:ANTICOANTICO:2073"
+    ],
+    "excluded": [
+      "magnoliaarte.com"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot205-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T12:49:53.247321Z",
+    "fullVerifiedAt": "2026-11-04T12:35:44.257604Z",
+    "counts": {
+      "parties": 364,
+      "listingSources": 364,
+      "locations": 412,
+      "logos": 261,
+      "identifiedPlatforms": 297,
+      "deliveryProfiles": 174,
+      "emptyIngestionMethods": 364,
+      "excluded": 27,
+      "deferred": 103
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "LucianoNidi current exact dealer-authored business/about/legalVATfooter gives complete personaloperator and consistent current contacts. NegativeintraEU VIES not domesticinvalidity/closure; no positive official match or secondary AntichitaDelCorso companystring adopted. Actual own portraitpanel1512x1919 inspected, no independent artist/date/signature/material/condition guarantee. Current Borgonuovo18/C roles[]; oldersecondaryBarberia/phones/fair email not imported. No logo/shipping/pickup guessed.",
+    "Lunadei current complete naturalperson name/VAT/contact coherent across exact hosted and explicitlylinked dealer-authored Reteimprese businesssite. Negative VIESonlyintraEU. Actual current460662 painting1399x1155 inspected, Nuvolone circle/workshop not autograph; seller canvas/17c/relining/early20cframe not independent guarantees. Soldmarked works/acquisitionadvertisements/1870ancestorstory not qualification. Explicit current Borsieri8/10shop/gallery/workshop supportsBUSINESS_PREMISES, not registered/warehouse/inventory/dispatch/purchased collection. No logo/email/shipping/platform-for-corrobosite/extra source invented.",
+    "MagnoliaArte native and exact2363 current primaryabout both explicitly own auctionhouse/periodicauctions. ExcludedAUCTION_BUSINESS even though artdirectlyrelevant. Noresources. Malformed locality8087/directorypostal291218087/phone375692507 not repaired or imported; founderLoris notsoleoperatorParty. Revisit only changedbusinessmodel evidenced currently firstparty."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

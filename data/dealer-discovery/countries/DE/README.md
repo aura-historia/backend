@@ -23,10 +23,10 @@ each dealer still requires its own qualification.
 [searches.jsonl](searches.jsonl) records recent queries and duplicate-filter results.
 Check it before repeating regional searches; search results remain leads, not import evidence.
 
-Current production checkpoint `2026-11-04-de-253`: **714 Parties and 718 listing sources**,
-**825 locations**, **460 original logo URLs**, **450 advertised-delivery profiles/defaults**,
-and **626 identified platforms**. Discovery created every ingestion list empty.
-The latest live read finds **431 empty** and **287 nonempty** lists; older records now
+Current production checkpoint `2026-11-04-de-283`: **757 Parties and 762 listing sources**,
+**876 locations**, **493 original logo URLs**, **483 advertised-delivery profiles/defaults**,
+and **662 identified platforms**. Discovery created every ingestion list empty.
+The latest live read finds **475 empty** and **287 nonempty** lists; older records now
 contain `WEB_CRAWL`. Standard country verification therefore fails its all-empty
 assertion, while identity, presentation and dated location/profile/default readbacks
 match. Discovery has not changed those live ingestion settings. A Party
@@ -34,7 +34,7 @@ represents the business/operator; the API has no additional organization-create 
 This workflow has not submitted product listings. Paid search, Places, lead verification
 and treg spend: **$0**.
 
-The ledger currently records **136 excluded** and **388 deferred** domains. Use the compact
+The ledger currently records **148 excluded** and **420 deferred** domains. Use the compact
 index for names, IDs, platforms and decision codes, and the ledger for evidence, omissions
 and revisit dates. Research deferrals are not fraud findings. Primary closure notices
 exclude inactive businesses; a closed historic branch or showroom does not by itself
@@ -46,6 +46,7 @@ or an actual blocking condition, preserving enough evidence and IDs to resume.
 
 ## Practical lessons and remaining enrichment
 
+- Shipping order thresholds support a minimum only. When a paid tariff applies only below a free-delivery threshold, retain that conditional tariff in the ledger and use an unknown-rate fallback; do not import it as an unconditional charge.
 - Check the live legal notice and contracting terms after a business takeover: indexed
   search results and founder biographies can still name the former proprietor. A temporary renovation or maintenance notice establishes
   neither permanent closure nor inspectable current stock.

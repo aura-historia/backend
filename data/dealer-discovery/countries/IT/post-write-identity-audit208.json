@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-208",
+  "country": "IT",
+  "observedAt": "2026-11-04T13:11:47.252169Z",
+  "result": "PASSED",
+  "rawJournalFiles": 292,
+  "rawJournalRecordsScanned": 59766,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "mrantichita.com",
+      "mtgallery.it",
+      "IT:ANTICOANTICO:2307"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot208-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T13:10:35.053631Z",
+    "fullVerifiedAt": "2026-11-04T13:08:15.025739Z",
+    "counts": {
+      "parties": 372,
+      "listingSources": 372,
+      "locations": 420,
+      "logos": 266,
+      "identifiedPlatforms": 305,
+      "deliveryProfiles": 175,
+      "emptyIngestionMethods": 372,
+      "excluded": 27,
+      "deferred": 104
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "MR complete current native/proprietor/currentofficialVAT positive, specific current SanLorenzo458865 front724x1500 inspected; soldworks and copyright2018 notqualification. Current Incrociati30rGenova16137 native+exacthost agree, markedoldPalestro37R16122 retained onlydatedobservation notmoveevent/secondbranch. TaxNeirone58int3separate. Addressroles[] noinventory/dispatch/pickup. Originalwhite1100x132PNGviewed unchangeddarkbrowser; nativeauthor/actualcatalogueAntico supportsANTICOANTICO, samehost752corroboonly.",
+    "MT current fullnativefooter/privacyToniMonica/VAT matches officialfullname. Specific actual own1899/19c-labelled Pellegrini-attributed painting1080x1407/frame inspected, no signature/reverse/date/authorship guarantee. Currentnative Cavour9/H42121 shop/visits supportsBUSINESS_PREMISES, completelegalspellingReggioEmilia adopted overcontacttypoEmila, taxSantAgostino5/00distinct. ActualWooCommerce9.7.3andoriginal360x160PNGverified. No cart/contact/newsletteractions or shipping/pickup/defaults inferred. Exact2362corroboonly.",
+    "Nero currentfullbusiness/proprietorNeilPrelli/VATpositive. Specific own1890-labelled Meucci huntingstilllife qualifiesdirectfineart, initial896x1195styledroomnotsoleproof: actualoriginalfront/oblique1440x1920photos inspected. Sellerdate/material/author/conditionnotindependentguarantees, paintedfirearm/trophies notweapons/wildlifeinventory. CurrentMondovi169/a12080expositionBUSINESS_PREMISES, magazzino3000mq notformalfulfillmentwarehouse/allstock/dispatch/pickup. TaxMargaritaStazione15 andolderfairCuneo103/email distinct, notimported/repurposed. No verifiednative/logo/email/shipping/pickup."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

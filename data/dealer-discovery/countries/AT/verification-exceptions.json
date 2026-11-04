@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-04-at-127",
-  "attemptedAt": "2026-11-04T11:16:19.750018Z",
-  "observedAt": "2026-11-04T11:15:18.350217Z",
+  "run": "2026-11-04-at-150",
+  "attemptedAt": "2026-11-04T14:46:15.352554Z",
+  "observedAt": "2026-11-04T14:45:25.138057Z",
   "status": "FAILED_EXTERNAL_INGESTION_CHANGE",
   "country": "AT",
-  "managedSources": 201,
-  "emptyIngestionMethods": 134,
+  "managedSources": 220,
+  "emptyIngestionMethods": 153,
   "affectedSources": 67,
   "reason": "Strict country verification found nonempty ingestion on sources that discovery originally created empty. Existing external settings were observed, not changed. New resources were individually read back with empty ingestion.",
   "lastPassedRun": "2026-11-03-at-103",
@@ -621,7 +621,8 @@
     "data/dealer-discovery/countries/AT/dealers.jsonl",
     "data/dealer-discovery/countries/AT/hosted/mayrhofer/dealers.jsonl",
     "data/dealer-discovery/countries/AT/hosted/nostalgie-antik/dealers.jsonl",
-    "data/dealer-discovery/countries/AT/hosted/schrattenecker/dealers.jsonl"
+    "data/dealer-discovery/countries/AT/hosted/schrattenecker/dealers.jsonl",
+    "data/dealer-discovery/countries/AT/hosted/stefan-muellner/dealers.jsonl"
   ],
   "paidDataSpendUsd": 0
 }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-04-fr-310",
-  "observedAt": "2026-11-04T11:11:55.742732Z",
+  "run": "2026-11-04-fr-336",
+  "observedAt": "2026-11-04T14:47:40.624131Z",
   "status": "FAILED_EXTERNAL_INGESTION_DRIFT",
   "lastPassedRun": "2026-11-03-fr-251",
   "lastPassedAt": "2026-11-03T20:29:26.470209Z",

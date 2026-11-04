@@ -2,6 +2,7 @@ domain	status	platform	listingSourceId	partyId	observedAt	reason	aliases
 010-deco-shop.de	DEFERRED				2026-11-02T09:08:24.573685Z	OWN_HISTORICAL_STOCK_NOT_CONFIRMED	
 1000-tollesachen.de	ADDED	WOOCOMMERCE	ls_01m6dpxfneenstk5ww7npktvzq	pty_01m6dpxfmvereb21h4cqhckvex	2026-11-02T08:44:50.528893Z		
 50er60er.de	ADDED	JIMDO	ls_01m6gg67m2eg78wv7sp1gwshbk	pty_01m6gg67knee48bap1dh26wkhq	2026-11-03T10:45:01.559859Z		
+a-z.art	ADDED	WIX	ls_01m6k7j8r5e7kvzx1ea6v7g9hr	pty_01m6k7j8qveq9s5tzthm27kd36	2026-11-04T12:12:00.492708Z		
 a43-kulturgut.de	EXCLUDED				2026-11-01T11:39:57.802192Z	MODERN_REMAINDERS_WHOLESALE	
 abc-versand.shopnetzwerk.com	ADDED	SHOPNETZWERK	ls_01m6cpwzcwey4v0h0m4cmg0p42	pty_01m6cpwzcme1jaqj1pk1sxe2bg	2026-11-01T23:25:19.259584Z		
 abrahamschacht-antiquariat.shopnetzwerk.com	ADDED	SHOPNETZWERK	ls_01m6c2mcgqex1r14df6qn1td08	pty_01m6c2mcg9emk881bkk1tznypn	2026-11-01T17:31:06.521660Z		
@@ -14,6 +15,7 @@ agentiko.de	ADDED	VIRTUEMART	ls_01m6c7at0nevtb49by4xanhnvx	pty_01m6c7at0ben1r4qx
 agentur-vogtland.de	DEFERRED				2026-11-01T22:29:44.969246Z	CURRENT_OWN_STOCK_UNCONFIRMED	
 ahnert.com	ADDED		ls_01m6crj5xgenvshm9zdyq7edtp	pty_01m6crj5x1et6bb2d863amxc05	2026-11-01T23:54:22.347172Z		
 aix-rarebooks.com	DEFERRED				2026-11-01T23:52:25.471153Z	PRIMARY_WEBSITE_UNAVAILABLE	
+ak.austrasia.eu	DEFERRED				2026-11-04T13:39:36.720676Z	CURRENT_OPERATION_AND_BUSINESS_HOME_AFTER_PREMISES_CLOSURE_UNVERIFIED	antik-kraechan.de
 aldingo.de	DEFERRED				2026-11-03T18:19:05.339996Z	INSPECTABLE_SPECIFIC_CURRENT_OWN_STOCK_UNVERIFIED	
 alfred-eimers.de	EXCLUDED				2026-11-03T22:55:02.893472Z	RESTORATION_CONSERVATION_EXPERTISE_SERVICE_WITHOUT_OWN_RETAIL_STOCK	
 aliceschmuck.com	DEFERRED				2026-11-03T17:43:55.070047Z	SPECIFIC_HISTORICAL_OR_ORIGINAL_FINE_ART_STOCK_UNVERIFIED	
@@ -29,16 +31,20 @@ alt-saarbruecker-antiquariat.de	DEFERRED				2026-11-04T09:12:37.697552Z	EXACT_CU
 altberliner-kacheloefen.de	ADDED	WORDPRESS	ls_01m6cjm0q1e12rkw16gx1tahsc	pty_01m6cjm0pge3x9frkr2rsfhncm	2026-11-01T22:10:31.214767Z		
 altbwert.de	DEFERRED				2026-11-01T22:17:12.195592Z	CURRENT_OWN_STOCK_UNCONFIRMED	
 alte-buecherwelt.shopnetzwerk.com	ADDED	SHOPNETZWERK	ls_01m6c37yv4ewxry519nhjnvy7x	pty_01m6c37ytpepeb77xrkh46ny9h	2026-11-01T17:41:47.924597Z		
+alte-zeiten.com	EXCLUDED				2026-11-04T13:17:40.368553Z	OPERATES_OWN_AUCTIONS	
 altekiste.lichtblick-buecherkiste.de	ADDED	SHOPNETZWERK	ls_01m6c27x7je34vx8bzd68j40n3	pty_01m6c27x71en7sae1as0q06qzg	2026-11-01T17:24:18.003685Z		lichtblick-buecherkiste.de
 alter-schmuck.de	DEFERRED				2026-11-02T09:43:02.478163Z	PRIMARY_TIMEOUT	
 alteschaetze.de	ADDED		ls_01m6e3mxjnek785h8z2erj7jfv	pty_01m6e3mxj6e3187aaca7hfy8d9	2026-11-02T12:27:21.413599Z		
 alteschatz.com	DEFERRED				2026-11-01T13:15:31.577515Z	PRIMARY_HTTP_502	
 althausrecycling.de	EXCLUDED				2026-11-01T22:10:19.019453Z	SERVICE_PROVIDER_WITH_SEPARATE_RETAILER	
 altholzladen.de	ADDED	WOOCOMMERCE	ls_01m6cjddvke7d8dbvmefae9015	pty_01m6cjddtwer18gdyy8mpb41wz	2026-11-01T22:06:56.030543Z		knapp-online.de
+altonaer-silberwerkstatt.de	ADDED	SHOPWARE	ls_01m6ke3ry1e4g9z2ss8a191nvx	pty_01m6ke3rxfe8nt1375947gfjay	2026-11-04T14:06:26.209789Z		
 altstadt-juwelier-shop.de	EXCLUDED				2026-11-01T12:46:57.249576Z	AUCTION_BUSINESS	leihhaus-nuernberg.de
 am-alten-hof.de	ADDED	WOOCOMMERCE	ls_01m6bbcrq5eajtxhsb7ysjtyeq	pty_01m6bbcrphe60t1kw2s173b2b0	2026-11-01T10:44:58.780718Z		
 amalienantik.de	ADDED	COCO	ls_01m6bf9f5de79tw2ssxv2zfnzt	pty_01m6bf9f4yekeahqxw2dexav4h	2026-11-01T11:53:04.625606Z		
+ambuschfeld.de	ADDED		ls_01m6kc5f6me698zx7bxbh8b9ek	pty_01m6kc5f65emjv6fendk75eddz	2026-11-04T13:32:23.961653Z		antiquitaeten-tebeck.de
 amotik.de	EXCLUDED				2026-11-01T19:54:46.618661Z	BUSINESS_CLOSED	
+an-verkauf-bad-freienwalde.de	EXCLUDED				2026-11-04T12:28:45.371620Z	OUTSIDE_DIRECT_ART_ANTIQUES_SCOPE	
 anderewelten.de	ADDED	SHOPIFY	ls_01m6edt4v8ewxtzh8b26d6y6pb	pty_01m6edt4tnevbbtd77m1ng6v1p	2026-11-02T15:24:58.465151Z		
 andreas-thies.de	EXCLUDED				2026-11-02T06:04:00.069389Z	DEALER_OPERATES_OWN_AUCTION	
 ankauf-militaria-orden.de	DEFERRED				2026-11-01T20:25:35.974686Z	BUYING_ONLY_OWN_SELLING_STOCK_UNCONFIRMED	
@@ -59,6 +65,7 @@ antik-am-grudenberg.de	ADDED	IONOS_MYWEBSITE	ls_01m6de7grjezh8gxn5zapwz68m	pty_0
 antik-andres.de	ADDED	WORDPRESS	ls_01m6ggtb2xe0q8ct5h9k92e3jf	pty_01m6ggtb2hec4bqa3kwew3rks0	2026-11-03T10:55:58.881195Z		
 antik-atelier.de	DEFERRED				2026-11-01T16:41:49.592037Z	MARKET_OPERATOR_RELATIONSHIP_UNCLEAR	
 antik-benz.de	EXCLUDED				2026-11-01T22:39:09.995724Z	DEALER_OFFERS_AUCTION_SERVICES	
+antik-bernau.de	EXCLUDED				2026-11-04T12:23:39.496922Z	UNTRUSTWORTHY_SOURCE_CONTENT	
 antik-breuer.de	ADDED	IONOS_MYWEBSITE	ls_01m6baqwk4eacbd02a01m6j5p4	pty_01m6baqwjmeqpsawhsyjqtvte8	2026-11-01T10:33:34.317630Z		
 antik-bronx.de	ADDED		ls_01m6jxcj45ebf87291g0gs0eb1	pty_01m6jxcj3tef2tj8whkwr10v2g	2026-11-04T09:14:08.080560Z		
 antik-christesen.de	ADDED	RAPIDWEAVER	ls_01m6bpkgnce7mt122kd83z0w5d	pty_01m6bpkgmxecrs88fyj3bfqd5y	2026-11-01T14:00:53.905874Z		
@@ -79,6 +86,7 @@ antik-kontor-bremen.de	DEFERRED				2026-11-03T11:53:13.456115Z	CURRENT_SALE_STOC
 antik-krampitz.de	ADDED	TYPO3	ls_01m6bqnjgdeaa8g2npnvky4cns	pty_01m6bqnjfwe82rdxha2tnj6g3s	2026-11-01T14:19:29.928646Z		
 antik-kunst-dresden.de	DEFERRED				2026-11-01T22:22:11.755792Z	CURRENT_OWN_STOCK_UNCONFIRMED	
 antik-lede.de	DEFERRED				2026-11-04T11:12:17.242713Z	CURRENT_OWN_HISTORICAL_STOCK_UNCONFIRMED	
+antik-lenz.de	ADDED		ls_01m6kb2jjpe85b97x582agw3r4	pty_01m6kb2jhxew9r1v3yx1mds8yf	2026-11-04T13:13:21.062910Z		
 antik-meissen.de	DEFERRED	WORDPRESS			2026-11-01T17:58:36.147477Z	CURRENT_OWN_STOCK_UNCONFIRMED	
 antik-muehle.de	ADDED	ASTRO	ls_01m6h22qyfe1fspv13vcyr6z3r	pty_01m6h22qy2e429wqd8153zfbn6	2026-11-03T15:57:39.888967Z		
 antik-mv.de	DEFERRED				2026-11-01T11:53:00.335662Z	TEMPORARY_MAINTENANCE	
@@ -86,6 +94,8 @@ antik-ofen-galerie.de	ADDED	STRAPI	ls_01m6dtnzswegvbr8ja2mm3zaqj	pty_01m6dtnzsge
 antik-paul-rosenheim.de	ADDED	WORDPRESS	ls_01m6hcjnd9efbs0q3ezdefx4ky	pty_01m6hcjnctensbygbqhg7rgt7p	2026-11-03T19:01:07.372499Z		
 antik-pavillon-kiel.de	ADDED	WORDPRESS	ls_01m6bestffe9gv5k8y5mv1s26g	pty_01m6besteze60azfjkgkqkdmrn	2026-11-01T11:44:31.963337Z		
 antik-querbeet.de	DEFERRED				2026-11-02T09:00:52.625767Z	PRIMARY_UNREACHABLE	
+antik-ramstein.de	DEFERRED				2026-11-04T13:39:36.720676Z	CURRENT_INSPECTABLE_STOCK_UNVERIFIED_EXAMPLE_PHOTOGRAPHS	
+antik-rendsburg.de	ADDED	JOOMLA	ls_01m6k4zgz7en1atpakzsff58yk	pty_01m6k4zgysegq949jav5b32anv	2026-11-04T11:26:49.831049Z		
 antik-riedel.de	ADDED	TYPO3	ls_01m6bs11feedcr8hjbx0d7n7xb	pty_01m6bs11f1ev4tz88t44tfvdmk	2026-11-01T14:43:14.197474Z		
 antik-rl.de	DEFERRED				2026-11-01T14:19:24.894439Z	OWN_SELLING_STOCK_UNCONFIRMED	
 antik-rosenheim.de	DEFERRED				2026-11-03T19:00:17.266062Z	CONTRACTING_OPERATOR_AND_LEGAL_ADDRESS_UNRESOLVED	
@@ -117,6 +127,7 @@ antikamzoo.de	ADDED	DUDA	ls_01m6h7gqxseh7avp751jad0dcw	pty_01m6h7gqx5e0qsgmnpcm5
 antikarche.de	DEFERRED				2026-11-01T14:43:06.696748Z	PRIMARY_IDENTITY_AND_STOCK_UNCONFIRMED	
 antikart-karlsruhe.de	DEFERRED				2026-11-01T11:53:00.335662Z	AUCTION_CONSIGNMENT_SCOPE	
 antikbayreuth.de	ADDED	NETOBJECTS_FUSION	ls_01m6b9kxqyebhs8fsa8eh77bw7	pty_01m6b9kxqje8kv0vjmz0hb10ex	2026-11-01T10:21:47.055196Z		
+antikcenter-pirmasens.de	DEFERRED				2026-11-04T11:17:36.769967Z	PRIMARY_SITE_UNDER_CONSTRUCTION	
 antikdolls.de	ADDED		ls_01m6drac2vex6vp13p1214z9xp	pty_01m6drac28eb1rjn46veswwydz	2026-11-02T09:09:21.644872Z		
 antikdusch.de	ADDED	XARA	ls_01m6h39w71ec7bnjr9mg40a7bj	pty_01m6h39w6gezvs6ycys857sp5h	2026-11-03T16:19:02.352885Z		
 antike-baustoffe.com	ADDED	WORDPRESS	ls_01m6cjdjvtetw9zxcexqqff7bs	pty_01m6cjdjv9e6naras0z1kb03gf	2026-11-01T22:07:00.490285Z		
@@ -141,11 +152,13 @@ antikesundrares.de	ADDED	EPAGES	ls_01m6ge9f9newj9zg193g05aj36	pty_01m6ge9f98em29
 antikeswerk.de	ADDED	WOOCOMMERCE	ls_01m6h7gva4eneahdedcpqbnw4d	pty_01m6h7gv9qe38ae698gas6zhsj	2026-11-03T17:32:45.938872Z		
 antikfiedler.de	ADDED	WIX	ls_01m6de7k86e70vzceyvdx7r659	pty_01m6de7k7peh99eejxgtactw2y	2026-11-02T06:13:04.311287Z		
 antikgut.de	DEFERRED				2026-11-04T09:02:21.245802Z	CURRENT_RETAIL_OPERATOR_AND_SPECIFIC_SALE_STOCK_UNRESOLVED	
+antikhaeusla.de	DEFERRED				2026-11-04T13:31:48.326064Z	CURRENT_OWN_ANTIQUE_STOCK_UNVERIFIED_AFTER_SHOP_MOVE	antik-haeusla.de
 antikhalle-dresden.de	ADDED	SHOPIFY	ls_01m6gjj51ze24tmgmkkemzefp1	pty_01m6gjj51fefs8bg3j7nrq22q1	2026-11-03T11:26:27.803599Z		
 antikhalledresden.de	ADDED	PHPCATALOG	ls_01m6bbcg99ep2b8wvqbhtjrnc6	pty_01m6bbcg8pens8x755hbgr7wcy	2026-11-01T10:44:50.095578Z		
 antikhandel-aschersleben.de	DEFERRED				2026-11-04T08:57:08.979905Z	EXACT_CURRENT_OWN_HISTORICAL_SALE_STOCK_UNVERIFIED	
 antikhandel-berlin.com	ADDED		ls_01m6baqjfae77vzezdvh46104s	pty_01m6baqjesexm8jx9y58jp150a	2026-11-01T10:33:23.934671Z		
 antikhandel-bonn.de	ADDED		ls_01m6hczek5e85sxns2nzv2ehpz	pty_01m6hczejgehsafjgvy123djqt	2026-11-03T19:08:06.349738Z		
+antikhandel-stralsund.de	DEFERRED				2026-11-04T12:11:26.568525Z	LEGAL_OPERATOR_UNVERIFIED	
 antikhandelschaumburg.de	DEFERRED	JIMDO			2026-11-02T08:37:38.684157Z	OWN_NON_AUCTION_STOCK_UNCONFIRMED	antikhandel-shg.de
 antikhaus-felixdorf.at	DEFERRED				2026-11-02T13:18:03.809578Z	HISTORICAL_LINK_DNS_FAILURE	
 antikhaus-fischer.at	ADDED	WIX	ls_01m6e6m1n7epws446yadeyvayv	pty_01m6e6m1mye3dbe4yympgr5frn	2026-11-02T13:19:18.545982Z		
@@ -159,6 +172,7 @@ antikhof-schoenficht.de	ADDED	WORDPRESS	ls_01m6gjyaywet3v08qwkdtgzdeh	pty_01m6gj
 antikhof-wokuhl.de	ADDED	TYPO3	ls_01m6bs0yyhexvtx358sphf3drw	pty_01m6bs0yy3et7b6vfxcfe10hme	2026-11-01T14:43:11.689673Z		
 antikladen-coburg.de	EXCLUDED				2026-11-03T16:47:37.548946Z	ADVERTISES_OWN_AUCTIONEER_BUSINESS	
 antiklaedele.com	ADDED		ls_01m6e6m78tenf8bym54q39gxyh	pty_01m6e6m78hetrvtxbgett63t36	2026-11-02T13:19:24.140321Z		
+antiklager-freiburg.de	DEFERRED				2026-11-04T14:12:20.898658Z	SHOP_CLOSED_SERVICES_CONTINUE_NO_CURRENT_INSPECTABLE_STOCK	
 antiklux.de	ADDED	COCO	ls_01m6befjhqefkbt2tx0d8zs0ry	pty_01m6befjh6ehws8fjg6415mxy8	2026-11-01T11:38:56.228964Z		
 antikmakler.de	DEFERRED	JTL_SHOP			2026-11-01T20:25:35.974686Z	ORIGINAL_HISTORICAL_STOCK_UNCONFIRMED	
 antikmarkt-goettingen.de	DEFERRED				2026-11-02T11:37:08.981357Z	DATED_OFFERS_CURRENT_STOCK_UNCONFIRMED	
@@ -310,7 +324,9 @@ antiquitaeten-ahrend.com	DEFERRED				2026-11-02T10:06:17.094006Z	PRIMARY_DNS_UNA
 antiquitaeten-am-belvedere.de	ADDED	JIMDO	ls_01m6br72vreq0sm1f5tbft4avd	pty_01m6br72vfewnt06pnakqwf4qr	2026-11-01T18:03:43.616546Z		
 antiquitaeten-bach.de	ADDED	JIMDO	ls_01m6by1x86ea7b952rznk592pz	pty_01m6by1x7pehe9wcp4qy5t368x	2026-11-01T18:03:44.457651Z		
 antiquitaeten-baumann.de	DEFERRED				2026-11-01T14:01:14.246008Z	CURRENT_LEGAL_OPERATOR_UNCONFIRMED	
+antiquitaeten-budde.de	DEFERRED				2026-11-04T13:12:41.511077Z	PRIMARY_SITE_TLS_UNAVAILABLE	
 antiquitaeten-dresden.com	DEFERRED				2026-11-01T10:45:28.097256Z	SELLING_ACTIVITY_UNRESOLVED	antiquitaeten-kontor.de
+antiquitaeten-eck.de	DEFERRED				2026-11-04T13:12:41.511077Z	PRIMARY_SITE_DNS_UNAVAILABLE	
 antiquitaeten-erfurt.com	ADDED		ls_01m6br70kfecht8nzg1s85t2az	pty_01m6br70k6etk91v21dkxrxxme	2026-11-01T14:29:01.281211Z		
 antiquitaeten-erfurt.de	DEFERRED				2026-11-01T18:51:39.980587Z	RETIREMENT_CLEARANCE_ACTIVITY_UNCONFIRMED	
 antiquitaeten-erzgebirge.de	DEFERRED				2026-11-03T11:29:53.673251Z	CURRENT_HISTORICAL_STOCK_UNVERIFIED	
@@ -352,6 +368,7 @@ antiquitaetenwerner.de	ADDED	JIMDO	ls_01m6be4pf6ex6vfmd2zpg4kd2e	pty_01m6be4pene
 antiquitas-ac.de	DEFERRED				2026-11-01T16:10:15.722783Z	OWN_HISTORICAL_STOCK_UNCONFIRMED	
 antixx.de	EXCLUDED				2026-11-01T21:01:58.533789Z	PARKED_DOMAIN_NOT_CURRENT_DEALER_SITE	
 anundverkauflager.de	ADDED	CONTAO	ls_01m6cffetdennt13cw1jtg1gx7	pty_01m6cffesvehpvdmf2pjhm4rs4	2026-11-01T21:15:36.780724Z		
+aparello-exklusiv.de	ADDED		ls_01m6kbpcp3e5tb81vk0e4b76fx	pty_01m6kbpcnhez2rwzmn1mpaepc4	2026-11-04T13:24:09.777865Z		
 apothekerschrank.de	ADDED	SHOPIFY	ls_01m6jy6wa0ek58cfz27mtavx53	pty_01m6jy6w9be09tnjsmrgnmfep1	2026-11-04T09:28:30.675311Z		
 argato.de	EXCLUDED				2026-11-04T11:01:58.587798Z	MARKETPLACE_AND_AUCTION_PLATFORM	
 arno-adler.de	ADDED	WEBLICATION	ls_01m6besvnpe6cbmne95w5avj2y	pty_01m6besvn7egnr536s0cp619ga	2026-11-01T11:44:33.206414Z		
@@ -362,9 +379,13 @@ arsmusicashop.com	ADDED	WOOCOMMERCE	ls_01m6e6kw5ce1f8wca1j45veprq	pty_01m6e6kw4x
 art-antiques-armour.com	DEFERRED				2026-11-02T06:04:00.069389Z	CURRENT_OWN_STOCK_UNCONFIRMED	
 art-exclusive.de	ADDED	GAMBIO	ls_01m6k3kc51e2madq6b9t7w3b0j	pty_01m6k3kc4hey5a7r9fkn1j1bzb	2026-11-04T11:02:43.397739Z		
 art-of-antik.de	ADDED	GAMBIO	ls_01m6gkp1hye5yv1rfbxmfx5sn7	pty_01m6gkp1hfeh397yp0xtm1jgz7	2026-11-03T11:46:04.350201Z		
+art-shop.de	ADDED	ECWID	ls_01m6k5jsk4eg89g1tytgss3nts	pty_01m6k5jsjqe9sthrm1gtt828c8	2026-11-04T11:37:20.867268Z		
 art24shop.com	EXCLUDED				2026-11-03T18:00:17.247244Z	CURRENT_OWN_TIMED_AUCTIONS_SAME_LEGAL_OPERATOR	
+artdeco-vintage-und-mehr.de	DEFERRED				2026-11-04T13:45:09.408377Z	PRIMARY_DNS_AND_CURRENT_LEGAL_STOCK_UNVERIFIED	
 arte-baltica.de	DEFERRED				2026-11-01T11:53:00.335662Z	TLS_CERTIFICATE_EXPIRED	
+artedio.de	ADDED		ls_01m6k79fjde4vv7hr2j2qbkc4k	pty_01m6k79fhven4s63w5rkardyc8	2026-11-04T12:07:13.053592Z		
 artefact-schmuck.com	DEFERRED				2026-11-03T16:34:49.342672Z	QUALIFYING_ORIGINAL_OR_HISTORICAL_STOCK_UNVERIFIED	
+arteliure-licht.com	ADDED	WIX	ls_01m6kf2sspec2v71kata3z7yng	pty_01m6kf2ss7esqv294yy9m6xg5n	2026-11-04T14:23:22.566818Z		
 artfinding.de	ADDED	WORDPRESS	ls_01m6cz9vawe1ttq98cb4ahkgbm	pty_01m6cz9vage6mbg08h26a6bgy0	2026-11-02T01:52:09.869923Z		hofmann-kunstmarketing.de
 arthome24.de	ADDED	SHOPIFY	ls_01m6b9zgjye6ftajpqvga8ddbb	pty_01m6b9zgjee4qvm1pybcc5hjg5	2026-11-01T13:03:29.545273Z		
 artificial.de	DEFERRED				2026-11-02T10:18:08.156773Z	OWN_HISTORICAL_COLLECTIBLE_STOCK_UNCONFIRMED	
@@ -375,11 +396,15 @@ artoko.de	DEFERRED				2026-11-03T15:37:05.115939Z	ORIGINAL_OWN_STOCK_UNVERIFIED_
 artprotect.net	ADDED	WORDPRESS	ls_01m6k382mbee6sjzkyq8rjnxam	pty_01m6k382m0edpajgwz3ynxja5x	2026-11-04T10:56:32.662962Z		
 artroom36-pb.de	ADDED	WORDPRESS	ls_01m6hqwqvpe79rjfz7yxd77gwc	pty_01m6hqt78qe2f8eteph7y3w6gp	2026-11-03T22:18:51.822879Z		
 artstore-berlin.de	ADDED	SHOPWARE	ls_01m6h19h21ekkrzkmxa7sh4bgc	pty_01m6h19h1cesead156wqcwbaqf	2026-11-03T15:43:54.210530Z		
+artundantik.eu	ADDED	TYPO3	ls_01m6kcktq7evyr99aczrfe63x4	pty_01m6kcktpsem782afbvjn63aqn	2026-11-04T13:40:14.879802Z		
+artvigo.de	ADDED	GAMBIO	ls_01m6k6rbj2eq587egp8w8yy338	pty_01m6k6rbhaey980amcppaaqzvn	2026-11-04T11:57:51.977709Z		
 asia-flachsmann.com	DEFERRED				2026-11-02T10:06:17.094006Z	PRIMARY_DNS_UNAVAILABLE	
 asianartschmitz.de	ADDED	WORDPRESS	ls_01m6bdqwtve9hv3p5psq180q9f	pty_01m6bdqwt8evxvazj9jsnt86gs	2026-11-01T11:26:00.381630Z		
 asommer.de	ADDED	WORDPRESS	ls_01m6d7q380egfsxvdhkksp5j1w	pty_01m6d7q37eeb6vhcft1qdr2n4d	2026-11-02T04:19:12.603018Z		
 atelier-braunschweig.de	ADDED	WOOCOMMERCE	ls_01m6hkbk00epwtkhc3fvkbt3pd	pty_01m6hkbjzaey5vjtjg4fshdsbd	2026-11-03T20:59:36.296347Z		
+atelier-freiart.de	DEFERRED				2026-11-04T14:38:15.105781Z	GALLERY_CONTRACTING_OPERATOR_UNRESOLVED	
 atelier-oecking.de	DEFERRED				2026-11-03T22:35:57.194009Z	CURRENT_OWN_ORIGINAL_FINE_ART_SALE_STOCK_UNVERIFIED	
+atelierkiwaczinski.de	ADDED	SQUARESPACE	ls_01m6k70z6be04t50nq7j1gr4xe	pty_01m6k70z5qe9082jtqzc1magn5	2026-11-04T12:02:33.983312Z		
 auf-buchfuehlung.de	ADDED	SHOPNETZWERK	ls_01m6c28acde1rs113g291sgqjf	pty_01m6c28abweytrz0nf95n8fmzz	2026-11-01T17:24:31.342738Z		
 augustus-rex-kunsthandel.de	ADDED		ls_01m6dtp2cse9svkkz2fnxb3y44	pty_01m6dtp2bxeq4ta4jgdp5we3ks	2026-11-02T09:50:41.526420Z		
 auktion-horn.de	EXCLUDED				2026-11-03T15:56:39.842313Z	OPERATES_AUCTION_BUSINESS	
@@ -388,6 +413,7 @@ auktionshaus-hess.de	EXCLUDED				2026-11-02T12:02:59.503955Z	OWN_AUCTION_OPERATO
 auktionshaus-lux.de	EXCLUDED				2026-11-03T19:11:19.072500Z	OWNS_AND_OPERATES_AUCTIONS	
 auktionshaus-saarbruecken.de	EXCLUDED				2026-11-04T11:06:42.543567Z	OPERATES_AUCTION_BUSINESS	
 auktionshaus-schwerin.de	EXCLUDED				2026-11-02T11:31:33.244548Z	OWN_AUCTION_OPERATOR	
+auktionshaus-wernigerode.de	EXCLUDED				2026-11-04T14:28:31.139919Z	CURRENT_OWN_AUCTION_OPERATOR	
 austriadrei.at	ADDED		ls_01m6e5pcptej5rkpvbmg8qkzgj	pty_01m6e5pcpae2dsvqhz51jq26nb	2026-11-02T13:03:06.831470Z		selfritsch.at
 auszweiterhand-md.de	ADDED	COCO	ls_01m6cf4mwregqszx5v170dmebh	pty_01m6cf4mvke699m7jmg59dxb15	2026-11-01T21:09:41.840054Z		
 autographen.shop	ADDED	WOOCOMMERCE	ls_01m6d0fs4pefjr9fs4pjgad1wr	pty_01m6d0fs49e0eawtt3s7m713n1	2026-11-02T02:12:52.795698Z		autographs.de;autographen.org
@@ -404,6 +430,7 @@ basedau.com	DEFERRED				2026-11-02T09:59:13.564782Z	PRIMARY_TLS_HTTP_UNAVAILABLE
 bassenge.com	EXCLUDED				2026-11-02T07:10:51.701480Z	DEALER_OPERATES_OWN_AUCTION	
 batavis-historica.de	DEFERRED				2026-11-02T05:09:42.297822Z	PRIMARY_HTTP_403_REVIEW_PENDING	
 bausback.de	ADDED	CONTAO	ls_01m6dvmdv5eqesm03z75d6avpk	pty_01m6dvmdtjeh2sfp8b1zvbjjga	2026-11-02T10:07:16.164172Z		
+bausch-gebrauchtwaren.de	EXCLUDED				2026-11-04T14:28:31.139919Z	OUTSIDE_DIRECT_ART_ANTIQUES_SCOPE_USED_INDUSTRIAL_MATERIALS	www.bausch-gebrauchtwaren.de
 baustoffe-antik.de	ADDED	WORDPRESS	ls_01m6cgqfvseb7bq6h6kazv70be	pty_01m6cgqfvbegat1pwgc0z39ra7	2026-11-01T21:37:27.721803Z		
 bautzen-antik.de	ADDED		ls_01m6ckr29pe9psdkmkb8fh3g40	pty_01m6ckr297etracqdwd5k7v6c4	2026-11-01T22:30:12.364323Z		
 benjamin-vogel.de	ADDED	WORDPRESS	ls_01m6hsk7q7e24ad41vfdq453e4	pty_01m6hsk7pxe4gaz3j9200ve9d3	2026-11-03T22:48:37.981051Z		
@@ -418,8 +445,11 @@ bibliotope.de	ADDED	SHOPNETZWERK	ls_01m6c2kz4xe9hayartkjarn6jf	pty_01m6c2kz4fe8a
 biechele-antik.de	ADDED	WIX	ls_01m6dwa7p4e65apynqvm943cyh	pty_01m6dwa7nreq8bkb75jqmamkyx	2026-11-02T10:19:10.628112Z		barockgalerie.de
 biedermeier-barock.de	ADDED	WORDPRESS	ls_01m6gfhzxxe36swjacncw1jhwq	pty_01m6gfhzxce05842rc7yjsxqv1	2026-11-03T10:33:56.749126Z		
 bigbenuhren.de	ADDED	DUDA	ls_01m6cf4gd8eb1smrsv83ed2e61	pty_01m6cf4gcre6abz16cabtc40rr	2026-11-01T21:09:37.290935Z		
+bilder-fuchs.de	ADDED	WOOCOMMERCE	ls_01m6kavzq9e08aep3tky6deypp	pty_01m6kavzpse9vr1f13zw8z2j84	2026-11-04T13:09:45.296044Z		
 bilder-im-hof.de	ADDED	WORDPRESS	ls_01m6hcbhqwek0asywfv7a1b1gs	pty_01m6hcbhqfe4rbsxzfss746r1d	2026-11-03T18:57:14.276122Z		
+bilder-kunst-galerie.de	ADDED	GRAV	ls_01m6ka07s4e5gbx9qar752n6dq	pty_01m6ka07r3e7b8a9sqx8b6vy9r	2026-11-04T12:54:35.394106Z		kunsthandlung-kessel.de
 bilder-rahmen.eu	ADDED		ls_01m6getez4e5tvp1brjkme8rxm	pty_01m6geteyreya9chxzhgct4cz3	2026-11-03T10:21:05.657521Z		
+blumis-stoebereck.de	DEFERRED				2026-11-04T13:31:48.326064Z	PRIMARY_DNS_AND_DIRECT_ANTIQUE_STOCK_UNVERIFIED	
 bodoev.shopnetzwerk.com	ADDED	SHOPNETZWERK	ls_01m6cpx1chehvrvyxn2t43essh	pty_01m6cpx1c9e3nsjfx8fye67y6c	2026-11-01T23:25:21.619620Z		bodoev.de
 boehler-art.com	ADDED	WORDPRESS	ls_01m6dy3rafe09vt2cw51fn3v5t	pty_01m6dy3ra3ejqayfpqbd5c5sh5	2026-11-02T10:50:35.568335Z		
 boettcher-kunsthandel.de	DEFERRED				2026-11-02T09:59:13.564782Z	PRIMARY_DNS_UNAVAILABLE	
@@ -475,6 +505,7 @@ cartorama.de	ADDED	CONTAO	ls_01m6ctma6temhr5ahc3me02hay	pty_01m6ctma69eqn8d1980m
 casa-verde-ambiente.de	ADDED	JIMDO	ls_01m6cjdgemeg58aq186hn6wcb7	pty_01m6cjdge2eg4akctj5hmxkx65	2026-11-01T22:06:58.532983Z		
 catheuer-raritaeten.de	ADDED	WOOCOMMERCE	ls_01m6h5fz41efetx4qvdrmecgyj	pty_01m6h5fz3nenda927bfatn9ecs	2026-11-03T16:57:19.724337Z		
 ccaa.de	ADDED	JIMDO	ls_01m6h19k79e3sa74k99z1jpwex	pty_01m6h19k6se959znj59tzmpxtx	2026-11-03T15:45:37.086522Z		
+checker-antik.de	DEFERRED				2026-11-04T12:14:46.357055Z	CONTRACTING_OPERATOR_CONFLICT	
 chiemgauer-internet-antiquariat.shopnetzwerk.com	ADDED	SHOPNETZWERK	ls_01m6c3886fexv8cprh1zh4wjse	pty_01m6c38866eyz9fmwm1ze448wc	2026-11-01T17:41:57.337679Z		
 chimidcentury.com	ADDED	STRIKINGLY	ls_01m6gg6d9yewvspbvbn32zjb2j	pty_01m6gg6d9ce638v1vm3gfhcfvc	2026-11-03T10:45:06.406485Z		
 chrisomeantikschmuck.de	ADDED	SQUARESPACE	ls_01m6h6mgpse60r60w82nt1jk48	pty_01m6h6mgp8eyzvep4e5p4p6ryr	2026-11-03T17:17:17.060684Z		
@@ -492,6 +523,7 @@ conchchlor.com	DEFERRED				2026-11-01T12:09:56.232062Z	HTTP_TIMEOUT
 contact-in-augsburg-special.de	DEFERRED				2026-11-04T10:08:39.584540Z	CURRENT_EXACT_SPECIALIST_ART_ANTIQUES_STOCK_UNVERIFIED	
 daarler-schatzkammer.de	DEFERRED				2026-11-01T19:30:58.150182Z	CURRENT_OWN_HISTORICAL_STOCK_UNCONFIRMED	
 das-antik-troedelhaus.de	EXCLUDED				2026-11-03T17:09:55.600802Z	CURRENT_OWN_AUCTIONS_ADVERTISED_AND_VERIFIED	
+das-auktionshaus.de	DEFERRED				2026-11-04T12:28:45.371620Z	PRIMARY_BROWSER_CHECK_IDENTITY_AND_BUSINESS_SCOPE_UNVERIFIED	
 dasemporium.de	ADDED	WOOCOMMERCE	ls_01m6c99c1mevnbj4nm3rw9chp5	pty_01m6c99c10e3781x0sc1sg4bpt	2026-11-01T19:27:25.957939Z		
 dasgutestueck.de	DEFERRED				2026-11-03T11:06:27.166900Z	CURRENT_HISTORICAL_STOCK_UNVERIFIED	
 daskleinelaedchen.com	DEFERRED				2026-11-03T18:19:05.339996Z	QUALIFYING_UNIT_OWNERSHIP_AND_CURRENT_STOCK_SCOPE_UNRESOLVED	
@@ -504,6 +536,7 @@ deineschaetze.com	DEFERRED				2026-11-01T12:46:57.249576Z	HISTORIC_STOCK_SCOPE_U
 denzinger-pfalz.de	DEFERRED				2026-11-03T16:34:49.342672Z	OWN_STOCK_VERSUS_COMMISSION_LISTINGS_UNRESOLVED	
 depping-macht.de	ADDED		ls_01m6hrx35ne6rbmt61t5gkxf77	pty_01m6hrx35aeytayw6byagz9rfg	2026-11-03T22:36:31.944904Z		
 derammeer-kunsthandel-usedom.de	ADDED	WIX	ls_01m6hnz22ae1cvb8a2gfny14f1	pty_01m6hnz21ye63scxkzvxfsh0e5	2026-11-03T21:45:10.672685Z		
+derdesignladen.jimdoweb.com	DEFERRED				2026-11-04T13:31:48.326064Z	CURRENT_OWN_HISTORICAL_STOCK_UNVERIFIED	
 dergalerieladen.de	ADDED	WORDPRESS	ls_01m6jw3qpxez49wfvfj3h81p2b	pty_01m6jw3qphe1a88tcv5954g5vz	2026-11-04T08:51:50.225557Z		
 derkleinekrieger.shop	EXCLUDED				2026-11-02T11:50:00.925217Z	DOMAIN_PARKED_FOR_SALE	
 design-collection-berlin.de	ADDED	IONOS_MYWEBSITE	ls_01m6gze3zae8jazqm5dwmhreh7	pty_01m6gze3yre4dah5g16dnd7h0v	2026-11-03T15:11:27.607219Z		
@@ -515,6 +548,7 @@ dickel-bilderrahmen.de	DEFERRED				2026-11-02T09:59:13.564782Z	PRIMARY_HOLDING_P
 die-aufraeumer.de	ADDED	WORDPRESS	ls_01m6cmaj02e69sg79svqdbf95s	pty_01m6cmahzjemjt7p2zpsydt4me	2026-11-01T22:40:18.431368Z		
 die-auktionshalle-berlin.de	EXCLUDED				2026-11-02T12:24:42.993565Z	OWN_AUCTION_OPERATOR	
 die-olle-scheune.de	DEFERRED				2026-11-01T14:43:06.696748Z	PRIMARY_DNS_FAILURE	
+die-reenemacher.de	DEFERRED				2026-11-04T12:28:45.371620Z	PRIMARY_DNS_IDENTITY_COUNTRY_AND_STOCK_UNVERIFIED	
 die-verwerter-ug.de	DEFERRED				2026-11-03T21:48:15.740921Z	LEGAL_REGISTER_PLACEHOLDER_AND_CORE_ANTIQUE_STOCK_UNVERIFIED	
 diehalleps.de	DEFERRED				2026-11-03T10:28:46.869420Z	NO_INSPECTABLE_CURRENT_HISTORICAL_STOCK	
 diekunstmacher.de	EXCLUDED				2026-11-04T11:01:58.587798Z	RELATED_OWNED_AUCTION_PLATFORM	
@@ -523,6 +557,7 @@ dinter.de	ADDED	WORDPRESS	ls_01m6cv8esveg9a1r78gh53fxxr	pty_01m6cv8eshe5esq5t8ky
 doerfler-doerfler.de	DEFERRED				2026-11-01T22:22:11.755792Z	CURRENT_OWN_STOCK_UNCONFIRMED	
 domenicojacono.com	DEFERRED				2026-11-02T14:34:33.213741Z	PRIMARY_HOSTING_PLACEHOLDER	
 dr-schmitz-avila.de	ADDED	WOOCOMMERCE	ls_01m6bdqvcsevfspkhkz4yca1cn	pty_01m6bdqvc6esb8c49ah9m68ne9	2026-11-01T11:25:59.012696Z		
+dreipunkt-edition.com	ADDED	WOOCOMMERCE	ls_01m6k70tx1epr9qaqk2z1rj7st	pty_01m6k70twgefsvt7x318cdvdkt	2026-11-04T12:02:29.802634Z		
 dreiraaben.de	ADDED	ANTIQUARIAT_DE	ls_01m6d6qbfcegsr178v159fjsa4	pty_01m6d6qbezeh78mf3ap1b5jc0d	2026-11-02T04:01:52.428255Z		dreiraben.de
 dresden-antiquariat.de	EXCLUDED				2026-11-02T04:00:45.549228Z	OWNED_AUCTION_BUSINESS	
 druckwaren-antiquariat.shopnetzwerk.com	ADDED	SHOPNETZWERK	ls_01m6c28hp5ew08q146ydaerde8	pty_01m6c28hnkedrb2q9wgfbwfp2f	2026-11-01T17:24:38.198441Z		
@@ -534,6 +569,7 @@ e-artis.de	EXCLUDED				2026-11-04T10:55:53.242625Z	OPERATES_AUCTION_BUSINESS
 eakn.de	ADDED	CM4ALL	ls_01m6hete3ze3zbw18r0dpsdmd9	pty_01m6hete3fe1qs0fwt9bhzxaqc	2026-11-03T19:40:19.737106Z		english-antiques-konstanz.com
 eckladen1910.de	DEFERRED				2026-11-03T10:20:25.305525Z	HISTORICAL_STOCK_UNVERIFIED	
 edelgard-schroer-art.de	ADDED	WOOCOMMERCE	ls_01m6k1sb8qe66saprcygfdrach	pty_01m6k1sb8be9etqnke1n2ck0t8	2026-11-04T10:40:57.669069Z		
+edition-staeck.de	ADDED	WOOCOMMERCE	ls_01m6k9b77vem4r3m6d6rbk0y24	pty_01m6k9b77de1ysfkb7etnyznhf	2026-11-04T12:43:07.031957Z		
 edler-antikschmuck.de	DEFERRED				2026-11-01T11:25:51.225821Z	HTTP_TIMEOUT	
 ehrl.com	ADDED	SHOPIFY	ls_01m6bdat02excsh4rsrzw3wtz2	pty_01m6bdaszgeezszdtvjy77zcsj	2026-11-01T20:45:25.092337Z		ehrl.de
 eibel-antik-art.de	ADDED	WORDPRESS	ls_01m6hrexj5ey2af28kwry39vnh	pty_01m6hrexhnezf9dnxrxqdj6tnk	2026-11-03T22:28:47.524671Z		
@@ -557,6 +593,7 @@ exquisit.berlinantiquariat.com	DEFERRED				2026-11-02T00:18:45.726934Z	PRIMARY_T
 exquisiteandold.de	ADDED	WOOCOMMERCE	ls_01m6ebh591e67tncakyj0mayg7	pty_01m6ebh58mex3s5q3askp8n5f4	2026-11-02T14:45:07.044225Z		
 extrart.de	ADDED	JOOMLA	ls_01m6bbcht0ekwa3gj8x82wfawe	pty_01m6bbchsdevwr39vv1nsjgskx	2026-11-01T10:44:51.424813Z		
 fachwerk-schiltach.de	DEFERRED				2026-11-01T22:17:12.195592Z	ORIGINAL_STOCK_NOT_SEPARATELY_INSPECTABLE	
+fahrenkrug.com	DEFERRED				2026-11-04T13:17:40.368553Z	AUCTION_BUSINESS_SCOPE_AND_CURRENT_HISTORICAL_STOCK_REVIEW	
 fairly-fair.de	DEFERRED				2026-11-03T12:11:42.317942Z	CURRENT_HISTORICAL_OR_ART_STOCK_UNVERIFIED	
 faltinsky-antikhaus.de	ADDED	SHOPWARE	ls_01m6bqnkxpebdb6gaemprr8m89	pty_01m6bqnkx6edftf990hd890mra	2026-11-01T14:19:31.891770Z		
 fancypics.de	ADDED		ls_01m6k3kh7fedbrwderheb66sz3	pty_01m6k3kh6zejzahkemrstds9ky	2026-11-04T11:02:48.090821Z		
@@ -595,12 +632,14 @@ franksantikhaus.de	DEFERRED				2026-11-03T11:32:41.615541Z	CURRENT_STOCK_ALLOCAT
 frau-biedermeier.de	ADDED	WIX	ls_01m6bf9cawej9b5efhh29dxp5w	pty_01m6bf9cacekvsyqwnyangvz1x	2026-11-01T11:53:01.748909Z		
 frau-wunderwald.de	ADDED	SHOPIFY	ls_01m6bjnghwe3mrj8b7hfs045x1	pty_01m6bjnghce4wrh7ev11hh8e3j	2026-11-01T12:52:05.476439Z		frau-wunderwald.myshopify.com
 frauallerleis-vintage.de	ADDED	SHOPIFY	ls_01m6dqwr0qezrtpkwp9kafazmz	pty_01m6dqwr0ae08vqx0ngsy7y87m	2026-11-02T09:01:54.821726Z		
+fresena-galerie.de	DEFERRED				2026-11-04T11:57:13.260806Z	PRIMARY_IDENTITY_AND_CURRENT_STOCK_UNVERIFIED	
 frickeundfrickebuecher.de	ADDED	WORDPRESS	ls_01m6dgp2vsex1ry4bfsw7n6966	pty_01m6dgp2vgearsvn8ntc3s73sq	2026-11-02T06:55:56.449235Z		
 friebes.at	ADDED	ANTIQUARIAT_DE	ls_01m6eayzyqevnaqbfzhghkrxbx	pty_01m6eayzxze1htwv0q2k08tcht	2026-11-02T14:36:17.614644Z		
 frieder-aichele.de	ADDED	NETOBJECTS_FUSION	ls_01m6dy3xg4eek9yydehrk4s6v3	pty_01m6dy3xfrevz8wv8fcdhthfv7	2026-11-02T10:50:40.885635Z		
 friederike-werner.de	EXCLUDED				2026-11-03T22:48:01.492577Z	ART_EXPERTISE_AND_AUTHOR_SERVICES_NOT_OWN_ART_ANTIQUE_DEALER	
 friedrichhaeusser.com	ADDED	ECWID	ls_01m6hcbdjnenq950qnmq75jpqy	pty_01m6hcbdj8evg8g5kzjrpryyr5	2026-11-03T18:57:10.809723Z		
 fritz-antik.de	DEFERRED				2026-11-02T11:37:08.981357Z	PRIMARY_SITE_MAINTENANCE	
+froelichundkaufmann.de	DEFERRED				2026-11-04T12:41:18.811626Z	INDEPENDENT_SPECIALIST_DEALER_SCOPE_REVIEW	
 fschmidts.com	DEFERRED				2026-11-03T22:55:02.893472Z	CURRENT_OWN_FINE_ART_SALE_OFFER_UNVERIFIED	
 fuellhalter-werkstatt.de	DEFERRED				2026-11-03T10:15:36.297633Z	NO_INSPECTABLE_CURRENT_HISTORICAL_STOCK	
 fundevogel-ma.de	DEFERRED				2026-11-03T14:35:39.799481Z	REMAINDER_BOOKSELLER_HISTORICAL_COLLECTIBLE_STOCK_UNVERIFIED	
@@ -613,7 +652,9 @@ galerie-am-dom.de	DEFERRED				2026-11-03T21:53:54.533991Z	HISTORICAL_SELF_HOSTED
 galerie-ansichtssache.de	ADDED	SHOPIFY	ls_01m6hgyb2xe6crr8w1qv3q9ytb	pty_01m6hgyb29ec6sbnpz573yh0ze	2026-11-03T20:17:25.535727Z		
 galerie-antik-erzgebirge.de	DEFERRED				2026-11-03T11:29:53.673251Z	AUCTION_ACTIVITY_UNRESOLVED	
 galerie-balbach.de	ADDED	PROCESSWIRE	ls_01m6bkxs2aek7tfyx27rvjpy87	pty_01m6bkxs1tez085h6km83p4g2e	2026-11-01T13:14:05.129364Z		
+galerie-bamberg.de	DEFERRED				2026-11-04T14:32:03.981456Z	PRIMARY_HTTP403_CURRENT_IDENTITY_STOCK_UNVERIFIED	
 galerie-claude.de	ADDED		ls_01m6dvmh8re59bsrey1mtj39s6	pty_01m6dvmh8dea9agg4zaegm1b3p	2026-11-02T10:07:19.593043Z		
+galerie-dagmar-reimus.de	ADDED	CM4ALL	ls_01m6kgjc7gemdanp1z97bzawrk	pty_01m6kgjc77eg3thnvg1grh6a40	2026-11-04T14:49:21.045836Z		
 galerie-darya.de	DEFERRED				2026-11-03T22:44:03.030729Z	CURRENT_OWN_ANTIQUE_SALE_STOCK_UNVERIFIED	
 galerie-eileen.de	ADDED	SQUARESPACE	ls_01m6jsnpwsea09hj18ra0qtg87	pty_01m6jsnpwke37rx4bs2m5vx372	2026-11-04T08:09:13.510962Z		
 galerie-elitzer.com	ADDED	WOOCOMMERCE	ls_01m6hgy53zepbb7jznkaz4rh79	pty_01m6hgy53berybws4kby6cxf9c	2026-11-03T20:17:19.189962Z		
@@ -623,12 +664,17 @@ galerie-friedl-fischer.com	DEFERRED				2026-11-03T22:00:14.592276Z	CURRENT_ORIGI
 galerie-gronert.de	EXCLUDED				2026-11-01T11:18:42.495373Z	PERMANENTLY_CLOSED	
 galerie-haas.de	ADDED	TYPO3	ls_01m6hqjhjwe0f96nbvh9eqfgsw	pty_01m6hqjhjeenw96kjth3g9rx67	2026-11-03T22:13:18.213612Z		
 galerie-haering.de	DEFERRED				2026-11-01T12:46:57.249576Z	TEMPORARY_MAINTENANCE	
+galerie-heidefeld.de	DEFERRED				2026-11-04T14:48:14.615872Z	CURRENT_INDIVIDUAL_OFFERS_NOT_INSPECTABLE_WITH_CONFIDENCE	
+galerie-heinz-janssen.com	DEFERRED				2026-11-04T14:48:14.615872Z	CURRENT_INDIVIDUAL_ORIGINAL_STOCK_UNCONFIRMED	
 galerie-himmelreich-md.de	ADDED	WORDPRESS	ls_01m6jw3p9ve5sv2b0b5d4tepth	pty_01m6jw3p9ee438ehdd47k17cn9	2026-11-04T08:51:48.279432Z		
+galerie-hovestadt.de	ADDED	WORDPRESS	ls_01m6kg0brpew99dafjs67zv98s	pty_01m6kg0br2ef1t9kb281b2b8vn	2026-11-04T14:39:30.807715Z		
 galerie-im-netz.shopnetzwerk.com	ADDED	SHOPNETZWERK	ls_01m6bws4msetnv2h3wgedarsh3	pty_01m6bws4m9enprhjk98rf45s8g	2026-11-01T15:48:50.985057Z		galerie-im-netz.de
 galerie-joy.de	DEFERRED				2026-11-02T07:10:51.701480Z	PRIMARY_WEBSITE_UNAVAILABLE	
 galerie-kainbacher.at	DEFERRED				2026-11-02T14:58:55.338848Z	PRIMARY_DNS_UNAVAILABLE	
 galerie-keul.de	DEFERRED				2026-11-02T11:10:22.916317Z	DATED_CATALOGUE_CURRENT_ACTIVITY_UNCONFIRMED	
 galerie-kirbach.de	ADDED	WORDPRESS	ls_01m6dtp49wevj9n5a99abt7w8d	pty_01m6dtp49cevw98zr3f6z3aqrb	2026-11-02T09:50:44.110850Z		
+galerie-kley.de	EXCLUDED				2026-11-04T14:32:03.981456Z	DOCUMENTED_OWN_GALLERY_AUCTION	
+galerie-kocken.de	ADDED	WOOCOMMERCE	ls_01m6kg09mdexfrehyvwm2537w1	pty_01m6kg09kte4mvbetf0ksnmmxg	2026-11-04T14:39:29.164029Z		
 galerie-kunst-landschaft.de	ADDED	WEBSITEBAKER	ls_01m6jt47psee6ve2a8bkzzgtm7	pty_01m6jt47pce2wb1say7vn5h6g5	2026-11-04T08:17:08.923273Z		
 galerie-lamers.de	ADDED	PRESTASHOP	ls_01m6hj6rmfe9y9343mngntf34f	pty_01m6hj6rkyes69z5ay3neqm7hr	2026-11-03T20:39:29.943918Z		galerielamers.de
 galerie-muellers.de	ADDED	WIX	ls_01m6hgk71mea5adpjd6wgsad9z	pty_01m6hgk714ed0adx7183xwpdpg	2026-11-03T20:11:20.017615Z		kunsthaus-muellers.com
@@ -651,15 +697,18 @@ galerieamaltmarkt.de	DEFERRED				2026-11-03T22:22:57.328699Z	CURRENT_ACTIVITY_AN
 galeriebrandenburg.de	EXCLUDED				2026-11-03T20:28:33.187959Z	AUCTION_BUSINESS	
 galeriebremen.com	DEFERRED				2026-11-03T20:44:28.913821Z	CURRENT_OFFER_AVAILABILITY_UNVERIFIED	
 galeriedolge.de	ADDED	WOOCOMMERCE	ls_01m6hjthvge4cbewz1f3958d4j	pty_01m6hjthv2exj9ajsh38abk3be	2026-11-03T20:50:18.194073Z		
+galeriegecko.de	EXCLUDED				2026-11-04T14:28:31.139919Z	CURRENT_PRIMARY_SOURCE_UNRELATED_PHARMACEUTICAL_SPAM	
 galeriehansmayer.de	DEFERRED				2026-11-01T11:25:51.225821Z	TLS_SELF_SIGNED_CERTIFICATE	
 galerieholzer.at	ADDED	WOOCOMMERCE	ls_01m6e6m01peth8dbbr7jf8yc99	pty_01m6e6m01defbvckpgcqee4663	2026-11-02T13:19:16.256918Z		
 galeriekoch.de	ADDED	ARTFILO	ls_01m6bdaysje59bttyap75hy2vz	pty_01m6bdayrze9daw6c1gbv4xg6a	2026-11-01T11:18:56.373859Z		
 galeriemaurer.de	ADDED	WORDPRESS	ls_01m6dwa0hhe1as5ypn9msv77nz	pty_01m6dwa0h1eez94w3qe2z1v101	2026-11-02T10:19:03.595327Z		
+galeriemutare.de	ADDED	WORDPRESS	ls_01m6k828vme8t86gj6cdkx0ecc	pty_01m6k7rnq1er5sce9xanj03pap	2026-11-04T12:20:44.729836Z		
 galerieneuse.de	ADDED	JOOMLA	ls_01m6dtnxzvejg8pmth4kqa3212	pty_01m6dtnxz7exjt6fjpe64h814k	2026-11-02T09:50:36.938031Z		galerieneuse.com
 galerieschmidt.de	ADDED	SHOPWARE	ls_01m6hrez5nexdb44tcv18p9ycz	pty_01m6hrez56edvsgnmq44j92vyz	2026-11-03T22:28:49.734060Z		
 galerieschwarzer.com	ADDED	ARTLOGIC	ls_01m6bdqy3te8q881z32wpwbm2t	pty_01m6bdqy38e4arxhaz4sq7hza8	2026-11-01T11:26:01.579934Z		galerie-schwarzer.de;galerie-schwarzer.com
 galerieseiler.de	DEFERRED				2026-11-03T21:19:36.177309Z	CURRENT_OFFER_ASSET_INSPECTION_INCOMPLETE	
 galerieverlag-mitteldeutschland.de	ADDED	WEBSITEBAKER	ls_01m6jtm9cdet08warbdwdwvg8n	pty_01m6jtm9c0ex9a0qx9ymkc2h30	2026-11-04T08:25:54.988593Z		
+galerievoigt.de	ADDED	WOOCOMMERCE	ls_01m6k5jpy3enxt6eq1vf9efrxc	pty_01m6k5jpxhe0stxdf87qfqmhft	2026-11-04T11:37:18.818016Z		
 galerievonnegelein.de	ADDED		ls_01m6dvm9vre0vrqq03emytp3t4	pty_01m6dvm9v3efybxnz3f4ys75v7	2026-11-02T10:07:12.218735Z		
 gallery-arabesque.com	DEFERRED				2026-11-02T10:48:42.390241Z	PRIMARY_DNS_UNAVAILABLE	
 gallerymay.com	ADDED	WORDPRESS	ls_01m6jxcgftehjr0xnf12yr1cc3	pty_01m6jxcgfee1ks08aer7rfyq58	2026-11-04T09:14:05.904220Z		
@@ -678,6 +727,7 @@ gemaeldeankauf.info	EXCLUDED				2026-11-03T19:53:50.210035Z	AUCTION_BUSINESS
 georgfahrbach.de	DEFERRED				2026-11-01T11:18:42.495373Z	CURRENT_IDENTITY_INCOMPLETE	
 gerlachbooks.com	ADDED		ls_01m6cwwjqbe62s7gfadgn3pkc2	pty_01m6cwwjpmegsbdbc7mbh1fytz	2026-11-02T01:09:58.148407Z		gerlach-books.de
 gerling-antik.com	ADDED	JOOMLA	ls_01m6jzqnd3ev2t2bv94hmvnwqt	pty_01m6jzqncgew1rcymv3mjmvceg	2026-11-04T09:55:08.573731Z		
+german-historica.de	ADDED	WOOCOMMERCE	ls_01m6k4zkbte7t8k3as15e1ztbw	pty_01m6k4zkbbezqae3tcgpcnvhmv	2026-11-04T11:26:51.971346Z		
 gierhards.net	ADDED	MASTERART	ls_01m6by28pce3y8wtwarx8cmkwv	pty_01m6by28nzeerth4wbca5s6jr1	2026-11-02T09:50:17.559152Z		gierhards.com
 gkantiques.com	ADDED	CM4ALL	ls_01m6bkxedde9d9k9h0dr8p6ctk	pty_01m6bkxecsehh81s92tmm6cf75	2026-11-01T13:13:54.232154Z		
 glaskilian.de	ADDED	SHOPWARE	ls_01m6e2a6j3e69rdf821smq196r	pty_01m6e2a6hhe919dktde2y7sh83	2026-11-02T12:04:01.874464Z		
@@ -692,6 +742,7 @@ gorallo.com	DEFERRED				2026-11-03T22:55:02.893472Z	CURRENT_INSPECTABLE_OWN_ANTI
 goyert.de	ADDED	WORDPRESS	ls_01m6df4xkkek9rw7b9tk7c0fmm	pty_01m6df4xk1e65txa79x8fc7tqr	2026-11-02T06:29:05.263493Z		
 grabmalwerk-bug.com	DEFERRED				2026-11-01T22:10:19.019453Z	OWN_HISTORICAL_STOCK_UNCONFIRMED	
 grafik-galerie-online.de	ADDED	GAMBIO	ls_01m6hs5zsae54v403myyhxdk0v	pty_01m6hs5zrwecwr870kdjr84x3t	2026-11-03T22:41:24.054453Z		galerieraasch.de
+grafikbrief.de	ADDED		ls_01m6k6azqqesk8mdt8pkr7p86t	pty_01m6k6azqcekjrcwyrtm2yvqdt	2026-11-04T11:50:33.539309Z		
 grafschafter-antiquitaeten.de	DEFERRED				2026-11-04T10:18:08.865174Z	EXACT_CURRENT_OWN_HISTORICAL_SALE_STOCK_UNVERIFIED	
 grainlab.com	ADDED	GAMBIO	ls_01m6grxe5ze5t9hmgbpsrk674x	pty_01m6grxe5eekarm6ch5eczegr6	2026-11-03T13:17:29.559078Z		
 grainoverpixel.com	ADDED	SHOPIFY	ls_01m6gs7p8seyttytkq6tjb23pk	pty_01m6gs7p87emdvxnsx76823cq8	2026-11-03T13:23:05.603646Z		
@@ -739,15 +790,19 @@ historische-tueren.de	ADDED		ls_01m6bn0gqwe58sm2c131brf67y	pty_01m6bn0gqgef6rkqz
 historischer-baumarkt.de	ADDED		ls_01m6cfvx3feaxa6dj8k4j8qgxb	pty_01m6cfvx2we02tgfrq5xynvjg2	2026-11-01T21:22:24.583904Z		
 history-shop.de	DEFERRED				2026-11-03T17:09:55.600802Z	ACTUAL_STOCK_PHOTOGRAPHS_REQUIRE_AUTHENTICATION	
 hmj-antik.de	ADDED		ls_01m6cf4rr3ehgbe4vzkd7g62p2	pty_01m6cf4rqpe4msq63ew0ven8w8	2026-11-01T21:09:46.605341Z		
+hochzeitsschrank.de	EXCLUDED				2026-11-04T13:31:48.326064Z	REPURPOSED_DOMAIN_NO_CURRENT_ANTIQUE_DEALER	
 hof-antiquariat.de	DEFERRED				2026-11-03T12:54:41.544198Z	FIRST_PARTY_ACCESS_FAILURE_OPERATOR_AND_STOCK_UNVERIFIED	
 hof-averkamp.de	DEFERRED				2026-11-01T16:41:49.592037Z	REFERENCE_SITE_TIMEOUT	
 hofer-antikschmuck.de	ADDED	PLENTYMARKETS	ls_01m6bdavtvev0b0k66bvv9kkga	pty_01m6bdavtaer38a34y37hstg8h	2026-11-01T13:03:30.469691Z		
+holz66.de	ADDED	SHOPIFY	ls_01m6k79hsrew5b66dtvgzn8jev	pty_01m6k79hs6ep3s94yacz4hsre1	2026-11-04T12:07:15.281678Z		
 holzgut-berlin.de	ADDED	SITEJET	ls_01m6baqngbensa6pmrjejpzzvk	pty_01m6baqnffe53tzh5btd2bqtxp	2026-11-01T10:33:27.562379Z		
 homeboyvintage.de	DEFERRED				2026-11-01T19:13:50.886466Z	ANTIQUE_SCOPE_UNCONFIRMED	
 hopp-gantner.de	DEFERRED				2026-11-02T10:48:42.390241Z	PRIMARY_TLS_HTTP_UNAVAILABLE	
 hpjochum.de	DEFERRED				2026-11-02T09:43:02.478163Z	PRIMARY_TLS_DNS_UNAVAILABLE	
 hs-service-hof.de	DEFERRED				2026-11-03T22:07:26.515943Z	CURRENT_OWN_ANTIQUE_SALE_STOCK_UNVERIFIED	
 hubertuserfurt.de	EXCLUDED				2026-11-02T10:06:17.094006Z	UNRELATED_REDIRECT_CONTENT	
+huelsmeier.de	ADDED	TYPO3	ls_01m6kavxsqeek8n4js89xgy23v	pty_01m6kavxs6eb3aryv9f731ezsh	2026-11-04T13:09:42.872413Z		
+huset-hansen.de	DEFERRED				2026-11-04T11:29:20.475790Z	PRIMARY_SITE_OFFLINE	
 iconic-second.com	DEFERRED				2026-11-03T10:28:46.869420Z	HISTORICAL_STOCK_UNVERIFIED	
 iconic-vintage.com	ADDED	WIX	ls_01m6bk51s3e0dazwtth38mwex2	pty_01m6bk51rqe0ytd1vv0m2qsk68	2026-11-01T13:00:34.657776Z		
 ikonengalerie-rutz.com	DEFERRED				2026-11-01T11:25:51.225821Z	TLS_HOSTNAME_MISMATCH	
@@ -755,6 +810,7 @@ im-zollhaus.de	ADDED		ls_01m6bn0snyet9tm43ajm4jwvqc	pty_01m6bn0snhevhav29170vzth
 inlibris.com	ADDED	WOOCOMMERCE	ls_01m6ecc33defbb2xm8dwm02d8c	pty_01m6ecc32semgrzj2k06crawcs	2026-11-02T14:59:49.461265Z		inlibris.at
 intellectus-artis.com	ADDED	WIX	ls_01m6bs12pbe6jbfxw1bt1gnvcv	pty_01m6bs12nyemhae87crr0zwayn	2026-11-01T14:43:15.902148Z		intellectus-artis.de
 irisband.de	ADDED	JIMDO	ls_01m6jsnn7mezn9y3zxyak739q4	pty_01m6jsnn6yeymtf9htn5mdf19t	2026-11-04T08:09:11.480507Z		
+isabellamoog.de	ADDED	SHOPIFY	ls_01m6kew1mzejwt1j0dse2ax2jz	pty_01m6kew1mkey5v66vanjwv7enw	2026-11-04T14:19:41.294534Z		
 jakobmueller-antiquitaeten.com	ADDED	WOOCOMMERCE	ls_01m6hdwe4fe8trr95vj15pcnea	pty_01m6hdwe40e7yv49zz2ex3pfzm	2026-11-03T19:23:56.630915Z		
 janesto.com	ADDED	WOOCOMMERCE	ls_01m6e3mrc6etcvcrecj2n9ej1e	pty_01m6e3mrbqea2b0mtxdc5m29s5	2026-11-02T12:27:16.542600Z		
 jbvfoto.de	ADDED	JTL_SHOP	ls_01m6eaz6nme14av8w2e0e0kjf1	pty_01m6eaz6n6e1grsg1ba4mtkzxb	2026-11-02T14:35:18.478247Z		
@@ -780,6 +836,7 @@ kingdomofantiquearts.com	ADDED	SHOPIFY	ls_01m6e2a957efjtktk0f7zpc57k	pty_01m6e2a
 kinoart.net	ADDED	TYPO3	ls_01m6edszvdemrtvsrwx92kam9d	pty_01m6edsztpe6q8sfn1929nm804	2026-11-02T15:24:53.689672Z		
 kirchbergwerkstatt.de	DEFERRED				2026-11-03T17:09:55.600802Z	SPECIFIC_CURRENT_HISTORICAL_STOCK_UNVERIFIED	
 klapproth.shop	ADDED	WIX	ls_01m6bk55d7eprtet18f79qmzfp	pty_01m6bk55ctesv86fw58c6302q5	2026-11-01T13:00:37.823415Z		
+klaus-nemitz.art	ADDED	WORDPRESS	ls_01m6kevzzmekh8pybfgz8q2b9p	pty_01m6kevzz7evtb9wgy20zpn349	2026-11-04T14:19:39.131077Z		
 kleffmann-restaurierung.de	ADDED	ADOBE_MUSE	ls_01m6hrevp5e4rs278c0qne1f6x	pty_01m6hrevnpeqzbpcg2waj12s5q	2026-11-03T22:28:45.856195Z		
 kleinsteuber-books.com	ADDED	SHOPNETZWERK	ls_01m6bwsfwmesjaqhrrzfg0sbkt	pty_01m6bwsfw7evqrtrj65f4kfsq9	2026-11-01T15:49:02.338801Z		
 klittich-pfankuch.de	EXCLUDED				2026-11-02T02:00:23.676802Z	OWNED_AUCTION_BUSINESS	
@@ -803,6 +860,7 @@ kpg-art-galerie.de	DEFERRED				2026-11-03T22:12:39.752783Z	CURRENT_OWN_FINE_ART_
 kral-buch.at	DEFERRED				2026-11-02T15:56:08.294575Z	CURRENT_OWN_HISTORICAL_STOCK_UNCONFIRMED	
 kramp-lemgo.de	DEFERRED				2026-11-03T22:17:00.185009Z	CURRENT_QUALIFIED_ANTIQUE_OR_FINE_ART_SALE_STOCK_UNVERIFIED	
 krausekai.de	ADDED	WEBFLOW	ls_01m6jvtj34e7dvrq9c7dv9h97p	pty_01m6jvtj2re68ry7akvdpmxzm7	2026-11-04T08:46:49.913224Z		
+kreutzer-modern.de	ADDED	WOOCOMMERCE	ls_01m6kcyrhge3n8gdm3xbjx9eky	pty_01m6kcyrgqef5ss44498s3ats9	2026-11-04T13:46:13.189516Z		
 kudado.de	ADDED	IONOS_MYWEBSITE	ls_01m6e1j23yez7vc56wfmn84b9q	pty_01m6e1j239ebntk878nams41yn	2026-11-02T11:50:50.224966Z		
 kuehn-books.de	DEFERRED				2026-11-02T02:22:45.562562Z	PRIMARY_DNS_UNRESOLVED	
 kuemmel.gallery	EXCLUDED				2026-11-03T22:27:57.254226Z	OPERATES_OWN_ONLINE_AND_CLASSIC_AUCTIONS	
@@ -843,6 +901,8 @@ kunsthandel-schulz.eu	ADDED	COCO	ls_01m6c49ga1ef9981ab5ttab5zz	pty_01m6c49g9kex1
 kunsthandel-stahlmach.de	EXCLUDED				2026-11-02T09:50:17.656615Z	UNRELATED_GAMBLING_CONTENT	
 kunsthandel-steinbeck.de	DEFERRED				2026-11-02T09:43:02.478163Z	PRIMARY_TIMEOUT	
 kunsthandel-werner-bad-harzburg.de	DEFERRED				2026-11-03T11:40:23.141865Z	CURRENT_STOCK_AND_PREMISES_UNRESOLVED	
+kunsthandlung-langheinz.de	ADDED	SHOPIFY	ls_01m6ka09gfea8s1ka69skwxj7h	pty_01m6ka09g6erqryfq1rxezm0z3	2026-11-04T12:54:37.537585Z		
+kunsthandlung-pitz.de	DEFERRED				2026-11-04T11:57:13.260806Z	CURRENT_OWN_STOCK_UNINSPECTABLE	
 kunsthandlung-runge.de	ADDED	WIX	ls_01m6h1pbkce68b3zm8ya9y7er5	pty_01m6h1pbjsem5r1mpfp103abqn	2026-11-03T15:50:54.079063Z		
 kunsthandlung-schulz.de	ADDED	COCO	ls_01m6b9m3vwe4c81eaga0fa3grb	pty_01m6b9m3vgeb29kq0aymnaea83	2026-11-01T10:21:47.055196Z		
 kunsthandlung-wildmeister.de	ADDED	WORDPRESS	ls_01m6k080k1ezc8ym8f5fp4bnk5	pty_01m6k080jme6q8fx7th6dxnrjh	2026-11-04T10:04:04.865203Z		
@@ -860,9 +920,12 @@ kunstinflensburg.shop	ADDED	SHOPIFY	ls_01m6getcqpes3v1j3nq1jn4d0t	pty_01m6getcq9
 kunstkabinett-strehler.de	ADDED		ls_01m6dgp1c0e6d8e0baa9mdf57m	pty_01m6dgp1bremwv6j97mkfcff6y	2026-11-02T06:55:54.406463Z		
 kunstkammer.com	DEFERRED	JOOMLA			2026-11-02T10:18:08.156773Z	CURRENT_OWN_ITEM_OFFER_UNCONFIRMED	
 kunstliebtmut.de	ADDED	SHOPIFY	ls_01m6hk2t8de1bab9nphgy29yqv	pty_01m6hk2t7xev0840zzj5w1m5ve	2026-11-03T20:54:48.849616Z		
+kunstquartiere.com	ADDED	WORDPRESS	ls_01m6k7rnqeecq845mnax6dkx1p	pty_01m6k7rnq1er5sce9xanj03pap	2026-11-04T12:15:30.375789Z		
+kunstsammlerecke.de	EXCLUDED				2026-11-04T13:45:09.408377Z	PRIMARY_ANNOUNCEMENT_RETAIL_SALES_ENDED	
 kunstundantikbeeskow.de	DEFERRED				2026-11-01T10:21:47.055196Z	FETCH_FAILED_POSSIBLE_CLOSURE	
 kunstundrahmen.com	DEFERRED				2026-11-03T21:29:36.182664Z	FRAMING_SERVICE_ORIGINAL_SALE_STOCK_UNVERIFIED	
 kunstvoll-shop.de	ADDED	EPAGES	ls_01m6hgk4g5e6gswt3yw88fh45v	pty_01m6hgk4fmex29gnj6e8sr14wx	2026-11-03T20:11:18.077479Z		
+la-bagatelle-lauffen.de	DEFERRED				2026-11-04T13:23:29.127647Z	PRIMARY_SITE_DNS_AND_CURRENT_IDENTITY_UNVERIFIED	
 labelleepoque.de	ADDED	JIMDO	ls_01m6bbztq4enasp533e058bsjr	pty_01m6bbztpre9htnws25v4z78n3	2026-11-01T10:55:23.461642Z		
 laden38-bremen.de	ADDED	JOOMLA	ls_01m6bkxksge7hresyvq05hk7a0	pty_01m6bkxkrre4ma3a1hkzg1pvc7	2026-11-01T13:13:59.222171Z		
 lagaleria-stuttgart.de	ADDED	CONTAO	ls_01m6bbce98e2w9tgz43a04rp2h	pty_01m6bbce8ge02rgd24v85fvyf6	2026-11-01T12:23:12.377385Z		
@@ -901,12 +964,14 @@ maison-deluxe.de	DEFERRED				2026-11-03T10:24:39.995243Z	LEGAL_OPERATOR_AND_HIST
 malte-atelier.de	DEFERRED				2026-11-03T21:39:17.264062Z	ARTWORK_PORTFOLIO_CURRENT_SALE_OFFER_UNVERIFIED	
 manueleklein.de	DEFERRED				2026-11-03T22:58:32.576587Z	CURRENT_OWN_ORIGINAL_ART_SALE_OFFER_UNVERIFIED	
 manuscryptum.de	ADDED	WEB2DATE	ls_01m6cw40ndekjr6n7fxm3r7fx8	pty_01m6cw40mzey2869pjn3ped31z	2026-11-02T00:56:32.973567Z		
+marcschaefer-artwork.de	EXCLUDED				2026-11-04T11:17:36.769967Z	SERVICE_BUSINESS_WITHOUT_OWN_ART_RETAIL_STOCK	
 mario-maerz.de	ADDED	PORTUNA_CMS	ls_01m6hdf4m0etaanmp6341rervd	pty_01m6hdf4kkey2r5dwaky3ym41m	2026-11-03T19:16:40.583845Z		
 markus-auktionen.de	EXCLUDED				2026-11-01T22:29:44.969246Z	DEALER_OPERATES_AUCTIONS	
 marzies.de	ADDED	SHOPNETZWERK	ls_01m6cpa68eemw91eh38hg9bcm5	pty_01m6cpa67xestrw57eg6mqm045	2026-11-01T23:15:03.979010Z		
 matzies-troedelstube.jimdo.com	DEFERRED				2026-11-01T14:43:06.696748Z	PRIMARY_TLS_FAILURE	
 maxlerch.com	DEFERRED				2026-11-02T10:15:08.567338Z	MAINTENANCE_MODE	lerch-teppich.de
 md-antik.de	ADDED	COCO	ls_01m6bg3210et3ah5395r6jns0t	pty_01m6bg320eek38xk3akh1ar3z4	2026-11-01T12:07:03.368829Z		
+mea-dania.de	DEFERRED				2026-11-04T11:29:20.475790Z	CURRENT_AVAILABLE_OBJECTS_UNRESOLVED	
 mecklenburger-antikdiele.de	ADDED	ASTRO	ls_01m6hc0xtvewqr9cef3vmkv4vz	pty_01m6hc0xtde39scqpk6cvpc20d	2026-11-03T18:51:26.640974Z		
 mediafritze.de	ADDED	SHOPNETZWERK	ls_01m6cpa8hsem5952egyr46wxs2	pty_01m6cpa8hbewcv3hknyvzmrdf7	2026-11-01T23:15:06.360910Z		
 medicusbooks.com	DEFERRED				2026-11-02T04:18:41.382485Z	PRIMARY_REQUEST_TIMEOUT	
@@ -917,7 +982,9 @@ mercatino900.de	ADDED	SHOPIFY	ls_01m6bhjvz5epps4764fa386apj	pty_01m6bhjvyket6v23
 merlinantik.de	DEFERRED				2026-11-03T10:24:39.995243Z	NO_EXPLICIT_CURRENT_INSPECTABLE_SALE_STOCK	
 metropolisbooks.de	ADDED	ANTIQUARIAT_DE	ls_01m6ctx06fevvs21jvj82c2k5s	pty_01m6ctx060ejbr9s8s0havqwqp	2026-11-02T00:35:14.703516Z		metropolis-antiquariat.de
 metzdebenito.com	DEFERRED				2026-11-02T10:06:17.094006Z	PRIMARY_DNS_UNAVAILABLE	
+michaelvaria.de	DEFERRED				2026-11-04T14:12:20.898658Z	REVIEWED_HISTORICAL_JEWELLERY_CURRENT_STOCK_UNAVAILABLE	
 milestone-books.de	DEFERRED				2026-11-02T03:02:59.354130Z	PRIMARY_HTTP_429_REVIEW_PENDING	
+militaria-kiel.de	EXCLUDED				2026-11-04T11:26:11.225473Z	AUXILIARY_BLOG_NOT_SEPARATE_DEALER_CATALOGUE	
 militaria-mahnke.de	DEFERRED				2026-11-01T15:36:59.273228Z	CATALOGUE_REQUIRES_REGISTRATION	
 militaria-shop.com	EXCLUDED				2026-11-02T13:37:40.538371Z	OWN_AUCTION_OPERATOR	
 militaryshop.biz	DEFERRED				2026-11-02T13:37:40.538371Z	HISTORICAL_ORIGINALITY_PERIOD_UNRESOLVED	
@@ -928,6 +995,7 @@ mjsvintageshop.de	DEFERRED				2026-11-03T14:28:32.284024Z	GENERAL_RECENT_SECONDH
 moebelfundgrube-nord.de	ADDED		ls_01m6cgcgj8etmsyhnadyfcj2fn	pty_01m6cgcghsejj9ww4r0xbhntdr	2026-11-01T21:31:28.641734Z		
 monika-schmidt.com	ADDED	JOOMLA	ls_01m6d77pjeewy89mr65s17fvhp	pty_01m6d77pj2e408mxnghha6f7p5	2026-11-02T04:10:47.998946Z		japankunst.de
 monoteak.de	ADDED	SHOPIFY	ls_01m6bhjy0hewbth2axz21p1gvn	pty_01m6bhjy02e8xahrytv33w1at0	2026-11-01T12:33:12.708507Z		jakob-lakowsky.myshopify.com
+moog-art.de	DEFERRED				2026-11-04T14:22:32.935550Z	ARTIST_PORTFOLIO_CURRENT_RETAIL_OFFER_UNVERIFIED	
 moselzeug.com	ADDED	WOOCOMMERCE	ls_01m6hr59qjew69geamcrz7bhkj	pty_01m6hr59q9ea59xs2ahan2r2dc	2026-11-03T22:23:32.800841Z		
 movieposter.de	EXCLUDED				2026-11-02T15:23:39.504901Z	NON_DEALER_PRIVATE_COLLECTION_DISPOSAL	
 ms-antik.de	ADDED	HYPERLY	ls_01m6bpkd8zefssyj9d24vtswtn	pty_01m6bpkd8geagatkh41b7pcbh5	2026-11-01T14:00:50.962725Z		
@@ -962,6 +1030,7 @@ nikonanalog-harth.de	DEFERRED				2026-11-03T13:47:58.559499Z	CURRENT_OWN_STOCK_V
 nikonclassics-michalke.de	ADDED	GAMBIO	ls_01m6e99p68edra52zzng68wdyh	pty_01m6e99p5qeg4angcx7yvwajdk	2026-11-02T14:06:04.834756Z		
 nikonservice-dresden.de	DEFERRED				2026-11-03T13:59:57.624449Z	CURRENT_HISTORICAL_STOCK_UNVERIFIED	
 nimmsmitbeimschmidt.de	DEFERRED				2026-11-01T10:45:28.097256Z	TLS_HOSTNAME_FAILURE	
+nordenantik.de	DEFERRED				2026-11-04T11:57:13.260806Z	HISTORICAL_OWN_STOCK_UNVERIFIED	
 norderstedterantikmarkt.de	ADDED	CONLITE	ls_01m6ddhcshebgtwtk1nvgzaa8y	pty_01m6ddhcrzezasy43q77m88qcv	2026-11-02T06:00:57.639603Z		
 nosbuesch-stucke.berlin	EXCLUDED				2026-11-02T07:10:51.701480Z	DEALER_OPERATES_OWN_AUCTION	
 nostalgie-palast.de	ADDED	WOOCOMMERCE	ls_01m6gm5mwwej59sqpfs35tpc5s	pty_01m6gm5mw7ee79y53pmdp4wdv6	2026-11-03T11:54:36.170308Z		nostalgie-palast.nl
@@ -976,6 +1045,7 @@ object-e.de	DEFERRED				2026-11-04T09:54:35.874939Z	EXACT_CURRENT_HISTORICAL_STO
 oeconomie.de	ADDED	HESCOM_SHOP	ls_01m6cz9xgveyeax8w8y81y90yd	pty_01m6cz9xgke03tgt3r5439yda3	2026-11-02T01:52:11.984201Z		
 ofenkontor.de	DEFERRED				2026-11-02T09:43:02.478163Z	PRIMARY_HTTP_500	
 old-krempel.de	ADDED	WORDPRESS	ls_01m6gqmg3desks7d96bj0zb18f	pty_01m6gqmg2tetbvv0wgqser0zp9	2026-11-03T12:55:07.632371Z		old-krempel-ltd.de
+originalgrafik-shop.de	ADDED	EPAGES	ls_01m6k6axm2em3tav66dmmxw5c4	pty_01m6k6axkqeahb45fr7jbg041v	2026-11-04T11:50:31.555820Z		
 ottovonmitzlaff.de	DEFERRED	WORDPRESS			2026-11-02T10:48:42.390241Z	CURRENT_OWN_STOCK_UNDER_CONSTRUCTION	
 ouchiner.com	EXCLUDED				2026-11-01T19:30:58.150182Z	DEALER_DIRECTORY	
 pachmann-antik.de	ADDED	WORDPRESS	ls_01m6dwa4hhed2tvj3rxrh59djd	pty_01m6dwa4h5egaspw4davvdg92e	2026-11-02T10:19:07.406586Z		
@@ -997,6 +1067,7 @@ photohaus-clickpic.de	ADDED		ls_01m6gt8hbhehpatygfhftst0f6	pty_01m6gt8hb5eahazn4
 pilling-detmold.de	DEFERRED				2026-11-03T10:53:30.908392Z	SPECIFIC_CURRENT_HISTORICAL_STOCK_UNVERIFIED	
 plueckbaum.de	EXCLUDED				2026-11-02T06:04:00.069389Z	DEALER_OPERATES_OWN_AUCTION	
 pollakmaps.com	ADDED	TRUPPO_WEB_SYSTEM	ls_01m6ecca57ebjr6ngz6e9zkhtn	pty_01m6ecca4resmrhnr926b16sj8	2026-11-02T14:59:56.423510Z		pollakbooks.com
+popartshop.de	ADDED		ls_01m6k70x6ge0rsrrdcsx8gvkd6	pty_01m6k70x65ef5tw413e5beg2m4	2026-11-04T12:02:31.952420Z		
 potsdamer-antikmeile.de	EXCLUDED				2026-11-01T19:38:23.658090Z	MULTI_DEALER_EVENT	
 preiswerterlesen.de	DEFERRED				2026-11-01T23:14:25.233022Z	CURRENT_OPERATOR_AND_ORIGINAL_EDITION_UNCONFIRMED	
 prejou.de	DEFERRED	SHOPIFY			2026-11-02T09:00:52.625767Z	AUCTION_ACTIVITY_NEEDS_QUALIFICATION	
@@ -1012,7 +1083,9 @@ rarebooks-fineart.com	DEFERRED				2026-11-01T15:29:24.582809Z	PRIMARY_DNS_FAILUR
 rarebooks.antiquariat-solder.de	ADDED	WOOCOMMERCE	ls_01m6bzxrq7eagrtsfng71709zm	pty_01m6bzxrpvegvs3fm3qv38wvm3	2026-11-01T16:43:48.264022Z		antiquariat-solder.de
 rase-kunsthandel.de	DEFERRED				2026-11-03T20:50:02.664878Z	INSPECTABLE_CURRENT_STOCK_UNVERIFIED	
 ratisbons.com	EXCLUDED				2026-11-01T10:21:47.055196Z	AUCTION_BUSINESS	
+raumundzeit-jordan.de	EXCLUDED				2026-11-04T13:12:41.511077Z	UNTRUSTWORTHY_SOURCE_CONTENT	
 re-fabrik.com	ADDED	ECWID	ls_01m6bbct94e1jrtvsh6qyfsz1s	pty_01m6bbct8jee6sdt7vtpdq58vm	2026-11-03T11:26:18.151177Z		store71175011.company.site
+reisingerantik.eu	ADDED	EPAGES	ls_01m6keg6pxefzrxpnmc3kcf9jn	pty_01m6keg6phevbb3sw7mtxzvt38	2026-11-04T14:13:13.243534Z		reisingerantik.de
 reiss-sohn.de	EXCLUDED				2026-11-02T04:00:45.549228Z	OWNED_AUCTION_BUSINESS	
 remus-gmbh.de	EXCLUDED				2026-11-01T10:21:47.055196Z	CLOSED_OUT_OF_SCOPE	
 renzandfriends.de	ADDED	SHOPIFY	ls_01m6h5v9gse2p8trq3pkshzmj7	pty_01m6h5v9gdeta8n0qk7d0wyk10	2026-11-03T17:03:30.609561Z		
@@ -1034,6 +1107,7 @@ rost-rosmarin.de	DEFERRED				2026-11-01T12:38:09.662876Z	DNS_LOOKUP_FAILURE
 rostock-antiquariat.de	DEFERRED				2026-11-01T15:36:59.273228Z	PRIMARY_DNS_FAILURE	
 roter-punkt-kamera.de	ADDED	WOOCOMMERCE	ls_01m6gv33vheq7rmxscbzt9qfcf	pty_01m6gv33v1eq2s9pce0mz3rf12	2026-11-03T13:55:32.510416Z		
 rotesantiquariat.de	ADDED		ls_01m6df54w5eeeba5qzrr0s4tyj	pty_01m6df54vhegt8eqke4f604dkx	2026-11-02T06:29:13.640913Z		rotes-antiquariat.de
+rothenbuecher-kunsthandel.de	DEFERRED				2026-11-04T13:12:41.511077Z	PRIMARY_SITE_MAINTENANCE_NO_CURRENT_STOCK	
 rr-antik.de	ADDED	WORDPRESS	ls_01m6bbcnxyehkrgyq00zk364gr	pty_01m6bbcnxbefs8dah1g18e643g	2026-11-01T10:44:55.634394Z		
 rudgerhuber.de	ADDED	WORDPRESS	ls_01m6e6m3vhe5stgb0zfea3tsyp	pty_01m6e6m3v8e2p9rhw27js17f96	2026-11-02T13:19:20.555214Z		
 rueter-anticdeco.com	DEFERRED				2026-11-01T11:39:57.802192Z	TLS_HANDSHAKE_FAILURE	
@@ -1041,6 +1115,7 @@ saale-antik.de	EXCLUDED				2026-11-02T12:02:59.503955Z	OWN_AUCTION_OPERATOR	aukt
 sabatier.de	ADDED	WIX	ls_01m6bdqsw8e9vs6kkm0eesqmqc	pty_01m6bdqsvpesybdhdq35agg9y2	2026-11-01T11:25:57.523467Z		sabatier-art.com
 sabet-antik-berlin.de	ADDED	WORDPRESS	ls_01m6baqt77e0vrz35gbr7qx94v	pty_01m6baqt6peta8emxvhczs39b7	2026-11-01T10:33:31.868328Z		
 safelightberlin.com	ADDED	SHOPIFY	ls_01m6gt8kjpev79vy4tqxh5mbnr	pty_01m6gt8kjce1nsxe63q8x89qpt	2026-11-03T13:41:03.963657Z		
+saijersantik.de	ADDED		ls_01m6k4zf80enarc64fz65xs673	pty_01m6k4zf79ex7bc02223v9t2nh	2026-11-04T11:26:47.360921Z		
 sammler-cabinett.de	ADDED	ONTEAM	ls_01m6ddqp55eeh8sg3v1wkr7hf3	pty_01m6ddqp4vernv9cnswsd9p1fv	2026-11-02T06:04:23.253891Z		
 sammler-uhren.com	ADDED	SHOPIFY	ls_01m6bjnktten7rrdrvaf4t2d90	pty_01m6bjnktbege927240619sxah	2026-11-01T12:52:08.355225Z		sammer-uhren.myshopify.com
 sammlerhaus-koethen.de	DEFERRED				2026-11-04T09:02:21.245802Z	POSSIBLE_EXISTING_OPERATOR_IDENTITY_UNRESOLVED	
@@ -1071,6 +1146,7 @@ schmuck-detmold.de	DEFERRED				2026-11-03T22:17:00.185009Z	CURRENT_QUALIFIED_ANT
 schnappaufantik.de	EXCLUDED				2026-11-04T09:17:30.051626Z	OPERATES_AUCTION_BUSINESS	
 schoenhauser-design.de	ADDED	WOOCOMMERCE	ls_01m6gzdz8teqmtw498txqr3x9m	pty_01m6gzdz8beeq9y7n3cchs68yh	2026-11-03T15:11:22.522286Z		
 schoscha.com	DEFERRED				2026-11-04T10:13:30.759241Z	EXACT_CURRENT_DIRECT_ANTIQUE_OR_FINEART_SALE_STOCK_UNVERIFIED	
+schotten-antik.com	ADDED	WIX	ls_01m6kc5dd7esmbstnhjnmtbne8	pty_01m6kc5dcse9erc5jzjfxe1j1w	2026-11-04T13:32:22.170022Z		
 schreib.shop	ADDED	WOOCOMMERCE	ls_01m6gehg5je3k8cmjh7vpqnzmb	pty_01m6gehg56e8t8qetrvbq5ajnq	2026-11-03T10:16:12.471129Z		
 schreinerei-zmelty.de	DEFERRED				2026-11-01T22:06:41.454507Z	CURRENT_LEGAL_IDENTITY_AND_OWN_STOCK_UNCONFIRMED	dinkholder-muehle.de;materialpool.schreinerei-zmelty.de
 schuerenberg.com	ADDED	WORDPRESS	ls_01m6dt8tvde3wb9rt2e0cjwzg6	pty_01m6dt8ttzeewrpmft1s48rypv	2026-11-02T09:43:27.719367Z		
@@ -1088,6 +1164,7 @@ sembritzkis.de	ADDED	JIMDO	ls_01m6c49j4ge0jatpxmp2a3w7e3	pty_01m6c49j41edcrc8thy
 senger-bamberg.de	ADDED		ls_01m6bdr0hyev88pmw83x6zpxke	pty_01m6bdr0hbee4t4ktbv986z49y	2026-11-02T09:42:57.638182Z		senger-bamberg.com
 setareh.net	DEFERRED				2026-11-02T09:50:17.656615Z	PRIMARY_TLS_HANDSHAKE_FAILURE	
 shop-br.de	ADDED	SHOPNETZWERK	ls_01m6bq4rraejarrctrn2wr8pn6	pty_01m6bq4rqtefqaszpyb32n8eg8	2026-11-01T14:10:19.724938Z		
+shop.antik-stilbruch.de	ADDED	WOOCOMMERCE	ls_01m6ke3v9rekj832xvp1tnypm5	pty_01m6ke3v9be8rvtv9h3866frpq	2026-11-04T14:06:28.429919Z		
 shop.antiquariat-bernhardt.de	ADDED	SHOPNETZWERK	ls_01m6bpkb4ae6v8ep3td2726awg	pty_01m6bpkb3weec9d1e4dzxxcsmj	2026-11-01T14:00:48.811535Z		antiquariat-bernhardt.de
 shop.antiquariat-huenteler.de	ADDED	SHOPNETZWERK	ls_01m6bq4m8sec9v6316pdn4zres	pty_01m6bq4m8aevfsspzw8qaw0pd6	2026-11-01T14:10:15.217338Z		antiquariat-huenteler.de
 shop.antiquariat-thorhall.de	ADDED	SHOPNETZWERK	ls_01m6c287v5eqp8rjvn4nwhsrqh	pty_01m6c287tkek5acyk3chqxg8cr	2026-11-01T17:24:28.780998Z		
@@ -1095,18 +1172,22 @@ shop.antiquitaeten-am-dom.de	ADDED	SHOPIFY	ls_01m6dpxde7e37s426m6n9h9292	pty_01m
 shop.buecherbaer.com	ADDED	SHOPNETZWERK	ls_01m6cpj4nxe808tbya48aqyac4	pty_01m6cpj4npe5s99aw0jt85kt9q	2026-11-01T23:19:24.213980Z		buecherbaer.com
 shop.galerie-tobien.de	ADDED	SHOPIFY	ls_01m6hc11h7e8frkka5y3ne9b5j	pty_01m6hc11grej9s847fcy7sxyyg	2026-11-03T18:51:30.367179Z		
 shop.goethesgalerie.com	ADDED	SHOPWARE	ls_01m6cb08nmeqvrrfdvhe3q03f0	pty_01m6cb08n7eq7bpgjgmh00tjtd	2026-11-01T19:57:24.845380Z		goethesgalerie.com
+shop.hochdruckpartner.com	ADDED	WOOCOMMERCE	ls_01m6k9b98yemks2s280mye965e	pty_01m6k9b98gefnarr38kdp42ebx	2026-11-04T12:43:09.163329Z		
 shop.hoecherwien.at	ADDED	SHOPNETZWERK	ls_01m6bvpmzmey9axp544586tvdv	pty_01m6bvpmz9e3yas1ag97p4weey	2026-11-01T15:30:00.977889Z		hoecherwien.at
 shop.kusera.de	ADDED	EPAGES	ls_01m6edt9tae16s767e6b4r0tf3	pty_01m6edt9sne08r7nq6xn5gezbw	2026-11-02T15:25:03.828508Z		
 shop.loecker.at	ADDED	WOOCOMMERCE	ls_01m6ecc5g3e5fb17bn86hjv2t0	pty_01m6ecc5fkey0bv5fnqcqzrq0y	2026-11-02T14:59:51.825543Z		loecker.at
 shop.muenzen-leipzig.de	EXCLUDED				2026-11-02T09:24:17.389684Z	OWN_AUCTION_OPERATOR	
 shop.roemer-borna.de	ADDED	SHOPNETZWERK	ls_01m6bq4waaeazta49ze3ja7xv3	pty_01m6bq4w9te7j9cajygdyy1sm1	2026-11-01T14:10:23.336345Z		roemer-borna.de
 shop.rolandantiquariat.de	ADDED	SHOPNETZWERK	ls_01m6c2kt3ee9yrkc0ccmd568gf	pty_01m6c2kt2tet1r6yqyw4e551r7	2026-11-01T17:30:47.938916Z		
+shop.stilvollwohnenluenen.com	ADDED	WOOCOMMERCE	ls_01m6kbpaa6eccvc3pmf8srytr2	pty_01m6kbpa92e34t6nq4j2fv22kn	2026-11-04T13:24:08.096862Z		stilvollwohnenshop.com
 shop.werkhof-hagen.de	ADDED	WOOCOMMERCE	ls_01m6h5vbpze2f872ww62t18q1b	pty_01m6h5vbpheevra32qxk3k3a0b	2026-11-03T17:03:33.389388Z		
 shops.oxfam.de	DEFERRED				2026-11-03T12:19:06.266092Z	CURRENT_HISTORICAL_OR_ART_STOCK_UNVERIFIED	
 shphoto.de	ADDED	SHOPWARE	ls_01m6gv35swem3twh9af5c9s370	pty_01m6gv35sce3j8mvsqznptz9me	2026-11-03T13:55:34.527608Z		
+silber-im-rathaus.de	ADDED	WOOCOMMERCE	ls_01m6keg4gheybrc8yckjy4m0s5	pty_01m6keg4g3ec38t0k42ygz7yge	2026-11-04T14:13:11.118023Z		
 skm-osnabrueck.de	DEFERRED				2026-11-02T11:37:08.981357Z	PRIMARY_TLS_FAILURE_STOCK_UNCONFIRMED	
 smend.de	ADDED	SIQUANDO_WEB	ls_01m6dvmbq7ew1rk2vrpg2kyqv4	pty_01m6dvmbpre91v6qhh4q3ppmyy	2026-11-02T10:07:14.378923Z		
 sniggiscameras.de	ADDED	WOOCOMMERCE	ls_01m6gt8qzkebfvbav3r9embwbr	pty_01m6gt8qz7eq588wabgxq417vn	2026-11-03T13:41:08.697914Z		
+soll-und-haben-verlag.de	DEFERRED				2026-11-04T11:49:57.266773Z	OWN_AUCTION_SCOPE_UNRESOLVED	
 sonjas-scheune.de	DEFERRED				2026-11-01T13:35:30.520181Z	PRIMARY_LEGAL_PAGES_UNAVAILABLE	
 sonntago.de	DEFERRED				2026-11-01T23:18:32.286315Z	ANTIQUE_SCOPE_UNCONFIRMED	
 spieluhr.de	DEFERRED				2026-11-03T14:21:02.676107Z	NO_CURRENT_QUALIFYING_HISTORICAL_STOCK	
@@ -1127,7 +1208,9 @@ stilspiel.de	ADDED	CM4ALL	ls_01m6h0nbtfeb68xm7m82wjx4gt	pty_01m6h0nbt7eky9xvzawm
 stoeberhaus-erfurt.de	EXCLUDED				2026-11-01T14:28:58.323750Z	FLEA_MARKET_ORGANIZER	
 store.diekommode.com	ADDED	EPAGES	ls_01m6bbzs0vet3t17j82dje7y7x	pty_01m6bbzs0fe1yrwdyrf8f8sc1e	2026-11-01T13:03:30.170726Z		diekommode.de
 strehler.com	EXCLUDED				2026-11-02T06:53:31.847780Z	OUT_OF_SCOPE_METAL_MANUFACTURER	
+studiosonsu.de	ADDED	SHOPIFY	ls_01m6k5jvj1e5jbf8g3hg0pakar	pty_01m6k5jvhkehgt6ajswz1fx7dg	2026-11-04T11:37:22.951297Z		
 studiovisus.de	ADDED		ls_01m6k1s6m4e7rt89xfbb86nwsf	pty_01m6k1s6kgenw9j35af6ge1stv	2026-11-04T10:40:55.498048Z		
+stueck-gut.shop	ADDED	SHOPIFY	ls_01m6kbbe14exmasg44e5d51d19	pty_01m6kbbe0cegjbtrd7cf7h7q7s	2026-11-04T13:18:11.865033Z		
 stugalove.de	ADDED	WORDPRESS	ls_01m6bkxjvaevrav9wzs7xmse05	pty_01m6bkxjtveyptbq5h1zwmxznf	2026-11-01T20:45:25.092337Z		
 stunning-vintage.de	DEFERRED				2026-11-03T12:58:02.835764Z	EXPLICIT_TEMPORARY_SHOP_MAINTENANCE_NO_INSPECTABLE_STOCK	
 stuttgarter-antiquariat.de	ADDED	WORDPRESS	ls_01m6dgnzwae07bkvwj1cdyv5zx	pty_01m6dgnzw2e749e8ytm8c66jwr	2026-11-02T06:55:52.836479Z		
@@ -1140,14 +1223,20 @@ tanjabremer.com	DEFERRED				2026-11-03T22:48:01.492577Z	CURRENT_OWN_ORIGINAL_ART
 tante-troedel.de	EXCLUDED				2026-11-03T17:09:55.600802Z	MULTIVENDOR_RENTAL_SHELF_MARKETPLACE	
 tasbach-rare-books.de	ADDED	WORDPRESS	ls_01m6d8829re0ba3ex217w7mqvg	pty_01m6d8829cennrk1jb15v5ycdz	2026-11-02T04:28:28.083506Z		tasbach-rare-books.com
 technischer-kunsthandel.de	DEFERRED				2026-11-02T10:48:42.390241Z	PRIMARY_TLS_HTTP_UNAVAILABLE	
+thaler-originalgrafik.de	ADDED	WOOCOMMERCE	ls_01m6k6gtd6evb9r7w3eg7p7335	pty_01m6k6gtcqedht7ycs7srws40c	2026-11-04T11:53:44.823745Z		
 thomashaker.de	ADDED	SHOPNETZWERK	ls_01m6c2m1peem1sjxeaf2sv9n15	pty_01m6c2m1nze2pt4v9rsfajx391	2026-11-01T17:30:55.127184Z		
 thomasleonheck.de	EXCLUDED				2026-11-04T09:17:30.051626Z	OPERATES_AUCTION_BUSINESS	
 thomasroth-art.de	ADDED	WORDPRESS	ls_01m6hsrdxnecjbeq29t79ts3w1	pty_01m6hsrdx3e8zvd9vesrk9h0ce	2026-11-03T22:51:27.743323Z		
 tidlos-design.de	ADDED	WOOCOMMERCE	ls_01m6gze19hedzr8bevepp7ej9a	pty_01m6gze18tevm8fxaxcw4vt9s3	2026-11-03T15:11:25.228162Z		
+tilmanhoche.de	ADDED		ls_01m6k8ah75e6gacjxbzqq4epxc	pty_01m6k8ah6mezebvtgk0rs1j3k9	2026-11-04T12:25:16.131702Z		
 timber-antik.de	ADDED	ZETA_PRODUCER	ls_01m6jsnjdkegzs7p5mgsaybjtj	pty_01m6jsnjdae22tqvemdnxb6p4g	2026-11-04T08:09:09.700330Z		
+titi-international-nk.com	DEFERRED				2026-11-04T11:17:36.769967Z	LEGAL_OPERATOR_AND_OWN_HISTORICAL_STOCK_UNCONFIRMED	
+toepferlaedchen-montabaur.de	ADDED	ECWID	ls_01m6k4g0t2e93aampg3pwdgqh4	pty_01m6k4g0sse0rbz7rt71pb4r29	2026-11-04T11:18:21.362435Z		
 top-wert.de	EXCLUDED				2026-11-02T11:31:33.244548Z	OWN_AUCTION_OPERATOR	
+torhaus-warnau.de	DEFERRED				2026-11-04T11:29:20.475790Z	CURRENT_STOCK_NOT_DISTINCT_FROM_RESTORATION_PROJECTS	
 torresnieto-finearts.com	ADDED	SQUARESPACE	ls_01m6bdqnh1e5f830rf9kz5103q	pty_01m6bdqngeevev8w9bh4nyazsj	2026-11-01T11:25:52.820059Z		
 tosch-antiquitaeten.de	DEFERRED				2026-11-04T09:38:08.485135Z	EXACT_CURRENT_OWN_HISTORICAL_SALE_STOCK_UNVERIFIED	
+tp.grammat.de	DEFERRED				2026-11-04T12:28:45.371620Z	DIRECT_ART_ANTIQUES_STOCK_SCOPE_UNVERIFIED	grammat.de
 trave-militaria.de	ADDED	SHOPWARE	ls_01m6dakngmeajam8g53j9san6f	pty_01m6bpkf26eg1tqjnnsqtqvagj	2026-11-02T05:09:46.118604Z		
 traveantik.de	ADDED	SHOPWARE	ls_01m6bpkf2nend8garcen038p09	pty_01m6bpkf26eg1tqjnnsqtqvagj	2026-11-01T14:00:52.660134Z		
 treptower-buecherkabinett.com	ADDED	SHOPNETZWERK	ls_01m6cn729pedhrk8f99c00js6r	pty_01m6cn7298ed1shpqbh6hxzs2b	2026-11-01T22:55:52.952950Z		
@@ -1184,6 +1273,7 @@ vintagekameras.de	EXCLUDED				2026-11-03T13:16:48.560641Z	PERSONAL_CAMERA_COLLEC
 vintageleinen.com	ADDED	SHOPIFY	ls_01m6bjnmzjexx922tszrjwhe3c	pty_01m6bjnmz4epz9k3rphys9wk3x	2026-11-01T12:52:10.044133Z		stephani-hartlap.myshopify.com
 vitrevo.de	ADDED	ECWID	ls_01m6hf5hbnexdsnacrx0g8k2as	pty_01m6hf5hb5ez0rcz95j6kfbz17	2026-11-03T19:46:23.635673Z		
 vitrine-bremen.de	DEFERRED				2026-11-01T13:15:31.577515Z	HISTORIC_STOCK_SCOPE_UNCONFIRMED	
+vogeler-worpswede.de	DEFERRED				2026-11-04T12:52:14.454558Z	RETAIL_CONTRACTING_OPERATOR_SCOPE_UNVERIFIED	
 waldmannvintage.de	ADDED	JIMDO	ls_01m6c49abfez3smvtqp5c3dfxb	pty_01m6c49aazerk9s06nh0m178we	2026-11-01T18:00:02.270765Z		
 wandel-antik.de	EXCLUDED				2026-11-01T16:10:15.722783Z	DEALER_OPERATES_OWN_AUCTION	
 web-kartenversand.de	DEFERRED				2026-11-01T23:29:03.375137Z	PRIMARY_TLS_HOSTNAME_MISMATCH	
@@ -1237,6 +1327,7 @@ zeitreise-aschersleben.de	ADDED	WORDPRESS	ls_01m6jwemcpekp96ks0wzzf575s	pty_01m6
 zeitreise-oldenburg.de	DEFERRED				2026-11-01T14:28:58.323750Z	OWN_HISTORIC_STOCK_UNCONFIRMED	
 zeitwerkharz.de	DEFERRED				2026-11-03T11:37:57.222539Z	CURRENT_ACTIVITY_AND_STOCK_UNVERIFIED	
 zentralantiquariat.de	ADDED		ls_01m6bk59rve1jse8krajpjg5tg	pty_01m6bk59rfejdt9awwha5b2176	2026-11-01T13:00:43.033278Z		
+zentralbuchhandlung.de	ADDED	AKIRA_CMS	ls_01m6k6gwnbe22vj87dz5b3y21h	pty_01m6k6gwmjek9v9790wdn0ks51	2026-11-04T11:53:47.002708Z		
 zib-militaria.de	DEFERRED				2026-11-02T13:37:40.538371Z	QUALIFYING_HISTORICAL_STOCK_UNCONFIRMED	
 ziegelhof-kalleby.de	ADDED	JIMDO	ls_01m6chc50qevsvreercye69h3t	pty_01m6chc50cepy87aygj2amb46s	2026-11-01T21:48:44.859139Z		hbmj.de
 zvab.com	EXCLUDED				2026-11-01T18:51:39.980587Z	MULTI_MERCHANT_MARKETPLACE	

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-210",
+  "country": "IT",
+  "observedAt": "2026-11-04T13:42:23.357860Z",
+  "result": "PASSED",
+  "rawJournalFiles": 301,
+  "rawJournalRecordsScanned": 60350,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "ossimoro.com",
+      "palazzotorlo.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "palazzodelbuonsignore.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot210-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T13:41:16.130974Z",
+    "fullVerifiedAt": "2026-11-04T13:08:15.025739Z",
+    "counts": {
+      "parties": 376,
+      "listingSources": 376,
+      "locations": 426,
+      "logos": 268,
+      "identifiedPlatforms": 309,
+      "deliveryProfiles": 176,
+      "emptyIngestionMethods": 376,
+      "excluded": 27,
+      "deferred": 106
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Ossimoro current fulloperator/VATpositive, nativeFLAZIOrender actual1200x906mythologicalpainting plus distinct hostedangel1103x1399 inspected. Current63sede roles[] versus44exhibitionBUSINESS_PREMISES preserved, noformalregistered/stock/dispatch/pickup. Productavailability/template/tokenpricecontradictions retained, no guarantee/price adopted. Native typedbrand/chairillustration notlogo, nologo/email/shippingverified.",
+    "Torlo currentfullSRL/VATpositive and samehosted599/600 oneParty/nativeSource; nativeANTICOANTICO directprovider/inventoryverified. Actualpublishedcrop800x600framedVianelli-attributedpaint inspected, original600x404palazzo wordmarkverified on darkbrowserbackground. Curtoli28business distinctfootertax26bis/28, notregistered/inventory/dispatch/pickup. ExplicitshippingItaly+unlistedforeign PARTIAL/OFFERED/PACKING only; noANYWHERE/rates/times/insurance/tracking/carrierParty. TorloLiveSkype/externalCatawikisellernotownedauctionhouse.",
+    "PalazzoDelBuonSignore currentnativeAntichitàdiVenturiDinora versus currenthostedSRLSdiVenturiDinora/sameVAT02781600396 unresolvedfulllegalform; negativeVIESonlyintraEU, no conversion/closure/fraud inferred. Actualhostedcurrentmotherchildpaint1242x1399inspected, so notnostock/museumonlyrejection. Pigno18postal48031versus48010notrepaired, familymuseum/hotelCastelleone notsalestock/branch. Facts/backendempty, noresources."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

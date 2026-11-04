@@ -18,9 +18,9 @@ Hosted catalogues have separate ledgers and readbacks under `hosted/`, with owne
 
 ## Current checkpoint
 
-ch-2026-11-04-160, 2026-11-04T11:15:48.359701Z. Country totals: 230 ADDED, 256 DEFERRED, 57 EXCLUDED. Paid-data spend USD 0. Country remains open.
+ch-2026-11-04-190, 2026-11-04T14:48:52.054675Z. Country totals: 258 ADDED, 297 DEFERRED, 59 EXCLUDED. Paid-data spend USD 0. Country remains open.
 
-Directory/ownership research batch: Swissportail80entries sampled, no directory statements imported. Servan,Votano and2ndLife held in frontier for current primary seller/stock; separateKlangcatalogue country/operator relationship unresolved, existingCHSchatzsuche identity not duplicated. Antik4you/Petrollampen/Puppenland already DEowned, fetches skipped. No new dealer/API mutations. Full resource160 initiated at required fifth-batch interval; explicit audit/index/verification preserve external ingestion and honest dates. Country remains open; free research continues.
+Added Brossy & Fils native period antiques catalogue under active Swiss BROSSY et fils SA; Rolle shop/office/workshop and registered address matched. Explicit original Louis XVI console offer and native photo inspected; published270pixel B&F logo retained honestly, larger legacy-host asset certificate failure preserved without bypass. Native WordPress fingerprint verified. No inferred merger with Frédéric Brossy hosted seller, extra proprietor Party, shipping or inventory/dispatch defaults. Fresh API identity and new resource/default readbacks passed with empty ingestion. Scheduled full190 resource integrity passed for258 sources with0 failures,188 empty and70 externally configured ingestion. Strict country verification remains honestly failed on those external changes. USD0; no blocker, country open.
 
 Strict root and hosted verification failed: 70 sources now have externally configured ingestion. All sources were created with empty ingestion; this workflow preserves external changes. See `country-verification.json` for current observations and actual last successful verification. New resource/default creation readbacks passed. This limits country-wide verification, not independent research. Latest full resource integrity readback: `resource-verification.json` (its own dates/counts apply).
 

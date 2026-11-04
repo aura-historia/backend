@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "run": "tw-2026-11-04-117",
-  "observedAt": "2026-11-04T11:15:17.768851Z",
-  "added": 142,
-  "excluded": 34,
-  "deferred": 182,
+  "run": "tw-2026-11-04-144",
+  "observedAt": "2026-11-04T14:48:30.334569Z",
+  "added": 170,
+  "excluded": 39,
+  "deferred": 221,
   "heldCreatedSources": 5,
   "verificationStatus": "PASS_WITH_PRESERVED_EXTERNAL_INGESTION",
   "paidDataSpendUsd": 0,
   "countryCoverage": "OPEN",
-  "nextRun": "tw-2026-11-04-118"
+  "nextRun": "tw-2026-11-04-145"
 }
